@@ -20,6 +20,8 @@ app.include_router(tags.router, prefix="/api")
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    from storage import ensure_bucket
+    ensure_bucket()
 
 
 @app.get("/api/health")
