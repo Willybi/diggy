@@ -24,7 +24,6 @@ def encode_image(path: str) -> str | None:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-# test
 def encode_image_from_audio(audio_path: str) -> str | None:
     """Extrait l'artwork depuis les tags ID3/MP4 du fichier audio."""
     if not audio_path or not os.path.exists(audio_path):
