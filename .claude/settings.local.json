@@ -7,7 +7,9 @@
       "Bash(/c/Users/willi/Desktop/diggy/.venv/Scripts/python.exe -c \"from pyrekordbox import Rekordbox6Database; db = Rekordbox6Database\\(\\); cues = list\\(db.get_cue\\(\\)\\); c = cues[0]; print\\([a for a in dir\\(c\\) if not a.startswith\\(''_''\\)]\\)\")",
       "Bash(/c/Users/willi/Desktop/diggy/.venv/Scripts/python.exe -c \":*)",
       "Bash(find c:UserswilliDesktopdiggy -type f -name *.py)",
-      "Bash(git -C \"c:\\\\Users\\\\willi\\\\Desktop\\\\diggy\" show --stat)"
+      "Bash(git -C \"c:\\\\Users\\\\willi\\\\Desktop\\\\diggy\" show --stat)",
+      "Bash(.venv/Scripts/python -c \"from pyrekordbox import Rekordbox6Database; db = Rekordbox6Database\\(\\); t = list\\(db.get_content\\(\\)\\)[0]; print\\(dir\\(t.Key\\)\\)\")",
+      "WebSearch"
     ]
   }
 }
