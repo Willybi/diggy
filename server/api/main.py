@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from routers import tracks, tags
 
-app = FastAPI(title="Diggy API", version="0.1.0")
+app = FastAPI(title="Diggy API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 app.add_middleware(
     CORSMiddleware,
