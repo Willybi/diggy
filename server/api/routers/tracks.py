@@ -70,7 +70,9 @@ async def bulk_import(tracks: list[TrackImport], db: AsyncSession = Depends(get_
                 os.unlink(tmp_path)
                 track.has_artwork = True
                 artworks_uploaded += 1
-            except Exception:
+            except Exception as e:
+                import logging
+                logging.getLogger("diggy").error(f"Artwork upload failed for track {t.id}: {e}")
                 track.has_artwork = False
         else:
             track.has_artwork = already_has_artwork or False
