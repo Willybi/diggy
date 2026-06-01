@@ -5,9 +5,10 @@ A lancer depuis le PC qui a accès à la base Rekordbox.
 Usage:
     python import_rekordbox.py
 """
+
 import base64
-import json
 import os
+
 import requests
 from pyrekordbox import Rekordbox6Database
 
@@ -48,19 +49,21 @@ def main():
         if not already_has_artwork:
             image_base64 = encode_image(t.ImagePath)
 
-        batch.append({
-            "id": t.ID,
-            "title": t.Title,
-            "artist": t.ArtistName,
-            "bpm": float(t.BPM) if t.BPM else None,
-            "key": str(t.Key) if t.Key else None,
-            "duration": t.Duration,
-            "rating": t.Rating,
-            "file_path": t.FolderPath,
-            "date_added": t.DateAdded.isoformat() if t.DateAdded else None,
-            "tags": list(t.MyTagNames or []),
-            "image_base64": image_base64,
-        })
+        batch.append(
+            {
+                "id": t.ID,
+                "title": t.Title,
+                "artist": t.ArtistName,
+                "bpm": float(t.BPM) if t.BPM else None,
+                "key": str(t.Key) if t.Key else None,
+                "duration": t.Duration,
+                "rating": t.Rating,
+                "file_path": t.FolderPath,
+                "date_added": t.DateAdded.isoformat() if t.DateAdded else None,
+                "tags": list(t.MyTagNames or []),
+                "image_base64": image_base64,
+            }
+        )
 
         if len(batch) >= BATCH_SIZE or i == len(all_tracks) - 1:
             resp = requests.post(f"{API_URL}/tracks/bulk", json=batch)
@@ -69,10 +72,14 @@ def main():
             total_inserted += result["inserted"]
             total_updated += result["updated"]
             total_artworks += result["artworks_uploaded"]
-            print(f"  Batch {i // BATCH_SIZE + 1} : +{result['inserted']} insérés, ~{result['updated']} mis à jour, {result['artworks_uploaded']} images")
+            print(
+                f"  Batch {i // BATCH_SIZE + 1} : +{result['inserted']} insérés, ~{result['updated']} mis à jour, {result['artworks_uploaded']} images"
+            )
             batch = []
 
-    print(f"\nImport terminé : {total_inserted} insérés, {total_updated} mis à jour, {total_artworks} images uploadées.")
+    print(
+        f"\nImport terminé : {total_inserted} insérés, {total_updated} mis à jour, {total_artworks} images uploadées."
+    )
 
 
 if __name__ == "__main__":
