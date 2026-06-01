@@ -1,6 +1,6 @@
 # Diggy
 
-Web app DJ pour gérer et visualiser une bibliothèque Rekordbox — tracks, cues, tags, BPM, artworks.
+Web app DJ pour gérer et visualiser une bibliothèque Rekordbox — tracks, cues, tags, BPM, artworks..
 
 ## Stack
 
