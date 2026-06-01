@@ -17,7 +17,8 @@ dependencies = [
     "redis>=5.2.0",
     "pydantic>=2.10.0",
     "python-dotenv>=1.0.1",
-    "requests (>=2.34.2,<3.0.0)"
+    "requests (>=2.34.2,<3.0.0)",
+    "mutagen>=1.47.0"
 ]
 
 
