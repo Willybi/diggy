@@ -28,7 +28,7 @@ async def list_tracks(
     return TrackList(total=total, items=tracks)
 
 
-@router.get("/{track_id}", response_model=LibTrackOut)
+@router.get("/{track_id}", response_model=TrackOut)
 async def get_track(track_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(LibTrack).where(LibTrack.id == track_id))
     track = result.scalar_one_or_none()
