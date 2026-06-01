@@ -34,7 +34,7 @@ def import_all():
     existing = {t["id"]: t["has_artwork"] for t in resp.json()}
     print(f"{len(existing)} tracks déjà en base.")
 
-    BATCH_SIZE = 100
+    BATCH_SIZE = 20
     batch = []
     total_inserted = total_updated = total_artworks = 0
 
