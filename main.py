@@ -24,10 +24,33 @@ def encode_image(path: str) -> str | None:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
+def encode_image_from_audio(audio_path: str) -> str | None:
+    """Extrait l'artwork depuis les tags ID3/MP4 du fichier audio."""
+    if not audio_path or not os.path.exists(audio_path):
+        return None
+    try:
+        ext = os.path.splitext(audio_path)[1].lower()
+        if ext in (".mp3", ".flac", ".aiff", ".wav"):
+            from mutagen.id3 import ID3
+            tags = ID3(audio_path)
+            apic = tags.get("APIC:")
+            if apic:
+                return base64.b64encode(apic.data).decode("utf-8")
+        elif ext in (".m4a", ".mp4", ".aac"):
+            from mutagen.mp4 import MP4
+            tags = MP4(audio_path)
+            covr = tags.get("covr")
+            if covr:
+                return base64.b64encode(bytes(covr[0])).decode("utf-8")
+    except Exception:
+        pass
+    return None
+
+
 def import_all():
     db = Rekordbox6Database()
-    all_tracks = list(db.get_content())
-    print(f"{len(all_tracks)} tracks dans Rekordbox.")
+    all_tracks = [t for t in db.get_content() if t.rb_data_status == 256]
+    print(f"{len(all_tracks)} tracks actifs dans Rekordbox.")
 
     resp = requests.get(f"{API_URL}/tracks/existing-ids")
     resp.raise_for_status()
@@ -40,7 +63,14 @@ def import_all():
 
     for i, t in enumerate(all_tracks):
         already_has_artwork = existing.get(t.ID, False)
-        image_path = resolve_image(t.ImagePath) if not already_has_artwork else None
+
+        image_b64 = None
+        if not already_has_artwork:
+            rb_path = resolve_image(t.ImagePath)
+            if rb_path:
+                image_b64 = encode_image(rb_path)
+            else:
+                image_b64 = encode_image_from_audio(t.FolderPath)
 
         batch.append(
             {
@@ -54,7 +84,7 @@ def import_all():
                 "file_path": t.FolderPath,
                 "date_added": str(t.DateCreated) if t.DateCreated else None,
                 "tags": list(t.MyTagNames or []),
-                "image_base64": encode_image(image_path),
+                "image_base64": image_b64,
             }
         )
 
