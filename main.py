@@ -24,6 +24,7 @@ def encode_image(path: str) -> str | None:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
+# test
 def encode_image_from_audio(audio_path: str) -> str | None:
     """Extrait l'artwork depuis les tags ID3/MP4 du fichier audio."""
     if not audio_path or not os.path.exists(audio_path):
@@ -32,12 +33,14 @@ def encode_image_from_audio(audio_path: str) -> str | None:
         ext = os.path.splitext(audio_path)[1].lower()
         if ext in (".mp3", ".flac", ".aiff", ".wav"):
             from mutagen.id3 import ID3
+
             tags = ID3(audio_path)
             apic = tags.get("APIC:")
             if apic:
                 return base64.b64encode(apic.data).decode("utf-8")
         elif ext in (".m4a", ".mp4", ".aac"):
             from mutagen.mp4 import MP4
+
             tags = MP4(audio_path)
             covr = tags.get("covr")
             if covr:
