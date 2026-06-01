@@ -23,10 +23,12 @@ def import_rekordbox(self, db_path: str):
 
     sys.path.insert(0, "/app")
     from models import Track, Cue, Tag, TrackTag, Base
+    from storage import upload_artwork, ensure_bucket
 
     DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
     engine = create_engine(DATABASE_URL)
     Base.metadata.create_all(engine)
+    ensure_bucket()
 
     rb_db = Rekordbox6Database(db_path)
     tracks_imported = 0
@@ -54,6 +56,14 @@ def import_rekordbox(self, db_path: str):
             track.play_count = rb_track.PlayCount
             track.file_path = rb_track.FolderPath
             track.date_added = rb_track.DateAdded
+
+            # Upload artwork vers MinIO si dispo et pas déjà uploadé
+            if rb_track.ImagePath and not track.artwork_url:
+                try:
+                    object_key = f"{rb_track.ID}.jpg"
+                    track.artwork_url = upload_artwork(rb_track.ImagePath, object_key)
+                except Exception:
+                    pass
 
             session.flush()
             tracks_imported += 1

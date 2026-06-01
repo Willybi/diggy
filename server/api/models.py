@@ -29,6 +29,7 @@ class Track(Base):
     play_count = Column(Integer, default=0)
     file_path = Column(Text)
     date_added = Column(DateTime)
+    artwork_url = Column(Text)
 
     cues = relationship("Cue", back_populates="track", cascade="all, delete-orphan")
     tags = relationship("TrackTag", back_populates="track", cascade="all, delete-orphan")

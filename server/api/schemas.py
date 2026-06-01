@@ -40,6 +40,7 @@ class TrackOut(TrackBase):
     rekordbox_id: Optional[int]
     file_path: Optional[str]
     date_added: Optional[datetime]
+    artwork_url: Optional[str]
     cues: list[CueOut] = []
     tags: list[TagOut] = []
 
