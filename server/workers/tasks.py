@@ -3,15 +3,16 @@ Celery tasks for Diggy.
 Main task: import a Rekordbox database into PostgreSQL.
 """
 import os
-import asyncio
+import json
+import sys
 from workers.celery_app import celery_app
 
 
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
 def import_rekordbox(self, db_path: str):
     """
-    Parse a Rekordbox 6 database file and upsert tracks, cues and tags
-    into the PostgreSQL database.
+    Parse a Rekordbox 6 database file and upsert tracks into PostgreSQL.
+    Uploads artworks to MinIO.
 
     Args:
         db_path: absolute path to the master.db Rekordbox file
@@ -19,10 +20,9 @@ def import_rekordbox(self, db_path: str):
     from pyrekordbox import Rekordbox6Database
     from sqlalchemy import create_engine, select
     from sqlalchemy.orm import Session
-    import sys
 
     sys.path.insert(0, "/app")
-    from models import Track, Cue, Tag, TrackTag, Base
+    from models import LibLibTrack, Base
     from storage import upload_artwork, ensure_bucket
 
     DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
@@ -36,32 +36,27 @@ def import_rekordbox(self, db_path: str):
     with Session(engine) as session:
         for rb_track in rb_db.get_content():
             existing = session.execute(
-                select(Track).where(Track.rekordbox_id == rb_track.ID)
+                select(LibTrack).where(LibTrack.id == rb_track.ID)
             ).scalar_one_or_none()
 
-            if existing:
-                track = existing
-            else:
-                track = Track(rekordbox_id=rb_track.ID)
+            track = existing or LibTrack(id=rb_track.ID)
+            if not existing:
                 session.add(track)
 
             track.title = rb_track.Title
             track.artist = rb_track.ArtistName
-            track.album = rb_track.AlbumName
-            track.label = rb_track.LabelName
             track.bpm = float(rb_track.BPM) if rb_track.BPM else None
             track.key = str(rb_track.Key) if rb_track.Key else None
             track.duration = rb_track.Duration
             track.rating = rb_track.Rating
-            track.play_count = rb_track.PlayCount
             track.file_path = rb_track.FolderPath
             track.date_added = rb_track.DateAdded
+            track.tags = json.dumps(rb_track.MyTagNames or [])
 
-            # Upload artwork vers MinIO si dispo et pas déjà uploadé
-            if rb_track.ImagePath and not track.artwork_url:
+            if rb_track.ImagePath and not track.has_artwork:
                 try:
-                    object_key = f"{rb_track.ID}.jpg"
-                    track.artwork_url = upload_artwork(rb_track.ImagePath, object_key)
+                    upload_artwork(rb_track.ImagePath, f"{rb_track.ID}.jpg")
+                    track.has_artwork = True
                 except Exception:
                     pass
 

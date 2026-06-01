@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routers import tracks, tags
+from routers import tracks
 
 app = FastAPI(title="Diggy API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
@@ -13,7 +13,6 @@ app.add_middleware(
 )
 
 app.include_router(tracks.router, prefix="/api")
-app.include_router(tags.router, prefix="/api")
 
 
 @app.on_event("startup")

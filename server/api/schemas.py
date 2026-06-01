@@ -1,48 +1,28 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import Optional
+import json
 
 
-class TagOut(BaseModel):
+class TrackOut(BaseModel):
     id: int
-    group: str
-    name: str
-
-    model_config = {"from_attributes": True}
-
-
-class CueOut(BaseModel):
-    id: int
-    kind: int
-    time: float
-    color: Optional[str]
-    comment: Optional[str]
-    is_loop: int
-    loop_out: Optional[float]
-
-    model_config = {"from_attributes": True}
-
-
-class TrackBase(BaseModel):
     title: Optional[str]
     artist: Optional[str]
-    album: Optional[str]
-    label: Optional[str]
     bpm: Optional[float]
     key: Optional[str]
     duration: Optional[int]
     rating: Optional[int]
-    play_count: Optional[int]
-
-
-class TrackOut(TrackBase):
-    id: int
-    rekordbox_id: Optional[int]
     file_path: Optional[str]
     date_added: Optional[datetime]
-    artwork_url: Optional[str]
-    cues: list[CueOut] = []
-    tags: list[TagOut] = []
+    tags: list[str] = []
+    has_artwork: bool = False
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def parse_tags(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v or []
 
     model_config = {"from_attributes": True}
 
