@@ -3,12 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import get_db
 from models import LibTrack
-from schemas import LibTrackOut, LibTrackList
+from schemas import TrackOut, TrackList
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
 
 
-@router.get("/", response_model=LibTrackList)
+@router.get("/", response_model=TrackList)
 async def list_tracks(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -25,7 +25,7 @@ async def list_tracks(
     result = await db.execute(query.offset(skip).limit(limit))
     tracks = result.scalars().all()
 
-    return LibTrackList(total=total, items=tracks)
+    return TrackList(total=total, items=tracks)
 
 
 @router.get("/{track_id}", response_model=LibTrackOut)
