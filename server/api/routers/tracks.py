@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import get_db
-from models import LibLibTrack
+from models import LibTrack
 from schemas import LibTrackOut, LibTrackList
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
