@@ -30,3 +30,30 @@ class TrackOut(BaseModel):
 class TrackList(BaseModel):
     total: int
     items: list[TrackOut]
+
+
+class TrackExisting(BaseModel):
+    id: int
+    has_artwork: bool
+
+    model_config = {"from_attributes": True}
+
+
+class TrackImport(BaseModel):
+    id: int
+    title: Optional[str] = None
+    artist: Optional[str] = None
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration: Optional[int] = None
+    rating: Optional[int] = None
+    file_path: Optional[str] = None
+    date_added: Optional[datetime] = None
+    tags: list[str] = []
+    image_base64: Optional[str] = None  # JPEG encodé en base64, None si pas d'image
+
+
+class BulkImportResult(BaseModel):
+    inserted: int
+    updated: int
+    artworks_uploaded: int
