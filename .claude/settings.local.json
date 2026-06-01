@@ -5,7 +5,9 @@
       "Bash(python -c \"import pyrekordbox; import inspect; from pyrekordbox.db6.tables import DjmdCue; print\\([m for m in dir\\(DjmdCue\\) if not m.startswith\\(''_''\\)]\\)\")",
       "Bash(python -c \"from pyrekordbox import Rekordbox6Database; db = Rekordbox6Database\\(\\); cues = list\\(db.get_cue\\(\\)\\); c = cues[0]; print\\([a for a in dir\\(c\\) if not a.startswith\\(''_''\\)]\\)\")",
       "Bash(/c/Users/willi/Desktop/diggy/.venv/Scripts/python.exe -c \"from pyrekordbox import Rekordbox6Database; db = Rekordbox6Database\\(\\); cues = list\\(db.get_cue\\(\\)\\); c = cues[0]; print\\([a for a in dir\\(c\\) if not a.startswith\\(''_''\\)]\\)\")",
-      "Bash(/c/Users/willi/Desktop/diggy/.venv/Scripts/python.exe -c \":*)"
+      "Bash(/c/Users/willi/Desktop/diggy/.venv/Scripts/python.exe -c \":*)",
+      "Bash(find c:UserswilliDesktopdiggy -type f -name *.py)",
+      "Bash(git -C \"c:\\\\Users\\\\willi\\\\Desktop\\\\diggy\" show --stat)"
     ]
   }
 }

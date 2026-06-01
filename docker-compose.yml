@@ -1,0 +1,92 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: diggy_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - diggy_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: diggy_redis
+    networks:
+      - diggy_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  api:
+    build:
+      context: ./server/api
+    container_name: diggy_api
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - diggy_network
+    volumes:
+      - ./server/api:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: ./server/api
+    container_name: diggy_worker
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - diggy_network
+    volumes:
+      - ./server/api:/app
+      - ./server/workers:/app/workers
+    command: celery -A workers.celery_app worker --loglevel=info
+
+  frontend:
+    build:
+      context: ./server/frontend
+      target: development
+    container_name: diggy_frontend
+    networks:
+      - diggy_network
+    volumes:
+      - ./server/frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=/api
+
+  nginx:
+    image: nginx:alpine
+    container_name: diggy_nginx
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    volumes:
+      - ./server/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - frontend
+    networks:
+      - diggy_network
+
+volumes:
+  postgres_data:
+
+networks:
+  diggy_network:
+    name: diggy_network
