@@ -15,7 +15,9 @@
       "Bash(.venv/Scripts/python -c \"from pyrekordbox import Rekordbox6Database; help\\(Rekordbox6Database.__init__\\)\")",
       "Bash(ls C:UserswilliAppDataRoamingPioneerrekordbox --recurse -include *.db)",
       "Bash(.venv/Scripts/pytest tests/rekordbox/test_extractor.py -v)",
-      "Bash(python -m pytest tests/deezer/ -v)"
+      "Bash(python -m pytest tests/deezer/ -v)",
+      "Bash(.venv/Scripts/python -m pytest tests/deezer/test_sync_checker.py -v)",
+      "Bash(.venv/Scripts/python -m pytest tests/deezer/ -v)"
     ]
   }
 }
