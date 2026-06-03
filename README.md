@@ -21,12 +21,18 @@ Web app DJ pour gérer et visualiser une bibliothèque Rekordbox — tracks, cue
 diggy/
 ├── server/
 │   ├── api/              # FastAPI — modèles, schemas, routers
-│   ├── workers/          # Celery — import Rekordbox → PostgreSQL + MinIO
+│   ├── workers/          # Celery workers
 │   ├── frontend/         # Vue.js 3 — interface web
 │   └── nginx/            # Config reverse proxy
-├── worker/               # Exploration Rekordbox (Jupyter)
+├── worker/
+│   └── rekordbox/        # Module d'extraction Rekordbox (extractor.py)
+├── tests/
+│   └── rekordbox/        # Tests unitaires (pytest + mocks)
+├── docs/
+│   └── rekordbox_exploration.ipynb  # Exploration de l'API pyrekordbox
+├── main.py               # Script d'import Rekordbox → API
 ├── docker-compose.yml
-└── .github/workflows/    # CI/CD déploiement automatique
+└── .github/workflows/    # CI/CD — tests + déploiement automatique
 ```
 
 ## Routes API
@@ -34,7 +40,9 @@ diggy/
 | Méthode | Endpoint | Description |
 |---|---|---|
 | GET | `/api/tracks/` | Liste des tracks (filtre par artiste) |
-| GET | `/api/tracks/{id}` | Détail d'un track avec cues et tags |
+| GET | `/api/tracks/{id}` | Détail d'un track |
+| GET | `/api/tracks/existing-ids` | IDs en base + statut artwork (utilisé par l'import) |
+| POST | `/api/tracks/bulk` | Import batch upsert avec artworks |
 | GET | `/api/tags/` | Liste de tous les tags |
 | GET | `/api/health` | Health check |
 | GET | `/api/docs` | Swagger UI |
@@ -48,12 +56,21 @@ git clone https://github.com/Willybi/diggy.git /root/diggy
 ```
 
 ### Configuration
-```bash
-cp .env.example .env
-nano .env  # remplir les mots de passe
-```
+Créer un fichier `.env` à la racine (ne jamais le commiter) :
 
-Variables requises : `POSTGRES_PASSWORD`, `DATABASE_URL`, `MINIO_USER`, `MINIO_PASSWORD`, `SECRET_KEY`
+```env
+COMPOSE_PROJECT_NAME=diggy
+POSTGRES_USER=diggy
+POSTGRES_PASSWORD=...
+POSTGRES_DB=diggy
+DATABASE_URL=postgresql+asyncpg://diggy:...@postgres:5432/diggy
+REDIS_URL=redis://redis:6379/0
+SECRET_KEY=...
+NGINX_PORT=80
+MINIO_USER=...
+MINIO_PASSWORD=...
+MINIO_URL=http://minio:9000
+```
 
 ### Lancer
 ```bash
@@ -66,11 +83,22 @@ Secrets requis dans le repo : `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`.
 
 ## Import Rekordbox
 
-L'import de la bibliothèque Rekordbox (tracks + artworks) se fait via une tâche Celery :
+L'import se lance depuis le PC où Rekordbox est installé :
 
-```python
-from workers.tasks import import_rekordbox
-import_rekordbox.delay("/chemin/vers/master.db")
+```bash
+python main.py
 ```
 
-Les artworks sont automatiquement uploadés dans MinIO et accessibles via `/storage/artworks/{id}.jpg`.
+Le script lit la base Rekordbox locale via `worker/rekordbox/extractor.py`, compare avec la base distante, et envoie les tracks + artworks par batches vers l'API. Les artworks sont stockés dans MinIO et accessibles via `/storage/artworks/{id}.jpg`.
+
+Seuls les tracks actifs (`rb_data_status=256`) sont importés — environ 621 tracks pour une collection standard.
+
+> Pour comprendre comment pyrekordbox a été exploré et comment les données sont structurées, voir [docs/rekordbox_exploration.ipynb](docs/rekordbox_exploration.ipynb).
+
+## Tests
+
+```bash
+pytest tests/ -v
+```
+
+Les tests unitaires couvrent le module `worker/rekordbox/extractor.py` avec des mocks — ils tournent aussi automatiquement en CI avant chaque déploiement.
