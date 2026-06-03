@@ -26,11 +26,31 @@ jobs:
     needs: test
     steps:
       - name: Deploy via SSH
+        id: deploy
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
+          timeout: 60s
+          command_timeout: 10m
+          script: |
+            cd /root/diggy
+            git fetch origin
+            git reset --hard origin/master
+            docker compose up -d --build --force-recreate
+            docker compose ps
+
+      - name: Deploy via SSH (retry)
+        if: steps.deploy.outcome == 'failure'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          timeout: 60s
+          command_timeout: 10m
           script: |
             cd /root/diggy
             git fetch origin
