@@ -11,7 +11,10 @@
       "Bash(.venv/Scripts/python -c \"from pyrekordbox import Rekordbox6Database; db = Rekordbox6Database\\(\\); t = list\\(db.get_content\\(\\)\\)[0]; print\\(dir\\(t.Key\\)\\)\")",
       "WebSearch",
       "Bash(.venv/Scripts/python -c \":*)",
-      "Bash(.venv/Scripts/pip install:*)"
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python -c \"from pyrekordbox import Rekordbox6Database; help\\(Rekordbox6Database.__init__\\)\")",
+      "Bash(ls C:UserswilliAppDataRoamingPioneerrekordbox --recurse -include *.db)",
+      "Bash(.venv/Scripts/pytest tests/rekordbox/test_extractor.py -v)"
     ]
   }
 }
