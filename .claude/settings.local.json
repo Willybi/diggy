@@ -18,7 +18,11 @@
       "Bash(python -m pytest tests/deezer/ -v)",
       "Bash(.venv/Scripts/python -m pytest tests/deezer/test_sync_checker.py -v)",
       "Bash(.venv/Scripts/python -m pytest tests/deezer/ -v)",
-      "Bash(.venv/Scripts/python.exe -c \":*)"
+      "Bash(.venv/Scripts/python.exe -c \":*)",
+      "Bash(.venv/Scripts/python.exe -c \"import httpx; print\\(''httpx ok''\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import anyio; print\\(''anyio ok''\\)\")",
+      "Bash(xargs grep:*)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/api/test_tracks.py -v)"
     ]
   }
 }
