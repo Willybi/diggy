@@ -17,7 +17,8 @@
       "Bash(.venv/Scripts/pytest tests/rekordbox/test_extractor.py -v)",
       "Bash(python -m pytest tests/deezer/ -v)",
       "Bash(.venv/Scripts/python -m pytest tests/deezer/test_sync_checker.py -v)",
-      "Bash(.venv/Scripts/python -m pytest tests/deezer/ -v)"
+      "Bash(.venv/Scripts/python -m pytest tests/deezer/ -v)",
+      "Bash(.venv/Scripts/python.exe -c \":*)"
     ]
   }
 }
