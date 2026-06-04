@@ -16,7 +16,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install pyrekordbox mutagen pytest pytest-mock requests
+        run: pip install pyrekordbox mutagen pytest pytest-mock requests pytest-asyncio httpx aiosqlite anyio
 
       - name: Run tests
         run: pytest tests/ -v
