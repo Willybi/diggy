@@ -101,7 +101,9 @@ class TestNormalize:
 class TestSummary:
     def test_summary_empty(self):
         report = check_sync({}, {})
-        assert report.summary() == "Tout est synchronisé !"
+        summary = report.summary()
+        assert "[DOWNLOAD_NEEDED] (0)" in summary
+        assert "aucune entrée" in summary
 
     def test_summary_shows_flags(self):
         deezer = {"W - Tech House": [dz_track("Body Funk", "Purple Disco Machine")]}
