@@ -36,6 +36,7 @@ class SyncReport:
         for flag_type in FlagType:
             items = self.by_type(flag_type)
             if not items:
+                lines.append(f"\n[{flag_type.value}] (0) — aucune entrée")
                 continue
             lines.append(f"\n[{flag_type.value}] ({len(items)})")
             for f in items:
@@ -48,7 +49,7 @@ class SyncReport:
                     lines.append(f"  - {f.artist} — {f.title}  (playlist: {f.deezer_playlist})")
                 else:
                     lines.append(f"  - {f.artist} — {f.title}")
-        return "\n".join(lines) if lines else "Tout est synchronisé !"
+        return "\n".join(lines)
 
 
 def _normalize(s: str) -> str:

@@ -25,10 +25,15 @@ def main():
 
     print("Lecture des tags Rekordbox...")
     rb = RekordboxExtractor()
-    tags_structure = rb.get_tags_structure()
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        tags_structure = rb.get_tags_structure()
+        sys.stdout = old_stdout
 
     rb_by_tag = {}
-    for tag_name in [tag for tags in tags_structure.values() for tag in tags]:
+    for tag_name in [tag for tags in tags_structure.values() for tag in tags
+                     if not tag.upper().startswith("TO_")]:
         tracks = rb.get_tracks_by_tag(tag_name)
         rb_by_tag[tag_name] = [
             {
