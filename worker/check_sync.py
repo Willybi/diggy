@@ -3,8 +3,11 @@ Lance la comparaison Deezer ↔ Rekordbox et affiche le rapport de sync.
 
 Usage:
     python -m worker.check_sync
+    python -m worker.check_sync --dry-run   # prévisualise les déplacements MISPLACED
+    python -m worker.check_sync --apply     # déplace les fichiers et met à jour la DB RB
 """
 
+import argparse
 import sys
 import os
 
@@ -18,6 +21,11 @@ DEEZER_USER_ID = "656772321"
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--apply", action="store_true", help="Déplace les fichiers MISPLACED et met à jour la DB RB")
+    parser.add_argument("--dry-run", action="store_true", help="Prévisualise les déplacements sans les effectuer")
+    args = parser.parse_args()
+
     print("Récupération des playlists Deezer...")
     dz = DeezerExtractor(DEEZER_USER_ID)
     deezer_playlists = dz.get_all_tracks()
@@ -50,6 +58,11 @@ def main():
     print("\nComparaison en cours...\n")
     report = check_sync(deezer_playlists, rb_by_tag)
     print(report.summary())
+
+    if args.apply or args.dry_run:
+        from worker.apply_sync import apply_misplaced
+        print()
+        apply_misplaced(report, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
