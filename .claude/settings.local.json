@@ -22,7 +22,8 @@
       "Bash(.venv/Scripts/python.exe -c \"import httpx; print\\(''httpx ok''\\)\")",
       "Bash(.venv/Scripts/python.exe -c \"import anyio; print\\(''anyio ok''\\)\")",
       "Bash(xargs grep:*)",
-      "Bash(.venv/Scripts/python.exe -m pytest tests/api/test_tracks.py -v)"
+      "Bash(.venv/Scripts/python.exe -m pytest tests/api/test_tracks.py -v)",
+      "Bash(find C:/Users/willi/AppData/Roaming/Pioneer/rekordbox -name *.db -o -name *.cache -o -name *.dat)"
     ]
   }
 }
