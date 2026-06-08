@@ -18,9 +18,9 @@ celery_app.conf.update(
     timezone="Europe/Paris",
     enable_utc=True,
     beat_schedule={
-        "crawl-radar-weekly": {
+        "crawl-radar-daily": {
             "task": "workers.tasks.crawl_radar",
-            "schedule": crontab(hour=8, minute=0, day_of_week=1),  # lundi 8h (Europe/Paris)
+            "schedule": crontab(hour=8, minute=0),  # tous les jours à 8h (Europe/Paris)
         },
     },
 )
