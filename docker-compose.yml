@@ -60,6 +60,23 @@ services:
       - ./server/workers:/app/workers
     command: celery -A workers.celery_app worker --loglevel=info
 
+  beat:
+    build:
+      context: ./server/api
+    container_name: diggy_beat
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - diggy_network
+    volumes:
+      - ./server/api:/app
+      - ./server/workers:/app/workers
+    command: celery -A workers.celery_app beat --loglevel=info
+
   frontend:
     build:
       context: ./server/frontend

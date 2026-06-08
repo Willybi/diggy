@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 import os
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
@@ -16,4 +17,10 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="Europe/Paris",
     enable_utc=True,
+    beat_schedule={
+        "crawl-radar-weekly": {
+            "task": "workers.tasks.crawl_radar",
+            "schedule": crontab(hour=8, minute=0, day_of_week=1),  # lundi 8h (Europe/Paris)
+        },
+    },
 )

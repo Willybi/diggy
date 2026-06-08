@@ -5,7 +5,51 @@ Main task: import a Rekordbox database into PostgreSQL.
 import os
 import json
 import sys
+import requests
 from workers.celery_app import celery_app
+
+API_BASE = os.environ.get("DIGGY_API_URL", "http://api:8000")
+DEEZER_API = "https://api.deezer.com"
+
+
+@celery_app.task(name="workers.tasks.crawl_radar")
+def crawl_radar():
+    """
+    Crawl toutes les playlists Deezer surveillées (watched_playlists)
+    et insère les tracks détectés dans radar_tracks.
+    """
+    playlists = requests.get(f"{API_BASE}/api/watchlist/", timeout=10).json()
+    inserted = 0
+    errors = 0
+
+    for pl in playlists:
+        if pl["source"] != "deezer":
+            continue
+
+        tracks = []
+        url = f"{DEEZER_API}/playlist/{pl['external_id']}/tracks?limit=100&index=0"
+        while url:
+            resp = requests.get(url, timeout=10).json()
+            tracks.extend(resp.get("data", []))
+            url = resp.get("next")
+
+        for t in tracks:
+            artist = t.get("artist", {}).get("name") if isinstance(t.get("artist"), dict) else None
+            payload = {
+                "watched_playlist_id": pl["id"],
+                "external_track_id": str(t["id"]),
+                "source": "deezer",
+                "title": t.get("title", ""),
+                "artist": artist,
+                "isrc": t.get("isrc") or None,
+            }
+            r = requests.post(f"{API_BASE}/api/radar/", json=payload, timeout=10)
+            if r.status_code == 201:
+                inserted += 1
+            else:
+                errors += 1
+
+    return {"inserted": inserted, "errors": errors}
 
 
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
