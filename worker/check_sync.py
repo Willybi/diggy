@@ -55,6 +55,20 @@ def main():
         ]
     print(f"  {len(rb_by_tag)} tags RB chargés.")
 
+    # Détection de doublons titre+artiste dans RB
+    seen: dict[tuple, list[str]] = {}
+    for tag, tracks in rb_by_tag.items():
+        for t in tracks:
+            key = (t["title"] or "").strip().lower(), (t["artist"] or "").strip().lower()
+            seen.setdefault(key, []).append(tag)
+    duplicates = {k: v for k, v in seen.items() if len(v) > 1}
+    if duplicates:
+        print(f"\n[DOUBLONS RB] ({len(duplicates)})")
+        for (title, artist), tags in duplicates.items():
+            print(f"  - {artist} — {title}  (tags: {', '.join(tags)})")
+    else:
+        print("\n[DOUBLONS RB] (0) — aucun doublon détecté")
+
     print("\nComparaison en cours...\n")
     report = check_sync(deezer_playlists, rb_by_tag)
     print(report.summary())
