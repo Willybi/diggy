@@ -1,5 +1,15 @@
 from database import Base
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 
 class LibTrack(Base):
@@ -34,7 +44,9 @@ class RadarTrack(Base):
     __tablename__ = "radar_tracks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    watched_playlist_id = Column(Integer, ForeignKey("watched_playlists.id"), nullable=False)
+    watched_playlist_id = Column(
+        Integer, ForeignKey("watched_playlists.id"), nullable=False
+    )
     external_track_id = Column(String(255), nullable=False)
     source = Column(String(50), nullable=False)
     title = Column(String(500), nullable=False)
@@ -43,5 +55,19 @@ class RadarTrack(Base):
     detected_at = Column(DateTime)
 
     __table_args__ = (
-        UniqueConstraint("watched_playlist_id", "external_track_id", name="uq_radar_playlist_track"),
+        UniqueConstraint(
+            "watched_playlist_id", "external_track_id", name="uq_radar_playlist_track"
+        ),
+    )
+    external_track_id = Column(String(255), nullable=False)
+    source = Column(String(50), nullable=False)
+    title = Column(String(500), nullable=False)
+    artist = Column(String(500))
+    isrc = Column(String(20))
+    detected_at = Column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "watched_playlist_id", "external_track_id", name="uq_radar_playlist_track"
+        ),
     )

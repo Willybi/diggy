@@ -42,7 +42,9 @@ def import_all():
             )
             batch = []
 
-    print(f"\nImport terminé : {total_inserted} insérés, {total_updated} mis à jour, {total_artworks} images uploadées.")
+    print(
+        f"\nImport terminé : {total_inserted} insérés, {total_updated} mis à jour, {total_artworks} images uploadées."
+    )
 
 
 if __name__ == "__main__":
