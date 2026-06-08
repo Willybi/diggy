@@ -41,6 +41,7 @@ async def add_watched(body: WatchedPlaylistIn, db: AsyncSession = Depends(get_db
 
     entry = WatchedPlaylist(
         deezer_playlist_id=body.deezer_playlist_id,
+        source=body.source,
         title=title,
         description=body.description,
         created_at=datetime.utcnow(),
