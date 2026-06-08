@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ async def list_radar_tracks(
 
 
 @router.post("/", response_model=RadarTrackOut, status_code=201)
-async def add_radar_track(body: RadarTrackIn, db: AsyncSession = Depends(get_db)):
+async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSession = Depends(get_db)):
     playlist = await db.execute(
         select(WatchedPlaylist).where(WatchedPlaylist.id == body.watched_playlist_id)
     )
@@ -42,6 +42,7 @@ async def add_radar_track(body: RadarTrackIn, db: AsyncSession = Depends(get_db)
     )
     existing_entry = existing.scalar_one_or_none()
     if existing_entry:
+        response.status_code = 200
         return existing_entry
 
     entry = RadarTrack(
