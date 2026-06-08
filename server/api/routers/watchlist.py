@@ -52,6 +52,18 @@ async def add_watched(body: WatchedPlaylistIn, db: AsyncSession = Depends(get_db
     return entry
 
 
+@router.patch("/{entry_id}/crawled", response_model=WatchedPlaylistOut)
+async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WatchedPlaylist).where(WatchedPlaylist.id == entry_id))
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Not found")
+    entry.last_crawled_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
 @router.delete("/{entry_id}", status_code=204)
 async def delete_watched(entry_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(WatchedPlaylist).where(WatchedPlaylist.id == entry_id))

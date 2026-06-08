@@ -2,6 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -44,7 +45,17 @@ async def add_radar_track(body: RadarTrackIn, db: AsyncSession = Depends(get_db)
         detected_at=datetime.utcnow(),
     )
     db.add(entry)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(
+            select(RadarTrack).where(
+                RadarTrack.watched_playlist_id == body.watched_playlist_id,
+                RadarTrack.external_track_id == body.external_track_id,
+            )
+        )
+        return result.scalar_one()
     await db.refresh(entry)
     return entry
 

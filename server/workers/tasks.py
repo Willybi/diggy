@@ -15,16 +15,31 @@ DEEZER_API = "https://api.deezer.com"
 @celery_app.task(name="workers.tasks.crawl_radar")
 def crawl_radar():
     """
-    Crawl toutes les playlists Deezer surveillées (watched_playlists)
-    et insère les tracks détectés dans radar_tracks.
+    Crawl toutes les playlists Deezer surveillées (watched_playlists).
+    - Skip si Deezer ne signale pas de modification depuis le dernier crawl.
+    - Skip les tracks déjà présents (déduplication par contrainte unique).
     """
+    from datetime import datetime, timezone
+
     playlists = requests.get(f"{API_BASE}/api/watchlist/", timeout=10).json()
     inserted = 0
+    skipped = 0
     errors = 0
 
     for pl in playlists:
         if pl["source"] != "deezer":
             continue
+
+        # Vérifie si la playlist a été modifiée depuis le dernier crawl
+        dz_meta = requests.get(f"{DEEZER_API}/playlist/{pl['external_id']}", timeout=10).json()
+        dz_modification_date = dz_meta.get("time_mod") or dz_meta.get("creation_date")
+
+        if dz_modification_date and pl.get("last_crawled_at"):
+            last_crawled = datetime.fromisoformat(pl["last_crawled_at"]).replace(tzinfo=timezone.utc)
+            dz_mod = datetime.fromtimestamp(dz_modification_date, tz=timezone.utc)
+            if dz_mod <= last_crawled:
+                skipped += 1
+                continue
 
         tracks = []
         url = f"{DEEZER_API}/playlist/{pl['external_id']}/tracks?limit=100&index=0"
@@ -46,10 +61,11 @@ def crawl_radar():
             r = requests.post(f"{API_BASE}/api/radar/", json=payload, timeout=10)
             if r.status_code == 201:
                 inserted += 1
-            else:
-                errors += 1
 
-    return {"inserted": inserted, "errors": errors}
+        # Marque la playlist comme crawlée
+        requests.patch(f"{API_BASE}/api/watchlist/{pl['id']}/crawled", timeout=10)
+
+    return {"inserted": inserted, "skipped_playlists": skipped, "errors": errors}
 
 
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
