@@ -94,5 +94,6 @@ class WatchedPlaylistOut(BaseModel):
     title: Optional[str]
     description: Optional[str]
     created_at: Optional[datetime]
+    last_crawled_at: Optional[datetime]
 
     model_config = {"from_attributes": True}

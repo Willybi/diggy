@@ -1,5 +1,5 @@
 from database import Base
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 
 
 class LibTrack(Base):
@@ -27,6 +27,7 @@ class WatchedPlaylist(Base):
     title = Column(String(255))
     description = Column(Text)
     created_at = Column(DateTime)
+    last_crawled_at = Column(DateTime)
 
 
 class RadarTrack(Base):
@@ -40,3 +41,7 @@ class RadarTrack(Base):
     artist = Column(String(500))
     isrc = Column(String(20))
     detected_at = Column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("watched_playlist_id", "external_track_id", name="uq_radar_playlist_track"),
+    )
