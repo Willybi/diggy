@@ -16,3 +16,13 @@ class LibTrack(Base):
     date_added = Column(DateTime)
     tags = Column(Text)  # JSON array ex: ["Tech House", "TO_CUE"]
     has_artwork = Column(Boolean, default=False)
+
+
+class WatchedPlaylist(Base):
+    __tablename__ = "watched_playlists"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    deezer_playlist_id = Column(String(64), unique=True, nullable=False)
+    title = Column(String(255))
+    description = Column(Text)
+    created_at = Column(DateTime)
