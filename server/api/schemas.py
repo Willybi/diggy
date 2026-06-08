@@ -60,14 +60,14 @@ class BulkImportResult(BaseModel):
 
 
 class WatchedPlaylistIn(BaseModel):
-    deezer_playlist_id: str
+    external_id: str
     source: str
     description: Optional[str] = None
 
 
 class WatchedPlaylistOut(BaseModel):
     id: int
-    deezer_playlist_id: str
+    external_id: str
     source: str
     title: Optional[str]
     description: Optional[str]

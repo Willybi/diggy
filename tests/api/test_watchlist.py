@@ -25,7 +25,7 @@ async def client():
 
 def playlist_payload(**overrides):
     base = {
-        "deezer_playlist_id": "1950581322",
+        "external_id": "1950581322",
         "source": "deezer",
         "description": None,
     }
@@ -48,7 +48,7 @@ class TestListWatched:
         r = await client.get("/api/watchlist/")
         assert r.status_code == 200
         assert len(r.json()) == 1
-        assert r.json()[0]["deezer_playlist_id"] == "1950581322"
+        assert r.json()[0]["external_id"] == "1950581322"
 
 
 # ── POST /api/watchlist/ ──────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ class TestAddWatched:
         r = await client.post("/api/watchlist/", json=playlist_payload())
         assert r.status_code == 201
         data = r.json()
-        assert data["deezer_playlist_id"] == "1950581322"
+        assert data["external_id"] == "1950581322"
         assert data["title"] == "Selected House"
         assert data["source"] == "deezer"
         assert data["description"] is None
@@ -84,7 +84,7 @@ class TestAddWatched:
     async def test_source_is_required(self, client, mocker):
         mocker.patch("routers.watchlist._fetch_deezer_playlist_title", return_value="Selected House")
 
-        payload = {"deezer_playlist_id": "1950581322"}
+        payload = {"external_id": "1950581322"}
         r = await client.post("/api/watchlist/", json=payload)
         assert r.status_code == 422
 
