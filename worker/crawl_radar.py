@@ -34,9 +34,14 @@ def fetch_deezer_tracks(playlist_id: str) -> list[dict]:
     return tracks
 
 
-def insert_radar_track(payload: dict) -> bool:
+def insert_radar_track(payload: dict) -> str:
+    """Retourne 'inserted', 'existing' ou 'error'."""
     r = requests.post(f"{API_BASE}/api/radar/", json=payload, timeout=10)
-    return r.status_code == 201
+    if r.status_code == 201:
+        return "inserted"
+    if r.status_code == 200:
+        return "existing"
+    return "error"
 
 
 def main():
@@ -52,7 +57,8 @@ def main():
     print(f"{len(playlists)} playlist(s) surveillée(s).\n")
 
     total_inserted = 0
-    total_skipped = 0
+    total_existing = 0
+    total_errors = 0
 
     for pl in playlists:
         if pl["source"] != "deezer":
@@ -84,16 +90,19 @@ def main():
                 print(f"    [dry-run] {artist} — {t.get('title')}  (isrc: {isrc})")
                 total_inserted += 1
             else:
-                if insert_radar_track(payload):
+                result = insert_radar_track(payload)
+                if result == "inserted":
                     total_inserted += 1
+                elif result == "existing":
+                    total_existing += 1
                 else:
-                    total_skipped += 1
+                    total_errors += 1
 
     print()
     if args.dry_run:
         print(f"[dry-run] {total_inserted} tracks seraient insérés.")
     else:
-        print(f"Insérés : {total_inserted}  |  Erreurs : {total_skipped}")
+        print(f"Insérés : {total_inserted}  |  Déjà présents : {total_existing}  |  Erreurs : {total_errors}")
 
 
 if __name__ == "__main__":
