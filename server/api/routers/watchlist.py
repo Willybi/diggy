@@ -14,9 +14,9 @@ router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 DEEZER_API = "https://api.deezer.com"
 
 
-def _fetch_deezer_playlist_title(deezer_playlist_id: str) -> str | None:
+def _fetch_deezer_playlist_title(external_id: str) -> str | None:
     try:
-        resp = requests.get(f"{DEEZER_API}/playlist/{deezer_playlist_id}", timeout=5)
+        resp = requests.get(f"{DEEZER_API}/playlist/{external_id}", timeout=5)
         data = resp.json()
         return data.get("title")
     except Exception:
@@ -32,15 +32,15 @@ async def list_watched(db: AsyncSession = Depends(get_db)):
 @router.post("/", response_model=WatchedPlaylistOut, status_code=201)
 async def add_watched(body: WatchedPlaylistIn, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(
-        select(WatchedPlaylist).where(WatchedPlaylist.deezer_playlist_id == body.deezer_playlist_id)
+        select(WatchedPlaylist).where(WatchedPlaylist.external_id == body.external_id)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Playlist already watched")
 
-    title = _fetch_deezer_playlist_title(body.deezer_playlist_id)
+    title = _fetch_deezer_playlist_title(body.external_id)
 
     entry = WatchedPlaylist(
-        deezer_playlist_id=body.deezer_playlist_id,
+        external_id=body.external_id,
         source=body.source,
         title=title,
         description=body.description,

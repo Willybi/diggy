@@ -22,7 +22,7 @@ class WatchedPlaylist(Base):
     __tablename__ = "watched_playlists"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    deezer_playlist_id = Column(String(64), unique=True, nullable=False)
+    external_id = Column(String(64), unique=True, nullable=False)
     source = Column(String(64), nullable=False)
     title = Column(String(255))
     description = Column(Text)
