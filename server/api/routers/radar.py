@@ -2,7 +2,6 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -35,6 +34,16 @@ async def add_radar_track(body: RadarTrackIn, db: AsyncSession = Depends(get_db)
     if not playlist.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="watched_playlist not found")
 
+    existing = await db.execute(
+        select(RadarTrack).where(
+            RadarTrack.watched_playlist_id == body.watched_playlist_id,
+            RadarTrack.external_track_id == body.external_track_id,
+        )
+    )
+    existing_entry = existing.scalar_one_or_none()
+    if existing_entry:
+        return existing_entry
+
     entry = RadarTrack(
         watched_playlist_id=body.watched_playlist_id,
         external_track_id=body.external_track_id,
@@ -45,17 +54,7 @@ async def add_radar_track(body: RadarTrackIn, db: AsyncSession = Depends(get_db)
         detected_at=datetime.utcnow(),
     )
     db.add(entry)
-    try:
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-        result = await db.execute(
-            select(RadarTrack).where(
-                RadarTrack.watched_playlist_id == body.watched_playlist_id,
-                RadarTrack.external_track_id == body.external_track_id,
-            )
-        )
-        return result.scalar_one()
+    await db.commit()
     await db.refresh(entry)
     return entry
 
