@@ -57,3 +57,18 @@ class BulkImportResult(BaseModel):
     inserted: int
     updated: int
     artworks_uploaded: int
+
+
+class WatchedPlaylistIn(BaseModel):
+    deezer_playlist_id: str
+    description: Optional[str] = None
+
+
+class WatchedPlaylistOut(BaseModel):
+    id: int
+    deezer_playlist_id: str
+    title: Optional[str]
+    description: Optional[str]
+    created_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
