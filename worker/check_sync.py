@@ -8,8 +8,8 @@ Usage:
 """
 
 import argparse
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -22,8 +22,16 @@ DEEZER_USER_ID = "656772321"
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--apply", action="store_true", help="Déplace les fichiers MISPLACED et met à jour la DB RB")
-    parser.add_argument("--dry-run", action="store_true", help="Prévisualise les déplacements sans les effectuer")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Déplace les fichiers MISPLACED et met à jour la DB RB",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Prévisualise les déplacements sans les effectuer",
+    )
     args = parser.parse_args()
 
     print("Récupération des playlists Deezer...")
@@ -40,8 +48,12 @@ def main():
         sys.stdout = old_stdout
 
     rb_by_tag = {}
-    for tag_name in [tag for tags in tags_structure.values() for tag in tags
-                     if not tag.upper().startswith("TO_")]:
+    for tag_name in [
+        tag
+        for tags in tags_structure.values()
+        for tag in tags
+        if not tag.upper().startswith("TO_")
+    ]:
         tracks = rb.get_tracks_by_tag(tag_name)
         rb_by_tag[tag_name] = [
             {
@@ -59,7 +71,9 @@ def main():
     seen: dict[tuple, list[str]] = {}
     for tag, tracks in rb_by_tag.items():
         for t in tracks:
-            key = (t["title"] or "").strip().lower(), (t["artist"] or "").strip().lower()
+            key = (t["title"] or "").strip().lower(), (
+                t["artist"] or ""
+            ).strip().lower()
             seen.setdefault(key, []).append(tag)
     duplicates = {k: v for k, v in seen.items() if len(v) > 1}
     if duplicates:
@@ -75,6 +89,7 @@ def main():
 
     if args.apply or args.dry_run:
         from worker.apply_sync import apply_misplaced
+
         print()
         apply_misplaced(report, dry_run=args.dry_run)
 
