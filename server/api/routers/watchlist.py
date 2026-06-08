@@ -1,5 +1,5 @@
 import requests
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -43,7 +43,7 @@ async def add_watched(body: WatchedPlaylistIn, db: AsyncSession = Depends(get_db
         deezer_playlist_id=body.deezer_playlist_id,
         title=title,
         description=body.description,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.utcnow(),
     )
     db.add(entry)
     await db.commit()
