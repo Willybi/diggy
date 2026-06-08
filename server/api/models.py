@@ -1,5 +1,5 @@
 from database import Base
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 
 
 class LibTrack(Base):
@@ -27,3 +27,16 @@ class WatchedPlaylist(Base):
     title = Column(String(255))
     description = Column(Text)
     created_at = Column(DateTime)
+
+
+class RadarTrack(Base):
+    __tablename__ = "radar_tracks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    watched_playlist_id = Column(Integer, ForeignKey("watched_playlists.id"), nullable=False)
+    external_track_id = Column(String(255), nullable=False)
+    source = Column(String(50), nullable=False)
+    title = Column(String(500), nullable=False)
+    artist = Column(String(500))
+    isrc = Column(String(20))
+    detected_at = Column(DateTime)
