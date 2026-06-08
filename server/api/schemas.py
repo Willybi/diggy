@@ -59,6 +59,28 @@ class BulkImportResult(BaseModel):
     artworks_uploaded: int
 
 
+class RadarTrackIn(BaseModel):
+    watched_playlist_id: int
+    external_track_id: str
+    source: str
+    title: str
+    artist: Optional[str] = None
+    isrc: Optional[str] = None
+
+
+class RadarTrackOut(BaseModel):
+    id: int
+    watched_playlist_id: int
+    external_track_id: str
+    source: str
+    title: str
+    artist: Optional[str]
+    isrc: Optional[str]
+    detected_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
 class WatchedPlaylistIn(BaseModel):
     external_id: str
     source: str
