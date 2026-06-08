@@ -106,13 +106,14 @@ class TestAddRadar:
         r = await client.post("/api/radar/", json=radar_payload(9999))
         assert r.status_code == 404
 
-    async def test_same_track_twice_allowed(self, client, watched_playlist_id):
-        await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
-        r = await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
-        assert r.status_code == 201
+    async def test_duplicate_track_returns_existing(self, client, watched_playlist_id):
+        r1 = await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
+        r2 = await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
+        assert r2.status_code == 200
+        assert r2.json()["id"] == r1.json()["id"]
 
         r = await client.get("/api/radar/")
-        assert len(r.json()) == 2
+        assert len(r.json()) == 1
 
 
 # ── DELETE /api/radar/{id} ────────────────────────────────────────────────────
