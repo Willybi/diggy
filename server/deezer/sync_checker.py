@@ -1,6 +1,10 @@
-import re
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
+
 from dataclasses import dataclass, field
 from enum import Enum
+from utils import normalize as _normalize
 
 
 class FlagType(str, Enum):
@@ -51,13 +55,6 @@ class SyncReport:
                     lines.append(f"  - {f.artist} — {f.title}")
         return "\n".join(lines)
 
-
-def _normalize(s: str) -> str:
-    s = (s or "").lower().strip()
-    s = s.replace('\u2019', "'").replace('\u2018', "'")
-    s = re.sub(r'\bft\.', 'ft', s)
-    s = re.sub(r'\bfeat\.', 'feat', s)
-    return s
 
 
 def _normalize_tag(s: str) -> str:

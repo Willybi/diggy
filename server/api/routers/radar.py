@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from catalog import get_or_create_catalog
 from database import get_db
 from models import RadarTrack, WatchedPlaylist
 from schemas import RadarTrackIn, RadarTrackOut
@@ -45,6 +46,13 @@ async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSessi
         response.status_code = 200
         return existing_entry
 
+    catalog_entry = await get_or_create_catalog(
+        db,
+        title=body.title,
+        artist=body.artist,
+        isrc=body.isrc,
+    )
+
     entry = RadarTrack(
         watched_playlist_id=body.watched_playlist_id,
         external_track_id=body.external_track_id,
@@ -53,6 +61,7 @@ async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSessi
         artist=body.artist,
         isrc=body.isrc,
         detected_at=datetime.utcnow(),
+        catalog_id=catalog_entry.id,
     )
     db.add(entry)
     await db.commit()
