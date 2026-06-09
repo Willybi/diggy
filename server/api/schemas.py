@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 import json
 
@@ -77,6 +77,27 @@ class RadarTrackOut(BaseModel):
     artist: Optional[str]
     isrc: Optional[str]
     detected_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class CatalogEntryOut(BaseModel):
+    id: int
+    title: str
+    artist: Optional[str]
+    isrc: Optional[str]
+    bpm: Optional[float]
+    key: Optional[str]
+    duration_ms: Optional[int]
+    genre: Optional[str]
+    release_date: Optional[date]
+    preview_url: Optional[str]
+    has_artwork: bool = False
+    created_at: Optional[datetime]
+    # Stats calculées
+    in_lib: bool = False
+    nb_radar_playlists: int = 0
+    nb_radar_sets: int = 0
 
     model_config = {"from_attributes": True}
 
