@@ -26,7 +26,17 @@
       "Bash(find C:/Users/willi/AppData/Roaming/Pioneer/rekordbox -name *.db -o -name *.cache -o -name *.dat)",
       "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose ps\")",
       "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose logs api --tail=30 2>&1\")",
-      "Bash(find /c/Users/willi/Desktop/diggy -name *.py -path *migration* -o -name alembic*)"
+      "Bash(find /c/Users/willi/Desktop/diggy -name *.py -path *migration* -o -name alembic*)",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose ps api && docker compose logs api --tail=20 2>&1\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose exec -T postgres psql -U postgres -d postgres -c ''\\\\dt'' 2>&1\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && cat .env | grep POSTGRES_USER\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose exec -T postgres psql -U diggy -c ''\\\\dt'' 2>&1\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose exec -T postgres psql -U diggy -c ''\\\\d catalog'' 2>&1\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose exec -T api python scripts/migrate_catalog.py 2>&1\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"curl -s ''http://localhost:8000/api/catalog/?min_radar_playlists=3'' | python3 -c \"\"import json,sys; data=json.load\\(sys.stdin\\); print\\(f''Total: {len\\(data\\)} sons''\\); [print\\(f\\\\\"\"  {e[''artist'']} — {e[''title'']} | playlists: {e[''nb_radar_playlists'']} | in_lib: {e[''in_lib'']}\\\\\"\"\\) for e in data[:10]]\"\" 2>&1\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"curl -s ''http://localhost:8000/api/catalog/?min_radar_playlists=3'' 2>&1 | head -c 500\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"curl -sv ''http://localhost:8000/api/catalog/?min_radar_playlists=3'' 2>&1 | tail -30\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"curl -s ''http://82.29.168.247/api/catalog/?min_radar_playlists=3'' 2>&1 | python3 -c \"\"import json,sys; data=json.load\\(sys.stdin\\); print\\(f''Total: {len\\(data\\)} sons avec 3+ playlists''\\); [print\\(f\\\\\"\"  {e[''artist'']} — {e[''title'']} | playlists: {e[''nb_radar_playlists'']} | in_lib: {e[''in_lib'']}\\\\\"\"\\) for e in data[:10]]\"\"\")"
     ]
   }
 }
