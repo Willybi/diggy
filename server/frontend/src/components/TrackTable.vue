@@ -27,7 +27,7 @@
             <span
               class="play-btn"
               :class="{ 'play-btn--disabled': !track.has_preview, 'play-btn--playing': playingId === track.id }"
-              @click="track.has_preview && togglePlay(track)"
+              @click="track.has_preview && handlePlay(track)"
             >
               <svg v-if="playingId !== track.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
               <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
@@ -66,8 +66,8 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import axios from 'axios'
 import StyleTag from './StyleTag.vue'
+import { useAudioPlayer } from '../stores/audioPlayer'
 
 const props = defineProps({
   tracks: { type: Array, default: () => [] },
@@ -83,23 +83,10 @@ const COLS = [
   { key: 'rating',   label: 'Rating',   sortable: true,  num: true  },
 ]
 
-const playingId = ref(null)
-let audio = null
+const { playingId, toggle: togglePlay } = useAudioPlayer()
 
-async function togglePlay(track) {
-  if (playingId.value === track.id) {
-    audio.pause()
-    playingId.value = null
-    return
-  }
-  if (audio) audio.pause()
-  try {
-    const { data } = await axios.get(`/api/catalog/${track.catalog_id}/preview-url`)
-    audio = new Audio(data.preview_url)
-    audio.play()
-    playingId.value = track.id
-    audio.addEventListener('ended', () => { playingId.value = null })
-  } catch { /* pas de preview */ }
+function handlePlay(track) {
+  togglePlay(track.id, track.catalog_id)
 }
 
 const sortKey = ref('title')
