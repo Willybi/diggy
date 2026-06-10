@@ -22,12 +22,12 @@
       />
     </div>
 
-    <TrackTable :tracks="filteredTracks" :loading="loading" />
+    <TrackTable :tracks="tracks" :loading="loading" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import axios from 'axios'
 import TrackTable from '../components/TrackTable.vue'
 import TrackFilters from '../components/TrackFilters.vue'
@@ -45,7 +45,11 @@ const inLibOnly   = ref(false)
 async function fetchTracks() {
   loading.value = true
   try {
-    const params = search.value ? { artist: search.value } : {}
+    const params = {}
+    if (search.value)      params.artist = search.value
+    if (styleFilter.value) params.tag    = styleFilter.value
+    if (bpmMin.value)      params.bpmMin = bpmMin.value
+    if (bpmMax.value)      params.bpmMax = bpmMax.value
     const { data } = await axios.get('/api/tracks/', { params })
     tracks.value = data.items
     total.value  = data.total
@@ -54,22 +58,7 @@ async function fetchTracks() {
   }
 }
 
-const filteredTracks = computed(() => {
-  return tracks.value.filter(t => {
-    if (styleFilter.value) {
-      try {
-        const tags = Array.isArray(t.tags) ? t.tags : JSON.parse(t.tags || '[]')
-        if (!tags.includes(styleFilter.value)) return false
-      } catch {
-        return false
-      }
-    }
-    if (bpmMin.value && t.bpm < bpmMin.value) return false
-    if (bpmMax.value && t.bpm > bpmMax.value) return false
-    return true
-  })
-})
-
+watch([styleFilter, bpmMin, bpmMax], fetchTracks)
 onMounted(fetchTracks)
 </script>
 
