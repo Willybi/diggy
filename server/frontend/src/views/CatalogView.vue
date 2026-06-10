@@ -39,7 +39,14 @@
           <tbody>
             <tr v-for="e in items" :key="e.id">
               <td class="col-play">
-                <span class="play-btn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span>
+                <span
+                  class="play-btn"
+                  :class="{ 'play-btn--disabled': !e.preview_url, 'play-btn--playing': playingId === e.id }"
+                  @click="e.preview_url && togglePlay(e)"
+                >
+                  <svg v-if="playingId !== e.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+                  <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+                </span>
               </td>
               <td class="col-title">
                 <div class="cell-track">
@@ -81,15 +88,31 @@ import InLibBadge from '../components/InLibBadge.vue'
 
 const PAGE_SIZE = 50
 
-const items     = ref([])
-const total     = ref(0)
-const loading   = ref(false)
-const search    = ref('')
-const notInLib  = ref(false)
-const radarMin2 = ref(false)
-const page      = ref(1)
-const sortKey   = ref('nb_radar_playlists')
-const sortDir   = ref('desc')
+const items      = ref([])
+const total      = ref(0)
+const loading    = ref(false)
+const search     = ref('')
+const notInLib   = ref(false)
+const radarMin2  = ref(false)
+const page       = ref(1)
+const sortKey    = ref('nb_radar_playlists')
+const sortDir    = ref('desc')
+const playingId  = ref(null)
+
+let audio = null
+
+function togglePlay(entry) {
+  if (playingId.value === entry.id) {
+    audio.pause()
+    playingId.value = null
+    return
+  }
+  if (audio) audio.pause()
+  audio = new Audio(entry.preview_url)
+  audio.play()
+  playingId.value = entry.id
+  audio.addEventListener('ended', () => { playingId.value = null })
+}
 
 let searchTimer = null
 
@@ -264,10 +287,21 @@ onMounted(fetchPage)
   color: var(--ink-2);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
 }
 .play-btn svg { width: 13px; height: 13px; }
 .track-table tbody tr:hover .play-btn { opacity: 1; }
+.play-btn--playing {
+  opacity: 1 !important;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.play-btn--disabled {
+  opacity: 0.2 !important;
+  cursor: default;
+  color: var(--ink-3);
+}
 
 /* Track cell */
 .cell-track { display: flex; align-items: center; gap: 12px; min-width: 0; }
