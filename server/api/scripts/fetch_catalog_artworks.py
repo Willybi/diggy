@@ -21,9 +21,8 @@ import argparse
 import os
 import sys
 import tempfile
-import time
 
-import httpx
+import requests
 import boto3
 from botocore.client import Config
 from sqlalchemy import select
@@ -67,9 +66,9 @@ def ensure_bucket():
         print(f"Bucket '{BUCKET}' créé.")
 
 
-async def fetch_cover_url(client: httpx.AsyncClient, deezer_track_id: str) -> str | None:
+def fetch_cover_url(deezer_track_id: str) -> str | None:
     try:
-        r = await client.get(f"{DEEZER_API}/track/{deezer_track_id}", timeout=10)
+        r = requests.get(f"{DEEZER_API}/track/{deezer_track_id}", timeout=10)
         r.raise_for_status()
         data = r.json()
         return data.get("album", {}).get(COVER_FIELD)
@@ -112,58 +111,57 @@ async def run(limit: int | None, force: bool):
 
     ok = skipped = errors = 0
 
-    async with httpx.AsyncClient() as client:
-        async with async_session() as db:
-            for entry in entries:
-                # Trouve un radar_track Deezer lié
-                r = await db.execute(
-                    select(RadarTrack.external_track_id)
-                    .where(RadarTrack.catalog_id == entry.id)
-                    .where(RadarTrack.source == "deezer")
-                    .limit(1)
-                )
-                row = r.first()
-                if not row:
-                    skipped += 1
-                    continue
+    async with async_session() as db:
+        for entry in entries:
+            # Trouve un radar_track Deezer lié
+            r = await db.execute(
+                select(RadarTrack.external_track_id)
+                .where(RadarTrack.catalog_id == entry.id)
+                .where(RadarTrack.source == "deezer")
+                .limit(1)
+            )
+            row = r.first()
+            if not row:
+                skipped += 1
+                continue
 
-                deezer_id = row[0]
-                cover_url = await fetch_cover_url(client, deezer_id)
-                if not cover_url:
-                    errors += 1
-                    continue
+            deezer_id = row[0]
+            cover_url = fetch_cover_url(deezer_id)
+            if not cover_url:
+                errors += 1
+                continue
 
-                # Télécharge la cover
-                try:
-                    img_resp = await client.get(cover_url, timeout=15)
-                    img_resp.raise_for_status()
-                    img_bytes = img_resp.content
-                except Exception as e:
-                    print(f"  Download error [{entry.id}] {entry.artist} — {entry.title}: {e}")
-                    errors += 1
-                    continue
+            # Télécharge la cover
+            try:
+                img_resp = requests.get(cover_url, timeout=15)
+                img_resp.raise_for_status()
+                img_bytes = img_resp.content
+            except Exception as e:
+                print(f"  Download error [{entry.id}] {entry.artist} — {entry.title}: {e}")
+                errors += 1
+                continue
 
-                # Upload S3
-                try:
-                    upload_cover(img_bytes, entry.id)
-                except Exception as e:
-                    print(f"  S3 upload error [{entry.id}]: {e}")
-                    errors += 1
-                    continue
+            # Upload S3
+            try:
+                upload_cover(img_bytes, entry.id)
+            except Exception as e:
+                print(f"  S3 upload error [{entry.id}]: {e}")
+                errors += 1
+                continue
 
-                # Update DB
-                entry.has_artwork = True
-                db.add(entry)
-                ok += 1
+            # Update DB
+            entry.has_artwork = True
+            db.add(entry)
+            ok += 1
 
-                if ok % 50 == 0:
-                    await db.commit()
-                    print(f"  {ok} covers uploadées…")
+            if ok % 50 == 0:
+                await db.commit()
+                print(f"  {ok} covers uploadées…")
 
-                # Petit délai pour ne pas hammerer l'API Deezer
-                await asyncio.sleep(0.15)
+            # Petit délai pour ne pas hammerer l'API Deezer
+            await asyncio.sleep(0.15)
 
-            await db.commit()
+        await db.commit()
 
     print(f"\nTerminé — ok: {ok}, sans source Deezer: {skipped}, erreurs: {errors}")
 
