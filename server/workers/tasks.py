@@ -36,7 +36,7 @@ def crawl_radar():
 
         if dz_modification_date and pl.get("last_crawled_at"):
             last_crawled = datetime.fromisoformat(pl["last_crawled_at"]).replace(tzinfo=timezone.utc)
-            dz_mod = datetime.fromtimestamp(dz_modification_date, tz=timezone.utc)
+            dz_mod = datetime.fromtimestamp(int(dz_modification_date), tz=timezone.utc)
             if dz_mod <= last_crawled:
                 skipped += 1
                 continue
