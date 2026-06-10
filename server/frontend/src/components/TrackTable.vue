@@ -67,6 +67,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import StyleTag from './StyleTag.vue'
+import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 
 const props = defineProps({
@@ -83,7 +84,9 @@ const COLS = [
   { key: 'rating',   label: 'Rating',   sortable: true,  num: true  },
 ]
 
-const { playingId, toggle: togglePlay } = useAudioPlayer()
+const player = useAudioPlayer()
+const { playingId } = storeToRefs(player)
+const { toggle: togglePlay } = player
 
 function handlePlay(track) {
   togglePlay(track.id, track.catalog_id)
