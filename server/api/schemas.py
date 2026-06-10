@@ -102,6 +102,11 @@ class CatalogEntryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CatalogList(BaseModel):
+    total: int
+    items: list[CatalogEntryOut]
+
+
 class WatchedPlaylistIn(BaseModel):
     external_id: str
     source: str

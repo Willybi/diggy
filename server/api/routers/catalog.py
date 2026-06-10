@@ -4,15 +4,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import CatalogEntry, LibTrack, RadarTrack
-from schemas import CatalogEntryOut
+from schemas import CatalogEntryOut, CatalogList
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 
-@router.get("/", response_model=list[CatalogEntryOut])
+@router.get("/", response_model=CatalogList)
 async def list_catalog(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     in_lib: bool | None = Query(None),
     min_radar_playlists: int | None = Query(None),
+    search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     # Sous-requête : nb de playlists distinctes dans radar_tracks par catalog_id
@@ -54,7 +57,17 @@ async def list_catalog(
             func.coalesce(radar_count.c.nb_playlists, 0) >= min_radar_playlists
         )
 
-    result = await db.execute(query)
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(
+            CatalogEntry.title.ilike(pattern) | CatalogEntry.artist.ilike(pattern)
+        )
+
+    # Total avant pagination
+    total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_result.scalar()
+
+    result = await db.execute(query.offset(skip).limit(limit))
     rows = result.all()
 
     entries = []
@@ -78,8 +91,8 @@ async def list_catalog(
             created_at=entry.created_at,
             in_lib=is_in_lib,
             nb_radar_playlists=nb_playlists or 0,
-            nb_radar_sets=0,  # futur — TrackID.net
+            nb_radar_sets=0,
         )
         entries.append(out)
 
-    return entries
+    return CatalogList(total=total, items=entries)

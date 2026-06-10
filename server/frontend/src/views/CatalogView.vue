@@ -3,21 +3,17 @@
     <header class="view-header">
       <div>
         <h1 class="view-title">Catalog</h1>
-        <span class="view-sub">{{ filteredEntries.length }} / {{ entries.length }} tracks</span>
+        <span class="view-sub">{{ total }} tracks</span>
       </div>
       <div class="filters">
-        <input v-model="search" class="search-input" placeholder="Artiste ou titre…" />
-        <button class="chip" :class="{ 'chip--on': notInLib }" @click="toggleChip('notInLib')">
-          Pas dans RB
-        </button>
-        <button class="chip" :class="{ 'chip--on': radarMin2 }" @click="toggleChip('radarMin2')">
-          Radar ≥ 2
-        </button>
+        <input v-model="search" class="search-input" placeholder="Artiste ou titre…" @input="onSearch" />
+        <button class="chip" :class="{ 'chip--on': notInLib }" @click="toggleChip('notInLib')">Pas dans RB</button>
+        <button class="chip" :class="{ 'chip--on': radarMin2 }" @click="toggleChip('radarMin2')">Radar ≥ 2</button>
       </div>
     </header>
 
     <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="!entries.length" class="state">Aucun résultat.</div>
+    <div v-else-if="!total && !loading" class="state">Aucun résultat.</div>
     <template v-else>
       <div class="table-wrap">
         <table class="track-table">
@@ -41,8 +37,10 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in pagedEntries" :key="e.id">
-              <td class="col-play"><span class="play-btn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span></td>
+            <tr v-for="e in items" :key="e.id">
+              <td class="col-play">
+                <span class="play-btn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span>
+              </td>
               <td class="col-title">
                 <div class="cell-track">
                   <div class="mini-art">
@@ -68,9 +66,9 @@
       </div>
 
       <div v-if="totalPages > 1" class="pagination">
-        <button class="page-btn" :disabled="page === 1" @click="page--">←</button>
+        <button class="page-btn" :disabled="page === 1" @click="goTo(page - 1)">←</button>
         <span class="page-info">{{ page }} / {{ totalPages }}</span>
-        <button class="page-btn" :disabled="page === totalPages" @click="page++">→</button>
+        <button class="page-btn" :disabled="page === totalPages" @click="goTo(page + 1)">→</button>
       </div>
     </template>
   </div>
@@ -83,18 +81,57 @@ import InLibBadge from '../components/InLibBadge.vue'
 
 const PAGE_SIZE = 50
 
-const entries   = ref([])
+const items     = ref([])
+const total     = ref(0)
 const loading   = ref(false)
 const search    = ref('')
 const notInLib  = ref(false)
 const radarMin2 = ref(false)
+const page      = ref(1)
 const sortKey   = ref('nb_radar_playlists')
 const sortDir   = ref('desc')
-const page      = ref(1)
+
+let searchTimer = null
+
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+
+function buildParams() {
+  const params = { skip: (page.value - 1) * PAGE_SIZE, limit: PAGE_SIZE }
+  if (notInLib.value)           params.in_lib = false
+  if (radarMin2.value)          params.min_radar_playlists = 2
+  if (search.value)             params.search = search.value
+  return params
+}
+
+async function fetchPage() {
+  loading.value = true
+  try {
+    const { data } = await axios.get('/api/catalog/', { params: buildParams() })
+    items.value = data.items
+    total.value = data.total
+  } finally {
+    loading.value = false
+  }
+}
+
+function goTo(p) {
+  page.value = p
+  fetchPage()
+}
 
 function toggleChip(chip) {
   if (chip === 'notInLib') notInLib.value = !notInLib.value
   if (chip === 'radarMin2') radarMin2.value = !radarMin2.value
+  page.value = 1
+  fetchPage()
+}
+
+function onSearch() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    page.value = 1
+    fetchPage()
+  }, 300)
 }
 
 function sort(key) {
@@ -105,6 +142,7 @@ function sort(key) {
     sortDir.value = 'desc'
   }
   page.value = 1
+  fetchPage()
 }
 
 function formatDuration(ms) {
@@ -112,45 +150,7 @@ function formatDuration(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-async function fetchEntries() {
-  loading.value = true
-  page.value = 1
-  try {
-    const params = {}
-    if (notInLib.value)  params.in_lib = false
-    if (radarMin2.value) params.min_radar_playlists = 2
-    const { data } = await axios.get('/api/catalog/', { params })
-    entries.value = data
-  } finally {
-    loading.value = false
-  }
-}
-
-const filteredEntries = computed(() => {
-  const q = search.value.toLowerCase()
-  const arr = q
-    ? entries.value.filter(e => e.title?.toLowerCase().includes(q) || e.artist?.toLowerCase().includes(q))
-    : entries.value
-
-  const k = sortKey.value
-  const dir = sortDir.value === 'asc' ? 1 : -1
-  return [...arr].sort((a, b) => {
-    const av = a[k] ?? (typeof a[k] === 'number' ? -Infinity : '')
-    const bv = b[k] ?? (typeof b[k] === 'number' ? -Infinity : '')
-    return av < bv ? -dir : av > bv ? dir : 0
-  })
-})
-
-const totalPages = computed(() => Math.ceil(filteredEntries.value.length / PAGE_SIZE))
-
-const pagedEntries = computed(() => {
-  const start = (page.value - 1) * PAGE_SIZE
-  return filteredEntries.value.slice(start, start + PAGE_SIZE)
-})
-
-watch([notInLib, radarMin2], fetchEntries)
-watch(search, () => { page.value = 1 })
-onMounted(fetchEntries)
+onMounted(fetchPage)
 </script>
 
 <style scoped>
@@ -210,12 +210,13 @@ onMounted(fetchEntries)
   border-color: transparent;
 }
 
-/* Table — même style que TrackTable */
+/* Table */
 .table-wrap { overflow-x: auto; }
 .track-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13.5px;
+  table-layout: fixed;
 }
 .track-table thead th {
   text-align: left;
@@ -227,6 +228,7 @@ onMounted(fetchEntries)
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
+  overflow: hidden;
 }
 .track-table thead th.sortable { cursor: pointer; }
 .track-table thead th.sortable:hover { color: var(--ink-2); }
@@ -237,13 +239,22 @@ onMounted(fetchEntries)
   padding: 0 14px;
   vertical-align: middle;
   border-bottom: 1px solid var(--line);
+  overflow: hidden;
 }
 .track-table tbody tr:hover td { background: var(--surface-2); }
 .track-table tbody tr:last-child td { border-bottom: none; }
 .sort-indicator { margin-left: 4px; color: var(--accent-ink); }
 
+/* Column widths */
+.col-play     { width: 38px; padding: 0 8px !important; }
+.col-title    { width: auto; }
+.col-radar    { width: 72px; }
+.col-bpm      { width: 72px; }
+.col-key      { width: 60px; }
+.col-duration { width: 72px; }
+.col-inlib    { width: 110px; }
+
 /* Play btn */
-.col-play { width: 30px; padding: 0 8px !important; }
 .play-btn {
   width: 26px; height: 26px;
   border-radius: 50%;
@@ -259,7 +270,7 @@ onMounted(fetchEntries)
 .track-table tbody tr:hover .play-btn { opacity: 1; }
 
 /* Track cell */
-.cell-track { display: flex; align-items: center; gap: 12px; }
+.cell-track { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .mini-art {
   width: 38px; height: 38px;
   flex: none;
@@ -269,28 +280,31 @@ onMounted(fetchEntries)
   background: repeating-linear-gradient(135deg, var(--surface-2) 0 5px, var(--surface-3) 5px 10px);
 }
 .mini-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.track-info { min-width: 0; }
+.track-info { min-width: 0; flex: 1; }
 .track-title {
   display: block;
   font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .track-artist {
   display: block;
   font-size: 12px;
   color: var(--ink-2);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Numeric */
+/* Cells */
 .num { text-align: right; }
 .mono { font-family: var(--font-mono); color: var(--ink-2); }
 .key-val { color: var(--accent-ink); font-weight: 500; }
 .muted { color: var(--ink-3); }
 
-/* Radar badge */
 .radar-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 22px; height: 22px; padding: 0 6px;
@@ -326,7 +340,6 @@ onMounted(fetchEntries)
   min-width: 60px;
   text-align: center;
 }
-
 .state {
   color: var(--ink-3);
   font-size: 14px;
