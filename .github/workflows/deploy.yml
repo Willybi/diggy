@@ -33,14 +33,18 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
-          timeout: 60s
-          command_timeout: 10m
+          timeout: 20s
+          command_timeout: 3m
           script: |
             cd /root/diggy
             git fetch origin
             git reset --hard origin/master
             docker compose up -d --build --force-recreate
             docker compose ps
+
+      - name: Wait before retry
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 10
 
       - name: Deploy via SSH (retry)
         if: steps.deploy.outcome == 'failure'
@@ -49,8 +53,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
-          timeout: 60s
-          command_timeout: 10m
+          timeout: 20s
+          command_timeout: 3m
           script: |
             cd /root/diggy
             git fetch origin
