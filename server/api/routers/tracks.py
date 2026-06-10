@@ -86,6 +86,21 @@ async def bulk_import(tracks: list[TrackImport], db: AsyncSession = Depends(get_
     return BulkImportResult(inserted=inserted, updated=updated, artworks_uploaded=artworks_uploaded)
 
 
+@router.get("/tags", response_model=list[str])
+async def list_tags(db: AsyncSession = Depends(get_db)):
+    """Retourne tous les tags uniques extraits de lib_tracks."""
+    result = await db.execute(select(LibTrack.tags).where(LibTrack.tags != None))
+    tags_set = set()
+    for (tags_json,) in result.all():
+        try:
+            for tag in json.loads(tags_json):
+                if tag:
+                    tags_set.add(tag)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return sorted(tags_set)
+
+
 @router.get("/", response_model=TrackList)
 async def list_tracks(
     skip: int = Query(0, ge=0),
