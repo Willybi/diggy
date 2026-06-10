@@ -36,8 +36,15 @@
       <tbody>
         <tr v-for="e in displayedEntries" :key="e.id">
           <td class="col-track">
-            <span class="track-title">{{ e.title }}</span>
-            <span class="track-artist">{{ e.artist }}</span>
+            <div class="cell-track">
+              <div class="mini-art">
+                <img v-if="e.has_artwork" :src="`/storage/catalog-artworks/${e.id}.jpg`" :alt="e.title" />
+              </div>
+              <div>
+                <span class="track-title">{{ e.title }}</span>
+                <span class="track-artist">{{ e.artist }}</span>
+              </div>
+            </div>
           </td>
           <td>
             <span v-if="e.nb_radar_playlists > 0" class="radar-badge">{{ e.nb_radar_playlists }}</span>
@@ -207,7 +214,31 @@ onMounted(fetchEntries)
   vertical-align: middle;
 }
 .col-track {
-  max-width: 320px;
+  max-width: 360px;
+}
+.cell-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mini-art {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--surface-2) 0 5px,
+    var(--surface-3) 5px 10px
+  );
+}
+.mini-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .track-title {
   display: block;
