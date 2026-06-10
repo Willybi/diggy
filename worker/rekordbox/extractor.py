@@ -4,16 +4,19 @@ from collections import defaultdict
 
 from pyrekordbox import Rekordbox6Database
 
+# Canonical style names (used in DB and frontend)
 KNOWN_STYLES = {
-    # House
     'Downtempo', 'Nu Disco', 'Deep House', 'UK House',
     'French Touch', 'Tech House', 'UK Garage',
-    # Techno
     'Electro brut', 'Melodic Techno', 'Classic/Min. Techno', 'Hard/Dark Techno',
-    # Trance
     'Psytrance', 'Trance Techno',
-    # Misc
     'Misc. Tracks',
+}
+
+# RB tag name → canonical name (handles case/format variants)
+STYLE_ALIASES = {
+    'Nu-Disco':    'Nu Disco',
+    'Electro Brut': 'Electro brut',
 }
 
 
@@ -39,7 +42,7 @@ class RekordboxExtractor:
             "rating": track.Rating,
             "file_path": track.FolderPath,
             "date_added": str(track.DateCreated) if track.DateCreated else None,
-            "tags": [t for t in (track.MyTagNames or []) if t in KNOWN_STYLES],
+            "tags": [STYLE_ALIASES.get(t, t) for t in (track.MyTagNames or []) if STYLE_ALIASES.get(t, t) in KNOWN_STYLES],
         }
 
     def get_track_cues(self, track_id: int) -> list:
