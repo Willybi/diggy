@@ -104,13 +104,16 @@ async def list_tags(db: AsyncSession = Depends(get_db)):
 @router.get("/", response_model=TrackList)
 async def list_tracks(
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(200, ge=1, le=1000),
     artist: str | None = None,
+    tag: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     query = select(LibTrack)
     if artist:
         query = query.where(LibTrack.artist.ilike(f"%{artist}%"))
+    if tag:
+        query = query.where(LibTrack.tags.contains(tag))
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
