@@ -179,6 +179,7 @@ onMounted(fetchPage)
 <style scoped>
 .catalog-view {
   padding: var(--pad) calc(var(--pad) * 1.5);
+  max-width: 1400px;
 }
 .view-header {
   display: flex;
