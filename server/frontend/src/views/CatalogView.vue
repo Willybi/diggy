@@ -85,6 +85,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 import InLibBadge from '../components/InLibBadge.vue'
+import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 
 const PAGE_SIZE = 50
@@ -98,7 +99,9 @@ const radarMin2  = ref(false)
 const page       = ref(1)
 const sortKey    = ref('nb_radar_playlists')
 const sortDir    = ref('desc')
-const { playingId, toggle: togglePlay } = useAudioPlayer()
+const player = useAudioPlayer()
+const { playingId } = storeToRefs(player)
+const { toggle: togglePlay } = player
 
 let searchTimer = null
 
