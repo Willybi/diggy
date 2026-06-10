@@ -60,7 +60,7 @@ class TestGetTrackMetadata:
 
     def test_tags_as_list(self, extractor):
         meta = extractor.get_track_metadata(TRACKS[0])
-        assert meta["tags"] == ["Tech House", "TO_CUE"]
+        assert meta["tags"] == ["Tech House"]  # TO_CUE filtered out (RB internal tag)
 
     def test_tags_empty_list_when_none(self, extractor):
         meta = extractor.get_track_metadata(TRACKS[2])
