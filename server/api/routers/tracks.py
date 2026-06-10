@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import get_db
-from models import LibTrack
+from models import LibTrack, CatalogEntry
 from schemas import TrackOut, TrackList, TrackExisting, TrackImport, BulkImportResult
 import json
 import base64
@@ -109,7 +109,10 @@ async def list_tracks(
     tag: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(LibTrack)
+    query = (
+        select(LibTrack, CatalogEntry.has_preview)
+        .outerjoin(CatalogEntry, LibTrack.catalog_id == CatalogEntry.id)
+    )
     if artist:
         query = query.where(LibTrack.artist.ilike(f"%{artist}%"))
     if tag:
@@ -119,9 +122,17 @@ async def list_tracks(
     total = total_result.scalar()
 
     result = await db.execute(query.offset(skip).limit(limit))
-    tracks = result.scalars().all()
+    rows = result.all()
 
-    return TrackList(total=total, items=tracks)
+    items = []
+    for row in rows:
+        track, has_preview = row[0], row[1]
+        out = TrackOut.model_validate(track)
+        out.catalog_id = track.catalog_id
+        out.has_preview = has_preview or False
+        items.append(out)
+
+    return TrackList(total=total, items=items)
 
 
 @router.get("/{track_id}", response_model=TrackOut)
