@@ -36,7 +36,7 @@
                   :alt="track.title"
                 />
               </div>
-              <div>
+              <div class="track-info">
                 <span class="track-title">{{ track.title }}</span>
                 <span class="track-artist">{{ track.artist }}</span>
               </div>
@@ -128,6 +128,7 @@ function formatDuration(ms) {
   width: 100%;
   border-collapse: collapse;
   font-size: 13.5px;
+  table-layout: fixed;
 }
 .track-table thead th {
   text-align: left;
@@ -200,11 +201,21 @@ function formatDuration(ms) {
   opacity: 1;
 }
 
+/* Column widths */
+.col-play     { width: 38px; }
+.col-title    { width: auto; }
+.col-style    { width: 130px; }
+.col-bpm      { width: 72px; }
+.col-key      { width: 60px; }
+.col-duration { width: 72px; }
+.col-rating   { width: 90px; }
+
 /* Track cell */
 .cell-track {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 .mini-art {
   width: 38px;
@@ -225,16 +236,26 @@ function formatDuration(ms) {
   object-fit: cover;
   display: block;
 }
+.track-info {
+  min-width: 0;
+  flex: 1;
+}
 .track-title {
   display: block;
   font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .track-artist {
   display: block;
   font-size: 12px;
   color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Numeric cells */
