@@ -101,19 +101,22 @@ const playingId  = ref(null)
 
 let audio = null
 
-function togglePlay(entry) {
-  const url = entry.preview_url?.trim()
-  if (!url) return
+async function togglePlay(entry) {
   if (playingId.value === entry.id) {
     audio.pause()
     playingId.value = null
     return
   }
   if (audio) audio.pause()
-  audio = new Audio(url)
-  audio.play()
-  playingId.value = entry.id
-  audio.addEventListener('ended', () => { playingId.value = null })
+  try {
+    const { data } = await axios.get(`/api/catalog/${entry.id}/preview-url`)
+    audio = new Audio(data.preview_url)
+    audio.play()
+    playingId.value = entry.id
+    audio.addEventListener('ended', () => { playingId.value = null })
+  } catch {
+    // pas de preview dispo
+  }
 }
 
 let searchTimer = null
