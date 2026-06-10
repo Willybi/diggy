@@ -1,28 +1,67 @@
 <template>
-  <div>
-    <h1>Tags</h1>
-    <div v-if="tags.length">
-      <span v-for="tag in tags" :key="tag" class="tag">{{ tag }}</span>
+  <div class="tags-view">
+    <header class="view-header">
+      <h1 class="view-title">Style Tags</h1>
+      <span class="view-sub">{{ tags.length }} styles</span>
+    </header>
+
+    <div v-if="loading" class="state">Chargement…</div>
+    <div v-else-if="!tags.length" class="state">Aucun tag.</div>
+    <div v-else class="tags-grid">
+      <StyleTag v-for="tag in tags" :key="tag" :name="tag" />
     </div>
-    <p v-else>Aucun tag.</p>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import StyleTag from '../components/StyleTag.vue'
 
-const tags = ref([])
+const tags    = ref([])
+const loading = ref(false)
 
-onMounted(async () => {
-  const { data } = await axios.get('/api/tracks/tags')
-  tags.value = data
-})
+async function fetchTags() {
+  loading.value = true
+  try {
+    const { data } = await axios.get('/api/tracks/tags')
+    tags.value = data
+  } catch {
+    tags.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(fetchTags)
 </script>
 
 <style scoped>
-h1 { margin-bottom: 1rem; }
-.group { margin-bottom: 1.5rem; }
-h2 { font-size: 0.85rem; text-transform: uppercase; color: #888; margin-bottom: 0.5rem; }
-.tag { display: inline-block; background: #2a2a2a; border: 1px solid #444; border-radius: 12px; padding: 0.2rem 0.6rem; margin: 0.2rem; font-size: 0.9rem; }
+.tags-view {
+  padding: var(--pad) calc(var(--pad) * 1.5);
+}
+.view-header {
+  margin-bottom: 20px;
+}
+.view-title {
+  font: 600 22px/1.1 var(--font-ui);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.view-sub {
+  font: 400 12px/1 var(--font-mono);
+  color: var(--ink-3);
+  margin-top: 4px;
+  display: block;
+}
+.tags-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.state {
+  color: var(--ink-3);
+  font-size: 14px;
+  font-style: italic;
+}
 </style>

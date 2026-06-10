@@ -1,0 +1,124 @@
+/* ============================================================
+   DIGGY — Design Tokens  ·  v1 "Wildflower"
+   ------------------------------------------------------------
+   Drop this file in your app and import it ONCE at the root
+   (e.g. main.js: `import './styles/diggy-tokens.css'`).
+   Everything else reads from these CSS custom properties, so
+   re-theming = changing values here, never in components.
+
+   Dark mode: add `data-theme="dark"` on <html> (or <body>).
+   Density:   add `data-density="compact" | "comfy"` (default regular).
+
+   Fonts (add to index.html <head>):
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+   ============================================================ */
+
+:root {
+  /* ---- type ---- */
+  --font-ui:   'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* ---- neutrals (warm ivory + warm greys) — INVARIANT across palettes ---- */
+  --bg:        oklch(0.974 0.008 92);
+  --surface:   oklch(0.995 0.004 92);
+  --surface-2: oklch(0.955 0.009 92);
+  --surface-3: oklch(0.935 0.010 92);
+  --ink:       oklch(0.255 0.012 70);
+  --ink-2:     oklch(0.455 0.012 70);
+  --ink-3:     oklch(0.615 0.010 70);
+  --line:      oklch(0.905 0.008 88);
+  --line-2:    oklch(0.875 0.009 88);
+
+  /* ---- accent (Wildflower mauve) — hue-driven ---- */
+  --accent-h:  328;
+  --accent-l:  0.615;  --accent-c: 0.132;
+  --accent:        oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+  --accent-hover:  oklch(0.565 0.138 var(--accent-h));
+  --accent-soft:   oklch(0.940 0.046 var(--accent-h));
+  --accent-soft-2: oklch(0.900 0.062 var(--accent-h));
+  --accent-ink:    oklch(0.470 0.122 var(--accent-h));
+  --on-accent:     oklch(0.987 0.010 var(--accent-h));
+
+  /* ---- in-lib / positive (Wildflower prairie) — duo partner of accent ---- */
+  --pos-h: 138;
+  --pos-l: 0.580;  --pos-c: 0.098;
+  --pos:      oklch(var(--pos-l) var(--pos-c) var(--pos-h));
+  --pos-soft: oklch(0.940 0.046 var(--pos-h));
+  --pos-ink:  oklch(0.460 0.098 var(--pos-h));
+
+  /* ---- style-tag chip lightness/chroma (hue+shade set per chip) ---- */
+  --tag-bg-l: 0.940;  --tag-bg-c: 0.060;
+  --tag-fg-l: 0.460;  --tag-fg-c: 0.130;
+  --tag-dot-l: 0.650; --tag-dot-c: 0.152;
+
+  /* ============================================================
+     STYLE FAMILIES  ·  4 colour groups, members share a hue
+     Each style = its family hue + a small (offset, shade) so
+     siblings read as variations of one colour.
+       offsets by member index: [-4, +5, -10, +11]
+       shades  by member index: [0, 0.018, 0.036, 0.054]
+     To add a style, pick its family and the next free index.
+     ============================================================ */
+  /* family base hues (reference) */
+  --family-house:   268;   /* Tech House, Deep House      — groovy/club  */
+  --family-melodic: 312;   /* Melodic Techno, Progressive — deep/hypnotic */
+  --family-disco:   352;   /* Nu Disco, Breaks            — retro/funky  */
+  --family-roots:   42;    /* Afro House, Organic         — earthy/world */
+
+  /* resolved per-style hue (--h-) + shade (--s-) */
+  --h-tech-house: 264;     --s-tech-house: 0;
+  --h-deep-house: 273;     --s-deep-house: 0.018;
+  --h-melodic-techno: 308; --s-melodic-techno: 0;
+  --h-progressive: 317;    --s-progressive: 0.018;
+  --h-nu-disco: 348;       --s-nu-disco: 0;
+  --h-breaks: 357;         --s-breaks: 0.018;
+  --h-afro-house: 38;      --s-afro-house: 0;
+  --h-organic: 47;         --s-organic: 0.018;
+
+  /* ---- shape ---- */
+  --r-xs: 6px;  --r-sm: 9px;  --r-md: 13px;  --r-lg: 18px;  --r-xl: 24px;
+
+  /* ---- depth ---- */
+  --shadow-sm: 0 1px 2px oklch(0.40 0.02 70 / 0.06), 0 1px 1px oklch(0.40 0.02 70 / 0.04);
+  --shadow-md: 0 4px 14px oklch(0.40 0.02 70 / 0.07), 0 2px 5px oklch(0.40 0.02 70 / 0.05);
+  --shadow-lg: 0 18px 48px oklch(0.40 0.02 70 / 0.12), 0 6px 16px oklch(0.40 0.02 70 / 0.07);
+
+  /* ---- density (table row height + base padding) ---- */
+  --row-h: 56px;
+  --pad: 16px;
+}
+
+[data-theme="dark"] {
+  --bg:        oklch(0.198 0.012 262);
+  --surface:   oklch(0.238 0.014 262);
+  --surface-2: oklch(0.278 0.014 262);
+  --surface-3: oklch(0.312 0.014 262);
+  --ink:       oklch(0.945 0.006 92);
+  --ink-2:     oklch(0.745 0.010 92);
+  --ink-3:     oklch(0.595 0.012 92);
+  --line:      oklch(0.330 0.014 262);
+  --line-2:    oklch(0.388 0.015 262);
+
+  --accent-l: 0.760;  --accent-c: 0.128;
+  --accent-hover:  oklch(0.810 0.122 var(--accent-h));
+  --accent-soft:   oklch(0.338 0.066 var(--accent-h));
+  --accent-soft-2: oklch(0.388 0.078 var(--accent-h));
+  --accent-ink:    oklch(0.832 0.108 var(--accent-h));
+  --on-accent:     oklch(0.182 0.030 var(--accent-h));
+
+  --pos-l: 0.778;  --pos-c: 0.104;
+  --pos-soft: oklch(0.338 0.062 var(--pos-h));
+  --pos-ink:  oklch(0.832 0.094 var(--pos-h));
+
+  --tag-bg-l: 0.336;  --tag-bg-c: 0.064;
+  --tag-fg-l: 0.836;  --tag-fg-c: 0.106;
+  --tag-dot-l: 0.730; --tag-dot-c: 0.138;
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.30);
+  --shadow-md: 0 4px 14px oklch(0 0 0 / 0.34), 0 2px 5px oklch(0 0 0 / 0.28);
+  --shadow-lg: 0 18px 48px oklch(0 0 0 / 0.48), 0 6px 16px oklch(0 0 0 / 0.34);
+}
+
+[data-density="compact"] { --row-h: 46px; --pad: 12px; }
+[data-density="comfy"]   { --row-h: 68px; --pad: 22px; }
