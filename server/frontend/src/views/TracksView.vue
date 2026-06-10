@@ -82,6 +82,7 @@ onMounted(fetchTracks)
 .tracks-view {
   padding: var(--pad) calc(var(--pad) * 1.5);
   max-width: 1400px;
+  margin: 0 auto;
 }
 .view-header {
   display: flex;
