@@ -22,20 +22,29 @@
       />
     </div>
 
-    <TrackTable :tracks="tracks" :loading="loading" />
+    <TrackTable :tracks="pagedTracks" :loading="loading" />
+
+    <div v-if="totalPages > 1" class="pagination">
+      <button class="page-btn" :disabled="page === 1" @click="page--">←</button>
+      <span class="page-info">{{ page }} / {{ totalPages }}</span>
+      <button class="page-btn" :disabled="page === totalPages" @click="page++">→</button>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 import TrackTable from '../components/TrackTable.vue'
 import TrackFilters from '../components/TrackFilters.vue'
+
+const PAGE_SIZE = 50
 
 const tracks  = ref([])
 const total   = ref(0)
 const loading = ref(false)
 const search  = ref('')
+const page    = ref(1)
 
 const styleFilter = ref('')
 const bpmMin      = ref(null)
@@ -44,6 +53,7 @@ const inLibOnly   = ref(false)
 
 async function fetchTracks() {
   loading.value = true
+  page.value = 1
   try {
     const params = {}
     if (search.value)      params.artist = search.value
@@ -57,6 +67,12 @@ async function fetchTracks() {
     loading.value = false
   }
 }
+
+const totalPages  = computed(() => Math.ceil(tracks.value.length / PAGE_SIZE))
+const pagedTracks = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE
+  return tracks.value.slice(start, start + PAGE_SIZE)
+})
 
 watch([styleFilter, bpmMin, bpmMax], fetchTracks)
 onMounted(fetchTracks)
@@ -115,5 +131,30 @@ onMounted(fetchTracks)
 }
 .filters-wrap {
   margin-bottom: 16px;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+.page-btn {
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.page-btn:hover:not(:disabled) { background: var(--surface-2); }
+.page-btn:disabled { opacity: 0.35; cursor: default; }
+.page-info {
+  font: 400 12px/1 var(--font-mono);
+  color: var(--ink-3);
+  min-width: 60px;
+  text-align: center;
 }
 </style>
