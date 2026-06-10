@@ -1,20 +1,20 @@
 """
-Télécharge les covers Deezer pour les entrées catalog sans artwork.
+Télécharge les covers Deezer et récupère les preview_url pour les entrées catalog.
 
 Logique :
-  - Pour chaque CatalogEntry où has_artwork=False :
+  - Pour chaque CatalogEntry ciblée :
       - Cherche un RadarTrack lié avec source='deezer'
-      - Appelle GET https://api.deezer.com/track/{external_track_id}
-      - Télécharge album.cover_medium (~250x250)
-      - Upload dans le bucket MinIO 'catalog-artworks' sous {catalog_id}.jpg
-      - Met has_artwork=True dans la table catalog
+      - Appelle GET https://api.deezer.com/track/{id} → cover_medium + preview
+      - Upload cover dans MinIO 'catalog-artworks' (sauf si --preview-only)
+      - Sauvegarde preview_url dans la table catalog
 
 Usage (depuis le VPS) :
     docker compose exec api python scripts/fetch_catalog_artworks.py
 
 Options :
-    --limit N    Traite au maximum N entrées (utile pour tester)
-    --force      Re-télécharge même si has_artwork=True
+    --limit N         Traite au maximum N entrées
+    --force           Re-traite même si has_artwork=True
+    --preview-only    Ne re-télécharge pas les covers, remplit seulement preview_url manquants
 """
 import asyncio
 import argparse
@@ -66,12 +66,16 @@ def ensure_bucket():
         print(f"Bucket '{BUCKET}' créé.")
 
 
-def fetch_cover_url(deezer_track_id: str) -> str | None:
+def fetch_deezer_track(deezer_track_id: str) -> dict | None:
+    """Retourne {cover_url, preview_url} depuis l'API Deezer, ou None si erreur."""
     try:
         r = requests.get(f"{DEEZER_API}/track/{deezer_track_id}", timeout=10)
         r.raise_for_status()
         data = r.json()
-        return data.get("album", {}).get(COVER_FIELD)
+        return {
+            "cover_url":   data.get("album", {}).get(COVER_FIELD),
+            "preview_url": data.get("preview"),
+        }
     except Exception as e:
         print(f"  Deezer API error pour track {deezer_track_id}: {e}")
         return None
@@ -90,18 +94,24 @@ def upload_cover(img_bytes: bytes, catalog_id: int) -> None:
         os.unlink(tmp)
 
 
-async def run(limit: int | None, force: bool):
+async def run(limit: int | None, force: bool, preview_only: bool):
     database_url = os.environ["DATABASE_URL"]
     engine = create_async_engine(database_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    ensure_bucket()
+    if not preview_only:
+        ensure_bucket()
 
     async with async_session() as db:
-        # Entrées catalog sans artwork (ou toutes si --force)
         q = select(CatalogEntry)
-        if not force:
-            q = q.where(CatalogEntry.has_artwork == False)
+        if preview_only:
+            # Cible uniquement les entrées sans preview_url
+            q = q.where(CatalogEntry.preview_url.is_(None))
+        elif not force:
+            # Cible sans artwork OU sans preview
+            q = q.where(
+                (CatalogEntry.has_artwork == False) | CatalogEntry.preview_url.is_(None)
+            )
         if limit:
             q = q.limit(limit)
         result = await db.execute(q)
@@ -126,39 +136,32 @@ async def run(limit: int | None, force: bool):
                 continue
 
             deezer_id = row[0]
-            cover_url = fetch_cover_url(deezer_id)
-            if not cover_url:
+            dz = fetch_deezer_track(deezer_id)
+            if not dz:
                 errors += 1
                 continue
 
-            # Télécharge la cover
-            try:
-                img_resp = requests.get(cover_url, timeout=15)
-                img_resp.raise_for_status()
-                img_bytes = img_resp.content
-            except Exception as e:
-                print(f"  Download error [{entry.id}] {entry.artist} — {entry.title}: {e}")
-                errors += 1
-                continue
+            # Sauvegarde preview_url
+            if dz["preview_url"]:
+                entry.preview_url = dz["preview_url"]
 
-            # Upload S3
-            try:
-                upload_cover(img_bytes, entry.id)
-            except Exception as e:
-                print(f"  S3 upload error [{entry.id}]: {e}")
-                errors += 1
-                continue
+            # Cover — skip si preview_only ou déjà présente
+            if not preview_only and not entry.has_artwork and dz["cover_url"]:
+                try:
+                    img_resp = requests.get(dz["cover_url"], timeout=15)
+                    img_resp.raise_for_status()
+                    upload_cover(img_resp.content, entry.id)
+                    entry.has_artwork = True
+                except Exception as e:
+                    print(f"  Cover error [{entry.id}]: {e}")
 
-            # Update DB
-            entry.has_artwork = True
             db.add(entry)
             ok += 1
 
             if ok % 50 == 0:
                 await db.commit()
-                print(f"  {ok} covers uploadées…")
+                print(f"  {ok} entrées traitées…")
 
-            # Petit délai pour ne pas hammerer l'API Deezer
             await asyncio.sleep(0.15)
 
         await db.commit()
@@ -170,5 +173,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--preview-only", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run(limit=args.limit, force=args.force))
+    asyncio.run(run(limit=args.limit, force=args.force, preview_only=args.preview_only))
