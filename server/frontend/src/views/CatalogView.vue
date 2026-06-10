@@ -41,8 +41,8 @@
               <td class="col-play">
                 <span
                   class="play-btn"
-                  :class="{ 'play-btn--disabled': !e.preview_url, 'play-btn--playing': playingId === e.id }"
-                  @click="e.preview_url && togglePlay(e)"
+                  :class="{ 'play-btn--disabled': !e.preview_url?.trim(), 'play-btn--playing': playingId === e.id }"
+                  @click="e.preview_url?.trim() && togglePlay(e)"
                 >
                   <svg v-if="playingId !== e.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
                   <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
@@ -102,13 +102,15 @@ const playingId  = ref(null)
 let audio = null
 
 function togglePlay(entry) {
+  const url = entry.preview_url?.trim()
+  if (!url) return
   if (playingId.value === entry.id) {
     audio.pause()
     playingId.value = null
     return
   }
   if (audio) audio.pause()
-  audio = new Audio(entry.preview_url)
+  audio = new Audio(url)
   audio.play()
   playingId.value = entry.id
   audio.addEventListener('ended', () => { playingId.value = null })
@@ -180,6 +182,7 @@ onMounted(fetchPage)
 .catalog-view {
   padding: var(--pad) calc(var(--pad) * 1.5);
   max-width: 1400px;
+  margin: 0 auto;
 }
 .view-header {
   display: flex;
