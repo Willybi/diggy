@@ -44,16 +44,38 @@ jobs:
 
       - name: Wait before retry
         if: steps.deploy.outcome == 'failure'
-        run: sleep 10
+        run: sleep 30
 
-      - name: Deploy via SSH (retry)
+      - name: Deploy via SSH (retry 1)
+        id: deploy_retry1
         if: steps.deploy.outcome == 'failure'
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
-          timeout: 20s
+          timeout: 30s
+          command_timeout: 3m
+          script: |
+            cd /root/diggy
+            git fetch origin
+            git reset --hard origin/master
+            docker compose up -d --build --force-recreate
+            docker compose ps
+
+      - name: Wait before retry 2
+        if: steps.deploy.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy via SSH (retry 2)
+        if: steps.deploy.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          timeout: 30s
           command_timeout: 3m
           script: |
             cd /root/diggy
