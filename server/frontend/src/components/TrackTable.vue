@@ -24,8 +24,13 @@
         </tr>
         <tr v-else v-for="track in sortedTracks" :key="track.id">
           <td class="col-play">
-            <span class="play-btn">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+            <span
+              class="play-btn"
+              :class="{ 'play-btn--disabled': !track.has_preview, 'play-btn--playing': playingId === track.id }"
+              @click="track.has_preview && togglePlay(track)"
+            >
+              <svg v-if="playingId !== track.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+              <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
             </span>
           </td>
           <td class="col-title">
@@ -61,6 +66,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import axios from 'axios'
 import StyleTag from './StyleTag.vue'
 
 const props = defineProps({
@@ -76,6 +82,25 @@ const COLS = [
   { key: 'duration', label: 'Durée',    sortable: true,  num: true  },
   { key: 'rating',   label: 'Rating',   sortable: true,  num: true  },
 ]
+
+const playingId = ref(null)
+let audio = null
+
+async function togglePlay(track) {
+  if (playingId.value === track.id) {
+    audio.pause()
+    playingId.value = null
+    return
+  }
+  if (audio) audio.pause()
+  try {
+    const { data } = await axios.get(`/api/catalog/${track.catalog_id}/preview-url`)
+    audio = new Audio(data.preview_url)
+    audio.play()
+    playingId.value = track.id
+    audio.addEventListener('ended', () => { playingId.value = null })
+  } catch { /* pas de preview */ }
+}
 
 const sortKey = ref('title')
 const sortDir = ref('asc')
@@ -191,7 +216,18 @@ function formatDuration(ms) {
   color: var(--ink-2);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.play-btn--playing {
+  opacity: 1 !important;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.play-btn--disabled {
+  opacity: 0.2 !important;
+  cursor: default;
+  color: var(--ink-3);
 }
 .play-btn svg {
   width: 13px;

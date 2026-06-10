@@ -16,6 +16,8 @@ class TrackOut(BaseModel):
     date_added: Optional[datetime]
     tags: list[str] = []
     has_artwork: bool = False
+    catalog_id: Optional[int] = None
+    has_preview: bool = False
 
     @field_validator("tags", mode="before")
     @classmethod
