@@ -1,49 +1,130 @@
 <template>
-  <div>
-    <h1>Tracks ({{ total }})</h1>
-    <input v-model="search" placeholder="Rechercher un artiste..." @input="fetchTracks" />
-    <table v-if="tracks.length">
-      <thead>
-        <tr>
-          <th>Titre</th><th>Artiste</th><th>BPM</th><th>Key</th><th>Rating</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="t in tracks" :key="t.id">
-          <td>{{ t.title }}</td>
-          <td>{{ t.artist }}</td>
-          <td>{{ t.bpm }}</td>
-          <td>{{ t.key }}</td>
-          <td>{{ t.rating }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-else>Aucun track.</p>
+  <div class="tracks-view">
+    <header class="view-header">
+      <div>
+        <h1 class="view-title">Live Library</h1>
+        <span class="view-sub">{{ total }} tracks</span>
+      </div>
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/>
+        </svg>
+        <input v-model="search" class="search-input" placeholder="Artiste…" @input="fetchTracks" />
+      </div>
+    </header>
+
+    <div class="filters-wrap">
+      <TrackFilters
+        v-model:styleFilter="styleFilter"
+        v-model:bpmMin="bpmMin"
+        v-model:bpmMax="bpmMax"
+        v-model:inLibOnly="inLibOnly"
+      />
+    </div>
+
+    <TrackTable :tracks="filteredTracks" :loading="loading" />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
+import TrackTable from '../components/TrackTable.vue'
+import TrackFilters from '../components/TrackFilters.vue'
 
-const tracks = ref([])
-const total = ref(0)
-const search = ref('')
+const tracks  = ref([])
+const total   = ref(0)
+const loading = ref(false)
+const search  = ref('')
+
+const styleFilter = ref('')
+const bpmMin      = ref(null)
+const bpmMax      = ref(null)
+const inLibOnly   = ref(false)
 
 async function fetchTracks() {
-  const params = search.value ? { artist: search.value } : {}
-  const { data } = await axios.get('/api/tracks/', { params })
-  tracks.value = data.items
-  total.value = data.total
+  loading.value = true
+  try {
+    const params = search.value ? { artist: search.value } : {}
+    const { data } = await axios.get('/api/tracks/', { params })
+    tracks.value = data.items
+    total.value  = data.total
+  } finally {
+    loading.value = false
+  }
 }
+
+const filteredTracks = computed(() => {
+  return tracks.value.filter(t => {
+    if (styleFilter.value) {
+      try {
+        const tags = Array.isArray(t.tags) ? t.tags : JSON.parse(t.tags || '[]')
+        if (!tags.includes(styleFilter.value)) return false
+      } catch {
+        return false
+      }
+    }
+    if (bpmMin.value && t.bpm < bpmMin.value) return false
+    if (bpmMax.value && t.bpm > bpmMax.value) return false
+    return true
+  })
+})
 
 onMounted(fetchTracks)
 </script>
 
 <style scoped>
-h1 { margin-bottom: 1rem; }
-input { margin-bottom: 1rem; padding: 0.4rem; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #333; text-align: left; }
-th { background: #222; }
+.tracks-view {
+  padding: var(--pad) calc(var(--pad) * 1.5);
+}
+.view-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.view-title {
+  font: 600 22px/1.1 var(--font-ui);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.view-sub {
+  font: 400 12px/1 var(--font-mono);
+  color: var(--ink-3);
+  margin-top: 4px;
+  display: block;
+}
+.search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  min-width: 200px;
+}
+.search-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+  flex: none;
+}
+.search-input {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+  flex: 1;
+  min-width: 0;
+}
+.search-input::placeholder {
+  color: var(--ink-3);
+}
+.filters-wrap {
+  margin-bottom: 16px;
+}
 </style>
