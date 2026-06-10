@@ -29,7 +29,11 @@ class RekordboxExtractor:
         )
 
     def get_tracks(self) -> list:
-        return [t for t in self.db.get_content() if t.rb_data_status == 256]
+        return [
+            t for t in self.db.get_content()
+            if t.rb_data_status == 256
+            and (t.ArtistName or "").strip().lower() != "rekordbox"
+        ]
 
     def get_track_metadata(self, track) -> dict:
         return {
