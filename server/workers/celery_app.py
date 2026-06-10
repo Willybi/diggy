@@ -20,7 +20,11 @@ celery_app.conf.update(
     beat_schedule={
         "crawl-radar-daily": {
             "task": "workers.tasks.crawl_radar",
-            "schedule": crontab(hour=8, minute=0),  # tous les jours à 8h (Europe/Paris)
+            "schedule": crontab(hour=8, minute=0),  # tous les jours à 8h
+        },
+        "check-previews-weekly": {
+            "task": "workers.tasks.check_previews",
+            "schedule": crontab(hour=3, minute=0, day_of_week=0),  # dimanche à 3h
         },
     },
 )
