@@ -1,20 +1,19 @@
 """
-Télécharge les covers Deezer et récupère les preview_url pour les entrées catalog.
+Télécharge les covers Deezer pour les entrées catalog sans artwork.
 
 Logique :
-  - Pour chaque CatalogEntry ciblée :
+  - Pour chaque CatalogEntry où has_artwork=False :
       - Cherche un RadarTrack lié avec source='deezer'
-      - Appelle GET https://api.deezer.com/track/{id} → cover_medium + preview
-      - Upload cover dans MinIO 'catalog-artworks' (sauf si --preview-only)
-      - Sauvegarde preview_url dans la table catalog
+      - Appelle GET https://api.deezer.com/track/{id} → album.cover_medium
+      - Upload cover dans MinIO 'catalog-artworks' sous {catalog_id}.jpg
+      - Met has_artwork=True dans la table catalog
 
 Usage (depuis le VPS) :
     docker compose exec api python scripts/fetch_catalog_artworks.py
 
 Options :
-    --limit N         Traite au maximum N entrées
-    --force           Re-traite même si has_artwork=True
-    --preview-only    Ne re-télécharge pas les covers, remplit seulement preview_url manquants
+    --limit N    Traite au maximum N entrées (utile pour tester)
+    --force      Re-télécharge même si has_artwork=True
 """
 import asyncio
 import argparse
@@ -32,11 +31,12 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from models import CatalogEntry, RadarTrack
 
-# — Config S3
 MINIO_URL      = os.environ.get("MINIO_URL", "http://minio:9000")
 MINIO_USER     = os.environ["MINIO_USER"]
 MINIO_PASSWORD = os.environ["MINIO_PASSWORD"]
 BUCKET         = "catalog-artworks"
+DEEZER_API     = "https://api.deezer.com"
+COVER_FIELD    = "cover_medium"
 
 s3 = boto3.client(
     "s3",
@@ -46,9 +46,6 @@ s3 = boto3.client(
     config=Config(signature_version="s3v4"),
     region_name="us-east-1",
 )
-
-DEEZER_API = "https://api.deezer.com"
-COVER_FIELD = "cover_medium"   # ~250×250px
 
 
 def ensure_bucket():
@@ -66,16 +63,11 @@ def ensure_bucket():
         print(f"Bucket '{BUCKET}' créé.")
 
 
-def fetch_deezer_track(deezer_track_id: str) -> dict | None:
-    """Retourne {cover_url, preview_url} depuis l'API Deezer, ou None si erreur."""
+def fetch_cover_url(deezer_track_id: str) -> str | None:
     try:
         r = requests.get(f"{DEEZER_API}/track/{deezer_track_id}", timeout=10)
         r.raise_for_status()
-        data = r.json()
-        return {
-            "cover_url":   data.get("album", {}).get(COVER_FIELD),
-            "preview_url": data.get("preview"),
-        }
+        return r.json().get("album", {}).get(COVER_FIELD)
     except Exception as e:
         print(f"  Deezer API error pour track {deezer_track_id}: {e}")
         return None
@@ -86,44 +78,32 @@ def upload_cover(img_bytes: bytes, catalog_id: int) -> None:
         f.write(img_bytes)
         tmp = f.name
     try:
-        s3.upload_file(
-            tmp, BUCKET, f"{catalog_id}.jpg",
-            ExtraArgs={"ContentType": "image/jpeg"},
-        )
+        s3.upload_file(tmp, BUCKET, f"{catalog_id}.jpg", ExtraArgs={"ContentType": "image/jpeg"})
     finally:
         os.unlink(tmp)
 
 
-async def run(limit: int | None, force: bool, preview_only: bool):
+async def run(limit: int | None, force: bool):
     database_url = os.environ["DATABASE_URL"]
     engine = create_async_engine(database_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    if not preview_only:
-        ensure_bucket()
+    ensure_bucket()
 
     async with async_session() as db:
         q = select(CatalogEntry)
-        if preview_only:
-            # Cible uniquement les entrées sans preview_url
-            q = q.where(CatalogEntry.preview_url.is_(None))
-        elif not force:
-            # Cible sans artwork OU sans preview
-            q = q.where(
-                (CatalogEntry.has_artwork == False) | CatalogEntry.preview_url.is_(None)
-            )
+        if not force:
+            q = q.where(CatalogEntry.has_artwork == False)
         if limit:
             q = q.limit(limit)
         result = await db.execute(q)
         entries = result.scalars().all()
 
     print(f"{len(entries)} entrées à traiter.")
-
     ok = skipped = errors = 0
 
     async with async_session() as db:
         for entry in entries:
-            # Trouve un radar_track Deezer lié
             r = await db.execute(
                 select(RadarTrack.external_track_id)
                 .where(RadarTrack.catalog_id == entry.id)
@@ -135,32 +115,27 @@ async def run(limit: int | None, force: bool, preview_only: bool):
                 skipped += 1
                 continue
 
-            deezer_id = row[0]
-            dz = fetch_deezer_track(deezer_id)
-            if not dz:
+            cover_url = fetch_cover_url(row[0])
+            if not cover_url:
                 errors += 1
                 continue
 
-            # Sauvegarde preview_url
-            if dz["preview_url"]:
-                entry.preview_url = dz["preview_url"]
+            try:
+                img_resp = requests.get(cover_url, timeout=15)
+                img_resp.raise_for_status()
+                upload_cover(img_resp.content, entry.id)
+            except Exception as e:
+                print(f"  Cover error [{entry.id}] {entry.artist} — {entry.title}: {e}")
+                errors += 1
+                continue
 
-            # Cover — skip si preview_only ou déjà présente
-            if not preview_only and not entry.has_artwork and dz["cover_url"]:
-                try:
-                    img_resp = requests.get(dz["cover_url"], timeout=15)
-                    img_resp.raise_for_status()
-                    upload_cover(img_resp.content, entry.id)
-                    entry.has_artwork = True
-                except Exception as e:
-                    print(f"  Cover error [{entry.id}]: {e}")
-
+            entry.has_artwork = True
             db.add(entry)
             ok += 1
 
             if ok % 50 == 0:
                 await db.commit()
-                print(f"  {ok} entrées traitées…")
+                print(f"  {ok} covers uploadées…")
 
             await asyncio.sleep(0.15)
 
@@ -173,6 +148,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("--preview-only", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run(limit=args.limit, force=args.force, preview_only=args.preview_only))
+    asyncio.run(run(limit=args.limit, force=args.force))
