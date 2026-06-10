@@ -77,6 +77,17 @@ async def bulk_import(tracks: list[TrackImport], db: AsyncSession = Depends(get_
         else:
             track.has_artwork = already_has_artwork or False
 
+        # Tente de lier au catalog si pas encore fait
+        if not track.catalog_id:
+            from utils import make_normalized_key
+            norm_key = make_normalized_key(t.title or "", t.artist or "")
+            cat_result = await db.execute(
+                select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+            )
+            cat_entry = cat_result.scalar_one_or_none()
+            if cat_entry:
+                track.catalog_id = cat_entry.id
+
         if is_new:
             inserted += 1
         else:

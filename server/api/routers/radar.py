@@ -53,6 +53,19 @@ async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSessi
         isrc=body.isrc,
     )
 
+    # Si une lib_track correspond à cette entrée catalog, la lier automatiquement
+    from models import LibTrack
+    from sqlalchemy import func
+    lib_result = await db.execute(
+        select(LibTrack).where(
+            LibTrack.catalog_id.is_(None),
+            func.lower(func.trim(LibTrack.title)) == func.lower(func.trim(catalog_entry.title)),
+            func.lower(func.trim(LibTrack.artist)) == func.lower(func.trim(catalog_entry.artist)),
+        )
+    )
+    for lt in lib_result.scalars().all():
+        lt.catalog_id = catalog_entry.id
+
     entry = RadarTrack(
         watched_playlist_id=body.watched_playlist_id,
         external_track_id=body.external_track_id,
