@@ -93,6 +93,7 @@ class CatalogEntryOut(BaseModel):
     release_date: Optional[date]
     preview_url: Optional[str]
     has_artwork: bool = False
+    has_preview: bool = False
     created_at: Optional[datetime]
     # Stats calculées
     in_lib: bool = False

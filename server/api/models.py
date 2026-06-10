@@ -30,6 +30,7 @@ class CatalogEntry(Base):
     release_date = Column(Date, nullable=True)
     preview_url = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)
+    has_preview = Column(Boolean, default=False)
 
     created_at = Column(DateTime)
 

@@ -41,8 +41,8 @@
               <td class="col-play">
                 <span
                   class="play-btn"
-                  :class="{ 'play-btn--disabled': !e.preview_url?.trim(), 'play-btn--playing': playingId === e.id }"
-                  @click="e.preview_url?.trim() && togglePlay(e)"
+                  :class="{ 'play-btn--disabled': !e.has_preview, 'play-btn--playing': playingId === e.id }"
+                  @click="e.has_preview && togglePlay(e)"
                 >
                   <svg v-if="playingId !== e.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
                   <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>

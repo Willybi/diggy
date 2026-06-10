@@ -89,6 +89,7 @@ async def list_catalog(
             release_date=entry.release_date,
             preview_url=entry.preview_url,
             has_artwork=entry.has_artwork,
+            has_preview=entry.has_preview,
             created_at=entry.created_at,
             in_lib=is_in_lib,
             nb_radar_playlists=nb_playlists or 0,

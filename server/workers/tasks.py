@@ -71,6 +71,46 @@ def crawl_radar():
     return {"inserted": inserted, "skipped_playlists": skipped, "errors": errors}
 
 
+@celery_app.task(name="workers.tasks.check_previews")
+def check_previews():
+    """
+    Vérifie chaque semaine si les tracks catalog ont une preview Deezer dispo.
+    Met à jour has_preview dans les deux sens (True/False).
+    """
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    sys.path.insert(0, "/app")
+    from models import CatalogEntry, RadarTrack
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    updated = 0
+    with Session(engine) as session:
+        entries = session.execute(select(CatalogEntry)).scalars().all()
+        for entry in entries:
+            row = session.execute(
+                select(RadarTrack.external_track_id)
+                .where(RadarTrack.catalog_id == entry.id)
+                .where(RadarTrack.source == "deezer")
+                .limit(1)
+            ).first()
+            if not row:
+                continue
+            try:
+                r = requests.get(f"{DEEZER_API}/track/{row[0]}", timeout=10)
+                has = bool(r.json().get("preview", "").strip())
+            except Exception:
+                continue
+            if entry.has_preview != has:
+                entry.has_preview = has
+                updated += 1
+            import time; time.sleep(0.15)
+        session.commit()
+
+    return {"updated": updated}
+
+
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
 def import_rekordbox(self, db_path: str):
     """

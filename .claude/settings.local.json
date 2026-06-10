@@ -60,7 +60,8 @@
       "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"psql $DATABASE_URL -c \"\"SELECT DISTINCT tags FROM lib_tracks WHERE tags IS NOT NULL AND tags != ''[]'' LIMIT 20;\"\"\")",
       "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"docker exec diggy_postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c \"\"SELECT DISTINCT tags FROM lib_tracks WHERE tags IS NOT NULL AND tags != ''[]'' LIMIT 20;\"\"\")",
       "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"docker exec diggy_postgres psql -U postgres -d diggy -c \"\"SELECT DISTINCT tags FROM lib_tracks WHERE tags IS NOT NULL LIMIT 20;\"\"\")",
-      "Bash(ssh -i C:Userswilli.sshclaude_diggy root@82.29.168.247 \"curl -s ''http://localhost/api/tracks/?limit=3'' | python3 -m json.tool | grep -A3 ''tags\\\\|title''\")"
+      "Bash(ssh -i C:Userswilli.sshclaude_diggy root@82.29.168.247 \"curl -s ''http://localhost/api/tracks/?limit=3'' | python3 -m json.tool | grep -A3 ''tags\\\\|title''\")",
+      "Bash(ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247 \"cd /root/diggy && docker compose exec postgres psql -U diggy -d diggy -c \"\"ALTER TABLE catalog ADD COLUMN IF NOT EXISTS has_preview BOOLEAN DEFAULT FALSE;\"\"\")"
     ]
   }
 }
