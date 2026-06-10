@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
 
 from database import get_db
 from models import CatalogEntry, LibTrack, RadarTrack
@@ -96,3 +97,28 @@ async def list_catalog(
         entries.append(out)
 
     return CatalogList(total=total, items=entries)
+
+
+@router.get("/{catalog_id}/preview-url")
+async def get_preview_url(catalog_id: int, db: AsyncSession = Depends(get_db)):
+    """Retourne une preview URL fraîche depuis l'API Deezer (les URLs sont signées et expirent)."""
+    r = await db.execute(
+        select(RadarTrack.external_track_id)
+        .where(RadarTrack.catalog_id == catalog_id)
+        .where(RadarTrack.source == "deezer")
+        .limit(1)
+    )
+    row = r.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="No Deezer source for this entry")
+
+    async with httpx.AsyncClient(timeout=8) as client:
+        resp = await client.get(f"https://api.deezer.com/track/{row[0]}")
+        resp.raise_for_status()
+        data = resp.json()
+
+    preview = data.get("preview", "").strip()
+    if not preview:
+        raise HTTPException(status_code=404, detail="No preview available")
+
+    return {"preview_url": preview}
