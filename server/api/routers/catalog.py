@@ -103,6 +103,7 @@ async def list_catalog(
 @router.get("/{catalog_id}/preview-url")
 async def get_preview_url(catalog_id: int, db: AsyncSession = Depends(get_db)):
     """Retourne une preview URL fraîche depuis l'API Deezer (les URLs sont signées et expirent)."""
+    # Priorité 1 : radar_track Deezer lié
     r = await db.execute(
         select(RadarTrack.external_track_id)
         .where(RadarTrack.catalog_id == catalog_id)
@@ -110,11 +111,21 @@ async def get_preview_url(catalog_id: int, db: AsyncSession = Depends(get_db)):
         .limit(1)
     )
     row = r.first()
-    if not row:
+    deezer_track_id = row[0] if row else None
+
+    # Priorité 2 : deezer_id stocké directement sur l'entrée catalog
+    if not deezer_track_id:
+        r2 = await db.execute(
+            select(CatalogEntry.deezer_id).where(CatalogEntry.id == catalog_id)
+        )
+        row2 = r2.first()
+        deezer_track_id = row2[0] if row2 and row2[0] else None
+
+    if not deezer_track_id:
         raise HTTPException(status_code=404, detail="No Deezer source for this entry")
 
     async with httpx.AsyncClient(timeout=8) as client:
-        resp = await client.get(f"https://api.deezer.com/track/{row[0]}")
+        resp = await client.get(f"https://api.deezer.com/track/{deezer_track_id}")
         resp.raise_for_status()
         data = resp.json()
 

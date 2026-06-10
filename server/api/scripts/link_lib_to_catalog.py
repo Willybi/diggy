@@ -148,6 +148,7 @@ async def main():
                     duration_ms=dz_duration * 1000 if dz_duration else None,
                     release_date=release_date,
                     has_preview=bool(dz_preview),
+                    deezer_id=str(hit["id"]),
                 )
                 db.add(entry)
                 await db.flush()
