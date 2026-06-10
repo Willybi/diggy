@@ -42,7 +42,7 @@
                 <span
                   class="play-btn"
                   :class="{ 'play-btn--disabled': !e.has_preview, 'play-btn--playing': playingId === e.id }"
-                  @click="e.has_preview && togglePlay(e)"
+                  @click="e.has_preview && togglePlay(e.id, e.id)"
                 >
                   <svg v-if="playingId !== e.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
                   <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
@@ -85,6 +85,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 import InLibBadge from '../components/InLibBadge.vue'
+import { useAudioPlayer } from '../stores/audioPlayer'
 
 const PAGE_SIZE = 50
 
@@ -97,27 +98,7 @@ const radarMin2  = ref(false)
 const page       = ref(1)
 const sortKey    = ref('nb_radar_playlists')
 const sortDir    = ref('desc')
-const playingId  = ref(null)
-
-let audio = null
-
-async function togglePlay(entry) {
-  if (playingId.value === entry.id) {
-    audio.pause()
-    playingId.value = null
-    return
-  }
-  if (audio) audio.pause()
-  try {
-    const { data } = await axios.get(`/api/catalog/${entry.id}/preview-url`)
-    audio = new Audio(data.preview_url)
-    audio.play()
-    playingId.value = entry.id
-    audio.addEventListener('ended', () => { playingId.value = null })
-  } catch {
-    // pas de preview dispo
-  }
-}
+const { playingId, toggle: togglePlay } = useAudioPlayer()
 
 let searchTimer = null
 

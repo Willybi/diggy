@@ -8,7 +8,14 @@
 </template>
 
 <script setup>
+import { watch } from 'vue'
+import { useRoute } from 'vue-router'
 import SidebarNav from './components/SidebarNav.vue'
+import { useAudioPlayer } from './stores/audioPlayer'
+
+const route = useRoute()
+const player = useAudioPlayer()
+watch(() => route.path, () => player.stop())
 </script>
 
 <style>
