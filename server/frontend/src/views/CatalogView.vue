@@ -37,7 +37,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in items" :key="e.id">
+            <tr v-for="e in items" :key="e.id" :class="{ 'is-playing': playingId === e.id }">
               <td class="col-play">
                 <span
                   class="play-btn"
@@ -54,7 +54,7 @@
                     <img v-if="e.has_artwork" :src="`/storage/catalog-artworks/${e.id}.jpg`" :alt="e.title" />
                   </div>
                   <div class="track-info">
-                    <span class="track-title">{{ e.title }}</span>
+                    <span class="track-title" :class="{ 'track-title--playing': playingId === e.id }">{{ e.title }}</span>
                     <span class="track-artist">{{ e.artist }}</span>
                   </div>
                 </div>
@@ -63,7 +63,7 @@
                 <span v-if="e.nb_radar_playlists > 0" class="radar-badge">{{ e.nb_radar_playlists }}</span>
                 <span v-else class="muted">—</span>
               </td>
-              <td class="col-bpm num"><span class="mono">{{ e.bpm ?? '—' }}</span></td>
+              <td class="col-bpm num"><span class="mono">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
               <td class="col-key num"><span class="mono key-val">{{ e.key || '—' }}</span></td>
               <td class="col-duration num"><span class="mono">{{ e.duration_ms ? formatDuration(e.duration_ms) : '—' }}</span></td>
               <td class="col-inlib"><InLibBadge :in-lib="e.in_lib" /></td>
@@ -256,6 +256,8 @@ onMounted(fetchPage)
   overflow: hidden;
 }
 .track-table tbody tr:hover td { background: var(--surface-2); }
+.track-table tbody tr.is-playing td { background: var(--accent-wash); }
+.track-table tbody tr.is-playing:hover td { background: var(--accent-soft); }
 .track-table tbody tr:last-child td { border-bottom: none; }
 .sort-indicator { margin-left: 4px; color: var(--accent-ink); }
 
@@ -314,6 +316,9 @@ onMounted(fetchPage)
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.track-title--playing {
+  color: var(--accent-ink);
 }
 .track-artist {
   display: block;

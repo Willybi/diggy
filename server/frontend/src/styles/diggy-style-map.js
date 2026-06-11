@@ -1,19 +1,22 @@
 /* ============================================================
-   DIGGY — Style → colour family map  ·  v1
+   DIGGY — Style → colour family map  ·  v1.2
    ------------------------------------------------------------
    Source de vérité pour les familles musicales et leurs styles.
    Ajouter un style = l'ajouter à la fin du tableau de sa famille.
+
+   v1.2 — taxonomie réelle (House / Techno / Trance / Misc),
+   offset & shade étendus à 7 membres, slug() durci.
    ============================================================ */
 
 export const FAMILIES = {
-  House:  { baseHue: 28,  label: 'Groovy · dancefloor' },
-  Techno: { baseHue: 268, label: 'Sombre · industriel' },
-  Trance: { baseHue: 312, label: 'Mélodique · hypnotique' },
-  Misc:   { baseHue: 92,  label: 'Divers' },
+  House:  { baseHue: 268, label: 'Groovy · club' },
+  Techno: { baseHue: 312, label: 'Brut · hypnotique' },
+  Trance: { baseHue: 352, label: 'Psyché · euphorique' },
+  Misc:   { baseHue: 42,  label: 'Inclassable' },
 }
 
-const MEMBER_OFFSET = [-6, 4, -10, 8, -4, 12, 6]
-const MEMBER_SHADE  = [0, 0.018, 0.036, 0.054, 0.018, 0.036, 0.054]
+const MEMBER_OFFSET = [-4, 5, -10, 11, -15, 15, 0]
+const MEMBER_SHADE  = [0, 0.018, 0.036, 0.054, 0.012, 0.030, 0.048]
 
 export const FAMILY_MEMBERS = {
   House:  ['Downtempo', 'Nu Disco', 'Deep House', 'UK House', 'French Touch', 'Tech House', 'UK Garage'],
@@ -25,7 +28,9 @@ export const FAMILY_MEMBERS = {
 /* Liste blanche complète — utilisée pour filtrer les tags RB internes */
 export const KNOWN_STYLES = new Set(Object.values(FAMILY_MEMBERS).flat())
 
-export const slug = (name) => name.toLowerCase().replace(/[\s./]+/g, '-')
+/* CSS-safe slug: 'Classic/Min. Techno' -> 'classic-min-techno' */
+export const slug = (name) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 /** Resolve {family, hue, shade} for any registered style. */
 export function styleTone(name) {

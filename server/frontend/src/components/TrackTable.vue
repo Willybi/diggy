@@ -22,7 +22,9 @@
         <tr v-else-if="!sortedTracks.length">
           <td :colspan="COLS.length + 1" class="state-cell">Aucun track.</td>
         </tr>
-        <tr v-else v-for="track in sortedTracks" :key="track.id">
+        <tr v-else v-for="track in sortedTracks" :key="track.id"
+          :class="{ 'is-playing': playingId === track.id }"
+        >
           <td class="col-play">
             <span
               class="play-btn"
@@ -42,7 +44,7 @@
                 />
               </div>
               <div class="track-info">
-                <span class="track-title">{{ track.title }}</span>
+                <span class="track-title" :class="{ 'track-title--playing': playingId === track.id }">{{ track.title }}</span>
                 <span class="track-artist">{{ track.artist }}</span>
               </div>
             </div>
@@ -50,7 +52,7 @@
           <td class="col-style">
             <StyleTag v-if="firstTag(track)" :name="firstTag(track)" />
           </td>
-          <td class="col-bpm num"><span class="mono">{{ track.bpm }}</span></td>
+          <td class="col-bpm num"><span class="mono">{{ track.bpm != null ? Math.round(track.bpm) : '—' }}</span></td>
           <td class="col-key num key-cell"><span class="mono">{{ track.key }}</span></td>
           <td class="col-duration num"><span class="mono">{{ formatDuration(track.duration) }}</span></td>
           <td class="col-rating num">
@@ -177,6 +179,12 @@ function formatDuration(ms) {
 .track-table tbody tr:hover td {
   background: var(--surface-2);
 }
+.track-table tbody tr.is-playing td {
+  background: var(--accent-wash);
+}
+.track-table tbody tr.is-playing:hover td {
+  background: var(--accent-soft);
+}
 .track-table tbody tr:last-child td {
   border-bottom: none;
 }
@@ -274,6 +282,9 @@ function formatDuration(ms) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.track-title--playing {
+  color: var(--accent-ink);
 }
 .track-artist {
   display: block;
