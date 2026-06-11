@@ -96,6 +96,8 @@ async def list_catalog(
         sort_col = func.coalesce(LibTrack.duration, CatalogEntry.duration_ms, 0)
     elif sort == "key":
         sort_col = func.coalesce(LibTrack.key, CatalogEntry.key, "")
+    elif sort == "style":
+        sort_col = func.coalesce(LibTrack.tags, "")
     elif sort in SORTABLE_COLS and SORTABLE_COLS[sort] is not None:
         sort_col = SORTABLE_COLS[sort]
     else:

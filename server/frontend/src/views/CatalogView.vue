@@ -26,7 +26,9 @@
               <th class="col-title sortable" :class="{ 'is-sorted': sortKey === 'title' }" @click="sort('title')">
                 Track <span v-if="sortKey === 'title'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="col-style">Style</th>
+              <th class="col-style sortable" :class="{ 'is-sorted': sortKey === 'style' }" @click="sort('style')">
+                Style <span v-if="sortKey === 'style'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
               <th class="col-bpm num sortable" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="sort('bpm')">
                 BPM <span v-if="sortKey === 'bpm'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
@@ -80,7 +82,7 @@
               </td>
               <td class="col-bpm num"><span class="mono">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
               <td class="col-key num"><span class="mono key-val">{{ e.key || '—' }}</span></td>
-              <td class="col-duration num"><span class="mono">{{ e.duration_ms ? formatDuration(e.duration_ms) : '—' }}</span></td>
+              <td class="col-duration num"><span class="mono">{{ e.duration_ms > 0 ? formatDuration(e.duration_ms) : '—' }}</span></td>
               <td class="col-rating num">
                 <span v-if="e.rating" class="rating">
                   <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= e.rating }">★</span>
