@@ -64,7 +64,10 @@
               <td class="col-title">
                 <div class="cell-track">
                   <div class="mini-art">
-                    <img v-if="e.has_artwork" :src="`/storage/catalog-artworks/${e.id}.jpg`" :alt="e.title" />
+                    <img v-if="e.has_artwork"
+                      :src="e.lib_track_id ? `/storage/artworks/${e.lib_track_id}.jpg` : `/storage/catalog-artworks/${e.id}.jpg`"
+                      :alt="e.title"
+                    />
                   </div>
                   <div class="track-info">
                     <span class="track-title" :class="{ 'track-title--playing': playingId === e.id }">{{ e.title }}</span>
@@ -301,7 +304,7 @@ onMounted(() => {
 .table-wrap { overflow-x: auto; }
 .track-table {
   width: 100%;
-  min-width: 780px;
+  min-width: 816px;
   border-collapse: collapse;
   font-size: 13.5px;
   table-layout: fixed;
@@ -343,7 +346,7 @@ onMounted(() => {
 .col-key      { width: 52px; }
 .col-duration { width: 62px; }
 .col-rating   { width: 80px; }
-.col-radar    { width: 80px; }
+.col-radar    { width: 116px; }
 .col-inlib    { width: 56px; text-align: center; }
 
 /* Play btn */

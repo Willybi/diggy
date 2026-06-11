@@ -100,6 +100,7 @@ class CatalogEntryOut(BaseModel):
     # Données lib (quand in_lib = True)
     style: Optional[str] = None
     rating: Optional[int] = None
+    lib_track_id: Optional[int] = None
     # Stats calculées
     in_lib: bool = False
     nb_radar_playlists: int = 0
