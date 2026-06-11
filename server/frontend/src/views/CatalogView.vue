@@ -306,7 +306,7 @@ onMounted(() => {
 .table-wrap { overflow-x: auto; }
 .track-table {
   width: 100%;
-  min-width: 816px;
+  min-width: 832px;
   border-collapse: collapse;
   font-size: 13.5px;
   table-layout: fixed;
@@ -348,7 +348,7 @@ onMounted(() => {
 .col-key      { width: 52px; }
 .col-duration { width: 62px; }
 .col-rating   { width: 80px; }
-.col-radar    { width: 116px; }
+.col-radar    { width: 132px; }
 .col-inlib    { width: 56px; text-align: center; }
 
 /* Play btn */
