@@ -11,9 +11,8 @@ router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 SORTABLE_COLS = {
     "title": CatalogEntry.title,
-    "bpm": CatalogEntry.bpm,
-    "duration_ms": CatalogEntry.duration_ms,
-    "nb_radar_playlists": None,  # traité séparément
+    # bpm, rating : depuis lib_tracks avec COALESCE — traités séparément
+    "nb_radar_playlists": None,
 }
 
 
@@ -87,6 +86,14 @@ async def list_catalog(
     nb_radar_col = func.coalesce(radar_count.c.nb_playlists, 0)
     if sort == "nb_radar_playlists":
         sort_col = nb_radar_col
+    elif sort == "rating":
+        sort_col = func.coalesce(LibTrack.rating, 0)
+    elif sort == "bpm":
+        sort_col = func.coalesce(LibTrack.bpm, CatalogEntry.bpm, 0)
+    elif sort == "duration_ms":
+        sort_col = func.coalesce(LibTrack.duration, CatalogEntry.duration_ms, 0)
+    elif sort == "key":
+        sort_col = func.coalesce(LibTrack.key, CatalogEntry.key, "")
     elif sort in SORTABLE_COLS and SORTABLE_COLS[sort] is not None:
         sort_col = SORTABLE_COLS[sort]
     else:

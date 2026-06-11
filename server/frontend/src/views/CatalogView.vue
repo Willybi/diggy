@@ -30,11 +30,15 @@
               <th class="col-bpm num sortable" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="sort('bpm')">
                 BPM <span v-if="sortKey === 'bpm'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="col-key num">Key</th>
+              <th class="col-key num sortable" :class="{ 'is-sorted': sortKey === 'key' }" @click="sort('key')">
+                Key <span v-if="sortKey === 'key'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
               <th class="col-duration num sortable" :class="{ 'is-sorted': sortKey === 'duration_ms' }" @click="sort('duration_ms')">
                 Durée <span v-if="sortKey === 'duration_ms'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="col-rating num">Rating</th>
+              <th class="col-rating num sortable" :class="{ 'is-sorted': sortKey === 'rating' }" @click="sort('rating')">
+                Rating <span v-if="sortKey === 'rating'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
               <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="sort('nb_radar_playlists')">
                 Radar <span v-if="sortKey === 'nb_radar_playlists'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
@@ -297,6 +301,7 @@ onMounted(() => {
 .table-wrap { overflow-x: auto; }
 .track-table {
   width: 100%;
+  min-width: 780px;
   border-collapse: collapse;
   font-size: 13.5px;
   table-layout: fixed;
@@ -330,16 +335,16 @@ onMounted(() => {
 .track-table tbody tr:last-child td { border-bottom: none; }
 .sort-indicator { margin-left: 4px; color: var(--accent-ink); }
 
-/* Column widths */
+/* Column widths — toutes les data cols ont une largeur fixe, titre prend le reste */
 .col-play     { width: 38px; padding: 0 8px !important; }
-.col-title    { width: auto; }
-.col-style    { width: 130px; }
-.col-bpm      { width: 68px; }
-.col-key      { width: 58px; }
-.col-duration { width: 68px; }
-.col-rating   { width: 84px; }
-.col-radar    { width: 120px; }
-.col-inlib    { width: 64px; text-align: center; }
+.col-title    { width: auto; min-width: 180px; }
+.col-style    { width: 124px; }
+.col-bpm      { width: 60px; }
+.col-key      { width: 52px; }
+.col-duration { width: 62px; }
+.col-rating   { width: 80px; }
+.col-radar    { width: 80px; }
+.col-inlib    { width: 56px; text-align: center; }
 
 /* Play btn */
 .play-btn {
