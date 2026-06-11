@@ -3,12 +3,15 @@
     <header class="view-header">
       <div>
         <h1 class="view-title">Catalog</h1>
-        <span class="view-sub">{{ total }} tracks</span>
+        <span class="view-sub">
+          {{ inLib ? `${total} tracks · in lib` : `${total} tracks · ${nLib} in lib` }}
+        </span>
       </div>
       <div class="filters">
         <input v-model="search" class="search-input" placeholder="Artiste ou titre…" @input="onSearch" />
-        <button class="chip" :class="{ 'chip--on': notInLib }" @click="toggleChip('notInLib')">Pas dans RB</button>
-        <button class="chip" :class="{ 'chip--on-radar': radarMin2 }" @click="toggleChip('radarMin2')">Radar ≥ 2</button>
+        <button class="chip" :class="{ 'chip--on': notInLib }" @click="toggleNotInLib">Pas dans RB</button>
+        <button class="chip" :class="{ 'chip--on-radar': radarMin2 }" @click="toggleRadarMin2">Radar ≥ 2</button>
+        <button class="chip" :class="{ 'chip--on': inLib }" @click="toggleInLib">In lib</button>
       </div>
     </header>
 
@@ -23,9 +26,7 @@
               <th class="col-title sortable" :class="{ 'is-sorted': sortKey === 'title' }" @click="sort('title')">
                 Track <span v-if="sortKey === 'title'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="sort('nb_radar_playlists')">
-                Radar <span v-if="sortKey === 'nb_radar_playlists'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-              </th>
+              <th class="col-style">Style</th>
               <th class="col-bpm num sortable" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="sort('bpm')">
                 BPM <span v-if="sortKey === 'bpm'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
@@ -33,7 +34,11 @@
               <th class="col-duration num sortable" :class="{ 'is-sorted': sortKey === 'duration_ms' }" @click="sort('duration_ms')">
                 Durée <span v-if="sortKey === 'duration_ms'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="col-inlib">In lib</th>
+              <th class="col-rating num">Rating</th>
+              <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="sort('nb_radar_playlists')">
+                Radar <span v-if="sortKey === 'nb_radar_playlists'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
+              <th v-if="!inLib" class="col-inlib">In lib</th>
             </tr>
           </thead>
           <tbody>
@@ -41,8 +46,12 @@
               <td class="col-play">
                 <span
                   class="play-btn"
-                  :class="{ 'play-btn--disabled': !e.has_preview, 'play-btn--playing': playingId === e.id }"
-                  @click="e.has_preview && togglePlay(e.id, e.id)"
+                  :class="{
+                    'play-btn--disabled': !e.has_preview || (inLib && !e.in_lib),
+                    'play-btn--playing': playingId === e.id,
+                    'play-btn--hidden': inLib && !e.in_lib,
+                  }"
+                  @click="e.has_preview && !(inLib && !e.in_lib) && togglePlay(e.id, e.id)"
                 >
                   <svg v-if="playingId !== e.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
                   <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
@@ -59,14 +68,25 @@
                   </div>
                 </div>
               </td>
-              <td class="col-radar">
-                <ScorePill v-if="e.nb_radar_playlists > 0" :score="Math.min(e.nb_radar_playlists * 2, 10)" />
-                <span v-else class="muted">—</span>
+              <td class="col-style">
+                <StyleTag v-if="e.style" :name="e.style" />
               </td>
               <td class="col-bpm num"><span class="mono">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
               <td class="col-key num"><span class="mono key-val">{{ e.key || '—' }}</span></td>
               <td class="col-duration num"><span class="mono">{{ e.duration_ms ? formatDuration(e.duration_ms) : '—' }}</span></td>
-              <td class="col-inlib"><InLibBadge :in-lib="e.in_lib" /></td>
+              <td class="col-rating num">
+                <span v-if="e.rating" class="rating">
+                  <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= e.rating }">★</span>
+                </span>
+                <span v-else class="muted">—</span>
+              </td>
+              <td class="col-radar">
+                <ScorePill v-if="e.nb_radar_playlists > 0" :score="Math.min(e.nb_radar_playlists * 2, 10)" />
+                <span v-else class="muted">—</span>
+              </td>
+              <td v-if="!inLib" class="col-inlib">
+                <LibDot :in-lib="e.in_lib" />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -82,27 +102,41 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import axios from 'axios'
-import InLibBadge from '../components/InLibBadge.vue'
 import ScorePill from '../components/ScorePill.vue'
+import LibDot from '../components/LibDot.vue'
+import StyleTag from '../components/StyleTag.vue'
 import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 
 const PAGE_SIZE = 50
 
-const items      = ref([])
-const total      = ref(0)
-const loading    = ref(false)
-const search     = ref('')
-const notInLib   = ref(false)
-const radarMin2  = ref(false)
-const page       = ref(1)
-const sortKey    = ref('nb_radar_playlists')
-const sortDir    = ref('desc')
+const route = useRoute()
 const player = useAudioPlayer()
 const { playingId } = storeToRefs(player)
 const { toggle: togglePlay } = player
+
+const items    = ref([])
+const total    = ref(0)
+const nLib     = ref(0)
+const loading  = ref(false)
+const search   = ref('')
+const notInLib = ref(false)
+const radarMin2 = ref(false)
+const page     = ref(1)
+const sortKey  = ref('nb_radar_playlists')
+const sortDir  = ref('desc')
+
+// inLib : persistant via sessionStorage + query param
+const savedInLib = sessionStorage.getItem('catalog_inlib')
+const inLib = ref(route.query.inlib === 'true' || savedInLib === 'true')
+
+function setInLib(val) {
+  inLib.value = val
+  sessionStorage.setItem('catalog_inlib', String(val))
+}
 
 let searchTimer = null
 
@@ -110,9 +144,12 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)
 
 function buildParams() {
   const params = { skip: (page.value - 1) * PAGE_SIZE, limit: PAGE_SIZE }
-  if (notInLib.value)           params.in_lib = false
-  if (radarMin2.value)          params.min_radar_playlists = 2
-  if (search.value)             params.search = search.value
+  if (inLib.value)    params.in_lib = true
+  if (notInLib.value) params.in_lib = false
+  if (radarMin2.value) params.min_radar_playlists = 2
+  if (search.value)   params.search = search.value
+  if (sortKey.value)  params.sort = sortKey.value
+  if (sortDir.value)  params.order = sortDir.value
   return params
 }
 
@@ -122,9 +159,19 @@ async function fetchPage() {
     const { data } = await axios.get('/api/catalog/', { params: buildParams() })
     items.value = data.items
     total.value = data.total
+    if (data.total_in_lib != null) nLib.value = data.total_in_lib
   } finally {
     loading.value = false
   }
+}
+
+// Fetch nLib séparément si l'API ne le retourne pas encore
+async function fetchNLib() {
+  if (nLib.value > 0) return
+  try {
+    const { data } = await axios.get('/api/catalog/', { params: { in_lib: true, limit: 1 } })
+    nLib.value = data.total
+  } catch {}
 }
 
 function goTo(p) {
@@ -132,9 +179,22 @@ function goTo(p) {
   fetchPage()
 }
 
-function toggleChip(chip) {
-  if (chip === 'notInLib') notInLib.value = !notInLib.value
-  if (chip === 'radarMin2') radarMin2.value = !radarMin2.value
+function toggleInLib() {
+  setInLib(!inLib.value)
+  if (inLib.value) notInLib.value = false
+  page.value = 1
+  fetchPage()
+}
+
+function toggleNotInLib() {
+  notInLib.value = !notInLib.value
+  if (notInLib.value) setInLib(false)
+  page.value = 1
+  fetchPage()
+}
+
+function toggleRadarMin2() {
+  radarMin2.value = !radarMin2.value
   page.value = 1
   fetchPage()
 }
@@ -163,7 +223,10 @@ function formatDuration(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-onMounted(fetchPage)
+onMounted(() => {
+  fetchPage()
+  fetchNLib()
+})
 </script>
 
 <style scoped>
@@ -217,7 +280,7 @@ onMounted(fetchPage)
   background: var(--surface);
   color: var(--ink-2);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .chip--on {
   background: var(--pos-soft);
@@ -270,11 +333,13 @@ onMounted(fetchPage)
 /* Column widths */
 .col-play     { width: 38px; padding: 0 8px !important; }
 .col-title    { width: auto; }
+.col-style    { width: 130px; }
+.col-bpm      { width: 68px; }
+.col-key      { width: 58px; }
+.col-duration { width: 68px; }
+.col-rating   { width: 84px; }
 .col-radar    { width: 120px; }
-.col-bpm      { width: 72px; }
-.col-key      { width: 60px; }
-.col-duration { width: 72px; }
-.col-inlib    { width: 110px; }
+.col-inlib    { width: 46px; text-align: center; }
 
 /* Play btn */
 .play-btn {
@@ -301,6 +366,10 @@ onMounted(fetchPage)
   cursor: default;
   color: var(--ink-3);
 }
+.play-btn--hidden {
+  opacity: 0 !important;
+  pointer-events: none;
+}
 
 /* Track cell */
 .cell-track { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -323,9 +392,7 @@ onMounted(fetchPage)
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.track-title--playing {
-  color: var(--accent-ink);
-}
+.track-title--playing { color: var(--accent-ink); }
 .track-artist {
   display: block;
   font-size: 12px;
@@ -341,6 +408,10 @@ onMounted(fetchPage)
 .key-val { color: var(--accent-ink); font-weight: 500; }
 .muted { color: var(--ink-3); }
 
+/* Rating */
+.rating { display: inline-flex; gap: 1px; }
+.star { font-size: 13px; color: var(--line-2); line-height: 1; }
+.star.is-on { color: var(--accent); }
 
 /* Pagination */
 .pagination {
