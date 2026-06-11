@@ -29,5 +29,5 @@ defineProps({
   height: 12px;
 }
 .lib-dot.in  { background: var(--pos-soft);   color: var(--pos-ink); }
-.lib-dot.out { background: var(--surface-3);  color: var(--ink-3); }
+.lib-dot.out { background: var(--surface-3);  color: var(--ink-3); outline: 1px solid var(--line); }
 </style>
