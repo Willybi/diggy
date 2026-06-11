@@ -27,7 +27,6 @@
     <button class="chip-toggle" :class="{ 'is-on': inLibOnly }"
       @click="$emit('update:inLibOnly', !inLibOnly)"
     >
-      <span class="switch" />
       In lib only
     </button>
   </div>
@@ -116,32 +115,5 @@ const allStyles = Object.values(FAMILY_MEMBERS).flat()
   background: var(--pos-soft);
   border-color: transparent;
   color: var(--pos-ink);
-}
-.switch {
-  width: 30px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--line-2);
-  position: relative;
-  transition: background 0.18s;
-  flex: none;
-}
-.chip-toggle.is-on .switch {
-  background: var(--pos);
-}
-.switch::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--surface);
-  transition: left 0.18s;
-  box-shadow: var(--shadow-sm);
-}
-.chip-toggle.is-on .switch::after {
-  left: 14px;
 }
 </style>
