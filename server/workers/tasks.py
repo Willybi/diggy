@@ -5,6 +5,7 @@ Main task: import a Rekordbox database into PostgreSQL.
 import os
 import json
 import sys
+import time
 import requests
 from workers.celery_app import celery_app
 
@@ -105,7 +106,7 @@ def check_previews():
             if entry.has_preview != has:
                 entry.has_preview = has
                 updated += 1
-            import time; time.sleep(0.15)
+            time.sleep(0.15)
         session.commit()
 
     return {"updated": updated}
@@ -125,7 +126,7 @@ def import_rekordbox(self, db_path: str):
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
-    from models import LibLibTrack, Base
+    from models import LibTrack, Base
     from storage import upload_artwork, ensure_bucket
 
     DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")

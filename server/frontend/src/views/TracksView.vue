@@ -63,6 +63,8 @@ async function fetchTracks() {
     const { data } = await axios.get('/api/tracks/', { params })
     tracks.value = data.items
     total.value  = data.total
+  } catch (e) {
+    console.error('fetchTracks failed', e)
   } finally {
     loading.value = false
   }

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
@@ -73,7 +73,7 @@ async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSessi
         title=body.title,
         artist=body.artist,
         isrc=body.isrc,
-        detected_at=datetime.utcnow(),
+        detected_at=datetime.now(timezone.utc),
         catalog_id=catalog_entry.id,
     )
     db.add(entry)

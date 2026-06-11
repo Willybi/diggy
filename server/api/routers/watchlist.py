@@ -1,5 +1,5 @@
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -44,7 +44,7 @@ async def add_watched(body: WatchedPlaylistIn, db: AsyncSession = Depends(get_db
         source=body.source,
         title=title,
         description=body.description,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(entry)
     await db.commit()
@@ -58,7 +58,7 @@ async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db)):
     entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Not found")
-    entry.last_crawled_at = datetime.utcnow()
+    entry.last_crawled_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(entry)
     return entry
