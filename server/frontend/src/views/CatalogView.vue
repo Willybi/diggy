@@ -8,7 +8,7 @@
       <div class="filters">
         <input v-model="search" class="search-input" placeholder="Artiste ou titre…" @input="onSearch" />
         <button class="chip" :class="{ 'chip--on': notInLib }" @click="toggleChip('notInLib')">Pas dans RB</button>
-        <button class="chip" :class="{ 'chip--on': radarMin2 }" @click="toggleChip('radarMin2')">Radar ≥ 2</button>
+        <button class="chip" :class="{ 'chip--on-radar': radarMin2 }" @click="toggleChip('radarMin2')">Radar ≥ 2</button>
       </div>
     </header>
 
@@ -222,6 +222,11 @@ onMounted(fetchPage)
 .chip--on {
   background: var(--pos-soft);
   color: var(--pos-ink);
+  border-color: transparent;
+}
+.chip--on-radar {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   border-color: transparent;
 }
 
