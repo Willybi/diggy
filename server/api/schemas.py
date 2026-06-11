@@ -97,6 +97,9 @@ class CatalogEntryOut(BaseModel):
     has_artwork: bool = False
     has_preview: bool = False
     created_at: Optional[datetime]
+    # Données lib (quand in_lib = True)
+    style: Optional[str] = None
+    rating: Optional[int] = None
     # Stats calculées
     in_lib: bool = False
     nb_radar_playlists: int = 0

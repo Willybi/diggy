@@ -38,7 +38,7 @@
               <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="sort('nb_radar_playlists')">
                 Radar <span v-if="sortKey === 'nb_radar_playlists'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th v-if="!inLib" class="col-inlib">In lib</th>
+              <th class="col-inlib">In lib</th>
             </tr>
           </thead>
           <tbody>
@@ -84,7 +84,7 @@
                 <ScorePill v-if="e.nb_radar_playlists > 0" :score="Math.min(e.nb_radar_playlists * 2, 10)" />
                 <span v-else class="muted">—</span>
               </td>
-              <td v-if="!inLib" class="col-inlib">
+              <td class="col-inlib">
                 <LibDot :in-lib="e.in_lib" />
               </td>
             </tr>
@@ -339,7 +339,7 @@ onMounted(() => {
 .col-duration { width: 68px; }
 .col-rating   { width: 84px; }
 .col-radar    { width: 120px; }
-.col-inlib    { width: 46px; text-align: center; }
+.col-inlib    { width: 64px; text-align: center; }
 
 /* Play btn */
 .play-btn {
