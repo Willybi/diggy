@@ -53,11 +53,13 @@ async def list_catalog(
         CatalogEntry,
         func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
         lib_sub.c.catalog_id.label("lib_catalog_id"),
+        lib_sub.c.lib_track_id.label("lib_track_id"),
         LibTrack.bpm.label("lib_bpm"),
         LibTrack.key.label("lib_key"),
         LibTrack.rating.label("lib_rating"),
         LibTrack.tags.label("lib_tags"),
         LibTrack.duration.label("lib_duration"),
+        LibTrack.has_artwork.label("lib_has_artwork"),
     ).outerjoin(
         radar_count, CatalogEntry.id == radar_count.c.catalog_id
     ).outerjoin(
@@ -113,11 +115,13 @@ async def list_catalog(
         entry = row[0]
         nb_playlists = row[1]
         is_in_lib = row[2] is not None  # lib_catalog_id NULL = pas dans lib
-        lib_bpm = row[3]
-        lib_key = row[4]
-        lib_rating = row[5]
-        lib_tags = row[6]
-        lib_duration = row[7]
+        lib_track_id = row[3]
+        lib_bpm = row[4]
+        lib_key = row[5]
+        lib_rating = row[6]
+        lib_tags = row[7]
+        lib_duration = row[8]
+        lib_has_artwork = row[9]
 
         # Style = premier tag RB qui n'est pas un tag fonctionnel
         lib_style = None
@@ -141,7 +145,8 @@ async def list_catalog(
             genre=entry.genre,
             release_date=entry.release_date,
             preview_url=entry.preview_url,
-            has_artwork=entry.has_artwork,
+            has_artwork=lib_has_artwork if lib_has_artwork else entry.has_artwork,
+            lib_track_id=lib_track_id,
             has_preview=entry.has_preview,
             created_at=entry.created_at,
             in_lib=is_in_lib,
