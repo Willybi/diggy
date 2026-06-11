@@ -60,7 +60,7 @@
                 </div>
               </td>
               <td class="col-radar">
-                <span v-if="e.nb_radar_playlists > 0" class="radar-badge">{{ e.nb_radar_playlists }}</span>
+                <ScorePill v-if="e.nb_radar_playlists > 0" :score="Math.min(e.nb_radar_playlists * 2, 10)" />
                 <span v-else class="muted">—</span>
               </td>
               <td class="col-bpm num"><span class="mono">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
@@ -85,6 +85,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 import InLibBadge from '../components/InLibBadge.vue'
+import ScorePill from '../components/ScorePill.vue'
 import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 
@@ -264,7 +265,7 @@ onMounted(fetchPage)
 /* Column widths */
 .col-play     { width: 38px; padding: 0 8px !important; }
 .col-title    { width: auto; }
-.col-radar    { width: 72px; }
+.col-radar    { width: 120px; }
 .col-bpm      { width: 72px; }
 .col-key      { width: 60px; }
 .col-duration { width: 72px; }
@@ -335,14 +336,6 @@ onMounted(fetchPage)
 .key-val { color: var(--accent-ink); font-weight: 500; }
 .muted { color: var(--ink-3); }
 
-.radar-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 22px; height: 22px; padding: 0 6px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font: 600 11px/1 var(--font-mono);
-}
 
 /* Pagination */
 .pagination {
