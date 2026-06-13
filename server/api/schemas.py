@@ -128,5 +128,89 @@ class WatchedPlaylistOut(BaseModel):
     description: Optional[str]
     created_at: Optional[datetime]
     last_crawled_at: Optional[datetime]
+    has_artwork: bool = False
+    track_count: Optional[int] = None
+    owner: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class GenreOut(BaseModel):
+    id: int
+    name: str
+    parent_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ArtistAliasOut(BaseModel):
+    id: int
+    artist_id: int
+    alias: str
+    normalized_alias: str
+
+    model_config = {"from_attributes": True}
+
+
+class ArtistOut(BaseModel):
+    id: int
+    name: str
+    normalized_name: str
+    real_name: Optional[str] = None
+    country: Optional[str] = None
+    deezer_id: Optional[str] = None
+    soundcloud_id: Optional[str] = None
+    trackid_id: Optional[str] = None
+    bio: Optional[str] = None
+    has_artwork: bool = False
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SetTrackOut(BaseModel):
+    id: int
+    set_id: int
+    catalog_id: Optional[int] = None
+    position: int
+    timecode_ms: Optional[int] = None
+    raw_title: Optional[str] = None
+    raw_artist: Optional[str] = None
+    is_id: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class SetArtistOut(BaseModel):
+    set_id: int
+    artist_id: int
+    role: Optional[str] = None
+    position: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+class DJSetOut(BaseModel):
+    id: int
+    external_id: Optional[str] = None
+    source: str
+    source_url: Optional[str] = None
+    title: str
+    event: Optional[str] = None
+    venue: Optional[str] = None
+    played_date: Optional[date] = None
+    duration_ms: Optional[int] = None
+    description: Optional[str] = None
+    has_artwork: bool = False
+    created_at: Optional[datetime] = None
+    last_crawled_at: Optional[datetime] = None
+    total_tracks: int = 0
+    identified_tracks: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class DJSetList(BaseModel):
+    total: int
+    items: list[DJSetOut]

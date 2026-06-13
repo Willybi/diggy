@@ -112,6 +112,63 @@ def check_previews():
     return {"updated": updated}
 
 
+@celery_app.task(name="workers.tasks.resolve_set_tracks")
+def resolve_set_tracks():
+    """
+    Résout les set_tracks sans catalog_id.
+    Pour chaque set_track non-ID avec raw_title :
+    1. Cherche dans catalog par normalized_key
+    2. Si absent, crée une entrée catalog
+    3. Lie le set_track au catalog
+    Idempotent : ne touche pas les tracks déjà résolus.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    sys.path.insert(0, "/app")
+    from models import SetTrack, CatalogEntry
+    from utils import make_normalized_key
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    resolved = 0
+    created = 0
+    with Session(engine) as session:
+        tracks = session.execute(
+            select(SetTrack).where(
+                SetTrack.catalog_id.is_(None),
+                SetTrack.is_id == False,  # noqa: E712
+                SetTrack.raw_title.isnot(None),
+            )
+        ).scalars().all()
+
+        for st in tracks:
+            norm_key = make_normalized_key(st.raw_title, st.raw_artist)
+
+            entry = session.execute(
+                select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+            ).scalar_one_or_none()
+
+            if not entry:
+                entry = CatalogEntry(
+                    title=st.raw_title,
+                    artist=st.raw_artist,
+                    normalized_key=norm_key,
+                    created_at=datetime.now(timezone.utc),
+                )
+                session.add(entry)
+                session.flush()
+                created += 1
+
+            st.catalog_id = entry.id
+            resolved += 1
+
+        session.commit()
+
+    return {"resolved": resolved, "catalog_created": created}
+
+
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
 def import_rekordbox(self, db_path: str):
     """
