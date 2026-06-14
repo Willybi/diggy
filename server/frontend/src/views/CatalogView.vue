@@ -230,7 +230,9 @@ function sort(key) {
 }
 
 function formatDuration(ms) {
+  if (!ms || ms <= 0) return '—'
   const s = Math.floor(ms / 1000)
+  if (s === 0) return '—'
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 

@@ -9,6 +9,7 @@ Usage (from VPS):
 import argparse
 import asyncio
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -20,6 +21,30 @@ from trackid.client import TrackIDClient
 from trackid.importer import get_or_create_artist, import_audiostream
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+
+def _humanize_slug(slug: str) -> str:
+    """Convert 'adambeyer' → 'Adambeyer' as fallback display name."""
+    return slug.strip().title() if slug else slug
+
+
+def _extract_artist_name(detail: dict, channel: str) -> str | None:
+    """Try to extract a proper artist name from set title.
+
+    TrackID set titles often contain the artist name, e.g.:
+    'DCR827 – Drumcode Radio Live - Adam Beyer live from ...'
+    We look for a substring that normalizes to the channel slug.
+    """
+    title = detail.get("title", "")
+    # Split on common separators
+    for sep in [" - ", " – ", " — ", " | "]:
+        parts = title.split(sep)
+        for part in parts:
+            candidate = part.strip()
+            # Check if removing spaces/lowering matches the channel
+            if re.sub(r'\s+', '', candidate.lower()) == channel.lower():
+                return candidate
+    return None
 
 
 async def main(channel: str | None, keywords: str | None, limit: int | None, resolve: bool):
@@ -34,8 +59,18 @@ async def main(channel: str | None, keywords: str | None, limit: int | None, res
     async with TrackIDClient() as client:
         # Create artist only when using --channel
         if channel:
+            # Fetch one set to extract a proper display name from tracklist artist credits
+            display_name = _humanize_slug(channel)
+            probe_sets, _ = await client.search_sets(channel=channel, page_size=1, current_page=0)
+            if probe_sets:
+                detail = await client.get_set_detail(probe_sets[0].get("slug", ""))
+                if detail:
+                    extracted = _extract_artist_name(detail, channel)
+                    if extracted:
+                        display_name = extracted
+
             async with async_session() as db:
-                artist = await get_or_create_artist(db, channel, trackid_id=channel)
+                artist = await get_or_create_artist(db, display_name, trackid_id=channel)
                 await db.commit()
                 artist_id = artist.id
 
