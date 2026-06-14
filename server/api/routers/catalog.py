@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from database import get_db
-from models import CatalogEntry, LibTrack, RadarTrack
+from models import CatalogEntry, LibTrack, RadarTrack, SetTrack
 from schemas import CatalogEntryOut, CatalogList
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -38,6 +38,17 @@ async def list_catalog(
         .subquery()
     )
 
+    # Sous-requête : nb de sets distincts dans set_tracks par catalog_id
+    set_count = (
+        select(
+            SetTrack.catalog_id,
+            func.count(func.distinct(SetTrack.set_id)).label("nb_sets"),
+        )
+        .where(SetTrack.catalog_id.isnot(None))
+        .group_by(SetTrack.catalog_id)
+        .subquery()
+    )
+
     # Sous-requête : lib_track lié (premier match) pour récupérer rating/bpm/key/tags
     lib_sub = (
         select(
@@ -52,6 +63,7 @@ async def list_catalog(
     query = select(
         CatalogEntry,
         func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
+        func.coalesce(set_count.c.nb_sets, 0).label("nb_radar_sets"),
         lib_sub.c.catalog_id.label("lib_catalog_id"),
         lib_sub.c.lib_track_id.label("lib_track_id"),
         LibTrack.bpm.label("lib_bpm"),
@@ -62,6 +74,8 @@ async def list_catalog(
         LibTrack.has_artwork.label("lib_has_artwork"),
     ).outerjoin(
         radar_count, CatalogEntry.id == radar_count.c.catalog_id
+    ).outerjoin(
+        set_count, CatalogEntry.id == set_count.c.catalog_id
     ).outerjoin(
         lib_sub, CatalogEntry.id == lib_sub.c.catalog_id
     ).outerjoin(
@@ -116,14 +130,15 @@ async def list_catalog(
     for row in rows:
         entry = row[0]
         nb_playlists = row[1]
-        is_in_lib = row[2] is not None  # lib_catalog_id NULL = pas dans lib
-        lib_track_id = row[3]
-        lib_bpm = row[4]
-        lib_key = row[5]
-        lib_rating = row[6]
-        lib_tags = row[7]
-        lib_duration = row[8]
-        lib_has_artwork = row[9]
+        nb_sets = row[2]
+        is_in_lib = row[3] is not None  # lib_catalog_id NULL = pas dans lib
+        lib_track_id = row[4]
+        lib_bpm = row[5]
+        lib_key = row[6]
+        lib_rating = row[7]
+        lib_tags = row[8]
+        lib_duration = row[9]
+        lib_has_artwork = row[10]
 
         # Style = premier tag RB qui n'est pas un tag fonctionnel
         lib_style = None
@@ -153,7 +168,7 @@ async def list_catalog(
             created_at=entry.created_at,
             in_lib=is_in_lib,
             nb_radar_playlists=nb_playlists or 0,
-            nb_radar_sets=0,
+            nb_radar_sets=nb_sets or 0,
             style=lib_style,
             rating=lib_rating,
         )

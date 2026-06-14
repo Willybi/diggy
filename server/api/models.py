@@ -223,6 +223,7 @@ class SetTrack(Base):
     raw_title = Column(String(500), nullable=True)
     raw_artist = Column(String(500), nullable=True)
     is_id = Column(Boolean, default=False)
+    trackid_music_track_id = Column(Integer, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("set_id", "position", name="uq_set_track_position"),
