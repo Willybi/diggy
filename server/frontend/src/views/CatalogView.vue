@@ -72,7 +72,9 @@
                     />
                   </div>
                   <div class="track-info">
-                    <span class="track-title" :class="{ 'track-title--playing': playingId === e.id }">{{ e.title }}</span>
+                    <RouterLink :to="`/catalog/${e.id}`" class="track-link">
+                      <span class="track-title" :class="{ 'track-title--playing': playingId === e.id }">{{ e.title }}</span>
+                    </RouterLink>
                     <span class="track-artist">{{ e.artist }}</span>
                   </div>
                 </div>
@@ -112,7 +114,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, RouterLink } from 'vue-router'
 import axios from 'axios'
 import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
@@ -393,6 +395,13 @@ onMounted(() => {
 }
 .mini-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .track-info { min-width: 0; flex: 1; }
+.track-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  min-width: 0;
+}
+.track-link:hover .track-title { color: var(--accent-ink); }
 .track-title {
   display: block;
   font-weight: 600;
@@ -401,6 +410,7 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.1s;
 }
 .track-title--playing { color: var(--accent-ink); }
 .track-artist {
