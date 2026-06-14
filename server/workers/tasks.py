@@ -141,6 +141,11 @@ def resolve_set_tracks():
     created = 0
     enriched = 0
     with Session(engine) as session:
+        # Preload ISRCs to avoid unique constraint violations
+        existing_isrcs = {r[0] for r in session.execute(
+            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+        ).all()}
+
         tracks = session.execute(
             select(SetTrack).where(
                 SetTrack.catalog_id.is_(None),
@@ -175,7 +180,7 @@ def resolve_set_tracks():
             # Enrich new entries or entries missing deezer_id
             if is_new or not entry.deezer_id:
                 hit = search_deezer(st.raw_artist, st.raw_title)
-                if hit and enrich_entry(entry, hit, s3=s3):
+                if hit and enrich_entry(entry, hit, s3=s3, _known_isrcs=existing_isrcs):
                     enriched += 1
                 time.sleep(0.12)
 
@@ -206,6 +211,11 @@ def enrich_catalog():
     enriched = 0
     not_found = 0
     with Session(engine) as session:
+        # Preload ISRCs to avoid unique constraint violations
+        existing_isrcs = {r[0] for r in session.execute(
+            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+        ).all()}
+
         entries = session.execute(
             select(CatalogEntry).where(CatalogEntry.deezer_id.is_(None))
             .order_by(CatalogEntry.id)
@@ -218,7 +228,7 @@ def enrich_catalog():
                 time.sleep(0.5)
                 continue
 
-            if hit and enrich_entry(entry, hit, s3=s3):
+            if hit and enrich_entry(entry, hit, s3=s3, _known_isrcs=existing_isrcs):
                 enriched += 1
             else:
                 not_found += 1

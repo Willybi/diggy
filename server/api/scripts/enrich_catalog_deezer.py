@@ -53,6 +53,13 @@ async def main(dry_run: bool, limit: int | None, force: bool, covers_only: bool 
 
     print(f"{len(entries)} entries to process.")
 
+    # Preload existing ISRCs to avoid unique constraint violations
+    async with async_session() as db:
+        from sqlalchemy import select as sa_select
+        isrc_result = await db.execute(sa_select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None)))
+        known_isrcs = {row[0] for row in isrc_result.all()}
+    print(f"{len(known_isrcs)} existing ISRCs loaded.")
+
     enriched = 0
     not_found = 0
     errors = 0
@@ -81,7 +88,7 @@ async def main(dry_run: bool, limit: int | None, force: bool, covers_only: bool 
                           f"preview:{'yes' if hit.get('preview') else 'no'}")
                     enriched += 1
                 else:
-                    if enrich_entry(entry, hit, s3=s3):
+                    if enrich_entry(entry, hit, s3=s3, _known_isrcs=known_isrcs):
                         enriched += 1
 
             time.sleep(0.12)

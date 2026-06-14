@@ -101,8 +101,11 @@ def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
         return False
 
 
-def enrich_entry(entry, hit: dict, s3=None) -> bool:
-    """Apply Deezer data to a CatalogEntry. Returns True if anything changed."""
+def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None) -> bool:
+    """Apply Deezer data to a CatalogEntry. Returns True if anything changed.
+
+    Pass _known_isrcs (set of ISRCs already in DB) to avoid unique constraint violations.
+    """
     changed = False
 
     deezer_id = str(hit["id"])
@@ -112,8 +115,12 @@ def enrich_entry(entry, hit: dict, s3=None) -> bool:
 
     isrc = hit.get("isrc")
     if isrc and not entry.isrc:
-        entry.isrc = isrc
-        changed = True
+        # Skip if ISRC already used by another entry
+        if _known_isrcs is None or isrc not in _known_isrcs:
+            entry.isrc = isrc
+            if _known_isrcs is not None:
+                _known_isrcs.add(isrc)
+            changed = True
 
     duration_s = hit.get("duration")
     if duration_s and not entry.duration_ms:
