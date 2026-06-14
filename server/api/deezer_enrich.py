@@ -75,8 +75,10 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
     def _get(params):
         if client:
             resp = client.get(f"{DEEZER_API}/search", params=params, timeout=10)
-            return resp.json()
-        resp = requests.get(f"{DEEZER_API}/search", params=params, timeout=10)
+        else:
+            resp = requests.get(f"{DEEZER_API}/search", params=params, timeout=10)
+        if resp.status_code != 200:
+            return {}
         return resp.json()
 
     def _search(t):
