@@ -147,6 +147,12 @@ async def _resolve_set_tracks(engine):
     enriched = 0
 
     async with async_session() as db:
+        # Preload ISRCs to avoid unique constraint violations
+        isrc_result = await db.execute(
+            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+        )
+        known_isrcs = {r[0] for r in isrc_result.all()}
+
         result = await db.execute(
             select(SetTrack).where(
                 SetTrack.catalog_id.is_(None),
@@ -182,7 +188,7 @@ async def _resolve_set_tracks(engine):
             # Enrich new entries or entries missing deezer_id
             if is_new or not entry.deezer_id:
                 hit = search_deezer(st.raw_artist, st.raw_title)
-                if hit and enrich_entry(entry, hit, s3=s3):
+                if hit and enrich_entry(entry, hit, s3=s3, _known_isrcs=known_isrcs):
                     enriched += 1
                     print(f"    enriched: {st.raw_artist} — {st.raw_title}")
                 await asyncio.sleep(0.12)
