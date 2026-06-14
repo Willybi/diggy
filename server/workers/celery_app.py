@@ -26,5 +26,9 @@ celery_app.conf.update(
             "task": "workers.tasks.check_previews",
             "schedule": crontab(hour=3, minute=0, day_of_week=0),  # dimanche à 3h
         },
+        "enrich-catalog-weekly": {
+            "task": "workers.tasks.enrich_catalog",
+            "schedule": crontab(hour=4, minute=0, day_of_week=0),  # dimanche à 4h
+        },
     },
 )

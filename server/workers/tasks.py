@@ -120,6 +120,7 @@ def resolve_set_tracks():
     1. Cherche dans catalog par normalized_key
     2. Si absent, crée une entrée catalog
     3. Lie le set_track au catalog
+    4. Enrichit via Deezer (deezer_id, isrc, duration, preview, cover)
     Idempotent : ne touche pas les tracks déjà résolus.
     """
     from datetime import datetime, timezone
@@ -128,12 +129,17 @@ def resolve_set_tracks():
     sys.path.insert(0, "/app")
     from models import SetTrack, CatalogEntry
     from utils import make_normalized_key
+    from deezer_enrich import search_deezer, enrich_entry, _get_s3, _ensure_bucket
 
     DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
     engine = create_engine(DATABASE_URL)
 
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
     resolved = 0
     created = 0
+    enriched = 0
     with Session(engine) as session:
         tracks = session.execute(
             select(SetTrack).where(
@@ -150,6 +156,7 @@ def resolve_set_tracks():
                 select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
             ).scalar_one_or_none()
 
+            is_new = False
             if not entry:
                 entry = CatalogEntry(
                     title=st.raw_title,
@@ -160,13 +167,70 @@ def resolve_set_tracks():
                 session.add(entry)
                 session.flush()
                 created += 1
+                is_new = True
 
             st.catalog_id = entry.id
             resolved += 1
 
+            # Enrich new entries or entries missing deezer_id
+            if is_new or not entry.deezer_id:
+                hit = search_deezer(st.raw_artist, st.raw_title)
+                if hit and enrich_entry(entry, hit, s3=s3):
+                    enriched += 1
+                time.sleep(0.12)
+
         session.commit()
 
-    return {"resolved": resolved, "catalog_created": created}
+    return {"resolved": resolved, "catalog_created": created, "enriched": enriched}
+
+
+@celery_app.task(name="workers.tasks.enrich_catalog")
+def enrich_catalog():
+    """
+    Enrichit les entrées catalog sans deezer_id via l'API Deezer.
+    Remplit : deezer_id, isrc, duration_ms, has_preview, has_artwork (+ cover).
+    Hebdomadaire, rate-limited.
+    """
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    sys.path.insert(0, "/app")
+    from models import CatalogEntry
+    from deezer_enrich import search_deezer, enrich_entry, _get_s3, _ensure_bucket
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
+    enriched = 0
+    not_found = 0
+    with Session(engine) as session:
+        entries = session.execute(
+            select(CatalogEntry).where(CatalogEntry.deezer_id.is_(None))
+            .order_by(CatalogEntry.id)
+        ).scalars().all()
+
+        for i, entry in enumerate(entries):
+            try:
+                hit = search_deezer(entry.artist, entry.title)
+            except Exception:
+                time.sleep(0.5)
+                continue
+
+            if hit and enrich_entry(entry, hit, s3=s3):
+                enriched += 1
+            else:
+                not_found += 1
+
+            time.sleep(0.12)
+
+            if (i + 1) % 100 == 0:
+                session.commit()
+
+        session.commit()
+
+    return {"enriched": enriched, "not_found": not_found}
 
 
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
