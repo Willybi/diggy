@@ -81,10 +81,11 @@ defineProps({
   padding-top: 4px;
 }
 .hero-title {
-  font: 600 clamp(18px, 2.5vw, 24px)/1.2 var(--font-ui);
+  font: 600 clamp(20px, 2.2vw, 34px)/1.2 var(--font-ui);
   letter-spacing: -0.02em;
   color: var(--ink);
   margin: 0;
+  overflow-wrap: break-word;
 }
 .hero-sub {
   font: 400 14px/1.3 var(--font-ui);
