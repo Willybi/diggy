@@ -214,3 +214,91 @@ class DJSetOut(BaseModel):
 class DJSetList(BaseModel):
     total: int
     items: list[DJSetOut]
+
+
+# ---------- Detail schemas ----------
+
+
+class RadarAppearanceOut(BaseModel):
+    playlist_id: int
+    playlist_title: Optional[str] = None
+    playlist_source: str = ""
+    detected_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SetAppearanceOut(BaseModel):
+    set_id: int
+    set_title: str
+    set_artist: Optional[str] = None
+    played_date: Optional[date] = None
+    timecode_ms: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SameArtistTrackOut(BaseModel):
+    id: int
+    title: str
+    artist: Optional[str] = None
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration_ms: Optional[int] = None
+    has_artwork: bool = False
+    in_lib: bool = False
+    rating: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+class CatalogDetailOut(CatalogEntryOut):
+    genres: list[GenreOut] = []
+    radar_appearances: list[RadarAppearanceOut] = []
+    set_appearances: list[SetAppearanceOut] = []
+    same_artist_tracks: list[SameArtistTrackOut] = []
+    tags: list[str] = []
+
+
+class ArtistSetOut(BaseModel):
+    set_id: int
+    title: str
+    played_date: Optional[date] = None
+    role: Optional[str] = None
+    has_artwork: bool = False
+    total_tracks: int = 0
+    identified_tracks: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class ArtistDetailOut(ArtistOut):
+    aliases: list[ArtistAliasOut] = []
+    genres: list[GenreOut] = []
+    catalog_tracks: list[CatalogEntryOut] = []
+    sets: list[ArtistSetOut] = []
+    stats: dict = {}
+
+
+class SetTrackDetailOut(SetTrackOut):
+    catalog_title: Optional[str] = None
+    catalog_artist: Optional[str] = None
+    has_artwork: bool = False
+    in_lib: bool = False
+    has_preview: bool = False
+
+
+class SetArtistDetailOut(BaseModel):
+    artist_id: int
+    artist_name: str = ""
+    has_artwork: bool = False
+    role: Optional[str] = None
+    position: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+class DJSetDetailOut(DJSetOut):
+    artists: list[SetArtistDetailOut] = []
+    genres: list[GenreOut] = []
+    tracklist: list[SetTrackDetailOut] = []
