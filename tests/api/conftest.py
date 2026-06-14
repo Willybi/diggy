@@ -47,3 +47,9 @@ async def setup_db():
     yield
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest_asyncio.fixture
+async def db():
+    async with TestSession() as session:
+        yield session
