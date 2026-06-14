@@ -38,3 +38,4 @@ jobs:
             git fetch origin
             git reset --hard origin/master
             docker compose up -d --build
+            docker compose restart nginx
