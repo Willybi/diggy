@@ -1,10 +1,10 @@
 """
-Import DJ sets from TrackID.net by artist channel.
+Import DJ sets from TrackID.net by channel or keyword search.
 
 Usage (from VPS):
     docker compose exec api python scripts/import_trackid_sets.py --channel adambeyer
-    docker compose exec api python scripts/import_trackid_sets.py --channel adambeyer --limit 5
-    docker compose exec api python scripts/import_trackid_sets.py --channel adambeyer --resolve
+    docker compose exec api python scripts/import_trackid_sets.py --keywords "fred again" --resolve
+    docker compose exec api python scripts/import_trackid_sets.py --channel adambeyer --limit 5 --resolve
 """
 import argparse
 import asyncio
@@ -22,20 +22,22 @@ from trackid.importer import get_or_create_artist, import_audiostream
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 
-async def main(channel: str, limit: int | None, resolve: bool):
+async def main(channel: str | None, keywords: str | None, limit: int | None, resolve: bool):
     engine = create_async_engine(DATABASE_URL, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     total_sets = 0
     total_tracks = 0
     skipped = 0
+    artist_id = None
 
     async with TrackIDClient() as client:
-        async with async_session() as db:
-            # Get or create artist
-            artist = await get_or_create_artist(db, channel, trackid_id=channel)
-            await db.commit()
-            artist_id = artist.id
+        # Create artist only when using --channel
+        if channel:
+            async with async_session() as db:
+                artist = await get_or_create_artist(db, channel, trackid_id=channel)
+                await db.commit()
+                artist_id = artist.id
 
         # Paginate through sets
         page = 0
@@ -44,12 +46,19 @@ async def main(channel: str, limit: int | None, resolve: bool):
         while True:
             async with async_session() as db:
                 sets, row_count = await client.search_sets(
-                    channel=channel, page_size=page_size, current_page=page,
-                    sort_field="addedOn", sort_direction="desc",
+                    channel=channel,
+                    keywords=keywords,
+                    page_size=page_size,
+                    current_page=page,
+                    sort_field="addedOn",
+                    sort_direction="desc",
                 )
 
                 if not sets:
                     break
+
+                if page == 0:
+                    print(f"Found {row_count} sets on TrackID.")
 
                 for audiostream in sets:
                     if limit is not None and total_sets >= limit:
@@ -134,9 +143,11 @@ async def _resolve_set_tracks(engine):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Import TrackID.net sets by channel")
-    parser.add_argument("--channel", required=True, help="TrackID channel name (e.g. adambeyer)")
+    parser = argparse.ArgumentParser(description="Import TrackID.net sets by channel or keywords")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--channel", help="TrackID channel name (e.g. adambeyer)")
+    group.add_argument("--keywords", help="Search by keywords (e.g. 'fred again')")
     parser.add_argument("--limit", type=int, default=None, help="Max number of sets to import")
     parser.add_argument("--resolve", action="store_true", help="Resolve set_tracks to catalog after import")
     args = parser.parse_args()
-    asyncio.run(main(args.channel, args.limit, args.resolve))
+    asyncio.run(main(args.channel, args.keywords, args.limit, args.resolve))
