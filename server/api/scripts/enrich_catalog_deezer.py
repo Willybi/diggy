@@ -28,7 +28,7 @@ from deezer_enrich import search_deezer, enrich_entry, _get_s3, _ensure_bucket
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 
-async def main(dry_run: bool, limit: int | None, force: bool):
+async def main(dry_run: bool, limit: int | None, force: bool, covers_only: bool = False):
     engine = create_async_engine(DATABASE_URL, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -39,7 +39,10 @@ async def main(dry_run: bool, limit: int | None, force: bool):
 
     async with async_session() as db:
         q = select(CatalogEntry)
-        if not force:
+        if covers_only:
+            # Only entries with deezer_id but missing cover
+            q = q.where(CatalogEntry.deezer_id.isnot(None), CatalogEntry.has_artwork == False)
+        elif not force:
             q = q.where(CatalogEntry.deezer_id.is_(None))
         q = q.order_by(CatalogEntry.id)
         if limit:
@@ -100,5 +103,6 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true", help="Show what would be enriched")
     parser.add_argument("--limit", type=int, default=None, help="Max entries to process")
     parser.add_argument("--force", action="store_true", help="Re-check all entries, not just missing")
+    parser.add_argument("--covers-only", action="store_true", help="Only fetch covers for entries with deezer_id but no artwork")
     args = parser.parse_args()
-    asyncio.run(main(args.dry_run, args.limit, args.force))
+    asyncio.run(main(args.dry_run, args.limit, args.force, args.covers_only))
