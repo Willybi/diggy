@@ -54,17 +54,66 @@ def _ensure_bucket(s3):
 
 import re as _re
 
-_MIX_SUFFIXES = _re.compile(
-    r'\s*[\(\[]\s*(?:Extended|Original|Radio|Club|Dub|Instrumental|Short|Long)'
-    r'(?:\s+(?:Mix|Edit|Version|Remix))?\s*[\)\]]',
+# Non-significant suffixes — safe to strip, they don't change the track identity
+_SAFE_STRIP = _re.compile(
+    r'\s*[\(\[]'
+    r'\s*(?:'
+    r'(?:Extended|Original|Radio|Club|Dub|Instrumental|Short|Long)(?:\s+(?:Mix|Edit|Version))?'
+    r'|Album Version'
+    r'|Main Mix'
+    r'|Remastered(?:\s+\d{4})?'
+    r'|feat\.?\s+[^)\]]*'
+    r'|ft\.?\s+[^)\]]*'
+    r')'
+    r'\s*[\)\]]',
     _re.IGNORECASE,
 )
 
+# Significant suffixes — these identify a unique remix/edit, must NOT be stripped blindly
+# e.g. "(Adam Port Edit)", "(Ferry Corsten Radio Edit)", "(CLIPZ ROLLER MIX)"
+# Detection: contains a proper name (capitalized word that isn't a generic term)
+_GENERIC_TERMS = {
+    'mix', 'edit', 'remix', 'version', 'dub', 'rework', 'bootleg',
+    'radio', 'extended', 'original', 'club', 'instrumental', 'vocal',
+    'short', 'long', 'main', 'album', 'remastered', 'remaster',
+}
 
-def _strip_mix_suffix(title: str) -> str | None:
-    """Remove '(Extended Mix)' etc. Returns cleaned title or None if unchanged."""
-    cleaned = _MIX_SUFFIXES.sub('', title).strip()
-    return cleaned if cleaned != title else None
+
+def _is_remix_paren(content: str) -> bool:
+    """True if parenthesized content names a specific remixer (significant)."""
+    words = _re.findall(r'[A-Za-z]+', content.lower())
+    # If it contains any word that isn't a generic mixing term, it's a named remix
+    return any(w not in _GENERIC_TERMS for w in words)
+
+
+def _strip_safe_suffixes(title: str) -> str | None:
+    """Remove non-significant suffixes (feat, Extended Mix, Remastered, etc.)."""
+    cleaned = _SAFE_STRIP.sub('', title).strip()
+    # Also strip nested parens left over, e.g. outer parens wrapping a remastered tag
+    cleaned = _re.sub(r'\(\s*\)', '', cleaned).strip()
+    return cleaned if cleaned and cleaned != title else None
+
+
+def _strip_non_remix_parens(title: str) -> str | None:
+    """Remove parenthesized content ONLY if it's not a named remix/edit."""
+    def _replace(m):
+        content = m.group(1)
+        if _is_remix_paren(content):
+            return m.group(0)  # keep it
+        return ''  # strip it
+    cleaned = _re.sub(r'\(([^)]*)\)', _replace, title).strip()
+    cleaned = _re.sub(r'\[([^\]]*)\]', _replace, cleaned).strip()
+    return cleaned if cleaned and cleaned != title else None
+
+
+def _first_artist(artist: str) -> str | None:
+    """Extract first artist from multi-artist string."""
+    for sep in [', ', ' & ', ' feat. ', ' feat ', ' ft. ', ' ft ', ' x ', ' X ']:
+        if sep in artist:
+            first = artist.split(sep)[0].strip()
+            if first != artist:
+                return first
+    return None
 
 
 def search_deezer(artist: str | None, title: str | None, client: httpx.Client | None = None) -> dict | None:
@@ -85,9 +134,9 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
         """Strip parentheses/brackets that trigger Deezer 403."""
         return s.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
 
-    def _search(t):
+    def _search(t, a=artist):
         clean_t = _clean(t)
-        clean_a = _clean(artist) if artist else artist
+        clean_a = _clean(a) if a else a
         # Try structured search first
         if clean_a:
             data = _get({"q": f'artist:"{clean_a}" track:"{clean_t}"', "limit": 1})
@@ -100,15 +149,34 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
         hits = data.get("data", [])
         return hits[0] if hits else None
 
-    # Try with original title
+    # 1. Try with original title
     hit = _search(title)
     if hit:
         return hit
 
-    # Retry without mix suffix (Extended Mix, Original Mix, etc.)
-    clean = _strip_mix_suffix(title)
-    if clean:
-        return _search(clean)
+    # 2. Strip safe suffixes only (feat, Remastered, Extended Mix, etc.)
+    #    Keeps named remixes like "(Adam Port Edit)"
+    safe = _strip_safe_suffixes(title)
+    if safe:
+        hit = _search(safe)
+        if hit:
+            return hit
+
+    # 3. Strip non-remix parens (keeps remix/edit credits, strips everything else)
+    stripped = _strip_non_remix_parens(title)
+    if stripped and stripped != safe:
+        hit = _search(stripped)
+        if hit:
+            return hit
+
+    # 4. First artist only + cleaned title (for multi-artist tracks)
+    if artist:
+        first = _first_artist(artist)
+        if first:
+            t = stripped or safe or title
+            hit = _search(t, a=first)
+            if hit:
+                return hit
 
     return None
 
