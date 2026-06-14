@@ -17,6 +17,7 @@ from models import (
     DJSet,
     SetArtist,
     SetTrack,
+    catalog_genres,
 )
 
 
@@ -245,3 +246,82 @@ class TestCascade:
         await db.commit()
         result = await db.execute(select(ArtistAlias))
         assert result.scalars().all() == []
+
+
+# ── CatalogGenres (association) ──────────────────────────────────────
+
+
+class TestCatalogGenres:
+    async def test_link_catalog_to_genre(self, db):
+        cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola|camelphat")
+        g = Genre(name="Tech House")
+        db.add_all([cat, g])
+        await db.flush()
+
+        await db.execute(catalog_genres.insert().values(catalog_id=cat.id, genre_id=g.id))
+        await db.commit()
+
+        result = await db.execute(
+            select(catalog_genres).where(catalog_genres.c.catalog_id == cat.id)
+        )
+        rows = result.all()
+        assert len(rows) == 1
+        assert rows[0].genre_id == g.id
+
+    async def test_catalog_multiple_genres(self, db):
+        cat = CatalogEntry(title="Track", artist="Artist", normalized_key="track|artist")
+        g1 = Genre(name="Tech House")
+        g2 = Genre(name="Deep House")
+        db.add_all([cat, g1, g2])
+        await db.flush()
+
+        await db.execute(catalog_genres.insert().values(catalog_id=cat.id, genre_id=g1.id))
+        await db.execute(catalog_genres.insert().values(catalog_id=cat.id, genre_id=g2.id))
+        await db.commit()
+
+        result = await db.execute(
+            select(catalog_genres).where(catalog_genres.c.catalog_id == cat.id)
+        )
+        assert len(result.all()) == 2
+
+    async def test_genre_linked_to_multiple_catalogs(self, db):
+        g = Genre(name="Techno")
+        c1 = CatalogEntry(title="A", artist="X", normalized_key="a|x")
+        c2 = CatalogEntry(title="B", artist="Y", normalized_key="b|y")
+        db.add_all([g, c1, c2])
+        await db.flush()
+
+        await db.execute(catalog_genres.insert().values(catalog_id=c1.id, genre_id=g.id))
+        await db.execute(catalog_genres.insert().values(catalog_id=c2.id, genre_id=g.id))
+        await db.commit()
+
+        result = await db.execute(
+            select(catalog_genres).where(catalog_genres.c.genre_id == g.id)
+        )
+        assert len(result.all()) == 2
+
+    async def test_no_duplicate_link(self, db):
+        cat = CatalogEntry(title="Track", artist="Art", normalized_key="track|art")
+        g = Genre(name="House")
+        db.add_all([cat, g])
+        await db.flush()
+
+        await db.execute(catalog_genres.insert().values(catalog_id=cat.id, genre_id=g.id))
+        await db.commit()
+        with pytest.raises(Exception):
+            await db.execute(catalog_genres.insert().values(catalog_id=cat.id, genre_id=g.id))
+            await db.commit()
+
+    async def test_genre_relationship_on_catalog(self, db):
+        """Test the ORM relationship CatalogEntry.genres."""
+        cat = CatalogEntry(title="Track", artist="Art", normalized_key="track|art2")
+        g = Genre(name="Melodic Techno")
+        db.add_all([cat, g])
+        await db.flush()
+
+        await db.execute(catalog_genres.insert().values(catalog_id=cat.id, genre_id=g.id))
+        await db.commit()
+
+        await db.refresh(cat, ["genres"])
+        assert len(cat.genres) == 1
+        assert cat.genres[0].name == "Melodic Techno"

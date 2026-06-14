@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -22,6 +23,7 @@ set_genres = Table(
     Base.metadata,
     Column("set_id", Integer, ForeignKey("sets.id", ondelete="CASCADE"), primary_key=True),
     Column("genre_id", Integer, ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
+    Index("ix_set_genres_genre_id", "genre_id"),
 )
 
 artist_genres = Table(
@@ -29,6 +31,15 @@ artist_genres = Table(
     Base.metadata,
     Column("artist_id", Integer, ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True),
     Column("genre_id", Integer, ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
+    Index("ix_artist_genres_genre_id", "genre_id"),
+)
+
+catalog_genres = Table(
+    "catalog_genres",
+    Base.metadata,
+    Column("catalog_id", Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True),
+    Column("genre_id", Integer, ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
+    Index("ix_catalog_genres_genre_id", "genre_id"),
 )
 
 
@@ -40,13 +51,14 @@ class Genre(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), unique=True, nullable=False)
-    parent_id = Column(Integer, ForeignKey("genres.id"), nullable=True)
-    created_at = Column(DateTime)
+    parent_id = Column(Integer, ForeignKey("genres.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True))
 
     children = relationship("Genre", back_populates="parent")
     parent = relationship("Genre", back_populates="children", remote_side=[id])
     sets = relationship("DJSet", secondary=set_genres, back_populates="genres")
     artists = relationship("Artist", secondary=artist_genres, back_populates="genres")
+    catalog_entries = relationship("CatalogEntry", secondary=catalog_genres, back_populates="genres")
 
 
 class Artist(Base):
@@ -62,7 +74,7 @@ class Artist(Base):
     trackid_id = Column(String(64), nullable=True)
     bio = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)
-    created_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True))
 
     aliases = relationship("ArtistAlias", back_populates="artist", cascade="all, delete-orphan")
     set_links = relationship("SetArtist", back_populates="artist")
@@ -97,7 +109,9 @@ class CatalogEntry(Base):
     preview_url = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)
     has_preview = Column(Boolean, default=False)
-    created_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True))
+
+    genres = relationship("Genre", secondary=catalog_genres, back_populates="catalog_entries")
 
 
 class LibTrack(Base):
@@ -111,10 +125,10 @@ class LibTrack(Base):
     duration = Column(Integer)  # ms
     rating = Column(Integer)
     file_path = Column(Text)
-    date_added = Column(DateTime)
+    date_added = Column(DateTime(timezone=True))
     tags = Column(Text)  # JSON array ex: ["Tech House", "TO_CUE"]
     has_artwork = Column(Boolean, default=False)
-    catalog_id = Column(Integer, ForeignKey("catalog.id"), nullable=True)
+    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True)
 
 
 class WatchedPlaylist(Base):
@@ -125,8 +139,8 @@ class WatchedPlaylist(Base):
     source = Column(String(64), nullable=False)
     title = Column(String(255))
     description = Column(Text)
-    created_at = Column(DateTime)
-    last_crawled_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True))
+    last_crawled_at = Column(DateTime(timezone=True))
     has_artwork = Column(Boolean, default=False)
     track_count = Column(Integer, nullable=True)
     owner = Column(String(255), nullable=True)
@@ -144,8 +158,8 @@ class RadarTrack(Base):
     title = Column(String(500), nullable=False)
     artist = Column(String(500))
     isrc = Column(String(20))
-    detected_at = Column(DateTime)
-    catalog_id = Column(Integer, ForeignKey("catalog.id"), nullable=True)
+    detected_at = Column(DateTime(timezone=True))
+    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True)
 
     __table_args__ = (
         UniqueConstraint(
@@ -168,8 +182,8 @@ class DJSet(Base):
     duration_ms = Column(Integer, nullable=True)
     description = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)
-    created_at = Column(DateTime)
-    last_crawled_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True))
+    last_crawled_at = Column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),
@@ -203,7 +217,7 @@ class SetTrack(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     set_id = Column(Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True)
-    catalog_id = Column(Integer, ForeignKey("catalog.id"), nullable=True, index=True)
+    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True, index=True)
     position = Column(Integer, nullable=False)
     timecode_ms = Column(Integer, nullable=True)
     raw_title = Column(String(500), nullable=True)
