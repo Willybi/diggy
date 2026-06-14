@@ -83,7 +83,7 @@
                 </td>
                 <td class="tl-lib">
                   <span v-if="t.is_id" class="id-label">ID</span>
-                  <LibDot v-else :in-lib="t.catalog_id !== null" />
+                  <LibDot v-else :in-lib="t.in_lib" />
                 </td>
               </tr>
             </tbody>
