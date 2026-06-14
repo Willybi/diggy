@@ -33,13 +33,38 @@
       </RelBlock>
 
       <RelBlock v-if="artist.catalog_tracks.length" title="Tracks" :count="artist.stats.nb_catalog">
-        <AppearRow
-          v-for="t in artist.catalog_tracks"
-          :key="t.id"
-          :title="t.title"
-          :subtitle="trackSub(t)"
-          :to="`/catalog/${t.id}`"
-        />
+        <div class="mini-table-wrap">
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th class="mt-track">Track</th>
+                <th class="mt-style">Style</th>
+                <th class="mt-num">BPM</th>
+                <th class="mt-num">Key</th>
+                <th class="mt-num">Rating</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in artist.catalog_tracks" :key="t.id">
+                <td class="mt-track">
+                  <RouterLink :to="`/catalog/${t.id}`" class="mt-link">
+                    <span class="mt-title">{{ t.title }}</span>
+                    <span class="mt-artist">{{ t.artist }}</span>
+                  </RouterLink>
+                </td>
+                <td class="mt-style"><StyleTag v-if="t.style" :name="t.style" /></td>
+                <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
+                <td class="mt-num mono">{{ t.key || '—' }}</td>
+                <td class="mt-num">
+                  <span v-if="t.rating" class="rating">
+                    <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= t.rating }">★</span>
+                  </span>
+                  <span v-else class="dash">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </RelBlock>
 
       <RelBlock v-if="artist.sets.length" title="Sets" :count="artist.stats.nb_sets">
@@ -89,19 +114,14 @@ const stats = computed(() => {
   ]
 })
 
-function trackSub(t) {
-  const parts = []
-  if (t.bpm) parts.push(`${fmtBpm(t.bpm)} BPM`)
-  if (t.key) parts.push(t.key)
-  if (t.in_lib) parts.push('★ In lib')
-  return parts.join(' · ') || null
-}
-
 function setSub(s) {
   const parts = []
   if (s.played_date) parts.push(fmtDate(s.played_date))
   if (s.role === 'b2b') parts.push('B2B')
-  parts.push(`${s.identified_tracks}/${s.total_tracks} ID`)
+  const id = s.identified_tracks === s.total_tracks
+    ? `${s.total_tracks} tracks · toutes identifiées`
+    : `${s.total_tracks} tracks · ${s.identified_tracks} identifiées`
+  parts.push(id)
   return parts.join(' · ')
 }
 
@@ -142,6 +162,53 @@ onMounted(async () => {
   background: var(--surface-2);
   color: var(--ink);
 }
+/* Mini track table */
+.mini-table-wrap { overflow-x: auto; }
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.mini-table thead th {
+  text-align: left;
+  padding: 8px 12px;
+  font: 500 10.5px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+}
+.mini-table tbody td {
+  padding: 8px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line);
+}
+.mini-table tbody tr:last-child td { border-bottom: none; }
+.mini-table tbody tr:hover td { background: var(--surface-2); }
+.mt-track { min-width: 160px; }
+.mt-style { width: 90px; }
+.mt-num { width: 56px; text-align: center; }
+.mono { font-family: var(--font-mono); color: var(--ink-2); }
+.mt-link { text-decoration: none; color: inherit; }
+.mt-link:hover .mt-title { color: var(--accent-ink); }
+.mt-title {
+  display: block;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mt-artist {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.rating { white-space: nowrap; }
+.star { color: var(--ink-3); font-size: 12px; }
+.star.is-on { color: var(--accent-ink); }
+.dash { color: var(--ink-3); }
+
 .state {
   color: var(--ink-3);
   font-size: 14px;
