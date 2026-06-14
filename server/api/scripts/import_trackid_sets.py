@@ -131,15 +131,20 @@ async def main(channel: str | None, keywords: str | None, limit: int | None, res
 
 
 async def _resolve_set_tracks(engine):
-    """Inline async version of resolve_set_tracks Celery task."""
+    """Inline async version of resolve_set_tracks Celery task with Deezer enrichment."""
     from datetime import datetime, timezone
     from sqlalchemy import select
     from models import SetTrack, CatalogEntry
     from utils import make_normalized_key
+    from deezer_enrich import search_deezer, enrich_entry, _get_s3, _ensure_bucket
 
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
     resolved = 0
     created = 0
+    enriched = 0
 
     async with async_session() as db:
         result = await db.execute(
@@ -158,6 +163,7 @@ async def _resolve_set_tracks(engine):
                 select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
             )).scalar_one_or_none()
 
+            is_new = False
             if not entry:
                 entry = CatalogEntry(
                     title=st.raw_title,
@@ -168,9 +174,18 @@ async def _resolve_set_tracks(engine):
                 db.add(entry)
                 await db.flush()
                 created += 1
+                is_new = True
 
             st.catalog_id = entry.id
             resolved += 1
+
+            # Enrich new entries or entries missing deezer_id
+            if is_new or not entry.deezer_id:
+                hit = search_deezer(st.raw_artist, st.raw_title)
+                if hit and enrich_entry(entry, hit, s3=s3):
+                    enriched += 1
+                    print(f"    enriched: {st.raw_artist} — {st.raw_title}")
+                await asyncio.sleep(0.12)
 
         await db.commit()
 
