@@ -25,17 +25,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 10m
-          script: |
-            cd /root/diggy
-            git fetch origin
-            git reset --hard origin/master
-            docker compose up -d --build
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            cd /root/diggy &&
+            git fetch origin &&
+            git reset --hard origin/master &&
+            docker compose up -d --build &&
             docker compose restart nginx
+          '
