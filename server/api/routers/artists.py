@@ -25,10 +25,11 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
 
-    # Build name match list (normalized)
-    names = [artist.normalized_name]
+    # Build name match list (normalized + display name)
+    names = [artist.normalized_name, artist.name.lower()]
     for a in artist.aliases:
         names.append(a.normalized_alias)
+        names.append(a.alias.lower())
 
     # 2. Catalog tracks matching artist name or aliases
     name_filters = [func.lower(CatalogEntry.artist) == n for n in names]

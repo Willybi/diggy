@@ -23,7 +23,7 @@
       <StatStrip :stats="stats" />
 
       <!-- Artists -->
-      <RelBlock v-if="djSet.artists.length" title="Artistes">
+      <RelBlock v-if="djSet.artists.length > 1" title="Artistes">
         <AppearRow
           v-for="a in djSet.artists"
           :key="a.artist_id"
@@ -106,6 +106,7 @@ const loading = ref(true)
 const heroSub = computed(() => {
   if (!djSet.value) return null
   const parts = []
+  if (djSet.value.artists.length === 1) parts.push(djSet.value.artists[0].artist_name)
   if (djSet.value.event) parts.push(djSet.value.event)
   if (djSet.value.venue) parts.push(djSet.value.venue)
   return parts.join(' · ') || null

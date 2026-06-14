@@ -13,7 +13,6 @@
         <template #badges>
           <InLibBadge :in-lib="track.in_lib" />
           <StyleTag v-if="track.style" :name="track.style" />
-          <Rating v-if="track.in_lib && track.rating" :value="track.rating" />
         </template>
         <template #actions>
           <HeroPlayer v-if="track.has_preview" :catalog-id="track.id" />
@@ -21,12 +20,6 @@
       </PageHero>
 
       <StatStrip :stats="stats" />
-
-      <RelBlock v-if="track.genres.length" title="Genres">
-        <div class="genre-list">
-          <StyleTag v-for="g in track.genres" :key="g.id" :name="g.name" />
-        </div>
-      </RelBlock>
 
       <RelBlock v-if="track.radar_appearances.length" title="Détecté dans" :count="track.radar_appearances.length">
         <AppearRow
@@ -70,7 +63,6 @@ import RelBlock from '../components/RelBlock.vue'
 import AppearRow from '../components/AppearRow.vue'
 import InLibBadge from '../components/InLibBadge.vue'
 import StyleTag from '../components/StyleTag.vue'
-import Rating from '../components/Rating.vue'
 import HeroPlayer from '../components/HeroPlayer.vue'
 import { fmtMs, fmtBpm, fmtDate } from '../utils/format'
 
@@ -91,10 +83,11 @@ const stats = computed(() => {
   const t = track.value
   return [
     { label: 'BPM', value: fmtBpm(t.bpm) },
-    { label: 'Key', value: t.key || '--' },
+    { label: 'Key', value: t.key || '—' },
     { label: 'Durée', value: fmtMs(t.duration_ms) },
-    { label: 'Année', value: t.release_date ? new Date(t.release_date).getFullYear() : '--' },
-    { label: 'ISRC', value: t.isrc || '--' },
+    { label: 'Année', value: t.release_date ? new Date(t.release_date).getFullYear() : '—' },
+    { label: 'Rating', value: t.rating ? '★'.repeat(t.rating) : '—' },
+    { label: 'Radar', value: t.nb_radar_playlists || '—' },
   ]
 })
 
@@ -115,12 +108,6 @@ onMounted(async () => {
   padding: var(--pad) calc(var(--pad) * 1.5);
   max-width: 900px;
   margin: 0 auto;
-}
-.genre-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 12px 14px;
 }
 .state {
   color: var(--ink-3);
