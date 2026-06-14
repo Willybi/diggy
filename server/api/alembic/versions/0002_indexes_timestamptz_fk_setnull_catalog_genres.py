@@ -16,11 +16,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    insp = sa.inspect(conn)
+
     # =====================================================================
-    # 1. Indexes on genre_id in association tables
+    # 1. Indexes on genre_id in association tables (idempotent)
     # =====================================================================
-    op.create_index("ix_set_genres_genre_id", "set_genres", ["genre_id"])
-    op.create_index("ix_artist_genres_genre_id", "artist_genres", ["genre_id"])
+    sg_indexes = [idx["name"] for idx in insp.get_indexes("set_genres")]
+    if "ix_set_genres_genre_id" not in sg_indexes:
+        op.create_index("ix_set_genres_genre_id", "set_genres", ["genre_id"])
+
+    ag_indexes = [idx["name"] for idx in insp.get_indexes("artist_genres")]
+    if "ix_artist_genres_genre_id" not in ag_indexes:
+        op.create_index("ix_artist_genres_genre_id", "artist_genres", ["genre_id"])
 
     # =====================================================================
     # 2. Convert all timestamp columns to TIMESTAMPTZ
@@ -58,14 +66,20 @@ def upgrade() -> None:
     op.create_foreign_key("genres_parent_id_fkey", "genres", "genres", ["parent_id"], ["id"], ondelete="SET NULL")
 
     # =====================================================================
-    # 4. Create catalog_genres association table
+    # 4. Create catalog_genres association table (idempotent)
     # =====================================================================
-    op.create_table(
-        "catalog_genres",
-        sa.Column("catalog_id", sa.Integer, sa.ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True),
-        sa.Column("genre_id", sa.Integer, sa.ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
-    )
-    op.create_index("ix_catalog_genres_genre_id", "catalog_genres", ["genre_id"])
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "catalog_genres" not in inspector.get_table_names():
+        op.create_table(
+            "catalog_genres",
+            sa.Column("catalog_id", sa.Integer, sa.ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True),
+            sa.Column("genre_id", sa.Integer, sa.ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
+        )
+
+    existing_indexes = [idx["name"] for idx in inspector.get_indexes("catalog_genres")]
+    if "ix_catalog_genres_genre_id" not in existing_indexes:
+        op.create_index("ix_catalog_genres_genre_id", "catalog_genres", ["genre_id"])
 
 
 def downgrade() -> None:
