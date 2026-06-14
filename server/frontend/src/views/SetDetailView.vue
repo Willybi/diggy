@@ -14,8 +14,8 @@
           <StyleTag v-for="g in djSet.genres" :key="g.id" :name="g.name" />
         </template>
         <template #actions>
-          <a v-if="sourceMeta && djSet.source_url" class="btn-ghost" :href="djSet.source_url" target="_blank">
-            Voir sur {{ sourceMeta.label }}
+          <a v-if="sourceLabel && djSet.source_url" class="btn-ghost" :href="djSet.source_url" target="_blank">
+            Voir sur {{ sourceLabel }}
           </a>
         </template>
       </PageHero>
@@ -41,6 +41,7 @@
               <tr>
                 <th class="tl-pos">#</th>
                 <th class="tl-time">Time</th>
+                <th class="tl-cover"></th>
                 <th class="tl-track">Track</th>
                 <th class="tl-lib">Lib</th>
               </tr>
@@ -52,7 +53,24 @@
                 :class="trackRowClass(t)"
               >
                 <td class="tl-pos mono">{{ t.position }}</td>
-                <td class="tl-time mono">{{ fmtCue(t.timecode_ms) }}</td>
+                <td class="tl-time mono">
+                  <a
+                    v-if="makeTimestampUrl(djSet.source_url, t.timecode_ms)"
+                    :href="makeTimestampUrl(djSet.source_url, t.timecode_ms)"
+                    target="_blank"
+                    class="tl-time-link"
+                  >{{ fmtCue(t.timecode_ms) }}</a>
+                  <span v-else>{{ fmtCue(t.timecode_ms) }}</span>
+                </td>
+                <td class="tl-cover">
+                  <img
+                    v-if="t.has_artwork && t.catalog_id"
+                    :src="`/storage/catalog-artworks/${t.catalog_id}.jpg`"
+                    class="tl-thumb"
+                    loading="lazy"
+                  />
+                  <span v-else class="tl-thumb tl-thumb--empty"></span>
+                </td>
                 <td class="tl-track">
                   <RouterLink v-if="t.catalog_id && !t.is_id" :to="`/catalog/${t.catalog_id}`" class="tl-link">
                     <span class="tl-title">{{ t.catalog_title || t.raw_title }}</span>
@@ -92,6 +110,31 @@ const SOURCE_META = {
   youtube:         { label: 'YouTube' },
   '1001tracklists': { label: '1001Tracklists' },
   trackid:         { label: 'TrackID.net' },
+  soundcloud:      { label: 'SoundCloud' },
+}
+
+function detectSourceLabel(url) {
+  if (!url) return null
+  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube'
+  if (url.includes('soundcloud.com')) return 'SoundCloud'
+  if (url.includes('1001tracklists.com')) return '1001Tracklists'
+  if (url.includes('trackid.net')) return 'TrackID.net'
+  return null
+}
+
+function makeTimestampUrl(baseUrl, timecodeMs) {
+  if (!baseUrl || !timecodeMs) return null
+  const secs = Math.floor(timecodeMs / 1000)
+  if (baseUrl.includes('youtube.com') || baseUrl.includes('youtu.be')) {
+    return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${secs}s`
+  }
+  if (baseUrl.includes('soundcloud.com')) {
+    const h = Math.floor(secs / 3600)
+    const m = Math.floor((secs % 3600) / 60)
+    const s = secs % 60
+    return `${baseUrl}#t=${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  return null
 }
 
 const route = useRoute()
@@ -107,9 +150,12 @@ const heroSub = computed(() => {
   return parts.join(' · ') || null
 })
 
-const sourceMeta = computed(() => {
+const sourceLabel = computed(() => {
   if (!djSet.value) return null
-  return SOURCE_META[djSet.value.source] || null
+  // Prefer detecting from actual URL, fallback to source field
+  return detectSourceLabel(djSet.value.source_url)
+    || SOURCE_META[djSet.value.source]?.label
+    || null
 })
 
 const stats = computed(() => {
@@ -174,8 +220,31 @@ onMounted(async () => {
 
 .tl-pos  { width: 36px; text-align: center; }
 .tl-time { width: 72px; }
+.tl-cover { width: 40px; padding: 4px 8px !important; }
 .tl-track { min-width: 180px; }
 .tl-lib { width: 44px; text-align: center; }
+
+.tl-thumb {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-xs);
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+.tl-thumb--empty {
+  background: var(--surface-2);
+}
+
+.tl-time-link {
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: color 0.12s;
+}
+.tl-time-link:hover {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
 
 .mono { font-family: var(--font-mono); color: var(--ink-2); }
 
