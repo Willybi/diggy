@@ -52,6 +52,21 @@ def _ensure_bucket(s3):
         )
 
 
+import re as _re
+
+_MIX_SUFFIXES = _re.compile(
+    r'\s*[\(\[]\s*(?:Extended|Original|Radio|Club|Dub|Instrumental|Short|Long)'
+    r'(?:\s+(?:Mix|Edit|Version|Remix))?\s*[\)\]]',
+    _re.IGNORECASE,
+)
+
+
+def _strip_mix_suffix(title: str) -> str | None:
+    """Remove '(Extended Mix)' etc. Returns cleaned title or None if unchanged."""
+    cleaned = _MIX_SUFFIXES.sub('', title).strip()
+    return cleaned if cleaned != title else None
+
+
 def search_deezer(artist: str | None, title: str | None, client: httpx.Client | None = None) -> dict | None:
     """Search Deezer for a track. Returns the best match or None."""
     if not title:
@@ -64,18 +79,30 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
         resp = requests.get(f"{DEEZER_API}/search", params=params, timeout=10)
         return resp.json()
 
-    # Try structured search first
-    if artist:
-        data = _get({"q": f'artist:"{artist}" track:"{title}"', "limit": 1})
+    def _search(t):
+        # Try structured search first
+        if artist:
+            data = _get({"q": f'artist:"{artist}" track:"{t}"', "limit": 1})
+            hits = data.get("data", [])
+            if hits:
+                return hits[0]
+        # Fallback: free text search
+        q = f"{artist} {t}" if artist else t
+        data = _get({"q": q, "limit": 1})
         hits = data.get("data", [])
-        if hits:
-            return hits[0]
+        return hits[0] if hits else None
 
-    # Fallback: free text search
-    q = f"{artist} {title}" if artist else title
-    data = _get({"q": q, "limit": 1})
-    hits = data.get("data", [])
-    return hits[0] if hits else None
+    # Try with original title
+    hit = _search(title)
+    if hit:
+        return hit
+
+    # Retry without mix suffix (Extended Mix, Original Mix, etc.)
+    clean = _strip_mix_suffix(title)
+    if clean:
+        return _search(clean)
+
+    return None
 
 
 def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
