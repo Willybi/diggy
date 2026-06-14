@@ -25,15 +25,25 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
 
-    # Build name match list (normalized + display name)
-    names = [artist.normalized_name, artist.name.lower()]
+    # Build name match list
+    from sqlalchemy import or_
+
+    # Exact lower-case matches (display names)
+    lower_names = {artist.name.lower()}
+    # Normalized matches (no spaces, no punctuation quirks)
+    norm_names = {artist.normalized_name}
     for a in artist.aliases:
-        names.append(a.normalized_alias)
-        names.append(a.alias.lower())
+        lower_names.add(a.alias.lower())
+        norm_names.add(a.normalized_alias)
 
     # 2. Catalog tracks matching artist name or aliases
-    name_filters = [func.lower(CatalogEntry.artist) == n for n in names]
-    from sqlalchemy import or_
+    # Compare both LOWER(catalog.artist) and stripped version
+    catalog_lower = func.lower(CatalogEntry.artist)
+    catalog_norm = func.replace(catalog_lower, ' ', '')
+    name_filters = (
+        [catalog_lower == n for n in lower_names]
+        + [catalog_norm == n for n in norm_names]
+    )
 
     lib_sub = (
         select(LibTrack.catalog_id, LibTrack.rating, LibTrack.tags, LibTrack.bpm, LibTrack.key, LibTrack.duration)

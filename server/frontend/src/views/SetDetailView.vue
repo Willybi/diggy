@@ -14,7 +14,7 @@
           <StyleTag v-for="g in djSet.genres" :key="g.id" :name="g.name" />
         </template>
         <template #actions>
-          <a v-if="sourceMeta && djSet.source_url" class="btn-accent" :href="djSet.source_url" target="_blank">
+          <a v-if="sourceMeta && djSet.source_url" class="btn-ghost" :href="djSet.source_url" target="_blank">
             Voir sur {{ sourceMeta.label }}
           </a>
         </template>
@@ -42,7 +42,6 @@
                 <th class="tl-pos">#</th>
                 <th class="tl-time">Time</th>
                 <th class="tl-track">Track</th>
-                <th class="tl-status">Statut</th>
                 <th class="tl-lib">Lib</th>
               </tr>
             </thead>
@@ -64,13 +63,9 @@
                     <span class="tl-artist">{{ t.is_id ? 'non identifié' : (t.raw_artist || '') }}</span>
                   </div>
                 </td>
-                <td class="tl-status">
-                  <span v-if="t.is_id" class="badge badge--id">ID</span>
-                  <span v-else-if="t.catalog_id" class="badge badge--ok">OK</span>
-                  <span v-else class="badge badge--unknown">?</span>
-                </td>
                 <td class="tl-lib">
-                  <LibDot v-if="!t.is_id" :in-lib="t.in_lib" />
+                  <span v-if="t.is_id" class="id-label">ID</span>
+                  <LibDot v-else :in-lib="t.catalog_id !== null" />
                 </td>
               </tr>
             </tbody>
@@ -180,7 +175,6 @@ onMounted(async () => {
 .tl-pos  { width: 36px; text-align: center; }
 .tl-time { width: 72px; }
 .tl-track { min-width: 180px; }
-.tl-status { width: 56px; text-align: center; }
 .tl-lib { width: 44px; text-align: center; }
 
 .mono { font-family: var(--font-mono); color: var(--ink-2); }
@@ -211,30 +205,25 @@ onMounted(async () => {
 .row--id .tl-title { color: var(--ink-3); font-style: italic; opacity: 0.6; }
 .row--id .tl-artist { color: var(--ink-3); opacity: 0.6; }
 
-/* Badges */
-.badge {
-  display: inline-block;
+/* ID label */
+.id-label {
   font: 600 9px/1 var(--font-mono);
-  padding: 3px 6px;
-  border-radius: var(--r-xs);
+  color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.badge--ok { background: var(--pos-soft); color: var(--pos-ink); }
-.badge--id { background: var(--surface-3); color: var(--ink-3); }
-.badge--unknown { background: var(--surface-2); color: var(--ink-3); }
 
-.btn-accent {
+.btn-ghost {
   padding: 8px 16px;
   border-radius: var(--r-sm);
-  border: none;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
   font: 500 13px/1 var(--font-ui);
   text-decoration: none;
-  transition: background 0.12s;
+  transition: background 0.12s, color 0.12s;
 }
-.btn-accent:hover { background: var(--accent); color: white; }
+.btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
 
 .state {
   color: var(--ink-3);
