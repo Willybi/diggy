@@ -81,15 +81,21 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
             return {}
         return resp.json()
 
+    def _clean(s):
+        """Strip parentheses/brackets that trigger Deezer 403."""
+        return s.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+
     def _search(t):
+        clean_t = _clean(t)
+        clean_a = _clean(artist) if artist else artist
         # Try structured search first
-        if artist:
-            data = _get({"q": f'artist:"{artist}" track:"{t}"', "limit": 1})
+        if clean_a:
+            data = _get({"q": f'artist:"{clean_a}" track:"{clean_t}"', "limit": 1})
             hits = data.get("data", [])
             if hits:
                 return hits[0]
         # Fallback: free text search
-        q = f"{artist} {t}" if artist else t
+        q = f"{clean_a} {clean_t}" if clean_a else clean_t
         data = _get({"q": q, "limit": 1})
         hits = data.get("data", [])
         return hits[0] if hits else None
