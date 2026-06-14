@@ -78,17 +78,15 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
     return hits[0] if hits else None
 
 
-def upload_cover(s3, deezer_track_id: str, catalog_id: int) -> bool:
-    """Fetch cover from Deezer and upload to MinIO. Returns True on success."""
+def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
+    """Download cover image and upload to MinIO. Returns True on success."""
+    if not cover_url:
+        return False
     try:
-        r = requests.get(f"{DEEZER_API}/track/{deezer_track_id}", timeout=10)
-        r.raise_for_status()
-        cover_url = r.json().get("album", {}).get("cover_medium")
-        if not cover_url:
-            return False
-
         img_resp = requests.get(cover_url, timeout=15)
         img_resp.raise_for_status()
+        if len(img_resp.content) < 1000:  # skip placeholder images
+            return False
 
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
             f.write(img_resp.content)
@@ -127,9 +125,10 @@ def enrich_entry(entry, hit: dict, s3=None) -> bool:
         entry.has_preview = has_preview
         changed = True
 
-    # Upload cover if missing
+    # Upload cover if missing — use cover from search hit directly (no extra API call)
     if s3 and not entry.has_artwork:
-        if upload_cover(s3, deezer_id, entry.id):
+        cover_url = (hit.get("album") or {}).get("cover_medium") or (hit.get("album") or {}).get("cover_big")
+        if upload_cover_from_url(s3, cover_url, entry.id):
             entry.has_artwork = True
             changed = True
 
