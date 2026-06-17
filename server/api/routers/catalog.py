@@ -6,9 +6,10 @@ import httpx
 import json as _json
 
 from database import get_db
+from dependencies import get_current_user_optional
 from models import (
-    CatalogEntry, LibTrack, RadarTrack, SetTrack,
-    DJSet, SetArtist, Artist, WatchedPlaylist,
+    CatalogEntry, UserTrack, RadarTrack, SetTrack,
+    DJSet, SetArtist, Artist, WatchedPlaylist, User,
 )
 from schemas import (
     CatalogEntryOut, CatalogList, CatalogDetailOut,
@@ -17,11 +18,16 @@ from schemas import (
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
+_DEFAULT_USER_ID = 1
+
 SORTABLE_COLS = {
     "title": CatalogEntry.title,
-    # bpm, rating : depuis lib_tracks avec COALESCE — traités séparément
     "nb_radar_playlists": None,
 }
+
+
+def _uid(user: User | None) -> int:
+    return user.id if user else _DEFAULT_USER_ID
 
 
 @router.get("/", response_model=CatalogList)
@@ -34,7 +40,10 @@ async def list_catalog(
     sort: str | None = Query(None),
     order: str | None = Query("desc"),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
+    uid = _uid(user)
+
     # Sous-requête : nb de playlists distinctes dans radar_tracks par catalog_id
     radar_count = (
         select(
@@ -57,14 +66,17 @@ async def list_catalog(
         .subquery()
     )
 
-    # Sous-requête : lib_track lié (premier match) pour récupérer rating/bpm/key/tags
-    lib_sub = (
+    # Sous-requête : user_track lié pour récupérer rating/bpm/key/tags
+    ut_sub = (
         select(
-            LibTrack.catalog_id,
-            func.min(LibTrack.id).label("lib_track_id"),
+            UserTrack.catalog_id,
+            UserTrack.rating,
+            UserTrack.rb_bpm,
+            UserTrack.rb_key,
+            UserTrack.rb_mytags,
+            UserTrack.has_artwork.label("ut_has_artwork"),
         )
-        .where(LibTrack.catalog_id.isnot(None))
-        .group_by(LibTrack.catalog_id)
+        .where(UserTrack.user_id == uid)
         .subquery()
     )
 
@@ -72,28 +84,24 @@ async def list_catalog(
         CatalogEntry,
         func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
         func.coalesce(set_count.c.nb_sets, 0).label("nb_radar_sets"),
-        lib_sub.c.catalog_id.label("lib_catalog_id"),
-        lib_sub.c.lib_track_id.label("lib_track_id"),
-        LibTrack.bpm.label("lib_bpm"),
-        LibTrack.key.label("lib_key"),
-        LibTrack.rating.label("lib_rating"),
-        LibTrack.tags.label("lib_tags"),
-        LibTrack.duration.label("lib_duration"),
-        LibTrack.has_artwork.label("lib_has_artwork"),
+        ut_sub.c.catalog_id.label("ut_catalog_id"),
+        ut_sub.c.rating.label("ut_rating"),
+        ut_sub.c.rb_bpm.label("ut_bpm"),
+        ut_sub.c.rb_key.label("ut_key"),
+        ut_sub.c.rb_mytags.label("ut_tags"),
+        ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
     ).outerjoin(
         radar_count, CatalogEntry.id == radar_count.c.catalog_id
     ).outerjoin(
         set_count, CatalogEntry.id == set_count.c.catalog_id
     ).outerjoin(
-        lib_sub, CatalogEntry.id == lib_sub.c.catalog_id
-    ).outerjoin(
-        LibTrack, LibTrack.id == lib_sub.c.lib_track_id
+        ut_sub, CatalogEntry.id == ut_sub.c.catalog_id
     )
 
     if in_lib is True:
-        query = query.where(lib_sub.c.catalog_id.isnot(None))
+        query = query.where(ut_sub.c.catalog_id.isnot(None))
     elif in_lib is False:
-        query = query.where(lib_sub.c.catalog_id.is_(None))
+        query = query.where(ut_sub.c.catalog_id.is_(None))
 
     if min_radar_playlists is not None:
         query = query.where(
@@ -111,15 +119,13 @@ async def list_catalog(
     if sort == "nb_radar_playlists":
         sort_col = nb_radar_col
     elif sort == "rating":
-        sort_col = func.coalesce(LibTrack.rating, 0)
+        sort_col = func.coalesce(ut_sub.c.rating, 0)
     elif sort == "bpm":
-        sort_col = func.coalesce(LibTrack.bpm, CatalogEntry.bpm, 0)
+        sort_col = func.coalesce(ut_sub.c.rb_bpm, CatalogEntry.bpm, 0)
     elif sort == "duration_ms":
-        sort_col = func.coalesce(LibTrack.duration, CatalogEntry.duration_ms, 0)
+        sort_col = func.coalesce(CatalogEntry.duration_ms, 0)
     elif sort == "key":
-        sort_col = func.coalesce(LibTrack.key, CatalogEntry.key, "")
-    elif sort == "style":
-        sort_col = func.coalesce(LibTrack.tags, "")
+        sort_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key, "")
     elif sort in SORTABLE_COLS and SORTABLE_COLS[sort] is not None:
         sort_col = SORTABLE_COLS[sort]
     else:
@@ -127,7 +133,6 @@ async def list_catalog(
 
     query = query.order_by(sort_col.desc() if order != "asc" else sort_col.asc())
 
-    # Total avant pagination
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
 
@@ -139,22 +144,18 @@ async def list_catalog(
         entry = row[0]
         nb_playlists = row[1]
         nb_sets = row[2]
-        is_in_lib = row[3] is not None  # lib_catalog_id NULL = pas dans lib
-        lib_track_id = row[4]
-        lib_bpm = row[5]
-        lib_key = row[6]
-        lib_rating = row[7]
-        lib_tags = row[8]
-        lib_duration = row[9]
-        lib_has_artwork = row[10]
+        is_in_lib = row[3] is not None
+        ut_rating = row[4]
+        ut_bpm = row[5]
+        ut_key = row[6]
+        ut_tags = row[7]
+        ut_has_artwork = row[8]
 
-        # Style = premier tag RB qui n'est pas un tag fonctionnel
+        # Style = premier tag RB
         lib_style = None
-        if lib_tags:
-            import json
+        if ut_tags:
             try:
-                tags = json.loads(lib_tags) if isinstance(lib_tags, str) else lib_tags
-                # Premier tag (les tags RB sont déjà filtrés côté import)
+                tags = ut_tags if isinstance(ut_tags, list) else _json.loads(ut_tags)
                 lib_style = tags[0] if tags else None
             except Exception:
                 pass
@@ -164,21 +165,21 @@ async def list_catalog(
             title=entry.title,
             artist=entry.artist,
             isrc=entry.isrc,
-            bpm=lib_bpm if lib_bpm is not None else entry.bpm,
-            key=lib_key if lib_key is not None else entry.key,
-            duration_ms=lib_duration if lib_duration is not None else entry.duration_ms,
+            bpm=ut_bpm if ut_bpm is not None else entry.bpm,
+            key=ut_key if ut_key is not None else entry.key,
+            duration_ms=entry.duration_ms,
             genre=entry.genre,
             release_date=entry.release_date,
             preview_url=entry.preview_url,
-            has_artwork=lib_has_artwork if lib_has_artwork else entry.has_artwork,
-            lib_track_id=lib_track_id,
+            has_artwork=ut_has_artwork if ut_has_artwork else entry.has_artwork,
+            lib_track_id=None,  # rekordbox_id non exposé ici
             has_preview=entry.has_preview,
             created_at=entry.created_at,
             in_lib=is_in_lib,
             nb_radar_playlists=nb_playlists or 0,
             nb_radar_sets=nb_sets or 0,
             style=lib_style,
-            rating=lib_rating,
+            rating=ut_rating,
         )
         entries.append(out)
 
@@ -186,7 +187,13 @@ async def list_catalog(
 
 
 @router.get("/{catalog_id}", response_model=CatalogDetailOut)
-async def get_catalog_detail(catalog_id: int, db: AsyncSession = Depends(get_db)):
+async def get_catalog_detail(
+    catalog_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    uid = _uid(user)
+
     # 1. Main entry + genres
     result = await db.execute(
         select(CatalogEntry)
@@ -197,20 +204,22 @@ async def get_catalog_detail(catalog_id: int, db: AsyncSession = Depends(get_db)
     if not entry:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
 
-    # 2. Lib track info
-    lib_result = await db.execute(
-        select(LibTrack).where(LibTrack.catalog_id == catalog_id).limit(1)
+    # 2. UserTrack info pour cet user
+    ut_result = await db.execute(
+        select(UserTrack)
+        .where(UserTrack.catalog_id == catalog_id, UserTrack.user_id == uid)
+        .limit(1)
     )
-    lib_track = lib_result.scalar_one_or_none()
+    ut = ut_result.scalar_one_or_none()
 
-    in_lib = lib_track is not None
-    lib_rating = lib_track.rating if lib_track else None
-    lib_tags: list[str] = []
+    in_lib = ut is not None
+    ut_rating = ut.rating if ut else None
+    ut_tags: list[str] = []
     lib_style = None
-    if lib_track and lib_track.tags:
+    if ut and ut.rb_mytags:
         try:
-            lib_tags = _json.loads(lib_track.tags) if isinstance(lib_track.tags, str) else lib_track.tags
-            lib_style = lib_tags[0] if lib_tags else None
+            ut_tags = ut.rb_mytags if isinstance(ut.rb_mytags, list) else _json.loads(ut.rb_mytags)
+            lib_style = ut_tags[0] if ut_tags else None
         except Exception:
             pass
 
@@ -257,9 +266,9 @@ async def get_catalog_detail(catalog_id: int, db: AsyncSession = Depends(get_db)
     # 5. Same artist tracks
     same_artist = []
     if entry.artist:
-        sa_lib_sub = (
-            select(LibTrack.catalog_id, LibTrack.rating)
-            .where(LibTrack.catalog_id.isnot(None))
+        sa_ut_sub = (
+            select(UserTrack.catalog_id, UserTrack.rating)
+            .where(UserTrack.user_id == uid)
             .subquery()
         )
         sa_result = await db.execute(
@@ -267,13 +276,13 @@ async def get_catalog_detail(catalog_id: int, db: AsyncSession = Depends(get_db)
                 CatalogEntry.id, CatalogEntry.title, CatalogEntry.artist,
                 CatalogEntry.bpm, CatalogEntry.key, CatalogEntry.duration_ms,
                 CatalogEntry.has_artwork,
-                sa_lib_sub.c.catalog_id.label("sa_lib_cid"),
-                sa_lib_sub.c.rating,
+                sa_ut_sub.c.catalog_id.label("sa_ut_cid"),
+                sa_ut_sub.c.rating,
             )
-            .outerjoin(sa_lib_sub, CatalogEntry.id == sa_lib_sub.c.catalog_id)
+            .outerjoin(sa_ut_sub, CatalogEntry.id == sa_ut_sub.c.catalog_id)
             .where(CatalogEntry.artist.ilike(entry.artist))
             .where(CatalogEntry.id != catalog_id)
-            .order_by(sa_lib_sub.c.rating.desc().nullslast())
+            .order_by(sa_ut_sub.c.rating.desc().nullslast())
             .limit(10)
         )
         same_artist = [
@@ -285,7 +294,6 @@ async def get_catalog_detail(catalog_id: int, db: AsyncSession = Depends(get_db)
             for r in sa_result.all()
         ]
 
-    # 6. Radar / set counts
     nb_radar = len(radar_appearances)
     nb_sets = len(set_appearances)
 
@@ -294,26 +302,26 @@ async def get_catalog_detail(catalog_id: int, db: AsyncSession = Depends(get_db)
         title=entry.title,
         artist=entry.artist,
         isrc=entry.isrc,
-        bpm=lib_track.bpm if lib_track and lib_track.bpm else entry.bpm,
-        key=lib_track.key if lib_track and lib_track.key else entry.key,
-        duration_ms=lib_track.duration if lib_track and lib_track.duration else entry.duration_ms,
+        bpm=ut.rb_bpm if ut and ut.rb_bpm else entry.bpm,
+        key=ut.rb_key if ut and ut.rb_key else entry.key,
+        duration_ms=entry.duration_ms,
         genre=entry.genre,
         release_date=entry.release_date,
         preview_url=entry.preview_url,
-        has_artwork=lib_track.has_artwork if lib_track and lib_track.has_artwork else entry.has_artwork,
+        has_artwork=ut.has_artwork if ut and ut.has_artwork else entry.has_artwork,
         has_preview=entry.has_preview,
         created_at=entry.created_at,
         in_lib=in_lib,
         nb_radar_playlists=nb_radar,
         nb_radar_sets=nb_sets,
         style=lib_style,
-        rating=lib_rating,
-        lib_track_id=lib_track.id if lib_track else None,
+        rating=ut_rating,
+        lib_track_id=ut.rekordbox_id if ut else None,
         genres=[GenreOut.model_validate(g) for g in entry.genres],
         radar_appearances=radar_appearances,
         set_appearances=set_appearances,
         same_artist_tracks=same_artist,
-        tags=lib_tags,
+        tags=ut_tags,
     )
 
 

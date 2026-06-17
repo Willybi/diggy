@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import get_db
-from models import LibTrack, CatalogEntry
+from models import UserTrack, CatalogEntry, LibTrack
 from schemas import TrackOut, TrackList, TrackExisting, TrackImport, BulkImportResult
+from dependencies import get_current_user_optional
+from models import User
 import json
 import base64
 import tempfile
@@ -11,100 +13,151 @@ import os
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
 
+# User par défaut en soft mode (phase 2 — auth non obligatoire)
+_DEFAULT_USER_ID = 1
+
+
+def _uid(user: User | None) -> int:
+    return user.id if user else _DEFAULT_USER_ID
+
 
 @router.get("/existing-ids", response_model=list[TrackExisting])
-async def get_existing_ids(db: AsyncSession = Depends(get_db)):
-    """Retourne tous les ids existants avec leur statut has_artwork."""
-    result = await db.execute(select(LibTrack.id, LibTrack.has_artwork))
-    return [{"id": row.id, "has_artwork": row.has_artwork} for row in result.all()]
+async def get_existing_ids(
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Retourne tous les rekordbox_id existants avec leur statut has_artwork."""
+    result = await db.execute(
+        select(UserTrack.rekordbox_id, UserTrack.has_artwork)
+        .where(UserTrack.user_id == _uid(user))
+        .where(UserTrack.rekordbox_id.isnot(None))
+    )
+    return [{"id": row.rekordbox_id, "has_artwork": row.has_artwork} for row in result.all()]
 
 
 @router.post("/bulk", response_model=BulkImportResult)
-async def bulk_import(tracks: list[TrackImport], db: AsyncSession = Depends(get_db)):
+async def bulk_import(
+    tracks: list[TrackImport],
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     """
-    Upsert une liste de tracks.
-    - Insère les nouveaux, met à jour les existants.
-    - Upload l'image dans MinIO si image_base64 est fourni et has_artwork est False.
+    Upsert une liste de tracks dans user_tracks.
+    - Match catalog via normalized_key.
+    - Upload l'artwork dans MinIO si image_base64 fourni et has_artwork False.
     """
     from storage import upload_artwork, ensure_bucket
+    from utils import make_normalized_key
     ensure_bucket()
 
-    existing_result = await db.execute(select(LibTrack.id, LibTrack.has_artwork))
-    existing = {row.id: row.has_artwork for row in existing_result.all()}
+    uid = _uid(user)
+
+    # Chargement des user_tracks existants (rekordbox_id → (catalog_id, has_artwork))
+    existing_result = await db.execute(
+        select(UserTrack.rekordbox_id, UserTrack.catalog_id, UserTrack.has_artwork)
+        .where(UserTrack.user_id == uid)
+        .where(UserTrack.rekordbox_id.isnot(None))
+    )
+    existing: dict[int, tuple[int, bool]] = {
+        row.rekordbox_id: (row.catalog_id, row.has_artwork)
+        for row in existing_result.all()
+    }
 
     inserted = 0
     updated = 0
     artworks_uploaded = 0
 
     for t in tracks:
-        is_new = t.id not in existing
-        track = None
+        rb_id = t.id
+        is_new = rb_id not in existing
 
-        if not is_new:
-            result = await db.execute(select(LibTrack).where(LibTrack.id == t.id))
-            track = result.scalar_one()
+        # Résolution catalog via normalized_key
+        norm_key = make_normalized_key(t.title or "", t.artist or "")
+        cat_result = await db.execute(
+            select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+        )
+        cat_entry = cat_result.scalar_one_or_none()
+        catalog_id = cat_entry.id if cat_entry else None
 
-        if is_new:
-            track = LibTrack(id=t.id)
-            db.add(track)
+        if catalog_id is None:
+            # Pas de catalog match → skip (Phase 0 résoudra les orphelins)
+            continue
 
-        track.title = t.title
-        track.artist = t.artist
-        track.bpm = t.bpm
-        track.key = t.key
-        track.duration = t.duration
-        track.rating = t.rating
-        track.file_path = t.file_path
-        track.date_added = t.date_added
-        track.tags = json.dumps(t.tags)
+        # Upload artwork si fourni
+        already_has_artwork = existing.get(rb_id, (None, False))[1] if not is_new else False
+        has_artwork = already_has_artwork
 
-        # Upload artwork si fourni et pas déjà en base
-        already_has_artwork = existing.get(t.id, False)
         if t.image_base64 and not already_has_artwork:
             try:
                 img_bytes = base64.b64decode(t.image_base64)
                 with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
                     f.write(img_bytes)
                     tmp_path = f.name
-                upload_artwork(tmp_path, f"{t.id}.jpg")
+                upload_artwork(tmp_path, f"{rb_id}.jpg")
                 os.unlink(tmp_path)
-                track.has_artwork = True
+                has_artwork = True
                 artworks_uploaded += 1
             except Exception as e:
                 import logging
-                logging.getLogger("diggy").error(f"Artwork upload failed for track {t.id}: {e}")
-                track.has_artwork = False
-        else:
-            track.has_artwork = already_has_artwork or False
+                logging.getLogger("diggy").error(f"Artwork upload failed for track {rb_id}: {e}")
 
-        # Tente de lier au catalog si pas encore fait
-        if not track.catalog_id:
-            from utils import make_normalized_key
-            norm_key = make_normalized_key(t.title or "", t.artist or "")
-            cat_result = await db.execute(
-                select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
-            )
-            cat_entry = cat_result.scalar_one_or_none()
-            if cat_entry:
-                track.catalog_id = cat_entry.id
+        tags = t.tags or []
 
         if is_new:
+            ut = UserTrack(
+                user_id=uid,
+                catalog_id=catalog_id,
+                rekordbox_id=rb_id,
+                date_added=t.date_added,
+                source="rekordbox_import",
+                file_path=t.file_path,
+                rb_bpm=t.bpm,
+                rb_key=t.key,
+                rb_mytags=tags,
+                rating=t.rating,
+                has_artwork=has_artwork,
+            )
+            db.add(ut)
             inserted += 1
         else:
-            updated += 1
+            result = await db.execute(
+                select(UserTrack).where(
+                    UserTrack.user_id == uid,
+                    UserTrack.catalog_id == catalog_id,
+                )
+            )
+            ut = result.scalar_one_or_none()
+            if ut:
+                ut.rekordbox_id = rb_id
+                ut.date_added = t.date_added
+                ut.file_path = t.file_path
+                ut.rb_bpm = t.bpm
+                ut.rb_key = t.key
+                ut.rb_mytags = tags
+                ut.rating = t.rating
+                ut.has_artwork = has_artwork
+                updated += 1
 
     await db.commit()
     return BulkImportResult(inserted=inserted, updated=updated, artworks_uploaded=artworks_uploaded)
 
 
 @router.get("/tags", response_model=list[str])
-async def list_tags(db: AsyncSession = Depends(get_db)):
-    """Retourne tous les tags uniques extraits de lib_tracks."""
-    result = await db.execute(select(LibTrack.tags).where(LibTrack.tags != None))
+async def list_tags(
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Retourne tous les tags uniques extraits de user_tracks."""
+    result = await db.execute(
+        select(UserTrack.rb_mytags)
+        .where(UserTrack.user_id == _uid(user))
+        .where(UserTrack.rb_mytags.isnot(None))
+    )
     tags_set = set()
-    for (tags_json,) in result.all():
+    for (tags_val,) in result.all():
         try:
-            for tag in json.loads(tags_json):
+            tags = tags_val if isinstance(tags_val, list) else json.loads(tags_val)
+            for tag in tags:
                 if tag:
                     tags_set.add(tag)
         except (json.JSONDecodeError, TypeError):
@@ -119,37 +172,97 @@ async def list_tracks(
     artist: str | None = None,
     tag: str | None = None,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
+    uid = _uid(user)
+
     query = (
-        select(LibTrack, CatalogEntry.has_preview)
-        .outerjoin(CatalogEntry, LibTrack.catalog_id == CatalogEntry.id)
+        select(
+            UserTrack,
+            CatalogEntry.id.label("cat_id"),
+            CatalogEntry.title.label("cat_title"),
+            CatalogEntry.artist.label("cat_artist"),
+            CatalogEntry.has_preview,
+        )
+        .join(CatalogEntry, UserTrack.catalog_id == CatalogEntry.id)
+        .where(UserTrack.user_id == uid)
     )
+
     if artist:
-        query = query.where(LibTrack.artist.ilike(f"%{artist}%"))
+        query = query.where(CatalogEntry.artist.ilike(f"%{artist}%"))
+
     if tag:
-        query = query.where(LibTrack.tags.contains(tag))
+        # Le filtre précis se fait côté Python après fetch (JSON array)
+        # On filtre au moins les rows non-null pour éviter le full scan inutile
+        query = query.where(UserTrack.rb_mytags.isnot(None))
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
 
-    result = await db.execute(query.offset(skip).limit(limit))
+    result = await db.execute(query.order_by(UserTrack.date_added.desc()).offset(skip).limit(limit))
     rows = result.all()
 
     items = []
     for row in rows:
-        track, has_preview = row[0], row[1]
-        out = TrackOut.model_validate(track)
-        out.catalog_id = track.catalog_id
-        out.has_preview = has_preview or False
+        ut: UserTrack = row[0]
+        cat_has_preview = row[4]
+
+        # Filtre tag côté Python (JSON array dans rb_mytags)
+        if tag:
+            tags_list = ut.rb_mytags if isinstance(ut.rb_mytags, list) else []
+            if tag not in tags_list:
+                continue
+
+        out = TrackOut(
+            id=ut.rekordbox_id or ut.catalog_id,
+            title=ut.catalog.title if ut.catalog else None,
+            artist=ut.catalog.artist if ut.catalog else None,
+            bpm=ut.rb_bpm,
+            key=ut.rb_key,
+            duration=ut.catalog.duration_ms if ut.catalog else None,
+            rating=ut.rating,
+            file_path=ut.file_path,
+            date_added=ut.date_added,
+            tags=ut.rb_mytags or [],
+            has_artwork=ut.has_artwork or False,
+            catalog_id=ut.catalog_id,
+            has_preview=cat_has_preview or False,
+        )
         items.append(out)
 
     return TrackList(total=total, items=items)
 
 
 @router.get("/{track_id}", response_model=TrackOut)
-async def get_track(track_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(LibTrack).where(LibTrack.id == track_id))
-    track = result.scalar_one_or_none()
-    if not track:
+async def get_track(
+    track_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Récupère un track par rekordbox_id."""
+    uid = _uid(user)
+    result = await db.execute(
+        select(UserTrack)
+        .join(CatalogEntry, UserTrack.catalog_id == CatalogEntry.id)
+        .where(UserTrack.user_id == uid)
+        .where(UserTrack.rekordbox_id == track_id)
+    )
+    ut = result.scalar_one_or_none()
+    if not ut:
         raise HTTPException(status_code=404, detail="Track not found")
-    return track
+
+    return TrackOut(
+        id=ut.rekordbox_id or ut.catalog_id,
+        title=ut.catalog.title if ut.catalog else None,
+        artist=ut.catalog.artist if ut.catalog else None,
+        bpm=ut.rb_bpm,
+        key=ut.rb_key,
+        duration=ut.catalog.duration_ms if ut.catalog else None,
+        rating=ut.rating,
+        file_path=ut.file_path,
+        date_added=ut.date_added,
+        tags=ut.rb_mytags or [],
+        has_artwork=ut.has_artwork or False,
+        catalog_id=ut.catalog_id,
+        has_preview=ut.catalog.has_preview if ut.catalog else False,
+    )

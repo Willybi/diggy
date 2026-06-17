@@ -8,12 +8,14 @@ class TrackOut(BaseModel):
     id: int
     title: Optional[str]
     artist: Optional[str]
-    bpm: Optional[float]
-    key: Optional[str]
-    duration: Optional[int]
-    rating: Optional[int]
-    file_path: Optional[str]
-    date_added: Optional[datetime]
+    # user_tracks colonnes (rb_bpm / rb_key / rb_mytags)
+    # exposés sous bpm/key/tags pour rétrocompat frontend
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration: Optional[int] = None
+    rating: Optional[int] = None
+    file_path: Optional[str] = None
+    date_added: Optional[datetime] = None
     tags: list[str] = []
     has_artwork: bool = False
     catalog_id: Optional[int] = None
@@ -22,11 +24,16 @@ class TrackOut(BaseModel):
     @field_validator("tags", mode="before")
     @classmethod
     def parse_tags(cls, v):
+        if isinstance(v, list):
+            return v or []
         if isinstance(v, str):
-            return json.loads(v)
-        return v or []
+            try:
+                return json.loads(v)
+            except Exception:
+                return []
+        return []
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class TrackList(BaseModel):
