@@ -6,7 +6,7 @@
           <th class="col-play" />
           <th v-for="col in COLS" :key="col.key"
             :class="['col-' + col.key, col.num ? 'num' : '', col.sortable ? 'sortable' : '', sortKey === col.key ? 'is-sorted' : '']"
-            @click="col.sortable && toggleSort(col.key)"
+            @click="col.sortable ? toggleSort(col.key) : undefined"
           >
             {{ col.label }}
             <span v-if="col.sortable && sortKey === col.key" class="sort-indicator">
@@ -101,6 +101,7 @@ const sortKey = ref('title')
 const sortDir = ref('asc')
 
 function toggleSort(key) {
+  console.log('[TrackTable] toggleSort', key, 'externalSort:', props.externalSort)
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   } else {
