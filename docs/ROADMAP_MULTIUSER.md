@@ -14,9 +14,9 @@ Phase 1  Table users + auth JWT                        ✅ DONE (2026-06-17)
    ↓
 Phase 2  catalog scope/origin + user_tracks + migration lib_tracks  ✅ DONE (2026-06-17)
    ↓
-   ├── Phase 3  watched_entities + user_follows         ← SUIVANT
-   ├── Phase 4  user_radar_state (per-user discovery)
-   └── Phase 5  radar_trends + user_collections
+   ├── Phase 3  watched_entities + user_follows         ✅ DONE (2026-06-17)
+   ├── Phase 4  user_radar_state (per-user discovery)   ✅ DONE (2026-06-18)
+   └── Phase 5  radar_trends + user_collections         ← SUIVANT
          ↓
       Phase 6  Enforcement auth + drop lib_tracks
          ↓
@@ -263,14 +263,14 @@ SELECT 1, id FROM watched_entities;
 
 ### Tâches
 
-- [ ] **Alembic** : migration `0006_watched_entities`
-- [ ] **Model** : renommer `WatchedPlaylist` → `WatchedEntity`, ajouter `type`. Créer `UserFollow`.
-- [ ] **Refactor `routers/watchlist.py`** :
-  - [ ] Lister uniquement les entités suivies par l'user courant
-  - [ ] Follow/unfollow endpoints
-- [ ] **Refactor `routers/radar.py`** : colonne `watched_playlist_id` → `watched_entity_id`
-- [ ] **Celery `crawl_radar`** : adapter le nom de colonne
-- [ ] **Frontend** : adapter les stores/composants qui référencent `watched_playlists`
+- [x] **Alembic** : migration `0006_watched_entities`
+- [x] **Model** : renommer `WatchedPlaylist` → `WatchedEntity`, ajouter `type`. Créer `UserFollow`.
+- [x] **Refactor `routers/watchlist.py`** :
+  - [x] Lister uniquement les entités suivies par l'user courant
+  - [x] Follow/unfollow endpoints (delete = unfollow)
+- [x] **Refactor `routers/radar.py`** : colonne `watched_playlist_id` → `watched_entity_id`
+- [x] **Celery `crawl_radar`** : adapté (payload `watched_playlist_id` → mappé côté API)
+- [x] **Frontend** : pas de refs à `watched_playlists` dans le frontend (RadarView était placeholder)
 
 ### Checkpoint
 
@@ -316,15 +316,18 @@ ON CONFLICT DO NOTHING;
 
 ### Tâches
 
-- [ ] **Alembic** : migration `0007_user_radar_state`
-- [ ] **Model** : `UserRadarState` dans `models.py`
-- [ ] **API** :
-  - [ ] `PATCH /api/radar/{catalog_id}/state` — changer le statut pour l'user courant
-  - [ ] `GET /api/radar/` — inclure le `status` per-user (JOIN `user_radar_state`)
-- [ ] **Frontend RadarView** :
-  - [ ] Tabs de filtrage : New / Seen / Added / Ignored
-  - [ ] Boutons d'action pour changer le statut
-  - [ ] Badge compteur "new" dans la sidebar
+- [x] **Alembic** : migration `0007_user_radar_state`
+- [x] **Model** : `UserRadarState` dans `models.py`
+- [x] **API** :
+  - [x] `PATCH /api/radar/{catalog_id}/state` — changer le statut pour l'user courant
+  - [x] `GET /api/radar/full` — listing enrichi catalog + state per-user, paginé, filtrable
+  - [x] `GET /api/radar/new-count` — compteur sidebar
+  - [x] `PATCH /api/radar/state/batch` — mise à jour batch
+- [x] **Frontend RadarView** :
+  - [x] Tabs de filtrage : All / New / Seen / Added / Ignored
+  - [x] Boutons d'action pour changer le statut (toggle)
+  - [x] Badge compteur "new" dans la sidebar
+  - [x] Preview audio 30s, search, tri, filtre playlist, pagination
 
 ### Checkpoint
 
