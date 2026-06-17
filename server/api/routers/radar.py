@@ -75,7 +75,7 @@ async def list_radar_full(
         )
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
-        .join(WatchedEntity, RadarTrack.watched_entity_id == WatchedEntity.id)
+        .outerjoin(WatchedEntity, RadarTrack.watched_entity_id == WatchedEntity.id)
         .outerjoin(urs, and_(urs.user_id == uid, urs.catalog_id == CatalogEntry.id))
         .where(RadarTrack.catalog_id.isnot(None))
         .group_by(CatalogEntry.id, urs.status)
