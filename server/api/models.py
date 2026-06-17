@@ -174,12 +174,13 @@ class LibTrack(Base):
     catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True)
 
 
-class WatchedPlaylist(Base):
-    __tablename__ = "watched_playlists"
+class WatchedEntity(Base):
+    __tablename__ = "watched_entities"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     external_id = Column(String(64), unique=True, nullable=False)
     source = Column(String(64), nullable=False)
+    type = Column(String(20), nullable=False, server_default="playlist", default="playlist")
     title = Column(String(255))
     description = Column(Text)
     created_at = Column(DateTime(timezone=True))
@@ -189,12 +190,27 @@ class WatchedPlaylist(Base):
     owner = Column(String(255), nullable=True)
 
 
+# Alias pour compatibilité avec le code existant qui importe WatchedPlaylist
+WatchedPlaylist = WatchedEntity
+
+
+class UserFollow(Base):
+    __tablename__ = "user_follows"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    entity_id = Column(Integer, ForeignKey("watched_entities.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    followed_at = Column(DateTime(timezone=True))
+
+    user = relationship("User")
+    entity = relationship("WatchedEntity")
+
+
 class RadarTrack(Base):
     __tablename__ = "radar_tracks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    watched_playlist_id = Column(
-        Integer, ForeignKey("watched_playlists.id"), nullable=False
+    watched_entity_id = Column(
+        Integer, ForeignKey("watched_entities.id"), nullable=False
     )
     external_track_id = Column(String(255), nullable=False)
     source = Column(String(50), nullable=False)
@@ -206,7 +222,7 @@ class RadarTrack(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "watched_playlist_id", "external_track_id", name="uq_radar_playlist_track"
+            "watched_entity_id", "external_track_id", name="uq_radar_playlist_track"
         ),
     )
 

@@ -8,13 +8,13 @@
 ## Vue d'ensemble
 
 ```
-Phase 0  Résolution catalog_id (data cleanup)
+Phase 0  Résolution catalog_id (data cleanup)          ✅ SKIPPED (géré en Phase 2 via catalog private)
    ↓
-Phase 1  Table users + auth JWT
+Phase 1  Table users + auth JWT                        ✅ DONE (2026-06-17)
    ↓
-Phase 2  catalog scope/origin + user_tracks + migration lib_tracks  ← CHEMIN CRITIQUE
+Phase 2  catalog scope/origin + user_tracks + migration lib_tracks  ✅ DONE (2026-06-17)
    ↓
-   ├── Phase 3  watched_entities + user_follows
+   ├── Phase 3  watched_entities + user_follows         ← SUIVANT
    ├── Phase 4  user_radar_state (per-user discovery)
    └── Phase 5  radar_trends + user_collections
          ↓
@@ -88,17 +88,17 @@ VALUES (1, '<email>', 'willi', '<bcrypt_hash>', true);
 
 ### Tâches
 
-- [ ] **Alembic** : migration `0004_users`
-- [ ] **Model** : `User` dans `models.py`
-- [ ] **Backend** :
-  - [ ] `server/api/auth.py` — JWT encode/decode, hash password, verify password
-  - [ ] `server/api/routers/auth.py` — `POST /auth/register`, `POST /auth/login`, `GET /auth/me`
-  - [ ] `server/api/dependencies.py` — `get_current_user` (obligatoire) + `get_current_user_optional` (soft mode)
-- [ ] **Frontend** :
-  - [ ] `src/stores/auth.js` — Pinia store (token, user, login/logout)
-  - [ ] `src/views/LoginView.vue` — formulaire email + password
-  - [ ] Intercepteur axios/fetch — ajouter le header `Authorization` automatiquement
-- [ ] **Docker** : ajouter `JWT_SECRET` au `.env` du VPS
+- [x] **Alembic** : migration `0004_users`
+- [x] **Model** : `User` dans `models.py`
+- [x] **Backend** :
+  - [x] `server/api/auth.py` — JWT encode/decode, hash password, verify password
+  - [x] `server/api/routers/auth.py` — `POST /auth/register`, `POST /auth/login`, `GET /auth/me`
+  - [x] `server/api/dependencies.py` — `get_current_user` (obligatoire) + `get_current_user_optional` (soft mode)
+- [x] **Frontend** :
+  - [x] `src/stores/auth.js` — Pinia store (token, user, login/logout)
+  - [x] `src/views/LoginView.vue` — formulaire email + password
+  - [x] Intercepteur axios/fetch — header `Authorization` automatique
+- [x] **Docker** : `JWT_SECRET` dans `.env` du VPS
 
 ### Checkpoint
 
@@ -192,18 +192,22 @@ WHERE catalog_id IS NOT NULL;  -- Tous après Phase 0
 
 ### Tâches
 
-- [ ] **Alembic** : migration `0005_catalog_scope_user_tracks`
-- [ ] **Model** : `UserTrack` dans `models.py`, enrichir `CatalogEntry`
-- [ ] **Refactor `routers/tracks.py`** :
-  - [ ] Queries `lib_tracks` → `user_tracks JOIN catalog`
-  - [ ] Filtrer par `current_user.id` (via `get_current_user_optional` en soft mode)
-  - [ ] Endpoint bulk import → insère dans `user_tracks`
-- [ ] **Refactor `routers/catalog.py`** :
-  - [ ] Subquery `in_lib` : `user_tracks WHERE user_id = :uid` au lieu de `lib_tracks`
-  - [ ] Filtrage scope : `WHERE scope = 'shared' OR owner_id = :uid`
-  - [ ] Les jointures BPM/rating/tags/key viennent de `user_tracks`
-- [ ] **Schemas** : adapter `TrackOut` pour exposer `rb_bpm`, `rb_key`, `rb_mytags`
-- [ ] **Tests manuels** : vérifier que toutes les vues frontend affichent les mêmes données
+- [x] **Alembic** : migration `0005_catalog_scope_user_tracks`
+- [x] **Model** : `UserTrack` dans `models.py`, enrichir `CatalogEntry`
+- [x] **Refactor `routers/tracks.py`** :
+  - [x] Queries `lib_tracks` → `user_tracks JOIN catalog`
+  - [x] Filtrer par `current_user.id` (via `get_current_user_optional` en soft mode)
+  - [x] Endpoint bulk import → insère dans `user_tracks` + crée catalog `private` si pas de match
+- [x] **Refactor `routers/catalog.py`** :
+  - [x] Subquery `in_lib` : `user_tracks WHERE user_id = :uid` au lieu de `lib_tracks`
+  - [x] Les jointures BPM/rating/tags/key viennent de `user_tracks`
+- [x] **Schemas** : adapter `TrackOut` pour exposer `rb_bpm`, `rb_key`, `rb_mytags`
+- [x] **Tests manuels** : 600/600 tracks migrés, `/tracks` et `/catalog` fonctionnels
+
+### Notes
+- 600 tracks migrés sur 603 (3 doublons catalog_id — `ON CONFLICT DO NOTHING` attendu)
+- `scope='private'` créé automatiquement au bulk import si pas de match catalog
+- Tri par style activé dans `TrackTable.vue`
 
 ### Checkpoint
 

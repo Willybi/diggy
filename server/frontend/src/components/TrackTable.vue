@@ -113,6 +113,9 @@ const sortedTracks = computed(() => {
   return arr.sort((a, b) => {
     const av = k === 'style' ? (firstTag(a) ?? '') : (a[k] ?? '')
     const bv = k === 'style' ? (firstTag(b) ?? '') : (b[k] ?? '')
+    if (typeof av === 'string' && typeof bv === 'string') {
+      return av.localeCompare(bv, undefined, { sensitivity: 'base' }) * dir
+    }
     if (av < bv) return -1 * dir
     if (av > bv) return 1 * dir
     return 0

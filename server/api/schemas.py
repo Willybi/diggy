@@ -79,7 +79,9 @@ class RadarTrackIn(BaseModel):
 
 class RadarTrackOut(BaseModel):
     id: int
-    watched_playlist_id: int
+    # watched_entity_id exposé sous watched_playlist_id pour rétrocompat frontend
+    watched_playlist_id: Optional[int] = None
+    watched_entity_id: Optional[int] = None
     external_track_id: str
     source: str
     title: str
@@ -87,7 +89,16 @@ class RadarTrackOut(BaseModel):
     isrc: Optional[str]
     detected_at: Optional[datetime]
 
-    model_config = {"from_attributes": True}
+    @field_validator("watched_playlist_id", mode="before")
+    @classmethod
+    def coerce_entity_id(cls, v):
+        return v  # sera rempli via watched_entity_id si None
+
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+    def model_post_init(self, __context):
+        if self.watched_playlist_id is None and self.watched_entity_id is not None:
+            self.watched_playlist_id = self.watched_entity_id
 
 
 class CatalogEntryOut(BaseModel):

@@ -48,7 +48,7 @@ async def list_catalog(
     radar_count = (
         select(
             RadarTrack.catalog_id,
-            func.count(func.distinct(RadarTrack.watched_playlist_id)).label("nb_playlists"),
+            func.count(func.distinct(RadarTrack.watched_entity_id)).label("nb_playlists"),
         )
         .where(RadarTrack.catalog_id.isnot(None))
         .group_by(RadarTrack.catalog_id)
@@ -226,12 +226,12 @@ async def get_catalog_detail(
     # 3. Radar appearances
     radar_result = await db.execute(
         select(
-            RadarTrack.watched_playlist_id,
+            RadarTrack.watched_entity_id,
             WatchedPlaylist.title,
             WatchedPlaylist.source,
             RadarTrack.detected_at,
         )
-        .join(WatchedPlaylist, WatchedPlaylist.id == RadarTrack.watched_playlist_id)
+        .join(WatchedPlaylist, WatchedPlaylist.id == RadarTrack.watched_entity_id)
         .where(RadarTrack.catalog_id == catalog_id)
         .order_by(RadarTrack.detected_at.desc())
         .limit(10)
