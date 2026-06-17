@@ -55,13 +55,26 @@
 </template>
 
 <script setup>
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 import { useTheme } from '../composables/useTheme.js'
 import { useAuthStore } from '../stores/auth.js'
 
 const { isDark, toggle } = useTheme()
 const auth = useAuthStore()
 const router = useRouter()
+
+const radarNewCount = ref(null)
+
+async function fetchRadarNewCount() {
+  try {
+    const { data } = await axios.get('/api/radar/new-count')
+    radarNewCount.value = data.count || null
+  } catch {}
+}
+
+onMounted(fetchRadarNewCount)
 
 function handleLogout() {
   auth.logout()
@@ -81,10 +94,10 @@ const libraryItems = [
   { to: '/catalog', label: 'Catalog', icon: iconGrid, count: null },
 ]
 
-const discoverItems = [
-  { to: '/radar', label: 'Radar',       icon: iconRadar, count: null },
+const discoverItems = computed(() => [
+  { to: '/radar', label: 'Radar',       icon: iconRadar, count: radarNewCount.value || null },
   { to: '/tags',  label: 'Style tags',  icon: iconTag,   count: null },
-]
+])
 </script>
 
 <style scoped>

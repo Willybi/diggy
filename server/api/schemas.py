@@ -101,6 +101,36 @@ class RadarTrackOut(BaseModel):
             self.watched_playlist_id = self.watched_entity_id
 
 
+class RadarFullOut(BaseModel):
+    """Enriched radar track for the RadarView: catalog info + user state + playlist source."""
+    catalog_id: int
+    title: str
+    artist: Optional[str] = None
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration_ms: Optional[int] = None
+    genre: Optional[str] = None
+    has_artwork: bool = False
+    has_preview: bool = False
+    detected_at: Optional[datetime] = None
+    playlist_id: Optional[int] = None
+    playlist_title: Optional[str] = None
+    status: str = "new"
+    in_lib: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class RadarFullList(BaseModel):
+    total: int
+    items: list[RadarFullOut]
+    counts: dict[str, int] = {}
+
+
+class RadarStateUpdate(BaseModel):
+    status: str  # new, seen, added, ignored
+
+
 class CatalogEntryOut(BaseModel):
     id: int
     title: str

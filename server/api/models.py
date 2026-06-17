@@ -205,6 +205,18 @@ class UserFollow(Base):
     entity = relationship("WatchedEntity")
 
 
+class UserRadarState(Base):
+    __tablename__ = "user_radar_state"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    status = Column(String(20), nullable=False, server_default="new", default="new")
+    updated_at = Column(DateTime(timezone=True))
+
+    user = relationship("User")
+    catalog = relationship("CatalogEntry")
+
+
 class RadarTrack(Base):
     __tablename__ = "radar_tracks"
 
