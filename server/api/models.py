@@ -123,8 +123,38 @@ class CatalogEntry(Base):
     has_artwork = Column(Boolean, default=False)
     has_preview = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
+    # Phase 2 — multi-user fields
+    scope = Column(String(10), nullable=False, server_default="shared")
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    origin = Column(String(50), nullable=False, server_default="deezer")
+    status = Column(String(20), nullable=False, server_default="official")
+    bpm_source = Column(String(20), nullable=True)
+    key_source = Column(String(20), nullable=True)
+    label = Column(String(255), nullable=True)
+    fingerprint = Column(String, unique=True, nullable=True)
+    needs_reconciliation = Column(Boolean, server_default="false", nullable=True)
 
     genres = relationship("Genre", secondary=catalog_genres, back_populates="catalog_entries")
+
+
+class UserTrack(Base):
+    __tablename__ = "user_tracks"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="RESTRICT"), primary_key=True, nullable=False)
+    rekordbox_id = Column(Integer, nullable=True)
+    date_added = Column(DateTime(timezone=True), nullable=True)
+    source = Column(String(50), server_default="rekordbox_import", nullable=True)
+    file_path = Column(Text, nullable=True)
+    rb_bpm = Column(Float, nullable=True)
+    rb_key = Column(String(10), nullable=True)
+    rb_mytags = Column(JSON, server_default="[]", nullable=True)
+    rating = Column(Integer, nullable=True)
+    has_artwork = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True))
+
+    catalog = relationship("CatalogEntry")
+    user = relationship("User")
 
 
 class LibTrack(Base):
