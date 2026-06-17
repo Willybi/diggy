@@ -16,7 +16,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install pyrekordbox mutagen pytest pytest-mock requests pytest-asyncio httpx aiosqlite anyio fastapi sqlalchemy[asyncio] boto3 "python-jose[cryptography]" "passlib[bcrypt]" python-multipart "pydantic[email]"
+        run: pip install pyrekordbox mutagen pytest pytest-mock requests pytest-asyncio httpx aiosqlite anyio fastapi sqlalchemy[asyncio] boto3 "python-jose[cryptography]" bcrypt python-multipart "pydantic[email]"
 
       - name: Run tests
         run: pytest tests/ -v
