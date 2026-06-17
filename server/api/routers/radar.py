@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from catalog import get_or_create_catalog
 from database import get_db
-from models import RadarTrack, WatchedPlaylist
+from models import RadarTrack, WatchedEntity, UserTrack
 from schemas import RadarTrackIn, RadarTrackOut
 
 router = APIRouter(prefix="/radar", tags=["radar"])
@@ -20,7 +20,7 @@ async def list_radar_tracks(
 ):
     query = select(RadarTrack)
     if watched_playlist_id is not None:
-        query = query.where(RadarTrack.watched_playlist_id == watched_playlist_id)
+        query = query.where(RadarTrack.watched_entity_id == watched_playlist_id)
     if source is not None:
         query = query.where(RadarTrack.source == source)
     result = await db.execute(query)
@@ -29,15 +29,15 @@ async def list_radar_tracks(
 
 @router.post("/", response_model=RadarTrackOut, status_code=201)
 async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSession = Depends(get_db)):
-    playlist = await db.execute(
-        select(WatchedPlaylist).where(WatchedPlaylist.id == body.watched_playlist_id)
+    entity = await db.execute(
+        select(WatchedEntity).where(WatchedEntity.id == body.watched_playlist_id)
     )
-    if not playlist.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="watched_playlist not found")
+    if not entity.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="watched_entity not found")
 
     existing = await db.execute(
         select(RadarTrack).where(
-            RadarTrack.watched_playlist_id == body.watched_playlist_id,
+            RadarTrack.watched_entity_id == body.watched_playlist_id,
             RadarTrack.external_track_id == body.external_track_id,
         )
     )
@@ -53,21 +53,8 @@ async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSessi
         isrc=body.isrc,
     )
 
-    # Si une lib_track correspond à cette entrée catalog, la lier automatiquement
-    from models import LibTrack
-    from sqlalchemy import func
-    lib_result = await db.execute(
-        select(LibTrack).where(
-            LibTrack.catalog_id.is_(None),
-            func.lower(func.trim(LibTrack.title)) == func.lower(func.trim(catalog_entry.title)),
-            func.lower(func.trim(LibTrack.artist)) == func.lower(func.trim(catalog_entry.artist)),
-        )
-    )
-    for lt in lib_result.scalars().all():
-        lt.catalog_id = catalog_entry.id
-
     entry = RadarTrack(
-        watched_playlist_id=body.watched_playlist_id,
+        watched_entity_id=body.watched_playlist_id,
         external_track_id=body.external_track_id,
         source=body.source,
         title=body.title,

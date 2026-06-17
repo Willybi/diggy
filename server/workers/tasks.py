@@ -55,7 +55,7 @@ def crawl_radar():
         for t in tracks:
             artist = t.get("artist", {}).get("name") if isinstance(t.get("artist"), dict) else None
             payload = {
-                "watched_playlist_id": pl["id"],
+                "watched_playlist_id": pl["id"],  # mapped to watched_entity_id in API
                 "external_track_id": str(t["id"]),
                 "source": "deezer",
                 "title": t.get("title", ""),
