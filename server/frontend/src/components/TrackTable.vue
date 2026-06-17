@@ -79,7 +79,7 @@ const props = defineProps({
 
 const COLS = [
   { key: 'title',    label: 'Track',    sortable: true,  num: false },
-  { key: 'style',    label: 'Style',    sortable: false, num: false },
+  { key: 'style',    label: 'Style',    sortable: true,  num: false },
   { key: 'bpm',      label: 'BPM',      sortable: true,  num: true  },
   { key: 'key',      label: 'Key',      sortable: false, num: true  },
   { key: 'duration', label: 'Durée',    sortable: true,  num: true  },
@@ -111,8 +111,8 @@ const sortedTracks = computed(() => {
   const k = sortKey.value
   const dir = sortDir.value === 'asc' ? 1 : -1
   return arr.sort((a, b) => {
-    const av = a[k] ?? ''
-    const bv = b[k] ?? ''
+    const av = k === 'style' ? (firstTag(a) ?? '') : (a[k] ?? '')
+    const bv = k === 'style' ? (firstTag(b) ?? '') : (b[k] ?? '')
     if (av < bv) return -1 * dir
     if (av > bv) return 1 * dir
     return 0
