@@ -32,6 +32,20 @@
     </nav>
 
     <div class="sidebar-footer">
+      <div v-if="auth.isAuthenticated" class="user-row">
+        <span class="nav-icon" v-html="iconUser" />
+        <span class="user-name">{{ auth.user?.username }}</span>
+        <button class="logout-btn" @click="handleLogout" title="Déconnexion">
+          <span v-html="iconLogout" />
+        </button>
+      </div>
+      <RouterLink v-else to="/login" custom v-slot="{ navigate }">
+        <span class="nav-item" @click="navigate">
+          <span class="nav-icon" v-html="iconUser" />
+          Connexion
+        </span>
+      </RouterLink>
+
       <button class="nav-item theme-toggle" @click="toggle">
         <span class="nav-icon" v-html="isDark ? iconSun : iconMoon" />
         {{ isDark ? 'Light mode' : 'Dark mode' }}
@@ -41,9 +55,18 @@
 </template>
 
 <script setup>
+import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme.js'
+import { useAuthStore } from '../stores/auth.js'
 
 const { isDark, toggle } = useTheme()
+const auth = useAuthStore()
+const router = useRouter()
+
+function handleLogout() {
+  auth.logout()
+  router.push('/login')
+}
 
 const iconLib = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v14M9 19V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v14M14 19l4-15 3 1-4 14"/></svg>`
 const iconGrid = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`
@@ -51,6 +74,8 @@ const iconRadar = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const iconTag = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-7 7-9-9z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></svg>`
 const iconSun = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`
 const iconMoon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
+const iconUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`
+const iconLogout = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M17 16l4-4-4-4M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>`
 
 const libraryItems = [
   { to: '/catalog', label: 'Catalog', icon: iconGrid, count: null },
@@ -154,5 +179,45 @@ const discoverItems = [
   border: none;
   background: transparent;
   font: inherit;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  margin-bottom: 4px;
+}
+
+.user-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--ink-3);
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.logout-btn:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.logout-btn :deep(svg) {
+  width: 15px;
+  height: 15px;
 }
 </style>

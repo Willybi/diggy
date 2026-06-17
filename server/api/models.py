@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 
@@ -44,6 +45,18 @@ catalog_genres = Table(
 
 
 # ---------- Models ----------
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, nullable=False)
+    username = Column(String(100), unique=True, nullable=False)
+    hashed_password = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    settings = Column(JSONB, default=dict, nullable=False, server_default="{}")
+    created_at = Column(DateTime(timezone=True))
 
 
 class Genre(Base):

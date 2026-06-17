@@ -1,0 +1,376 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900" font-family="'Segoe UI', Arial, sans-serif">
+
+  <!-- Background -->
+  <rect width="1200" height="900" fill="#0f1117"/>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER LABELS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <!-- GLOBAL layer label -->
+  <text x="18" y="148" fill="#4ade80" font-size="10" font-weight="700" letter-spacing="2" opacity="0.7">GLOBAL</text>
+
+  <!-- USER layer label -->
+  <text x="18" y="418" fill="#60a5fa" font-size="10" font-weight="700" letter-spacing="2" opacity="0.7">USER</text>
+
+  <!-- DISCOVERY layer label -->
+  <text x="18" y="648" fill="#f59e0b" font-size="10" font-weight="700" letter-spacing="2" opacity="0.7">DÉCOUVERTE</text>
+
+  <!-- SETS layer label -->
+  <text x="18" y="828" fill="#a78bfa" font-size="10" font-weight="700" letter-spacing="2" opacity="0.7">SETS</text>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LANE BACKGROUNDS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <rect x="60" y="110" width="1120" height="175" rx="10" fill="#0d2218" stroke="#4ade80" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>
+  <rect x="60" y="300" width="1120" height="240" rx="10" fill="#0d1a2e" stroke="#60a5fa" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>
+  <rect x="60" y="555" width="1120" height="175" rx="10" fill="#2a1a00" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>
+  <rect x="60" y="745" width="1120" height="130" rx="10" fill="#1a1030" stroke="#a78bfa" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- GLOBAL LAYER — catalog, genres, artists -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <!-- catalog -->
+  <g transform="translate(310, 125)">
+    <rect width="200" height="140" rx="8" fill="#14532d" stroke="#4ade80" stroke-width="2"/>
+    <rect width="200" height="30" rx="8" fill="#166534"/>
+    <rect width="200" height="8" y="22" fill="#166534"/>
+    <text x="100" y="20" text-anchor="middle" fill="#4ade80" font-size="13" font-weight="700">catalog</text>
+    <text x="10" y="50" fill="#86efac" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#86efac" font-size="10">title, artist</text>
+    <text x="10" y="80" fill="#86efac" font-size="10">normalized_key  UNIQUE</text>
+    <text x="10" y="95" fill="#86efac" font-size="10">isrc, deezer_id, bpm, key</text>
+    <text x="10" y="110" fill="#86efac" font-size="10">scope  (shared | private)</text>
+    <text x="10" y="125" fill="#fbbf24" font-size="10">owner_id  → users.id</text>
+    <text x="10" y="140" fill="#86efac" font-size="10">origin, status, has_artwork</text>
+  </g>
+
+  <!-- genres -->
+  <g transform="translate(660, 125)">
+    <rect width="160" height="100" rx="8" fill="#14532d" stroke="#4ade80" stroke-width="2"/>
+    <rect width="160" height="30" rx="8" fill="#166534"/>
+    <rect width="160" height="8" y="22" fill="#166534"/>
+    <text x="80" y="20" text-anchor="middle" fill="#4ade80" font-size="13" font-weight="700">genres</text>
+    <text x="10" y="50" fill="#86efac" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#86efac" font-size="10">name  UNIQUE</text>
+    <text x="10" y="80" fill="#86efac" font-size="10">parent_id  → genres.id</text>
+    <text x="10" y="95" fill="#86efac" font-size="10">created_at</text>
+  </g>
+
+  <!-- artists -->
+  <g transform="translate(880, 125)">
+    <rect width="180" height="120" rx="8" fill="#14532d" stroke="#4ade80" stroke-width="2"/>
+    <rect width="180" height="30" rx="8" fill="#166534"/>
+    <rect width="180" height="8" y="22" fill="#166534"/>
+    <text x="90" y="20" text-anchor="middle" fill="#4ade80" font-size="13" font-weight="700">artists</text>
+    <text x="10" y="50" fill="#86efac" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#86efac" font-size="10">name, normalized_name UNIQUE</text>
+    <text x="10" y="80" fill="#86efac" font-size="10">deezer_id, soundcloud_id</text>
+    <text x="10" y="95" fill="#86efac" font-size="10">has_artwork</text>
+    <text x="10" y="110" fill="#86efac" font-size="10">→ artist_aliases (cascade)</text>
+  </g>
+
+  <!-- catalog_genres association -->
+  <g transform="translate(555, 148)">
+    <rect width="90" height="36" rx="5" fill="#052e16" stroke="#4ade80" stroke-width="1" opacity="0.9"/>
+    <text x="45" y="14" text-anchor="middle" fill="#86efac" font-size="9" font-weight="600">catalog_genres</text>
+    <text x="45" y="28" text-anchor="middle" fill="#6ee7b7" font-size="8">catalog_id, genre_id</text>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- USER LAYER -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <!-- users -->
+  <g transform="translate(75, 315)">
+    <rect width="180" height="150" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="2.5"/>
+    <rect width="180" height="30" rx="8" fill="#1e40af"/>
+    <rect width="180" height="8" y="22" fill="#1e40af"/>
+    <text x="90" y="20" text-anchor="middle" fill="#93c5fd" font-size="13" font-weight="700">users</text>
+    <text x="10" y="50" fill="#bfdbfe" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#bfdbfe" font-size="10">email  UNIQUE</text>
+    <text x="10" y="80" fill="#bfdbfe" font-size="10">username  UNIQUE</text>
+    <text x="10" y="95" fill="#bfdbfe" font-size="10">hashed_password</text>
+    <text x="10" y="110" fill="#bfdbfe" font-size="10">is_active</text>
+    <text x="10" y="125" fill="#bfdbfe" font-size="10">settings  JSONB</text>
+    <text x="10" y="140" fill="#bfdbfe" font-size="10">created_at</text>
+  </g>
+
+  <!-- user_tracks -->
+  <g transform="translate(295, 315)">
+    <rect width="200" height="165" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="2"/>
+    <rect width="200" height="30" rx="8" fill="#1e40af"/>
+    <rect width="200" height="8" y="22" fill="#1e40af"/>
+    <text x="100" y="20" text-anchor="middle" fill="#93c5fd" font-size="13" font-weight="700">user_tracks</text>
+    <text x="10" y="50" fill="#fbbf24" font-size="10">user_id  PK → users</text>
+    <text x="10" y="65" fill="#fbbf24" font-size="10">catalog_id  PK → catalog (RESTRICT)</text>
+    <text x="10" y="80" fill="#bfdbfe" font-size="10">rekordbox_id</text>
+    <text x="10" y="95" fill="#bfdbfe" font-size="10">rb_bpm, rb_key</text>
+    <text x="10" y="110" fill="#bfdbfe" font-size="10">rb_mytags  JSONB</text>
+    <text x="10" y="125" fill="#bfdbfe" font-size="10">rating, file_path</text>
+    <text x="10" y="140" fill="#bfdbfe" font-size="10">has_artwork</text>
+    <text x="10" y="155" fill="#94a3b8" font-size="9" font-style="italic">PK (user_id, catalog_id)</text>
+  </g>
+
+  <!-- user_follows -->
+  <g transform="translate(535, 315)">
+    <rect width="165" height="100" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="2"/>
+    <rect width="165" height="30" rx="8" fill="#1e40af"/>
+    <rect width="165" height="8" y="22" fill="#1e40af"/>
+    <text x="82" y="20" text-anchor="middle" fill="#93c5fd" font-size="13" font-weight="700">user_follows</text>
+    <text x="10" y="50" fill="#fbbf24" font-size="10">user_id  PK → users</text>
+    <text x="10" y="65" fill="#fbbf24" font-size="10">entity_id  PK → watched_entities</text>
+    <text x="10" y="80" fill="#bfdbfe" font-size="10">followed_at</text>
+    <text x="10" y="95" fill="#94a3b8" font-size="9" font-style="italic">PK (user_id, entity_id)</text>
+  </g>
+
+  <!-- user_radar_state -->
+  <g transform="translate(735, 315)">
+    <rect width="195" height="135" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="2"/>
+    <rect width="195" height="30" rx="8" fill="#1e40af"/>
+    <rect width="195" height="8" y="22" fill="#1e40af"/>
+    <text x="97" y="20" text-anchor="middle" fill="#93c5fd" font-size="12" font-weight="700">user_radar_state</text>
+    <text x="10" y="50" fill="#fbbf24" font-size="10">user_id  PK → users</text>
+    <text x="10" y="65" fill="#fbbf24" font-size="10">catalog_id  PK → catalog</text>
+    <text x="10" y="80" fill="#bfdbfe" font-size="10">status  (new|seen|added|ignored)</text>
+    <text x="10" y="95" fill="#bfdbfe" font-size="10">affinity_score</text>
+    <text x="10" y="110" fill="#bfdbfe" font-size="10">updated_at</text>
+    <text x="10" y="125" fill="#94a3b8" font-size="9" font-style="italic">PK (user_id, catalog_id)</text>
+  </g>
+
+  <!-- user_collections -->
+  <g transform="translate(960, 315)">
+    <rect width="195" height="135" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="2"/>
+    <rect width="195" height="30" rx="8" fill="#1e40af"/>
+    <rect width="195" height="8" y="22" fill="#1e40af"/>
+    <text x="97" y="20" text-anchor="middle" fill="#93c5fd" font-size="12" font-weight="700">user_collections</text>
+    <text x="10" y="50" fill="#fbbf24" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#fbbf24" font-size="10">user_id  → users</text>
+    <text x="10" y="80" fill="#bfdbfe" font-size="10">name, type</text>
+    <text x="10" y="95" fill="#bfdbfe" font-size="10">created_at</text>
+    <text x="10" y="115" fill="#94a3b8" font-size="9">↓ collection_items</text>
+    <text x="10" y="128" fill="#94a3b8" font-size="9">  (collection_id, catalog_id, pos)</text>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- DISCOVERY LAYER -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <!-- watched_entities -->
+  <g transform="translate(75, 570)">
+    <rect width="210" height="130" rx="8" fill="#422006" stroke="#f59e0b" stroke-width="2"/>
+    <rect width="210" height="30" rx="8" fill="#78350f"/>
+    <rect width="210" height="8" y="22" fill="#78350f"/>
+    <text x="105" y="20" text-anchor="middle" fill="#fcd34d" font-size="12" font-weight="700">watched_entities</text>
+    <text x="10" y="50" fill="#fde68a" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#fde68a" font-size="10">type  (playlist|artist|label)</text>
+    <text x="10" y="80" fill="#fde68a" font-size="10">source, external_ref  UNIQUE</text>
+    <text x="10" y="95" fill="#fde68a" font-size="10">title, has_artwork</text>
+    <text x="10" y="110" fill="#fde68a" font-size="10">last_polled_at, active</text>
+    <text x="10" y="125" fill="#94a3b8" font-size="9" font-style="italic">UNIQUE (type, source, external_ref)</text>
+  </g>
+
+  <!-- radar_tracks -->
+  <g transform="translate(330, 570)">
+    <rect width="210" height="145" rx="8" fill="#422006" stroke="#f59e0b" stroke-width="2"/>
+    <rect width="210" height="30" rx="8" fill="#78350f"/>
+    <rect width="210" height="8" y="22" fill="#78350f"/>
+    <text x="105" y="20" text-anchor="middle" fill="#fcd34d" font-size="12" font-weight="700">radar_tracks</text>
+    <text x="10" y="50" fill="#fde68a" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#fbbf24" font-size="10">watched_entity_id  → watched_entities</text>
+    <text x="10" y="80" fill="#fbbf24" font-size="10">catalog_id  → catalog (SET NULL)</text>
+    <text x="10" y="95" fill="#fde68a" font-size="10">external_track_id, source</text>
+    <text x="10" y="110" fill="#fde68a" font-size="10">title, artist, isrc</text>
+    <text x="10" y="125" fill="#fde68a" font-size="10">detected_at</text>
+    <text x="10" y="140" fill="#94a3b8" font-size="9" font-style="italic">UNIQUE (entity_id, external_track_id)</text>
+  </g>
+
+  <!-- radar_trends -->
+  <g transform="translate(590, 570)">
+    <rect width="180" height="115" rx="8" fill="#422006" stroke="#f59e0b" stroke-width="2"/>
+    <rect width="180" height="30" rx="8" fill="#78350f"/>
+    <rect width="180" height="8" y="22" fill="#78350f"/>
+    <text x="90" y="20" text-anchor="middle" fill="#fcd34d" font-size="12" font-weight="700">radar_trends</text>
+    <text x="10" y="50" fill="#fbbf24" font-size="10">catalog_id  PK → catalog</text>
+    <text x="10" y="65" fill="#fde68a" font-size="10">trend_score  FLOAT</text>
+    <text x="10" y="80" fill="#fde68a" font-size="10">detection_count</text>
+    <text x="10" y="95" fill="#fde68a" font-size="10">window_days</text>
+    <text x="10" y="110" fill="#fde68a" font-size="10">computed_at  (Celery daily)</text>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SETS LAYER -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <!-- sets -->
+  <g transform="translate(75, 758)">
+    <rect width="175" height="100" rx="8" fill="#2e1065" stroke="#a78bfa" stroke-width="2"/>
+    <rect width="175" height="30" rx="8" fill="#4c1d95"/>
+    <rect width="175" height="8" y="22" fill="#4c1d95"/>
+    <text x="87" y="20" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="700">sets</text>
+    <text x="10" y="50" fill="#ddd6fe" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#ddd6fe" font-size="10">title, source, external_id</text>
+    <text x="10" y="80" fill="#ddd6fe" font-size="10">played_date, event, venue</text>
+    <text x="10" y="95" fill="#ddd6fe" font-size="10">UNIQUE (external_id, source)</text>
+  </g>
+
+  <!-- set_tracks -->
+  <g transform="translate(300, 758)">
+    <rect width="185" height="110" rx="8" fill="#2e1065" stroke="#a78bfa" stroke-width="2"/>
+    <rect width="185" height="30" rx="8" fill="#4c1d95"/>
+    <rect width="185" height="8" y="22" fill="#4c1d95"/>
+    <text x="92" y="20" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="700">set_tracks</text>
+    <text x="10" y="50" fill="#a78bfa" font-size="10">set_id  → sets</text>
+    <text x="10" y="65" fill="#a78bfa" font-size="10">catalog_id  → catalog (SET NULL)</text>
+    <text x="10" y="80" fill="#ddd6fe" font-size="10">position, timecode_ms</text>
+    <text x="10" y="95" fill="#ddd6fe" font-size="10">raw_title, raw_artist, is_id</text>
+    <text x="10" y="107" fill="#94a3b8" font-size="9" font-style="italic">UNIQUE (set_id, position)</text>
+  </g>
+
+  <!-- set_artists -->
+  <g transform="translate(535, 758)">
+    <rect width="175" height="100" rx="8" fill="#2e1065" stroke="#a78bfa" stroke-width="2"/>
+    <rect width="175" height="30" rx="8" fill="#4c1d95"/>
+    <rect width="175" height="8" y="22" fill="#4c1d95"/>
+    <text x="87" y="20" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="700">set_artists</text>
+    <text x="10" y="50" fill="#a78bfa" font-size="10">set_id  PK → sets</text>
+    <text x="10" y="65" fill="#a78bfa" font-size="10">artist_id  PK → artists</text>
+    <text x="10" y="80" fill="#ddd6fe" font-size="10">role  (main|b2b)</text>
+    <text x="10" y="95" fill="#ddd6fe" font-size="10">position</text>
+  </g>
+
+  <!-- set_genres / artist_genres mini -->
+  <g transform="translate(755, 758)">
+    <rect width="150" height="80" rx="5" fill="#1a0a3e" stroke="#a78bfa" stroke-width="1" opacity="0.9"/>
+    <text x="75" y="18" text-anchor="middle" fill="#c4b5fd" font-size="10" font-weight="600">set_genres</text>
+    <text x="75" y="33" text-anchor="middle" fill="#ddd6fe" font-size="9">set_id → sets</text>
+    <text x="75" y="47" text-anchor="middle" fill="#ddd6fe" font-size="9">genre_id → genres</text>
+    <line x1="10" y1="55" x2="140" y2="55" stroke="#4c1d95" stroke-width="1"/>
+    <text x="75" y="68" text-anchor="middle" fill="#c4b5fd" font-size="10" font-weight="600">artist_genres</text>
+  </g>
+
+  <!-- artist_aliases -->
+  <g transform="translate(955, 758)">
+    <rect width="175" height="100" rx="8" fill="#14532d" stroke="#4ade80" stroke-width="1.5" opacity="0.8"/>
+    <rect width="175" height="30" rx="8" fill="#166534" opacity="0.8"/>
+    <rect width="175" height="8" y="22" fill="#166534" opacity="0.8"/>
+    <text x="87" y="20" text-anchor="middle" fill="#86efac" font-size="12" font-weight="700">artist_aliases</text>
+    <text x="10" y="50" fill="#86efac" font-size="10">id  PK</text>
+    <text x="10" y="65" fill="#4ade80" font-size="10">artist_id  → artists (CASCADE)</text>
+    <text x="10" y="80" fill="#86efac" font-size="10">alias</text>
+    <text x="10" y="95" fill="#86efac" font-size="10">normalized_alias  UNIQUE</text>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- RELATIONS / ARROWS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <!-- catalog → genres (via catalog_genres) -->
+  <line x1="510" y1="175" x2="555" y2="168" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.7"/>
+  <line x1="645" y1="168" x2="660" y2="175" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.7"/>
+
+  <!-- catalog → artists (via set_genres/artist area, simplified arrow) -->
+  <line x1="510" y1="165" x2="880" y2="165" stroke="#4ade80" stroke-width="1" stroke-dasharray="3,4" opacity="0.4"/>
+
+  <!-- users → catalog (owner_id, dashed) -->
+  <path d="M 255 380 C 280 350, 340 310, 395 265" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.6"/>
+  <polygon points="395,262 390,272 400,270" fill="#fbbf24" opacity="0.6"/>
+  <text x="290" y="335" fill="#fbbf24" font-size="9" opacity="0.8">owner_id</text>
+
+  <!-- users → user_tracks -->
+  <line x1="255" y1="390" x2="295" y2="390" stroke="#60a5fa" stroke-width="2" opacity="0.8"/>
+  <polygon points="295,386 295,394 302,390" fill="#60a5fa" opacity="0.8"/>
+
+  <!-- users → user_follows -->
+  <line x1="255" y1="380" x2="535" y2="365" stroke="#60a5fa" stroke-width="1.5" opacity="0.7"/>
+  <polygon points="535,362 532,371 540,369" fill="#60a5fa" opacity="0.7"/>
+
+  <!-- users → user_radar_state -->
+  <line x1="255" y1="375" x2="735" y2="358" stroke="#60a5fa" stroke-width="1.5" opacity="0.7"/>
+  <polygon points="735,355 731,364 739,363" fill="#60a5fa" opacity="0.7"/>
+
+  <!-- users → user_collections -->
+  <line x1="255" y1="370" x2="960" y2="350" stroke="#60a5fa" stroke-width="1.5" opacity="0.7"/>
+  <polygon points="960,347 956,356 964,355" fill="#60a5fa" opacity="0.7"/>
+
+  <!-- user_tracks → catalog -->
+  <path d="M 395 315 L 430 265" fill="none" stroke="#fbbf24" stroke-width="2" opacity="0.8"/>
+  <polygon points="430,262 425,272 435,270" fill="#fbbf24" opacity="0.8"/>
+  <text x="398" y="296" fill="#fbbf24" font-size="9" opacity="0.9">RESTRICT</text>
+
+  <!-- user_radar_state → catalog -->
+  <path d="M 832 315 C 750 270, 600 240, 510 220" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.6"/>
+  <polygon points="510,217 508,228 516,224" fill="#60a5fa" opacity="0.6"/>
+
+  <!-- user_collections → catalog (collection_items) -->
+  <path d="M 1057 315 C 900 260, 680 230, 510 215" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.5"/>
+
+  <!-- user_follows → watched_entities -->
+  <line x1="617" y1="415" x2="200" y2="570" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.6"/>
+  <polygon points="200,567 196,578 205,575" fill="#f59e0b" opacity="0.6"/>
+
+  <!-- watched_entities → radar_tracks -->
+  <line x1="285" y1="625" x2="330" y2="625" stroke="#f59e0b" stroke-width="2" opacity="0.8"/>
+  <polygon points="330,621 330,629 338,625" fill="#f59e0b" opacity="0.8"/>
+
+  <!-- radar_tracks → catalog (SET NULL) -->
+  <path d="M 435 570 C 435 450, 435 310, 460 265" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.5"/>
+  <polygon points="460,262 455,272 465,270" fill="#f59e0b" opacity="0.5"/>
+  <text x="440" y="430" fill="#f59e0b" font-size="8.5" opacity="0.7">SET NULL</text>
+
+  <!-- radar_trends → catalog -->
+  <path d="M 680 570 C 620 450, 540 300, 480 265" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"/>
+  <polygon points="480,262 475,272 485,270" fill="#f59e0b" opacity="0.5"/>
+
+  <!-- set_tracks → catalog (SET NULL) -->
+  <path d="M 387 758 C 387 600, 400 350, 450 265" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.5"/>
+  <polygon points="450,262 445,272 455,270" fill="#a78bfa" opacity="0.5"/>
+  <text x="395" y="680" fill="#a78bfa" font-size="8.5" opacity="0.6">SET NULL</text>
+
+  <!-- sets → set_tracks -->
+  <line x1="250" y1="808" x2="300" y2="808" stroke="#a78bfa" stroke-width="2" opacity="0.8"/>
+  <polygon points="300,804 300,812 308,808" fill="#a78bfa" opacity="0.8"/>
+
+  <!-- sets → set_artists -->
+  <line x1="250" y1="820" x2="535" y2="820" stroke="#a78bfa" stroke-width="1.5" opacity="0.7"/>
+  <polygon points="535,816 535,824 542,820" fill="#a78bfa" opacity="0.7"/>
+
+  <!-- artists → set_artists -->
+  <line x1="970" y1="230" x2="970" y2="780, 720,790" stroke="#4ade80" stroke-width="1" stroke-dasharray="3,4" opacity="0.4"/>
+  <path d="M 970 245 L 970 720 L 710 800" fill="none" stroke="#4ade80" stroke-width="1" stroke-dasharray="3,4" opacity="0.4"/>
+
+  <!-- artists → artist_aliases -->
+  <line x1="970" y1="245" x2="1042" y2="758" stroke="#4ade80" stroke-width="1.5" opacity="0.6"/>
+  <polygon points="1042,755 1038,766 1047,764" fill="#4ade80" opacity="0.6"/>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LEGEND -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <g transform="translate(800, 565)">
+    <rect width="365" height="155" rx="8" fill="#0f1117" stroke="#374151" stroke-width="1"/>
+    <text x="12" y="22" fill="#9ca3af" font-size="11" font-weight="700">Légende</text>
+    <!-- FK lines -->
+    <line x1="12" y1="38" x2="55" y2="38" stroke="#fbbf24" stroke-width="2"/>
+    <text x="62" y="43" fill="#d1d5db" font-size="10">FK obligatoire (NOT NULL)</text>
+    <line x1="12" y1="58" x2="55" y2="58" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="5,3"/>
+    <text x="62" y="63" fill="#d1d5db" font-size="10">FK nullable / relation optionnelle</text>
+    <line x1="12" y1="78" x2="55" y2="78" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="3,4" opacity="0.7"/>
+    <text x="62" y="83" fill="#d1d5db" font-size="10">Via table d'association (M2M)</text>
+    <!-- scope indicator -->
+    <rect x="12" y="98" width="10" height="10" rx="2" fill="#166534"/>
+    <text x="28" y="108" fill="#d1d5db" font-size="10">Global (partagé entre tous les users)</text>
+    <rect x="12" y="118" width="10" height="10" rx="2" fill="#1e40af"/>
+    <text x="28" y="128" fill="#d1d5db" font-size="10">Per-user (données privées / actions)</text>
+    <rect x="12" y="138" width="10" height="10" rx="2" fill="#78350f"/>
+    <text x="28" y="148" fill="#d1d5db" font-size="10">Découverte / veille (système)</text>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- TITLE -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <text x="600" y="38" text-anchor="middle" fill="#f9fafb" font-size="18" font-weight="700">Diggy — Architecture DB cible (multi-user)</text>
+  <text x="600" y="58" text-anchor="middle" fill="#6b7280" font-size="11">PostgreSQL 16 · SQLAlchemy async · Alembic</text>
+  <line x1="60" y1="72" x2="1140" y2="72" stroke="#374151" stroke-width="1"/>
+
+</svg>

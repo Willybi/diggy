@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routers import catalog, tracks, watchlist, radar, artists, sets
+from routers import catalog, tracks, watchlist, radar, artists, sets, auth
 
 
 @asynccontextmanager
@@ -29,6 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(tracks.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(radar.router, prefix="/api")
