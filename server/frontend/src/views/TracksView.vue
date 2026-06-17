@@ -22,7 +22,7 @@
       />
     </div>
 
-    <TrackTable :tracks="pagedTracks" :loading="loading" />
+    <TrackTable :tracks="pagedTracks" :loading="loading" :external-sort="true" @sort="onSort" />
 
     <div v-if="totalPages > 1" class="pagination">
       <button class="page-btn" :disabled="page === 1" @click="page--">←</button>
@@ -51,6 +51,40 @@ const bpmMin      = ref(null)
 const bpmMax      = ref(null)
 const inLibOnly   = ref(false)
 
+// Tri géré ici pour couvrir tous les tracks avant pagination
+const sortKey = ref('title')
+const sortDir = ref('asc')
+
+function onSort({ key, dir }) {
+  sortKey.value = key
+  sortDir.value = dir
+  page.value = 1
+  console.log('[TracksView] onSort', key, dir, 'tracks count:', tracks.value.length)
+}
+
+function firstTag(track) {
+  try {
+    const tags = Array.isArray(track.tags) ? track.tags : JSON.parse(track.tags || '[]')
+    return tags[0] || ''
+  } catch { return '' }
+}
+
+const sortedTracks = computed(() => {
+  const arr = [...tracks.value]
+  const k = sortKey.value
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  return arr.sort((a, b) => {
+    const av = k === 'style' ? firstTag(a) : (a[k] ?? '')
+    const bv = k === 'style' ? firstTag(b) : (b[k] ?? '')
+    if (typeof av === 'string' && typeof bv === 'string') {
+      return av.localeCompare(bv, undefined, { sensitivity: 'base' }) * dir
+    }
+    if (av < bv) return -1 * dir
+    if (av > bv) return 1 * dir
+    return 0
+  })
+})
+
 async function fetchTracks() {
   loading.value = true
   page.value = 1
@@ -60,7 +94,7 @@ async function fetchTracks() {
     if (styleFilter.value) params.tag    = styleFilter.value
     if (bpmMin.value)      params.bpmMin = bpmMin.value
     if (bpmMax.value)      params.bpmMax = bpmMax.value
-    const { data } = await axios.get('/api/tracks/', { params })
+    const { data } = await axios.get('/api/tracks/', { params: { ...params, limit: 1000 } })
     tracks.value = data.items
     total.value  = data.total
   } catch (e) {
@@ -70,10 +104,10 @@ async function fetchTracks() {
   }
 }
 
-const totalPages  = computed(() => Math.ceil(tracks.value.length / PAGE_SIZE))
+const totalPages  = computed(() => Math.ceil(sortedTracks.value.length / PAGE_SIZE))
 const pagedTracks = computed(() => {
   const start = (page.value - 1) * PAGE_SIZE
-  return tracks.value.slice(start, start + PAGE_SIZE)
+  return sortedTracks.value.slice(start, start + PAGE_SIZE)
 })
 
 watch([styleFilter, bpmMin, bpmMax], fetchTracks)

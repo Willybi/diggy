@@ -75,7 +75,10 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 const props = defineProps({
   tracks: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
+  externalSort: { type: Boolean, default: false }, // si true, le tri est géré par le parent
 })
+
+const emit = defineEmits(['sort'])
 
 const COLS = [
   { key: 'title',    label: 'Track',    sortable: true,  num: false },
@@ -104,9 +107,15 @@ function toggleSort(key) {
     sortKey.value = key
     sortDir.value = 'asc'
   }
+  if (props.externalSort) {
+    emit('sort', { key: sortKey.value, dir: sortDir.value })
+  }
 }
 
 const sortedTracks = computed(() => {
+  // Si le tri est géré par le parent, on retourne les tracks tels quels
+  if (props.externalSort) return props.tracks
+
   const arr = [...props.tracks]
   const k = sortKey.value
   const dir = sortDir.value === 'asc' ? 1 : -1
