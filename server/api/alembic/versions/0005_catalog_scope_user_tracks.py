@@ -45,7 +45,11 @@ def upgrade() -> None:
     if "ix_catalog_scope" not in existing_indexes:
         op.create_index("ix_catalog_scope", "catalog", ["scope"])
     if "ix_catalog_owner" not in existing_indexes:
-        op.create_index("ix_catalog_owner", "catalog", ["owner_id"], postgresql_where=sa.text("owner_id IS NOT NULL"))
+        # Index partiel PostgreSQL uniquement (SQLite ignores unsupported clauses)
+        try:
+            op.create_index("ix_catalog_owner", "catalog", ["owner_id"], postgresql_where=sa.text("owner_id IS NOT NULL"))
+        except Exception:
+            op.create_index("ix_catalog_owner", "catalog", ["owner_id"])
 
     # --- Partie B : créer user_tracks ---
 
@@ -67,7 +71,7 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         )
         op.create_index("ix_user_tracks_catalog", "user_tracks", ["catalog_id"])
-        op.create_index("ix_user_tracks_user_added", "user_tracks", ["user_id", sa.text("date_added DESC")])
+        op.create_index("ix_user_tracks_user_added", "user_tracks", ["user_id", "date_added"])
 
     # --- Partie C : migration des données lib_tracks → user_tracks ---
 
