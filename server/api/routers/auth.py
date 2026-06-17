@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -16,13 +16,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # ---------- Schemas ----------
 
 class RegisterIn(BaseModel):
-    email: EmailStr
+    email: str
     username: str
     password: str
 
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
