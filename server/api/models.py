@@ -8,12 +8,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Table,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 
@@ -55,7 +55,7 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False)
     hashed_password = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    settings = Column(JSONB, default=dict, nullable=False, server_default="{}")
+    settings = Column(JSON, default=dict, nullable=False, server_default="{}")
     created_at = Column(DateTime(timezone=True))
 
 
