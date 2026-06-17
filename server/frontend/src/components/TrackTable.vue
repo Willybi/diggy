@@ -6,7 +6,7 @@
           <th class="col-play" />
           <th v-for="col in COLS" :key="col.key"
             :class="['col-' + col.key, col.num ? 'num' : '', col.sortable ? 'sortable' : '', sortKey === col.key ? 'is-sorted' : '']"
-            @click="col.sortable ? toggleSort(col.key) : undefined"
+            @click="console.log('TH CLICK', col.key); col.sortable ? toggleSort(col.key) : undefined"
           >
             {{ col.label }}
             <span v-if="col.sortable && sortKey === col.key" class="sort-indicator">
