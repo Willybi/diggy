@@ -148,6 +148,7 @@ async def radar_new_count(
     q = (
         select(func.count(func.distinct(RadarTrack.catalog_id)))
         .select_from(RadarTrack)
+        .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
         .outerjoin(urs, and_(urs.user_id == uid, urs.catalog_id == RadarTrack.catalog_id))
         .where(
             RadarTrack.catalog_id.isnot(None),
