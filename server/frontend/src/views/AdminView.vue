@@ -373,7 +373,9 @@ function pollArtworksStatus(taskId) {
         artworksError.value = data.error || 'Erreur Celery'
         fetchingArtworks.value = false
       }
-    } catch {}
+    } catch (err) {
+      clearInterval(timer); artworksError.value = 'Erreur polling: ' + (err.message || 'inconnue'); fetchingArtworks.value = false
+    }
   }, 2000)
 }
 
@@ -383,12 +385,17 @@ async function runLinkSets() {
   linkSetsError.value = ''
   try {
     const { data } = await axios.post('/api/admin/sets/link-artists', {}, { headers: authHeaders() })
+    let attempts = 0
     const timer = setInterval(async () => {
+      attempts++
+      if (attempts > 150) { clearInterval(timer); linkSetsError.value = 'Timeout'; linkingSets.value = false; return }
       try {
         const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
         if (st.status === 'done') { clearInterval(timer); linkSetsResult.value = st.result; linkingSets.value = false }
         else if (st.status === 'error') { clearInterval(timer); linkSetsError.value = st.error || 'Erreur'; linkingSets.value = false }
-      } catch {}
+      } catch (err) {
+        clearInterval(timer); linkSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue'); linkingSets.value = false
+      }
     }, 2000)
   } catch (e) {
     linkSetsError.value = e.response?.data?.detail || 'Erreur'
@@ -402,12 +409,17 @@ async function runRefreshGenres() {
   genresError.value = ''
   try {
     const { data } = await axios.post('/api/admin/artists/genres/refresh', {}, { headers: authHeaders() })
+    let attempts = 0
     const timer = setInterval(async () => {
+      attempts++
+      if (attempts > 150) { clearInterval(timer); genresError.value = 'Timeout'; refreshingGenres.value = false; return }
       try {
         const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
         if (st.status === 'done') { clearInterval(timer); genresResult.value = st.result; refreshingGenres.value = false }
         else if (st.status === 'error') { clearInterval(timer); genresError.value = st.error || 'Erreur'; refreshingGenres.value = false }
-      } catch {}
+      } catch (err) {
+        clearInterval(timer); genresError.value = 'Erreur polling: ' + (err.message || 'inconnue'); refreshingGenres.value = false
+      }
     }, 2000)
   } catch (e) {
     genresError.value = e.response?.data?.detail || 'Erreur'
