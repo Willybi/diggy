@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import DJSet, SetTrack, SetArtist, Artist, CatalogEntry, LibTrack
+from models import DJSet, SetTrack, SetArtist, Artist, CatalogEntry, UserTrack
 from schemas import (
     DJSetDetailOut, SetTrackDetailOut, SetArtistDetailOut, GenreOut,
 )
@@ -45,7 +45,7 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
     lib_set = set()
     if catalog_ids:
         lib_result = await db.execute(
-            select(LibTrack.catalog_id).where(LibTrack.catalog_id.in_(catalog_ids))
+            select(UserTrack.catalog_id).where(UserTrack.catalog_id.in_(catalog_ids))
         )
         lib_set = {r[0] for r in lib_result.all()}
 

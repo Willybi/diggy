@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from models import CatalogEntry, Genre, LibTrack, catalog_genres
+from models import CatalogEntry, Genre, UserTrack, catalog_genres
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -82,16 +82,14 @@ async def main():
             if name:
                 catalog_genre_map.setdefault(catalog_id, set()).add(name)
 
-        # Source B : lib_tracks.tags (JSON array) pour les tracks avec catalog_id
+        # Source B : user_tracks.rb_mytags (JSON) pour les tracks avec catalog_id
         result = await session.execute(
-            select(LibTrack.catalog_id, LibTrack.tags)
-            .where(LibTrack.catalog_id.isnot(None))
-            .where(LibTrack.tags.isnot(None))
-            .where(LibTrack.tags != "")
+            select(UserTrack.catalog_id, UserTrack.rb_mytags)
+            .where(UserTrack.rb_mytags.isnot(None))
         )
-        for catalog_id, tags_json in result.all():
+        for catalog_id, tags_data in result.all():
             try:
-                tags = json.loads(tags_json)
+                tags = json.loads(tags_data) if isinstance(tags_data, str) else (tags_data or [])
             except (json.JSONDecodeError, TypeError):
                 continue
             for tag in tags:
