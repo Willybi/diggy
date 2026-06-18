@@ -20,7 +20,7 @@ async def client():
 
 @pytest_asyncio.fixture
 async def watched_playlist_id(client, mocker):
-    mocker.patch("routers.watchlist._fetch_deezer_playlist_title", return_value="Selected House")
+    mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 10, "owner": "willi"})
     r = await client.post("/api/watchlist/", json={
         "external_id": "1950581322",
         "source": "deezer",
