@@ -16,16 +16,14 @@ DEEZER_API = "https://api.deezer.com"
 @celery_app.task(name="workers.tasks.crawl_radar")
 def crawl_radar():
     """
-    Crawl toutes les playlists Deezer surveillées (watched_playlists).
-    - Skip si Deezer ne signale pas de modification depuis le dernier crawl.
-    - Skip les tracks déjà présents (déduplication par contrainte unique).
+    Crawl toutes les playlists Deezer surveillées.
+    Délègue chaque playlist à crawl_single_playlist pour enrichissement inline.
     """
     from datetime import datetime, timezone
 
     playlists = requests.get(f"{API_BASE}/api/watchlist/", timeout=10).json()
-    inserted = 0
+    crawled = 0
     skipped = 0
-    errors = 0
 
     for pl in playlists:
         if pl["source"] != "deezer":
@@ -45,46 +43,32 @@ def crawl_radar():
                 skipped += 1
                 continue
 
-        tracks = []
-        url = f"{DEEZER_API}/playlist/{pl['external_id']}/tracks?limit=100&index=0"
-        while url:
-            resp = requests.get(url, timeout=10).json()
-            tracks.extend(resp.get("data", []))
-            url = resp.get("next")
+        crawl_single_playlist(pl["id"])
+        crawled += 1
 
-        for t in tracks:
-            artist = t.get("artist", {}).get("name") if isinstance(t.get("artist"), dict) else None
-            payload = {
-                "watched_playlist_id": pl["id"],  # mapped to watched_entity_id in API
-                "external_track_id": str(t["id"]),
-                "source": "deezer",
-                "title": t.get("title", ""),
-                "artist": artist,
-                "isrc": t.get("isrc") or None,
-            }
-            r = requests.post(f"{API_BASE}/api/radar/", json=payload, timeout=10)
-            if r.status_code == 201:
-                inserted += 1
-
-        # Marque la playlist comme crawlée
-        requests.patch(f"{API_BASE}/api/watchlist/{pl['id']}/crawled", timeout=10)
-
-    return {"inserted": inserted, "skipped_playlists": skipped, "errors": errors}
+    return {"crawled": crawled, "skipped_playlists": skipped}
 
 
 @celery_app.task(name="workers.tasks.crawl_single_playlist")
 def crawl_single_playlist(playlist_id: int):
     """
     Crawl une seule playlist Deezer par son watched_entity ID.
-    Appelé lors d'un follow/reactivation ou via le bouton "Crawl now".
+    Insère les tracks via l'API, puis enrichit les nouvelles entrées catalog
+    (deezer_id, artwork, preview, duration) directement depuis les données Deezer.
     """
     from datetime import datetime, timezone
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    sys.path.insert(0, "/app")
+    from models import CatalogEntry, RadarTrack
+    from deezer_enrich import enrich_entry, upload_cover_from_url, _get_s3, _ensure_bucket
 
     pl = requests.get(f"{API_BASE}/api/watchlist/browse", timeout=10).json()
     target = next((p for p in pl if p["id"] == playlist_id), None)
     if not target or target["source"] != "deezer":
         return {"error": "playlist not found or not deezer"}
 
+    # 1. Fetch all tracks from Deezer playlist
     tracks = []
     url = f"{DEEZER_API}/playlist/{target['external_id']}/tracks?limit=100&index=0"
     while url:
@@ -92,12 +76,16 @@ def crawl_single_playlist(playlist_id: int):
         tracks.extend(resp.get("data", []))
         url = resp.get("next")
 
+    # 2. Insert radar tracks via API (handles dedup + catalog creation)
     inserted = 0
+    dz_by_ext_id = {}
     for t in tracks:
         artist = t.get("artist", {}).get("name") if isinstance(t.get("artist"), dict) else None
+        ext_id = str(t["id"])
+        dz_by_ext_id[ext_id] = t
         payload = {
             "watched_playlist_id": target["id"],
-            "external_track_id": str(t["id"]),
+            "external_track_id": ext_id,
             "source": "deezer",
             "title": t.get("title", ""),
             "artist": artist,
@@ -107,8 +95,57 @@ def crawl_single_playlist(playlist_id: int):
         if r.status_code == 201:
             inserted += 1
 
+    # 3. Enrich catalog entries that lack deezer_id (newly created)
+    enriched = 0
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
+    with Session(engine) as session:
+        existing_isrcs = {r[0] for r in session.execute(
+            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+        ).all()}
+
+        # Find catalog entries linked to this playlist's radar tracks that need enrichment
+        radar_rows = session.execute(
+            select(RadarTrack.external_track_id, RadarTrack.catalog_id)
+            .where(RadarTrack.watched_entity_id == playlist_id)
+        ).all()
+
+        catalog_ids = {row.catalog_id for row in radar_rows if row.catalog_id}
+        ext_to_catalog = {row.external_track_id: row.catalog_id for row in radar_rows}
+
+        entries = session.execute(
+            select(CatalogEntry).where(
+                CatalogEntry.id.in_(catalog_ids),
+                CatalogEntry.deezer_id.is_(None),
+            )
+        ).scalars().all()
+
+        # Build reverse map: catalog_id → deezer track data
+        catalog_to_dz = {}
+        for ext_id, cat_id in ext_to_catalog.items():
+            if cat_id and ext_id in dz_by_ext_id:
+                catalog_to_dz[cat_id] = dz_by_ext_id[ext_id]
+
+        for entry in entries:
+            dz_hit = catalog_to_dz.get(entry.id)
+            if not dz_hit:
+                continue
+            if enrich_entry(entry, dz_hit, s3=s3, _known_isrcs=existing_isrcs):
+                enriched += 1
+
+        session.commit()
+
     requests.patch(f"{API_BASE}/api/watchlist/{target['id']}/crawled", timeout=10)
-    return {"playlist_id": playlist_id, "title": target.get("title"), "inserted": inserted, "total_tracks": len(tracks)}
+    return {
+        "playlist_id": playlist_id,
+        "title": target.get("title"),
+        "inserted": inserted,
+        "enriched": enriched,
+        "total_tracks": len(tracks),
+    }
 
 
 @celery_app.task(name="workers.tasks.check_previews")
