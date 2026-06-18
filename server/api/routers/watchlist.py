@@ -7,8 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import get_current_user_optional
-from models import WatchedEntity, UserFollow, User
-from schemas import WatchedPlaylistIn, WatchedPlaylistOut, WatchedPlaylistBrowseOut
+from sqlalchemy import func
+
+from models import WatchedEntity, UserFollow, User, RadarTrack, CatalogEntry
+from schemas import (
+    WatchedPlaylistIn, WatchedPlaylistOut, WatchedPlaylistBrowseOut,
+    WatchedPlaylistDetailOut, PlaylistTrackOut,
+)
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -80,6 +85,52 @@ async def browse_playlists(
         )
         for entity, followed in rows
     ]
+
+
+@router.get("/{entry_id}", response_model=WatchedPlaylistDetailOut)
+async def get_playlist_detail(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Playlist detail with its radar tracks (enriched from catalog)."""
+    uid = _uid(user)
+    result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    # Check if user follows this playlist
+    follow_result = await db.execute(
+        select(UserFollow).where(UserFollow.user_id == uid, UserFollow.entity_id == entry_id)
+    )
+    followed = follow_result.scalar_one_or_none() is not None
+
+    # Tracks: radar_tracks joined with catalog, deduped by catalog_id
+    tracks_result = await db.execute(
+        select(
+            CatalogEntry.id.label("catalog_id"),
+            CatalogEntry.title,
+            CatalogEntry.artist,
+            CatalogEntry.bpm,
+            CatalogEntry.key,
+            CatalogEntry.duration_ms,
+            CatalogEntry.genre,
+            CatalogEntry.has_artwork,
+            CatalogEntry.has_preview,
+            func.max(RadarTrack.detected_at).label("detected_at"),
+        )
+        .select_from(RadarTrack)
+        .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
+        .where(RadarTrack.watched_entity_id == entry_id, RadarTrack.catalog_id.isnot(None))
+        .group_by(CatalogEntry.id)
+        .order_by(func.max(RadarTrack.detected_at).desc())
+    )
+    tracks = [PlaylistTrackOut.model_validate(row._mapping) for row in tracks_result]
+
+    return WatchedPlaylistDetailOut.model_validate(
+        {**entity.__dict__, "followed": followed, "tracks": tracks}
+    )
 
 
 @router.post("/", response_model=WatchedPlaylistOut, status_code=201)

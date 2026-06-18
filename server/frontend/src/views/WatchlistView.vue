@@ -66,12 +66,14 @@
           <tr v-for="pl in displayList" :key="pl.id">
             <td class="col-cover">
               <div class="cover-thumb">
-                <img v-if="pl.has_artwork" :src="`/storage/catalog-artworks/${pl.id}.jpg`" :alt="pl.title" />
+                <img v-if="pl.has_artwork" :src="`/storage/catalog-artworks/playlist-${pl.id}.jpg`" :alt="pl.title" />
               </div>
             </td>
             <td class="col-title">
-              <span class="pl-title">{{ pl.title || pl.external_id }}</span>
-              <span class="pl-id mono muted">{{ pl.external_id }}</span>
+              <RouterLink :to="`/playlists/${pl.id}`" class="pl-link">
+                <span class="pl-title">{{ pl.title || pl.external_id }}</span>
+                <span class="pl-id mono muted">{{ pl.external_id }}</span>
+              </RouterLink>
             </td>
             <td class="col-owner"><span class="muted">{{ pl.owner || '—' }}</span></td>
             <td class="col-tracks num"><span class="mono">{{ pl.track_count ?? '—' }}</span></td>
@@ -433,6 +435,8 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 .cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* Playlist title cell */
+.pl-link { text-decoration: none; color: inherit; display: block; }
+.pl-link:hover .pl-title { color: var(--accent-ink); }
 .pl-title {
   display: block;
   font-weight: 600;
