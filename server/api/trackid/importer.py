@@ -9,6 +9,8 @@ from trackid.client import TrackIDClient
 from trackid.parsing import is_id_track, parse_timespan_to_ms, parse_trackid_date
 from utils import normalize
 
+SET_ARTWORK_BUCKET = "set-artworks"
+
 
 async def get_or_create_artist(
     db: AsyncSession, name: str, trackid_id: str | None = None
@@ -115,6 +117,18 @@ async def import_audiostream(
         )
         db.add(dj_set)
         await db.flush()
+
+    # Fetch artwork from TrackID if available and not yet stored
+    artwork_url = detail.get("artworkUrl")
+    if artwork_url and not dj_set.has_artwork:
+        try:
+            from deezer_enrich import _get_s3, upload_image_to_bucket, _ensure_bucket
+            s3 = _get_s3()
+            _ensure_bucket(s3, SET_ARTWORK_BUCKET)
+            if upload_image_to_bucket(s3, artwork_url, f"{dj_set.id}.jpg", SET_ARTWORK_BUCKET):
+                dj_set.has_artwork = True
+        except Exception:
+            pass
 
     # Link artist if provided
     if artist_id:

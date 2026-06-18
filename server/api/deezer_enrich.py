@@ -38,16 +38,17 @@ def _get_s3():
     )
 
 
-def _ensure_bucket(s3):
+def _ensure_bucket(s3, bucket: str | None = None):
+    bucket = bucket or BUCKET
     existing = [b["Name"] for b in s3.list_buckets()["Buckets"]]
-    if BUCKET not in existing:
-        s3.create_bucket(Bucket=BUCKET)
+    if bucket not in existing:
+        s3.create_bucket(Bucket=bucket)
         s3.put_bucket_policy(
-            Bucket=BUCKET,
+            Bucket=bucket,
             Policy=(
                 f'{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow",'
                 f'"Principal":"*","Action":"s3:GetObject",'
-                f'"Resource":"arn:aws:s3:::{BUCKET}/*"}}]}}'
+                f'"Resource":"arn:aws:s3:::{bucket}/*"}}]}}'
             ),
         )
 
