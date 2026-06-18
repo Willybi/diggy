@@ -11,7 +11,11 @@
         :fallback-letter="(playlist.title || 'P')[0]"
       >
         <template #actions>
-          <a class="btn-ghost" :href="`https://deezer.com/playlist/${playlist.external_id}`" target="_blank">Deezer</a>
+          <a
+            class="btn-ghost"
+            :href="externalUrl"
+            target="_blank"
+          >{{ playlist.source === 'tidal' ? 'Tidal' : 'Deezer' }}</a>
           <button
             v-if="playlist.followed"
             class="btn-ghost btn-ghost--danger"
@@ -98,6 +102,14 @@ const { playingId } = storeToRefs(player)
 const { toggle: togglePlay } = player
 const playlist = ref(null)
 const loading = ref(true)
+
+const externalUrl = computed(() => {
+  if (!playlist.value) return '#'
+  if (playlist.value.source === 'tidal') {
+    return `https://tidal.com/playlist/${playlist.value.external_id}`
+  }
+  return `https://deezer.com/playlist/${playlist.value.external_id}`
+})
 
 const heroSub = computed(() => {
   if (!playlist.value) return null
