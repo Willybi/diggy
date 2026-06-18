@@ -671,3 +671,82 @@ def fetch_artist_artworks():
     return {"linked": linked, "fetched": fetched, "skipped": skipped}
 
 
+@celery_app.task(name="workers.tasks.link_set_artists")
+def link_set_artists():
+    """
+    Parse set titles to extract artist names and link them to the artists table.
+    Matches against known artists (by name and aliases). Idempotent.
+    """
+    import re as _re
+    from sqlalchemy import create_engine, select, func
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import Artist, ArtistAlias, DJSet, SetArtist
+    from utils import normalize
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    # Build lookup: normalized name/alias → artist_id
+    with Session(engine) as session:
+        norm_to_id = {}
+        for a in session.execute(select(Artist)).scalars().all():
+            norm_to_id[normalize(a.name)] = a.id
+        for al in session.execute(select(ArtistAlias)).scalars().all():
+            if al.normalized_alias not in norm_to_id:
+                norm_to_id[al.normalized_alias] = al.artist_id
+
+        # Sort by name length DESC so "Fred again.." matches before "Fred"
+        sorted_names = sorted(norm_to_id.keys(), key=len, reverse=True)
+
+        sets = session.execute(select(DJSet)).scalars().all()
+        linked = 0
+        skipped = 0
+
+        for dj_set in sets:
+            title = dj_set.title or ""
+            title_lower = title.lower()
+
+            # Detect B2B
+            is_b2b = "b2b" in title_lower or "b2b" in title_lower.replace("_", " ")
+
+            # Find all artist names present in the title
+            matched_ids = set()
+            title_norm = normalize(title)
+            # Also normalize underscores (e.g. Busy_P_b2b_Erol_Alkan)
+            title_norm_clean = title_norm.replace("_", " ")
+
+            for norm_name in sorted_names:
+                if len(norm_name) < 3:
+                    continue  # skip very short names to avoid false positives
+                if norm_name in title_norm or norm_name in title_norm_clean:
+                    aid = norm_to_id[norm_name]
+                    if aid not in matched_ids:
+                        matched_ids.add(aid)
+
+            # Insert set_artists (skip existing)
+            existing = {
+                r[0] for r in session.execute(
+                    select(SetArtist.artist_id).where(SetArtist.set_id == dj_set.id)
+                ).all()
+            }
+
+            for aid in matched_ids:
+                if aid in existing:
+                    skipped += 1
+                    continue
+                role = "b2b" if is_b2b else "dj"
+                session.add(SetArtist(
+                    set_id=dj_set.id,
+                    artist_id=aid,
+                    role=role,
+                    position=0,
+                ))
+                linked += 1
+
+            session.commit()
+
+    return {"linked": linked, "skipped": skipped}
+
+
