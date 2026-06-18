@@ -59,6 +59,10 @@
                 <span v-else class="fallback-sm">{{ a.name[0] }}</span>
               </div>
               <span class="ar-name-sm">{{ a.name }}</span>
+              <div class="row-actions" @click.stop>
+                <button class="btn-row-action" title="Pas sur Deezer" @click="markNoDeezer(a)">✗ Deezer</button>
+                <button v-if="detectSeparator(a.name)" class="btn-row-action flag" title="Envoyer vers les flags" @click="flagArtist(a)">Flagguer</button>
+              </div>
             </div>
           </div>
         </div>
@@ -374,18 +378,47 @@ async function confirmLink() {
       { headers: authHeaders() },
     )
     linkSuccess.value = true
-    // Reset
+    // Reset selections but keep query to refresh list
+    const q = linkArtistQuery.value.trim()
     selectedDbArtist.value = null
     selectedDeezerHit.value = null
-    linkArtistQuery.value = ''
     linkDeezerQuery.value = ''
-    dbArtistResults.value = []
     deezerHits.value = []
+    await fetchNoDeezerArtists(q)
   } catch (e) {
     linkError.value = e.response?.data?.detail || 'Erreur'
   } finally {
     linking.value = false
   }
+}
+
+async function markNoDeezer(artist) {
+  try {
+    await axios.patch(`/api/admin/artists/${artist.id}/no-deezer`, {}, { headers: authHeaders() })
+    dbArtistResults.value = dbArtistResults.value.filter(a => a.id !== artist.id)
+  } catch {}
+}
+
+const SEPARATORS = ['/', ' & ', ', ', ' feat. ', ' feat ', ' ft. ', ' ft ']
+
+function detectSeparator(name) {
+  return SEPARATORS.find(sep => name.includes(sep)) || null
+}
+
+async function flagArtist(artist) {
+  const sep = detectSeparator(artist.name)
+  if (!sep) return
+  const tokens = artist.name.split(sep).map(t => t.trim()).filter(Boolean)
+  try {
+    await axios.post(
+      '/api/admin/artists/flags/manual',
+      { raw_artist_string: artist.name, tokens, reason: 'manual' },
+      { headers: authHeaders() },
+    )
+    // Remove from no-deezer list and refresh flags
+    dbArtistResults.value = dbArtistResults.value.filter(a => a.id !== artist.id)
+    if (filterStatus.value === 'pending') await fetchFlags()
+  } catch {}
 }
 
 onMounted(() => {
@@ -640,6 +673,26 @@ onMounted(() => {
   font-size: 11px;
 }
 .dz-link:hover { text-decoration: underline; }
+.row-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.result-row:hover .row-actions { opacity: 1; }
+.btn-row-action {
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-3);
+  font: 500 10px/1 var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-row-action:hover { color: var(--neg-ink, #c0392b); border-color: var(--neg-ink, #c0392b); }
+.btn-row-action.flag:hover { color: var(--warn-ink, #e67e22); border-color: var(--warn-ink, #e67e22); }
 .link-confirm {
   display: flex;
   align-items: center;
