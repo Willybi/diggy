@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import Artist, ArtistAlias, CatalogEntry, LibTrack, DJSet, SetArtist, SetTrack
+from models import Artist, ArtistAlias, CatalogEntry, UserTrack, DJSet, SetArtist, SetTrack
 from schemas import (
     ArtistDetailOut, ArtistAliasOut, ArtistListOut, GenreOut,
     CatalogEntryOut, ArtistSetOut,
@@ -24,8 +24,7 @@ async def list_artists(
     from sqlalchemy import Float, case as sa_case
 
     lib_sub = (
-        select(LibTrack.catalog_id, LibTrack.rating)
-        .where(LibTrack.catalog_id.isnot(None))
+        select(UserTrack.catalog_id, UserTrack.rating)
         .subquery()
     )
 
@@ -135,8 +134,13 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     )
 
     lib_sub = (
-        select(LibTrack.catalog_id, LibTrack.rating, LibTrack.tags, LibTrack.bpm, LibTrack.key, LibTrack.duration)
-        .where(LibTrack.catalog_id.isnot(None))
+        select(
+            UserTrack.catalog_id,
+            UserTrack.rating,
+            UserTrack.rb_mytags.label("tags"),
+            UserTrack.rb_bpm.label("bpm"),
+            UserTrack.rb_key.label("key"),
+        )
         .subquery()
     )
 
@@ -148,7 +152,6 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
             lib_sub.c.tags.label("lib_tags"),
             lib_sub.c.bpm.label("lib_bpm"),
             lib_sub.c.key.label("lib_key"),
-            lib_sub.c.duration.label("lib_duration"),
         )
         .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
         .where(or_(*name_filters))
@@ -168,7 +171,6 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         lib_tags = row[3]
         lib_bpm = row[4]
         lib_key = row[5]
-        lib_duration = row[6]
 
         if is_in_lib:
             nb_lib += 1
@@ -190,7 +192,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
             isrc=entry.isrc,
             bpm=lib_bpm if lib_bpm else entry.bpm,
             key=lib_key if lib_key else entry.key,
-            duration_ms=lib_duration if lib_duration else entry.duration_ms,
+            duration_ms=entry.duration_ms,
             genre=entry.genre,
             release_date=entry.release_date,
             preview_url=entry.preview_url,
