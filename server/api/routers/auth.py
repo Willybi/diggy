@@ -30,6 +30,7 @@ class TokenOut(BaseModel):
     token: str
     user_id: int
     username: str
+    is_admin: bool = False
 
 
 class UserOut(BaseModel):
@@ -37,6 +38,7 @@ class UserOut(BaseModel):
     email: str
     username: str
     is_active: bool
+    is_admin: bool = False
     created_at: datetime | None
 
     model_config = {"from_attributes": True}
@@ -63,7 +65,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
-    return TokenOut(token=create_token(user.id), user_id=user.id, username=user.username)
+    return TokenOut(token=create_token(user.id), user_id=user.id, username=user.username, is_admin=user.is_admin)
 
 
 @router.post("/login", response_model=TokenOut)
@@ -77,7 +79,7 @@ async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")
 
-    return TokenOut(token=create_token(user.id), user_id=user.id, username=user.username)
+    return TokenOut(token=create_token(user.id), user_id=user.id, username=user.username, is_admin=user.is_admin)
 
 
 @router.get("/me", response_model=UserOut)

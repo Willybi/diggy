@@ -55,6 +55,7 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False)
     hashed_password = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False, server_default="false")
     settings = Column(JSON, default=dict, nullable=False, server_default="{}")
     created_at = Column(DateTime(timezone=True))
 
@@ -302,3 +303,17 @@ class SetTrack(Base):
 
     dj_set = relationship("DJSet", back_populates="tracks")
     catalog = relationship("CatalogEntry")
+
+
+class ArtistFlag(Base):
+    __tablename__ = "artist_flags"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    raw_artist_string = Column(String(500), nullable=False, unique=True)
+    reason = Column(String(64), nullable=False)  # comma_unresolved | ampersand_ambiguous | ampersand_unknown
+    tokens = Column(JSON, nullable=False)          # ["Romy", "Fred again.."]
+    deezer_ids = Column(JSON, nullable=False)      # {"Romy": null, "Fred again..": "123"}
+    status = Column(String(32), nullable=False, default="pending", server_default="pending")  # pending | validated | skipped
+    resolved_artist_ids = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True))
