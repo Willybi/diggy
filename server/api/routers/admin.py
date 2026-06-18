@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import require_admin
-from models import Artist, ArtistAlias, ArtistFlag, User
+from models import Artist, ArtistAlias, ArtistFlag, SetArtist, User
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -154,8 +154,15 @@ async def link_artist_deezer(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """Manually link a deezer_id to an artist and fetch its artwork."""
+    """Manually link a deezer_id to an artist.
+
+    - Fetches official name + artwork from Deezer
+    - Updates artist name to Deezer official name
+    - If another artist already has this deezer_id, merges into it (reassigns
+      set_artists to the canonical artist, deletes the duplicate)
+    """
     import requests as req
+    from sqlalchemy import update as sa_update
     from deezer_enrich import _get_s3, upload_image_to_bucket
 
     result = await db.execute(select(Artist).where(Artist.id == artist_id))
@@ -163,23 +170,73 @@ async def link_artist_deezer(
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
 
-    artist.deezer_id = body.deezer_id
-
-    # Fetch artwork
+    # Fetch Deezer data first
+    deezer_name = None
+    pic_url = None
     try:
         resp = req.get(f"https://api.deezer.com/artist/{body.deezer_id}", timeout=5)
         data = resp.json()
+        deezer_name = data.get("name")
         pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
-        if pic_url:
-            s3 = _get_s3()
-            if upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", "artist-artworks"):
-                artist.has_artwork = True
     except Exception:
         pass
 
+    # Check if another artist already owns this deezer_id → merge
+    existing_result = await db.execute(
+        select(Artist).where(Artist.deezer_id == body.deezer_id, Artist.id != artist_id)
+    )
+    canonical = existing_result.scalar_one_or_none()
+
+    if canonical:
+        from sqlalchemy import delete as sa_delete, tuple_
+        # Find set_ids already linked to canonical → those would conflict on reassign
+        conflict_sets = await db.execute(
+            select(SetArtist.set_id).where(SetArtist.artist_id == canonical.id)
+        )
+        conflict_set_ids = {r[0] for r in conflict_sets.all()}
+        # Drop duplicate's set_artists that would conflict
+        if conflict_set_ids:
+            await db.execute(
+                sa_delete(SetArtist).where(
+                    SetArtist.artist_id == artist_id,
+                    SetArtist.set_id.in_(conflict_set_ids),
+                )
+            )
+        # Reassign the rest to canonical
+        await db.execute(
+            sa_update(SetArtist)
+            .where(SetArtist.artist_id == artist_id)
+            .values(artist_id=canonical.id)
+            .execution_options(synchronize_session=False)
+        )
+        # Delete the duplicate (CASCADE handles aliases, genres)
+        await db.delete(artist)
+        await db.flush()
+        # Ensure canonical has artwork
+        if pic_url and not canonical.has_artwork:
+            s3 = _get_s3()
+            if upload_image_to_bucket(s3, pic_url, f"{canonical.id}.jpg", "artist-artworks"):
+                canonical.has_artwork = True
+        await db.commit()
+        await db.refresh(canonical)
+        return {"id": canonical.id, "name": canonical.name, "deezer_id": canonical.deezer_id, "has_artwork": canonical.has_artwork, "merged": True}
+
+    # No duplicate — just update this artist
+    artist.deezer_id = body.deezer_id
+    if deezer_name:
+        artist.name = deezer_name
+
+    if pic_url:
+        try:
+            s3 = _get_s3()
+            if upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", "artist-artworks"):
+                artist.has_artwork = True
+        except Exception:
+            pass
+
     await db.commit()
     await db.refresh(artist)
-    return {"id": artist.id, "name": artist.name, "deezer_id": artist.deezer_id, "has_artwork": artist.has_artwork}
+    return {"id": artist.id, "name": artist.name, "deezer_id": artist.deezer_id, "has_artwork": artist.has_artwork, "merged": False}
 
 
 @router.patch("/artists/{artist_id}/no-deezer")
