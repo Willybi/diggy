@@ -52,6 +52,12 @@ class ArtistDeezerIn(BaseModel):
     deezer_id: str
 
 
+class FlagManualIn(BaseModel):
+    raw_artist_string: str
+    tokens: list[str]
+    reason: str = "manual"
+
+
 class DeezerArtistHit(BaseModel):
     deezer_id: str
     name: str
@@ -174,6 +180,54 @@ async def link_artist_deezer(
     await db.commit()
     await db.refresh(artist)
     return {"id": artist.id, "name": artist.name, "deezer_id": artist.deezer_id, "has_artwork": artist.has_artwork}
+
+
+@router.patch("/artists/{artist_id}/no-deezer")
+async def mark_no_deezer(
+    artist_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Mark an artist as not on Deezer (sentinel deezer_id = 'NOT_FOUND')."""
+    result = await db.execute(select(Artist).where(Artist.id == artist_id))
+    artist = result.scalar_one_or_none()
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+    artist.deezer_id = "NOT_FOUND"
+    await db.commit()
+    return {"id": artist.id, "name": artist.name}
+
+
+@router.post("/artists/flags/manual", response_model=ArtistFlagOut)
+async def create_manual_flag(
+    body: FlagManualIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Manually create a flag for an artist string (e.g. '/' separator)."""
+    # Check if flag already exists
+    existing = await db.execute(
+        select(ArtistFlag).where(ArtistFlag.raw_artist_string == body.raw_artist_string)
+    )
+    flag = existing.scalar_one_or_none()
+    if flag:
+        # Re-open if previously skipped
+        flag.tokens = body.tokens
+        flag.reason = body.reason
+        flag.status = "pending"
+        flag.updated_at = datetime.now(timezone.utc)
+    else:
+        flag = ArtistFlag(
+            raw_artist_string=body.raw_artist_string,
+            reason=body.reason,
+            tokens=body.tokens,
+            deezer_ids={},
+            status="pending",
+        )
+        db.add(flag)
+    await db.commit()
+    await db.refresh(flag)
+    return flag
 
 
 @router.get("/artists/flags", response_model=list[ArtistFlagOut])
