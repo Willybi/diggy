@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime, timezone
 
@@ -219,6 +220,12 @@ async def import_set_url(
 
         await db.commit()
         await db.refresh(dj_set)
+
+        # Fire track resolution in background
+        from celery import Celery
+        _celery = Celery(broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+        _celery.send_task("workers.tasks.resolve_set_tracks")
+
         return {"id": dj_set.id, "title": dj_set.title}
 
 
