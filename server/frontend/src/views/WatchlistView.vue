@@ -83,9 +83,10 @@
                 <template v-if="mode === 'followed' || pl.followed">
                   <button
                     class="btn-crawl"
-                    :disabled="crawling[pl.id]"
-                    @click="triggerCrawl(pl.id)"
-                  >{{ crawling[pl.id] ? 'Crawl…' : 'Crawl now' }}</button>
+                    :disabled="crawling[pl.id] || isCooldown(pl)"
+                    :title="isCooldown(pl) ? cooldownLabel(pl) : 'Lancer un crawl maintenant'"
+                    @click="triggerCrawl(pl)"
+                  >{{ crawling[pl.id] ? 'Crawl en cours…' : isCooldown(pl) ? cooldownLabel(pl) : 'Crawl now' }}</button>
                   <button class="btn-unfollow" @click="unfollow(pl.id)">Ne plus suivre</button>
                 </template>
                 <template v-else>
@@ -105,8 +106,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import axios from 'axios'
+
+const COOLDOWN_MS = 12 * 3600 * 1000
 
 const playlists = ref([])
 const browsePlaylists = ref([])
@@ -118,11 +121,26 @@ const adding = ref(false)
 const mode = ref('followed')
 const crawling = reactive({})
 const following = reactive({})
+const pollTimers = {}
 
 const displayList = computed(() => {
   if (mode.value === 'followed') return playlists.value
   return browsePlaylists.value
 })
+
+function isCooldown(pl) {
+  if (!pl.last_crawled_at) return false
+  return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
+}
+
+function cooldownLabel(pl) {
+  if (!pl.last_crawled_at) return ''
+  const remaining = COOLDOWN_MS - (Date.now() - new Date(pl.last_crawled_at).getTime())
+  if (remaining <= 0) return ''
+  const h = Math.floor(remaining / 3600000)
+  const m = Math.floor((remaining % 3600000) / 60000)
+  return `${h}h${String(m).padStart(2, '0')} restantes`
+}
 
 function extractDeezerId(input) {
   const s = input.trim()
@@ -155,10 +173,11 @@ async function addPlaylist() {
   }
   adding.value = true
   try {
-    await axios.post('/api/watchlist/', { external_id: id, source: 'deezer' })
+    const { data } = await axios.post('/api/watchlist/', { external_id: id, source: 'deezer' })
     inputValue.value = ''
     showForm.value = false
     await fetchPlaylists()
+    startPolling(data.id)
   } catch (e) {
     if (e.response?.status === 409) {
       formError.value = 'Playlist déjà suivie'
@@ -180,6 +199,7 @@ async function followPlaylist(id) {
   try {
     await axios.post(`/api/watchlist/${id}/follow`)
     await fetchPlaylists()
+    startPolling(id)
   } catch (e) {
     if (e.response?.status === 409) {
       await fetchPlaylists()
@@ -189,12 +209,48 @@ async function followPlaylist(id) {
   }
 }
 
-async function triggerCrawl(id) {
-  crawling[id] = true
+async function triggerCrawl(pl) {
+  crawling[pl.id] = true
   try {
-    await axios.post(`/api/watchlist/${id}/crawl`)
-  } finally {
-    setTimeout(() => { crawling[id] = false }, 3000)
+    await axios.post(`/api/watchlist/${pl.id}/crawl`)
+    startPolling(pl.id, pl.last_crawled_at)
+  } catch (e) {
+    if (e.response?.status === 429) {
+      await fetchPlaylists()
+    }
+    crawling[pl.id] = false
+  }
+}
+
+function startPolling(playlistId, oldCrawledAt) {
+  crawling[playlistId] = true
+  stopPolling(playlistId)
+  let attempts = 0
+  const maxAttempts = 60 // 5min max (5s * 60)
+  pollTimers[playlistId] = setInterval(async () => {
+    attempts++
+    if (attempts >= maxAttempts) {
+      stopPolling(playlistId)
+      crawling[playlistId] = false
+      return
+    }
+    try {
+      const { data } = await axios.get('/api/watchlist/browse')
+      const updated = data.find(p => p.id === playlistId)
+      if (updated && updated.last_crawled_at !== oldCrawledAt) {
+        stopPolling(playlistId)
+        crawling[playlistId] = false
+        playlists.value = playlists.value.map(p => p.id === playlistId ? { ...p, ...updated } : p)
+        browsePlaylists.value = data
+      }
+    } catch {}
+  }, 5000)
+}
+
+function stopPolling(playlistId) {
+  if (pollTimers[playlistId]) {
+    clearInterval(pollTimers[playlistId])
+    delete pollTimers[playlistId]
   }
 }
 
@@ -209,6 +265,7 @@ function formatCrawled(iso) {
 }
 
 onMounted(fetchPlaylists)
+onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 </script>
 
 <style scoped>
@@ -369,7 +426,7 @@ onMounted(fetchPlaylists)
 .col-owner  { width: 140px; }
 .col-tracks { width: 70px; }
 .col-crawled { width: 110px; }
-.col-action { width: 180px; text-align: right; }
+.col-action { width: 220px; text-align: right; }
 
 /* Cover */
 .cover-thumb {
@@ -420,9 +477,10 @@ onMounted(fetchPlaylists)
   font: 500 11px/1 var(--font-ui);
   cursor: pointer;
   transition: background 0.12s;
+  white-space: nowrap;
 }
-.btn-crawl:hover { background: var(--accent); color: var(--on-accent); }
-.btn-crawl:disabled { opacity: 0.5; cursor: default; }
+.btn-crawl:hover:not(:disabled) { background: var(--accent); color: var(--on-accent); }
+.btn-crawl:disabled { opacity: 0.45; cursor: default; }
 
 .btn-unfollow {
   padding: 5px 10px;
@@ -433,6 +491,7 @@ onMounted(fetchPlaylists)
   font: 500 11px/1 var(--font-ui);
   cursor: pointer;
   transition: color 0.12s, background 0.12s, border-color 0.12s;
+  white-space: nowrap;
 }
 .btn-unfollow:hover {
   color: var(--neg-ink, #c0392b);
@@ -449,6 +508,7 @@ onMounted(fetchPlaylists)
   font: 500 12px/1 var(--font-ui);
   cursor: pointer;
   transition: opacity 0.12s;
+  white-space: nowrap;
 }
 .btn-follow:hover { opacity: 0.85; }
 .btn-follow:disabled { opacity: 0.5; cursor: default; }
