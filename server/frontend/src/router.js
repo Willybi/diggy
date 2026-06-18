@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import TagsView          from './views/TagsView.vue'
 import CatalogView       from './views/CatalogView.vue'
 import RadarView         from './views/RadarView.vue'
+import WatchlistView     from './views/WatchlistView.vue'
 import TrackDetailView   from './views/TrackDetailView.vue'
 import ArtistDetailView  from './views/ArtistDetailView.vue'
 import SetDetailView     from './views/SetDetailView.vue'
@@ -17,6 +18,7 @@ const routes = [
   { path: '/artist/:id',   component: ArtistDetailView, props: true },
   { path: '/set/:id',      component: SetDetailView, props: true },
   { path: '/radar',        component: RadarView },
+  { path: '/playlists',    component: WatchlistView },
 ]
 
 const router = createRouter({

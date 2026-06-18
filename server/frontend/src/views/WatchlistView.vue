@@ -1,0 +1,333 @@
+<template>
+  <div class="watchlist-view">
+    <header class="view-header">
+      <div>
+        <h1 class="view-title">Playlists</h1>
+        <span class="view-sub">Playlists Deezer surveillées par le Radar</span>
+      </div>
+      <button class="btn-add" @click="showForm = !showForm">
+        {{ showForm ? 'Annuler' : '+ Suivre une playlist' }}
+      </button>
+    </header>
+
+    <div v-if="showForm" class="add-form">
+      <input
+        v-model="inputValue"
+        class="form-input"
+        placeholder="URL ou ID Deezer  (ex: https://www.deezer.com/playlist/1234567)"
+        @keydown.enter="addPlaylist"
+        @input="formError = ''"
+        autofocus
+      />
+      <button class="btn-confirm" :disabled="adding" @click="addPlaylist">
+        {{ adding ? 'Ajout…' : 'Suivre' }}
+      </button>
+      <span v-if="formError" class="form-error">{{ formError }}</span>
+    </div>
+
+    <div v-if="loading" class="state">Chargement…</div>
+
+    <div v-else-if="playlists.length === 0 && !showForm" class="empty-state">
+      <p class="empty-text">Aucune playlist suivie.</p>
+      <p class="empty-sub">Ajoutez une playlist Deezer pour alimenter le Radar.</p>
+      <button class="btn-add" @click="showForm = true">+ Suivre une playlist</button>
+    </div>
+
+    <div v-else-if="playlists.length > 0" class="table-wrap">
+      <table class="pl-table">
+        <thead>
+          <tr>
+            <th class="col-cover" />
+            <th class="col-title">Playlist</th>
+            <th class="col-owner">Créateur</th>
+            <th class="col-tracks num">Tracks</th>
+            <th class="col-crawled">Dernier crawl</th>
+            <th class="col-action" />
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="pl in playlists" :key="pl.id">
+            <td class="col-cover">
+              <div class="cover-thumb">
+                <img v-if="pl.has_artwork" :src="`/storage/catalog-artworks/${pl.id}.jpg`" :alt="pl.title" />
+              </div>
+            </td>
+            <td class="col-title">
+              <span class="pl-title">{{ pl.title || pl.external_id }}</span>
+              <span class="pl-id mono muted">{{ pl.external_id }}</span>
+            </td>
+            <td class="col-owner"><span class="muted">{{ pl.owner || '—' }}</span></td>
+            <td class="col-tracks num"><span class="mono">{{ pl.track_count ?? '—' }}</span></td>
+            <td class="col-crawled">
+              <span class="mono muted">{{ formatCrawled(pl.last_crawled_at) }}</span>
+            </td>
+            <td class="col-action">
+              <button class="btn-unfollow" @click="unfollow(pl.id)">Ne plus suivre</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
+
+const playlists = ref([])
+const loading = ref(false)
+const showForm = ref(false)
+const inputValue = ref('')
+const formError = ref('')
+const adding = ref(false)
+
+function extractDeezerId(input) {
+  const s = input.trim()
+  const match = s.match(/playlist\/(\d+)/)
+  if (match) return match[1]
+  if (/^\d+$/.test(s)) return s
+  return null
+}
+
+async function fetchPlaylists() {
+  loading.value = true
+  try {
+    const { data } = await axios.get('/api/watchlist/')
+    playlists.value = data
+  } finally {
+    loading.value = false
+  }
+}
+
+async function addPlaylist() {
+  formError.value = ''
+  const id = extractDeezerId(inputValue.value)
+  if (!id) {
+    formError.value = 'URL ou ID invalide'
+    return
+  }
+  adding.value = true
+  try {
+    await axios.post('/api/watchlist/', { external_id: id, source: 'deezer' })
+    inputValue.value = ''
+    showForm.value = false
+    await fetchPlaylists()
+  } catch (e) {
+    if (e.response?.status === 409) {
+      formError.value = 'Playlist déjà suivie'
+    } else {
+      formError.value = 'Erreur lors de l\'ajout'
+    }
+  } finally {
+    adding.value = false
+  }
+}
+
+async function unfollow(id) {
+  await axios.delete(`/api/watchlist/${id}`)
+  playlists.value = playlists.value.filter(p => p.id !== id)
+}
+
+function formatCrawled(iso) {
+  if (!iso) return 'jamais'
+  const d = new Date(iso)
+  const now = new Date()
+  const diffDays = Math.floor((now - d) / 86400000)
+  if (diffDays === 0) return "aujourd'hui"
+  if (diffDays === 1) return 'il y a 1j'
+  return `il y a ${diffDays}j`
+}
+
+onMounted(fetchPlaylists)
+</script>
+
+<style scoped>
+.watchlist-view {
+  padding: var(--pad) calc(var(--pad) * 1.5);
+  max-width: 900px;
+  margin: 0 auto;
+}
+.view-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.view-title {
+  font: 600 22px/1.1 var(--font-ui);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.view-sub {
+  font: 400 12px/1 var(--font-mono);
+  color: var(--ink-3);
+  margin-top: 4px;
+  display: block;
+}
+
+.btn-add {
+  padding: 8px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.btn-add:hover { background: var(--accent); color: var(--on-accent); }
+
+/* Add form */
+.add-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.form-input {
+  flex: 1;
+  min-width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+}
+.form-input::placeholder { color: var(--ink-3); }
+.btn-confirm {
+  padding: 8px 18px;
+  border-radius: var(--r-sm);
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.btn-confirm:disabled { opacity: 0.5; cursor: default; }
+.form-error {
+  font: 400 12px/1 var(--font-mono);
+  color: var(--neg-ink, #c0392b);
+  width: 100%;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--ink-3);
+}
+.empty-text {
+  font: 500 15px/1.4 var(--font-ui);
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.empty-sub {
+  font: 400 13px/1.4 var(--font-ui);
+  margin-bottom: 20px;
+}
+
+/* Table */
+.table-wrap { overflow-x: auto; }
+.pl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  table-layout: fixed;
+}
+.pl-table thead th {
+  text-align: left;
+  padding: 0 14px 12px;
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.pl-table thead th.num { text-align: right; }
+.pl-table tbody td {
+  height: 58px;
+  padding: 0 14px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.pl-table tbody tr:hover td { background: var(--surface-2); }
+.pl-table tbody tr:last-child td { border-bottom: none; }
+
+/* Column widths */
+.col-cover  { width: 54px; padding: 0 8px !important; }
+.col-title  { width: auto; min-width: 180px; }
+.col-owner  { width: 140px; }
+.col-tracks { width: 70px; }
+.col-crawled { width: 110px; }
+.col-action { width: 120px; text-align: right; }
+
+/* Cover */
+.cover-thumb {
+  width: 40px; height: 40px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: repeating-linear-gradient(135deg, var(--surface-2) 0 5px, var(--surface-3) 5px 10px);
+  flex: none;
+}
+.cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Playlist title cell */
+.pl-title {
+  display: block;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pl-id {
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cells */
+.num { text-align: right; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--ink-3); }
+
+/* Unfollow btn */
+.btn-unfollow {
+  padding: 5px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-3);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.btn-unfollow:hover {
+  color: var(--neg-ink, #c0392b);
+  border-color: var(--neg-ink, #c0392b);
+  background: var(--surface-2);
+}
+
+.state {
+  color: var(--ink-3);
+  font-size: 14px;
+  font-style: italic;
+}
+</style>

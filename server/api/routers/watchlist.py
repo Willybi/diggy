@@ -20,13 +20,18 @@ def _uid(user: User | None) -> int:
     return user.id if user else _DEFAULT_USER_ID
 
 
-def _fetch_deezer_playlist_title(external_id: str) -> str | None:
+def _fetch_deezer_playlist(external_id: str) -> dict:
+    """Fetch playlist metadata from Deezer: title, track_count, owner."""
     try:
         resp = requests.get(f"{DEEZER_API}/playlist/{external_id}", timeout=5)
         data = resp.json()
-        return data.get("title")
+        return {
+            "title": data.get("title"),
+            "track_count": data.get("nb_tracks"),
+            "owner": data.get("creator", {}).get("name") if isinstance(data.get("creator"), dict) else None,
+        }
     except Exception:
-        return None
+        return {}
 
 
 @router.get("/", response_model=list[WatchedPlaylistOut])
@@ -67,12 +72,14 @@ async def add_watched(
         if follow_result.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Playlist already watched")
     else:
-        title = _fetch_deezer_playlist_title(body.external_id)
+        meta = _fetch_deezer_playlist(body.external_id)
         entity = WatchedEntity(
             external_id=body.external_id,
             source=body.source,
-            title=title,
+            title=meta.get("title"),
             description=body.description,
+            track_count=meta.get("track_count"),
+            owner=meta.get("owner"),
             created_at=datetime.now(timezone.utc),
         )
         db.add(entity)
