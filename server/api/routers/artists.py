@@ -16,6 +16,8 @@ router = APIRouter(prefix="/artists", tags=["artists"])
 @router.get("/", response_model=list[ArtistListOut])
 async def list_artists(
     q: str | None = None,
+    no_deezer: bool = False,
+    limit: int = 500,
     db: AsyncSession = Depends(get_db),
 ):
     from models import Genre, artist_genres
@@ -43,10 +45,13 @@ async def list_artists(
         select(Artist)
         .options(selectinload(Artist.aliases), selectinload(Artist.genres))
         .order_by(func.lower(Artist.name))
+        .limit(limit)
     )
     if q:
         pattern = f"%{q}%"
         q_artists = q_artists.where(Artist.name.ilike(pattern))
+    if no_deezer:
+        q_artists = q_artists.where(Artist.deezer_id.is_(None))
 
     result = await db.execute(q_artists)
     artists = result.scalars().all()
