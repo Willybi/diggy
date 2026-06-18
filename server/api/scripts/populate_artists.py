@@ -32,7 +32,7 @@ from sqlalchemy import select, text
 # Allow running as a script inside the api container
 sys.path.insert(0, "/app")
 
-from database import AsyncSessionLocal
+from database import SessionLocal
 from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry
 from trackid.importer import get_or_create_artist
 from utils import normalize
@@ -242,7 +242,7 @@ async def run_sync(db) -> dict:
 # ---------- CLI entry point ----------
 
 async def _main():
-    async with AsyncSessionLocal() as db:
+    async with SessionLocal() as db:
         result = await run_sync(db)
     print(f"✅ {result['created']} artistes créés")
     print(f"⚠️  {result['flagged']} flags générés")
