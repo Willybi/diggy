@@ -30,10 +30,67 @@
           {{ fetchingArtworks ? 'Fetch en cours…' : 'Fetch artworks' }}
         </button>
         <div v-if="artworksResult" class="sync-result">
-          <span class="result-item ok">✓ {{ artworksResult.fetched }} téléchargés</span>
+          <span class="result-item ok">✓ {{ artworksResult.fetched }} artworks</span>
+          <span v-if="artworksResult.linked != null" class="result-item ok">🔗 {{ artworksResult.linked }} liés Deezer</span>
           <span class="result-item muted">↷ {{ artworksResult.skipped }} skippés</span>
         </div>
         <span v-if="artworksError" class="sync-error">{{ artworksError }}</span>
+      </div>
+    </section>
+
+    <!-- Liaison manuelle artiste ↔ Deezer -->
+    <section class="admin-section">
+      <h2 class="section-title">Lier un artiste à Deezer</h2>
+      <p class="section-sub">Recherche un artiste dans la DB et l'associe manuellement à un compte Deezer.</p>
+      <div class="link-form">
+        <input v-model="linkArtistQuery" class="form-input" placeholder="Nom artiste en DB…" @input="onLinkSearch" />
+        <input v-model="linkDeezerQuery" class="form-input" placeholder="Recherche sur Deezer…" @input="onDeezerSearch" />
+      </div>
+      <div class="link-results">
+        <div class="link-col">
+          <p class="col-label">Artistes en DB</p>
+          <div v-for="a in dbArtistResults" :key="a.id"
+            class="result-row" :class="{ selected: selectedDbArtist?.id === a.id }"
+            @click="selectedDbArtist = a"
+          >
+            <div class="cover-thumb-sm">
+              <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
+              <span v-else class="fallback-sm">{{ a.name[0] }}</span>
+            </div>
+            <div>
+              <span class="ar-name-sm">{{ a.name }}</span>
+              <span class="ar-meta mono muted">{{ a.deezer_id ? `dz:${a.deezer_id}` : 'sans deezer_id' }}</span>
+            </div>
+          </div>
+          <p v-if="linkArtistQuery && dbArtistResults.length === 0" class="empty-hint">Aucun résultat</p>
+        </div>
+        <div class="link-col">
+          <p class="col-label">Résultats Deezer</p>
+          <div v-for="h in deezerHits" :key="h.deezer_id"
+            class="result-row" :class="{ selected: selectedDeezerHit?.deezer_id === h.deezer_id }"
+            @click="selectedDeezerHit = h"
+          >
+            <div class="cover-thumb-sm">
+              <img v-if="h.picture" :src="h.picture" />
+              <span v-else class="fallback-sm">{{ h.name[0] }}</span>
+            </div>
+            <div>
+              <span class="ar-name-sm">{{ h.name }}</span>
+              <span class="ar-meta mono muted">{{ h.nb_fan?.toLocaleString() }} fans · dz:{{ h.deezer_id }}</span>
+            </div>
+          </div>
+          <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">Aucun résultat</p>
+        </div>
+      </div>
+      <div v-if="selectedDbArtist && selectedDeezerHit" class="link-confirm">
+        <span class="link-summary">
+          Lier <strong>{{ selectedDbArtist.name }}</strong> → Deezer <strong>{{ selectedDeezerHit.name }}</strong> ({{ selectedDeezerHit.deezer_id }})
+        </span>
+        <button class="btn-confirm-link" :disabled="linking" @click="confirmLink">
+          {{ linking ? 'Liaison…' : 'Confirmer' }}
+        </button>
+        <span v-if="linkSuccess" class="result-item ok">✓ Lié</span>
+        <span v-if="linkError" class="sync-error">{{ linkError }}</span>
       </div>
     </section>
 
@@ -146,6 +203,19 @@ const resolving = reactive({})
 const fetchingArtworks = ref(false)
 const artworksResult = ref(null)
 const artworksError = ref('')
+
+// Manual link
+const linkArtistQuery = ref('')
+const linkDeezerQuery = ref('')
+const dbArtistResults = ref([])
+const deezerHits = ref([])
+const selectedDbArtist = ref(null)
+const selectedDeezerHit = ref(null)
+const linking = ref(false)
+const linkSuccess = ref(false)
+const linkError = ref('')
+let linkDbTimer = null
+let linkDeezerTimer = null
 
 function authHeaders() {
   return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
@@ -260,6 +330,55 @@ function pollArtworksStatus(taskId) {
       }
     } catch {}
   }, 2000)
+}
+
+function onLinkSearch() {
+  clearTimeout(linkDbTimer)
+  selectedDbArtist.value = null
+  if (!linkArtistQuery.value.trim()) { dbArtistResults.value = []; return }
+  linkDbTimer = setTimeout(async () => {
+    const { data } = await axios.get('/api/artists/', { params: { q: linkArtistQuery.value.trim(), limit: 8 } })
+    dbArtistResults.value = data
+  }, 300)
+}
+
+function onDeezerSearch() {
+  clearTimeout(linkDeezerTimer)
+  selectedDeezerHit.value = null
+  if (!linkDeezerQuery.value.trim()) { deezerHits.value = []; return }
+  linkDeezerTimer = setTimeout(async () => {
+    const { data } = await axios.get('/api/admin/artists/search-deezer', {
+      params: { q: linkDeezerQuery.value.trim() },
+      headers: authHeaders(),
+    })
+    deezerHits.value = data
+  }, 300)
+}
+
+async function confirmLink() {
+  if (!selectedDbArtist.value || !selectedDeezerHit.value) return
+  linking.value = true
+  linkSuccess.value = false
+  linkError.value = ''
+  try {
+    await axios.patch(
+      `/api/admin/artists/${selectedDbArtist.value.id}/deezer`,
+      { deezer_id: selectedDeezerHit.value.deezer_id },
+      { headers: authHeaders() },
+    )
+    linkSuccess.value = true
+    // Reset
+    selectedDbArtist.value = null
+    selectedDeezerHit.value = null
+    linkArtistQuery.value = ''
+    linkDeezerQuery.value = ''
+    dbArtistResults.value = []
+    deezerHits.value = []
+  } catch (e) {
+    linkError.value = e.response?.data?.detail || 'Erreur'
+  } finally {
+    linking.value = false
+  }
 }
 
 onMounted(fetchFlags)
@@ -450,4 +569,75 @@ onMounted(fetchFlags)
 
 .state { font-size: 13px; color: var(--ink-3); font-style: italic; padding: 12px 0; }
 .mono { font-family: var(--font-mono); }
+
+/* Manual link */
+.link-form {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.link-results {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.link-col {
+  flex: 1;
+  min-width: 200px;
+}
+.col-label {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.1s;
+}
+.result-row:hover { background: var(--surface-2); }
+.result-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+.cover-thumb-sm {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  flex: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.cover-thumb-sm img { width: 100%; height: 100%; object-fit: cover; }
+.fallback-sm { font: 600 13px/1 var(--font-ui); color: var(--ink-3); }
+.ar-name-sm { display: block; font: 500 13px/1 var(--font-ui); color: var(--ink); }
+.ar-meta { display: block; font-size: 11px; margin-top: 2px; }
+.empty-hint { font-size: 12px; color: var(--ink-3); font-style: italic; padding: 8px 10px; }
+.link-confirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.link-summary { font: 400 13px/1.4 var(--font-ui); color: var(--ink-2); }
+.btn-confirm-link {
+  padding: 7px 16px;
+  border-radius: var(--r-sm);
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+}
+.btn-confirm-link:disabled { opacity: 0.5; cursor: default; }
 </style>

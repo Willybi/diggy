@@ -48,6 +48,17 @@ class ResolveIn(BaseModel):
     action: str  # "split" | "keep" | "skip"
 
 
+class ArtistDeezerIn(BaseModel):
+    deezer_id: str
+
+
+class DeezerArtistHit(BaseModel):
+    deezer_id: str
+    name: str
+    picture: str | None = None
+    nb_fan: int | None = None
+
+
 # ---------- Endpoints ----------
 
 def _send_sync_task() -> str:
@@ -106,6 +117,63 @@ async def fetch_artworks(
     )
     result = _celery.send_task("workers.tasks.fetch_artist_artworks")
     return SyncQueued(status="queued", task_id=result.id)
+
+
+@router.get("/artists/search-deezer", response_model=list[DeezerArtistHit])
+async def search_deezer_artist(
+    q: str,
+    _: User = Depends(require_admin),
+):
+    """Search Deezer for an artist by name."""
+    import requests as req
+    try:
+        resp = req.get("https://api.deezer.com/search/artist", params={"q": q, "limit": 10}, timeout=5)
+        hits = []
+        for h in resp.json().get("data", []):
+            hits.append(DeezerArtistHit(
+                deezer_id=str(h["id"]),
+                name=h.get("name", ""),
+                picture=h.get("picture_medium"),
+                nb_fan=h.get("nb_fan"),
+            ))
+        return hits
+    except Exception:
+        return []
+
+
+@router.patch("/artists/{artist_id}/deezer")
+async def link_artist_deezer(
+    artist_id: int,
+    body: ArtistDeezerIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Manually link a deezer_id to an artist and fetch its artwork."""
+    import requests as req
+    from deezer_enrich import _get_s3, upload_image_to_bucket
+
+    result = await db.execute(select(Artist).where(Artist.id == artist_id))
+    artist = result.scalar_one_or_none()
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    artist.deezer_id = body.deezer_id
+
+    # Fetch artwork
+    try:
+        resp = req.get(f"https://api.deezer.com/artist/{body.deezer_id}", timeout=5)
+        data = resp.json()
+        pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
+        if pic_url:
+            s3 = _get_s3()
+            if upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", "artist-artworks"):
+                artist.has_artwork = True
+    except Exception:
+        pass
+
+    await db.commit()
+    await db.refresh(artist)
+    return {"id": artist.id, "name": artist.name, "deezer_id": artist.deezer_id, "has_artwork": artist.has_artwork}
 
 
 @router.get("/artists/flags", response_model=list[ArtistFlagOut])
