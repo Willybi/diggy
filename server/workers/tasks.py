@@ -629,10 +629,11 @@ def fetch_artist_artworks():
 
         session.commit()
 
-        # Pass 2: all artists with deezer_id but no artwork
+        # Pass 2: all artists with a real deezer_id but no artwork
         artists_needing_art = session.execute(
             select(Artist).where(
                 Artist.deezer_id.isnot(None),
+                Artist.deezer_id != "NOT_FOUND",
                 Artist.has_artwork == False,  # noqa: E712
             )
         ).scalars().all()
