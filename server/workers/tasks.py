@@ -374,6 +374,11 @@ def sync_artists():
             ),
         )
 
+    def _norm(s):
+        import unicodedata
+        s = unicodedata.normalize("NFKD", s.lower().strip())
+        return s.encode("ascii", "ignore").decode()
+
     def _deezer_artist_id(name):
         try:
             resp = requests.get(
@@ -381,8 +386,10 @@ def sync_artists():
                 params={"q": name, "limit": 10},
                 timeout=5,
             )
+            name_norm = _norm(name)
             for hit in resp.json().get("data", []):
-                if hit.get("name", "").lower() == name.lower():
+                dz_name = hit.get("name", "")
+                if dz_name.lower() == name.lower() or _norm(dz_name) == name_norm:
                     return str(hit["id"])
         except Exception:
             pass
@@ -576,6 +583,11 @@ def fetch_artist_artworks():
     linked = 0
     skipped = 0
 
+    def _norm(s):
+        import unicodedata
+        s = unicodedata.normalize("NFKD", s.lower().strip())
+        return s.encode("ascii", "ignore").decode()
+
     def _search_deezer_artist(name):
         try:
             resp = requests.get(
@@ -583,8 +595,10 @@ def fetch_artist_artworks():
                 params={"q": name, "limit": 10},
                 timeout=5,
             )
+            name_norm = _norm(name)
             for hit in resp.json().get("data", []):
-                if hit.get("name", "").lower() == name.lower():
+                dz_name = hit.get("name", "")
+                if dz_name.lower() == name.lower() or _norm(dz_name) == name_norm:
                     return str(hit["id"])
         except Exception:
             pass

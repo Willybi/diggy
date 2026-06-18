@@ -43,43 +43,46 @@
       <h2 class="section-title">Lier un artiste à Deezer</h2>
       <p class="section-sub">Recherche un artiste dans la DB et l'associe manuellement à un compte Deezer.</p>
       <div class="link-form">
-        <input v-model="linkArtistQuery" class="form-input" placeholder="Nom artiste en DB…" @input="onLinkSearch" />
+        <input v-model="linkArtistQuery" class="form-input" placeholder="Filtrer les artistes sans Deezer…" @input="onLinkSearch" />
         <input v-model="linkDeezerQuery" class="form-input" placeholder="Recherche sur Deezer…" @input="onDeezerSearch" />
       </div>
       <div class="link-results">
         <div class="link-col">
-          <p class="col-label">Artistes en DB</p>
-          <div v-for="a in dbArtistResults" :key="a.id"
-            class="result-row" :class="{ selected: selectedDbArtist?.id === a.id }"
-            @click="selectedDbArtist = a"
-          >
-            <div class="cover-thumb-sm">
-              <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
-              <span v-else class="fallback-sm">{{ a.name[0] }}</span>
-            </div>
-            <div>
+          <p class="col-label">Artistes sans deezer_id ({{ dbArtistResults.length }})</p>
+          <div class="link-list">
+            <div v-for="a in dbArtistResults" :key="a.id"
+              class="result-row" :class="{ selected: selectedDbArtist?.id === a.id }"
+              @click="selectedDbArtist = a; linkDeezerQuery = a.name; onDeezerSearch()"
+            >
+              <div class="cover-thumb-sm">
+                <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
+                <span v-else class="fallback-sm">{{ a.name[0] }}</span>
+              </div>
               <span class="ar-name-sm">{{ a.name }}</span>
-              <span class="ar-meta mono muted">{{ a.deezer_id ? `dz:${a.deezer_id}` : 'sans deezer_id' }}</span>
             </div>
           </div>
-          <p v-if="linkArtistQuery && dbArtistResults.length === 0" class="empty-hint">Aucun résultat</p>
         </div>
         <div class="link-col">
           <p class="col-label">Résultats Deezer</p>
-          <div v-for="h in deezerHits" :key="h.deezer_id"
-            class="result-row" :class="{ selected: selectedDeezerHit?.deezer_id === h.deezer_id }"
-            @click="selectedDeezerHit = h"
-          >
-            <div class="cover-thumb-sm">
-              <img v-if="h.picture" :src="h.picture" />
-              <span v-else class="fallback-sm">{{ h.name[0] }}</span>
+          <div class="link-list">
+            <div v-for="h in deezerHits" :key="h.deezer_id"
+              class="result-row" :class="{ selected: selectedDeezerHit?.deezer_id === h.deezer_id }"
+              @click="selectedDeezerHit = h"
+            >
+              <div class="cover-thumb-sm">
+                <img v-if="h.picture" :src="h.picture" />
+                <span v-else class="fallback-sm">{{ h.name[0] }}</span>
+              </div>
+              <div>
+                <span class="ar-name-sm">{{ h.name }}</span>
+                <span class="ar-meta mono muted">
+                  {{ h.nb_fan?.toLocaleString() }} fans ·
+                  <a :href="`https://www.deezer.com/artist/${h.deezer_id}`" target="_blank" class="dz-link" @click.stop>dz:{{ h.deezer_id }}</a>
+                </span>
+              </div>
             </div>
-            <div>
-              <span class="ar-name-sm">{{ h.name }}</span>
-              <span class="ar-meta mono muted">{{ h.nb_fan?.toLocaleString() }} fans · dz:{{ h.deezer_id }}</span>
-            </div>
+            <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">Aucun résultat</p>
           </div>
-          <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">Aucun résultat</p>
         </div>
       </div>
       <div v-if="selectedDbArtist && selectedDeezerHit" class="link-confirm">
@@ -148,7 +151,8 @@
                     :class="{ found: !!did, missing: !did }"
                   >
                     <span class="deezer-name">{{ name }}</span>
-                    <span class="deezer-id mono">{{ did || '✗' }}</span>
+                    <a v-if="did" :href="`https://www.deezer.com/artist/${did}`" target="_blank" class="deezer-id mono dz-link">{{ did }}</a>
+                    <span v-else class="deezer-id mono">✗</span>
                   </span>
                 </div>
               </td>
@@ -332,14 +336,17 @@ function pollArtworksStatus(taskId) {
   }, 2000)
 }
 
+async function fetchNoDeezerArtists(q = '') {
+  const params = { no_deezer: true, limit: 100 }
+  if (q) params.q = q
+  const { data } = await axios.get('/api/artists/', { params })
+  dbArtistResults.value = data
+}
+
 function onLinkSearch() {
   clearTimeout(linkDbTimer)
   selectedDbArtist.value = null
-  if (!linkArtistQuery.value.trim()) { dbArtistResults.value = []; return }
-  linkDbTimer = setTimeout(async () => {
-    const { data } = await axios.get('/api/artists/', { params: { q: linkArtistQuery.value.trim(), limit: 8 } })
-    dbArtistResults.value = data
-  }, 300)
+  linkDbTimer = setTimeout(() => fetchNoDeezerArtists(linkArtistQuery.value.trim()), 300)
 }
 
 function onDeezerSearch() {
@@ -381,7 +388,10 @@ async function confirmLink() {
   }
 }
 
-onMounted(fetchFlags)
+onMounted(() => {
+  fetchFlags()
+  fetchNoDeezerArtists()
+})
 </script>
 
 <style scoped>
@@ -619,6 +629,17 @@ onMounted(fetchFlags)
 .ar-name-sm { display: block; font: 500 13px/1 var(--font-ui); color: var(--ink); }
 .ar-meta { display: block; font-size: 11px; margin-top: 2px; }
 .empty-hint { font-size: 12px; color: var(--ink-3); font-style: italic; padding: 8px 10px; }
+.link-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.dz-link {
+  color: var(--accent-ink);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.dz-link:hover { text-decoration: underline; }
 .link-confirm {
   display: flex;
   align-items: center;
