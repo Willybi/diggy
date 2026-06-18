@@ -3,9 +3,6 @@ Tests des nouveaux modèles : Genre, Artist, ArtistAlias, DJSet, SetArtist, SetT
 Vérifie CRUD, contraintes d'unicité, relations et cascades.
 """
 import pytest
-import pytest_asyncio
-
-pytestmark = pytest.mark.asyncio
 
 from sqlalchemy import select
 
