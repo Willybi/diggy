@@ -418,7 +418,11 @@ def sync_artists():
         def _get_or_create(name):
             norm = normalize(name)
             if norm in known_norms:
-                return session.execute(select(Artist).where(Artist.normalized_name == norm)).scalar_one_or_none()
+                artist = session.execute(select(Artist).where(Artist.normalized_name == norm)).scalar_one_or_none()
+                # If found but name differs, ensure alias for this variant
+                if artist and name.strip() != artist.name:
+                    _ensure_alias(artist, name.strip())
+                return artist
             alias = session.execute(select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)).scalar_one_or_none()
             if alias:
                 return session.get(Artist, alias.artist_id)
@@ -441,6 +445,21 @@ def sync_artists():
             except Exception:
                 pass
             time.sleep(RATE_LIMIT)
+
+        def _ensure_alias(artist, alias_name):
+            """Create alias if normalized forms differ and alias doesn't exist yet."""
+            if not artist or not alias_name:
+                return
+            norm = normalize(alias_name)
+            if norm == artist.normalized_name or norm in known_norms:
+                return
+            existing = session.execute(
+                select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
+            ).scalar_one_or_none()
+            if existing:
+                return
+            session.add(ArtistAlias(artist_id=artist.id, alias=alias_name, normalized_alias=norm))
+            known_norms.add(norm)
 
         def _flag(raw, reason, tokens, deezer_ids):
             flag = ArtistFlag(
