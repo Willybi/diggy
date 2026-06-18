@@ -355,9 +355,24 @@ def sync_artists():
     sys.path.insert(0, "/app")
     from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry
     from utils import normalize
+    from deezer_enrich import _get_s3, upload_image_to_bucket
 
     FEAT_RE = re.compile(r"\s+(?:feat\.?|featuring|ft\.?|vs\.?)\s+", flags=re.IGNORECASE)
     RATE_LIMIT = 0.12
+    ARTIST_BUCKET = "artist-artworks"
+
+    s3 = _get_s3()
+    existing_buckets = [b["Name"] for b in s3.list_buckets()["Buckets"]]
+    if ARTIST_BUCKET not in existing_buckets:
+        s3.create_bucket(Bucket=ARTIST_BUCKET)
+        s3.put_bucket_policy(
+            Bucket=ARTIST_BUCKET,
+            Policy=(
+                f'{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow",'
+                f'"Principal":"*","Action":"s3:GetObject",'
+                f'"Resource":"arn:aws:s3:::{ARTIST_BUCKET}/*"}}]}}'
+            ),
+        )
 
     def _deezer_artist_id(name):
         try:
@@ -397,7 +412,6 @@ def sync_artists():
             norm = normalize(name)
             if norm in known_norms:
                 return session.execute(select(Artist).where(Artist.normalized_name == norm)).scalar_one_or_none()
-            # Check alias
             alias = session.execute(select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)).scalar_one_or_none()
             if alias:
                 return session.get(Artist, alias.artist_id)
@@ -406,6 +420,20 @@ def sync_artists():
             session.flush()
             known_norms.add(norm)
             return artist
+
+        def _fetch_artwork(artist):
+            """Fetch and store Deezer artist image if deezer_id is set and artwork missing."""
+            if not artist or not artist.deezer_id or artist.has_artwork:
+                return
+            try:
+                resp = requests.get(f"https://api.deezer.com/artist/{artist.deezer_id}", timeout=5)
+                data = resp.json()
+                pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
+                if pic_url and upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", ARTIST_BUCKET):
+                    artist.has_artwork = True
+            except Exception:
+                pass
+            time.sleep(RATE_LIMIT)
 
         def _flag(raw, reason, tokens, deezer_ids):
             flag = ArtistFlag(
@@ -456,6 +484,7 @@ def sync_artists():
                             a = _get_or_create(name)
                             if a and not a.deezer_id and deezer_ids.get(name):
                                 a.deezer_id = deezer_ids[name]
+                                _fetch_artwork(a)
                             created += 1
                         session.commit()
                     else:
@@ -485,6 +514,7 @@ def sync_artists():
                     a = _get_or_create(raw)
                     if a and not a.deezer_id:
                         a.deezer_id = deezer_full
+                        _fetch_artwork(a)
                     session.commit()
                     created += 1
                 elif tokens_found and not full_found:
@@ -492,6 +522,7 @@ def sync_artists():
                         a = _get_or_create(name)
                         if a and not a.deezer_id and deezer_ids.get(name):
                             a.deezer_id = deezer_ids[name]
+                            _fetch_artwork(a)
                         created += 1
                     session.commit()
                 else:
@@ -507,6 +538,71 @@ def sync_artists():
             created += 1
 
     return {"created": created, "flagged": flagged, "skipped": skipped}
+
+
+@celery_app.task(name="workers.tasks.fetch_artist_artworks")
+def fetch_artist_artworks():
+    """
+    One-shot + idempotent: fetch Deezer artist images for all artists with a deezer_id.
+    Uploads to MinIO bucket 'artist-artworks' as {artist_id}.jpg.
+    """
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import Artist
+    from deezer_enrich import _get_s3, upload_image_to_bucket
+
+    ARTIST_BUCKET = "artist-artworks"
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+    s3 = _get_s3()
+
+    # Ensure bucket exists and is public
+    existing_buckets = [b["Name"] for b in s3.list_buckets()["Buckets"]]
+    if ARTIST_BUCKET not in existing_buckets:
+        s3.create_bucket(Bucket=ARTIST_BUCKET)
+        s3.put_bucket_policy(
+            Bucket=ARTIST_BUCKET,
+            Policy=(
+                f'{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow",'
+                f'"Principal":"*","Action":"s3:GetObject",'
+                f'"Resource":"arn:aws:s3:::{ARTIST_BUCKET}/*"}}]}}'
+            ),
+        )
+
+    fetched = 0
+    skipped = 0
+
+    with Session(engine) as session:
+        artists = session.execute(
+            select(Artist).where(
+                Artist.deezer_id.isnot(None),
+                Artist.has_artwork == False,  # noqa: E712
+            )
+        ).scalars().all()
+
+        for artist in artists:
+            try:
+                resp = requests.get(
+                    f"https://api.deezer.com/artist/{artist.deezer_id}",
+                    timeout=5,
+                )
+                data = resp.json()
+                pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
+                if pic_url and upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", ARTIST_BUCKET):
+                    artist.has_artwork = True
+                    fetched += 1
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+            time.sleep(0.12)
+
+        session.commit()
+
+    return {"fetched": fetched, "skipped": skipped}
 
 
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")

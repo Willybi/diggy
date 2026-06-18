@@ -93,6 +93,21 @@ async def sync_status(
     return SyncStatus(status="running")
 
 
+@router.post("/artists/fetch-artworks", response_model=SyncQueued)
+async def fetch_artworks(
+    _: User = Depends(require_admin),
+):
+    """Fire-and-forget: fetch Deezer images for all artists with deezer_id."""
+    import os
+    from celery import Celery
+    _celery = Celery(
+        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+    )
+    result = _celery.send_task("workers.tasks.fetch_artist_artworks")
+    return SyncQueued(status="queued", task_id=result.id)
+
+
 @router.get("/artists/flags", response_model=list[ArtistFlagOut])
 async def list_flags(
     status: str = "pending",

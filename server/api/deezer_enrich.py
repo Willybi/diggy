@@ -181,27 +181,30 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
     return None
 
 
-def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
-    """Download cover image and upload to MinIO. Returns True on success."""
-    if not cover_url:
+def upload_image_to_bucket(s3, image_url: str, key: str, bucket: str) -> bool:
+    """Download image from URL and upload to any MinIO bucket. Returns True on success."""
+    if not image_url:
         return False
     try:
-        img_resp = requests.get(cover_url, timeout=15)
+        img_resp = requests.get(image_url, timeout=15)
         img_resp.raise_for_status()
         if len(img_resp.content) < 1000:  # skip placeholder images
             return False
-
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
             f.write(img_resp.content)
             tmp = f.name
         try:
-            s3.upload_file(tmp, BUCKET, f"{catalog_id}.jpg",
-                           ExtraArgs={"ContentType": "image/jpeg"})
+            s3.upload_file(tmp, bucket, key, ExtraArgs={"ContentType": "image/jpeg"})
         finally:
             os.unlink(tmp)
         return True
     except Exception:
         return False
+
+
+def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
+    """Download cover image and upload to MinIO. Returns True on success."""
+    return upload_image_to_bucket(s3, cover_url, f"{catalog_id}.jpg", BUCKET)
 
 
 def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None) -> bool:
