@@ -58,7 +58,7 @@ class TestListRadar:
         assert len(r.json()) == 1
 
     async def test_filter_by_watched_playlist_id(self, client, mocker, watched_playlist_id):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist_title", return_value="Techno Picks")
+        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Techno Picks"})
         r2 = await client.post("/api/watchlist/", json={"external_id": "999", "source": "deezer"})
         playlist2_id = r2.json()["id"]
 
