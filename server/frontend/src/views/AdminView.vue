@@ -38,6 +38,22 @@
       </div>
     </section>
 
+    <!-- Lier artistes aux sets -->
+    <section class="admin-section">
+      <h2 class="section-title">Artistes des sets</h2>
+      <p class="section-sub">Parse les titres des sets pour trouver les artistes et les lier. Idempotent.</p>
+      <div class="sync-row">
+        <button class="btn-sync" :disabled="linkingSets" @click="runLinkSets">
+          {{ linkingSets ? 'Liaison en cours…' : 'Lier artistes aux sets' }}
+        </button>
+        <div v-if="linkSetsResult" class="sync-result">
+          <span class="result-item ok">✓ {{ linkSetsResult.linked }} liés</span>
+          <span class="result-item muted">↷ {{ linkSetsResult.skipped }} déjà liés</span>
+        </div>
+        <span v-if="linkSetsError" class="sync-error">{{ linkSetsError }}</span>
+      </div>
+    </section>
+
     <!-- Liaison manuelle artiste ↔ Deezer -->
     <section class="admin-section">
       <h2 class="section-title">Lier un artiste à Deezer</h2>
@@ -209,6 +225,9 @@ const loadingFlags = ref(false)
 const filterStatus = ref('pending')
 const resolving = reactive({})
 const fetchingArtworks = ref(false)
+const linkingSets = ref(false)
+const linkSetsResult = ref(null)
+const linkSetsError = ref('')
 const artworksResult = ref(null)
 const artworksError = ref('')
 
@@ -338,6 +357,25 @@ function pollArtworksStatus(taskId) {
       }
     } catch {}
   }, 2000)
+}
+
+async function runLinkSets() {
+  linkingSets.value = true
+  linkSetsResult.value = null
+  linkSetsError.value = ''
+  try {
+    const { data } = await axios.post('/api/admin/sets/link-artists', {}, { headers: authHeaders() })
+    const timer = setInterval(async () => {
+      try {
+        const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
+        if (st.status === 'done') { clearInterval(timer); linkSetsResult.value = st.result; linkingSets.value = false }
+        else if (st.status === 'error') { clearInterval(timer); linkSetsError.value = st.error || 'Erreur'; linkingSets.value = false }
+      } catch {}
+    }, 2000)
+  } catch (e) {
+    linkSetsError.value = e.response?.data?.detail || 'Erreur'
+    linkingSets.value = false
+  }
 }
 
 async function fetchNoDeezerArtists(q = '') {

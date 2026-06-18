@@ -72,6 +72,11 @@ class FlagManualIn(BaseModel):
     reason: str = "manual"
 
 
+class SetArtistIn(BaseModel):
+    artist_id: int
+    role: str = "dj"
+
+
 class DeezerArtistHit(BaseModel):
     deezer_id: str
     name: str
@@ -371,3 +376,63 @@ async def resolve_flag(
     await db.commit()
     await db.refresh(flag)
     return flag
+
+
+# ---------- Set Artists ----------
+
+@router.post("/sets/link-artists", response_model=SyncQueued)
+async def link_set_artists_task(
+    _: User = Depends(require_admin),
+):
+    """Fire-and-forget: parse set titles and link artists."""
+    import os
+    from celery import Celery
+    _celery = Celery(
+        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+    )
+    result = _celery.send_task("workers.tasks.link_set_artists")
+    return SyncQueued(status="queued", task_id=result.id)
+
+
+@router.post("/sets/{set_id}/artists")
+async def add_set_artist(
+    set_id: int,
+    body: SetArtistIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Manually link an artist to a set."""
+    from models import DJSet
+    existing = await db.execute(
+        select(SetArtist).where(SetArtist.set_id == set_id, SetArtist.artist_id == body.artist_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Already linked")
+    s = await db.execute(select(DJSet).where(DJSet.id == set_id))
+    if not s.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Set not found")
+    a = await db.execute(select(Artist).where(Artist.id == body.artist_id))
+    if not a.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Artist not found")
+    db.add(SetArtist(set_id=set_id, artist_id=body.artist_id, role=body.role, position=0))
+    await db.commit()
+    return {"set_id": set_id, "artist_id": body.artist_id, "role": body.role}
+
+
+@router.delete("/sets/{set_id}/artists/{artist_id}")
+async def remove_set_artist(
+    set_id: int,
+    artist_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Remove an artist from a set."""
+    from sqlalchemy import delete as sa_delete
+    result = await db.execute(
+        sa_delete(SetArtist).where(SetArtist.set_id == set_id, SetArtist.artist_id == artist_id)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Link not found")
+    await db.commit()
+    return {"ok": True}

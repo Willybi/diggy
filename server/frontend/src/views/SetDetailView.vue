@@ -22,6 +22,29 @@
 
       <StatStrip :stats="stats" />
 
+      <!-- Admin: manage set artists -->
+      <div v-if="auth.user?.is_admin" class="admin-card">
+        <div class="admin-header">
+          <span class="admin-label">Admin — Artistes du set</span>
+        </div>
+        <div v-if="djSet.artists.length" class="set-artists-list">
+          <div v-for="a in djSet.artists" :key="a.artist_id" class="set-artist-row">
+            <RouterLink :to="`/artist/${a.artist_id}`" class="sa-name">{{ a.artist_name }}</RouterLink>
+            <span class="sa-role mono">{{ a.role }}</span>
+            <button class="btn-row-action" @click="removeSetArtist(a.artist_id)">Retirer</button>
+          </div>
+        </div>
+        <p v-else class="empty-hint">Aucun artiste lié.</p>
+        <div class="sa-add-row">
+          <input v-model="saQuery" class="admin-input" placeholder="Rechercher un artiste…" @input="onSaSearch" />
+        </div>
+        <div v-if="saResults.length" class="sa-results">
+          <div v-for="a in saResults" :key="a.id" class="sa-hit" @click="addSetArtist(a.id)">
+            <span class="sa-name">{{ a.name }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Artists -->
       <RelBlock v-if="djSet.artists.length > 1" title="Artistes">
         <AppearRow
@@ -104,7 +127,48 @@ import RelBlock from '../components/RelBlock.vue'
 import AppearRow from '../components/AppearRow.vue'
 import StyleTag from '../components/StyleTag.vue'
 import LibDot from '../components/LibDot.vue'
+import { useAuthStore } from '../stores/auth.js'
 import { fmtMs, fmtDate, fmtCue } from '../utils/format'
+
+const auth = useAuthStore()
+
+// Admin: set artists
+const saQuery = ref('')
+const saResults = ref([])
+let saTimer = null
+
+function authHeaders() {
+  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
+}
+
+function onSaSearch() {
+  clearTimeout(saTimer)
+  if (!saQuery.value.trim()) { saResults.value = []; return }
+  saTimer = setTimeout(async () => {
+    const { data } = await axios.get('/api/artists/', { params: { q: saQuery.value.trim(), limit: 10 } })
+    saResults.value = data
+  }, 300)
+}
+
+async function addSetArtist(artistId) {
+  if (!djSet.value) return
+  try {
+    await axios.post(`/api/admin/sets/${djSet.value.id}/artists`, { artist_id: artistId, role: 'dj' }, { headers: authHeaders() })
+    // Reload set data
+    const { data } = await axios.get(`/api/sets/${route.params.id}`)
+    djSet.value = data
+    saQuery.value = ''
+    saResults.value = []
+  } catch {}
+}
+
+async function removeSetArtist(artistId) {
+  if (!djSet.value) return
+  try {
+    await axios.delete(`/api/admin/sets/${djSet.value.id}/artists/${artistId}`, { headers: authHeaders() })
+    djSet.value.artists = djSet.value.artists.filter(a => a.artist_id !== artistId)
+  } catch {}
+}
 
 const SOURCE_META = {
   youtube:         { label: 'YouTube' },
@@ -300,4 +364,65 @@ onMounted(async () => {
   font-style: italic;
   padding-top: 40px;
 }
+
+/* Admin card */
+.admin-card {
+  margin: 16px 0;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--warn-ink, #e67e22);
+  border-radius: var(--r-sm);
+}
+.admin-header { margin-bottom: 10px; }
+.admin-label {
+  font: 600 11px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--warn-ink, #e67e22);
+}
+.set-artists-list { margin-bottom: 10px; }
+.set-artist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+}
+.set-artist-row:hover { background: var(--surface-2); }
+.sa-name { font: 500 13px/1 var(--font-ui); color: var(--ink); text-decoration: none; }
+.sa-name:hover { color: var(--accent-ink); }
+.sa-role { font-size: 11px; color: var(--ink-3); }
+.sa-add-row { display: flex; gap: 8px; }
+.admin-input {
+  flex: 1;
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 13px/1 var(--font-ui);
+  outline: none;
+}
+.admin-input:focus { border-color: var(--accent); }
+.sa-results { max-height: 160px; overflow-y: auto; margin-top: 6px; }
+.sa-hit {
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  font: 400 13px/1 var(--font-ui);
+  color: var(--ink);
+}
+.sa-hit:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.empty-hint { font-size: 12px; color: var(--ink-3); font-style: italic; margin-bottom: 10px; }
+.btn-row-action {
+  margin-left: auto;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-3);
+  font: 500 10px/1 var(--font-ui);
+  cursor: pointer;
+}
+.btn-row-action:hover { color: var(--neg-ink, #c0392b); border-color: var(--neg-ink, #c0392b); }
 </style>
