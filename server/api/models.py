@@ -244,6 +244,7 @@ class DJSet(Base):
     played_date = Column(Date, nullable=True)
     duration_ms = Column(Integer, nullable=True)
     description = Column(Text, nullable=True)
+    external_slug = Column(String(500), nullable=True)
     has_artwork = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
     last_crawled_at = Column(DateTime(timezone=True))

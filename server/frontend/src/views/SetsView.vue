@@ -16,25 +16,84 @@
           <button class="toggle-btn" :class="{ active: mode === 'all' }" @click="mode = 'all'">Tous</button>
           <button class="toggle-btn" :class="{ active: mode === 'followed' }" @click="mode = 'followed'">Suivis</button>
         </div>
-        <button class="btn-add" @click="showForm = !showForm">
+        <button class="btn-add" @click="showForm = !showForm; addMode = 'search'; tdResults = []; formError = ''">
           {{ showForm ? 'Annuler' : '+ Ajouter' }}
         </button>
       </div>
     </header>
 
+    <!-- Add form -->
     <div v-if="showForm" class="add-form">
-      <input
-        v-model="importUrl"
-        class="form-input"
-        placeholder="URL TrackID  (ex: https://trackid.net/audiostream/...)"
-        @keydown.enter="doImport"
-        @input="formError = ''"
-        autofocus
-      />
-      <button class="btn-confirm" :disabled="importing" @click="doImport">
-        {{ importing ? 'Import…' : 'Importer' }}
-      </button>
-      <span v-if="formError" class="form-error">{{ formError }}</span>
+      <div class="add-tabs">
+        <button class="add-tab" :class="{ active: addMode === 'search' }" @click="addMode = 'search'">Rechercher</button>
+        <button class="add-tab" :class="{ active: addMode === 'url' }" @click="addMode = 'url'">URL</button>
+      </div>
+
+      <!-- Search mode -->
+      <div v-if="addMode === 'search'" class="add-body">
+        <div class="add-row">
+          <input
+            v-model="tdQuery"
+            class="form-input"
+            placeholder="Rechercher sur TrackID  (ex: Adam Beyer, Boiler Room…)"
+            @keydown.enter="doTrackIDSearch"
+            autofocus
+          />
+          <button class="btn-confirm" :disabled="tdSearching" @click="doTrackIDSearch">
+            {{ tdSearching ? 'Recherche…' : 'Rechercher' }}
+          </button>
+        </div>
+        <div v-if="tdResults.length" class="td-results">
+          <div
+            v-for="r in tdResults"
+            :key="r.trackid_id"
+            class="td-result-row"
+          >
+            <div class="td-result-cover">
+              <img v-if="r.artwork_url" :src="r.artwork_url" />
+              <span v-else class="fallback-letter">{{ (r.title || '?')[0] }}</span>
+            </div>
+            <div class="td-result-info">
+              <span class="td-result-title">{{ r.title }}</span>
+              <span class="td-result-meta muted">
+                {{ r.channel || '' }}
+                <template v-if="r.track_count"> · {{ r.track_count }} tracks</template>
+                <template v-if="r.created_on"> · {{ fmtDate(r.created_on?.slice(0, 10)) }}</template>
+              </span>
+            </div>
+            <button
+              v-if="r.already_imported"
+              class="btn-imported"
+              disabled
+            >Importé</button>
+            <button
+              v-else
+              class="btn-follow"
+              :disabled="r._importing"
+              @click="doImportFromSearch(r)"
+            >{{ r._importing ? 'Import…' : 'Importer + Suivre' }}</button>
+          </div>
+        </div>
+        <span v-if="formError" class="form-error">{{ formError }}</span>
+      </div>
+
+      <!-- URL mode -->
+      <div v-if="addMode === 'url'" class="add-body">
+        <div class="add-row">
+          <input
+            v-model="importUrl"
+            class="form-input"
+            placeholder="URL TrackID  (ex: https://trackid.net/audiostream/...)"
+            @keydown.enter="doImport"
+            @input="formError = ''"
+            autofocus
+          />
+          <button class="btn-confirm" :disabled="importing" @click="doImport">
+            {{ importing ? 'Import…' : 'Importer' }}
+          </button>
+        </div>
+        <span v-if="formError" class="form-error">{{ formError }}</span>
+      </div>
     </div>
 
     <div v-if="loading" class="state">Chargement…</div>
@@ -113,10 +172,16 @@ const loading = ref(false)
 const search = ref('')
 const mode = ref('all')
 const showForm = ref(false)
+const addMode = ref('search')
 const importUrl = ref('')
 const formError = ref('')
 const importing = ref(false)
 let debounceTimer = null
+
+// TrackID search
+const tdQuery = ref('')
+const tdResults = ref([])
+const tdSearching = ref(false)
 
 function authHeaders() {
   return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
@@ -142,6 +207,35 @@ async function fetchSets() {
 function onSearch() {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(fetchSets, 300)
+}
+
+async function doTrackIDSearch() {
+  formError.value = ''
+  if (!tdQuery.value.trim()) return
+  tdSearching.value = true
+  try {
+    const { data } = await axios.get('/api/sets/search', { params: { q: tdQuery.value.trim() } })
+    tdResults.value = data
+    if (!data.length) formError.value = 'Aucun résultat sur TrackID'
+  } catch (e) {
+    formError.value = e.response?.data?.detail || 'Erreur recherche'
+  } finally {
+    tdSearching.value = false
+  }
+}
+
+async function doImportFromSearch(result) {
+  result._importing = true
+  formError.value = ''
+  try {
+    const { data } = await axios.post('/api/sets/import', { slug: result.slug }, { headers: authHeaders() })
+    result.already_imported = true
+    result._importing = false
+    router.push(`/set/${data.id}`)
+  } catch (e) {
+    result._importing = false
+    formError.value = e.response?.data?.detail || 'Erreur import'
+  }
 }
 
 async function doImport() {
@@ -260,15 +354,39 @@ onMounted(fetchSets)
 
 /* Add form */
 .add-form {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin-bottom: 20px;
   padding: 14px 16px;
   background: var(--surface-2);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
-  flex-wrap: wrap;
+}
+.add-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.add-tab {
+  padding: 8px 18px;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s;
+}
+.add-tab:hover { color: var(--ink-2); }
+.add-tab.active {
+  color: var(--accent-ink);
+  border-bottom-color: var(--accent);
+}
+.add-body { display: flex; flex-direction: column; gap: 10px; }
+.add-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .form-input {
   flex: 1;
@@ -292,12 +410,69 @@ onMounted(fetchSets)
   font: 500 13px/1 var(--font-ui);
   cursor: pointer;
   transition: opacity 0.12s;
+  white-space: nowrap;
 }
 .btn-confirm:disabled { opacity: 0.5; cursor: default; }
 .form-error {
   font: 400 12px/1 var(--font-mono);
   color: var(--neg-ink, #c0392b);
-  width: 100%;
+}
+
+/* TrackID search results */
+.td-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.td-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-xs);
+  transition: background 0.1s;
+}
+.td-result-row:hover { background: var(--surface); }
+.td-result-cover {
+  width: 40px; height: 40px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.td-result-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.td-result-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.td-result-title {
+  font: 500 13px/1.2 var(--font-ui);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.td-result-meta {
+  font: 400 11px/1 var(--font-mono);
+}
+.btn-imported {
+  padding: 5px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-3);
+  font: 500 11px/1 var(--font-ui);
+  cursor: default;
+  white-space: nowrap;
 }
 
 /* Table */

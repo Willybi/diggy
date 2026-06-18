@@ -834,3 +834,108 @@ def populate_artist_genres():
     return {"updated": updated}
 
 
+@celery_app.task(name="workers.tasks.crawl_followed_sets")
+def crawl_followed_sets():
+    """
+    Re-crawl followed sets whose tracklist is not 100% identified.
+    Skips sets crawled < 12h ago.
+    After re-import, resolves unlinked tracks via catalog matching + Deezer enrichment.
+    """
+    import asyncio
+    from datetime import datetime, timezone
+    from sqlalchemy import create_engine, select, func
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import DJSet, SetTrack, UserSetFollow
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    sets_to_crawl = []
+    skipped_complete = 0
+    skipped_recent = 0
+
+    with Session(engine) as session:
+        followed_ids = {
+            r[0] for r in session.execute(
+                select(UserSetFollow.set_id).distinct()
+            ).all()
+        }
+
+        if not followed_ids:
+            return {"crawled": 0, "skipped_complete": 0, "skipped_recent": 0}
+
+        for sid in followed_ids:
+            dj_set = session.get(DJSet, sid)
+            if not dj_set or dj_set.source != "trackid":
+                continue
+
+            total = session.execute(
+                select(func.count(SetTrack.id)).where(SetTrack.set_id == sid)
+            ).scalar() or 0
+            identified = session.execute(
+                select(func.count(SetTrack.id)).where(
+                    SetTrack.set_id == sid,
+                    SetTrack.is_id.is_(False),
+                    SetTrack.catalog_id.isnot(None),
+                )
+            ).scalar() or 0
+
+            if total > 0 and identified >= total:
+                skipped_complete += 1
+                continue
+
+            if dj_set.last_crawled_at:
+                age_h = (datetime.now(timezone.utc) - dj_set.last_crawled_at).total_seconds() / 3600
+                if age_h < 12:
+                    skipped_recent += 1
+                    continue
+
+            sets_to_crawl.append({"ext_id": dj_set.external_id, "slug": dj_set.external_slug})
+
+    if not sets_to_crawl:
+        return {"crawled": 0, "skipped_complete": skipped_complete, "skipped_recent": skipped_recent}
+
+    async def _crawl_all():
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+        from sqlalchemy.orm import sessionmaker as async_sessionmaker
+        from trackid.client import TrackIDClient
+        from trackid.importer import import_audiostream
+
+        async_engine = create_async_engine(os.environ["DATABASE_URL"])
+        AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
+        crawled = 0
+
+        async with TrackIDClient() as client:
+            for info in sets_to_crawl:
+                if not info["slug"]:
+                    continue
+                try:
+                    async with AsyncS() as db:
+                        audiostream = {"id": info["ext_id"], "slug": info["slug"]}
+                        result, track_count = await import_audiostream(
+                            db, client, audiostream, min_age_hours=0
+                        )
+                        if result and track_count > 0:
+                            crawled += 1
+                        await db.commit()
+                    await asyncio.sleep(1.5)
+                except Exception:
+                    pass
+
+        await async_engine.dispose()
+        return crawled
+
+    crawled = asyncio.run(_crawl_all())
+
+    # Trigger track resolution for updated sets
+    resolve_set_tracks.delay()
+
+    return {
+        "crawled": crawled,
+        "skipped_complete": skipped_complete,
+        "skipped_recent": skipped_recent,
+    }
+
+
