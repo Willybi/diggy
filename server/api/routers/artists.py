@@ -6,11 +6,95 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from models import Artist, ArtistAlias, CatalogEntry, LibTrack, DJSet, SetArtist, SetTrack
 from schemas import (
-    ArtistDetailOut, ArtistAliasOut, GenreOut,
+    ArtistDetailOut, ArtistAliasOut, ArtistListOut, GenreOut,
     CatalogEntryOut, ArtistSetOut,
 )
 
 router = APIRouter(prefix="/artists", tags=["artists"])
+
+
+@router.get("/", response_model=list[ArtistListOut])
+async def list_artists(
+    q: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    from models import Genre, artist_genres
+    from sqlalchemy import Float, case as sa_case
+
+    lib_sub = (
+        select(LibTrack.catalog_id, LibTrack.rating)
+        .where(LibTrack.catalog_id.isnot(None))
+        .subquery()
+    )
+
+    cat_sub = (
+        select(
+            CatalogEntry.artist.label("artist_name"),
+            func.count(CatalogEntry.id).label("nb_catalog"),
+            func.count(lib_sub.c.catalog_id).label("nb_lib"),
+            func.avg(lib_sub.c.rating.cast(Float)).label("avg_rating"),
+        )
+        .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
+        .group_by(CatalogEntry.artist)
+        .subquery()
+    )
+
+    q_artists = (
+        select(Artist)
+        .options(selectinload(Artist.aliases), selectinload(Artist.genres))
+        .order_by(func.lower(Artist.name))
+    )
+    if q:
+        pattern = f"%{q}%"
+        q_artists = q_artists.where(Artist.name.ilike(pattern))
+
+    result = await db.execute(q_artists)
+    artists = result.scalars().all()
+
+    # Build name → stats map
+    all_names: set[str] = set()
+    for a in artists:
+        all_names.add(a.name.lower())
+        for alias in a.aliases:
+            all_names.add(alias.alias.lower())
+
+    stats_result = await db.execute(
+        select(cat_sub).where(func.lower(cat_sub.c.artist_name).in_(all_names))
+    )
+    raw_stats = stats_result.all()
+
+    # Group by normalized name → aggregate
+    from collections import defaultdict
+    stats_by_name: dict[str, dict] = defaultdict(lambda: {"nb_catalog": 0, "nb_lib": 0, "ratings": []})
+    for row in raw_stats:
+        key = row.artist_name.lower()
+        stats_by_name[key]["nb_catalog"] += row.nb_catalog
+        stats_by_name[key]["nb_lib"] += row.nb_lib
+        if row.avg_rating:
+            stats_by_name[key]["ratings"].append(float(row.avg_rating))
+
+    out = []
+    for a in artists:
+        agg = {"nb_catalog": 0, "nb_lib": 0, "ratings": []}
+        for key in [a.name.lower()] + [al.alias.lower() for al in a.aliases]:
+            s = stats_by_name.get(key)
+            if s:
+                agg["nb_catalog"] += s["nb_catalog"]
+                agg["nb_lib"] += s["nb_lib"]
+                agg["ratings"].extend(s["ratings"])
+        avg = round(sum(agg["ratings"]) / len(agg["ratings"]), 1) if agg["ratings"] else None
+        out.append(ArtistListOut(
+            id=a.id,
+            name=a.name,
+            real_name=a.real_name,
+            country=a.country,
+            has_artwork=a.has_artwork,
+            nb_catalog=agg["nb_catalog"],
+            nb_lib=agg["nb_lib"],
+            avg_rating=avg,
+            genres=[g.name for g in a.genres],
+        ))
+    return out
 
 
 @router.get("/{artist_id}", response_model=ArtistDetailOut)
