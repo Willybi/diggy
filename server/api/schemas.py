@@ -183,6 +183,10 @@ class WatchedPlaylistOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class WatchedPlaylistBrowseOut(WatchedPlaylistOut):
+    followed: bool = False
+
+
 class GenreOut(BaseModel):
     id: int
     name: str

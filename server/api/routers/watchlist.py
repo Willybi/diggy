@@ -2,13 +2,13 @@ import requests
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, exists, case, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import get_current_user_optional
 from models import WatchedEntity, UserFollow, User
-from schemas import WatchedPlaylistIn, WatchedPlaylistOut
+from schemas import WatchedPlaylistIn, WatchedPlaylistOut, WatchedPlaylistBrowseOut
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -34,6 +34,12 @@ def _fetch_deezer_playlist(external_id: str) -> dict:
         return {}
 
 
+def _trigger_crawl(playlist_id: int):
+    """Fire-and-forget Celery task to crawl a single playlist."""
+    from workers.celery_app import celery_app
+    celery_app.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
+
+
 @router.get("/", response_model=list[WatchedPlaylistOut])
 async def list_watched(
     db: AsyncSession = Depends(get_db),
@@ -46,6 +52,32 @@ async def list_watched(
         .where(UserFollow.user_id == uid)
     )
     return result.scalars().all()
+
+
+@router.get("/browse", response_model=list[WatchedPlaylistBrowseOut])
+async def browse_playlists(
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """All playlists in the system, with a `followed` flag for the current user."""
+    uid = _uid(user)
+    follow_exists = (
+        select(UserFollow.entity_id)
+        .where(UserFollow.entity_id == WatchedEntity.id, UserFollow.user_id == uid)
+        .correlate(WatchedEntity)
+        .exists()
+    )
+    result = await db.execute(
+        select(WatchedEntity, follow_exists.label("followed"))
+        .order_by(WatchedEntity.title)
+    )
+    rows = result.all()
+    return [
+        WatchedPlaylistBrowseOut.model_validate(
+            {**entity.__dict__, "followed": followed}
+        )
+        for entity, followed in rows
+    ]
 
 
 @router.post("/", response_model=WatchedPlaylistOut, status_code=201)
@@ -62,7 +94,6 @@ async def add_watched(
     entity = existing.scalar_one_or_none()
 
     if entity:
-        # Entité déjà connue — vérifier si l'user la suit déjà
         follow_result = await db.execute(
             select(UserFollow).where(
                 UserFollow.user_id == uid,
@@ -80,6 +111,7 @@ async def add_watched(
             description=body.description,
             track_count=meta.get("track_count"),
             owner=meta.get("owner"),
+            has_artwork=False,
             created_at=datetime.now(timezone.utc),
         )
         db.add(entity)
@@ -93,7 +125,52 @@ async def add_watched(
     db.add(follow)
     await db.commit()
     await db.refresh(entity)
+
+    _trigger_crawl(entity.id)
     return entity
+
+
+@router.post("/{entry_id}/follow", response_model=WatchedPlaylistOut)
+async def follow_playlist(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Follow (reactivate) an existing playlist."""
+    uid = _uid(user)
+    result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    follow_result = await db.execute(
+        select(UserFollow).where(UserFollow.user_id == uid, UserFollow.entity_id == entry_id)
+    )
+    if follow_result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Already following")
+
+    follow = UserFollow(user_id=uid, entity_id=entry_id, followed_at=datetime.now(timezone.utc))
+    db.add(follow)
+    await db.commit()
+    await db.refresh(entity)
+
+    _trigger_crawl(entity.id)
+    return entity
+
+
+@router.post("/{entry_id}/crawl", status_code=202)
+async def crawl_playlist(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger an immediate crawl of a single playlist."""
+    result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    _trigger_crawl(entity.id)
+    return {"status": "crawl_queued", "playlist_id": entry_id}
 
 
 @router.patch("/{entry_id}/crawled", response_model=WatchedPlaylistOut)
@@ -115,7 +192,6 @@ async def delete_watched(
     user: User | None = Depends(get_current_user_optional),
 ):
     uid = _uid(user)
-    # Supprimer le follow (pas l'entité elle-même — d'autres users peuvent la suivre)
     result = await db.execute(
         select(UserFollow).where(
             UserFollow.user_id == uid,

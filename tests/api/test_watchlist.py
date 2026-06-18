@@ -33,6 +33,11 @@ def playlist_payload(**overrides):
     return base
 
 
+def _mock_deezer(mocker):
+    mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 42, "owner": "willi"})
+    mocker.patch("routers.watchlist._trigger_crawl")
+
+
 # ── GET /api/watchlist/ ───────────────────────────────────────────────────────
 
 class TestListWatched:
@@ -42,7 +47,7 @@ class TestListWatched:
         assert r.json() == []
 
     async def test_returns_entry_after_insert(self, client, mocker):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 42, "owner": "willi"})
+        _mock_deezer(mocker)
         await client.post("/api/watchlist/", json=playlist_payload())
 
         r = await client.get("/api/watchlist/")
@@ -51,11 +56,36 @@ class TestListWatched:
         assert r.json()[0]["external_id"] == "1950581322"
 
 
+# ── GET /api/watchlist/browse ────────────────────────────────────────────────
+
+class TestBrowsePlaylists:
+    async def test_browse_returns_all_with_followed_flag(self, client, mocker):
+        _mock_deezer(mocker)
+        await client.post("/api/watchlist/", json=playlist_payload())
+
+        r = await client.get("/api/watchlist/browse")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data) == 1
+        assert data[0]["followed"] is True
+
+    async def test_browse_shows_unfollowed_after_unfollow(self, client, mocker):
+        _mock_deezer(mocker)
+        post_r = await client.post("/api/watchlist/", json=playlist_payload())
+        entry_id = post_r.json()["id"]
+
+        await client.delete(f"/api/watchlist/{entry_id}")
+
+        r = await client.get("/api/watchlist/browse")
+        assert len(r.json()) == 1
+        assert r.json()[0]["followed"] is False
+
+
 # ── POST /api/watchlist/ ──────────────────────────────────────────────────────
 
 class TestAddWatched:
     async def test_creates_entry_with_fetched_title(self, client, mocker):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 42, "owner": "willi"})
+        _mock_deezer(mocker)
 
         r = await client.post("/api/watchlist/", json=playlist_payload())
         assert r.status_code == 201
@@ -71,20 +101,21 @@ class TestAddWatched:
 
     async def test_title_is_none_when_deezer_unreachable(self, client, mocker):
         mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={})
+        mocker.patch("routers.watchlist._trigger_crawl")
 
         r = await client.post("/api/watchlist/", json=playlist_payload())
         assert r.status_code == 201
         assert r.json()["title"] is None
 
     async def test_duplicate_returns_409(self, client, mocker):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 42, "owner": "willi"})
+        _mock_deezer(mocker)
 
         await client.post("/api/watchlist/", json=playlist_payload())
         r = await client.post("/api/watchlist/", json=playlist_payload())
         assert r.status_code == 409
 
     async def test_source_is_required(self, client, mocker):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 42, "owner": "willi"})
+        _mock_deezer(mocker)
 
         payload = {"external_id": "1950581322"}
         r = await client.post("/api/watchlist/", json=payload)
@@ -92,24 +123,70 @@ class TestAddWatched:
 
     async def test_custom_source(self, client, mocker):
         mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Some Playlist"})
+        mocker.patch("routers.watchlist._trigger_crawl")
 
         r = await client.post("/api/watchlist/", json=playlist_payload(source="soundcloud"))
         assert r.status_code == 201
         assert r.json()["source"] == "soundcloud"
 
     async def test_description_is_persisted(self, client, mocker):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 42, "owner": "willi"})
+        _mock_deezer(mocker)
 
         r = await client.post("/api/watchlist/", json=playlist_payload(description="Ma ref house"))
         assert r.status_code == 201
         assert r.json()["description"] == "Ma ref house"
 
 
+# ── POST /api/watchlist/{id}/follow ──────────────────────────────────────────
+
+class TestFollowPlaylist:
+    async def test_follow_unfollowed_playlist(self, client, mocker):
+        _mock_deezer(mocker)
+        post_r = await client.post("/api/watchlist/", json=playlist_payload())
+        entry_id = post_r.json()["id"]
+
+        await client.delete(f"/api/watchlist/{entry_id}")
+        r = await client.post(f"/api/watchlist/{entry_id}/follow")
+        assert r.status_code == 200
+        assert r.json()["id"] == entry_id
+
+    async def test_follow_already_followed_returns_409(self, client, mocker):
+        _mock_deezer(mocker)
+        post_r = await client.post("/api/watchlist/", json=playlist_payload())
+        entry_id = post_r.json()["id"]
+
+        r = await client.post(f"/api/watchlist/{entry_id}/follow")
+        assert r.status_code == 409
+
+    async def test_follow_nonexistent_returns_404(self, client, mocker):
+        mocker.patch("routers.watchlist._trigger_crawl")
+        r = await client.post("/api/watchlist/9999/follow")
+        assert r.status_code == 404
+
+
+# ── POST /api/watchlist/{id}/crawl ───────────────────────────────────────────
+
+class TestCrawlPlaylist:
+    async def test_crawl_returns_202(self, client, mocker):
+        _mock_deezer(mocker)
+        post_r = await client.post("/api/watchlist/", json=playlist_payload())
+        entry_id = post_r.json()["id"]
+
+        r = await client.post(f"/api/watchlist/{entry_id}/crawl")
+        assert r.status_code == 202
+        assert r.json()["status"] == "crawl_queued"
+
+    async def test_crawl_nonexistent_returns_404(self, client, mocker):
+        mocker.patch("routers.watchlist._trigger_crawl")
+        r = await client.post("/api/watchlist/9999/crawl")
+        assert r.status_code == 404
+
+
 # ── DELETE /api/watchlist/{id} ────────────────────────────────────────────────
 
 class TestDeleteWatched:
     async def test_deletes_entry(self, client, mocker):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 42, "owner": "willi"})
+        _mock_deezer(mocker)
         post_r = await client.post("/api/watchlist/", json=playlist_payload())
         entry_id = post_r.json()["id"]
 

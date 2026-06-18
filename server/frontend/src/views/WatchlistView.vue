@@ -5,9 +5,21 @@
         <h1 class="view-title">Playlists</h1>
         <span class="view-sub">Playlists Deezer surveillées par le Radar</span>
       </div>
-      <button class="btn-add" @click="showForm = !showForm">
-        {{ showForm ? 'Annuler' : '+ Suivre une playlist' }}
-      </button>
+      <div class="header-actions">
+        <div class="toggle-group">
+          <button
+            class="toggle-btn" :class="{ active: mode === 'followed' }"
+            @click="mode = 'followed'"
+          >Suivies</button>
+          <button
+            class="toggle-btn" :class="{ active: mode === 'browse' }"
+            @click="mode = 'browse'"
+          >Toutes</button>
+        </div>
+        <button class="btn-add" @click="showForm = !showForm">
+          {{ showForm ? 'Annuler' : '+ Ajouter' }}
+        </button>
+      </div>
     </header>
 
     <div v-if="showForm" class="add-form">
@@ -27,13 +39,18 @@
 
     <div v-if="loading" class="state">Chargement…</div>
 
-    <div v-else-if="playlists.length === 0 && !showForm" class="empty-state">
-      <p class="empty-text">Aucune playlist suivie.</p>
-      <p class="empty-sub">Ajoutez une playlist Deezer pour alimenter le Radar.</p>
-      <button class="btn-add" @click="showForm = true">+ Suivre une playlist</button>
+    <div v-else-if="displayList.length === 0 && !showForm" class="empty-state">
+      <template v-if="mode === 'followed'">
+        <p class="empty-text">Aucune playlist suivie.</p>
+        <p class="empty-sub">Ajoutez une playlist Deezer pour alimenter le Radar.</p>
+        <button class="btn-add" @click="showForm = true">+ Ajouter une playlist</button>
+      </template>
+      <template v-else>
+        <p class="empty-text">Aucune playlist dans le système.</p>
+      </template>
     </div>
 
-    <div v-else-if="playlists.length > 0" class="table-wrap">
+    <div v-else-if="displayList.length > 0" class="table-wrap">
       <table class="pl-table">
         <thead>
           <tr>
@@ -46,7 +63,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="pl in playlists" :key="pl.id">
+          <tr v-for="pl in displayList" :key="pl.id">
             <td class="col-cover">
               <div class="cover-thumb">
                 <img v-if="pl.has_artwork" :src="`/storage/catalog-artworks/${pl.id}.jpg`" :alt="pl.title" />
@@ -62,7 +79,23 @@
               <span class="mono muted">{{ formatCrawled(pl.last_crawled_at) }}</span>
             </td>
             <td class="col-action">
-              <button class="btn-unfollow" @click="unfollow(pl.id)">Ne plus suivre</button>
+              <div class="action-btns">
+                <template v-if="mode === 'followed' || pl.followed">
+                  <button
+                    class="btn-crawl"
+                    :disabled="crawling[pl.id]"
+                    @click="triggerCrawl(pl.id)"
+                  >{{ crawling[pl.id] ? 'Crawl…' : 'Crawl now' }}</button>
+                  <button class="btn-unfollow" @click="unfollow(pl.id)">Ne plus suivre</button>
+                </template>
+                <template v-else>
+                  <button
+                    class="btn-follow"
+                    :disabled="following[pl.id]"
+                    @click="followPlaylist(pl.id)"
+                  >{{ following[pl.id] ? 'Suivi…' : 'Suivre' }}</button>
+                </template>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -72,15 +105,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, reactive } from 'vue'
 import axios from 'axios'
 
 const playlists = ref([])
+const browsePlaylists = ref([])
 const loading = ref(false)
 const showForm = ref(false)
 const inputValue = ref('')
 const formError = ref('')
 const adding = ref(false)
+const mode = ref('followed')
+const crawling = reactive({})
+const following = reactive({})
+
+const displayList = computed(() => {
+  if (mode.value === 'followed') return playlists.value
+  return browsePlaylists.value
+})
 
 function extractDeezerId(input) {
   const s = input.trim()
@@ -93,8 +135,12 @@ function extractDeezerId(input) {
 async function fetchPlaylists() {
   loading.value = true
   try {
-    const { data } = await axios.get('/api/watchlist/')
-    playlists.value = data
+    const [followed, all] = await Promise.all([
+      axios.get('/api/watchlist/'),
+      axios.get('/api/watchlist/browse'),
+    ])
+    playlists.value = followed.data
+    browsePlaylists.value = all.data
   } finally {
     loading.value = false
   }
@@ -126,7 +172,30 @@ async function addPlaylist() {
 
 async function unfollow(id) {
   await axios.delete(`/api/watchlist/${id}`)
-  playlists.value = playlists.value.filter(p => p.id !== id)
+  await fetchPlaylists()
+}
+
+async function followPlaylist(id) {
+  following[id] = true
+  try {
+    await axios.post(`/api/watchlist/${id}/follow`)
+    await fetchPlaylists()
+  } catch (e) {
+    if (e.response?.status === 409) {
+      await fetchPlaylists()
+    }
+  } finally {
+    following[id] = false
+  }
+}
+
+async function triggerCrawl(id) {
+  crawling[id] = true
+  try {
+    await axios.post(`/api/watchlist/${id}/crawl`)
+  } finally {
+    setTimeout(() => { crawling[id] = false }, 3000)
+  }
 }
 
 function formatCrawled(iso) {
@@ -145,7 +214,7 @@ onMounted(fetchPlaylists)
 <style scoped>
 .watchlist-view {
   padding: var(--pad) calc(var(--pad) * 1.5);
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
 }
 .view-header {
@@ -165,6 +234,34 @@ onMounted(fetchPlaylists)
   color: var(--ink-3);
   margin-top: 4px;
   display: block;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Toggle group */
+.toggle-group {
+  display: flex;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.toggle-btn {
+  padding: 7px 14px;
+  border: none;
+  background: var(--surface);
+  color: var(--ink-3);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.toggle-btn:not(:last-child) { border-right: 1px solid var(--line-2); }
+.toggle-btn:hover { background: var(--surface-2); color: var(--ink-2); }
+.toggle-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 
 .btn-add {
@@ -272,7 +369,7 @@ onMounted(fetchPlaylists)
 .col-owner  { width: 140px; }
 .col-tracks { width: 70px; }
 .col-crawled { width: 110px; }
-.col-action { width: 120px; text-align: right; }
+.col-action { width: 180px; text-align: right; }
 
 /* Cover */
 .cover-thumb {
@@ -308,14 +405,32 @@ onMounted(fetchPlaylists)
 .mono { font-family: var(--font-mono); }
 .muted { color: var(--ink-3); }
 
-/* Unfollow btn */
+/* Action buttons */
+.action-btns {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.btn-crawl {
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 500 11px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.btn-crawl:hover { background: var(--accent); color: var(--on-accent); }
+.btn-crawl:disabled { opacity: 0.5; cursor: default; }
+
 .btn-unfollow {
-  padding: 5px 12px;
+  padding: 5px 10px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 12px/1 var(--font-ui);
+  font: 500 11px/1 var(--font-ui);
   cursor: pointer;
   transition: color 0.12s, background 0.12s, border-color 0.12s;
 }
@@ -324,6 +439,19 @@ onMounted(fetchPlaylists)
   border-color: var(--neg-ink, #c0392b);
   background: var(--surface-2);
 }
+
+.btn-follow {
+  padding: 5px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.btn-follow:hover { opacity: 0.85; }
+.btn-follow:disabled { opacity: 0.5; cursor: default; }
 
 .state {
   color: var(--ink-3);

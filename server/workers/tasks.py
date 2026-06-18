@@ -72,6 +72,45 @@ def crawl_radar():
     return {"inserted": inserted, "skipped_playlists": skipped, "errors": errors}
 
 
+@celery_app.task(name="workers.tasks.crawl_single_playlist")
+def crawl_single_playlist(playlist_id: int):
+    """
+    Crawl une seule playlist Deezer par son watched_entity ID.
+    Appelé lors d'un follow/reactivation ou via le bouton "Crawl now".
+    """
+    from datetime import datetime, timezone
+
+    pl = requests.get(f"{API_BASE}/api/watchlist/browse", timeout=10).json()
+    target = next((p for p in pl if p["id"] == playlist_id), None)
+    if not target or target["source"] != "deezer":
+        return {"error": "playlist not found or not deezer"}
+
+    tracks = []
+    url = f"{DEEZER_API}/playlist/{target['external_id']}/tracks?limit=100&index=0"
+    while url:
+        resp = requests.get(url, timeout=10).json()
+        tracks.extend(resp.get("data", []))
+        url = resp.get("next")
+
+    inserted = 0
+    for t in tracks:
+        artist = t.get("artist", {}).get("name") if isinstance(t.get("artist"), dict) else None
+        payload = {
+            "watched_playlist_id": target["id"],
+            "external_track_id": str(t["id"]),
+            "source": "deezer",
+            "title": t.get("title", ""),
+            "artist": artist,
+            "isrc": t.get("isrc") or None,
+        }
+        r = requests.post(f"{API_BASE}/api/radar/", json=payload, timeout=10)
+        if r.status_code == 201:
+            inserted += 1
+
+    requests.patch(f"{API_BASE}/api/watchlist/{target['id']}/crawled", timeout=10)
+    return {"playlist_id": playlist_id, "title": target.get("title"), "inserted": inserted, "total_tracks": len(tracks)}
+
+
 @celery_app.task(name="workers.tasks.check_previews")
 def check_previews():
     """
