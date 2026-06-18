@@ -7,7 +7,8 @@ import TrackDetailView   from './views/TrackDetailView.vue'
 import ArtistDetailView  from './views/ArtistDetailView.vue'
 import SetDetailView     from './views/SetDetailView.vue'
 import PlaylistDetailView from './views/PlaylistDetailView.vue'
-import LoginView         from './views/LoginView.vue'
+import ArtistsView        from './views/ArtistsView.vue'
+import LoginView          from './views/LoginView.vue'
 
 const routes = [
   { path: '/',             redirect: '/catalog' },
@@ -18,6 +19,7 @@ const routes = [
   { path: '/catalog/:id',  component: TrackDetailView, props: true },
   { path: '/artist/:id',   component: ArtistDetailView, props: true },
   { path: '/set/:id',      component: SetDetailView, props: true },
+  { path: '/artists',      component: ArtistsView },
   { path: '/radar',        component: RadarView },
   { path: '/playlists',      component: WatchlistView },
   { path: '/playlists/:id',  component: PlaylistDetailView, props: true },

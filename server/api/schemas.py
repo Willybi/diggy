@@ -241,6 +241,20 @@ class ArtistOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ArtistListOut(BaseModel):
+    id: int
+    name: str
+    real_name: Optional[str] = None
+    country: Optional[str] = None
+    has_artwork: bool = False
+    nb_catalog: int = 0
+    nb_lib: int = 0
+    avg_rating: Optional[float] = None
+    genres: list[str] = []
+
+    model_config = {"from_attributes": True}
+
+
 class SetTrackOut(BaseModel):
     id: int
     set_id: int
