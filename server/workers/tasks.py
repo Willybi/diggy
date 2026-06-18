@@ -341,6 +341,174 @@ def enrich_catalog():
     return {"enriched": enriched, "not_found": not_found}
 
 
+@celery_app.task(name="workers.tasks.sync_artists")
+def sync_artists():
+    """
+    Sync artists from catalog.artist strings into the artists table.
+    Idempotent — safe to re-run.
+    """
+    import re
+    from datetime import datetime, timezone
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry
+    from utils import normalize
+
+    FEAT_RE = re.compile(r"\s+(?:feat\.?|featuring|ft\.?|vs\.?)\s+", flags=re.IGNORECASE)
+    RATE_LIMIT = 0.12
+
+    def _deezer_artist_id(name):
+        try:
+            resp = requests.get(
+                "https://api.deezer.com/search/artist",
+                params={"q": name, "limit": 10},
+                timeout=5,
+            )
+            for hit in resp.json().get("data", []):
+                if hit.get("name", "").lower() == name.lower():
+                    return str(hit["id"])
+        except Exception:
+            pass
+        return None
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    created = 0
+    flagged = 0
+    skipped = 0
+
+    with Session(engine) as session:
+        # Load all distinct catalog artist strings
+        all_strings = [r[0] for r in session.execute(
+            select(CatalogEntry.artist).distinct().where(CatalogEntry.artist.isnot(None))
+        ).all()]
+
+        # Build known normalized names set
+        known_norms = set(r[0] for r in session.execute(select(Artist.normalized_name)).all())
+        known_norms |= set(r[0] for r in session.execute(select(ArtistAlias.normalized_alias)).all())
+
+        # Load already-flagged strings
+        already_flagged = set(r[0] for r in session.execute(select(ArtistFlag.raw_artist_string)).all())
+
+        def _get_or_create(name):
+            norm = normalize(name)
+            if norm in known_norms:
+                return session.execute(select(Artist).where(Artist.normalized_name == norm)).scalar_one_or_none()
+            # Check alias
+            alias = session.execute(select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)).scalar_one_or_none()
+            if alias:
+                return session.get(Artist, alias.artist_id)
+            artist = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+            session.add(artist)
+            session.flush()
+            known_norms.add(norm)
+            return artist
+
+        def _flag(raw, reason, tokens, deezer_ids):
+            flag = ArtistFlag(
+                raw_artist_string=raw,
+                reason=reason,
+                tokens=tokens,
+                deezer_ids=deezer_ids,
+                status="pending",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            session.add(flag)
+            already_flagged.add(raw)
+            session.flush()
+
+        for raw in all_strings:
+            raw = raw.strip()
+            if not raw:
+                continue
+            norm = normalize(raw)
+            if norm in known_norms or raw in already_flagged:
+                skipped += 1
+                continue
+
+            # Rule 1: feat / featuring / ft / vs
+            if FEAT_RE.search(raw):
+                for name in [p.strip() for p in FEAT_RE.split(raw) if p.strip()]:
+                    _get_or_create(name)
+                    created += 1
+                session.commit()
+                continue
+
+            # Rule 2: comma
+            if "," in raw:
+                tokens = [p.strip() for p in raw.split(",") if p.strip()]
+                if any(normalize(t) in known_norms for t in tokens):
+                    for name in tokens:
+                        _get_or_create(name)
+                        created += 1
+                    session.commit()
+                else:
+                    deezer_ids = {}
+                    for t in tokens:
+                        deezer_ids[t] = _deezer_artist_id(t)
+                        time.sleep(RATE_LIMIT)
+                    if all(deezer_ids[t] is not None for t in tokens):
+                        for name in tokens:
+                            a = _get_or_create(name)
+                            if a and not a.deezer_id and deezer_ids.get(name):
+                                a.deezer_id = deezer_ids[name]
+                            created += 1
+                        session.commit()
+                    else:
+                        _flag(raw, "comma_unresolved", tokens, deezer_ids)
+                        session.commit()
+                        flagged += 1
+                continue
+
+            # Rule 3: ampersand
+            if " & " in raw:
+                tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
+                if any(normalize(t) in known_norms for t in tokens):
+                    for name in tokens:
+                        _get_or_create(name)
+                        created += 1
+                    session.commit()
+                    continue
+                deezer_full = _deezer_artist_id(raw)
+                time.sleep(RATE_LIMIT)
+                deezer_ids = {raw: deezer_full}
+                for t in tokens:
+                    deezer_ids[t] = _deezer_artist_id(t)
+                    time.sleep(RATE_LIMIT)
+                full_found = deezer_full is not None
+                tokens_found = all(deezer_ids[t] is not None for t in tokens)
+                if full_found and not tokens_found:
+                    a = _get_or_create(raw)
+                    if a and not a.deezer_id:
+                        a.deezer_id = deezer_full
+                    session.commit()
+                    created += 1
+                elif tokens_found and not full_found:
+                    for name in tokens:
+                        a = _get_or_create(name)
+                        if a and not a.deezer_id and deezer_ids.get(name):
+                            a.deezer_id = deezer_ids[name]
+                        created += 1
+                    session.commit()
+                else:
+                    reason = "ampersand_ambiguous" if (full_found and tokens_found) else "ampersand_unknown"
+                    _flag(raw, reason, tokens, deezer_ids)
+                    session.commit()
+                    flagged += 1
+                continue
+
+            # Rule 4: no separator
+            _get_or_create(raw)
+            session.commit()
+            created += 1
+
+    return {"created": created, "flagged": flagged, "skipped": skipped}
+
+
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
 def import_rekordbox(self, db_path: str):
     """
