@@ -21,6 +21,22 @@
       </div>
     </section>
 
+    <!-- Fetch artworks -->
+    <section class="admin-section">
+      <h2 class="section-title">Artworks artistes</h2>
+      <p class="section-sub">Fetche les images Deezer pour tous les artistes avec un deezer_id. Idempotent.</p>
+      <div class="sync-row">
+        <button class="btn-sync" :disabled="fetchingArtworks" @click="runFetchArtworks">
+          {{ fetchingArtworks ? 'Fetch en cours…' : 'Fetch artworks' }}
+        </button>
+        <div v-if="artworksResult" class="sync-result">
+          <span class="result-item ok">✓ {{ artworksResult.fetched }} téléchargés</span>
+          <span class="result-item muted">↷ {{ artworksResult.skipped }} skippés</span>
+        </div>
+        <span v-if="artworksError" class="sync-error">{{ artworksError }}</span>
+      </div>
+    </section>
+
     <!-- Flags à valider -->
     <section class="admin-section">
       <div class="section-header">
@@ -127,6 +143,9 @@ const flags = ref([])
 const loadingFlags = ref(false)
 const filterStatus = ref('pending')
 const resolving = reactive({})
+const fetchingArtworks = ref(false)
+const artworksResult = ref(null)
+const artworksError = ref('')
 
 function authHeaders() {
   return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
@@ -208,6 +227,39 @@ async function resolve(flagId, action) {
   } finally {
     resolving[flagId] = false
   }
+}
+
+async function runFetchArtworks() {
+  fetchingArtworks.value = true
+  artworksResult.value = null
+  artworksError.value = ''
+  try {
+    const { data } = await axios.post('/api/admin/artists/fetch-artworks', {}, { headers: authHeaders() })
+    pollArtworksStatus(data.task_id)
+  } catch (e) {
+    artworksError.value = e.response?.data?.detail || 'Erreur'
+    fetchingArtworks.value = false
+  }
+}
+
+function pollArtworksStatus(taskId) {
+  let attempts = 0
+  const timer = setInterval(async () => {
+    attempts++
+    if (attempts >= 150) { clearInterval(timer); fetchingArtworks.value = false; return }
+    try {
+      const { data } = await axios.get(`/api/admin/artists/sync/status/${taskId}`, { headers: authHeaders() })
+      if (data.status === 'done') {
+        clearInterval(timer)
+        artworksResult.value = data.result
+        fetchingArtworks.value = false
+      } else if (data.status === 'error') {
+        clearInterval(timer)
+        artworksError.value = data.error || 'Erreur Celery'
+        fetchingArtworks.value = false
+      }
+    } catch {}
+  }, 2000)
 }
 
 onMounted(fetchFlags)
