@@ -60,13 +60,40 @@ def crawl_single_playlist(playlist_id: int):
     from sqlalchemy import create_engine, select
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
-    from models import CatalogEntry, RadarTrack
+    from models import CatalogEntry, RadarTrack, WatchedEntity
     from deezer_enrich import enrich_entry, upload_cover_from_url, _get_s3, _ensure_bucket
 
     pl = requests.get(f"{API_BASE}/api/watchlist/browse", timeout=10).json()
     target = next((p for p in pl if p["id"] == playlist_id), None)
     if not target or target["source"] != "deezer":
         return {"error": "playlist not found or not deezer"}
+
+    # 0. Fetch playlist metadata + cover from Deezer
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
+    dz_playlist = requests.get(f"{DEEZER_API}/playlist/{target['external_id']}", timeout=10).json()
+
+    with Session(engine) as session:
+        entity = session.get(WatchedEntity, playlist_id)
+        if entity:
+            entity.track_count = dz_playlist.get("nb_tracks") or entity.track_count
+            desc = dz_playlist.get("description")
+            if desc:
+                entity.description = desc
+            creator = dz_playlist.get("creator")
+            if isinstance(creator, dict) and creator.get("name"):
+                entity.owner = creator["name"]
+            # Download cover if missing
+            if not entity.has_artwork:
+                cover_url = dz_playlist.get("picture_big") or dz_playlist.get("picture_medium")
+                if cover_url:
+                    from deezer_enrich import upload_cover_from_url as _upload
+                    if _upload(s3, cover_url, f"playlist-{playlist_id}"):
+                        entity.has_artwork = True
+            session.commit()
 
     # 1. Fetch all tracks from Deezer playlist
     tracks = []
@@ -97,11 +124,6 @@ def crawl_single_playlist(playlist_id: int):
 
     # 3. Enrich catalog entries that lack deezer_id (newly created)
     enriched = 0
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
-    s3 = _get_s3()
-    _ensure_bucket(s3)
-
     with Session(engine) as session:
         existing_isrcs = {r[0] for r in session.execute(
             select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))

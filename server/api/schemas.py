@@ -187,6 +187,26 @@ class WatchedPlaylistBrowseOut(WatchedPlaylistOut):
     followed: bool = False
 
 
+class PlaylistTrackOut(BaseModel):
+    catalog_id: int
+    title: str
+    artist: Optional[str] = None
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration_ms: Optional[int] = None
+    genre: Optional[str] = None
+    has_artwork: bool = False
+    has_preview: bool = False
+    detected_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class WatchedPlaylistDetailOut(WatchedPlaylistOut):
+    followed: bool = False
+    tracks: list[PlaylistTrackOut] = []
+
+
 class GenreOut(BaseModel):
     id: int
     name: str

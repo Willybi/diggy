@@ -6,6 +6,7 @@ import WatchlistView     from './views/WatchlistView.vue'
 import TrackDetailView   from './views/TrackDetailView.vue'
 import ArtistDetailView  from './views/ArtistDetailView.vue'
 import SetDetailView     from './views/SetDetailView.vue'
+import PlaylistDetailView from './views/PlaylistDetailView.vue'
 import LoginView         from './views/LoginView.vue'
 
 const routes = [
@@ -18,7 +19,8 @@ const routes = [
   { path: '/artist/:id',   component: ArtistDetailView, props: true },
   { path: '/set/:id',      component: SetDetailView, props: true },
   { path: '/radar',        component: RadarView },
-  { path: '/playlists',    component: WatchlistView },
+  { path: '/playlists',      component: WatchlistView },
+  { path: '/playlists/:id',  component: PlaylistDetailView, props: true },
 ]
 
 const router = createRouter({
