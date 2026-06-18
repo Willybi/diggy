@@ -36,8 +36,10 @@ def _fetch_deezer_playlist(external_id: str) -> dict:
 
 def _trigger_crawl(playlist_id: int):
     """Fire-and-forget Celery task to crawl a single playlist."""
-    from workers.celery_app import celery_app
-    celery_app.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
+    import os
+    from celery import Celery
+    _celery = Celery(broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+    _celery.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
 
 
 @router.get("/", response_model=list[WatchedPlaylistOut])
