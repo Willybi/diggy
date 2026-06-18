@@ -46,15 +46,9 @@ class SyncQueued(BaseModel):
     task_id: str
 
 
-class SyncResult(BaseModel):
-    created: int
-    flagged: int
-    skipped: int
-
-
 class SyncStatus(BaseModel):
     status: str  # pending | running | done | error
-    result: SyncResult | None = None
+    result: dict | None = None
     error: str | None = None
 
 
@@ -123,7 +117,7 @@ async def sync_status(
     if res.state == "PENDING" or res.state == "STARTED":
         return SyncStatus(status="running")
     if res.state == "SUCCESS":
-        return SyncStatus(status="done", result=SyncResult(**res.result))
+        return SyncStatus(status="done", result=res.result)
     if res.state == "FAILURE":
         return SyncStatus(status="error", error=str(res.result))
     return SyncStatus(status="running")
