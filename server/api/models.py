@@ -189,6 +189,14 @@ class UserFollow(Base):
     entity = relationship("WatchedEntity")
 
 
+class UserSetFollow(Base):
+    __tablename__ = "user_set_follows"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    set_id = Column(Integer, ForeignKey("sets.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    followed_at = Column(DateTime(timezone=True))
+
+
 class UserRadarState(Base):
     __tablename__ = "user_radar_state"
 

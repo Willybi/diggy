@@ -64,6 +64,8 @@ async def import_audiostream(
     client: TrackIDClient,
     audiostream: dict,
     artist_id: int | None = None,
+    *,
+    prefetched_detail: dict | None = None,
 ) -> tuple[DJSet | None, int]:
     """Import a single TrackID audiostream into the database.
 
@@ -82,10 +84,10 @@ async def import_audiostream(
     if existing and existing.last_crawled_at:
         age = (datetime.now(timezone.utc) - existing.last_crawled_at).days
         if age < 7:
-            return None, 0
+            return existing, 0
 
-    # Fetch detail
-    detail = await client.get_set_detail(slug)
+    # Fetch detail (use prefetched if provided)
+    detail = prefetched_detail or await client.get_set_detail(slug)
     if not detail:
         return None, 0
 
