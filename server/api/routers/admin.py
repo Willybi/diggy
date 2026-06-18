@@ -8,8 +8,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from dependencies import require_admin
 from models import Artist, ArtistAlias, ArtistFlag, SetArtist, User
+from utils import normalize
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str):
+    """Create an ArtistAlias if it doesn't exist yet (by normalized_alias)."""
+    norm = normalize(alias_name)
+    if not norm:
+        return
+    existing = await db.execute(
+        select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
+    )
+    if existing.scalar_one_or_none():
+        return
+    db.add(ArtistAlias(artist_id=artist_id, alias=alias_name, normalized_alias=norm))
 
 
 # ---------- Schemas ----------
@@ -195,7 +209,11 @@ async def link_artist_deezer(
     canonical = existing_result.scalar_one_or_none()
 
     if canonical:
-        from sqlalchemy import delete as sa_delete, tuple_
+        from sqlalchemy import delete as sa_delete
+        # Save the duplicate's name as alias on canonical before deleting
+        old_name = artist.name
+        if normalize(old_name) != normalize(canonical.name):
+            await _ensure_alias(db, canonical.id, old_name)
         # Find set_ids already linked to canonical → those would conflict on reassign
         conflict_sets = await db.execute(
             select(SetArtist.set_id).where(SetArtist.artist_id == canonical.id)
@@ -229,8 +247,11 @@ async def link_artist_deezer(
         return {"id": canonical.id, "name": canonical.name, "deezer_id": canonical.deezer_id, "has_artwork": canonical.has_artwork, "merged": True}
 
     # No duplicate — just update this artist
+    old_name = artist.name
     artist.deezer_id = body.deezer_id
-    if deezer_name:
+    if deezer_name and normalize(deezer_name) != normalize(old_name):
+        # Save old name as alias before renaming
+        await _ensure_alias(db, artist.id, old_name)
         artist.name = deezer_name
 
     if pic_url:
