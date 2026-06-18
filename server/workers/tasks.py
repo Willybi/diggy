@@ -573,36 +573,68 @@ def fetch_artist_artworks():
         )
 
     fetched = 0
+    linked = 0
     skipped = 0
 
+    def _search_deezer_artist(name):
+        try:
+            resp = requests.get(
+                "https://api.deezer.com/search/artist",
+                params={"q": name, "limit": 10},
+                timeout=5,
+            )
+            for hit in resp.json().get("data", []):
+                if hit.get("name", "").lower() == name.lower():
+                    return str(hit["id"])
+        except Exception:
+            pass
+        return None
+
+    def _fetch_pic(deezer_id):
+        try:
+            resp = requests.get(f"https://api.deezer.com/artist/{deezer_id}", timeout=5)
+            data = resp.json()
+            return data.get("picture_xl") or data.get("picture_big") or data.get("picture")
+        except Exception:
+            return None
+
     with Session(engine) as session:
-        artists = session.execute(
+        # Pass 1: artists without deezer_id → search Deezer
+        no_id_artists = session.execute(
+            select(Artist).where(Artist.deezer_id.is_(None))
+        ).scalars().all()
+
+        for artist in no_id_artists:
+            deezer_id = _search_deezer_artist(artist.name)
+            time.sleep(0.12)
+            if deezer_id:
+                artist.deezer_id = deezer_id
+                linked += 1
+            else:
+                skipped += 1
+
+        session.commit()
+
+        # Pass 2: all artists with deezer_id but no artwork
+        artists_needing_art = session.execute(
             select(Artist).where(
                 Artist.deezer_id.isnot(None),
                 Artist.has_artwork == False,  # noqa: E712
             )
         ).scalars().all()
 
-        for artist in artists:
-            try:
-                resp = requests.get(
-                    f"https://api.deezer.com/artist/{artist.deezer_id}",
-                    timeout=5,
-                )
-                data = resp.json()
-                pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
-                if pic_url and upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", ARTIST_BUCKET):
-                    artist.has_artwork = True
-                    fetched += 1
-                else:
-                    skipped += 1
-            except Exception:
-                skipped += 1
+        for artist in artists_needing_art:
+            pic_url = _fetch_pic(artist.deezer_id)
             time.sleep(0.12)
+            if pic_url and upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", ARTIST_BUCKET):
+                artist.has_artwork = True
+                fetched += 1
+            else:
+                skipped += 1
 
         session.commit()
 
-    return {"fetched": fetched, "skipped": skipped}
+    return {"linked": linked, "fetched": fetched, "skipped": skipped}
 
 
 @celery_app.task(bind=True, name="workers.tasks.import_rekordbox")
