@@ -8,6 +8,7 @@ import ArtistDetailView  from './views/ArtistDetailView.vue'
 import SetDetailView     from './views/SetDetailView.vue'
 import PlaylistDetailView from './views/PlaylistDetailView.vue'
 import ArtistsView        from './views/ArtistsView.vue'
+import AdminView          from './views/AdminView.vue'
 import LoginView          from './views/LoginView.vue'
 
 const routes = [
@@ -20,6 +21,7 @@ const routes = [
   { path: '/artist/:id',   component: ArtistDetailView, props: true },
   { path: '/set/:id',      component: SetDetailView, props: true },
   { path: '/artists',      component: ArtistsView },
+  { path: '/admin',        component: AdminView },
   { path: '/radar',        component: RadarView },
   { path: '/playlists',      component: WatchlistView },
   { path: '/playlists/:id',  component: PlaylistDetailView, props: true },

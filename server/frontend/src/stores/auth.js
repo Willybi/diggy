@@ -32,7 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error(err.detail || 'Login failed')
     }
     const data = await res.json()
-    _persist(data.token, { id: data.user_id, username: data.username })
+    _persist(data.token, { id: data.user_id, username: data.username, is_admin: data.is_admin ?? false })
     return data
   }
 
@@ -47,7 +47,7 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error(err.detail || 'Registration failed')
     }
     const data = await res.json()
-    _persist(data.token, { id: data.user_id, username: data.username })
+    _persist(data.token, { id: data.user_id, username: data.username, is_admin: data.is_admin ?? false })
     return data
   }
 
