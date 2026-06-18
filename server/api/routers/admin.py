@@ -170,6 +170,13 @@ async def link_artist_deezer(
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
 
+    # Unlink
+    if not body.deezer_id:
+        artist.deezer_id = None
+        await db.commit()
+        await db.refresh(artist)
+        return {"id": artist.id, "name": artist.name, "deezer_id": None, "has_artwork": artist.has_artwork, "merged": False}
+
     # Fetch Deezer data first
     deezer_name = None
     pic_url = None

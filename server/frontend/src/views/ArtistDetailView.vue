@@ -20,6 +20,43 @@
         </template>
       </PageHero>
 
+      <!-- Admin panel -->
+      <div v-if="auth.user?.is_admin" class="admin-card">
+        <div class="admin-header">
+          <span class="admin-label">Admin</span>
+          <span class="mono muted">deezer_id: {{ artist.deezer_id || '—' }}</span>
+        </div>
+        <div class="admin-link-row">
+          <input v-model="dzQuery" class="admin-input" placeholder="Rechercher sur Deezer…" @input="onDzSearch" />
+          <button v-if="artist.deezer_id && artist.deezer_id !== 'NOT_FOUND'" class="btn-ghost-sm danger" @click="unlinkDeezer">Délier</button>
+        </div>
+        <div v-if="dzHits.length" class="dz-results">
+          <div v-for="h in dzHits" :key="h.deezer_id"
+            class="dz-row" :class="{ selected: selectedHit?.deezer_id === h.deezer_id }"
+            @click="selectedHit = h"
+          >
+            <img v-if="h.picture" :src="h.picture" class="dz-pic" />
+            <div>
+              <span class="dz-name">{{ h.name }}</span>
+              <span class="mono muted dz-meta">
+                {{ h.nb_fan?.toLocaleString() }} fans ·
+                <a :href="`https://www.deezer.com/artist/${h.deezer_id}`" target="_blank" class="dz-link" @click.stop>dz:{{ h.deezer_id }}</a>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div v-if="selectedHit" class="admin-confirm">
+          <span class="confirm-text">
+            Lier → <strong>{{ selectedHit.name }}</strong> ({{ selectedHit.deezer_id }})
+            <template v-if="selectedHit.deezer_id === artist.deezer_id"> (déjà lié)</template>
+          </span>
+          <button class="btn-accent-sm" :disabled="linking || selectedHit.deezer_id === artist.deezer_id" @click="confirmRelink">
+            {{ linking ? 'Liaison…' : 'Confirmer' }}
+          </button>
+        </div>
+        <div v-if="adminMsg" class="admin-msg" :class="adminMsgType">{{ adminMsg }}</div>
+      </div>
+
       <StatStrip :stats="stats" />
 
       <RelBlock v-if="artist.aliases.length" title="Aliases">
@@ -82,18 +119,96 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
 import AppearRow from '../components/AppearRow.vue'
 import StyleTag from '../components/StyleTag.vue'
+import { useAuthStore } from '../stores/auth.js'
 import { fmtBpm, fmtDate } from '../utils/format'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const artist = ref(null)
 const loading = ref(true)
+
+// Admin Deezer link
+const dzQuery = ref('')
+const dzHits = ref([])
+const selectedHit = ref(null)
+const linking = ref(false)
+const adminMsg = ref('')
+const adminMsgType = ref('ok')
+let dzTimer = null
+
+function authHeaders() {
+  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
+}
+
+function onDzSearch() {
+  clearTimeout(dzTimer)
+  selectedHit.value = null
+  if (!dzQuery.value.trim()) { dzHits.value = []; return }
+  dzTimer = setTimeout(async () => {
+    const { data } = await axios.get('/api/admin/artists/search-deezer', {
+      params: { q: dzQuery.value.trim() },
+      headers: authHeaders(),
+    })
+    dzHits.value = data
+  }, 300)
+}
+
+async function confirmRelink() {
+  if (!selectedHit.value || !artist.value) return
+  linking.value = true
+  adminMsg.value = ''
+  try {
+    const { data } = await axios.patch(
+      `/api/admin/artists/${artist.value.id}/deezer`,
+      { deezer_id: selectedHit.value.deezer_id },
+      { headers: authHeaders() },
+    )
+    if (data.merged && data.id !== artist.value.id) {
+      adminMsg.value = `Fusionné avec l'artiste existant → redirection…`
+      adminMsgType.value = 'ok'
+      setTimeout(() => router.replace(`/artist/${data.id}`), 1200)
+    } else {
+      // Reload the page to reflect new name/artwork
+      const { data: fresh } = await axios.get(`/api/artists/${artist.value.id}`)
+      artist.value = fresh
+      dzQuery.value = ''
+      dzHits.value = []
+      selectedHit.value = null
+      adminMsg.value = `Lié à ${data.name} (${data.deezer_id})`
+      adminMsgType.value = 'ok'
+    }
+  } catch (e) {
+    adminMsg.value = e.response?.data?.detail || 'Erreur'
+    adminMsgType.value = 'err'
+  } finally {
+    linking.value = false
+  }
+}
+
+async function unlinkDeezer() {
+  if (!artist.value) return
+  try {
+    await axios.patch(
+      `/api/admin/artists/${artist.value.id}/deezer`,
+      { deezer_id: '' },
+      { headers: authHeaders() },
+    )
+    artist.value.deezer_id = null
+    adminMsg.value = 'Deezer délié'
+    adminMsgType.value = 'ok'
+  } catch (e) {
+    adminMsg.value = e.response?.data?.detail || 'Erreur'
+    adminMsgType.value = 'err'
+  }
+}
 
 const heroSub = computed(() => {
   if (!artist.value) return null
@@ -215,4 +330,103 @@ onMounted(async () => {
   font-style: italic;
   padding-top: 40px;
 }
+
+/* Admin card */
+.admin-card {
+  margin: 16px 0;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--warn-ink, #e67e22);
+  border-radius: var(--r-sm);
+}
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.admin-label {
+  font: 600 11px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--warn-ink, #e67e22);
+}
+.admin-link-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.admin-input {
+  flex: 1;
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 13px/1 var(--font-ui);
+  outline: none;
+}
+.admin-input:focus { border-color: var(--accent); }
+.dz-results {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.dz-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.dz-row:hover { background: var(--surface-2); }
+.dz-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+.dz-pic { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.dz-name { display: block; font: 500 13px/1 var(--font-ui); color: var(--ink); }
+.dz-meta { display: block; font-size: 11px; margin-top: 2px; }
+.dz-link { color: var(--accent-ink); text-decoration: none; }
+.dz-link:hover { text-decoration: underline; }
+.admin-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  margin-top: 6px;
+}
+.confirm-text { font: 400 13px/1.3 var(--font-ui); color: var(--ink-2); }
+.btn-accent-sm {
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-accent-sm:disabled { opacity: 0.5; cursor: default; }
+.btn-ghost-sm {
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
+}
+.btn-ghost-sm.danger:hover { color: var(--neg-ink, #c0392b); border-color: var(--neg-ink, #c0392b); }
+.admin-msg {
+  font: 400 12px/1 var(--font-ui);
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.admin-msg.ok { color: var(--pos-ink, #27ae60); background: var(--pos-soft, #d4edda); }
+.admin-msg.err { color: var(--neg-ink, #c0392b); background: var(--neg-soft, #fde); }
+.muted { color: var(--ink-3); }
+.mono { font-family: var(--font-mono); }
 </style>
