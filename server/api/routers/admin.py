@@ -27,10 +27,21 @@ class ArtistFlagOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SyncQueued(BaseModel):
+    status: str
+    task_id: str
+
+
 class SyncResult(BaseModel):
     created: int
     flagged: int
     skipped: int
+
+
+class SyncStatus(BaseModel):
+    status: str  # pending | running | done | error
+    result: SyncResult | None = None
+    error: str | None = None
 
 
 class ResolveIn(BaseModel):
@@ -39,15 +50,47 @@ class ResolveIn(BaseModel):
 
 # ---------- Endpoints ----------
 
-@router.post("/artists/sync", response_model=SyncResult)
+def _send_sync_task() -> str:
+    import os
+    from celery import Celery
+    _celery = Celery(
+        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+    )
+    result = _celery.send_task("workers.tasks.sync_artists")
+    return result.id
+
+
+@router.post("/artists/sync", response_model=SyncQueued)
 async def sync_artists(
-    db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """Trigger artist sync from catalog. Idempotent."""
-    from scripts.populate_artists import run_sync
-    result = await run_sync(db)
-    return SyncResult(**result)
+    """Fire-and-forget artist sync. Returns task_id for polling."""
+    task_id = _send_sync_task()
+    return SyncQueued(status="queued", task_id=task_id)
+
+
+@router.get("/artists/sync/status/{task_id}", response_model=SyncStatus)
+async def sync_status(
+    task_id: str,
+    _: User = Depends(require_admin),
+):
+    """Poll Celery task result."""
+    import os
+    from celery import Celery
+    from celery.result import AsyncResult
+    _celery = Celery(
+        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+    )
+    res = AsyncResult(task_id, app=_celery)
+    if res.state == "PENDING" or res.state == "STARTED":
+        return SyncStatus(status="running")
+    if res.state == "SUCCESS":
+        return SyncStatus(status="done", result=SyncResult(**res.result))
+    if res.state == "FAILURE":
+        return SyncStatus(status="error", error=str(res.result))
+    return SyncStatus(status="running")
 
 
 @router.get("/artists/flags", response_model=list[ArtistFlagOut])

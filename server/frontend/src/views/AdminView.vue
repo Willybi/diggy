@@ -10,7 +10,7 @@
       <p class="section-sub">Parse les noms d'artistes du catalog et peuple la table artistes. Idempotent.</p>
       <div class="sync-row">
         <button class="btn-sync" :disabled="syncing" @click="runSync">
-          {{ syncing ? 'Sync en cours…' : 'Lancer la sync' }}
+          {{ syncing ? 'Sync en cours… (peut prendre ~5-10 min)' : 'Lancer la sync' }}
         </button>
         <div v-if="syncResult" class="sync-result">
           <span class="result-item ok">✓ {{ syncResult.created }} créés</span>
@@ -122,6 +122,7 @@ const auth = useAuthStore()
 const syncing = ref(false)
 const syncResult = ref(null)
 const syncError = ref('')
+let pollTimer = null
 const flags = ref([])
 const loadingFlags = ref(false)
 const filterStatus = ref('pending')
@@ -137,13 +138,38 @@ async function runSync() {
   syncError.value = ''
   try {
     const { data } = await axios.post('/api/admin/artists/sync', {}, { headers: authHeaders() })
-    syncResult.value = data
-    await fetchFlags()
+    pollStatus(data.task_id)
   } catch (e) {
     syncError.value = e.response?.data?.detail || 'Erreur lors de la sync'
-  } finally {
     syncing.value = false
   }
+}
+
+function pollStatus(taskId) {
+  let attempts = 0
+  const maxAttempts = 300 // 10min max (2s * 300)
+  pollTimer = setInterval(async () => {
+    attempts++
+    if (attempts >= maxAttempts) {
+      clearInterval(pollTimer)
+      syncError.value = 'Timeout — vérifiez les logs Celery'
+      syncing.value = false
+      return
+    }
+    try {
+      const { data } = await axios.get(`/api/admin/artists/sync/status/${taskId}`, { headers: authHeaders() })
+      if (data.status === 'done') {
+        clearInterval(pollTimer)
+        syncResult.value = data.result
+        syncing.value = false
+        await fetchFlags()
+      } else if (data.status === 'error') {
+        clearInterval(pollTimer)
+        syncError.value = data.error || 'Erreur Celery'
+        syncing.value = false
+      }
+    } catch {}
+  }, 2000)
 }
 
 async function fetchFlags() {
