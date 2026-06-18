@@ -95,6 +95,7 @@ const iconArtist = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const iconAdmin = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>`
 const iconLib = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v14M9 19V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v14M14 19l4-15 3 1-4 14"/></svg>`
 const iconGrid = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`
+const iconSet = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>`
 const iconPlaylist = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 6h18M3 12h12M3 18h8"/></svg>`
 const iconRadar = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>`
 const iconTag = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-7 7-9-9z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></svg>`
@@ -106,6 +107,7 @@ const iconLogout = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const libraryItems = [
   { to: '/catalog',   label: 'Catalog',    icon: iconGrid,     count: null },
   { to: '/artists',   label: 'Artistes',   icon: iconArtist,   count: null },
+  { to: '/sets',      label: 'Sets',       icon: iconSet,      count: null },
   { to: '/playlists', label: 'Playlists',  icon: iconPlaylist, count: null },
 ]
 

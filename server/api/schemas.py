@@ -255,6 +255,22 @@ class ArtistListOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SetListItemOut(BaseModel):
+    id: int
+    title: str
+    source: str
+    source_url: Optional[str] = None
+    played_date: Optional[date] = None
+    duration_ms: Optional[int] = None
+    has_artwork: bool = False
+    total_tracks: int = 0
+    identified_tracks: int = 0
+    artists: list[str] = []
+    followed: bool = False
+
+    model_config = {"from_attributes": True}
+
+
 class SetTrackOut(BaseModel):
     id: int
     set_id: int

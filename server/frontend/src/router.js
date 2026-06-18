@@ -8,6 +8,7 @@ import ArtistDetailView  from './views/ArtistDetailView.vue'
 import SetDetailView     from './views/SetDetailView.vue'
 import PlaylistDetailView from './views/PlaylistDetailView.vue'
 import ArtistsView        from './views/ArtistsView.vue'
+import SetsView           from './views/SetsView.vue'
 import AdminView          from './views/AdminView.vue'
 import LoginView          from './views/LoginView.vue'
 
@@ -19,6 +20,7 @@ const routes = [
   { path: '/catalog',      component: CatalogView },
   { path: '/catalog/:id',  component: TrackDetailView, props: true },
   { path: '/artist/:id',   component: ArtistDetailView, props: true },
+  { path: '/sets',          component: SetsView },
   { path: '/set/:id',      component: SetDetailView, props: true },
   { path: '/artists',      component: ArtistsView },
   { path: '/admin',        component: AdminView },
