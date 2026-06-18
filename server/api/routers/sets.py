@@ -30,7 +30,61 @@ def _uid(user: User | None) -> int:
 # ---------- Schemas ----------
 
 class SetImportIn(BaseModel):
-    url: str
+    url: str | None = None
+    slug: str | None = None
+
+
+# ---------- Search TrackID ----------
+
+class TrackIDSearchResult(BaseModel):
+    trackid_id: int
+    slug: str
+    title: str
+    channel: str | None = None
+    artwork_url: str | None = None
+    track_count: int = 0
+    duration: str | None = None
+    created_on: str | None = None
+    already_imported: bool = False
+
+
+@router.get("/search", response_model=list[TrackIDSearchResult])
+async def search_trackid_sets(
+    q: str,
+    page: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    """Search sets on TrackID.net and indicate which are already imported."""
+    from trackid.client import TrackIDClient
+
+    async with TrackIDClient() as client:
+        audiostreams, _ = await client.search_sets(keywords=q, current_page=page)
+
+    # Check which are already imported
+    ext_ids = [str(a["id"]) for a in audiostreams]
+    imported = set()
+    if ext_ids:
+        result = await db.execute(
+            select(DJSet.external_id).where(
+                DJSet.external_id.in_(ext_ids), DJSet.source == "trackid"
+            )
+        )
+        imported = {r[0] for r in result.all()}
+
+    return [
+        TrackIDSearchResult(
+            trackid_id=a["id"],
+            slug=a.get("slug", ""),
+            title=a.get("title", ""),
+            channel=a.get("channel"),
+            artwork_url=a.get("artworkUrl"),
+            track_count=a.get("trackCount", 0),
+            duration=a.get("duration"),
+            created_on=a.get("createdOn"),
+            already_imported=str(a["id"]) in imported,
+        )
+        for a in audiostreams
+    ]
 
 
 # ---------- List ----------
@@ -113,12 +167,16 @@ async def import_set_url(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Import a set from a TrackID URL and auto-follow it."""
-    match = re.search(r'trackid\.net/audiostream/(.+?)(?:\?|$)', body.url.strip())
-    if not match:
-        raise HTTPException(status_code=422, detail="URL TrackID invalide (ex: https://trackid.net/audiostream/...)")
-
-    slug = match.group(1).rstrip('/')
+    """Import a set from a TrackID URL or slug, and auto-follow it."""
+    slug = None
+    if body.slug:
+        slug = body.slug.strip().rstrip('/')
+    elif body.url:
+        match = re.search(r'trackid\.net/audiostream/(.+?)(?:\?|$)', body.url.strip())
+        if match:
+            slug = match.group(1).rstrip('/')
+    if not slug:
+        raise HTTPException(status_code=422, detail="URL TrackID ou slug requis")
 
     from trackid.client import TrackIDClient
     from trackid.importer import import_audiostream

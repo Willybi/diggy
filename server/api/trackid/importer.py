@@ -68,10 +68,12 @@ async def import_audiostream(
     artist_id: int | None = None,
     *,
     prefetched_detail: dict | None = None,
+    min_age_hours: int = 168,
 ) -> tuple[DJSet | None, int]:
     """Import a single TrackID audiostream into the database.
 
     Returns (dj_set, track_count). Returns (None, 0) if skipped.
+    min_age_hours: skip re-crawl if last_crawled_at is younger (default 168 = 7 days).
     """
     ext_id = str(audiostream["id"])
     slug = audiostream.get("slug", "")
@@ -82,10 +84,10 @@ async def import_audiostream(
     )
     existing = result.scalar_one_or_none()
 
-    # Skip if recently crawled (< 7 days)
+    # Skip if recently crawled
     if existing and existing.last_crawled_at:
-        age = (datetime.now(timezone.utc) - existing.last_crawled_at).days
-        if age < 7:
+        age_hours = (datetime.now(timezone.utc) - existing.last_crawled_at).total_seconds() / 3600
+        if age_hours < min_age_hours:
             return existing, 0
 
     # Fetch detail (use prefetched if provided)
@@ -96,6 +98,7 @@ async def import_audiostream(
     # Parse fields
     duration_ms = parse_timespan_to_ms(detail.get("duration"))
     played_date = parse_trackid_date(detail.get("createdOn"))
+    detail_slug = detail.get("slug") or slug
     now = datetime.now(timezone.utc)
 
     if existing:
@@ -104,11 +107,14 @@ async def import_audiostream(
         dj_set.source_url = detail.get("url")
         dj_set.duration_ms = duration_ms
         dj_set.last_crawled_at = now
+        if detail_slug and not dj_set.external_slug:
+            dj_set.external_slug = detail_slug
     else:
         dj_set = DJSet(
             external_id=ext_id,
             source="trackid",
             source_url=detail.get("url"),
+            external_slug=detail_slug or None,
             title=detail.get("title", "Untitled"),
             duration_ms=duration_ms,
             played_date=played_date.date() if played_date else None,
