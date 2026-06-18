@@ -750,3 +750,87 @@ def link_set_artists():
     return {"linked": linked, "skipped": skipped}
 
 
+@celery_app.task(name="workers.tasks.populate_artist_genres")
+def populate_artist_genres():
+    """
+    Infer artist genres from their catalog tracks' genres.
+    For each artist, find catalog entries matching name/aliases,
+    aggregate catalog_genres, and assign genres appearing in >=20% of tracks.
+    Idempotent (clears and repopulates).
+    """
+    from sqlalchemy import create_engine, select, func, delete as sa_delete
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import Artist, ArtistAlias, CatalogEntry, Genre, artist_genres, catalog_genres
+    from utils import normalize
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    with Session(engine) as session:
+        # Load all genres
+        genres_by_id = {g.id: g.name for g in session.execute(select(Genre)).scalars().all()}
+        if not genres_by_id:
+            return {"updated": 0}
+
+        # Load all artists + aliases
+        artists = session.execute(select(Artist)).scalars().all()
+        aliases = session.execute(select(ArtistAlias)).scalars().all()
+
+        # Build artist_id → set of lowercase names
+        artist_names: dict[int, set[str]] = {}
+        for a in artists:
+            artist_names.setdefault(a.id, set()).add(a.name.lower())
+        for al in aliases:
+            artist_names.setdefault(al.artist_id, set()).add(al.alias.lower())
+
+        # Build catalog.artist (lower) → list of catalog_ids
+        cat_result = session.execute(select(CatalogEntry.id, CatalogEntry.artist))
+        cat_by_artist: dict[str, list[int]] = {}
+        for cid, cart in cat_result.all():
+            if cart:
+                cat_by_artist.setdefault(cart.lower(), []).append(cid)
+
+        # Load catalog_genres as catalog_id → set of genre_ids
+        cg_result = session.execute(select(catalog_genres))
+        cat_genre_map: dict[int, set[int]] = {}
+        for row in cg_result.all():
+            cat_genre_map.setdefault(row[0], set()).add(row[1])
+
+        # Clear existing artist_genres
+        session.execute(sa_delete(artist_genres))
+
+        updated = 0
+        for a in artists:
+            names = artist_names.get(a.id, set())
+            # Collect all catalog_ids for this artist
+            cat_ids = []
+            for n in names:
+                cat_ids.extend(cat_by_artist.get(n, []))
+            if not cat_ids:
+                continue
+
+            # Count genre occurrences
+            genre_counts: dict[int, int] = {}
+            for cid in cat_ids:
+                for gid in cat_genre_map.get(cid, set()):
+                    genre_counts[gid] = genre_counts.get(gid, 0) + 1
+
+            total = len(cat_ids)
+            threshold = max(1, int(total * 0.2))  # >=20% of tracks
+
+            assigned = []
+            for gid, count in genre_counts.items():
+                if count >= threshold:
+                    session.execute(artist_genres.insert().values(artist_id=a.id, genre_id=gid))
+                    assigned.append(gid)
+
+            if assigned:
+                updated += 1
+
+        session.commit()
+
+    return {"updated": updated}
+
+

@@ -395,6 +395,21 @@ async def link_set_artists_task(
     return SyncQueued(status="queued", task_id=result.id)
 
 
+@router.post("/artists/genres/refresh", response_model=SyncQueued)
+async def refresh_artist_genres(
+    _: User = Depends(require_admin),
+):
+    """Fire-and-forget: infer genres for all artists from their catalog tracks."""
+    import os
+    from celery import Celery
+    _celery = Celery(
+        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+    )
+    result = _celery.send_task("workers.tasks.populate_artist_genres")
+    return SyncQueued(status="queued", task_id=result.id)
+
+
 @router.post("/sets/{set_id}/artists")
 async def add_set_artist(
     set_id: int,

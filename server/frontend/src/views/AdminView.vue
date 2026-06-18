@@ -54,6 +54,21 @@
       </div>
     </section>
 
+    <!-- Refresh genres artistes -->
+    <section class="admin-section">
+      <h2 class="section-title">Genres artistes</h2>
+      <p class="section-sub">Infère les genres de chaque artiste depuis les genres de leurs tracks catalog (≥20%). Idempotent.</p>
+      <div class="sync-row">
+        <button class="btn-sync" :disabled="refreshingGenres" @click="runRefreshGenres">
+          {{ refreshingGenres ? 'Refresh en cours…' : 'Refresh genres' }}
+        </button>
+        <div v-if="genresResult" class="sync-result">
+          <span class="result-item ok">✓ {{ genresResult.updated }} artistes mis à jour</span>
+        </div>
+        <span v-if="genresError" class="sync-error">{{ genresError }}</span>
+      </div>
+    </section>
+
     <!-- Liaison manuelle artiste ↔ Deezer -->
     <section class="admin-section">
       <h2 class="section-title">Lier un artiste à Deezer</h2>
@@ -228,6 +243,9 @@ const fetchingArtworks = ref(false)
 const linkingSets = ref(false)
 const linkSetsResult = ref(null)
 const linkSetsError = ref('')
+const refreshingGenres = ref(false)
+const genresResult = ref(null)
+const genresError = ref('')
 const artworksResult = ref(null)
 const artworksError = ref('')
 
@@ -375,6 +393,25 @@ async function runLinkSets() {
   } catch (e) {
     linkSetsError.value = e.response?.data?.detail || 'Erreur'
     linkingSets.value = false
+  }
+}
+
+async function runRefreshGenres() {
+  refreshingGenres.value = true
+  genresResult.value = null
+  genresError.value = ''
+  try {
+    const { data } = await axios.post('/api/admin/artists/genres/refresh', {}, { headers: authHeaders() })
+    const timer = setInterval(async () => {
+      try {
+        const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
+        if (st.status === 'done') { clearInterval(timer); genresResult.value = st.result; refreshingGenres.value = false }
+        else if (st.status === 'error') { clearInterval(timer); genresError.value = st.error || 'Erreur'; refreshingGenres.value = false }
+      } catch {}
+    }, 2000)
+  } catch (e) {
+    genresError.value = e.response?.data?.detail || 'Erreur'
+    refreshingGenres.value = false
   }
 }
 
