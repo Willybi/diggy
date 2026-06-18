@@ -4,12 +4,8 @@ Tests des endpoints /api/tracks.
 Utilise une DB SQLite en mémoire (aiosqlite) et mocke MinIO
 pour rester indépendant de l'infrastructure.
 """
-import json
 import base64
-import pytest
 import pytest_asyncio
-
-pytestmark = pytest.mark.asyncio
 from httpx import AsyncClient, ASGITransport
 
 from main import app

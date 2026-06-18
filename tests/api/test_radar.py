@@ -1,10 +1,7 @@
 """
 Tests des endpoints /api/radar.
 """
-import pytest
 import pytest_asyncio
-
-pytestmark = pytest.mark.asyncio
 from httpx import AsyncClient, ASGITransport
 
 from main import app

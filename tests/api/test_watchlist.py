@@ -4,10 +4,7 @@ Tests des endpoints /api/watchlist.
 Utilise une DB SQLite en mémoire (aiosqlite) et mocke l'appel Deezer
 pour rester indépendant de l'infrastructure.
 """
-import pytest
 import pytest_asyncio
-
-pytestmark = pytest.mark.asyncio
 from httpx import AsyncClient, ASGITransport
 
 from main import app
