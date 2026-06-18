@@ -165,11 +165,21 @@ async def crawl_playlist(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger an immediate crawl of a single playlist."""
+    """Trigger an immediate crawl of a single playlist. Cooldown: 12h."""
     result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
     entity = result.scalar_one_or_none()
     if not entity:
         raise HTTPException(status_code=404, detail="Playlist not found")
+
+    if entity.last_crawled_at:
+        elapsed = datetime.now(timezone.utc) - entity.last_crawled_at.replace(tzinfo=timezone.utc)
+        if elapsed.total_seconds() < 12 * 3600:
+            remaining_h = int((12 * 3600 - elapsed.total_seconds()) / 3600)
+            remaining_m = int(((12 * 3600 - elapsed.total_seconds()) % 3600) / 60)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Crawl cooldown: retry in {remaining_h}h{remaining_m:02d}m",
+            )
 
     _trigger_crawl(entity.id)
     return {"status": "crawl_queued", "playlist_id": entry_id}
