@@ -84,9 +84,9 @@
                   <button
                     class="btn-crawl"
                     :disabled="crawling[pl.id] || isCooldown(pl)"
-                    :title="isCooldown(pl) ? cooldownLabel(pl) : 'Lancer un crawl maintenant'"
+                    :title="isCooldown(pl) ? 'Déjà crawlé dans les 12 dernières heures' : 'Lancer un crawl maintenant'"
                     @click="triggerCrawl(pl)"
-                  >{{ crawling[pl.id] ? 'Crawl en cours…' : isCooldown(pl) ? cooldownLabel(pl) : 'Crawl now' }}</button>
+                  >{{ crawling[pl.id] ? 'Crawl en cours…' : isCooldown(pl) ? 'Déjà crawlé' : 'Crawl now' }}</button>
                   <button class="btn-unfollow" @click="unfollow(pl.id)">Ne plus suivre</button>
                 </template>
                 <template v-else>
@@ -133,15 +133,6 @@ function isCooldown(pl) {
   return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
 }
 
-function cooldownLabel(pl) {
-  if (!pl.last_crawled_at) return ''
-  const remaining = COOLDOWN_MS - (Date.now() - new Date(pl.last_crawled_at).getTime())
-  if (remaining <= 0) return ''
-  const h = Math.floor(remaining / 3600000)
-  const m = Math.floor((remaining % 3600000) / 60000)
-  return `${h}h${String(m).padStart(2, '0')} restantes`
-}
-
 function extractDeezerId(input) {
   const s = input.trim()
   const match = s.match(/playlist\/(\d+)/)
@@ -177,7 +168,8 @@ async function addPlaylist() {
     inputValue.value = ''
     showForm.value = false
     await fetchPlaylists()
-    startPolling(data.id)
+    const snap = browsePlaylists.value.find(p => p.id === data.id)
+    startPolling(data.id, snap?.last_crawled_at ?? null)
   } catch (e) {
     if (e.response?.status === 409) {
       formError.value = 'Playlist déjà suivie'
@@ -199,7 +191,8 @@ async function followPlaylist(id) {
   try {
     await axios.post(`/api/watchlist/${id}/follow`)
     await fetchPlaylists()
-    startPolling(id)
+    const snap = browsePlaylists.value.find(p => p.id === id)
+    startPolling(id, snap?.last_crawled_at ?? null)
   } catch (e) {
     if (e.response?.status === 409) {
       await fetchPlaylists()
