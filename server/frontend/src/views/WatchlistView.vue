@@ -419,7 +419,7 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 .col-owner  { width: 140px; }
 .col-tracks { width: 70px; }
 .col-crawled { width: 110px; }
-.col-action { width: 220px; text-align: right; }
+.col-action { width: 260px; text-align: right; }
 
 /* Cover */
 .cover-thumb {
