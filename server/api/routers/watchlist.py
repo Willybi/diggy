@@ -1,3 +1,4 @@
+import sys
 import requests
 from datetime import datetime, timezone
 
@@ -37,6 +38,24 @@ def _fetch_deezer_playlist(external_id: str) -> dict:
         }
     except Exception:
         return {}
+
+
+def _fetch_tidal_playlist(external_id: str) -> dict:
+    """Fetch playlist metadata from Tidal: title, track_count, owner."""
+    try:
+        sys.path.insert(0, "/app")
+        from tidal.client import TidalClient
+        client = TidalClient()
+        return client.get_playlist_meta(external_id)
+    except Exception:
+        return {}
+
+
+def _fetch_playlist_meta(source: str, external_id: str) -> dict:
+    """Dispatcher : récupère les métadonnées selon la source."""
+    if source == "tidal":
+        return _fetch_tidal_playlist(external_id)
+    return _fetch_deezer_playlist(external_id)
 
 
 def _trigger_crawl(playlist_id: int):
@@ -156,7 +175,7 @@ async def add_watched(
         if follow_result.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Playlist already watched")
     else:
-        meta = _fetch_deezer_playlist(body.external_id)
+        meta = _fetch_playlist_meta(body.source, body.external_id)
         entity = WatchedEntity(
             external_id=body.external_id,
             source=body.source,

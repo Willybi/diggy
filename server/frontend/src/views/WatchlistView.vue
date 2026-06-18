@@ -3,7 +3,7 @@
     <header class="view-header">
       <div>
         <h1 class="view-title">Playlists</h1>
-        <span class="view-sub">Playlists Deezer surveillées par le Radar</span>
+        <span class="view-sub">Playlists Deezer &amp; Tidal surveillées par le Radar</span>
       </div>
       <div class="header-actions">
         <div class="toggle-group">
@@ -26,11 +26,12 @@
       <input
         v-model="inputValue"
         class="form-input"
-        placeholder="URL ou ID Deezer  (ex: https://www.deezer.com/playlist/1234567)"
+        placeholder="URL Deezer ou Tidal  (ex: deezer.com/playlist/123… ou tidal.com/playlist/uuid…)"
         @keydown.enter="addPlaylist"
         @input="formError = ''"
         autofocus
       />
+      <span class="source-badge" :class="`source-badge--${detectedSource}`">{{ detectedSource }}</span>
       <button class="btn-confirm" :disabled="adding" @click="addPlaylist">
         {{ adding ? 'Ajout…' : 'Suivre' }}
       </button>
@@ -71,7 +72,10 @@
             </td>
             <td class="col-title">
               <RouterLink :to="`/playlists/${pl.id}`" class="pl-link">
-                <span class="pl-title">{{ pl.title || pl.external_id }}</span>
+                <span class="pl-title">
+                  {{ pl.title || pl.external_id }}
+                  <span class="source-chip" :class="`source-chip--${pl.source}`">{{ pl.source }}</span>
+                </span>
                 <span class="pl-id mono muted">{{ pl.external_id }}</span>
               </RouterLink>
             </td>
@@ -135,13 +139,25 @@ function isCooldown(pl) {
   return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
 }
 
-function extractDeezerId(input) {
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+function detectSource(input) {
+  const s = input.trim().toLowerCase()
+  if (s.includes('tidal.com') || UUID_RE.test(s)) return 'tidal'
+  return 'deezer'
+}
+
+function extractPlaylistId(input) {
   const s = input.trim()
-  const match = s.match(/playlist\/(\d+)/)
-  if (match) return match[1]
+  const uuidMatch = s.match(UUID_RE)
+  if (uuidMatch) return uuidMatch[0]
+  const numMatch = s.match(/playlist\/(\d+)/)
+  if (numMatch) return numMatch[1]
   if (/^\d+$/.test(s)) return s
   return null
 }
+
+const detectedSource = computed(() => detectSource(inputValue.value))
 
 async function fetchPlaylists() {
   loading.value = true
@@ -159,14 +175,15 @@ async function fetchPlaylists() {
 
 async function addPlaylist() {
   formError.value = ''
-  const id = extractDeezerId(inputValue.value)
+  const id = extractPlaylistId(inputValue.value)
   if (!id) {
     formError.value = 'URL ou ID invalide'
     return
   }
+  const source = detectedSource.value
   adding.value = true
   try {
-    const { data } = await axios.post('/api/watchlist/', { external_id: id, source: 'deezer' })
+    const { data } = await axios.post('/api/watchlist/', { external_id: id, source })
     inputValue.value = ''
     showForm.value = false
     await fetchPlaylists()
@@ -515,4 +532,31 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   font-size: 14px;
   font-style: italic;
 }
+
+/* Source badge dans le formulaire */
+.source-badge {
+  padding: 4px 9px;
+  border-radius: var(--r-sm);
+  font: 600 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.source-badge--deezer { background: #e4f2ff; color: #0066cc; }
+.source-badge--tidal  { background: #e6f9f4; color: #007755; }
+
+/* Source chip dans la table */
+.source-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
+.source-chip--deezer { background: #e4f2ff; color: #0066cc; }
+.source-chip--tidal  { background: #e6f9f4; color: #007755; }
 </style>
