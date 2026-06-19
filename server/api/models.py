@@ -115,6 +115,7 @@ class CatalogEntry(Base):
     normalized_key = Column(String(500), unique=True, nullable=False)
     isrc = Column(String(20), unique=True, nullable=True)
     deezer_id = Column(String(64), nullable=True)
+    beatport_id = Column(String(64), nullable=True)
     bpm = Column(Float, nullable=True)
     key = Column(String(10), nullable=True)
     duration_ms = Column(Integer, nullable=True)
