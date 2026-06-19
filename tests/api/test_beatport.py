@@ -31,6 +31,9 @@ class TestKeyToCamelot:
     def test_f_sharp_minor(self):
         assert _key_to_camelot("F# Minor") == "11A"
 
+    def test_a_sharp_major_enharmonic(self):
+        assert _key_to_camelot("A# Major") == "6B"
+
     def test_none(self):
         assert _key_to_camelot(None) is None
 
