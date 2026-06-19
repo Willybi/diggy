@@ -93,6 +93,24 @@ def deezer_has_changed(external_id: str, last_crawled_at) -> bool:
 # TIDAL
 # ──────────────────────────────────────────────────────────────
 
+def _parse_expiry(value) -> "datetime | None":
+    """Parse expiry_time from env var or JSON (datetime string or timestamp)."""
+    from datetime import datetime, timezone
+    if not value:
+        return None
+    try:
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+    except (ValueError, TypeError):
+        pass
+    try:
+        dt = datetime.fromisoformat(str(value))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def _get_tidal_session():
     """Load TIDAL session from environment variables or token file."""
     import tidalapi
@@ -106,7 +124,7 @@ def _get_tidal_session():
             token_type=os.environ.get("TIDAL_TOKEN_TYPE", "Bearer"),
             access_token=access_token,
             refresh_token=os.environ.get("TIDAL_REFRESH_TOKEN"),
-            expiry_time=float(os.environ.get("TIDAL_EXPIRY", "0")) or None,
+            expiry_time=_parse_expiry(os.environ.get("TIDAL_EXPIRY")),
         )
         if session.check_login():
             return session
@@ -120,7 +138,7 @@ def _get_tidal_session():
             token_type=tokens.get("token_type", "Bearer"),
             access_token=tokens["access_token"],
             refresh_token=tokens.get("refresh_token"),
-            expiry_time=tokens.get("expiry_time"),
+            expiry_time=_parse_expiry(tokens.get("expiry_time")),
         )
         if session.check_login():
             return session
