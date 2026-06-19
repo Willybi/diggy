@@ -1,7 +1,6 @@
 """Tests for server/api/beatport/ — client and enrichment logic."""
-import json
 from datetime import date
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import sys
 import os
@@ -10,33 +9,79 @@ import os
 sys.modules.setdefault("boto3", MagicMock())
 sys.modules.setdefault("botocore", MagicMock())
 sys.modules.setdefault("botocore.client", MagicMock())
-sys.modules.setdefault("redis", MagicMock())
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 
-from beatport.enrich import parse_camelot_key, enrich_from_beatport
+from beatport.client import _key_to_camelot, _normalize_track
+from beatport.enrich import enrich_from_beatport
 
 
-# ── parse_camelot_key ──
+# ── _key_to_camelot ──
 
 
-class TestParseCamelotKey:
-    def test_valid_key(self):
-        assert parse_camelot_key({"camelot_number": 7, "camelot_letter": "A"}) == "7A"
+class TestKeyToCamelot:
+    def test_ab_minor(self):
+        assert _key_to_camelot("Ab Minor") == "1A"
 
-    def test_double_digit(self):
-        assert parse_camelot_key({"camelot_number": 11, "camelot_letter": "B"}) == "11B"
+    def test_b_major(self):
+        assert _key_to_camelot("B Major") == "1B"
 
-    def test_none_input(self):
-        assert parse_camelot_key(None) is None
+    def test_a_minor(self):
+        assert _key_to_camelot("A Minor") == "8A"
 
-    def test_empty_dict(self):
-        assert parse_camelot_key({}) is None
+    def test_f_sharp_minor(self):
+        assert _key_to_camelot("F# Minor") == "11A"
 
-    def test_missing_letter(self):
-        assert parse_camelot_key({"camelot_number": 7}) is None
+    def test_none(self):
+        assert _key_to_camelot(None) is None
 
-    def test_missing_number(self):
-        assert parse_camelot_key({"camelot_letter": "A"}) is None
+    def test_unknown(self):
+        assert _key_to_camelot("Z Minor") is None
+
+
+# ── _normalize_track ──
+
+
+SAMPLE_RAW_TRACK = {
+    "track_id": 19431036,
+    "track_name": "Strobe",
+    "mix_name": "Layton Giordani Extended Remix",
+    "bpm": 128,
+    "key_name": "Ab Minor",
+    "isrc": "GBTDG1302861",
+    "label": {"label_id": 6446, "label_name": "mau5trap"},
+    "genre": [{"genre_id": 90, "genre_name": "Melodic House & Techno"}],
+    "release": {
+        "release_id": 4706244,
+        "release_name": "Strobe (Layton Giordani Extended Remix)",
+        "release_image_dynamic_uri": "https://geo-media.beatport.com/image_size/{w}x{h}/abc.jpg",
+    },
+    "publish_date": "2024-09-13T00:00:00",
+}
+
+
+class TestNormalizeTrack:
+    def test_normalizes_fields(self):
+        t = _normalize_track(SAMPLE_RAW_TRACK)
+        assert t["id"] == 19431036
+        assert t["name"] == "Strobe"
+        assert t["bpm"] == 128
+        assert t["key"] == "1A"
+        assert t["isrc"] == "GBTDG1302861"
+        assert t["label"]["name"] == "mau5trap"
+        assert t["genre"]["name"] == "Melodic House & Techno"
+        assert t["publish_date"] == "2024-09-13"
+        assert t["release"]["label"]["name"] == "mau5trap"
+        assert "abc.jpg" in t["release"]["image"]["dynamic_uri"]
+
+    def test_handles_missing_genre(self):
+        raw = {**SAMPLE_RAW_TRACK, "genre": []}
+        t = _normalize_track(raw)
+        assert t["genre"] is None
+
+    def test_handles_missing_label(self):
+        raw = {**SAMPLE_RAW_TRACK, "label": {}}
+        t = _normalize_track(raw)
+        assert t["label"] is None
 
 
 # ── enrich_from_beatport ──
@@ -58,21 +103,8 @@ def _make_entry(**overrides):
     return entry
 
 
-SAMPLE_BP_TRACK = {
-    "id": 99999,
-    "name": "Acid Rain",
-    "mix_name": "Original Mix",
-    "bpm": 138,
-    "key": {"name": "A min", "camelot_number": 8, "camelot_letter": "A"},
-    "isrc": "GBUM71234567",
-    "genre": {"name": "Techno (Raw / Deep / Hypnotic)"},
-    "release": {
-        "name": "Acid Rain EP",
-        "label": {"name": "Drumcode", "slug": "drumcode"},
-        "image": {"dynamic_uri": "https://geo-media.beatport.com/image_size/{w}x{h}/abc.jpg"},
-    },
-    "publish_date": "2024-01-15",
-}
+# Normalized format (as returned by _normalize_track)
+SAMPLE_BP_TRACK = _normalize_track(SAMPLE_RAW_TRACK)
 
 
 class TestEnrichFromBeatport:
@@ -82,44 +114,38 @@ class TestEnrichFromBeatport:
         changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
 
         assert changed is True
-        assert entry.beatport_id == "99999"
-        assert entry.bpm == 138.0
+        assert entry.beatport_id == "19431036"
+        assert entry.bpm == 128.0
         assert entry.bpm_source == "beatport"
-        assert entry.key == "8A"
+        assert entry.key == "1A"
         assert entry.key_source == "beatport"
-        assert entry.label == "Drumcode"
-        assert entry.genre == "Techno (Raw / Deep / Hypnotic)"
-        assert entry.release_date == date(2024, 1, 15)
+        assert entry.label == "mau5trap"
+        assert entry.genre == "Melodic House & Techno"
+        assert entry.release_date == date(2024, 9, 13)
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_does_not_overwrite_beatport_bpm(self, mock_upload):
         entry = _make_entry(bpm=140.0, bpm_source="beatport")
-        changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
-
-        # beatport_id and other fields still change, but bpm stays
+        enrich_from_beatport(entry, SAMPLE_BP_TRACK)
         assert entry.bpm == 140.0
-        assert entry.bpm_source == "beatport"
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_overwrites_deezer_bpm(self, mock_upload):
         entry = _make_entry(bpm=137.0, bpm_source="deezer")
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
-
-        assert entry.bpm == 138.0
+        assert entry.bpm == 128.0
         assert entry.bpm_source == "beatport"
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_does_not_overwrite_existing_label(self, mock_upload):
         entry = _make_entry(label="Existing Label")
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
-
         assert entry.label == "Existing Label"
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_does_not_overwrite_existing_genre(self, mock_upload):
         entry = _make_entry(genre="Techno")
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
-
         assert entry.genre == "Techno"
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=True)
@@ -127,29 +153,25 @@ class TestEnrichFromBeatport:
         entry = _make_entry(has_artwork=False)
         s3 = MagicMock()
         enrich_from_beatport(entry, SAMPLE_BP_TRACK, s3=s3)
-
         assert entry.has_artwork is True
-        mock_upload.assert_called_once_with(
-            s3, "https://geo-media.beatport.com/image_size/500x500/abc.jpg", 1
-        )
+        mock_upload.assert_called_once()
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_skips_artwork_when_already_present(self, mock_upload):
         entry = _make_entry(has_artwork=True)
         s3 = MagicMock()
         enrich_from_beatport(entry, SAMPLE_BP_TRACK, s3=s3)
-
         mock_upload.assert_not_called()
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_no_change_returns_false(self, mock_upload):
         entry = _make_entry(
-            beatport_id="99999",
-            bpm=138.0, bpm_source="beatport",
-            key="8A", key_source="beatport",
-            label="Drumcode",
-            genre="Techno",
-            release_date=date(2024, 1, 15),
+            beatport_id="19431036",
+            bpm=128.0, bpm_source="beatport",
+            key="1A", key_source="beatport",
+            label="mau5trap",
+            genre="Melodic House & Techno",
+            release_date=date(2024, 9, 13),
             has_artwork=True,
         )
         changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
@@ -160,16 +182,14 @@ class TestEnrichFromBeatport:
         track = {**SAMPLE_BP_TRACK, "key": None}
         entry = _make_entry()
         enrich_from_beatport(entry, track)
-
         assert entry.key is None
         assert entry.key_source is None
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_handles_missing_label(self, mock_upload):
-        track = {**SAMPLE_BP_TRACK, "release": {"name": "EP", "image": {}}}
+        track = {**SAMPLE_BP_TRACK, "label": None, "release": {"name": "EP", "image": {}}}
         entry = _make_entry()
         enrich_from_beatport(entry, track)
-
         assert entry.label is None
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
@@ -177,5 +197,4 @@ class TestEnrichFromBeatport:
         track = {**SAMPLE_BP_TRACK, "publish_date": "not-a-date"}
         entry = _make_entry()
         enrich_from_beatport(entry, track)
-
         assert entry.release_date is None

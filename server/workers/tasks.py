@@ -990,15 +990,15 @@ def enrich_catalog_beatport():
             try:
                 bp_track = None
 
-                # Strategy 1: ISRC lookup (most reliable)
+                # Strategy 1: ISRC search (most reliable)
                 if entry.isrc:
-                    bp_track = client.get_track_by_isrc(entry.isrc)
+                    bp_track = client.search_track_by_isrc(entry.isrc)
 
-                # Strategy 2: title+artist search → fetch full detail
+                # Strategy 2: title+artist search
                 if not bp_track and entry.title:
                     results = client.search_track(entry.title, entry.artist)
                     if results:
-                        bp_track = client.get_track(results[0]["id"])
+                        bp_track = results[0]
 
                 if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
                     enriched += 1
