@@ -151,7 +151,8 @@ async def add_watched(
         if follow_result.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Playlist already watched")
     else:
-        meta = _fetch_deezer_playlist(body.external_id)
+        # Fetch metadata inline for Deezer; for other sources the crawl task fills it
+        meta = _fetch_deezer_playlist(body.external_id) if body.source == "deezer" else {}
         entity = WatchedEntity(
             external_id=body.external_id,
             source=body.source,

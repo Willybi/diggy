@@ -3,7 +3,7 @@
     <header class="view-header">
       <div>
         <h1 class="view-title">Playlists</h1>
-        <span class="view-sub">Playlists Deezer surveillées par le Radar</span>
+        <span class="view-sub">Playlists surveillées par le Radar</span>
       </div>
       <div class="header-actions">
         <div class="toggle-group">
@@ -26,7 +26,7 @@
       <input
         v-model="inputValue"
         class="form-input"
-        placeholder="URL ou ID Deezer  (ex: https://www.deezer.com/playlist/1234567)"
+        placeholder="URL Deezer, Tidal ou Spotify  (ex: https://open.spotify.com/playlist/...)"
         @keydown.enter="addPlaylist"
         @input="formError = ''"
         autofocus
@@ -42,7 +42,7 @@
     <div v-else-if="displayList.length === 0 && !showForm" class="empty-state">
       <template v-if="mode === 'followed'">
         <p class="empty-text">Aucune playlist suivie.</p>
-        <p class="empty-sub">Ajoutez une playlist Deezer pour alimenter le Radar.</p>
+        <p class="empty-sub">Ajoutez une playlist Deezer, Tidal ou Spotify pour alimenter le Radar.</p>
         <button class="btn-add" @click="showForm = true">+ Ajouter une playlist</button>
       </template>
       <template v-else>
@@ -71,7 +71,10 @@
             </td>
             <td class="col-title">
               <RouterLink :to="`/playlists/${pl.id}`" class="pl-link">
-                <span class="pl-title">{{ pl.title || pl.external_id }}</span>
+                <span class="pl-title-row">
+                  <span class="pl-title">{{ pl.title || pl.external_id }}</span>
+                  <span class="source-badge" :class="`source-${pl.source}`">{{ pl.source }}</span>
+                </span>
                 <span class="pl-id mono muted">{{ pl.external_id }}</span>
               </RouterLink>
             </td>
@@ -135,11 +138,28 @@ function isCooldown(pl) {
   return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
 }
 
-function extractDeezerId(input) {
+function parsePlaylistInput(input) {
   const s = input.trim()
-  const match = s.match(/playlist\/(\d+)/)
-  if (match) return match[1]
-  if (/^\d+$/.test(s)) return s
+
+  // Deezer: https://www.deezer.com/playlist/1234567
+  let match = s.match(/deezer\.com\/.*playlist\/(\d+)/)
+  if (match) return { external_id: match[1], source: 'deezer' }
+
+  // Tidal: https://tidal.com/browse/playlist/uuid or https://listen.tidal.com/playlist/uuid
+  match = s.match(/tidal\.com\/(?:browse\/)?playlist\/([a-f0-9-]+)/i)
+  if (match) return { external_id: match[1], source: 'tidal' }
+
+  // Spotify: https://open.spotify.com/playlist/base62id
+  match = s.match(/open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/)
+  if (match) return { external_id: match[1], source: 'spotify' }
+
+  // Bare numeric ID -> assume Deezer (backwards compat)
+  if (/^\d+$/.test(s)) return { external_id: s, source: 'deezer' }
+
+  // Bare UUID -> assume Tidal
+  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(s))
+    return { external_id: s, source: 'tidal' }
+
   return null
 }
 
@@ -159,14 +179,14 @@ async function fetchPlaylists() {
 
 async function addPlaylist() {
   formError.value = ''
-  const id = extractDeezerId(inputValue.value)
-  if (!id) {
-    formError.value = 'URL ou ID invalide'
+  const parsed = parsePlaylistInput(inputValue.value)
+  if (!parsed) {
+    formError.value = 'URL ou ID invalide (Deezer, Tidal ou Spotify)'
     return
   }
   adding.value = true
   try {
-    const { data } = await axios.post('/api/watchlist/', { external_id: id, source: 'deezer' })
+    const { data } = await axios.post('/api/watchlist/', parsed)
     inputValue.value = ''
     showForm.value = false
     await fetchPlaylists()
@@ -437,14 +457,34 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 /* Playlist title cell */
 .pl-link { text-decoration: none; color: inherit; display: block; }
 .pl-link:hover .pl-title { color: var(--accent-ink); }
+.pl-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .pl-title {
-  display: block;
   font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Source badge */
+.source-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  font: 500 9.5px/1.5 var(--font-mono);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid var(--line-2);
+  color: var(--ink-3);
+  background: var(--surface-2);
+}
+.source-deezer  { color: var(--ink-3); }
+.source-tidal   { color: var(--ink-3); }
+.source-spotify { color: var(--ink-3); }
 .pl-id {
   display: block;
   font-size: 11px;
