@@ -18,7 +18,9 @@ dependencies = [
     "pydantic>=2.10.0",
     "python-dotenv>=1.0.1",
     "requests (>=2.34.2,<3.0.0)",
-    "mutagen>=1.47.0"
+    "mutagen>=1.47.0",
+    "tidalapi>=0.8.0",
+    "spotifyscraper>=3.7.0"
 ]
 
 

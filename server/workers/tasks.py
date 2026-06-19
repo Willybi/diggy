@@ -15,127 +15,126 @@ DEEZER_API = "https://api.deezer.com"
 @celery_app.task(name="workers.tasks.crawl_radar")
 def crawl_radar():
     """
-    Crawl toutes les playlists Deezer surveillées.
+    Crawl toutes les playlists surveillées (Deezer, TIDAL, Spotify).
     Délègue chaque playlist à crawl_single_playlist pour enrichissement inline.
     """
-    from datetime import datetime, timezone
+    import logging
+    from workers.source_clients import get_fetchers
 
+    logger = logging.getLogger(__name__)
     playlists = requests.get(f"{API_BASE}/api/watchlist/", timeout=10).json()
     crawled = 0
     skipped = 0
+    errors = 0
 
     for pl in playlists:
-        if pl["source"] != "deezer":
+        source = pl.get("source")
+        try:
+            _, _, has_changed = get_fetchers(source)
+        except ValueError:
+            logger.warning("Unknown source %s for playlist %s, skipping", source, pl["id"])
             continue
 
-        # Vérifie si la playlist a été modifiée depuis le dernier crawl
-        dz_meta = requests.get(f"{DEEZER_API}/playlist/{pl['external_id']}", timeout=10).json()
-        dz_modification_date = dz_meta.get("time_mod") or dz_meta.get("creation_date")
-
-        if dz_modification_date and pl.get("last_crawled_at"):
-            last_crawled = datetime.fromisoformat(pl["last_crawled_at"]).replace(tzinfo=timezone.utc)
-            try:
-                dz_mod = datetime.fromtimestamp(int(dz_modification_date), tz=timezone.utc)
-            except (ValueError, TypeError):
-                dz_mod = datetime.fromisoformat(str(dz_modification_date)).replace(tzinfo=timezone.utc)
-            if dz_mod <= last_crawled:
+        try:
+            if not has_changed(pl["external_id"], pl.get("last_crawled_at")):
                 skipped += 1
                 continue
+        except Exception as e:
+            logger.warning("has_changed check failed for %s/%s: %s", source, pl["id"], e)
 
-        crawl_single_playlist(pl["id"])
-        crawled += 1
+        try:
+            crawl_single_playlist(pl["id"])
+            crawled += 1
+        except Exception as e:
+            logger.error("crawl_single_playlist failed for %s/%s: %s", source, pl["id"], e)
+            errors += 1
 
-    return {"crawled": crawled, "skipped_playlists": skipped}
+    return {"crawled": crawled, "skipped_playlists": skipped, "errors": errors}
 
 
 @celery_app.task(name="workers.tasks.crawl_single_playlist")
 def crawl_single_playlist(playlist_id: int):
     """
-    Crawl une seule playlist Deezer par son watched_entity ID.
-    Insère les tracks via l'API, puis enrichit les nouvelles entrées catalog
-    (deezer_id, artwork, preview, duration) directement depuis les données Deezer.
+    Crawl une seule playlist (Deezer, TIDAL, ou Spotify) par son watched_entity ID.
+    Insere les tracks via l'API, puis enrichit les nouvelles entrees catalog
+    via Deezer cross-search (deezer_id, artwork, preview, duration).
     """
-    from datetime import datetime, timezone
+    import logging
     from sqlalchemy import create_engine, select
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
     from models import CatalogEntry, RadarTrack, WatchedEntity
-    from deezer_enrich import enrich_entry, upload_cover_from_url, _get_s3, _ensure_bucket
+    from deezer_enrich import enrich_entry, search_deezer, upload_cover_from_url, _get_s3, _ensure_bucket
+    from workers.source_clients import get_fetchers
+
+    logger = logging.getLogger(__name__)
 
     pl = requests.get(f"{API_BASE}/api/watchlist/browse", timeout=10).json()
     target = next((p for p in pl if p["id"] == playlist_id), None)
-    if not target or target["source"] != "deezer":
-        return {"error": "playlist not found or not deezer"}
+    if not target:
+        return {"error": "playlist not found"}
 
-    # 0. Fetch playlist metadata + cover from Deezer
+    source = target["source"]
+    try:
+        fetch_meta, fetch_tracks, _ = get_fetchers(source)
+    except ValueError:
+        return {"error": f"unknown source: {source}"}
+
     DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
     engine = create_engine(DATABASE_URL)
     s3 = _get_s3()
     _ensure_bucket(s3)
 
-    dz_playlist = requests.get(f"{DEEZER_API}/playlist/{target['external_id']}", timeout=10).json()
+    # 0. Fetch playlist metadata + update entity
+    meta = fetch_meta(target["external_id"])
 
     with Session(engine) as session:
         entity = session.get(WatchedEntity, playlist_id)
         if entity:
-            entity.track_count = dz_playlist.get("nb_tracks") or entity.track_count
-            desc = dz_playlist.get("description")
-            if desc:
-                entity.description = desc
-            creator = dz_playlist.get("creator")
-            if isinstance(creator, dict) and creator.get("name"):
-                entity.owner = creator["name"]
-            # Download cover if missing
-            if not entity.has_artwork:
-                cover_url = dz_playlist.get("picture_big") or dz_playlist.get("picture_medium")
-                if cover_url:
-                    from deezer_enrich import upload_cover_from_url as _upload
-                    if _upload(s3, cover_url, f"playlist-{playlist_id}"):
-                        entity.has_artwork = True
+            if meta.track_count is not None:
+                entity.track_count = meta.track_count
+            if meta.description:
+                entity.description = meta.description
+            if meta.owner:
+                entity.owner = meta.owner
+            if meta.title and not entity.title:
+                entity.title = meta.title
+            if not entity.has_artwork and meta.cover_url:
+                if upload_cover_from_url(s3, meta.cover_url, f"playlist-{playlist_id}"):
+                    entity.has_artwork = True
             session.commit()
 
-    # 1. Fetch all tracks from Deezer playlist
-    tracks = []
-    url = f"{DEEZER_API}/playlist/{target['external_id']}/tracks?limit=100&index=0"
-    while url:
-        resp = requests.get(url, timeout=10).json()
-        tracks.extend(resp.get("data", []))
-        url = resp.get("next")
+    # 1. Fetch all tracks from source
+    source_tracks = fetch_tracks(target["external_id"])
 
     # 2. Insert radar tracks via API (handles dedup + catalog creation)
     inserted = 0
-    dz_by_ext_id = {}
-    for t in tracks:
-        artist = t.get("artist", {}).get("name") if isinstance(t.get("artist"), dict) else None
-        ext_id = str(t["id"])
-        dz_by_ext_id[ext_id] = t
+    for st in source_tracks:
         payload = {
             "watched_playlist_id": target["id"],
-            "external_track_id": ext_id,
-            "source": "deezer",
-            "title": t.get("title", ""),
-            "artist": artist,
-            "isrc": t.get("isrc") or None,
+            "external_track_id": st.external_id,
+            "source": source,
+            "title": st.title,
+            "artist": st.artist,
+            "isrc": st.isrc,
         }
         r = requests.post(f"{API_BASE}/api/radar/", json=payload, timeout=10)
         if r.status_code == 201:
             inserted += 1
 
-    # 3. Enrich catalog entries that lack deezer_id (newly created)
+    # 3. Enrich catalog entries that lack deezer_id
     enriched = 0
     with Session(engine) as session:
         existing_isrcs = {r[0] for r in session.execute(
             select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
         ).all()}
 
-        # Find catalog entries linked to this playlist's radar tracks that need enrichment
         radar_rows = session.execute(
             select(RadarTrack.external_track_id, RadarTrack.catalog_id)
             .where(RadarTrack.watched_entity_id == playlist_id)
         ).all()
 
         catalog_ids = {row.catalog_id for row in radar_rows if row.catalog_id}
-        ext_to_catalog = {row.external_track_id: row.catalog_id for row in radar_rows}
 
         entries = session.execute(
             select(CatalogEntry).where(
@@ -144,28 +143,40 @@ def crawl_single_playlist(playlist_id: int):
             )
         ).scalars().all()
 
-        # Build reverse map: catalog_id → deezer track data
-        catalog_to_dz = {}
-        for ext_id, cat_id in ext_to_catalog.items():
-            if cat_id and ext_id in dz_by_ext_id:
-                catalog_to_dz[cat_id] = dz_by_ext_id[ext_id]
+        if source == "deezer":
+            # For Deezer: we have the external_track_id which IS the deezer track id
+            ext_to_catalog = {row.external_track_id: row.catalog_id for row in radar_rows}
+            catalog_to_ext = {}
+            for ext_id, cat_id in ext_to_catalog.items():
+                if cat_id:
+                    catalog_to_ext[cat_id] = ext_id
 
-        for entry in entries:
-            dz_hit = catalog_to_dz.get(entry.id)
-            if not dz_hit:
-                continue
-            if enrich_entry(entry, dz_hit, s3=s3, _known_isrcs=existing_isrcs):
-                enriched += 1
+            for entry in entries:
+                ext_id = catalog_to_ext.get(entry.id)
+                if not ext_id:
+                    continue
+                dz_resp = requests.get(f"{DEEZER_API}/track/{ext_id}", timeout=10).json()
+                if dz_resp.get("id") and enrich_entry(entry, dz_resp, s3=s3, _known_isrcs=existing_isrcs):
+                    enriched += 1
+                time.sleep(0.12)
+        else:
+            # For TIDAL/Spotify: cross-search via Deezer by artist+title
+            for entry in entries:
+                dz_hit = search_deezer(entry.artist, entry.title)
+                if dz_hit and enrich_entry(entry, dz_hit, s3=s3, _known_isrcs=existing_isrcs):
+                    enriched += 1
+                time.sleep(0.15)
 
         session.commit()
 
     requests.patch(f"{API_BASE}/api/watchlist/{target['id']}/crawled", timeout=10)
     return {
         "playlist_id": playlist_id,
-        "title": target.get("title"),
+        "source": source,
+        "title": target.get("title") or meta.title,
         "inserted": inserted,
         "enriched": enriched,
-        "total_tracks": len(tracks),
+        "total_tracks": len(source_tracks),
     }
 
 
