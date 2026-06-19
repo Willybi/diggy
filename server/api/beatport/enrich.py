@@ -11,17 +11,6 @@ from datetime import date
 logger = logging.getLogger(__name__)
 
 
-def parse_camelot_key(bp_key: dict | None) -> str | None:
-    """Convert Beatport key {camelot_number, camelot_letter} to '7A' format."""
-    if not bp_key:
-        return None
-    num = bp_key.get("camelot_number")
-    letter = bp_key.get("camelot_letter")
-    if num is not None and letter:
-        return f"{num}{letter}"
-    return None
-
-
 def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
     """Apply Beatport data to a CatalogEntry. Returns True if anything changed."""
     from deezer_enrich import upload_cover_from_url
@@ -41,14 +30,14 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
         entry.bpm_source = "beatport"
         changed = True
 
-    # Key — Camelot notation
-    camelot = parse_camelot_key(bp_track.get("key"))
-    if camelot and entry.key_source != "beatport":
+    # Key — already Camelot string from _normalize_track (e.g. "8A")
+    camelot = bp_track.get("key")
+    if camelot and isinstance(camelot, str) and entry.key_source != "beatport":
         entry.key = camelot
         entry.key_source = "beatport"
         changed = True
 
-    # Label — fill only if missing (lives under release.label in Beatport API)
+    # Label — fill only if missing (lives under release.label)
     release = bp_track.get("release") or {}
     label_obj = bp_track.get("label") or release.get("label")
     if label_obj and not entry.label:

@@ -1,97 +1,130 @@
-"""Sync Beatport API v4 client with Redis-cached anonymous JWT."""
+"""Sync Beatport client — scrapes search pages for track metadata.
+
+Beatport's API v4 requires auth that isn't available to server-side scrapers.
+Instead, we scrape the Next.js SSR pages which embed full track data in
+__NEXT_DATA__ → dehydratedState.
+"""
 import json
 import logging
-import os
 import re
 import time
 
-import redis
 import requests
 
 logger = logging.getLogger(__name__)
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-REDIS_KEY = "beatport:anon_token"
-REDIS_TTL = 580  # token lives ~600s, cache with margin
+BASE_URL = "https://www.beatport.com"
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+RATE_LIMIT = 1.5  # seconds between page scrapes (conservative)
 
-BASE_URL = "https://api.beatport.com/v4"
-SCRAPE_URL = "https://www.beatport.com/genre/techno/6/tracks"
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+# Beatport key_name → Camelot notation
+_KEY_TO_CAMELOT = {
+    "Ab Minor": "1A", "B Major": "1B",
+    "Eb Minor": "2A", "F# Major": "2B", "Gb Major": "2B",
+    "Bb Minor": "3A", "Db Major": "3B",
+    "F Minor": "4A", "Ab Major": "4B",
+    "C Minor": "5A", "Eb Major": "5B",
+    "G Minor": "6A", "Bb Major": "6B",
+    "D Minor": "7A", "F Major": "7B",
+    "A Minor": "8A", "C Major": "8B",
+    "E Minor": "9A", "G Major": "9B",
+    "B Minor": "10A", "D Major": "10B",
+    "F# Minor": "11A", "Gb Minor": "11A", "A Major": "11B",
+    "Db Minor": "12A", "C# Minor": "12A", "E Major": "12B",
+    "G# Minor": "12A",  # enharmonic alias
+}
 
-RATE_LIMIT = 1.0
+
+def _key_to_camelot(key_name: str | None) -> str | None:
+    """Convert Beatport key_name (e.g. 'Ab Minor') to Camelot (e.g. '1A')."""
+    if not key_name:
+        return None
+    return _KEY_TO_CAMELOT.get(key_name)
+
+
+def _normalize_track(raw: dict) -> dict:
+    """Normalize a scrape-format track to a consistent dict for enrich.py."""
+    label_obj = raw.get("label") or {}
+    genre_list = raw.get("genre") or []
+    release = raw.get("release") or {}
+    publish = raw.get("publish_date") or ""
+
+    return {
+        "id": raw.get("track_id"),
+        "name": raw.get("track_name"),
+        "mix_name": raw.get("mix_name"),
+        "bpm": raw.get("bpm"),
+        "key": _key_to_camelot(raw.get("key_name")),
+        "isrc": raw.get("isrc"),
+        "label": {"name": label_obj.get("label_name")} if label_obj.get("label_name") else None,
+        "genre": {"name": genre_list[0]["genre_name"]} if genre_list else None,
+        "release": {
+            "name": release.get("release_name"),
+            "label": {"name": label_obj.get("label_name")} if label_obj.get("label_name") else None,
+            "image": {
+                "dynamic_uri": release.get("release_image_dynamic_uri"),
+            },
+        },
+        "publish_date": publish[:10] if publish else None,
+        "length_ms": raw.get("length"),
+    }
 
 
 class BeatportClient:
-    def __init__(self, redis_client: redis.Redis | None = None):
-        self._redis = redis_client or redis.Redis.from_url(REDIS_URL)
+    def __init__(self):
         self._last_request_time = 0.0
 
-    def _scrape_token(self) -> str:
-        resp = requests.get(
-            SCRAPE_URL,
-            headers={"User-Agent": USER_AGENT},
-            timeout=15,
-        )
+    def _scrape_page(self, path: str) -> dict:
+        """Fetch a Beatport page and extract __NEXT_DATA__ JSON."""
+        elapsed = time.monotonic() - self._last_request_time
+        if elapsed < RATE_LIMIT:
+            time.sleep(RATE_LIMIT - elapsed)
+
+        url = f"{BASE_URL}{path}"
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+        self._last_request_time = time.monotonic()
         resp.raise_for_status()
+
         match = re.search(
             r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
             resp.text,
             re.DOTALL,
         )
         if not match:
-            raise RuntimeError("Beatport: __NEXT_DATA__ not found in page")
-        data = json.loads(match.group(1))
-        try:
-            token = data["props"]["pageProps"]["anonSession"]["access_token"]
-        except KeyError as exc:
-            raise RuntimeError("Beatport: access_token not found in __NEXT_DATA__") from exc
-        return token
+            raise RuntimeError(f"Beatport: __NEXT_DATA__ not found on {path}")
+        return json.loads(match.group(1))
 
-    def _get_token(self, force_refresh: bool = False) -> str:
-        if not force_refresh:
-            cached = self._redis.get(REDIS_KEY)
-            if cached:
-                return cached.decode()
-        token = self._scrape_token()
-        self._redis.setex(REDIS_KEY, REDIS_TTL, token)
-        return token
-
-    def _get(self, path: str, params: dict | None = None) -> dict:
-        elapsed = time.monotonic() - self._last_request_time
-        if elapsed < RATE_LIMIT:
-            time.sleep(RATE_LIMIT - elapsed)
-
-        token = self._get_token()
-        headers = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
-
-        resp = requests.get(f"{BASE_URL}{path}", params=params, headers=headers, timeout=15)
-        self._last_request_time = time.monotonic()
-
-        if resp.status_code == 401:
-            logger.info("Beatport 401 — refreshing token")
-            token = self._get_token(force_refresh=True)
-            headers["Authorization"] = f"Bearer {token}"
-            resp = requests.get(f"{BASE_URL}{path}", params=params, headers=headers, timeout=15)
-            self._last_request_time = time.monotonic()
-
-        resp.raise_for_status()
-        return resp.json()
+    def _extract_queries(self, data: dict) -> list[dict]:
+        """Extract dehydratedState queries from __NEXT_DATA__."""
+        return (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("dehydratedState", {})
+            .get("queries", [])
+        )
 
     # ── Public methods ──
 
-    def get_track(self, track_id: int) -> dict:
-        return self._get(f"/catalog/tracks/{track_id}/")
-
     def search_track(self, title: str, artist: str | None = None) -> list[dict]:
+        """Search Beatport for tracks by title+artist. Returns normalized dicts."""
         q = f"{artist} {title}" if artist else title
-        data = self._get("/catalog/search/", params={"q": q, "type": "tracks", "per_page": 5})
-        return data.get("tracks", data.get("results", []))
+        data = self._scrape_page(f"/search?q={requests.utils.quote(q)}&type=tracks")
 
-    def get_track_by_isrc(self, isrc: str) -> dict | None:
-        data = self._get("/catalog/tracks/", params={"isrc": isrc})
-        results = data.get("results", [data] if "id" in data else [])
-        return results[0] if results else None
+        for query in self._extract_queries(data):
+            state = query.get("state", {}).get("data", {})
+            if isinstance(state, dict) and "tracks" in state:
+                tracks_data = state["tracks"]
+                raw_list = tracks_data.get("data", []) if isinstance(tracks_data, dict) else []
+                return [_normalize_track(t) for t in raw_list[:10]]
+        return []
 
-    def get_artist_tracks(self, artist_id: int, per_page: int = 20) -> list[dict]:
-        data = self._get(f"/catalog/artists/{artist_id}/tracks/", params={"per_page": per_page})
-        return data.get("results", [])
+    def search_track_by_isrc(self, isrc: str) -> dict | None:
+        """Search Beatport using ISRC as query. Returns first match or None."""
+        results = self.search_track(isrc)
+        for t in results:
+            if t.get("isrc") == isrc:
+                return t
+        return None
