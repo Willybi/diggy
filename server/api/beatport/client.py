@@ -22,19 +22,18 @@ RATE_LIMIT = 1.5  # seconds between page scrapes (conservative)
 
 # Beatport key_name → Camelot notation
 _KEY_TO_CAMELOT = {
-    "Ab Minor": "1A", "B Major": "1B",
-    "Eb Minor": "2A", "F# Major": "2B", "Gb Major": "2B",
-    "Bb Minor": "3A", "Db Major": "3B",
-    "F Minor": "4A", "Ab Major": "4B",
-    "C Minor": "5A", "Eb Major": "5B",
-    "G Minor": "6A", "Bb Major": "6B",
-    "D Minor": "7A", "F Major": "7B",
+    "Ab Minor": "1A", "G# Minor": "1A", "B Major": "1B", "Cb Major": "1B",
+    "Eb Minor": "2A", "D# Minor": "2A", "F# Major": "2B", "Gb Major": "2B",
+    "Bb Minor": "3A", "A# Minor": "3A", "Db Major": "3B", "C# Major": "3B",
+    "F Minor": "4A", "Ab Major": "4B", "G# Major": "4B",
+    "C Minor": "5A", "Eb Major": "5B", "D# Major": "5B",
+    "G Minor": "6A", "Bb Major": "6B", "A# Major": "6B",
+    "D Minor": "7A", "F Major": "7B", "E# Major": "7B",
     "A Minor": "8A", "C Major": "8B",
-    "E Minor": "9A", "G Major": "9B",
-    "B Minor": "10A", "D Major": "10B",
+    "E Minor": "9A", "Fb Minor": "9A", "G Major": "9B",
+    "B Minor": "10A", "Cb Minor": "10A", "D Major": "10B",
     "F# Minor": "11A", "Gb Minor": "11A", "A Major": "11B",
-    "Db Minor": "12A", "C# Minor": "12A", "E Major": "12B",
-    "G# Minor": "12A",  # enharmonic alias
+    "C# Minor": "12A", "Db Minor": "12A", "E Major": "12B", "Fb Major": "12B",
 }
 
 
