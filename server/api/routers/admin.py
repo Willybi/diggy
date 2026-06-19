@@ -384,6 +384,50 @@ async def trigger_enrich_beatport(
     return SyncQueued(status="queued", task_id=result.id)
 
 
+@router.post("/enrich-beatport/{catalog_id}")
+async def enrich_single_beatport(
+    catalog_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Enrich a single catalog entry via Beatport (sync, ~3s)."""
+    from models import CatalogEntry
+    from beatport.client import BeatportClient
+    from beatport.enrich import enrich_from_beatport
+
+    entry = (await db.execute(
+        select(CatalogEntry).where(CatalogEntry.id == catalog_id)
+    )).scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    client = BeatportClient()
+    bp_track = None
+
+    if entry.isrc:
+        bp_track = client.search_track_by_isrc(entry.isrc)
+    if not bp_track and entry.title:
+        results = client.search_track(entry.title, entry.artist)
+        if results:
+            bp_track = results[0]
+
+    if not bp_track:
+        return {"status": "not_found", "catalog_id": catalog_id}
+
+    changed = enrich_from_beatport(entry, bp_track)
+    if changed:
+        await db.commit()
+
+    return {
+        "status": "enriched" if changed else "unchanged",
+        "catalog_id": catalog_id,
+        "bpm": entry.bpm,
+        "key": entry.key,
+        "label": entry.label,
+        "beatport_id": entry.beatport_id,
+    }
+
+
 @router.post("/sets/{set_id}/artists")
 async def add_set_artist(
     set_id: int,
