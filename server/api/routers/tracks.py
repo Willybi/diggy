@@ -2,23 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import get_db
-from models import UserTrack, CatalogEntry
+from models import UserTrack, CatalogEntry, User
 from schemas import TrackOut, TrackList, TrackExisting, TrackImport, BulkImportResult
-from dependencies import get_current_user_optional
-from models import User
+from dependencies import get_current_user_optional, uid as _uid
 import json
 import base64
 import tempfile
 import os
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
-
-# User par défaut en soft mode (phase 2 — auth non obligatoire)
-_DEFAULT_USER_ID = 1
-
-
-def _uid(user: User | None) -> int:
-    return user.id if user else _DEFAULT_USER_ID
 
 
 @router.get("/existing-ids", response_model=list[TrackExisting])

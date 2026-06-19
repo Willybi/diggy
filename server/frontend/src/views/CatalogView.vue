@@ -84,7 +84,7 @@
               </td>
               <td class="col-bpm num"><span class="mono">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
               <td class="col-key num"><span class="mono key-val">{{ e.key || '—' }}</span></td>
-              <td class="col-duration num"><span class="mono">{{ e.duration_ms > 0 ? formatDuration(e.duration_ms) : '—' }}</span></td>
+              <td class="col-duration num"><span class="mono">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—' }}</span></td>
               <td class="col-rating num">
                 <span v-if="e.rating" class="rating">
                   <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= e.rating }">★</span>
@@ -121,6 +121,7 @@ import LibDot from '../components/LibDot.vue'
 import StyleTag from '../components/StyleTag.vue'
 import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { fmtMs } from '../utils/format'
 
 const PAGE_SIZE = 50
 
@@ -227,13 +228,6 @@ function sort(key) {
   }
   page.value = 1
   fetchPage()
-}
-
-function formatDuration(ms) {
-  if (!ms || ms <= 0) return '—'
-  const s = Math.floor(ms / 1000)
-  if (s === 0) return '—'
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
 onMounted(() => {

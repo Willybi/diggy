@@ -87,8 +87,6 @@ services:
     volumes:
       - ./server/frontend:/app
       - /app/node_modules
-    environment:
-      - VITE_API_URL=/api
 
   minio:
     image: minio/minio:latest

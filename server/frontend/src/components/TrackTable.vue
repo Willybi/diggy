@@ -6,7 +6,7 @@
           <th class="col-play" />
           <th v-for="col in COLS" :key="col.key"
             :class="['col-' + col.key, col.num ? 'num' : '', col.sortable ? 'sortable' : '', sortKey === col.key ? 'is-sorted' : '']"
-            @click="console.log('TH CLICK', col.key); col.sortable ? toggleSort(col.key) : undefined"
+            @click="col.sortable ? toggleSort(col.key) : undefined"
           >
             {{ col.label }}
             <span v-if="col.sortable && sortKey === col.key" class="sort-indicator">
@@ -54,7 +54,7 @@
           </td>
           <td class="col-bpm num"><span class="mono">{{ track.bpm != null ? Math.round(track.bpm) : '—' }}</span></td>
           <td class="col-key num key-cell"><span class="mono">{{ track.key }}</span></td>
-          <td class="col-duration num"><span class="mono">{{ formatDuration(track.duration) }}</span></td>
+          <td class="col-duration num"><span class="mono">{{ fmtMs(track.duration) }}</span></td>
           <td class="col-rating num">
             <span class="rating">
               <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= track.rating }">★</span>
@@ -71,6 +71,7 @@ import { ref, computed } from 'vue'
 import StyleTag from './StyleTag.vue'
 import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { fmtMs } from '../utils/format'
 
 const props = defineProps({
   tracks: { type: Array, default: () => [] },
@@ -101,7 +102,6 @@ const sortKey = ref('title')
 const sortDir = ref('asc')
 
 function toggleSort(key) {
-  console.log('[TrackTable] toggleSort', key, 'externalSort:', props.externalSort)
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   } else {
@@ -141,13 +141,6 @@ function firstTag(track) {
   }
 }
 
-function formatDuration(ms) {
-  if (!ms) return '–'
-  const total = Math.round(ms / 1000)
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
 </script>
 
 <style scoped>

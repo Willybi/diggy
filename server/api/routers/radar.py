@@ -7,7 +7,7 @@ from sqlalchemy.orm import aliased
 
 from catalog import get_or_create_catalog
 from database import get_db
-from dependencies import get_current_user_optional
+from dependencies import get_current_user_optional, uid as _uid
 from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User
 from schemas import (
     RadarTrackIn,
@@ -19,12 +19,7 @@ from schemas import (
 
 router = APIRouter(prefix="/radar", tags=["radar"])
 
-_DEFAULT_USER_ID = 1
 _VALID_STATUSES = {"new", "seen", "added", "ignored"}
-
-
-def _uid(user: User | None) -> int:
-    return user.id if user else _DEFAULT_USER_ID
 
 
 # ---------- Enriched listing for RadarView ----------

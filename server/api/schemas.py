@@ -162,13 +162,13 @@ class CatalogList(BaseModel):
     items: list[CatalogEntryOut]
 
 
-class WatchedPlaylistIn(BaseModel):
+class WatchedEntityIn(BaseModel):
     external_id: str
     source: str
     description: Optional[str] = None
 
 
-class WatchedPlaylistOut(BaseModel):
+class WatchedEntityOut(BaseModel):
     id: int
     external_id: str
     source: str
@@ -183,7 +183,7 @@ class WatchedPlaylistOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class WatchedPlaylistBrowseOut(WatchedPlaylistOut):
+class WatchedEntityBrowseOut(WatchedEntityOut):
     followed: bool = False
 
 
@@ -202,7 +202,7 @@ class PlaylistTrackOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class WatchedPlaylistDetailOut(WatchedPlaylistOut):
+class WatchedEntityDetailOut(WatchedEntityOut):
     followed: bool = False
     tracks: list[PlaylistTrackOut] = []
 

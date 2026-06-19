@@ -36,7 +36,6 @@
   --accent:        oklch(var(--accent-l) var(--accent-c) var(--accent-h));
   --accent-hover:  oklch(0.565 0.138 var(--accent-h));
   --accent-soft:   oklch(0.940 0.046 var(--accent-h));
-  --accent-soft-2: oklch(0.900 0.062 var(--accent-h));
   --accent-ink:    oklch(0.470 0.122 var(--accent-h));
   --on-accent:     oklch(0.987 0.010 var(--accent-h));
   --accent-wash:   oklch(0.962 0.022 var(--accent-h)); /* row tint is-playing, plus discret que hover */
@@ -47,6 +46,9 @@
   --pos:      oklch(var(--pos-l) var(--pos-c) var(--pos-h));
   --pos-soft: oklch(0.940 0.046 var(--pos-h));
   --pos-ink:  oklch(0.460 0.098 var(--pos-h));
+
+  /* ---- error / negative ---- */
+  --error: oklch(0.55 0.18 25);
 
   /* ---- style-tag chip lightness/chroma (hue+shade set per chip) ---- */
   --tag-bg-l: 0.940;  --tag-bg-c: 0.060;
@@ -113,7 +115,6 @@
   --accent-l: 0.760;  --accent-c: 0.128;
   --accent-hover:  oklch(0.810 0.122 var(--accent-h));
   --accent-soft:   oklch(0.338 0.066 var(--accent-h));
-  --accent-soft-2: oklch(0.388 0.078 var(--accent-h));
   --accent-ink:    oklch(0.832 0.108 var(--accent-h));
   --on-accent:     oklch(0.182 0.030 var(--accent-h));
   --accent-wash:   oklch(0.272 0.038 var(--accent-h));
@@ -121,6 +122,8 @@
   --pos-l: 0.778;  --pos-c: 0.104;
   --pos-soft: oklch(0.338 0.062 var(--pos-h));
   --pos-ink:  oklch(0.832 0.094 var(--pos-h));
+
+  --error: oklch(0.65 0.18 25);
 
   --tag-bg-l: 0.336;  --tag-bg-c: 0.064;
   --tag-fg-l: 0.836;  --tag-fg-c: 0.106;
