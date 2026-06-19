@@ -21,6 +21,24 @@
 
       <StatStrip :stats="stats" />
 
+      <!-- Admin: Beatport enrichment -->
+      <div v-if="auth.user?.is_admin" class="admin-card">
+        <div class="admin-header">
+          <span class="admin-label">Admin</span>
+          <span class="mono muted">beatport_id: {{ track.beatport_id || '—' }}</span>
+        </div>
+        <div class="admin-row">
+          <button
+            class="btn-sync"
+            :disabled="enriching"
+            @click="enrichBeatport"
+          >
+            {{ enriching ? 'Recherche…' : track.beatport_id ? 'Re-enrichir Beatport' : 'Enrichir via Beatport' }}
+          </button>
+          <span v-if="enrichResult" class="enrich-result" :class="enrichResult.cls">{{ enrichResult.text }}</span>
+        </div>
+      </div>
+
       <RelBlock v-if="track.radar_appearances.length" title="Détecté dans" :count="track.radar_appearances.length">
         <AppearRow
           v-for="r in track.radar_appearances"
@@ -64,11 +82,19 @@ import AppearRow from '../components/AppearRow.vue'
 import InLibBadge from '../components/InLibBadge.vue'
 import StyleTag from '../components/StyleTag.vue'
 import HeroPlayer from '../components/HeroPlayer.vue'
+import { useAuthStore } from '../stores/auth.js'
 import { fmtMs, fmtBpm, fmtDate } from '../utils/format'
 
 const route = useRoute()
+const auth = useAuthStore()
 const track = ref(null)
 const loading = ref(true)
+const enriching = ref(false)
+const enrichResult = ref(null)
+
+function authHeaders() {
+  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
+}
 
 const coverSrc = computed(() => {
   if (!track.value) return null
@@ -90,6 +116,35 @@ const stats = computed(() => {
     { label: 'Radar', value: t.nb_radar_playlists || '—' },
   ]
 })
+
+async function enrichBeatport() {
+  enriching.value = true
+  enrichResult.value = null
+  try {
+    const { data } = await axios.post(
+      `/api/admin/enrich-beatport/${track.value.id}`,
+      {},
+      { headers: authHeaders() },
+    )
+    if (data.status === 'enriched') {
+      track.value.bpm = data.bpm
+      track.value.key = data.key
+      track.value.label = data.label
+      track.value.beatport_id = data.beatport_id
+      track.value.bpm_source = 'beatport'
+      track.value.key_source = 'beatport'
+      enrichResult.value = { text: `BPM=${data.bpm} Key=${data.key} Label=${data.label}`, cls: 'ok' }
+    } else if (data.status === 'unchanged') {
+      enrichResult.value = { text: 'Déjà à jour', cls: 'muted' }
+    } else {
+      enrichResult.value = { text: 'Non trouvé sur Beatport', cls: 'warn' }
+    }
+  } catch (e) {
+    enrichResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
+  } finally {
+    enriching.value = false
+  }
+}
 
 onMounted(async () => {
   try {
@@ -115,4 +170,50 @@ onMounted(async () => {
   font-style: italic;
   padding-top: 40px;
 }
+
+/* Admin card */
+.admin-card {
+  margin: 16px 0;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--warn-ink, #e67e22);
+  border-radius: var(--r-sm);
+}
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.admin-label {
+  font: 600 11px/1 var(--font-mono);
+  text-transform: uppercase;
+  color: var(--warn-ink, #e67e22);
+}
+.mono { font-family: var(--font-mono); font-size: 12px; }
+.muted { color: var(--ink-3); }
+.admin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.btn-sync {
+  padding: 7px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.btn-sync:disabled { opacity: 0.5; cursor: default; }
+.enrich-result {
+  font: 400 13px/1.4 var(--font-ui);
+}
+.enrich-result.ok { color: var(--pos-ink, #27ae60); }
+.enrich-result.warn { color: var(--warn-ink, #e67e22); }
+.enrich-result.err { color: var(--neg-ink, #c0392b); }
+.enrich-result.muted { color: var(--ink-3); }
 </style>
