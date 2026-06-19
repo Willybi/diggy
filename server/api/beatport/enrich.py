@@ -48,8 +48,9 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
         entry.key_source = "beatport"
         changed = True
 
-    # Label — fill only if missing
-    label_obj = bp_track.get("label")
+    # Label — fill only if missing (lives under release.label in Beatport API)
+    release = bp_track.get("release") or {}
+    label_obj = bp_track.get("label") or release.get("label")
     if label_obj and not entry.label:
         label_name = label_obj.get("name") if isinstance(label_obj, dict) else str(label_obj)
         if label_name:
@@ -75,7 +76,6 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
 
     # Artwork — only if missing
     if s3 and not entry.has_artwork:
-        release = bp_track.get("release") or {}
         image = release.get("image") or {}
         image_uri = image.get("dynamic_uri")
         if image_uri:

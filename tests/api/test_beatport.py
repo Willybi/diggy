@@ -65,10 +65,10 @@ SAMPLE_BP_TRACK = {
     "bpm": 138,
     "key": {"name": "A min", "camelot_number": 8, "camelot_letter": "A"},
     "isrc": "GBUM71234567",
-    "label": {"name": "Drumcode", "slug": "drumcode"},
     "genre": {"name": "Techno (Raw / Deep / Hypnotic)"},
     "release": {
         "name": "Acid Rain EP",
+        "label": {"name": "Drumcode", "slug": "drumcode"},
         "image": {"dynamic_uri": "https://geo-media.beatport.com/image_size/{w}x{h}/abc.jpg"},
     },
     "publish_date": "2024-01-15",
@@ -166,7 +166,7 @@ class TestEnrichFromBeatport:
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_handles_missing_label(self, mock_upload):
-        track = {**SAMPLE_BP_TRACK, "label": None}
+        track = {**SAMPLE_BP_TRACK, "release": {"name": "EP", "image": {}}}
         entry = _make_entry()
         enrich_from_beatport(entry, track)
 
