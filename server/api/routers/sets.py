@@ -1,4 +1,3 @@
-import os
 import re
 from datetime import datetime, timezone
 
@@ -8,8 +7,9 @@ from sqlalchemy import select, func, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from celery_client import celery
 from database import get_db
-from dependencies import get_current_user, get_current_user_optional
+from dependencies import get_current_user, get_current_user_optional, uid as _uid
 from models import (
     DJSet, SetTrack, SetArtist, Artist, CatalogEntry, UserTrack,
     UserSetFollow, User,
@@ -20,12 +20,6 @@ from schemas import (
 )
 
 router = APIRouter(prefix="/sets", tags=["sets"])
-
-_DEFAULT_USER_ID = 1
-
-
-def _uid(user: User | None) -> int:
-    return user.id if user else _DEFAULT_USER_ID
 
 
 # ---------- Schemas ----------
@@ -222,9 +216,7 @@ async def import_set_url(
         await db.refresh(dj_set)
 
         # Fire track resolution in background
-        from celery import Celery
-        _celery = Celery(broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"))
-        _celery.send_task("workers.tasks.resolve_set_tracks")
+        celery.send_task("workers.tasks.resolve_set_tracks")
 
         return {"id": dj_set.id, "title": dj_set.title}
 

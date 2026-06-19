@@ -174,9 +174,6 @@ class WatchedEntity(Base):
     owner = Column(String(255), nullable=True)
 
 
-# Alias pour compatibilité avec le code existant qui importe WatchedPlaylist
-WatchedPlaylist = WatchedEntity
-
 
 class UserFollow(Base):
     __tablename__ = "user_follows"

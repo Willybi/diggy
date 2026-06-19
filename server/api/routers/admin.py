@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
+from celery_client import celery
 from dependencies import require_admin
 from models import Artist, ArtistAlias, ArtistFlag, SetArtist, User
 from utils import normalize
@@ -81,13 +82,7 @@ class DeezerArtistHit(BaseModel):
 # ---------- Endpoints ----------
 
 def _send_sync_task() -> str:
-    import os
-    from celery import Celery
-    _celery = Celery(
-        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-    )
-    result = _celery.send_task("workers.tasks.sync_artists")
+    result = celery.send_task("workers.tasks.sync_artists")
     return result.id
 
 
@@ -106,14 +101,8 @@ async def sync_status(
     _: User = Depends(require_admin),
 ):
     """Poll Celery task result."""
-    import os
-    from celery import Celery
     from celery.result import AsyncResult
-    _celery = Celery(
-        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-    )
-    res = AsyncResult(task_id, app=_celery)
+    res = AsyncResult(task_id, app=celery)
     if res.state == "PENDING" or res.state == "STARTED":
         return SyncStatus(status="running")
     if res.state == "SUCCESS":
@@ -128,13 +117,7 @@ async def fetch_artworks(
     _: User = Depends(require_admin),
 ):
     """Fire-and-forget: fetch Deezer images for all artists with deezer_id."""
-    import os
-    from celery import Celery
-    _celery = Celery(
-        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-    )
-    result = _celery.send_task("workers.tasks.fetch_artist_artworks")
+    result = celery.send_task("workers.tasks.fetch_artist_artworks")
     return SyncQueued(status="queued", task_id=result.id)
 
 
@@ -379,13 +362,7 @@ async def link_set_artists_task(
     _: User = Depends(require_admin),
 ):
     """Fire-and-forget: parse set titles and link artists."""
-    import os
-    from celery import Celery
-    _celery = Celery(
-        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-    )
-    result = _celery.send_task("workers.tasks.link_set_artists")
+    result = celery.send_task("workers.tasks.link_set_artists")
     return SyncQueued(status="queued", task_id=result.id)
 
 
@@ -394,13 +371,7 @@ async def refresh_artist_genres(
     _: User = Depends(require_admin),
 ):
     """Fire-and-forget: infer genres for all artists from their catalog tracks."""
-    import os
-    from celery import Celery
-    _celery = Celery(
-        broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-        backend=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-    )
-    result = _celery.send_task("workers.tasks.populate_artist_genres")
+    result = celery.send_task("workers.tasks.populate_artist_genres")
     return SyncQueued(status="queued", task_id=result.id)
 
 

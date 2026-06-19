@@ -155,7 +155,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         )
         .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
         .where(or_(*name_filters))
-        .order_by(lib_sub.c.rating.desc().nullslast(), CatalogEntry.title)
+        .order_by(lib_sub.c.rating.desc().nulls_last(), CatalogEntry.title)
         .limit(50)
     )
     cat_rows = cat_result.all()
@@ -216,7 +216,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
         .where(SetArtist.artist_id == artist_id)
         .group_by(DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork, SetArtist.role)
-        .order_by(DJSet.played_date.desc().nullslast())
+        .order_by(DJSet.played_date.desc().nulls_last())
     )
     sets = [
         ArtistSetOut(

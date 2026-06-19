@@ -155,13 +155,13 @@ async function submit() {
 
 .login-error {
   font: 400 13px/1.4 var(--font-ui);
-  color: oklch(0.55 0.18 25);
+  color: var(--error);
   margin: 0;
 }
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
   border-radius: 8px;
   padding: 11px 16px;

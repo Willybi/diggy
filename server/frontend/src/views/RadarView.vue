@@ -80,7 +80,7 @@
               <td class="col-genre"><span class="mono muted">{{ t.genre || '—' }}</span></td>
               <td class="col-bpm num"><span class="mono">{{ t.bpm != null ? Math.round(t.bpm) : '—' }}</span></td>
               <td class="col-key num"><span class="mono key-val">{{ t.key || '—' }}</span></td>
-              <td class="col-duration num"><span class="mono">{{ t.duration_ms > 0 ? formatDuration(t.duration_ms) : '—' }}</span></td>
+              <td class="col-duration num"><span class="mono">{{ t.duration_ms > 0 ? fmtMs(t.duration_ms) : '—' }}</span></td>
               <td class="col-playlist"><span class="playlist-tag" v-if="t.playlist_title">{{ t.playlist_title }}</span></td>
               <td class="col-date"><span class="mono muted">{{ formatDate(t.detected_at) }}</span></td>
               <td class="col-inlib">
@@ -119,6 +119,7 @@ import axios from 'axios'
 import LibDot from '../components/LibDot.vue'
 import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { fmtMs } from '../utils/format'
 
 const PAGE_SIZE = 50
 
@@ -229,13 +230,6 @@ async function setState(track, status) {
     // Update counts locally
     fetchPage()
   } catch {}
-}
-
-function formatDuration(ms) {
-  if (!ms || ms <= 0) return '—'
-  const s = Math.floor(ms / 1000)
-  if (s === 0) return '—'
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
 function formatDate(iso) {

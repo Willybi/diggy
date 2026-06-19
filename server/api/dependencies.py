@@ -47,3 +47,13 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return user
+
+
+# ── Soft-mode user ID (auth not enforced yet) ──
+
+_DEFAULT_USER_ID = 1
+
+
+def uid(user: User | None) -> int:
+    """Return user.id if authenticated, else fallback to default."""
+    return user.id if user else _DEFAULT_USER_ID

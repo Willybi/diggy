@@ -5,24 +5,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, exists, case, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from celery_client import celery
 from database import get_db
-from dependencies import get_current_user_optional
+from dependencies import get_current_user_optional, uid as _uid
 from sqlalchemy import func
 
 from models import WatchedEntity, UserFollow, User, RadarTrack, CatalogEntry
 from schemas import (
-    WatchedPlaylistIn, WatchedPlaylistOut, WatchedPlaylistBrowseOut,
-    WatchedPlaylistDetailOut, PlaylistTrackOut,
+    WatchedEntityIn, WatchedEntityOut, WatchedEntityBrowseOut,
+    WatchedEntityDetailOut, PlaylistTrackOut,
 )
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 DEEZER_API = "https://api.deezer.com"
-_DEFAULT_USER_ID = 1
-
-
-def _uid(user: User | None) -> int:
-    return user.id if user else _DEFAULT_USER_ID
 
 
 def _fetch_deezer_playlist(external_id: str) -> dict:
@@ -43,13 +39,10 @@ def _fetch_deezer_playlist(external_id: str) -> dict:
 
 def _trigger_crawl(playlist_id: int):
     """Fire-and-forget Celery task to crawl a single playlist."""
-    import os
-    from celery import Celery
-    _celery = Celery(broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"))
-    _celery.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
+    celery.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
 
 
-@router.get("/", response_model=list[WatchedPlaylistOut])
+@router.get("/", response_model=list[WatchedEntityOut])
 async def list_watched(
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -63,7 +56,7 @@ async def list_watched(
     return result.scalars().all()
 
 
-@router.get("/browse", response_model=list[WatchedPlaylistBrowseOut])
+@router.get("/browse", response_model=list[WatchedEntityBrowseOut])
 async def browse_playlists(
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -82,14 +75,14 @@ async def browse_playlists(
     )
     rows = result.all()
     return [
-        WatchedPlaylistBrowseOut.model_validate(
+        WatchedEntityBrowseOut.model_validate(
             {**entity.__dict__, "followed": followed}
         )
         for entity, followed in rows
     ]
 
 
-@router.get("/{entry_id}", response_model=WatchedPlaylistDetailOut)
+@router.get("/{entry_id}", response_model=WatchedEntityDetailOut)
 async def get_playlist_detail(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
@@ -130,14 +123,14 @@ async def get_playlist_detail(
     )
     tracks = [PlaylistTrackOut.model_validate(row._mapping) for row in tracks_result]
 
-    return WatchedPlaylistDetailOut.model_validate(
+    return WatchedEntityDetailOut.model_validate(
         {**entity.__dict__, "followed": followed, "tracks": tracks}
     )
 
 
-@router.post("/", response_model=WatchedPlaylistOut, status_code=201)
+@router.post("/", response_model=WatchedEntityOut, status_code=201)
 async def add_watched(
-    body: WatchedPlaylistIn,
+    body: WatchedEntityIn,
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -185,7 +178,7 @@ async def add_watched(
     return entity
 
 
-@router.post("/{entry_id}/follow", response_model=WatchedPlaylistOut)
+@router.post("/{entry_id}/follow", response_model=WatchedEntityOut)
 async def follow_playlist(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
@@ -238,7 +231,7 @@ async def crawl_playlist(
     return {"status": "crawl_queued", "playlist_id": entry_id}
 
 
-@router.patch("/{entry_id}/crawled", response_model=WatchedPlaylistOut)
+@router.patch("/{entry_id}/crawled", response_model=WatchedEntityOut)
 async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
     entry = result.scalar_one_or_none()

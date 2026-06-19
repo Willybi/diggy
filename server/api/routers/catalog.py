@@ -6,10 +6,10 @@ import httpx
 import json as _json
 
 from database import get_db
-from dependencies import get_current_user_optional
+from dependencies import get_current_user_optional, uid as _uid
 from models import (
     CatalogEntry, UserTrack, RadarTrack, SetTrack,
-    DJSet, SetArtist, Artist, WatchedPlaylist, User,
+    DJSet, SetArtist, Artist, WatchedEntity, User,
 )
 from schemas import (
     CatalogEntryOut, CatalogList, CatalogDetailOut,
@@ -18,16 +18,10 @@ from schemas import (
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
-_DEFAULT_USER_ID = 1
-
 SORTABLE_COLS = {
     "title": CatalogEntry.title,
     "nb_radar_playlists": None,
 }
-
-
-def _uid(user: User | None) -> int:
-    return user.id if user else _DEFAULT_USER_ID
 
 
 @router.get("/", response_model=CatalogList)
@@ -229,11 +223,11 @@ async def get_catalog_detail(
     radar_result = await db.execute(
         select(
             RadarTrack.watched_entity_id,
-            WatchedPlaylist.title,
-            WatchedPlaylist.source,
+            WatchedEntity.title,
+            WatchedEntity.source,
             RadarTrack.detected_at,
         )
-        .join(WatchedPlaylist, WatchedPlaylist.id == RadarTrack.watched_entity_id)
+        .join(WatchedEntity, WatchedEntity.id == RadarTrack.watched_entity_id)
         .where(RadarTrack.catalog_id == catalog_id)
         .order_by(RadarTrack.detected_at.desc())
         .limit(10)
@@ -254,7 +248,7 @@ async def get_catalog_detail(
         )
         .join(DJSet, DJSet.id == SetTrack.set_id)
         .where(SetTrack.catalog_id == catalog_id)
-        .order_by(DJSet.played_date.desc().nullslast())
+        .order_by(DJSet.played_date.desc().nulls_last())
         .limit(10)
     )
     set_appearances = [
@@ -284,7 +278,7 @@ async def get_catalog_detail(
             .outerjoin(sa_ut_sub, CatalogEntry.id == sa_ut_sub.c.catalog_id)
             .where(CatalogEntry.artist.ilike(entry.artist))
             .where(CatalogEntry.id != catalog_id)
-            .order_by(sa_ut_sub.c.rating.desc().nullslast())
+            .order_by(sa_ut_sub.c.rating.desc().nulls_last())
             .limit(10)
         )
         same_artist = [
