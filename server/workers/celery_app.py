@@ -34,5 +34,9 @@ celery_app.conf.update(
             "task": "workers.tasks.crawl_followed_sets",
             "schedule": crontab(hour=9, minute=0),  # tous les jours à 9h
         },
+        "enrich-catalog-beatport-weekly": {
+            "task": "workers.tasks.enrich_catalog_beatport",
+            "schedule": crontab(hour=5, minute=0, day_of_week=0),  # dimanche à 5h
+        },
     },
 )

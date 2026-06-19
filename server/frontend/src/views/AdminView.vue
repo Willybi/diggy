@@ -69,6 +69,23 @@
       </div>
     </section>
 
+    <!-- Enrich Beatport -->
+    <section class="admin-section">
+      <h2 class="section-title">Enrichissement Beatport</h2>
+      <p class="section-sub">Enrichit le catalogue via Beatport API : BPM, key (Camelot), label, genre, artwork. ISRC d'abord, fallback titre+artiste.</p>
+      <div class="sync-row">
+        <button class="btn-sync" :disabled="enrichingBeatport" @click="runEnrichBeatport">
+          {{ enrichingBeatport ? 'Enrichissement en cours…' : 'Enrich Beatport' }}
+        </button>
+        <div v-if="beatportResult" class="sync-result">
+          <span class="result-item ok">✓ {{ beatportResult.enriched }} enrichis</span>
+          <span class="result-item muted">↷ {{ beatportResult.not_found }} non trouvés</span>
+          <span v-if="beatportResult.errors" class="result-item warn">⚠ {{ beatportResult.errors }} erreurs</span>
+        </div>
+        <span v-if="beatportError" class="sync-error">{{ beatportError }}</span>
+      </div>
+    </section>
+
     <!-- Liaison manuelle artiste ↔ Deezer -->
     <section class="admin-section">
       <h2 class="section-title">Lier un artiste à Deezer</h2>
@@ -248,6 +265,9 @@ const genresResult = ref(null)
 const genresError = ref('')
 const artworksResult = ref(null)
 const artworksError = ref('')
+const enrichingBeatport = ref(false)
+const beatportResult = ref(null)
+const beatportError = ref('')
 
 // Manual link
 const linkArtistQuery = ref('')
@@ -424,6 +444,30 @@ async function runRefreshGenres() {
   } catch (e) {
     genresError.value = e.response?.data?.detail || 'Erreur'
     refreshingGenres.value = false
+  }
+}
+
+async function runEnrichBeatport() {
+  enrichingBeatport.value = true
+  beatportResult.value = null
+  beatportError.value = ''
+  try {
+    const { data } = await axios.post('/api/admin/enrich-beatport', {}, { headers: authHeaders() })
+    let attempts = 0
+    const timer = setInterval(async () => {
+      attempts++
+      if (attempts > 300) { clearInterval(timer); beatportError.value = 'Timeout'; enrichingBeatport.value = false; return }
+      try {
+        const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
+        if (st.status === 'done') { clearInterval(timer); beatportResult.value = st.result; enrichingBeatport.value = false }
+        else if (st.status === 'error') { clearInterval(timer); beatportError.value = st.error || 'Erreur'; enrichingBeatport.value = false }
+      } catch (err) {
+        clearInterval(timer); beatportError.value = 'Erreur polling: ' + (err.message || 'inconnue'); enrichingBeatport.value = false
+      }
+    }, 5000)
+  } catch (e) {
+    beatportError.value = e.response?.data?.detail || 'Erreur'
+    enrichingBeatport.value = false
   }
 }
 

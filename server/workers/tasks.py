@@ -949,3 +949,72 @@ def crawl_followed_sets():
     }
 
 
+@celery_app.task(name="workers.tasks.enrich_catalog_beatport")
+def enrich_catalog_beatport():
+    """
+    Enrichit les entrées catalog via Beatport API v4.
+    Priorité 1: lookup par ISRC (fiable).
+    Priorité 2: search par artist+title (fallback).
+    Remplit: bpm, key, bpm_source, key_source, beatport_id, label, genre, release_date, artwork.
+    """
+    import logging
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import CatalogEntry
+    from beatport.client import BeatportClient
+    from beatport.enrich import enrich_from_beatport
+    from deezer_enrich import _get_s3, _ensure_bucket
+
+    logger = logging.getLogger(__name__)
+
+    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+    engine = create_engine(DATABASE_URL)
+
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
+    client = BeatportClient()
+    enriched = 0
+    not_found = 0
+    errors = 0
+
+    with Session(engine) as session:
+        entries = session.execute(
+            select(CatalogEntry).where(CatalogEntry.beatport_id.is_(None))
+            .order_by(CatalogEntry.id)
+        ).scalars().all()
+
+        for i, entry in enumerate(entries):
+            try:
+                bp_track = None
+
+                # Strategy 1: ISRC lookup (most reliable)
+                if entry.isrc:
+                    bp_track = client.get_track_by_isrc(entry.isrc)
+
+                # Strategy 2: title+artist search
+                if not bp_track and entry.title:
+                    results = client.search_track(entry.title, entry.artist)
+                    if results:
+                        bp_track = results[0]
+
+                if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
+                    enriched += 1
+                else:
+                    not_found += 1
+
+            except Exception as e:
+                logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
+                errors += 1
+                time.sleep(2)
+
+            if (i + 1) % 100 == 0:
+                session.commit()
+
+        session.commit()
+
+    return {"enriched": enriched, "not_found": not_found, "errors": errors}
+
+
