@@ -169,6 +169,37 @@ def crawl_single_playlist(playlist_id: int):
 
         session.commit()
 
+    # 4. Enrich via Beatport (BPM, key, label) for entries still missing beatport_id
+    bp_enriched = 0
+    try:
+        from beatport.client import BeatportClient
+        from beatport.enrich import enrich_from_beatport
+
+        bp_client = BeatportClient()
+        with Session(engine) as session:
+            bp_entries = session.execute(
+                select(CatalogEntry).where(
+                    CatalogEntry.id.in_(catalog_ids),
+                    CatalogEntry.beatport_id.is_(None),
+                )
+            ).scalars().all()
+            for entry in bp_entries:
+                try:
+                    bp_track = None
+                    if entry.isrc:
+                        bp_track = bp_client.search_track_by_isrc(entry.isrc)
+                    if not bp_track:
+                        bp_track_list = bp_client.search_track(entry.title, entry.artist)
+                        if bp_track_list:
+                            bp_track = bp_track_list[0]
+                    if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
+                        bp_enriched += 1
+                except Exception as e:
+                    logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
+            session.commit()
+    except Exception as e:
+        logger.warning("Beatport enrichment step skipped: %s", e)
+
     requests.patch(f"{API_BASE}/api/watchlist/{target['id']}/crawled", timeout=10)
     return {
         "playlist_id": playlist_id,
@@ -176,6 +207,7 @@ def crawl_single_playlist(playlist_id: int):
         "title": target.get("title") or meta.title,
         "inserted": inserted,
         "enriched": enriched,
+        "bp_enriched": bp_enriched,
         "total_tracks": len(source_tracks),
     }
 
@@ -294,7 +326,40 @@ def resolve_set_tracks():
 
         session.commit()
 
-    return {"resolved": resolved, "catalog_created": created, "enriched": enriched}
+    # Beatport enrichment for entries still missing beatport_id
+    bp_enriched = 0
+    try:
+        from beatport.client import BeatportClient
+        from beatport.enrich import enrich_from_beatport
+
+        bp_client = BeatportClient()
+        with Session(engine) as session:
+            bp_entries = session.execute(
+                select(CatalogEntry).where(
+                    CatalogEntry.beatport_id.is_(None),
+                    CatalogEntry.id.in_(
+                        select(SetTrack.catalog_id).where(SetTrack.catalog_id.isnot(None))
+                    ),
+                )
+            ).scalars().all()
+            for entry in bp_entries:
+                try:
+                    bp_track = None
+                    if entry.isrc:
+                        bp_track = bp_client.search_track_by_isrc(entry.isrc)
+                    if not bp_track:
+                        bp_track_list = bp_client.search_track(entry.title, entry.artist)
+                        if bp_track_list:
+                            bp_track = bp_track_list[0]
+                    if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
+                        bp_enriched += 1
+                except Exception as e:
+                    logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
+            session.commit()
+    except Exception as e:
+        logger.warning("Beatport enrichment step skipped: %s", e)
+
+    return {"resolved": resolved, "catalog_created": created, "enriched": enriched, "bp_enriched": bp_enriched}
 
 
 @celery_app.task(name="workers.tasks.enrich_catalog")

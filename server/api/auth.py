@@ -6,7 +6,7 @@ from jose import JWTError, jwt
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = 24
+JWT_EXPIRE_HOURS = 24 * 30  # 30 days — self-hosted personal app
 
 
 def hash_password(password: str) -> str:
