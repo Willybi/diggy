@@ -1015,12 +1015,15 @@ def crawl_followed_sets():
 
 
 @celery_app.task(name="workers.tasks.enrich_catalog_beatport")
-def enrich_catalog_beatport():
+def enrich_catalog_beatport(batch_size: int = 0):
     """
-    Enrichit les entrées catalog via Beatport API v4.
+    Enrichit les entrées catalog via Beatport (page scraping).
     Priorité 1: lookup par ISRC (fiable).
     Priorité 2: search par artist+title (fallback).
     Remplit: bpm, key, bpm_source, key_source, beatport_id, label, genre, release_date, artwork.
+
+    Args:
+        batch_size: max entries to process (0 = all).
     """
     import logging
     from sqlalchemy import create_engine, select
@@ -1046,10 +1049,14 @@ def enrich_catalog_beatport():
     errors = 0
 
     with Session(engine) as session:
-        entries = session.execute(
+        query = (
             select(CatalogEntry).where(CatalogEntry.beatport_id.is_(None))
             .order_by(CatalogEntry.id)
-        ).scalars().all()
+        )
+        if batch_size > 0:
+            query = query.limit(batch_size)
+        entries = session.execute(query).scalars().all()
+        total = len(entries)
 
         for i, entry in enumerate(entries):
             try:
@@ -1077,9 +1084,10 @@ def enrich_catalog_beatport():
 
             if (i + 1) % 100 == 0:
                 session.commit()
+                logger.info("Beatport enrich progress: %d/%d", i + 1, total)
 
         session.commit()
 
-    return {"enriched": enriched, "not_found": not_found, "errors": errors}
+    return {"enriched": enriched, "not_found": not_found, "errors": errors, "total": total}
 
 

@@ -377,10 +377,13 @@ async def refresh_artist_genres(
 
 @router.post("/enrich-beatport", response_model=SyncQueued)
 async def trigger_enrich_beatport(
+    batch_size: int = 0,
     _: User = Depends(require_admin),
 ):
-    """Fire-and-forget: enrich catalog entries via Beatport API (BPM, key, label)."""
-    result = celery.send_task("workers.tasks.enrich_catalog_beatport")
+    """Fire-and-forget: enrich catalog entries via Beatport (BPM, key, label).
+    batch_size: max entries to process (0 = all).
+    """
+    result = celery.send_task("workers.tasks.enrich_catalog_beatport", args=[batch_size])
     return SyncQueued(status="queued", task_id=result.id)
 
 
