@@ -72,8 +72,12 @@
     <!-- Enrich Beatport -->
     <section class="admin-section">
       <h2 class="section-title">Enrichissement Beatport</h2>
-      <p class="section-sub">Enrichit le catalogue via Beatport API : BPM, key (Camelot), label, genre, artwork. ISRC d'abord, fallback titre+artiste.</p>
+      <p class="section-sub">Enrichit le catalogue via Beatport : BPM, key (Camelot), label, genre, artwork. ISRC d'abord, fallback titre+artiste.</p>
       <div class="sync-row">
+        <label class="batch-label">
+          Batch size
+          <input v-model.number="beatportBatchSize" type="number" min="0" step="50" placeholder="0 = tout" class="batch-input" />
+        </label>
         <button class="btn-sync" :disabled="enrichingBeatport" @click="runEnrichBeatport">
           {{ enrichingBeatport ? 'Enrichissement en cours…' : 'Enrich Beatport' }}
         </button>
@@ -81,6 +85,7 @@
           <span class="result-item ok">✓ {{ beatportResult.enriched }} enrichis</span>
           <span class="result-item muted">↷ {{ beatportResult.not_found }} non trouvés</span>
           <span v-if="beatportResult.errors" class="result-item warn">⚠ {{ beatportResult.errors }} erreurs</span>
+          <span class="result-item muted">/ {{ beatportResult.total }} traités</span>
         </div>
         <span v-if="beatportError" class="sync-error">{{ beatportError }}</span>
       </div>
@@ -266,6 +271,7 @@ const genresError = ref('')
 const artworksResult = ref(null)
 const artworksError = ref('')
 const enrichingBeatport = ref(false)
+const beatportBatchSize = ref(0)
 const beatportResult = ref(null)
 const beatportError = ref('')
 
@@ -452,7 +458,8 @@ async function runEnrichBeatport() {
   beatportResult.value = null
   beatportError.value = ''
   try {
-    const { data } = await axios.post('/api/admin/enrich-beatport', {}, { headers: authHeaders() })
+    const params = beatportBatchSize.value > 0 ? `?batch_size=${beatportBatchSize.value}` : ''
+    const { data } = await axios.post(`/api/admin/enrich-beatport${params}`, {}, { headers: authHeaders() })
     let attempts = 0
     const timer = setInterval(async () => {
       attempts++
@@ -624,6 +631,22 @@ onMounted(() => {
   transition: opacity 0.12s;
 }
 .btn-sync:disabled { opacity: 0.5; cursor: default; }
+.batch-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 13px/1 var(--font-ui);
+  color: var(--ink-muted);
+}
+.batch-input {
+  width: 80px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 13px/1 var(--font-mono);
+}
 .sync-result {
   display: flex;
   gap: 14px;
