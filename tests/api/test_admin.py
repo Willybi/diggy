@@ -198,8 +198,3 @@ class TestLinkSetArtistsTask:
         assert r.json()["status"] == "queued"
 
 
-class TestRefreshGenresTask:
-    async def test_fires_task(self, admin_client):
-        r = await admin_client.post("/api/admin/artists/genres/refresh")
-        assert r.status_code == 200
-        assert r.json()["status"] == "queued"

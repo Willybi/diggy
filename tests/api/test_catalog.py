@@ -56,7 +56,6 @@ class TestCatalogDetail:
         data = r.json()
         assert data["title"] == "Cola"
         assert data["artist"] == "CamelPhat"
-        assert "genres" in data
         assert "radar_appearances" in data
         assert "set_appearances" in data
 
