@@ -80,7 +80,10 @@
                 </div>
               </td>
               <td class="col-style">
-                <StyleTag v-if="e.style" :name="e.style" />
+                <RouterLink v-if="e.genre" :to="`/style/${encodeURIComponent(e.genre)}`" style="text-decoration:none">
+                  <StyleTag :name="e.genre" />
+                </RouterLink>
+                <StyleTag v-else-if="e.style" :name="e.style" />
               </td>
               <td class="col-bpm num"><span class="mono">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
               <td class="col-key num"><span class="mono key-val">{{ e.key || '—' }}</span></td>
