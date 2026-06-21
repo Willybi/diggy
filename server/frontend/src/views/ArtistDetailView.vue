@@ -91,7 +91,12 @@
                     <span class="mt-artist">{{ t.artist }}</span>
                   </RouterLink>
                 </td>
-                <td class="mt-style"><StyleTag v-if="t.style" :name="t.style" /></td>
+                <td class="mt-style">
+                  <RouterLink v-if="t.genre" :to="`/style/${encodeURIComponent(t.genre)}`" style="text-decoration:none">
+                    <StyleTag :name="t.genre" />
+                  </RouterLink>
+                  <StyleTag v-else-if="t.style" :name="t.style" />
+                </td>
                 <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
                 <td class="mt-num mono">{{ t.key || '—' }}</td>
                 <td class="mt-num">

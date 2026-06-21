@@ -50,7 +50,8 @@
             </div>
           </td>
           <td class="col-style">
-            <StyleTag v-if="firstTag(track)" :name="firstTag(track)" />
+            <StyleTag v-if="track.genre" :name="track.genre" />
+            <StyleTag v-else-if="firstTag(track)" :name="firstTag(track)" />
           </td>
           <td class="col-bpm num"><span class="mono">{{ track.bpm != null ? Math.round(track.bpm) : '—' }}</span></td>
           <td class="col-key num key-cell"><span class="mono">{{ track.key }}</span></td>
