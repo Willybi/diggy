@@ -113,7 +113,7 @@ const libraryItems = [
 
 const discoverItems = computed(() => [
   { to: '/radar', label: 'Radar',       icon: iconRadar, count: radarNewCount.value || null },
-  { to: '/tags',  label: 'Style tags',  icon: iconTag,   count: null },
+  { to: '/tags',  label: 'Genres',      icon: iconTag,   count: null },
 ])
 </script>
 

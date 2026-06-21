@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from models import Artist, ArtistAlias, CatalogEntry, UserTrack, DJSet, SetArtist, SetTrack
 from schemas import (
-    ArtistDetailOut, ArtistAliasOut, ArtistListOut, GenreOut,
+    ArtistDetailOut, ArtistAliasOut, ArtistListOut,
     CatalogEntryOut, ArtistSetOut,
 )
 
@@ -20,8 +20,7 @@ async def list_artists(
     limit: int = 500,
     db: AsyncSession = Depends(get_db),
 ):
-    from models import Genre, artist_genres
-    from sqlalchemy import Float, case as sa_case
+    from sqlalchemy import Float
 
     lib_sub = (
         select(UserTrack.catalog_id, UserTrack.rating)
@@ -42,7 +41,7 @@ async def list_artists(
 
     q_artists = (
         select(Artist)
-        .options(selectinload(Artist.aliases), selectinload(Artist.genres))
+        .options(selectinload(Artist.aliases))
         .order_by(func.lower(Artist.name))
         .limit(limit)
     )
@@ -77,16 +76,39 @@ async def list_artists(
         if row.avg_rating:
             stats_by_name[key]["ratings"].append(float(row.avg_rating))
 
+    # Genre aggregation from catalog.genre
+    genre_result = await db.execute(
+        select(
+            func.lower(CatalogEntry.artist).label("artist_name"),
+            CatalogEntry.genre,
+            func.count(CatalogEntry.id).label("cnt"),
+        )
+        .where(CatalogEntry.genre.isnot(None), func.lower(CatalogEntry.artist).in_(all_names))
+        .group_by(func.lower(CatalogEntry.artist), CatalogEntry.genre)
+    )
+    genre_by_name: dict[str, dict[str, int]] = defaultdict(dict)
+    total_by_name: dict[str, int] = defaultdict(int)
+    for row in genre_result.all():
+        genre_by_name[row.artist_name][row.genre] = row.cnt
+        total_by_name[row.artist_name] += row.cnt
+
     out = []
     for a in artists:
         agg = {"nb_catalog": 0, "nb_lib": 0, "ratings": []}
+        genre_counts: dict[str, int] = defaultdict(int)
+        total_tracks = 0
         for key in [a.name.lower()] + [al.alias.lower() for al in a.aliases]:
             s = stats_by_name.get(key)
             if s:
                 agg["nb_catalog"] += s["nb_catalog"]
                 agg["nb_lib"] += s["nb_lib"]
                 agg["ratings"].extend(s["ratings"])
+            for g, c in genre_by_name.get(key, {}).items():
+                genre_counts[g] += c
+            total_tracks += total_by_name.get(key, 0)
         avg = round(sum(agg["ratings"]) / len(agg["ratings"]), 1) if agg["ratings"] else None
+        threshold = max(1, int(total_tracks * 0.2))
+        genres = sorted([g for g, c in genre_counts.items() if c >= threshold])
         out.append(ArtistListOut(
             id=a.id,
             name=a.name,
@@ -96,7 +118,7 @@ async def list_artists(
             nb_catalog=agg["nb_catalog"],
             nb_lib=agg["nb_lib"],
             avg_rating=avg,
-            genres=[g.name for g in a.genres],
+            genres=genres,
         ))
     return out
 
@@ -106,7 +128,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     # 1. Artist + aliases + genres
     result = await db.execute(
         select(Artist)
-        .options(selectinload(Artist.aliases), selectinload(Artist.genres))
+        .options(selectinload(Artist.aliases))
         .where(Artist.id == artist_id)
     )
     artist = result.scalar_one_or_none()
@@ -226,8 +248,16 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         for r in sets_result.all()
     ]
 
-    # 4. Stats
+    # 4. Stats + genres from catalog.genre
     avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
+    genre_counts: dict[str, int] = {}
+    for row in cat_rows:
+        g = row[0].genre
+        if g:
+            genre_counts[g] = genre_counts.get(g, 0) + 1
+    total = len(cat_rows)
+    threshold = max(1, int(total * 0.2))
+    computed_genres = sorted([g for g, c in genre_counts.items() if c >= threshold])
 
     return ArtistDetailOut(
         id=artist.id,
@@ -242,7 +272,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         has_artwork=artist.has_artwork,
         created_at=artist.created_at,
         aliases=[ArtistAliasOut.model_validate(a) for a in artist.aliases],
-        genres=[GenreOut.model_validate(g) for g in artist.genres],
+        genres=computed_genres,
         catalog_tracks=catalog_tracks,
         sets=sets,
         stats={

@@ -12,7 +12,10 @@
       >
         <template #badges>
           <InLibBadge :in-lib="track.in_lib" />
-          <StyleTag v-if="track.style" :name="track.style" />
+          <RouterLink v-if="track.genre" :to="`/style/${encodeURIComponent(track.genre)}`" style="text-decoration:none">
+            <StyleTag :name="track.genre" />
+          </RouterLink>
+          <StyleTag v-else-if="track.style" :name="track.style" />
         </template>
         <template #actions>
           <HeroPlayer v-if="track.has_preview" :catalog-id="track.id" />

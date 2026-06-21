@@ -1,63 +1,90 @@
 /* ============================================================
-   DIGGY — Style → colour family map  ·  v1.2
+   DIGGY — Genre → colour mapping  ·  v2.0
    ------------------------------------------------------------
-   Source de vérité pour les familles musicales et leurs styles.
-   Ajouter un style = l'ajouter à la fin du tableau de sa famille.
+   Architecture 3 couches :
+     1. GENRE_FAMILIES  — mapping genre → famille (DONNEE, remplacable)
+     2. FAMILY_HUES     — teinte par famille (PALETTE, stable)
+     3. stableHue()     — fallback hash pour genres non mappes (MECANIQUE)
 
-   v1.2 — taxonomie réelle (House / Techno / Trance / Misc),
-   offset & shade étendus à 7 membres, slug() durci.
+   Futur : remplacer couche 1 par un fetch API ou table DB,
+   sans toucher couches 2 et 3.
    ============================================================ */
 
-export const FAMILIES = {
-  House:  { baseHue: 268, label: 'Groovy · club' },
-  Techno: { baseHue: 312, label: 'Brut · hypnotique' },
-  Trance: { baseHue: 352, label: 'Psyché · euphorique' },
-  Misc:   { baseHue: 42,  label: 'Inclassable' },
+/* ── Couche 1 : mapping genre → famille ────────────────────── */
+const GENRE_FAMILIES = {
+  'House':                          'house',
+  'Deep House':                     'house',
+  'Tech House':                     'house',
+  'Afro House':                     'house',
+  'Bass House':                     'house',
+  'UK Garage / Bassline':           'house',
+  'Progressive House':              'house',
+  'Mainstage':                      'house',
+  'Jackin House':                   'house',
+  'Funky House':                    'house',
+  'Soulful House':                  'house',
+  'Organic House / Downtempo':      'house',
+
+  'Techno (Peak Time / Driving)':   'techno',
+  'Techno (Raw / Deep / Hypnotic)': 'techno',
+  'Hard Techno':                    'techno',
+  'Minimal / Deep Tech':            'techno',
+  'Melodic House & Techno':         'techno',
+
+  'Trance (Main Floor)':            'trance',
+  'Hard Dance / Hardcore / Neo Rave': 'trance',
+  'Psy-Trance':                     'trance',
+
+  'Electronica':                    'electro',
+  'Breaks / Breakbeat / UK Bass':   'electro',
+  'Drum & Bass':                    'electro',
+  'Indie Dance':                    'electro',
+
+  'Dance / Pop':                    'pop',
+  'Pop':                            'pop',
+  'Nu Disco / Disco':               'pop',
+
+  /* Legacy styles from Rekordbox tags */
+  'Downtempo':                      'house',
+  'Nu Disco':                       'pop',
+  'UK House':                       'house',
+  'French Touch':                   'house',
+  'UK Garage':                      'house',
+  'Electro brut':                   'techno',
+  'Melodic Techno':                 'techno',
+  'Classic/Min. Techno':            'techno',
+  'Hard/Dark Techno':               'techno',
+  'Psytrance':                      'trance',
+  'Trance Techno':                  'trance',
 }
 
-const MEMBER_OFFSET = [-4, 5, -10, 11, -15, 15, 0]
-const MEMBER_SHADE  = [0, 0.018, 0.036, 0.054, 0.012, 0.030, 0.048]
-
-export const FAMILY_MEMBERS = {
-  House:  ['Downtempo', 'Nu Disco', 'Deep House', 'UK House', 'French Touch', 'Tech House', 'UK Garage'],
-  Techno: ['Electro brut', 'Melodic Techno', 'Classic/Min. Techno', 'Hard/Dark Techno'],
-  Trance: ['Psytrance', 'Trance Techno'],
-  Misc:   ['Misc. Tracks'],
+/* ── Couche 2 : palette par famille ────────────────────────── */
+const FAMILY_HUES = {
+  house:   268,
+  techno:  312,
+  trance:  352,
+  electro: 180,
+  pop:      42,
 }
 
-/* Liste blanche complète — utilisée pour filtrer les tags RB internes */
-export const KNOWN_STYLES = new Set(Object.values(FAMILY_MEMBERS).flat())
+/* ── Couche 3 : fallback hash deterministe ─────────────────── */
+function stableHue(name) {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
+  }
+  return ((hash % 360) + 360) % 360
+}
 
-/* CSS-safe slug: 'Classic/Min. Techno' -> 'classic-min-techno' */
+/* ── API publique ──────────────────────────────────────────── */
+
 export const slug = (name) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
-/** Resolve {family, hue, shade} for any registered style. */
 export function styleTone(name) {
-  for (const [family, members] of Object.entries(FAMILY_MEMBERS)) {
-    const idx = members.indexOf(name)
-    if (idx !== -1) {
-      return {
-        family,
-        hue:   FAMILIES[family].baseHue + (MEMBER_OFFSET[idx] || 0),
-        shade: MEMBER_SHADE[idx] || 0,
-      }
-    }
+  const family = GENRE_FAMILIES[name]
+  if (family && FAMILY_HUES[family] != null) {
+    return { family, hue: FAMILY_HUES[family], shade: 0 }
   }
-  return { family: null, hue: 0, shade: 0 }
-}
-
-export function styleTagClass(name) {
-  return `style-tag style-tag--${slug(name)}`
-}
-
-export function styleVarsCss() {
-  let out = ''
-  for (const members of Object.values(FAMILY_MEMBERS)) {
-    for (const name of members) {
-      const t = styleTone(name)
-      out += `--h-${slug(name)}: ${t.hue}; --s-${slug(name)}: ${t.shade};\n`
-    }
-  }
-  return out
+  return { family: null, hue: stableHue(name), shade: 0 }
 }

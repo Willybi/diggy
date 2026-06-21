@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Artist, ArtistAlias, CatalogEntry, DJSet, Genre, SetArtist, SetTrack, set_genres
+from models import Artist, ArtistAlias, CatalogEntry, DJSet, SetArtist, SetTrack
 from trackid.client import TrackIDClient
 from trackid.parsing import is_id_track, parse_timespan_to_ms, parse_trackid_date
 from utils import normalize
@@ -47,18 +47,6 @@ async def get_or_create_artist(
     await db.flush()
     return artist
 
-
-async def get_or_create_genre(db: AsyncSession, name: str) -> Genre:
-    """Find or create a Genre by name."""
-    result = await db.execute(select(Genre).where(Genre.name == name))
-    genre = result.scalar_one_or_none()
-    if genre:
-        return genre
-
-    genre = Genre(name=name, created_at=datetime.now(timezone.utc))
-    db.add(genre)
-    await db.flush()
-    return genre
 
 
 async def import_audiostream(
@@ -145,18 +133,6 @@ async def import_audiostream(
         )
         if not result.scalar_one_or_none():
             db.add(SetArtist(set_id=dj_set.id, artist_id=artist_id, role="dj", position=0))
-
-    # Map styles to genres
-    for style in detail.get("styles", []):
-        style_name = style.get("name")
-        if style_name:
-            genre = await get_or_create_genre(db, style_name)
-            # Insert into set_genres if not exists
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            stmt = pg_insert(set_genres).values(
-                set_id=dj_set.id, genre_id=genre.id
-            ).on_conflict_do_nothing()
-            await db.execute(stmt)
 
     # Import tracklist — delete existing and re-insert
     await db.execute(delete(SetTrack).where(SetTrack.set_id == dj_set.id))
