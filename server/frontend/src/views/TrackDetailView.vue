@@ -21,6 +21,17 @@
 
       <StatStrip :stats="stats" />
 
+      <div v-if="track.label || track.beatport_id" class="track-meta">
+        <span v-if="track.label" class="meta-label">{{ track.label }}</span>
+        <a
+          v-if="track.beatport_id"
+          :href="`https://www.beatport.com/track/-/${track.beatport_id}`"
+          target="_blank"
+          rel="noopener"
+          class="meta-link beatport-link"
+        >Beatport ↗</a>
+      </div>
+
       <!-- Admin: Beatport enrichment -->
       <div v-if="auth.user?.is_admin" class="admin-card">
         <div class="admin-header">
@@ -169,6 +180,27 @@ onMounted(async () => {
   font-size: 14px;
   font-style: italic;
   padding-top: 40px;
+}
+
+/* Track meta (label + external links) */
+.track-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 4px;
+  font: 400 13px/1 var(--font-ui);
+  color: var(--ink-muted);
+}
+.meta-label {
+  color: var(--ink-2);
+}
+.meta-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.meta-link:hover {
+  text-decoration: underline;
 }
 
 /* Admin card */
