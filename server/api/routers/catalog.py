@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 import httpx
 import json as _json
 
@@ -13,7 +12,7 @@ from models import (
 )
 from schemas import (
     CatalogEntryOut, CatalogList, CatalogDetailOut,
-    GenreOut, RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut,
+    RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut,
 )
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -24,6 +23,18 @@ SORTABLE_COLS = {
 }
 
 
+@router.get("/genres")
+async def list_genres(db: AsyncSession = Depends(get_db)):
+    """Return all distinct Beatport genres with track counts."""
+    result = await db.execute(
+        select(CatalogEntry.genre, func.count(CatalogEntry.id))
+        .where(CatalogEntry.genre.isnot(None), CatalogEntry.genre != "")
+        .group_by(CatalogEntry.genre)
+        .order_by(func.count(CatalogEntry.id).desc())
+    )
+    return [{"name": row[0], "count": row[1]} for row in result.all()]
+
+
 @router.get("/", response_model=CatalogList)
 async def list_catalog(
     skip: int = Query(0, ge=0),
@@ -31,6 +42,7 @@ async def list_catalog(
     in_lib: bool | None = Query(None),
     min_radar_playlists: int | None = Query(None),
     search: str | None = Query(None),
+    genre: str | None = Query(None),
     sort: str | None = Query(None),
     order: str | None = Query("desc"),
     db: AsyncSession = Depends(get_db),
@@ -101,6 +113,9 @@ async def list_catalog(
         query = query.where(
             func.coalesce(radar_count.c.nb_playlists, 0) >= min_radar_playlists
         )
+
+    if genre:
+        query = query.where(CatalogEntry.genre == genre)
 
     if search:
         pattern = f"%{search}%"
@@ -190,10 +205,9 @@ async def get_catalog_detail(
 ):
     uid = _uid(user)
 
-    # 1. Main entry + genres
+    # 1. Main entry
     result = await db.execute(
         select(CatalogEntry)
-        .options(selectinload(CatalogEntry.genres))
         .where(CatalogEntry.id == catalog_id)
     )
     entry = result.scalar_one_or_none()
@@ -315,7 +329,6 @@ async def get_catalog_detail(
         style=lib_style,
         rating=ut_rating,
         lib_track_id=ut.rekordbox_id if ut else None,
-        genres=[GenreOut.model_validate(g) for g in entry.genres],
         radar_appearances=radar_appearances,
         set_appearances=set_appearances,
         same_artist_tracks=same_artist,

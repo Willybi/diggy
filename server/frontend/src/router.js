@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import TagsView          from './views/TagsView.vue'
+import GenreDetailView   from './views/GenreDetailView.vue'
 import CatalogView       from './views/CatalogView.vue'
 import RadarView         from './views/RadarView.vue'
 import WatchlistView     from './views/WatchlistView.vue'
@@ -17,6 +18,7 @@ const routes = [
   { path: '/login',        component: LoginView, meta: { public: true } },
   { path: '/tracks',       redirect: '/catalog?inlib=true' },
   { path: '/tags',         component: TagsView },
+  { path: '/style/:genre', component: GenreDetailView, props: true },
   { path: '/catalog',      component: CatalogView },
   { path: '/catalog/:id',  component: TrackDetailView, props: true },
   { path: '/artist/:id',   component: ArtistDetailView, props: true },

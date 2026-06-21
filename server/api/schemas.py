@@ -211,15 +211,6 @@ class WatchedEntityDetailOut(WatchedEntityOut):
     tracks: list[PlaylistTrackOut] = []
 
 
-class GenreOut(BaseModel):
-    id: int
-    name: str
-    parent_id: Optional[int] = None
-    created_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
 class ArtistAliasOut(BaseModel):
     id: int
     artist_id: int
@@ -359,7 +350,6 @@ class SameArtistTrackOut(BaseModel):
 
 
 class CatalogDetailOut(CatalogEntryOut):
-    genres: list[GenreOut] = []
     radar_appearances: list[RadarAppearanceOut] = []
     set_appearances: list[SetAppearanceOut] = []
     same_artist_tracks: list[SameArtistTrackOut] = []
@@ -380,7 +370,7 @@ class ArtistSetOut(BaseModel):
 
 class ArtistDetailOut(ArtistOut):
     aliases: list[ArtistAliasOut] = []
-    genres: list[GenreOut] = []
+    genres: list[str] = []
     catalog_tracks: list[CatalogEntryOut] = []
     sets: list[ArtistSetOut] = []
     stats: dict = {}
@@ -406,5 +396,4 @@ class SetArtistDetailOut(BaseModel):
 
 class DJSetDetailOut(DJSetOut):
     artists: list[SetArtistDetailOut] = []
-    genres: list[GenreOut] = []
     tracklist: list[SetTrackDetailOut] = []

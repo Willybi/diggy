@@ -10,9 +10,7 @@
         :subtitle="heroSub"
         :fallback-letter="(djSet.title || '?')[0]"
       >
-        <template #badges>
-          <StyleTag v-for="g in djSet.genres" :key="g.id" :name="g.name" />
-        </template>
+        <template #badges />
         <template #actions>
           <a v-if="sourceLabel && djSet.source_url" class="btn-ghost" :href="djSet.source_url" target="_blank">
             Voir sur {{ sourceLabel }}
@@ -125,7 +123,7 @@ import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
 import AppearRow from '../components/AppearRow.vue'
-import StyleTag from '../components/StyleTag.vue'
+
 import LibDot from '../components/LibDot.vue'
 import { useAuthStore } from '../stores/auth.js'
 import { fmtMs, fmtDate, fmtCue } from '../utils/format'

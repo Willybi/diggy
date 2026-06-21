@@ -19,31 +19,6 @@ from sqlalchemy.orm import relationship
 
 # ---------- Association tables (no extra columns) ----------
 
-set_genres = Table(
-    "set_genres",
-    Base.metadata,
-    Column("set_id", Integer, ForeignKey("sets.id", ondelete="CASCADE"), primary_key=True),
-    Column("genre_id", Integer, ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
-    Index("ix_set_genres_genre_id", "genre_id"),
-)
-
-artist_genres = Table(
-    "artist_genres",
-    Base.metadata,
-    Column("artist_id", Integer, ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True),
-    Column("genre_id", Integer, ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
-    Index("ix_artist_genres_genre_id", "genre_id"),
-)
-
-catalog_genres = Table(
-    "catalog_genres",
-    Base.metadata,
-    Column("catalog_id", Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True),
-    Column("genre_id", Integer, ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
-    Index("ix_catalog_genres_genre_id", "genre_id"),
-)
-
-
 # ---------- Models ----------
 
 
@@ -58,21 +33,6 @@ class User(Base):
     is_admin = Column(Boolean, default=False, nullable=False, server_default="false")
     settings = Column(JSON, default=dict, nullable=False, server_default="{}")
     created_at = Column(DateTime(timezone=True))
-
-
-class Genre(Base):
-    __tablename__ = "genres"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), unique=True, nullable=False)
-    parent_id = Column(Integer, ForeignKey("genres.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime(timezone=True))
-
-    children = relationship("Genre", back_populates="parent")
-    parent = relationship("Genre", back_populates="children", remote_side=[id])
-    sets = relationship("DJSet", secondary=set_genres, back_populates="genres")
-    artists = relationship("Artist", secondary=artist_genres, back_populates="genres")
-    catalog_entries = relationship("CatalogEntry", secondary=catalog_genres, back_populates="genres")
 
 
 class Artist(Base):
@@ -92,7 +52,6 @@ class Artist(Base):
 
     aliases = relationship("ArtistAlias", back_populates="artist", cascade="all, delete-orphan")
     set_links = relationship("SetArtist", back_populates="artist")
-    genres = relationship("Genre", secondary=artist_genres, back_populates="artists")
 
 
 class ArtistAlias(Base):
@@ -135,8 +94,6 @@ class CatalogEntry(Base):
     label = Column(String(255), nullable=True)
     fingerprint = Column(String, unique=True, nullable=True)
     needs_reconciliation = Column(Boolean, server_default="false", nullable=True)
-
-    genres = relationship("Genre", secondary=catalog_genres, back_populates="catalog_entries")
 
 
 class UserTrack(Base):
@@ -259,7 +216,6 @@ class DJSet(Base):
         "SetArtist", back_populates="dj_set",
         cascade="all, delete-orphan",
     )
-    genres = relationship("Genre", secondary=set_genres, back_populates="sets")
 
 
 class SetArtist(Base):

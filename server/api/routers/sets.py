@@ -15,7 +15,7 @@ from models import (
     UserSetFollow, User,
 )
 from schemas import (
-    DJSetDetailOut, SetTrackDetailOut, SetArtistDetailOut, GenreOut,
+    DJSetDetailOut, SetTrackDetailOut, SetArtistDetailOut,
     SetListItemOut,
 )
 
@@ -273,11 +273,10 @@ async def unfollow_set(
 
 @router.get("/{set_id}", response_model=DJSetDetailOut)
 async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
-    # 1. DJSet + genres
+    # 1. DJSet
     result = await db.execute(
         select(DJSet)
         .options(
-            selectinload(DJSet.genres),
             selectinload(DJSet.artist_links).selectinload(SetArtist.artist),
             selectinload(DJSet.tracks).selectinload(SetTrack.catalog),
         )
@@ -352,6 +351,5 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
         total_tracks=total,
         identified_tracks=identified,
         artists=artists,
-        genres=[GenreOut.model_validate(g) for g in dj_set.genres],
         tracklist=tracklist,
     )

@@ -1,14 +1,22 @@
 <template>
   <div class="tags-view">
     <header class="view-header">
-      <h1 class="view-title">Style Tags</h1>
-      <span class="view-sub">{{ tags.length }} styles</span>
+      <h1 class="view-title">Genres</h1>
+      <span class="view-sub">{{ genres.length }} genres</span>
     </header>
 
     <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="!tags.length" class="state">Aucun tag.</div>
-    <div v-else class="tags-grid">
-      <StyleTag v-for="tag in tags" :key="tag" :name="tag" />
+    <div v-else-if="!genres.length" class="state">Aucun genre.</div>
+    <div v-else class="genre-grid">
+      <RouterLink
+        v-for="g in genres"
+        :key="g.name"
+        :to="`/style/${encodeURIComponent(g.name)}`"
+        class="genre-card"
+      >
+        <StyleTag :name="g.name" />
+        <span class="genre-count">{{ g.count }} tracks</span>
+      </RouterLink>
     </div>
   </div>
 </template>
@@ -18,22 +26,22 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import StyleTag from '../components/StyleTag.vue'
 
-const tags    = ref([])
+const genres  = ref([])
 const loading = ref(false)
 
-async function fetchTags() {
+async function fetchGenres() {
   loading.value = true
   try {
-    const { data } = await axios.get('/api/tracks/tags')
-    tags.value = data
+    const { data } = await axios.get('/api/catalog/genres')
+    genres.value = data
   } catch {
-    tags.value = []
+    genres.value = []
   } finally {
     loading.value = false
   }
 }
 
-onMounted(fetchTags)
+onMounted(fetchGenres)
 </script>
 
 <style scoped>
@@ -54,10 +62,31 @@ onMounted(fetchTags)
   margin-top: 4px;
   display: block;
 }
-.tags-grid {
+.genre-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.genre-card {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+.genre-card:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+.genre-count {
+  margin-left: auto;
+  font: 400 12px/1 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
 }
 .state {
   color: var(--ink-3);

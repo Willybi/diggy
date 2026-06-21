@@ -11,7 +11,9 @@
         :fallback-letter="artist.name[0]"
       >
         <template #badges>
-          <StyleTag v-for="g in artist.genres" :key="g.id" :name="g.name" />
+          <RouterLink v-for="g in artist.genres" :key="g" :to="`/style/${encodeURIComponent(g)}`" style="text-decoration:none">
+            <StyleTag :name="g" />
+          </RouterLink>
         </template>
         <template #actions>
           <a v-if="artist.deezer_id" class="btn-ghost" :href="`https://deezer.com/artist/${artist.deezer_id}`" target="_blank">Deezer</a>
