@@ -302,6 +302,8 @@ async def get_catalog_detail(
         key=ut.rb_key if ut and ut.rb_key else entry.key,
         duration_ms=entry.duration_ms,
         genre=entry.genre,
+        label=entry.label,
+        beatport_id=entry.beatport_id,
         release_date=entry.release_date,
         preview_url=entry.preview_url,
         has_artwork=ut.has_artwork if ut and ut.has_artwork else entry.has_artwork,
