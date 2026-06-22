@@ -1,104 +1,119 @@
 <template>
-  <div class="watchlist-view">
-    <header class="view-header">
-      <div>
-        <h1 class="view-title">Playlists</h1>
-        <span class="view-sub">Playlists surveillées par le Radar</span>
+  <div class="playlists-view">
+    <div class="page-head">
+      <div class="titles">
+        <h1>Playlists</h1>
+        <div class="sub">Playlists surveillées par le Radar</div>
       </div>
-      <div class="header-actions">
-        <div class="toggle-group">
-          <button
-            class="toggle-btn" :class="{ active: mode === 'followed' }"
-            @click="mode = 'followed'"
-          >Suivies</button>
-          <button
-            class="toggle-btn" :class="{ active: mode === 'browse' }"
-            @click="mode = 'browse'"
-          >Toutes</button>
+      <div class="head-tools">
+        <div class="filterseg">
+          <button :class="{ on: mode === 'followed' }" @click="mode = 'followed'">Suivies</button>
+          <button :class="{ on: mode === 'browse' }" @click="mode = 'browse'">Toutes</button>
         </div>
-        <button class="btn-add" @click="showForm = !showForm">
-          {{ showForm ? 'Annuler' : '+ Ajouter' }}
+        <button
+          class="btn-add"
+          :class="{ cancel: showForm }"
+          @click="toggleForm"
+        >
+          <span v-if="!showForm" class="plus">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </span>
+          <span class="addlbl">{{ showForm ? 'Annuler' : 'Ajouter' }}</span>
         </button>
       </div>
-    </header>
+    </div>
 
-    <div v-if="showForm" class="add-form">
-      <input
-        v-model="inputValue"
-        class="form-input"
-        placeholder="URL Deezer, Tidal ou Spotify  (ex: https://open.spotify.com/playlist/...)"
-        @keydown.enter="addPlaylist"
-        @input="formError = ''"
-        autofocus
-      />
-      <button class="btn-confirm" :disabled="adding" @click="addPlaylist">
-        {{ adding ? 'Ajout…' : 'Suivre' }}
-      </button>
-      <span v-if="formError" class="form-error">{{ formError }}</span>
+    <div v-if="showForm" class="addform">
+      <div class="addcard">
+        <div class="addrow">
+          <input
+            v-model="inputValue"
+            type="text"
+            placeholder="URL Deezer, Tidal ou Spotify (ex : https://open.spotify.com/playlist/…)"
+            @keydown.enter="addPlaylist"
+            @input="formError = ''"
+            autofocus
+          />
+          <button class="btn-go" :disabled="adding" @click="addPlaylist">
+            {{ adding ? 'Ajout…' : 'Suivre' }}
+          </button>
+        </div>
+        <span v-if="formError" class="form-error">{{ formError }}</span>
+      </div>
     </div>
 
     <div v-if="loading" class="state">Chargement…</div>
 
-    <div v-else-if="displayList.length === 0 && !showForm" class="empty-state">
+    <div v-else-if="displayList.length === 0 && !showForm" class="state">
       <template v-if="mode === 'followed'">
-        <p class="empty-text">Aucune playlist suivie.</p>
-        <p class="empty-sub">Ajoutez une playlist Deezer, Tidal ou Spotify pour alimenter le Radar.</p>
-        <button class="btn-add" @click="showForm = true">+ Ajouter une playlist</button>
+        Aucune playlist suivie.
       </template>
       <template v-else>
-        <p class="empty-text">Aucune playlist dans le système.</p>
+        Aucune playlist dans le système.
       </template>
     </div>
 
     <div v-else-if="displayList.length > 0" class="table-wrap">
-      <table class="pl-table">
+      <table class="tt">
+        <colgroup>
+          <col class="w-pl">
+          <col class="w-creator col-creator">
+          <col class="w-tracks col-tracks">
+          <col class="w-crawl col-crawl">
+          <col class="w-actions">
+        </colgroup>
         <thead>
           <tr>
-            <th class="col-cover" />
-            <th class="col-title">Playlist</th>
-            <th class="col-owner">Créateur</th>
-            <th class="col-tracks num">Tracks</th>
-            <th class="col-crawled">Dernier crawl</th>
-            <th class="col-action" />
+            <th>Playlist</th>
+            <th class="col-creator">Créateur</th>
+            <th class="num col-tracks">Tracks</th>
+            <th class="col-crawl">Dernier crawl</th>
+            <th class="end"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="pl in displayList" :key="pl.id">
-            <td class="col-cover">
-              <div class="cover-thumb">
-                <img v-if="pl.has_artwork" :src="`/storage/catalog-artworks/playlist-${pl.id}.jpg`" :alt="pl.title" />
+            <td>
+              <div class="pl-cell">
+                <span class="aw">
+                  <img v-if="pl.has_artwork" :src="`/storage/catalog-artworks/playlist-${pl.id}.jpg`" :alt="pl.title" />
+                </span>
+                <div class="pl-meta">
+                  <div class="pl-top">
+                    <RouterLink :to="`/playlists/${pl.id}`" class="pl-name">{{ pl.title || pl.external_id }}</RouterLink>
+                    <span class="src-badge" :class="srcClass(pl.source)">{{ (pl.source || '').toUpperCase() }}</span>
+                  </div>
+                  <span class="pl-id">{{ pl.external_id }}</span>
+                </div>
               </div>
             </td>
-            <td class="col-title">
-              <RouterLink :to="`/playlists/${pl.id}`" class="pl-link">
-                <span class="pl-title-row">
-                  <span class="pl-title">{{ pl.title || pl.external_id }}</span>
-                  <span class="source-badge" :class="`source-${pl.source}`">{{ pl.source }}</span>
-                </span>
-                <span class="pl-id mono muted">{{ pl.external_id }}</span>
-              </RouterLink>
+            <td class="col-creator">
+              <span v-if="pl.owner" class="td-creator">{{ pl.owner }}</span>
+              <span v-else class="td-empty">—</span>
             </td>
-            <td class="col-owner"><span class="muted">{{ pl.owner || '—' }}</span></td>
-            <td class="col-tracks num"><span class="mono">{{ pl.track_count ?? '—' }}</span></td>
-            <td class="col-crawled">
-              <span class="mono muted">{{ formatCrawled(pl.last_crawled_at) }}</span>
+            <td class="num col-tracks">
+              <span v-if="pl.track_count != null" class="td-num">{{ pl.track_count }}</span>
+              <span v-else class="td-empty">—</span>
             </td>
-            <td class="col-action">
-              <div class="action-btns">
-                <template v-if="mode === 'followed' || pl.followed">
+            <td class="col-crawl">
+              <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
+            </td>
+            <td class="end">
+              <div class="actions">
+                <template v-if="pl.followed">
                   <button
                     class="btn-crawl"
                     :disabled="crawling[pl.id] || isCooldown(pl)"
                     :title="isCooldown(pl) ? 'Déjà crawlé dans les 12 dernières heures' : 'Lancer un crawl maintenant'"
-                    @click="triggerCrawl(pl)"
-                  >{{ crawling[pl.id] ? 'Crawl en cours…' : isCooldown(pl) ? 'Déjà crawlé' : 'Crawl now' }}</button>
-                  <button class="btn-unfollow" @click="unfollow(pl.id)">Ne plus suivre</button>
+                    @click.stop="triggerCrawl(pl)"
+                  >{{ crawling[pl.id] ? 'Crawl…' : isCooldown(pl) ? 'Déjà crawlé' : 'Crawl now' }}</button>
+                  <button class="btn-follow following" @click.stop="unfollow(pl.id)">Ne plus suivre</button>
                 </template>
                 <template v-else>
                   <button
                     class="btn-follow"
                     :disabled="following[pl.id]"
-                    @click="followPlaylist(pl.id)"
+                    @click.stop="followPlaylist(pl.id)"
                   >{{ following[pl.id] ? 'Suivi…' : 'Suivre' }}</button>
                 </template>
               </div>
@@ -133,33 +148,38 @@ const displayList = computed(() => {
   return browsePlaylists.value
 })
 
+function srcClass(source) {
+  const s = (source || '').toLowerCase()
+  if (s === 'deezer') return 'deezer'
+  if (s === 'tidal') return 'tidal'
+  if (s === 'spotify') return 'spotify'
+  return 'tidal'
+}
+
 function isCooldown(pl) {
   if (!pl.last_crawled_at) return false
   return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
 }
 
+function toggleForm() {
+  showForm.value = !showForm.value
+  if (!showForm.value) {
+    inputValue.value = ''
+    formError.value = ''
+  }
+}
+
 function parsePlaylistInput(input) {
   const s = input.trim()
-
-  // Deezer: https://www.deezer.com/playlist/1234567
   let match = s.match(/deezer\.com\/.*playlist\/(\d+)/)
   if (match) return { external_id: match[1], source: 'deezer' }
-
-  // Tidal: https://tidal.com/browse/playlist/uuid or https://listen.tidal.com/playlist/uuid
   match = s.match(/tidal\.com\/(?:browse\/)?playlist\/([a-f0-9-]+)/i)
   if (match) return { external_id: match[1], source: 'tidal' }
-
-  // Spotify: https://open.spotify.com/playlist/base62id
   match = s.match(/open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/)
   if (match) return { external_id: match[1], source: 'spotify' }
-
-  // Bare numeric ID -> assume Deezer (backwards compat)
   if (/^\d+$/.test(s)) return { external_id: s, source: 'deezer' }
-
-  // Bare UUID -> assume Tidal
   if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(s))
     return { external_id: s, source: 'tidal' }
-
   return null
 }
 
@@ -241,7 +261,7 @@ function startPolling(playlistId, oldCrawledAt) {
   crawling[playlistId] = true
   stopPolling(playlistId)
   let attempts = 0
-  const maxAttempts = 60 // 5min max (5s * 60)
+  const maxAttempts = 60
   pollTimers[playlistId] = setInterval(async () => {
     attempts++
     if (attempts >= maxAttempts) {
@@ -275,8 +295,8 @@ function formatCrawled(iso) {
   const now = new Date()
   const diffDays = Math.floor((now - d) / 86400000)
   if (diffDays === 0) return "aujourd'hui"
-  if (diffDays === 1) return 'il y a 1j'
-  return `il y a ${diffDays}j`
+  if (diffDays === 1) return 'il y a 1 j'
+  return `il y a ${diffDays} j`
 }
 
 onMounted(fetchPlaylists)
@@ -284,277 +304,309 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 </script>
 
 <style scoped>
-.watchlist-view {
-  padding: var(--pad) calc(var(--pad) * 1.5);
-  max-width: 960px;
-  margin: 0 auto;
-}
-.view-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-.view-title {
-  font: 600 22px/1.1 var(--font-ui);
-  letter-spacing: -0.02em;
-  color: var(--ink);
-}
-.view-sub {
-  font: 400 12px/1 var(--font-mono);
-  color: var(--ink-3);
-  margin-top: 4px;
-  display: block;
-}
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.playlists-view {
+  container-type: inline-size;
 }
 
-/* Toggle group */
-.toggle-group {
+.page-head {
   display: flex;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-}
-.toggle-btn {
-  padding: 7px 14px;
-  border: none;
-  background: var(--surface);
-  color: var(--ink-3);
-  font: 500 12px/1 var(--font-ui);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-.toggle-btn:not(:last-child) { border-right: 1px solid var(--line-2); }
-.toggle-btn:hover { background: var(--surface-2); color: var(--ink-2); }
-.toggle-btn.active {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-
-.btn-add {
-  padding: 8px 16px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font: 500 13px/1 var(--font-ui);
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.btn-add:hover { background: var(--accent); color: var(--on-accent); }
-
-/* Add form */
-.add-form {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-  padding: 14px 16px;
-  background: var(--surface-2);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
+  align-items: flex-start;
+  gap: 20px;
+  padding: 26px 30px 18px;
   flex-wrap: wrap;
 }
-.form-input {
-  flex: 1;
-  min-width: 280px;
+.page-head .titles h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+.page-head .sub {
+  margin-top: 5px;
+  font: 500 13px/1 var(--font-mono);
+  color: var(--ink-2);
+}
+.head-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+/* filtre segmenté */
+.filterseg {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-2);
+  padding: 3px;
+  border-radius: var(--r-sm);
+}
+.filterseg button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  padding: 8px 14px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.filterseg button:hover { color: var(--ink); }
+.filterseg button.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* bouton ajouter */
+.btn-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 13.5px var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-add:hover { background: var(--accent-hover); }
+.btn-add svg { width: 15px; height: 15px; }
+.btn-add.cancel {
   background: var(--surface);
+  color: var(--ink-2);
+  border-color: var(--line-2);
+}
+.btn-add.cancel .plus { display: none; }
+
+/* formulaire d'ajout */
+.addform {
+  padding: 0 30px 6px;
+}
+.addcard {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+  margin-bottom: 8px;
+}
+.addrow {
+  display: flex;
+  gap: 10px;
+}
+.addrow input {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0 14px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  padding: 8px 12px;
-  font: inherit;
-  font-size: 13px;
+  background: var(--bg);
+  font: 400 14px var(--font-ui);
   color: var(--ink);
   outline: none;
 }
-.form-input::placeholder { color: var(--ink-3); }
-.btn-confirm {
-  padding: 8px 18px;
+.addrow input::placeholder { color: var(--ink-3); }
+.addrow input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.btn-go {
+  height: 42px;
+  padding: 0 20px;
+  border: 0;
   border-radius: var(--r-sm);
-  border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 13px/1 var(--font-ui);
+  font: 600 13.5px var(--font-ui);
   cursor: pointer;
-  transition: opacity 0.12s;
-}
-.btn-confirm:disabled { opacity: 0.5; cursor: default; }
-.form-error {
-  font: 400 12px/1 var(--font-mono);
-  color: var(--neg-ink, #c0392b);
-  width: 100%;
-}
-
-/* Empty state */
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--ink-3);
-}
-.empty-text {
-  font: 500 15px/1.4 var(--font-ui);
-  color: var(--ink-2);
-  margin-bottom: 6px;
-}
-.empty-sub {
-  font: 400 13px/1.4 var(--font-ui);
-  margin-bottom: 20px;
-}
-
-/* Table */
-.table-wrap { overflow-x: auto; }
-.pl-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13.5px;
-  table-layout: fixed;
-}
-.pl-table thead th {
-  text-align: left;
-  padding: 0 14px 12px;
-  font: 500 10.5px/1 var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
-.pl-table thead th.num { text-align: right; }
-.pl-table tbody td {
-  height: 58px;
-  padding: 0 14px;
-  vertical-align: middle;
+.btn-go:hover { background: var(--accent-hover); }
+.btn-go:disabled { opacity: 0.5; cursor: default; }
+.form-error {
+  display: block;
+  margin-top: 10px;
+  font: 400 12px/1 var(--font-mono);
+  color: var(--neg-ink);
+}
+
+/* table */
+.table-wrap {
+  padding: 4px 30px 30px;
+  overflow-x: auto;
+}
+table.tt {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 440px;
+}
+table.tt col.w-pl      { width: auto; }
+table.tt col.w-creator { width: 180px; }
+table.tt col.w-tracks  { width: 84px; }
+table.tt col.w-crawl   { width: 128px; }
+table.tt col.w-actions { width: 220px; }
+
+table.tt thead th {
+  position: sticky;
+  top: 0;
+  font: 600 10.5px/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: left;
+  padding: 0 14px 11px;
   border-bottom: 1px solid var(--line);
-  overflow: hidden;
+  white-space: nowrap;
+  user-select: none;
 }
-.pl-table tbody tr:hover td { background: var(--surface-2); }
-.pl-table tbody tr:last-child td { border-bottom: none; }
-
-/* Column widths */
-.col-cover  { width: 54px; padding: 0 8px !important; }
-.col-title  { width: auto; min-width: 180px; }
-.col-owner  { width: 140px; }
-.col-tracks { width: 70px; }
-.col-crawled { width: 110px; }
-.col-action { width: 260px; text-align: right; }
-
-/* Cover */
-.cover-thumb {
-  width: 40px; height: 40px;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line);
-  overflow: hidden;
-  background: repeating-linear-gradient(135deg, var(--surface-2) 0 5px, var(--surface-3) 5px 10px);
-  flex: none;
+table.tt th.num, table.tt td.num { text-align: center; }
+table.tt th.end, table.tt td.end { text-align: right; }
+table.tt tbody tr {
+  border-bottom: 1px solid var(--line);
+  height: var(--row-h);
 }
-.cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+table.tt tbody tr:hover { background: var(--surface-2); }
+table.tt td { padding: 0 14px; vertical-align: middle; }
 
-/* Playlist title cell */
-.pl-link { text-decoration: none; color: inherit; display: block; }
-.pl-link:hover .pl-title { color: var(--accent-ink); }
-.pl-title-row {
+/* cellule playlist */
+.pl-cell {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 13px;
+  min-width: 0;
 }
-.pl-title {
-  font-weight: 600;
+.aw {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-xs);
+  flex: none;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.aw img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pl-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pl-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pl-name {
+  font: 500 14px var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-decoration: none;
 }
-
-/* Source badge */
-.source-badge {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: var(--r-xs);
-  font: 500 9.5px/1.5 var(--font-mono);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  border: 1px solid var(--line-2);
-  color: var(--ink-3);
-  background: var(--surface-2);
-}
-.source-deezer  { color: var(--ink-3); }
-.source-tidal   { color: var(--ink-3); }
-.source-spotify { color: var(--ink-3); }
+.pl-name:hover { color: var(--accent-ink); }
 .pl-id {
-  display: block;
-  font-size: 11px;
-  margin-top: 2px;
+  font: 500 11px var(--font-mono);
+  color: var(--ink-3);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* Cells */
-.num { text-align: right; }
-.mono { font-family: var(--font-mono); }
-.muted { color: var(--ink-3); }
+/* badge source */
+.src-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 4px;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex: none;
+}
+.src-badge.deezer  { background: var(--accent-soft); color: var(--accent-ink); }
+.src-badge.tidal   { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--line-2); }
+.src-badge.spotify { background: var(--pos-soft); color: var(--pos-ink); }
 
-/* Action buttons */
-.action-btns {
-  display: flex;
-  gap: 6px;
+/* créateur */
+.td-creator { font: 400 13px var(--font-ui); color: var(--ink-2); }
+
+/* numbers + dates */
+.td-num { font: 600 13px var(--font-mono); color: var(--ink); }
+.td-date { font: 500 12.5px var(--font-mono); color: var(--ink-2); white-space: nowrap; }
+.td-empty { font: 500 13px var(--font-mono); color: var(--ink-3); }
+
+/* actions */
+.actions {
+  display: inline-flex;
+  gap: 8px;
   justify-content: flex-end;
+  align-items: center;
 }
 .btn-crawl {
-  padding: 5px 10px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font: 500 11px/1 var(--font-ui);
-  cursor: pointer;
-  transition: background 0.12s;
-  white-space: nowrap;
-}
-.btn-crawl:hover:not(:disabled) { background: var(--accent); color: var(--on-accent); }
-.btn-crawl:disabled { opacity: 0.45; cursor: default; }
-
-.btn-unfollow {
-  padding: 5px 10px;
+  height: 32px;
+  padding: 0 14px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
-  color: var(--ink-3);
-  font: 500 11px/1 var(--font-ui);
+  color: var(--ink-2);
+  font: 500 12.5px var(--font-ui);
   cursor: pointer;
-  transition: color 0.12s, background 0.12s, border-color 0.12s;
   white-space: nowrap;
 }
-.btn-unfollow:hover {
-  color: var(--neg-ink, #c0392b);
-  border-color: var(--neg-ink, #c0392b);
-  background: var(--surface-2);
+.btn-crawl:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
+.btn-crawl:disabled { opacity: 0.45; cursor: default; }
 
 .btn-follow {
-  padding: 5px 14px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--accent);
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  font: 600 12.5px var(--font-ui);
+  border: 1px solid transparent;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 12px/1 var(--font-ui);
-  cursor: pointer;
-  transition: opacity 0.12s;
-  white-space: nowrap;
 }
-.btn-follow:hover { opacity: 0.85; }
+.btn-follow:hover { background: var(--accent-hover); }
 .btn-follow:disabled { opacity: 0.5; cursor: default; }
+.btn-follow.following {
+  background: transparent;
+  color: var(--ink-3);
+  border-color: var(--line-2);
+}
+.btn-follow.following:hover {
+  color: var(--neg-ink);
+  border-color: var(--neg);
+  background: var(--neg-soft);
+}
 
 .state {
+  padding: 60px 30px;
   color: var(--ink-3);
-  font-size: 14px;
-  font-style: italic;
+  font: 400 14px var(--font-ui);
+  text-align: center;
 }
 
-
+/* ── responsive (container queries) ── */
+@container (max-width: 1040px) { .col-crawl { display: none; } }
+@container (max-width: 820px) {
+  .col-creator { display: none; }
+  .head-tools { width: 100%; margin-left: 0; }
+}
+@container (max-width: 640px) {
+  .col-tracks { display: none; }
+  .page-head, .addform, .table-wrap { padding-left: 18px; padding-right: 18px; }
+}
 </style>
