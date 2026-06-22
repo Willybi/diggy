@@ -1,147 +1,180 @@
 <template>
   <div class="sets-view">
-    <header class="view-header">
-      <div>
-        <h1 class="view-title">Sets</h1>
-        <span class="view-sub">{{ displayList.length }} set{{ displayList.length !== 1 ? 's' : '' }}</span>
+    <div class="page-head">
+      <div class="titles">
+        <h1>Sets</h1>
+        <div class="sub">{{ displayList.length }} set{{ displayList.length !== 1 ? 's' : '' }}</div>
       </div>
-      <div class="header-actions">
-        <input
-          v-model="search"
-          class="search-input"
-          placeholder="Rechercher…"
-          @input="onSearch"
-        />
-        <div class="toggle-group">
-          <button class="toggle-btn" :class="{ active: mode === 'all' }" @click="mode = 'all'">Tous</button>
-          <button class="toggle-btn" :class="{ active: mode === 'followed' }" @click="mode = 'followed'">Suivis</button>
+      <div class="head-tools">
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>
+          <input
+            v-model="search"
+            type="text"
+            placeholder="Rechercher…"
+            @input="onSearch"
+          />
+        </label>
+        <div class="filterseg">
+          <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Tous</button>
+          <button :class="{ on: mode === 'followed' }" @click="mode = 'followed'">Suivis</button>
         </div>
-        <button class="btn-add" @click="showForm = !showForm; addMode = 'search'; tdResults = []; formError = ''">
-          {{ showForm ? 'Annuler' : '+ Ajouter' }}
+        <button
+          class="btn-add"
+          :class="{ cancel: showForm }"
+          @click="toggleForm"
+        >
+          <span v-if="!showForm" class="plus">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </span>
+          <span class="addlbl">{{ showForm ? 'Annuler' : 'Ajouter' }}</span>
         </button>
       </div>
-    </header>
+    </div>
 
     <!-- Add form -->
-    <div v-if="showForm" class="add-form">
-      <div class="add-tabs">
-        <button class="add-tab" :class="{ active: addMode === 'search' }" @click="addMode = 'search'">Rechercher</button>
-        <button class="add-tab" :class="{ active: addMode === 'url' }" @click="addMode = 'url'">URL</button>
-      </div>
-
-      <!-- Search mode -->
-      <div v-if="addMode === 'search'" class="add-body">
-        <div class="add-row">
-          <input
-            v-model="tdQuery"
-            class="form-input"
-            placeholder="Rechercher sur TrackID  (ex: Adam Beyer, Boiler Room…)"
-            @keydown.enter="doTrackIDSearch"
-            autofocus
-          />
-          <button class="btn-confirm" :disabled="tdSearching" @click="doTrackIDSearch">
-            {{ tdSearching ? 'Recherche…' : 'Rechercher' }}
-          </button>
+    <div v-if="showForm" class="addform">
+      <div class="addcard">
+        <div class="addtabs">
+          <button class="addtab" :class="{ on: addMode === 'search' }" @click="addMode = 'search'">Rechercher</button>
+          <button class="addtab" :class="{ on: addMode === 'url' }" @click="addMode = 'url'">URL</button>
         </div>
-        <div v-if="tdResults.length" class="td-results">
-          <div
-            v-for="r in tdResults"
-            :key="r.trackid_id"
-            class="td-result-row"
-          >
-            <div class="td-result-cover">
-              <img v-if="r.artwork_url" :src="r.artwork_url" />
-              <span v-else class="fallback-letter">{{ (r.title || '?')[0] }}</span>
-            </div>
-            <div class="td-result-info">
-              <span class="td-result-title">{{ r.title }}</span>
-              <span class="td-result-meta muted">
-                {{ r.channel || '' }}
-                <template v-if="r.track_count"> · {{ r.track_count }} tracks</template>
-                <template v-if="r.created_on"> · {{ fmtDate(r.created_on?.slice(0, 10)) }}</template>
-              </span>
-            </div>
-            <button
-              v-if="r.already_imported"
-              class="btn-imported"
-              disabled
-            >Importé</button>
-            <button
-              v-else
-              class="btn-follow"
-              :disabled="r._importing"
-              @click="doImportFromSearch(r)"
-            >{{ r._importing ? 'Import…' : 'Importer + Suivre' }}</button>
+
+        <!-- Search mode -->
+        <div v-if="addMode === 'search'">
+          <div class="addrow">
+            <input
+              v-model="tdQuery"
+              type="text"
+              placeholder="Nom d'artiste, de DJ, d'event…"
+              @keydown.enter="doTrackIDSearch"
+              autofocus
+            />
+            <button class="btn-go" :disabled="tdSearching" @click="doTrackIDSearch">
+              {{ tdSearching ? 'Recherche…' : 'Rechercher' }}
+            </button>
           </div>
+          <div v-if="tdResults.length" class="results">
+            <div
+              v-for="r in tdResults"
+              :key="r.trackid_id"
+              class="res"
+            >
+              <div class="aw">
+                <img v-if="r.artwork_url" :src="r.artwork_url" />
+                <span v-else class="fallback-letter">{{ (r.title || '?')[0] }}</span>
+              </div>
+              <div class="rx">
+                <div class="rt">{{ r.title }}</div>
+                <div class="rm">
+                  <template v-if="r.channel"><b>{{ r.channel }}</b></template>
+                  <template v-if="r.track_count"> · {{ r.track_count }} tracks</template>
+                  <template v-if="r.created_on"> · {{ fmtDate(r.created_on?.slice(0, 10)) }}</template>
+                </div>
+              </div>
+              <button
+                v-if="r.already_imported"
+                class="btn-follow done"
+                disabled
+              >Importé</button>
+              <button
+                v-else
+                class="btn-follow"
+                :disabled="r._importing"
+                @click="doImportFromSearch(r)"
+              >{{ r._importing ? 'Import…' : 'Importer + Suivre' }}</button>
+            </div>
+          </div>
+          <span v-if="formError" class="form-error">{{ formError }}</span>
         </div>
-        <span v-if="formError" class="form-error">{{ formError }}</span>
-      </div>
 
-      <!-- URL mode -->
-      <div v-if="addMode === 'url'" class="add-body">
-        <div class="add-row">
-          <input
-            v-model="importUrl"
-            class="form-input"
-            placeholder="URL TrackID  (ex: https://trackid.net/audiostream/...)"
-            @keydown.enter="doImport"
-            @input="formError = ''"
-            autofocus
-          />
-          <button class="btn-confirm" :disabled="importing" @click="doImport">
-            {{ importing ? 'Import…' : 'Importer' }}
-          </button>
+        <!-- URL mode -->
+        <div v-if="addMode === 'url'">
+          <div class="addrow">
+            <input
+              v-model="importUrl"
+              type="text"
+              placeholder="URL TrackID (ex : https://trackid.net/audiostream/…)"
+              @keydown.enter="doImport"
+              @input="formError = ''"
+              autofocus
+            />
+            <button class="btn-go" :disabled="importing" @click="doImport">
+              {{ importing ? 'Import…' : 'Importer' }}
+            </button>
+          </div>
+          <span v-if="formError" class="form-error">{{ formError }}</span>
         </div>
-        <span v-if="formError" class="form-error">{{ formError }}</span>
       </div>
     </div>
 
     <div v-if="loading" class="state">Chargement…</div>
-
     <div v-else-if="displayList.length === 0" class="state">Aucun set trouvé.</div>
 
     <div v-else class="table-wrap">
-      <table class="st-table">
+      <table class="tt">
+        <colgroup>
+          <col class="w-set">
+          <col class="w-date col-date">
+          <col class="w-tracks">
+          <col class="w-dur col-dur">
+          <col class="w-follow">
+        </colgroup>
         <thead>
           <tr>
-            <th class="col-cover" />
-            <th class="col-title">Set</th>
+            <th>Set</th>
             <th class="col-date">Date</th>
-            <th class="col-tracks num">Tracks</th>
-            <th class="col-dur num">Durée</th>
-            <th class="col-action" />
+            <th class="num">Tracks</th>
+            <th class="num col-dur">Durée</th>
+            <th class="end"></th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="s in displayList"
             :key="s.id"
-            class="st-row"
             @click="$router.push(`/set/${s.id}`)"
           >
-            <td class="col-cover">
-              <div class="cover-thumb">
-                <img v-if="s.has_artwork" :src="`/storage/set-artworks/${s.id}.jpg`" :alt="s.title" />
-                <span v-else class="fallback-letter">{{ (s.title || '?')[0] }}</span>
+            <td>
+              <div class="td-track">
+                <div class="aw">
+                  <img v-if="s.has_artwork" :src="`/storage/set-artworks/${s.id}.jpg`" :alt="s.title" />
+                  <span v-else class="fallback-letter">{{ (s.title || '?')[0] }}</span>
+                </div>
+                <div class="tx">
+                  <div class="tt-title">{{ s.title }}</div>
+                  <div v-if="s.artists.length" class="tt-art">{{ s.artists.join(', ') }}</div>
+                </div>
               </div>
             </td>
-            <td class="col-title">
-              <span class="st-name">{{ s.title }}</span>
-              <span v-if="s.artists.length" class="st-artists muted">{{ s.artists.join(', ') }}</span>
-            </td>
             <td class="col-date">
-              <span class="mono muted">{{ fmtDate(s.played_date) }}</span>
+              <span class="detect">{{ fmtDate(s.played_date) }}</span>
             </td>
-            <td class="col-tracks num">
-              <span class="mono">{{ s.identified_tracks }}/{{ s.total_tracks }}</span>
+            <td class="num">
+              <span
+                class="ring"
+                :class="ringClass(s.identified_tracks, s.total_tracks)"
+                :title="`${s.identified_tracks} / ${s.total_tracks} tracks identifiées`"
+              >
+                <svg viewBox="0 0 30 30">
+                  <circle class="bg" cx="15" cy="15" :r="R" />
+                  <circle
+                    class="fg"
+                    cx="15" cy="15" :r="R"
+                    :stroke-dasharray="C.toFixed(1)"
+                    :stroke-dashoffset="ringOffset(s.identified_tracks, s.total_tracks)"
+                  />
+                </svg>
+                <span class="pct">{{ ringPct(s.identified_tracks, s.total_tracks) }}%</span>
+              </span>
             </td>
-            <td class="col-dur num">
-              <span class="mono muted">{{ fmtMs(s.duration_ms) }}</span>
+            <td class="num col-dur">
+              <span class="td-dur">{{ fmtMs(s.duration_ms) }}</span>
             </td>
-            <td class="col-action" @click.stop>
+            <td class="end" @click.stop>
               <button
                 v-if="s.followed"
-                class="btn-unfollow"
+                class="btn-follow following"
                 @click="doUnfollow(s.id)"
               >Ne plus suivre</button>
               <button
@@ -183,6 +216,26 @@ const tdQuery = ref('')
 const tdResults = ref([])
 const tdSearching = ref(false)
 
+// Ring constants
+const R = 13
+const C = 2 * Math.PI * R
+
+function ringPct(ident, total) {
+  return total ? Math.round((ident / total) * 100) : 0
+}
+
+function ringOffset(ident, total) {
+  const p = ringPct(ident, total)
+  return (C * (1 - p / 100)).toFixed(1)
+}
+
+function ringClass(ident, total) {
+  const p = ringPct(ident, total)
+  if (p >= 100) return 'full'
+  if (p >= 60) return 'mid'
+  return 'low'
+}
+
 function authHeaders() {
   return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
 }
@@ -191,6 +244,13 @@ const displayList = computed(() => {
   if (mode.value === 'followed') return sets.value.filter(s => s.followed)
   return sets.value
 })
+
+function toggleForm() {
+  showForm.value = !showForm.value
+  addMode.value = 'search'
+  tdResults.value = []
+  formError.value = ''
+}
 
 async function fetchSets() {
   loading.value = true
@@ -276,316 +336,438 @@ onMounted(fetchSets)
 
 <style scoped>
 .sets-view {
-  padding: var(--pad) calc(var(--pad) * 1.5);
-  max-width: 960px;
-  margin: 0 auto;
+  container-type: inline-size;
+  min-height: 100%;
 }
-.view-header {
+
+/* ============ PAGE HEAD ============ */
+.page-head {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 26px 30px 18px;
   flex-wrap: wrap;
 }
-.view-title {
-  font: 600 22px/1.1 var(--font-ui);
-  letter-spacing: -0.02em;
+.titles h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
   color: var(--ink);
 }
-.view-sub {
-  font: 400 12px/1 var(--font-mono);
-  color: var(--ink-3);
-  margin-top: 4px;
-  display: block;
+.sub {
+  margin-top: 5px;
+  font: 500 13px/1 var(--font-mono);
+  color: var(--ink-2);
 }
-.header-actions {
+
+.head-tools {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
+  flex-wrap: wrap;
 }
-.search-input {
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  padding: 8px 12px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  outline: none;
-  width: 180px;
-}
-.search-input::placeholder { color: var(--ink-3); }
 
-/* Toggle */
-.toggle-group {
+/* ============ SEARCH ============ */
+.search {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  overflow: hidden;
+  padding: 0 12px;
+  height: 38px;
+  min-width: 230px;
 }
-.toggle-btn {
-  padding: 7px 14px;
-  border: none;
-  background: var(--surface);
+.search svg {
+  width: 16px;
+  height: 16px;
   color: var(--ink-3);
-  font: 500 12px/1 var(--font-ui);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  flex: none;
 }
-.toggle-btn:not(:last-child) { border-right: 1px solid var(--line-2); }
-.toggle-btn:hover { background: var(--surface-2); color: var(--ink-2); }
-.toggle-btn.active {
+.search input {
+  border: 0;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font: 400 14px var(--font-ui);
+  color: var(--ink);
+}
+.search input::placeholder { color: var(--ink-3); }
+
+/* ============ FILTER SEG ============ */
+.filterseg {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-2);
+  padding: 3px;
+  border-radius: var(--r-sm);
+}
+.filterseg button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  padding: 8px 14px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.filterseg button:hover { color: var(--ink); }
+.filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
 
+/* ============ BTN ADD ============ */
 .btn-add {
-  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
   border-radius: var(--r-sm);
-  border: 1px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font: 500 13px/1 var(--font-ui);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 13.5px var(--font-ui);
   cursor: pointer;
-  transition: background 0.12s;
   white-space: nowrap;
 }
-.btn-add:hover { background: var(--accent); color: var(--on-accent); }
+.btn-add:hover { background: var(--accent-hover); }
+.btn-add svg { width: 15px; height: 15px; }
+.btn-add.cancel {
+  background: var(--surface);
+  color: var(--ink-2);
+  border-color: var(--line-2);
+}
+.btn-add.cancel .plus { display: none; }
+.btn-add.cancel:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
 
-/* Add form */
-.add-form {
-  margin-bottom: 20px;
-  padding: 14px 16px;
-  background: var(--surface-2);
-  border-radius: var(--r-sm);
+/* ============ ADD FORM ============ */
+.addform {
+  padding: 0 30px 6px;
+}
+.addcard {
+  background: var(--surface);
   border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  padding: 6px 18px 18px;
+  margin-bottom: 8px;
 }
-.add-tabs {
+.addtabs {
   display: flex;
-  gap: 0;
-  margin-bottom: 12px;
+  gap: 22px;
   border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
 }
-.add-tab {
-  padding: 8px 18px;
-  border: none;
-  background: none;
-  color: var(--ink-3);
-  font: 500 12px/1 var(--font-ui);
+.addtab {
+  border: 0;
+  background: transparent;
   cursor: pointer;
+  font: 500 14px var(--font-ui);
+  color: var(--ink-3);
+  padding: 14px 2px 12px;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  transition: color 0.12s, border-color 0.12s;
 }
-.add-tab:hover { color: var(--ink-2); }
-.add-tab.active {
+.addtab:hover { color: var(--ink-2); }
+.addtab.on {
   color: var(--accent-ink);
   border-bottom-color: var(--accent);
 }
-.add-body { display: flex; flex-direction: column; gap: 10px; }
-.add-row {
+.addrow {
   display: flex;
-  align-items: center;
   gap: 10px;
 }
-.form-input {
+.addrow input {
   flex: 1;
-  min-width: 280px;
-  background: var(--surface);
+  min-width: 0;
+  height: 42px;
+  padding: 0 14px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  padding: 8px 12px;
-  font: inherit;
-  font-size: 13px;
+  background: var(--bg);
+  font: 400 14px var(--font-ui);
   color: var(--ink);
   outline: none;
 }
-.form-input::placeholder { color: var(--ink-3); }
-.btn-confirm {
-  padding: 8px 18px;
+.addrow input::placeholder { color: var(--ink-3); }
+.addrow input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.btn-go {
+  height: 42px;
+  padding: 0 20px;
+  border: 0;
   border-radius: var(--r-sm);
-  border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 13px/1 var(--font-ui);
+  font: 600 13.5px var(--font-ui);
   cursor: pointer;
-  transition: opacity 0.12s;
   white-space: nowrap;
 }
-.btn-confirm:disabled { opacity: 0.5; cursor: default; }
+.btn-go:hover { background: var(--accent-hover); }
+.btn-go:disabled { opacity: 0.5; cursor: default; }
 .form-error {
+  display: block;
+  margin-top: 10px;
   font: 400 12px/1 var(--font-mono);
-  color: var(--neg-ink, #c0392b);
+  color: var(--neg-ink);
 }
 
-/* TrackID search results */
-.td-results {
+/* ============ SEARCH RESULTS ============ */
+.results {
+  margin-top: 14px;
+  max-height: 312px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 400px;
-  overflow-y: auto;
 }
-.td-result-row {
+.res {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--r-xs);
-  transition: background 0.1s;
+  gap: 13px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--line);
 }
-.td-result-row:hover { background: var(--surface); }
-.td-result-cover {
-  width: 40px; height: 40px;
+.res:last-child { border-bottom: 0; }
+.res .aw {
+  width: 40px;
+  height: 40px;
   border-radius: var(--r-xs);
-  border: 1px solid var(--line);
+  flex: none;
+  background: var(--surface-3);
   overflow: hidden;
-  background: var(--surface);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: none;
 }
-.td-result-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.td-result-info {
-  flex: 1;
+.res .aw img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.rx {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex: 1;
 }
-.td-result-title {
-  font: 500 13px/1.2 var(--font-ui);
+.rt {
+  font: 500 14px var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.td-result-meta {
-  font: 400 11px/1 var(--font-mono);
-}
-.btn-imported {
-  padding: 5px 12px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
+.rm {
+  font: 500 11.5px/1.4 var(--font-mono);
   color: var(--ink-3);
-  font: 500 11px/1 var(--font-ui);
-  cursor: default;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+}
+.rm b {
+  color: var(--ink-2);
+  font-weight: 500;
 }
 
-/* Table */
-.table-wrap { overflow-x: auto; }
-.st-table {
+/* ============ TABLE ============ */
+.table-wrap {
+  padding: 4px 30px 30px;
+  overflow-x: auto;
+}
+table.tt {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13.5px;
   table-layout: fixed;
+  min-width: 440px;
 }
-.st-table thead th {
-  text-align: left;
-  padding: 0 14px 12px;
-  font: 500 10.5px/1 var(--font-mono);
-  letter-spacing: 0.08em;
+table.tt col.w-set    { width: auto; }
+table.tt col.w-date   { width: 128px; }
+table.tt col.w-tracks { width: 116px; }
+table.tt col.w-dur    { width: 110px; }
+table.tt col.w-follow { width: 140px; }
+table.tt thead th {
+  font: 600 10.5px/1 var(--font-mono);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
+  text-align: left;
+  padding: 0 14px 11px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
+  user-select: none;
 }
-.st-table thead th.num { text-align: right; }
-.st-table tbody td {
-  height: 58px;
+table.tt th.num,
+table.tt td.num { text-align: center; }
+table.tt th.end,
+table.tt td.end { text-align: right; }
+table.tt tbody tr {
+  border-bottom: 1px solid var(--line);
+  height: var(--row-h);
+  cursor: pointer;
+}
+table.tt tbody tr:hover { background: var(--surface-2); }
+table.tt td {
   padding: 0 14px;
   vertical-align: middle;
-  border-bottom: 1px solid var(--line);
-  overflow: hidden;
 }
-.st-table tbody tr:last-child td { border-bottom: none; }
-.st-row { cursor: pointer; }
-.st-row:hover td { background: var(--surface-2); }
 
-.col-cover  { width: 54px; padding: 0 8px !important; }
-.col-title  { width: auto; min-width: 200px; }
-.col-date   { width: 100px; }
-.col-tracks { width: 80px; }
-.col-dur    { width: 80px; }
-.col-action { width: 120px; text-align: right; }
-
-/* Cover */
-.cover-thumb {
-  width: 40px; height: 40px;
+/* ============ SET CELL (artwork + title + artists) ============ */
+.td-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.td-track .aw {
+  width: 38px;
+  height: 38px;
   border-radius: var(--r-xs);
-  border: 1px solid var(--line);
+  flex: none;
+  background: var(--surface-3);
   overflow: hidden;
-  background: var(--surface-2);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: none;
 }
-.cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.td-track .aw img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .fallback-letter {
   font: 600 16px/1 var(--font-ui);
   color: var(--ink-3);
   text-transform: uppercase;
 }
-
-/* Title cell */
-.st-name {
-  display: block;
-  font-weight: 600;
+.tx {
+  min-width: 0;
+  flex: 1;
+}
+.tt-title {
+  font-size: 14.5px;
+  font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.st-artists {
-  display: block;
-  font-size: 12px;
-  margin-top: 2px;
+.tt-art {
+  font-size: 12.5px;
+  color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Action buttons */
+/* ============ DATE ============ */
+.detect {
+  font: 500 13px var(--font-mono);
+  color: var(--ink-2);
+}
+
+/* ============ DURATION ============ */
+.td-dur {
+  font: 500 13px var(--font-mono);
+  color: var(--ink-2);
+}
+
+/* ============ RING (tracks identifiées donut) ============ */
+.ring {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.ring svg {
+  width: 30px;
+  height: 30px;
+  transform: rotate(-90deg);
+  flex: none;
+}
+.ring .bg {
+  fill: none;
+  stroke: var(--surface-3);
+  stroke-width: 3.4;
+}
+.ring .fg {
+  fill: none;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s ease;
+}
+.ring.full .fg { stroke: var(--pos); }
+.ring.mid  .fg { stroke: var(--accent); }
+.ring.low  .fg { stroke: oklch(0.74 0.13 60); }
+.ring .pct {
+  font: 600 12.5px var(--font-mono);
+  color: var(--ink-2);
+  min-width: 34px;
+}
+.ring.full .pct { color: var(--pos-ink); }
+
+/* ============ FOLLOW BUTTON ============ */
 .btn-follow {
-  padding: 5px 14px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--accent);
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  font: 600 12.5px var(--font-ui);
+  border: 1px solid transparent;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 11px/1 var(--font-ui);
-  cursor: pointer;
-  transition: opacity 0.12s;
-  white-space: nowrap;
 }
-.btn-follow:hover { opacity: 0.85; }
-
-.btn-unfollow {
-  padding: 5px 10px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
+.btn-follow:hover { background: var(--accent-hover); }
+.btn-follow.following {
+  background: transparent;
   color: var(--ink-3);
-  font: 500 11px/1 var(--font-ui);
-  cursor: pointer;
-  transition: color 0.12s, border-color 0.12s;
-  white-space: nowrap;
+  border-color: var(--line-2);
 }
-.btn-unfollow:hover {
-  color: var(--neg-ink, #c0392b);
-  border-color: var(--neg-ink, #c0392b);
+.btn-follow.following:hover {
+  color: var(--neg-ink);
+  border-color: var(--neg);
+  background: var(--neg-soft);
+}
+.btn-follow.done {
+  background: transparent;
+  color: var(--ink-3);
+  border-color: var(--line-2);
+  cursor: default;
+}
+.btn-follow.done:hover {
+  background: transparent;
+  color: var(--ink-3);
+  border-color: var(--line-2);
 }
 
-.num { text-align: right; }
-.mono { font-family: var(--font-mono); }
-.muted { color: var(--ink-3); }
+/* ============ STATES ============ */
 .state {
+  padding: 40px 30px;
   color: var(--ink-3);
-  font-size: 14px;
+  font: 400 14px var(--font-ui);
   font-style: italic;
+}
+
+/* ============ RESPONSIVE (container queries) ============ */
+@container (max-width: 1040px) { .col-dur { display: none; } }
+@container (max-width: 820px) {
+  .col-date { display: none; }
+  .head-tools { width: 100%; margin-left: 0; }
+  .search { flex: 1; min-width: 0; order: 3; }
+}
+@container (max-width: 600px) {
+  .ring .pct { display: none; }
+  .page-head, .addform { padding-left: 18px; padding-right: 18px; }
+  .table-wrap { padding: 4px 14px 22px; }
 }
 </style>
