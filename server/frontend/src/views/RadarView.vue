@@ -450,7 +450,7 @@ table.tt {
 table.tt col.w-play   { width: 44px; }
 table.tt col.w-track  { width: auto; }
 table.tt col.w-style  { width: 150px; }
-table.tt col.w-source { width: 192px; }
+table.tt col.w-source { width: 224px; }
 table.tt col.w-detect { width: 104px; }
 table.tt col.w-bpm    { width: 72px; }
 table.tt col.w-key    { width: 64px; }
@@ -586,7 +586,7 @@ tr.playing .tt-title { color: var(--accent-ink); }
   display: grid;
   place-items: center;
   background: var(--surface-2);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .src .ic svg { width: 14px; height: 14px; }
 .src .meta {
