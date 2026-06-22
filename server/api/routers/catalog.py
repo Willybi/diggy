@@ -136,7 +136,7 @@ async def list_catalog(
     elif sort == "key":
         sort_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key, "")
     elif sort == "style":
-        sort_col = func.coalesce(ut_sub.c.rb_mytags.op("->>")(0), "")
+        sort_col = func.coalesce(CatalogEntry.genre, ut_sub.c.rb_mytags.op("->>")(0), "")
     elif sort in SORTABLE_COLS and SORTABLE_COLS[sort] is not None:
         sort_col = SORTABLE_COLS[sort]
     else:
