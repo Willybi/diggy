@@ -19,7 +19,7 @@ const GENRE_FAMILIES = {
   'Bass House':                     'house',
   'UK Garage / Bassline':           'house',
   'Progressive House':              'house',
-  'Mainstage':                      'house',
+  'Mainstage':                      'misc',
   'Jackin House':                   'house',
   'Funky House':                    'house',
   'Soulful House':                  'house',
@@ -40,9 +40,12 @@ const GENRE_FAMILIES = {
   'Drum & Bass':                    'electro',
   'Indie Dance':                    'electro',
 
-  'Dance / Pop':                    'pop',
+  'Dance / Pop':                    'misc',
   'Pop':                            'pop',
   'Nu Disco / Disco':               'pop',
+
+  'DJ Tools / Acape':               'misc',
+  'Misc. Tracks':                   'misc',
 
   /* Legacy styles from Rekordbox tags */
   'Downtempo':                      'house',
@@ -65,6 +68,7 @@ const FAMILY_HUES = {
   trance:  352,
   electro: 180,
   pop:      42,
+  misc:    null,
 }
 
 /* ── Couche 3 : fallback hash deterministe ─────────────────── */
@@ -83,6 +87,7 @@ export const slug = (name) =>
 
 export function styleTone(name) {
   const family = GENRE_FAMILIES[name]
+  if (family === 'misc') return { family: 'misc', hue: null, shade: 0 }
   if (family && FAMILY_HUES[family] != null) {
     return { family, hue: FAMILY_HUES[family], shade: 0 }
   }

@@ -6,37 +6,39 @@
     </div>
 
     <nav class="nav-section">
-      <p class="nav-label">Library</p>
+      <p class="nav-label"><span>Library</span></p>
       <RouterLink v-for="item in libraryItems" :key="item.to"
         :to="item.to" custom v-slot="{ isActive, navigate }"
       >
         <span class="nav-item" :class="{ 'is-active': isActive }" @click="navigate">
           <span class="nav-icon" v-html="item.icon" />
-          {{ item.label }}
+          <span class="nav-text">{{ item.label }}</span>
           <span v-if="item.count != null" class="nav-count">{{ item.count }}</span>
         </span>
       </RouterLink>
     </nav>
 
     <nav class="nav-section">
-      <p class="nav-label">Discover</p>
+      <p class="nav-label"><span>Discover</span></p>
       <RouterLink v-for="item in discoverItems" :key="item.to"
         :to="item.to" custom v-slot="{ isActive, navigate }"
       >
         <span class="nav-item" :class="{ 'is-active': isActive }" @click="navigate">
           <span class="nav-icon" v-html="item.icon" />
-          {{ item.label }}
+          <span class="nav-text">{{ item.label }}</span>
           <span v-if="item.count != null" class="nav-count">{{ item.count }}</span>
         </span>
       </RouterLink>
     </nav>
 
-    <nav v-if="auth.user?.is_admin" class="nav-section">
-      <p class="nav-label">Admin</p>
+    <!-- ADMIN : surface utility, se detache (decision D2) -->
+    <nav v-if="auth.user?.is_admin" class="nav-section nav-admin">
+      <p class="nav-label"><span>Admin</span></p>
       <RouterLink to="/admin" custom v-slot="{ isActive, navigate }">
         <span class="nav-item" :class="{ 'is-active': isActive }" @click="navigate">
           <span class="nav-icon" v-html="iconAdmin" />
-          Admin
+          <span class="nav-text">Admin</span>
+          <span class="util-key">ADM</span>
         </span>
       </RouterLink>
     </nav>
@@ -45,20 +47,20 @@
       <div v-if="auth.isAuthenticated" class="user-row">
         <span class="nav-icon" v-html="iconUser" />
         <span class="user-name">{{ auth.user?.username }}</span>
-        <button class="logout-btn" @click="handleLogout" title="Déconnexion">
+        <button class="logout-btn" @click="handleLogout" title="Deconnexion">
           <span v-html="iconLogout" />
         </button>
       </div>
       <RouterLink v-else to="/login" custom v-slot="{ navigate }">
         <span class="nav-item" @click="navigate">
           <span class="nav-icon" v-html="iconUser" />
-          Connexion
+          <span class="nav-text">Connexion</span>
         </span>
       </RouterLink>
 
       <button class="nav-item theme-toggle" @click="toggle">
         <span class="nav-icon" v-html="isDark ? iconSun : iconMoon" />
-        {{ isDark ? 'Light mode' : 'Dark mode' }}
+        <span class="nav-text">{{ isDark ? 'Light mode' : 'Dark mode' }}</span>
       </button>
     </div>
   </aside>
@@ -93,7 +95,6 @@ function handleLogout() {
 
 const iconArtist = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3.1-6 7-6s7 2.5 7 6"/><circle cx="18" cy="9" r="2.5"/><path d="M16 20c0-2.5 1.8-4 4-4"/></svg>`
 const iconAdmin = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>`
-const iconLib = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v14M9 19V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v14M14 19l4-15 3 1-4 14"/></svg>`
 const iconGrid = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`
 const iconSet = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>`
 const iconPlaylist = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 6h18M3 12h12M3 18h8"/></svg>`
@@ -124,14 +125,14 @@ const discoverItems = computed(() => [
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  padding: 16px 12px;
-  gap: 0;
+  padding: 18px 14px 14px;
+  gap: 2px;
 }
 .sidebar-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px 20px;
+  padding: 4px 8px 18px;
 }
 .brand-glyph {
   width: 30px;
@@ -141,22 +142,23 @@ const discoverItems = computed(() => [
   color: var(--on-accent);
   display: grid;
   place-items: center;
-  font: 700 15px/1 var(--font-ui);
+  font: 700 16px/1 var(--font-ui);
+  flex: none;
 }
 .brand-name {
-  font: 600 16px/1 var(--font-ui);
-  letter-spacing: -0.02em;
+  font: 600 19px/1 var(--font-ui);
+  letter-spacing: .2px;
   color: var(--ink);
 }
 .nav-section {
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 .nav-label {
   font: 500 10px/1 var(--font-mono);
-  letter-spacing: 0.12em;
+  letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--ink-3);
-  padding: 14px 8px 6px;
+  padding: 16px 10px 8px;
   margin: 0;
 }
 .nav-item {
@@ -167,9 +169,11 @@ const discoverItems = computed(() => [
   border-radius: var(--r-sm);
   color: var(--ink-2);
   cursor: pointer;
-  font: 500 14px/1 var(--font-ui);
+  font: 500 14.5px/1 var(--font-ui);
   transition: background 0.12s, color 0.12s;
   user-select: none;
+  text-decoration: none;
+  line-height: 1;
 }
 .nav-item:hover {
   background: var(--surface-2);
@@ -180,29 +184,62 @@ const discoverItems = computed(() => [
   color: var(--accent-ink);
 }
 .nav-icon {
-  width: 17px;
-  height: 17px;
+  width: 19px;
+  height: 19px;
   flex: none;
   display: grid;
   place-items: center;
-  opacity: 0.85;
 }
 .nav-icon :deep(svg) {
-  width: 17px;
-  height: 17px;
+  width: 19px;
+  height: 19px;
+}
+.nav-text {
+  white-space: nowrap;
 }
 .nav-count {
   margin-left: auto;
-  font: 400 11px/1 var(--font-mono);
+  font: 500 11.5px/1 var(--font-mono);
   color: var(--ink-3);
 }
 .nav-item.is-active .nav-count {
   color: var(--accent-ink);
 }
+
+/* --- ADMIN : surface "utility", se detache (decision D2) --- */
+.nav-admin {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line-2);
+}
+.nav-admin .nav-label {
+  color: var(--ink-3);
+  padding-top: 4px;
+}
+.nav-admin .nav-item {
+  color: var(--ink-2);
+  border: 1px dashed var(--line-2);
+  background: var(--surface-2);
+}
+.nav-admin .nav-item:hover {
+  background: var(--surface-3);
+}
+.util-key {
+  margin-left: auto;
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .1em;
+  color: var(--ink-3);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 3px 4px;
+}
+
 .sidebar-footer {
   margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .theme-toggle {
   width: 100%;
@@ -210,25 +247,21 @@ const discoverItems = computed(() => [
   background: transparent;
   font: inherit;
 }
-
 .user-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 11px;
+  padding: 9px 10px;
   border-radius: var(--r-sm);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
-  margin-bottom: 4px;
+  font: 500 14px/1 var(--font-ui);
 }
-
 .user-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .logout-btn {
   background: none;
   border: none;
@@ -239,15 +272,47 @@ const discoverItems = computed(() => [
   place-items: center;
   border-radius: 4px;
   transition: color 0.12s, background 0.12s;
+  margin-left: auto;
 }
-
 .logout-btn:hover {
-  color: var(--ink);
-  background: var(--surface-2);
+  color: var(--accent-ink);
+}
+.logout-btn :deep(svg) {
+  width: 18px;
+  height: 18px;
 }
 
-.logout-btn :deep(svg) {
-  width: 15px;
-  height: 15px;
+/* ============ RESPONSIVE — rail mode via container query ============ */
+@container (max-width: 900px) {
+  .brand-name,
+  .nav-text,
+  .nav-count,
+  .nav-label span,
+  .util-key {
+    display: none;
+  }
+  .nav-label {
+    text-align: center;
+    padding: 14px 0 8px;
+  }
+  .nav-label::after {
+    content: "\b7";
+  }
+  .nav-item {
+    justify-content: center;
+    padding: 10px 0;
+  }
+  .nav-admin .nav-item {
+    border-style: dashed;
+  }
+  .user-row {
+    justify-content: center;
+  }
+  .user-name {
+    display: none;
+  }
+  .logout-btn {
+    margin-left: 0;
+  }
 }
 </style>

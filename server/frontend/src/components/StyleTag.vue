@@ -1,6 +1,10 @@
 <template>
-  <span class="style-tag" :style="{ '--th': tone.hue, '--ts': tone.shade }">
-    {{ name }}
+  <span
+    class="style-tag"
+    :class="{ misc: tone.family === 'misc' }"
+    :style="tone.family !== 'misc' ? { '--th': tone.hue, '--ts': tone.shade } : undefined"
+  >
+    <span class="dot"></span>{{ name }}
   </span>
 </template>
 
@@ -21,21 +25,26 @@ const tone = computed(() => styleTone(props.name))
   --ts: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   background: oklch(calc(var(--tag-bg-l) + var(--ts)) var(--tag-bg-c) var(--th));
   color: oklch(calc(var(--tag-fg-l) - var(--ts)) var(--tag-fg-c) var(--th));
-  font: 500 11.5px/1 var(--font-ui);
-  letter-spacing: 0.005em;
-  padding: 3px 9px 3px 8px;
-  border-radius: 999px;
+  font: 500 12px var(--font-ui);
   white-space: nowrap;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
 }
-.style-tag::before {
-  content: '';
-  width: 6px;
-  height: 6px;
+.dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: oklch(calc(var(--tag-dot-l) + var(--ts)) var(--tag-dot-c) var(--th));
   flex: none;
+  background: oklch(calc(var(--tag-dot-l) + var(--ts)) var(--tag-dot-c) var(--th));
+}
+.style-tag.misc {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.style-tag.misc .dot {
+  background: var(--ink-3);
 }
 </style>

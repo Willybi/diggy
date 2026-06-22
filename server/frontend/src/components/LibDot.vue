@@ -1,11 +1,6 @@
 <template>
-  <span class="lib-dot" :class="inLib ? 'in' : 'out'" :title="inLib ? 'In lib' : 'Pas dans la lib'">
-    <svg v-if="inLib" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M2 6.5 4.5 9 10 3.5" />
-    </svg>
-    <svg v-else viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-      <path d="M3 3l6 6M9 3l-6 6" />
-    </svg>
+  <span class="libdot" :class="inLib ? 'in' : 'out'" :title="inLib ? 'Dans ma lib' : 'Pas dans la lib'">
+    <span class="d"></span>
   </span>
 </template>
 
@@ -16,18 +11,24 @@ defineProps({
 </script>
 
 <style scoped>
-.lib-dot {
+.libdot {
   display: inline-grid;
   place-items: center;
   width: 22px;
   height: 22px;
+}
+.libdot .d {
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  flex: none;
 }
-.lib-dot svg {
-  width: 12px;
-  height: 12px;
+.libdot.in .d {
+  background: var(--pos);
+  box-shadow: 0 0 0 3px var(--pos-soft);
 }
-.lib-dot.in  { background: var(--pos-soft);   color: var(--pos-ink); }
-.lib-dot.out { background: var(--surface-3);  color: var(--ink-3); outline: 1px solid var(--line); }
+.libdot.out .d {
+  background: transparent;
+  border: 1.5px dashed var(--ink-3);
+  opacity: .6;
+}
 </style>

@@ -1,9 +1,11 @@
 <template>
-  <div class="app-shell">
-    <SidebarNav class="app-sidebar" />
-    <main class="app-main">
-      <RouterView />
-    </main>
+  <div class="app-container">
+    <div class="app-shell">
+      <SidebarNav class="app-sidebar" />
+      <main class="app-main">
+        <RouterView />
+      </main>
+    </div>
   </div>
 </template>
 
@@ -30,18 +32,24 @@ body {
 </style>
 
 <style scoped>
-.app-shell {
-  display: flex;
+.app-container {
+  container-type: inline-size;
   height: 100vh;
+}
+.app-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  height: 100%;
   overflow: hidden;
 }
-.app-sidebar {
-  width: 232px;
-  flex: none;
-}
 .app-main {
-  flex: 1 1 0;
   min-width: 0;
   overflow-y: auto;
+}
+
+@container (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 66px 1fr;
+  }
 }
 </style>

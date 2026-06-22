@@ -20,7 +20,7 @@ defineProps({
   gap: 7px;
   background: var(--accent-soft);
   color: var(--accent-ink);
-  border-radius: 999px;
+  border-radius: var(--r-xs);
   padding: 4px 11px 4px 9px;
   font: 500 12px/1 var(--font-mono);
 }
@@ -40,6 +40,6 @@ defineProps({
   opacity: 1;
 }
 .total {
-  opacity: 0.55;
+  opacity: 0.5;
 }
 </style>
