@@ -37,15 +37,15 @@ function register(family, names) {
 register('house', [
   'House', 'Deep House', 'Tech House', 'Afro House', 'Bass House',
   'Progressive House', 'Jackin House', 'Funky House', 'Soulful House',
-  'Organic House', 'Organic House / Downtempo',
+  'Organic House', 'Organic House / Downtempo', 'Afro / Organic House',
   'Nu Disco / Disco', 'Nu-Disco', 'Nu Disco', 'Indie Dance',
-  'French Touch', 'UK House', 'UK Garage', 'UK Garage / Bassline',
+  'Melodic House', 'French Touch', 'UK House', 'UK Garage', 'UK Garage / Bassline',
   'Downtempo', 'Minimal / Deep Tech',
 ])
 
 register('techno', [
-  'Techno (Peak Time / Driving)', 'Techno (Raw / Deep / Hypnotic)',
-  'Hard Techno', 'Melodic House & Techno', 'Melodic Techno',
+  'Techno (Peak Time / Driving)', 'Techno (Peak Time)', 'Techno (Raw / Deep / Hypnotic)',
+  'Hard Techno', 'Melodic House & Techno', 'Melodic Techno', 'Minimal Techno',
   'Electro (Classic / Detroit / Modern)', 'Electro Brut', 'Electro brut',
   'Classic/Min. Techno', 'Hard/Dark Techno', 'Trance Techno',
 ])
@@ -53,19 +53,20 @@ register('techno', [
 register('trance', [
   'Trance (Main Floor)', 'Trance (Raw / Deep / Hypnotic)',
   'Psy-Trance', 'Psytrance',
-  'Hard Dance / Hardcore / Neo Rave',
+  'Hard Dance / Hardcore / Neo Rave', 'Hard Dance',
 ])
 
 register('other', [
   'Drum & Bass', 'Breaks / Breakbeat / UK Bass', 'Electronica',
-  'Rock', 'Hip-Hop', 'R&B', 'Country', 'Latin', 'Latin Electronic',
+  'Rock', 'Hip-Hop', 'R&B', 'Pop', 'Funk / Soul', 'Funk-Soul',
+  'Bass', 'Country', 'Latin', 'Latin Electronic',
   '140 / Deep Dubstep / Grime', 'Dubstep', 'Trap / Future Bass',
   'Bass / Club', 'Ambient / Experimental', 'African', 'Caribbean',
 ])
 
 register('misc', [
   'DJ Tools / Acapellas', 'DJ Tools / Acape', 'DJ Edits',
-  'Mainstage', 'Dance / Pop', 'Pop', 'Misc. Tracks',
+  'Mainstage', 'Dance / Pop', 'Misc. Tracks',
 ])
 
 
