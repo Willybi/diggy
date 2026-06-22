@@ -1,82 +1,102 @@
 <template>
   <div class="catalog-view">
-    <header class="view-header">
-      <div>
-        <h1 class="view-title">Catalog</h1>
-        <span class="view-sub">
-          {{ inLib ? `${total} tracks · in lib` : `${total} tracks · ${nLib} in lib` }}
-        </span>
+    <header class="page-head">
+      <div class="titles">
+        <h1>Catalog</h1>
+        <div class="sub">
+          {{ inLib ? `${total} tracks \u00b7 in lib` : `${total} tracks \u00b7 ${nLib} in lib` }}
+        </div>
       </div>
-      <div class="filters">
-        <input v-model="search" class="search-input" placeholder="Artiste ou titre…" @input="onSearch" />
-        <button class="chip" :class="{ 'chip--on': notInLib }" @click="toggleNotInLib">Pas dans RB</button>
-        <button class="chip" :class="{ 'chip--on-radar': radarMin2 }" @click="toggleRadarMin2">Radar ≥ 2</button>
-        <button class="chip" :class="{ 'chip--on': inLib }" @click="toggleInLib">In lib</button>
+      <div class="head-tools">
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>
+          <input v-model="search" type="text" placeholder="Artiste ou titre\u2026" @input="onSearch" />
+        </label>
+        <button class="chip" :class="{ on: notInLib }" @click="toggleNotInLib">
+          <span class="sw"></span>Pas dans RB
+        </button>
+        <button class="chip" :class="{ on: radarMin2 }" @click="toggleRadarMin2">
+          <span class="sw"></span>Radar \u2265 2
+        </button>
+        <button class="chip" :class="{ on: inLib }" @click="toggleInLib">
+          <span class="sw"></span>In lib
+        </button>
       </div>
     </header>
 
-    <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="!total && !loading" class="state">Aucun résultat.</div>
+    <div v-if="loading" class="state">Chargement\u2026</div>
+    <div v-else-if="!total && !loading" class="state">Aucun r\u00e9sultat</div>
     <template v-else>
       <div class="table-wrap">
-        <table class="track-table">
+        <table class="tt">
+          <colgroup>
+            <col class="w-play">
+            <col class="w-track">
+            <col class="w-style col-style">
+            <col class="w-bpm">
+            <col class="w-key">
+            <col class="w-dur col-dur">
+            <col class="w-rating col-rating">
+            <col class="w-radar col-radar">
+            <col class="w-lib">
+          </colgroup>
           <thead>
             <tr>
-              <th class="col-play" />
-              <th class="col-title sortable" :class="{ 'is-sorted': sortKey === 'title' }" @click="sort('title')">
-                Track <span v-if="sortKey === 'title'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th class="c-play"></th>
+              <th class="sortable" :class="{ 'is-sorted': sortKey === 'title' }" @click="sort('title')">
+                Track <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
               </th>
               <th class="col-style sortable" :class="{ 'is-sorted': sortKey === 'style' }" @click="sort('style')">
-                Style <span v-if="sortKey === 'style'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                Style <span v-if="sortKey === 'style'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
               </th>
-              <th class="col-bpm num sortable" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="sort('bpm')">
-                BPM <span v-if="sortKey === 'bpm'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th class="num sortable" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="sort('bpm')">
+                BPM <span v-if="sortKey === 'bpm'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
               </th>
-              <th class="col-key num sortable" :class="{ 'is-sorted': sortKey === 'key' }" @click="sort('key')">
-                Key <span v-if="sortKey === 'key'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th class="num sortable" :class="{ 'is-sorted': sortKey === 'key' }" @click="sort('key')">
+                Key <span v-if="sortKey === 'key'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
               </th>
-              <th class="col-duration num sortable" :class="{ 'is-sorted': sortKey === 'duration_ms' }" @click="sort('duration_ms')">
-                Durée <span v-if="sortKey === 'duration_ms'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th class="num sortable col-dur" :class="{ 'is-sorted': sortKey === 'duration_ms' }" @click="sort('duration_ms')">
+                Dur\u00e9e <span v-if="sortKey === 'duration_ms'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
               </th>
-              <th class="col-rating num sortable" :class="{ 'is-sorted': sortKey === 'rating' }" @click="sort('rating')">
-                Rating <span v-if="sortKey === 'rating'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th class="col-rating sortable" :class="{ 'is-sorted': sortKey === 'rating' }" @click="sort('rating')">
+                Rating <span v-if="sortKey === 'rating'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
               </th>
               <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="sort('nb_radar_playlists')">
-                Radar <span v-if="sortKey === 'nb_radar_playlists'" class="sort-indicator">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                Radar <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
               </th>
-              <th class="col-inlib">In lib</th>
+              <th class="end">In&nbsp;lib</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in items" :key="e.id" :class="{ 'is-playing': playingId === e.id }">
-              <td class="col-play">
+            <tr v-for="e in items" :key="e.id" :class="{ playing: playingId === e.id }">
+              <td class="c-play">
                 <span
-                  class="play-btn"
+                  class="pbtn"
                   :class="{
-                    'play-btn--disabled': !e.has_preview || (inLib && !e.in_lib),
-                    'play-btn--playing': playingId === e.id,
-                    'play-btn--hidden': inLib && !e.in_lib,
+                    'pbtn--disabled': !e.has_preview || (inLib && !e.in_lib),
+                    'pbtn--playing': playingId === e.id,
+                    'pbtn--hidden': inLib && !e.in_lib,
                   }"
                   @click="e.has_preview && !(inLib && !e.in_lib) && togglePlay(e.id, e.id)"
                 >
                   <svg v-if="playingId !== e.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
-                  <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+                  <svg v-else viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.4" height="14" rx="1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1"/></svg>
                 </span>
               </td>
-              <td class="col-title">
-                <div class="cell-track">
-                  <div class="mini-art">
+              <td>
+                <div class="td-track">
+                  <span class="aw">
                     <img v-if="e.has_artwork"
                       :src="e.lib_track_id ? `/storage/artworks/${e.lib_track_id}.jpg` : `/storage/catalog-artworks/${e.id}.jpg`"
                       :alt="e.title"
                     />
-                  </div>
-                  <div class="track-info">
-                    <RouterLink :to="`/catalog/${e.id}`" class="track-link">
-                      <span class="track-title" :class="{ 'track-title--playing': playingId === e.id }">{{ e.title }}</span>
+                  </span>
+                  <span class="tx">
+                    <RouterLink :to="`/catalog/${e.id}`" class="tt-title-link">
+                      <div class="tt-title">{{ e.title }}</div>
                     </RouterLink>
-                    <span class="track-artist">{{ e.artist }}</span>
-                  </div>
+                    <div class="tt-art">{{ e.artist }}</div>
+                  </span>
                 </div>
               </td>
               <td class="col-style">
@@ -85,20 +105,20 @@
                 </RouterLink>
                 <StyleTag v-else-if="e.style" :name="e.style" />
               </td>
-              <td class="col-bpm num"><span class="mono">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
-              <td class="col-key num"><span class="mono key-val">{{ e.key || '—' }}</span></td>
-              <td class="col-duration num"><span class="mono">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—' }}</span></td>
-              <td class="col-rating num">
+              <td class="num"><span :class="e.bpm != null ? 'td-bpm' : 'td-empty'">{{ e.bpm != null ? Math.round(e.bpm) : '\u2014' }}</span></td>
+              <td class="num"><span class="td-key">{{ e.key || '\u2014' }}</span></td>
+              <td class="num col-dur"><span class="td-dur">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '\u2014' }}</span></td>
+              <td class="col-rating">
                 <span v-if="e.rating" class="rating">
-                  <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= e.rating }">★</span>
+                  <svg v-for="n in 5" :key="n" :class="{ off: n > e.rating }" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.9 6.6 19.4l1.2-5.9L3.4 9.4l6-.7z"/></svg>
                 </span>
-                <span v-else class="muted">—</span>
+                <span v-else class="td-empty">\u2014</span>
               </td>
               <td class="col-radar">
                 <ScorePill v-if="e.nb_radar_playlists > 0" :score="Math.min(e.nb_radar_playlists * 2, 10)" />
-                <span v-else class="muted">—</span>
+                <span v-else class="td-empty">\u2014</span>
               </td>
-              <td class="col-inlib">
+              <td class="end">
                 <LibDot :in-lib="e.in_lib" />
               </td>
             </tr>
@@ -107,9 +127,9 @@
       </div>
 
       <div v-if="totalPages > 1" class="pagination">
-        <button class="page-btn" :disabled="page === 1" @click="goTo(page - 1)">←</button>
+        <button class="page-btn" :disabled="page === 1" @click="goTo(page - 1)">\u2190</button>
         <span class="page-info">{{ page }} / {{ totalPages }}</span>
-        <button class="page-btn" :disabled="page === totalPages" @click="goTo(page + 1)">→</button>
+        <button class="page-btn" :disabled="page === totalPages" @click="goTo(page + 1)">\u2192</button>
       </div>
     </template>
   </div>
@@ -180,7 +200,6 @@ async function fetchPage() {
   }
 }
 
-// Fetch nLib séparément si l'API ne le retourne pas encore
 async function fetchNLib() {
   if (nLib.value > 0) return
   try {
@@ -219,7 +238,7 @@ function onSearch() {
   searchTimer = setTimeout(() => {
     page.value = 1
     fetchPage()
-  }, 300)
+  }, 250)
 }
 
 function sort(key) {
@@ -240,205 +259,268 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ============ PAGE ============ */
 .catalog-view {
-  padding: var(--pad) calc(var(--pad) * 1.5);
-  max-width: 1400px;
-  margin: 0 auto;
-}
-.view-header {
+  min-width: 0;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  flex-direction: column;
+}
+
+/* ============ PAGE HEAD ============ */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 26px 30px 18px;
   flex-wrap: wrap;
 }
-.view-title {
-  font: 600 22px/1.1 var(--font-ui);
-  letter-spacing: -0.02em;
+.titles h1 {
+  margin: 0;
+  font: 600 28px/1 var(--font-ui);
+  letter-spacing: -.3px;
   color: var(--ink);
 }
-.view-sub {
-  font: 400 12px/1 var(--font-mono);
-  color: var(--ink-3);
-  margin-top: 4px;
-  display: block;
+.sub {
+  margin-top: 5px;
+  font: 500 13px/1 var(--font-mono);
+  color: var(--ink-2);
 }
-.filters {
+.head-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+/* ============ SEARCH ============ */
+.search {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-}
-.search-input {
   background: var(--surface);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  padding: 8px 12px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  outline: none;
-  min-width: 180px;
+  padding: 0 12px;
+  height: 38px;
+  min-width: 230px;
 }
-.search-input::placeholder { color: var(--ink-3); }
+.search svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+  flex: none;
+}
+.search input {
+  border: 0;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font: 400 14px var(--font-ui);
+  color: var(--ink);
+}
+.search input::placeholder {
+  color: var(--ink-3);
+}
+
+/* ============ CHIPS ============ */
 .chip {
-  padding: 7px 14px;
-  border-radius: 999px;
-  font: 500 12px/1 var(--font-ui);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
+  font: 500 13px var(--font-ui);
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.chip--on {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
-  border-color: transparent;
+.chip:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
 }
-.chip--on-radar {
+.chip.on {
   background: var(--accent-soft);
-  color: var(--accent-ink);
   border-color: transparent;
+  color: var(--accent-ink);
+}
+.sw {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  box-shadow: 0 0 0 3px var(--surface-2);
+}
+.chip.on .sw {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft-2);
 }
 
-/* Table */
-.table-wrap { overflow-x: auto; }
-.track-table {
-  width: 100%;
-  min-width: 832px;
-  border-collapse: collapse;
-  font-size: 13.5px;
-  table-layout: fixed;
+/* ============ TABLE ============ */
+.table-wrap {
+  padding: 4px 30px 30px;
+  overflow-x: auto;
 }
-.track-table thead th {
-  text-align: left;
-  padding: 0 14px 12px;
-  font: 500 10.5px/1 var(--font-mono);
-  letter-spacing: 0.08em;
+table.tt {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 440px;
+}
+table.tt col.w-play   { width: 44px; }
+table.tt col.w-track  { width: auto; }
+table.tt col.w-style  { width: 168px; }
+table.tt col.w-bpm    { width: 74px; }
+table.tt col.w-key    { width: 66px; }
+table.tt col.w-dur    { width: 84px; }
+table.tt col.w-rating { width: 104px; }
+table.tt col.w-radar  { width: 132px; }
+table.tt col.w-lib    { width: 70px; }
+
+table.tt thead th {
+  position: sticky;
+  top: 0;
+  font: 600 10.5px/1 var(--font-mono);
+  letter-spacing: .1em;
   text-transform: uppercase;
   color: var(--ink-3);
+  text-align: left;
+  padding: 0 14px 11px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
-  overflow: hidden;
 }
-.track-table thead th.sortable { cursor: pointer; }
-.track-table thead th.sortable:hover { color: var(--ink-2); }
-.track-table thead th.is-sorted { color: var(--accent-ink); }
-.track-table thead th.num { text-align: right; }
-.track-table tbody td {
+table.tt th.num,
+table.tt td.num { text-align: center; }
+table.tt th.end,
+table.tt td.end { text-align: right; }
+table.tt th.sortable { cursor: pointer; }
+table.tt th.sortable:hover { color: var(--ink-2); }
+table.tt th.is-sorted { color: var(--accent-ink); }
+.arr { color: var(--accent-ink); margin-left: 4px; }
+
+table.tt tbody tr {
+  border-bottom: 1px solid var(--line);
   height: var(--row-h);
+}
+table.tt tbody tr:hover { background: var(--surface-2); }
+table.tt tbody tr.playing { background: var(--accent-wash); }
+table.tt tbody tr.playing:hover { background: var(--accent-soft); }
+table.tt td {
   padding: 0 14px;
   vertical-align: middle;
-  border-bottom: 1px solid var(--line);
-  overflow: hidden;
 }
-.track-table tbody tr:hover td { background: var(--surface-2); }
-.track-table tbody tr.is-playing td { background: var(--accent-wash); }
-.track-table tbody tr.is-playing:hover td { background: var(--accent-soft); }
-.track-table tbody tr:last-child td { border-bottom: none; }
-.sort-indicator { margin-left: 4px; color: var(--accent-ink); }
 
-/* Column widths — toutes les data cols ont une largeur fixe, titre prend le reste */
-.col-play     { width: 38px; padding: 0 8px !important; }
-.col-title    { width: auto; min-width: 180px; }
-.col-style    { width: 124px; }
-.col-bpm      { width: 60px; }
-.col-key      { width: 52px; }
-.col-duration { width: 62px; }
-.col-rating   { width: 80px; }
-.col-radar    { width: 132px; }
-.col-inlib    { width: 56px; text-align: center; }
-
-/* Play btn */
-.play-btn {
-  width: 26px; height: 26px;
+/* ============ PLAY BTN ============ */
+.c-play { width: 44px; }
+.pbtn {
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
+  display: grid;
+  place-items: center;
   border: 1px solid var(--line-2);
   background: var(--surface);
-  display: grid; place-items: center;
   color: var(--ink-2);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s, background 0.12s, color 0.12s;
+  transition: opacity .12s;
 }
-.play-btn svg { width: 13px; height: 13px; }
-.track-table tbody tr:hover .play-btn { opacity: 1; }
-.play-btn--playing {
+tr:hover .pbtn { opacity: 1; }
+.pbtn svg { width: 13px; height: 13px; }
+.pbtn--playing {
   opacity: 1 !important;
   background: var(--accent-soft);
-  color: var(--accent-ink);
   border-color: transparent;
+  color: var(--accent-ink);
 }
-.play-btn--disabled {
+.pbtn--disabled {
   opacity: 0.2 !important;
   cursor: default;
   color: var(--ink-3);
 }
-.play-btn--hidden {
+.pbtn--hidden {
   opacity: 0 !important;
   pointer-events: none;
 }
 
-/* Track cell */
-.cell-track { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.mini-art {
-  width: 38px; height: 38px;
-  flex: none;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line);
-  overflow: hidden;
-  background: repeating-linear-gradient(135deg, var(--surface-2) 0 5px, var(--surface-3) 5px 10px);
+/* ============ TRACK CELL ============ */
+.td-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
-.mini-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.track-info { min-width: 0; flex: 1; }
-.track-link {
+.aw {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-xs);
+  flex: none;
+  background: var(--surface-3);
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, oklch(0.50 0.01 70 / .05) 5px 6px);
+  overflow: hidden;
+}
+.aw img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tx {
+  min-width: 0;
+  flex: 1;
+}
+.tt-title-link {
   text-decoration: none;
   color: inherit;
   display: block;
   min-width: 0;
 }
-.track-link:hover .track-title { color: var(--accent-ink); }
-.track-title {
-  display: block;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+.tt-title {
+  font-size: 14.5px;
+  font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: color 0.1s;
+  transition: color .1s;
 }
-.track-title--playing { color: var(--accent-ink); }
-.track-artist {
-  display: block;
-  font-size: 12px;
-  color: var(--ink-2);
+.tt-title-link:hover .tt-title { color: var(--accent-ink); }
+tr.playing .tt-title { color: var(--accent-ink); }
+.tt-art {
+  font-size: 12.5px;
+  color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Cells */
-.num { text-align: right; }
-.mono { font-family: var(--font-mono); color: var(--ink-2); }
-.key-val { color: var(--accent-ink); font-weight: 500; }
-.muted { color: var(--ink-3); }
+/* ============ DATA CELLS ============ */
+.td-bpm { font: 500 13px var(--font-mono); color: var(--ink-2); }
+.td-key { font: 500 13px var(--font-mono); color: var(--accent-ink); }
+.td-dur { font: 500 13px var(--font-mono); color: var(--ink-2); }
+.td-empty { font: 500 13px var(--font-mono); color: var(--ink-3); }
 
-/* Rating */
-.rating { display: inline-flex; gap: 1px; }
-.star { font-size: 13px; color: var(--line-2); line-height: 1; }
-.star.is-on { color: var(--accent); }
+/* ============ RATING ============ */
+.rating {
+  display: inline-flex;
+  gap: 2px;
+  color: var(--accent);
+}
+.rating svg { width: 14px; height: 14px; }
+.rating .off { color: var(--line-2); }
 
-/* Pagination */
+/* ============ PAGINATION ============ */
 .pagination {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: 20px;
+  padding: 0 30px 30px;
 }
 .page-btn {
   padding: 6px 14px;
@@ -458,9 +540,31 @@ onMounted(() => {
   min-width: 60px;
   text-align: center;
 }
+
+/* ============ STATES ============ */
 .state {
+  font: 400 14px var(--font-mono);
   color: var(--ink-3);
-  font-size: 14px;
-  font-style: italic;
+  text-align: center;
+  padding: 60px 0;
+}
+
+/* ============ RESPONSIVE (container queries sur .app-container) ============ */
+@container (max-width: 1160px) {
+  .col-dur { display: none; }
+}
+@container (max-width: 1010px) {
+  .col-rating { display: none; }
+}
+@container (max-width: 760px) {
+  .col-radar { display: none; }
+  .head-tools { width: 100%; margin-left: 0; }
+  .search { flex: 1; min-width: 0; }
+}
+@container (max-width: 620px) {
+  .col-style { display: none; }
+  .page-head { padding: 20px 18px 14px; }
+  .table-wrap { padding: 4px 14px 22px; }
+  .pagination { padding: 0 14px 22px; }
 }
 </style>
