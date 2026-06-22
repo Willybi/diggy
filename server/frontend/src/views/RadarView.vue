@@ -13,14 +13,10 @@
       </div>
     </header>
 
-    <div class="tabsbar" :data-tab="activeTab">
+    <div class="tabsbar">
       <div class="tabs">
         <button class="tab" :class="{ on: activeTab === 'all' }" @click="setTab('all')">
           Tous <span class="cnt">{{ allCount }}</span>
-        </button>
-        <button class="tab" :class="{ on: activeTab === 'new' }" @click="setTab('new')">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 7v5l3 2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="8.5"/></svg></span>
-          New <span class="cnt">{{ counts.new || 0 }}</span>
         </button>
         <button class="tab liked" :class="{ on: activeTab === 'liked' }" @click="setTab('liked')">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.4-7-9.3A3.7 3.7 0 0 1 12 8a3.7 3.7 0 0 1 7 2.7C19 15.6 12 20 12 20z" stroke-linejoin="round"/></svg></span>
@@ -32,7 +28,7 @@
         </button>
       </div>
       <div class="recency">
-        <span class="rlbl">Sorti depuis</span>
+        <span class="rlbl">Détecté depuis</span>
         <div class="seg-rec">
           <button v-for="r in recencyOptions" :key="r.value"
             :class="{ on: recency === r.value }"
@@ -63,15 +59,21 @@
               <th class="sortable" :class="{ 'is-sorted': sortKey === 'title' }" @click="sort('title')">
                 Track <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="col-style">Style</th>
-              <th class="col-source">Source</th>
+              <th class="col-style sortable" :class="{ 'is-sorted': sortKey === 'genre' }" @click="sort('genre')">
+                Style <span v-if="sortKey === 'genre'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
+              <th class="col-source sortable" :class="{ 'is-sorted': sortKey === 'playlist_title' }" @click="sort('playlist_title')">
+                Source <span v-if="sortKey === 'playlist_title'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
               <th class="col-detect sortable" :class="{ 'is-sorted': sortKey === 'detected_at' }" @click="sort('detected_at')">
                 Détecté <span v-if="sortKey === 'detected_at'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="num sortable col-bpm" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="sort('bpm')">
                 BPM <span v-if="sortKey === 'bpm'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="num col-key">Key</th>
+              <th class="num col-key sortable" :class="{ 'is-sorted': sortKey === 'key' }" @click="sort('key')">
+                Key <span v-if="sortKey === 'key'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
               <th class="end">Avis</th>
             </tr>
           </thead>
@@ -232,13 +234,12 @@ function fmtRelative(iso) {
 
 function buildParams() {
   const params = { skip: (page.value - 1) * PAGE_SIZE, limit: PAGE_SIZE }
-  if (activeTab.value === 'new') params.status = 'new'
-  else if (activeTab.value === 'liked') params.status = 'added'
+  if (activeTab.value === 'liked') params.status = 'added'
   else if (activeTab.value === 'disliked') params.status = 'ignored'
   if (search.value) params.search = search.value
   if (sortKey.value) params.sort = sortKey.value
   if (sortDir.value) params.order = sortDir.value
-  if (activeTab.value === 'new' && recency.value) {
+  if (recency.value) {
     const since = new Date(Date.now() - recency.value * 3600000)
     params.detected_after = since.toISOString()
   }
@@ -265,7 +266,6 @@ function goTo(p) {
 function setTab(key) {
   activeTab.value = key
   page.value = 1
-  if (key !== 'new') recency.value = null
   fetchPage()
 }
 
@@ -403,11 +403,10 @@ onMounted(fetchPage)
 /* recency filter — visible only on New tab */
 .recency {
   margin-left: auto;
-  display: none;
+  display: flex;
   align-items: center;
   gap: 10px;
 }
-.tabsbar[data-tab="new"] .recency { display: flex; }
 .rlbl {
   font: 600 10px/1 var(--font-mono);
   letter-spacing: .1em;

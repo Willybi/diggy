@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select, func, case, literal, and_
+from sqlalchemy import select, func, case, literal, and_, desc as sa_desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -52,6 +52,30 @@ async def list_radar_full(
         .exists()
     )
 
+    # Subquery: most recent playlist for each catalog entry
+    _lr = RadarTrack.__table__.alias("lr")
+    _lw = WatchedEntity.__table__.alias("lw")
+    latest_playlist_title = (
+        select(_lw.c.title)
+        .select_from(
+            _lr.join(_lw, _lr.c.watched_entity_id == _lw.c.id)
+        )
+        .where(_lr.c.catalog_id == CatalogEntry.id)
+        .order_by(sa_desc(_lr.c.detected_at))
+        .limit(1)
+        .correlate(CatalogEntry)
+        .scalar_subquery()
+    )
+    latest_playlist_id = (
+        select(_lr.c.watched_entity_id)
+        .select_from(_lr)
+        .where(_lr.c.catalog_id == CatalogEntry.id)
+        .order_by(sa_desc(_lr.c.detected_at))
+        .limit(1)
+        .correlate(CatalogEntry)
+        .scalar_subquery()
+    )
+
     # Base query: radar_tracks joined with catalog + state + playlist
     base = (
         select(
@@ -65,14 +89,13 @@ async def list_radar_full(
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
             func.max(RadarTrack.detected_at).label("detected_at"),
-            func.min(RadarTrack.watched_entity_id).label("playlist_id"),
-            func.min(WatchedEntity.title).label("playlist_title"),
+            latest_playlist_id.label("playlist_id"),
+            latest_playlist_title.label("playlist_title"),
             func.coalesce(func.min(urs.status), literal("new")).label("status"),
             in_lib_sq.label("in_lib"),
         )
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
-        .outerjoin(WatchedEntity, RadarTrack.watched_entity_id == WatchedEntity.id)
         .outerjoin(urs, and_(urs.user_id == uid, urs.catalog_id == CatalogEntry.id))
         .where(RadarTrack.catalog_id.isnot(None))
         .group_by(CatalogEntry.id, urs.status)
@@ -120,6 +143,9 @@ async def list_radar_full(
         "title": CatalogEntry.title,
         "artist": CatalogEntry.artist,
         "bpm": CatalogEntry.bpm,
+        "key": CatalogEntry.key,
+        "genre": CatalogEntry.genre,
+        "playlist_title": latest_playlist_title,
     }
     sort_col = sort_map.get(sort, func.max(RadarTrack.detected_at))
     if order == "asc":
