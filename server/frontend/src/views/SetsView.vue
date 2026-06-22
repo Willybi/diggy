@@ -122,10 +122,10 @@
         </colgroup>
         <thead>
           <tr>
-            <th>Set</th>
-            <th class="col-date">Date</th>
-            <th class="num">Tracks</th>
-            <th class="num col-dur">Durée</th>
+            <th class="sortable" @click="toggleSort('title')">Set <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="col-date sortable" @click="toggleSort('date')">Date <span v-if="sortKey === 'date'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="num sortable" @click="toggleSort('tracks')">Tracks <span v-if="sortKey === 'tracks'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="num col-dur sortable" @click="toggleSort('duration')">Durée <span v-if="sortKey === 'duration'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
             <th class="end"></th>
           </tr>
         </thead>
@@ -216,6 +216,10 @@ const tdQuery = ref('')
 const tdResults = ref([])
 const tdSearching = ref(false)
 
+// Sort
+const sortKey = ref('date')
+const sortDir = ref('desc')
+
 // Ring constants
 const R = 13
 const C = 2 * Math.PI * R
@@ -240,9 +244,35 @@ function authHeaders() {
   return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
 }
 
+function toggleSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortKey.value = key
+    sortDir.value = key === 'title' ? 'asc' : 'desc'
+  }
+}
+
+function sortValue(s, key) {
+  if (key === 'title') return (s.title || '').toLowerCase()
+  if (key === 'date') return s.played_date || ''
+  if (key === 'tracks') return s.total_tracks ? s.identified_tracks / s.total_tracks : 0
+  if (key === 'duration') return s.duration_ms || 0
+  return 0
+}
+
 const displayList = computed(() => {
-  if (mode.value === 'followed') return sets.value.filter(s => s.followed)
-  return sets.value
+  let list = mode.value === 'followed' ? sets.value.filter(s => s.followed) : [...sets.value]
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  const key = sortKey.value
+  list.sort((a, b) => {
+    const va = sortValue(a, key)
+    const vb = sortValue(b, key)
+    if (va < vb) return -1 * dir
+    if (va > vb) return 1 * dir
+    return 0
+  })
+  return list
 })
 
 function toggleForm() {
@@ -606,6 +636,9 @@ table.tt thead th {
   white-space: nowrap;
   user-select: none;
 }
+table.tt th.sortable { cursor: pointer; }
+table.tt th.sortable:hover { color: var(--ink-2); }
+table.tt th .arr { color: var(--accent-ink); margin-left: 4px; }
 table.tt th.num,
 table.tt td.num { text-align: center; }
 table.tt th.end,
