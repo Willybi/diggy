@@ -19,7 +19,8 @@ from schemas import (
 
 router = APIRouter(prefix="/radar", tags=["radar"])
 
-_VALID_STATUSES = {"new", "seen", "added", "ignored"}
+_VALID_STATUSES = {"new", "seen", "added", "ignored", "liked", "disliked"}
+_STATUS_ALIAS = {"liked": "added", "disliked": "ignored"}
 
 
 # ---------- Enriched listing for RadarView ----------
@@ -30,6 +31,7 @@ async def list_radar_full(
     status: str | None = Query(None),
     playlist_id: int | None = Query(None),
     search: str | None = Query(None),
+    detected_after: datetime | None = Query(None),
     sort: str = Query("detected_at"),
     order: str = Query("desc"),
     skip: int = Query(0, ge=0),
@@ -77,11 +79,14 @@ async def list_radar_full(
     )
 
     # Filters
-    if status:
-        if status == "new":
+    resolved_status = _STATUS_ALIAS.get(status, status) if status else None
+    if resolved_status:
+        if resolved_status == "new":
             base = base.having(func.coalesce(func.min(urs.status), literal("new")) == "new")
         else:
-            base = base.having(func.min(urs.status) == status)
+            base = base.having(func.min(urs.status) == resolved_status)
+    if detected_after:
+        base = base.where(RadarTrack.detected_at >= detected_after)
     if playlist_id:
         base = base.where(RadarTrack.watched_entity_id == playlist_id)
     if search:
@@ -167,6 +172,7 @@ async def update_radar_state(
     if body.status not in _VALID_STATUSES:
         raise HTTPException(status_code=422, detail=f"Invalid status. Must be one of: {_VALID_STATUSES}")
 
+    resolved = _STATUS_ALIAS.get(body.status, body.status)
     uid = _uid(user)
 
     result = await db.execute(
@@ -178,13 +184,13 @@ async def update_radar_state(
     state = result.scalar_one_or_none()
 
     if state:
-        state.status = body.status
+        state.status = resolved
         state.updated_at = datetime.now(timezone.utc)
     else:
         state = UserRadarState(
             user_id=uid,
             catalog_id=catalog_id,
-            status=body.status,
+            status=resolved,
             updated_at=datetime.now(timezone.utc),
         )
         db.add(state)
