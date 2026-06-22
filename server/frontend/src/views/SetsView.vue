@@ -229,9 +229,10 @@ async function doImportFromSearch(result) {
   formError.value = ''
   try {
     const { data } = await axios.post('/api/sets/import', { slug: result.slug }, { headers: authHeaders() })
+    await axios.post(`/api/sets/${data.id}/follow`, {}, { headers: authHeaders() }).catch(() => {})
     result.already_imported = true
     result._importing = false
-    router.push(`/set/${data.id}`)
+    await fetchSets()
   } catch (e) {
     result._importing = false
     formError.value = e.response?.data?.detail || 'Erreur import'
