@@ -4,19 +4,19 @@
       <div class="titles">
         <h1>Catalog</h1>
         <div class="sub">
-          {{ inLib ? `${total} tracks \u00b7 in lib` : `${total} tracks \u00b7 ${nLib} in lib` }}
+          {{ inLib ? `${total} tracks · in lib` : `${total} tracks · ${nLib} in lib` }}
         </div>
       </div>
       <div class="head-tools">
         <label class="search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>
-          <input v-model="search" type="text" placeholder="Artiste ou titre\u2026" @input="onSearch" />
+          <input v-model="search" type="text" placeholder="Artiste ou titre…" @input="onSearch" />
         </label>
         <button class="chip" :class="{ on: notInLib }" @click="toggleNotInLib">
           <span class="sw"></span>Pas dans RB
         </button>
         <button class="chip" :class="{ on: radarMin2 }" @click="toggleRadarMin2">
-          <span class="sw"></span>Radar \u2265 2
+          <span class="sw"></span>Radar ≥ 2
         </button>
         <button class="chip" :class="{ on: inLib }" @click="toggleInLib">
           <span class="sw"></span>In lib
@@ -24,8 +24,8 @@
       </div>
     </header>
 
-    <div v-if="loading" class="state">Chargement\u2026</div>
-    <div v-else-if="!total && !loading" class="state">Aucun r\u00e9sultat</div>
+    <div v-if="loading" class="state">Chargement…</div>
+    <div v-else-if="!total && !loading" class="state">Aucun résultat</div>
     <template v-else>
       <div class="table-wrap">
         <table class="tt">
@@ -44,25 +44,25 @@
             <tr>
               <th class="c-play"></th>
               <th class="sortable" :class="{ 'is-sorted': sortKey === 'title' }" @click="sort('title')">
-                Track <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
+                Track <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="col-style sortable" :class="{ 'is-sorted': sortKey === 'style' }" @click="sort('style')">
-                Style <span v-if="sortKey === 'style'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
+                Style <span v-if="sortKey === 'style'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="num sortable" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="sort('bpm')">
-                BPM <span v-if="sortKey === 'bpm'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
+                BPM <span v-if="sortKey === 'bpm'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="num sortable" :class="{ 'is-sorted': sortKey === 'key' }" @click="sort('key')">
-                Key <span v-if="sortKey === 'key'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
+                Key <span v-if="sortKey === 'key'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="num sortable col-dur" :class="{ 'is-sorted': sortKey === 'duration_ms' }" @click="sort('duration_ms')">
-                Dur\u00e9e <span v-if="sortKey === 'duration_ms'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
+                Durée <span v-if="sortKey === 'duration_ms'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="col-rating sortable" :class="{ 'is-sorted': sortKey === 'rating' }" @click="sort('rating')">
-                Rating <span v-if="sortKey === 'rating'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
+                Rating <span v-if="sortKey === 'rating'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="sort('nb_radar_playlists')">
-                Radar <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{ sortDir === 'asc' ? '\u2191' : '\u2193' }}</span>
+                Radar <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="end">In&nbsp;lib</th>
             </tr>
@@ -105,18 +105,18 @@
                 </RouterLink>
                 <StyleTag v-else-if="e.style" :name="e.style" />
               </td>
-              <td class="num"><span :class="e.bpm != null ? 'td-bpm' : 'td-empty'">{{ e.bpm != null ? Math.round(e.bpm) : '\u2014' }}</span></td>
-              <td class="num"><span class="td-key">{{ e.key || '\u2014' }}</span></td>
-              <td class="num col-dur"><span class="td-dur">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '\u2014' }}</span></td>
+              <td class="num"><span :class="e.bpm != null ? 'td-bpm' : 'td-empty'">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
+              <td class="num"><span class="td-key">{{ e.key || '—' }}</span></td>
+              <td class="num col-dur"><span class="td-dur">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—' }}</span></td>
               <td class="col-rating">
                 <span v-if="e.rating" class="rating">
                   <svg v-for="n in 5" :key="n" :class="{ off: n > e.rating }" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.9 6.6 19.4l1.2-5.9L3.4 9.4l6-.7z"/></svg>
                 </span>
-                <span v-else class="td-empty">\u2014</span>
+                <span v-else class="td-empty">—</span>
               </td>
               <td class="col-radar">
                 <ScorePill v-if="e.nb_radar_playlists > 0" :score="Math.min(e.nb_radar_playlists * 2, 10)" />
-                <span v-else class="td-empty">\u2014</span>
+                <span v-else class="td-empty">—</span>
               </td>
               <td class="end">
                 <LibDot :in-lib="e.in_lib" />
@@ -127,9 +127,9 @@
       </div>
 
       <div v-if="totalPages > 1" class="pagination">
-        <button class="page-btn" :disabled="page === 1" @click="goTo(page - 1)">\u2190</button>
+        <button class="page-btn" :disabled="page === 1" @click="goTo(page - 1)">←</button>
         <span class="page-info">{{ page }} / {{ totalPages }}</span>
-        <button class="page-btn" :disabled="page === totalPages" @click="goTo(page + 1)">\u2192</button>
+        <button class="page-btn" :disabled="page === totalPages" @click="goTo(page + 1)">→</button>
       </div>
     </template>
   </div>
