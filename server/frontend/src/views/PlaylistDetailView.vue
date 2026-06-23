@@ -33,6 +33,12 @@
         <span v-if="artMsg" class="admin-msg" :class="artMsgType">{{ artMsg }}</span>
       </div>
 
+      <!-- Crawl status banner -->
+      <div v-if="crawlState" class="crawl-banner" :class="crawlState">
+        <span class="crawl-dot" />
+        {{ crawlState === 'running' ? 'Crawl en cours…' : 'Crawl en file d\'attente' }}
+      </div>
+
       <StatStrip :stats="stats" />
 
       <RelBlock v-if="playlist.description" title="Description">
@@ -89,7 +95,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { storeToRefs } from 'pinia'
@@ -111,6 +117,8 @@ const loading = ref(true)
 const fetchingArt = ref(false)
 const artMsg = ref('')
 const artMsgType = ref('')
+const crawlState = ref(null)  // 'queued' | 'running' | null
+let crawlPollTimer = null
 
 const heroSub = computed(() => {
   if (!playlist.value) return null
@@ -135,10 +143,40 @@ async function fetchDetail() {
   try {
     const { data } = await axios.get(`/api/watchlist/${route.params.id}`)
     playlist.value = data
+    if (data.current_task_id && !crawlPollTimer) {
+      crawlState.value = 'queued'
+      startCrawlPoll()
+    }
   } catch {
     playlist.value = null
   } finally {
     loading.value = false
+  }
+}
+
+function startCrawlPoll() {
+  stopCrawlPoll()
+  crawlPollTimer = setInterval(async () => {
+    try {
+      const { data } = await axios.get(`/api/watchlist/${route.params.id}/crawl-status`)
+      if (!data.status || data.status === 'done') {
+        stopCrawlPoll()
+        crawlState.value = null
+        await fetchDetail()
+      } else {
+        crawlState.value = data.status
+      }
+    } catch {
+      stopCrawlPoll()
+      crawlState.value = null
+    }
+  }, 3000)
+}
+
+function stopCrawlPoll() {
+  if (crawlPollTimer) {
+    clearInterval(crawlPollTimer)
+    crawlPollTimer = null
   }
 }
 
@@ -171,6 +209,7 @@ async function fetchArtwork() {
 }
 
 onMounted(fetchDetail)
+onUnmounted(stopCrawlPoll)
 </script>
 
 <style scoped>
@@ -285,6 +324,42 @@ onMounted(fetchDetail)
   font-size: 14px;
   font-style: italic;
   padding-top: 40px;
+}
+
+/* Crawl status banner */
+.crawl-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px 16px;
+  border-radius: var(--r-sm);
+  font: 500 13px/1 var(--font-ui);
+}
+.crawl-banner .crawl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.crawl-banner.running {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.crawl-banner.running .crawl-dot {
+  background: var(--accent-ink);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+.crawl-banner.queued {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.crawl-banner.queued .crawl-dot {
+  background: var(--ink-3);
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 .admin-card {

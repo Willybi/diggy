@@ -183,6 +183,7 @@ class WatchedEntityOut(BaseModel):
     has_artwork: bool = False
     track_count: Optional[int] = None
     owner: Optional[str] = None
+    current_task_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

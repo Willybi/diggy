@@ -76,7 +76,7 @@
             <td>
               <div class="pl-cell">
                 <span class="aw">
-                  <img v-if="pl.has_artwork" :src="`/storage/catalog-artworks/playlist-${pl.id}.jpg`" :alt="pl.title" />
+                  <img v-if="pl.has_artwork" :src="`/storage/playlist-artworks/${pl.id}.jpg`" :alt="pl.title" />
                 </span>
                 <div class="pl-meta">
                   <div class="pl-top">
@@ -96,17 +96,19 @@
               <span v-else class="td-empty">—</span>
             </td>
             <td class="col-crawl">
-              <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
+              <span v-if="crawlStatus[pl.id] === 'running'" class="crawl-badge running">Crawl en cours</span>
+              <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl-badge queued">En file d'attente</span>
+              <span v-else class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
             </td>
             <td class="end">
               <div class="actions">
                 <template v-if="pl.followed">
                   <button
                     class="btn-crawl"
-                    :disabled="crawling[pl.id] || isCooldown(pl)"
-                    :title="isCooldown(pl) ? 'Déjà crawlé dans les 12 dernières heures' : 'Lancer un crawl maintenant'"
+                    :disabled="!!crawlStatus[pl.id] || isCooldown(pl)"
+                    :title="crawlStatus[pl.id] ? 'Crawl en cours' : isCooldown(pl) ? 'Déjà crawlé dans les 12 dernières heures' : 'Lancer un crawl maintenant'"
                     @click.stop="triggerCrawl(pl)"
-                  >{{ crawling[pl.id] ? 'Crawl…' : isCooldown(pl) ? 'Déjà crawlé' : 'Crawl now' }}</button>
+                  >{{ crawlStatus[pl.id] ? 'Crawl…' : isCooldown(pl) ? 'Déjà crawlé' : 'Crawl now' }}</button>
                   <button class="btn-follow following" @click.stop="unfollow(pl.id)">Ne plus suivre</button>
                 </template>
                 <template v-else>
@@ -139,7 +141,7 @@ const inputValue = ref('')
 const formError = ref('')
 const adding = ref(false)
 const mode = ref('followed')
-const crawling = reactive({})
+const crawlStatus = reactive({})  // pl.id → 'queued' | 'running' | null
 const following = reactive({})
 const pollTimers = {}
 
@@ -210,8 +212,7 @@ async function addPlaylist() {
     inputValue.value = ''
     showForm.value = false
     await fetchPlaylists()
-    const snap = browsePlaylists.value.find(p => p.id === data.id)
-    startPolling(data.id, snap?.last_crawled_at ?? null)
+    startPolling(data.id)
   } catch (e) {
     if (e.response?.status === 409) {
       formError.value = 'Playlist déjà suivie'
@@ -233,8 +234,7 @@ async function followPlaylist(id) {
   try {
     await axios.post(`/api/watchlist/${id}/follow`)
     await fetchPlaylists()
-    const snap = browsePlaylists.value.find(p => p.id === id)
-    startPolling(id, snap?.last_crawled_at ?? null)
+    startPolling(id)
   } catch (e) {
     if (e.response?.status === 409) {
       await fetchPlaylists()
@@ -245,41 +245,43 @@ async function followPlaylist(id) {
 }
 
 async function triggerCrawl(pl) {
-  crawling[pl.id] = true
+  crawlStatus[pl.id] = 'queued'
   try {
     await axios.post(`/api/watchlist/${pl.id}/crawl`)
-    startPolling(pl.id, pl.last_crawled_at)
+    startPolling(pl.id)
   } catch (e) {
     if (e.response?.status === 429) {
       await fetchPlaylists()
     }
-    crawling[pl.id] = false
+    delete crawlStatus[pl.id]
   }
 }
 
-function startPolling(playlistId, oldCrawledAt) {
-  crawling[playlistId] = true
+function startPolling(playlistId) {
   stopPolling(playlistId)
-  let attempts = 0
-  const maxAttempts = 60
+  if (!crawlStatus[playlistId]) crawlStatus[playlistId] = 'queued'
   pollTimers[playlistId] = setInterval(async () => {
-    attempts++
-    if (attempts >= maxAttempts) {
-      stopPolling(playlistId)
-      crawling[playlistId] = false
-      return
-    }
     try {
-      const { data } = await axios.get('/api/watchlist/browse')
-      const updated = data.find(p => p.id === playlistId)
-      if (updated && updated.last_crawled_at !== oldCrawledAt) {
+      const { data } = await axios.get(`/api/watchlist/${playlistId}/crawl-status`)
+      if (!data.status || data.status === 'done') {
         stopPolling(playlistId)
-        crawling[playlistId] = false
-        playlists.value = playlists.value.map(p => p.id === playlistId ? { ...p, ...updated } : p)
-        browsePlaylists.value = data
+        delete crawlStatus[playlistId]
+        await fetchPlaylists()
+      } else {
+        crawlStatus[playlistId] = data.status
       }
-    } catch {}
-  }, 5000)
+    } catch {
+      stopPolling(playlistId)
+      delete crawlStatus[playlistId]
+    }
+  }, 3000)
+}
+
+function startPollingIfActive(pl) {
+  if (pl.current_task_id) {
+    crawlStatus[pl.id] = 'queued'
+    startPolling(pl.id)
+  }
 }
 
 function stopPolling(playlistId) {
@@ -299,7 +301,13 @@ function formatCrawled(iso) {
   return `il y a ${diffDays} j`
 }
 
-onMounted(fetchPlaylists)
+onMounted(async () => {
+  await fetchPlaylists()
+  // Auto-detect playlists with active crawls
+  for (const pl of [...playlists.value, ...browsePlaylists.value]) {
+    startPollingIfActive(pl)
+  }
+})
 onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 </script>
 
@@ -590,6 +598,43 @@ table.tt td { padding: 0 14px; vertical-align: middle; }
   color: var(--neg-ink);
   border-color: var(--neg);
   background: var(--neg-soft);
+}
+
+/* crawl status badges */
+.crawl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font: 500 11px/1 var(--font-mono);
+  white-space: nowrap;
+}
+.crawl-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.crawl-badge.running {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.crawl-badge.running::before {
+  background: var(--accent-ink);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+.crawl-badge.queued {
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
+.crawl-badge.queued::before {
+  background: var(--ink-3);
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 .state {
