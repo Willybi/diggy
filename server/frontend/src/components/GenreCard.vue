@@ -71,7 +71,6 @@
 
 <script setup>
 import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
 import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 
@@ -80,12 +79,11 @@ const props = defineProps({
 })
 
 const player = useAudioPlayer()
-const { playingId } = storeToRefs(player)
-const isPlaying = computed(() => playingId.value === `genre:${props.genre.name}`)
+const isPlaying = computed(() => player.genrePlaying === props.genre.name)
 
 function onPlay() {
   if (isPlaying.value) {
-    player.stop()
+    player.close()
   } else {
     player.playRandom(props.genre.name)
   }

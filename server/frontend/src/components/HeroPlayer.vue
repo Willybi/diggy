@@ -3,7 +3,7 @@
     class="hero-play"
     :class="{ 'hero-play--playing': isPlaying, 'hero-play--disabled': disabled }"
     :disabled="disabled"
-    @click="!disabled && toggle(catalogId, catalogId)"
+    @click="!disabled && onPlay()"
   >
     <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
     <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
@@ -13,19 +13,31 @@
 
 <script setup>
 import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 
 const props = defineProps({
   catalogId: { type: Number, required: true },
   disabled:  { type: Boolean, default: false },
+  title:     { type: String, default: '' },
+  artist:    { type: String, default: '' },
+  bpm:       { type: Number, default: null },
+  trackKey:  { type: String, default: '' },
 })
 
 const player = useAudioPlayer()
-const { playingId } = storeToRefs(player)
-const { toggle } = player
 
-const isPlaying = computed(() => playingId.value === props.catalogId)
+const isPlaying = computed(() => player.isCurrent(props.catalogId) && player.playing)
+
+function onPlay() {
+  player.play({
+    id: props.catalogId,
+    catalog_id: props.catalogId,
+    title: props.title,
+    artist: props.artist,
+    bpm: props.bpm,
+    key: props.trackKey,
+  })
+}
 </script>
 
 <style scoped>

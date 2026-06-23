@@ -78,10 +78,10 @@
                   <span
                     v-if="t.has_preview"
                     class="play-btn"
-                    :class="{ 'play-btn--playing': playingId === t.catalog_id }"
-                    @click="togglePlay(t.catalog_id, t.catalog_id)"
+                    :class="{ 'play-btn--playing': player.isCurrent(t.catalog_id) }"
+                    @click="player.play({ id: t.catalog_id, catalog_id: t.catalog_id, title: t.title, artist: t.artist, bpm: t.bpm, key: t.key })"
                   >
-                    <svg v-if="playingId !== t.catalog_id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+                    <svg v-if="!player.isCurrent(t.catalog_id)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
                     <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
                   </span>
                 </td>
@@ -98,7 +98,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
-import { storeToRefs } from 'pinia'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -110,8 +109,6 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
-const { playingId } = storeToRefs(player)
-const { toggle: togglePlay } = player
 const playlist = ref(null)
 const loading = ref(true)
 const fetchingArt = ref(false)
