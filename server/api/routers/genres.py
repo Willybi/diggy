@@ -82,10 +82,10 @@ async def random_genre_track(
         SELECT id FROM catalog
         WHERE genre = :genre
           AND has_preview = true
-          AND (:exclude_id::int IS NULL OR id != :exclude_id)
+          AND (:has_exclude = false OR id != :exclude_id)
         ORDER BY random()
         LIMIT 1
-    """), {"genre": genre, "exclude_id": exclude})
+    """), {"genre": genre, "has_exclude": exclude is not None, "exclude_id": exclude or 0})
     row = result.fetchone()
     if not row:
         raise HTTPException(404, "No previewable track for this genre")
