@@ -2,13 +2,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from celery_client import celery
 from dependencies import require_admin
-from models import Artist, ArtistAlias, ArtistFlag, SetArtist, User
+from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, SetArtist, User
 from utils import normalize
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -463,3 +463,33 @@ async def remove_set_artist(
         raise HTTPException(status_code=404, detail="Link not found")
     await db.commit()
     return {"ok": True}
+
+
+# ---------- Genres ----------
+
+@router.get("/genres/unclassified-count")
+async def genres_unclassified_count(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Count catalog entries with no genre assigned."""
+    result = await db.execute(
+        select(func.count(CatalogEntry.id))
+        .where((CatalogEntry.genre.is_(None)) | (CatalogEntry.genre == ""))
+    )
+    return {"count": result.scalar_one()}
+
+
+@router.post("/genres/auto-classify", response_model=SyncQueued)
+async def genres_auto_classify(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Launch Beatport enrichment targeting only tracks without a genre."""
+    count_result = await db.execute(
+        select(func.count(CatalogEntry.id))
+        .where((CatalogEntry.genre.is_(None)) | (CatalogEntry.genre == ""))
+    )
+    target_count = count_result.scalar_one()
+    result = celery.send_task("workers.tasks.enrich_catalog_beatport", kwargs={"genre_only": True})
+    return SyncQueued(status="queued", task_id=result.id)
