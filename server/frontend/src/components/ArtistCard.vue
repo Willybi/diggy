@@ -23,8 +23,9 @@
         <template v-else>{{ initials }}</template>
       </div>
 
-      <button class="ac-play" aria-label="Lecture" @click.prevent.stop>
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <button class="ac-play" :class="{ 'ac-play--playing': isPlaying }" aria-label="Lecture" @click.prevent.stop="onPlay">
+        <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
       </button>
     </div>
 
@@ -61,11 +62,23 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { styleTone } from '../composables/useStyleMap.js'
+import { useAudioPlayer } from '../stores/audioPlayer'
 import StyleTag from './StyleTag.vue'
 
 const props = defineProps({
   artist: { type: Object, required: true },
 })
+
+const player = useAudioPlayer()
+const isPlaying = computed(() => player.artistPlaying === props.artist.id)
+
+function onPlay() {
+  if (isPlaying.value) {
+    player.close()
+  } else {
+    player.playRandomArtist(props.artist.id)
+  }
+}
 
 const imgBroken = ref(false)
 
@@ -249,6 +262,7 @@ const displayGenres = computed(() => (props.artist.genres || []).slice(0, 2))
 }
 .ac-play svg { width: 14px; height: 14px; margin-left: 2px; }
 .artist-card:hover .ac-play { opacity: 1; transform: none; }
+.ac-play--playing { opacity: 1; transform: none; }
 .ac-play:hover { background: var(--accent-hover); }
 
 /* ---- body ---- */

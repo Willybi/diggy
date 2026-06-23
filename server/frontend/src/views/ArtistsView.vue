@@ -16,6 +16,7 @@
         </label>
         <div class="filterseg">
           <button :class="{ on: sortBy === 'catalog' }" @click="sortBy = 'catalog'">Catalog</button>
+          <button :class="{ on: sortBy === 'lib' }" @click="sortBy = 'lib'">In Bib</button>
           <button :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">Liked</button>
           <button :class="{ on: sortBy === 'rating' }" @click="sortBy = 'rating'">Rating</button>
           <button :class="{ on: sortBy === 'alpha' }" @click="sortBy = 'alpha'">A–Z</button>

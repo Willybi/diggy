@@ -14,10 +14,12 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
   const muted = ref(false)
   const loading = ref(false)
   const genrePlaying = ref(null) // genre name string during playRandom
+  const artistPlaying = ref(null) // artist id during playRandomArtist
 
   // --- non-reactive ---
   let audio = null
   let lastGenreTrack = null
+  let lastArtistTrack = null
 
   // --- getters ---
   const visible = computed(() => track.value !== null)
@@ -66,6 +68,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     currentTime.value = 0
     duration.value = 30
     genrePlaying.value = null
+    artistPlaying.value = null
     loading.value = true
 
     try {
@@ -116,6 +119,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     currentTime.value = 0
     duration.value = 30
     genrePlaying.value = null
+    artistPlaying.value = null
     loading.value = false
   }
 
@@ -148,12 +152,39 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     }
   }
 
+  async function playRandomArtist(artistId) {
+    if (artistPlaying.value === artistId && audio && track.value) {
+      toggle()
+      return
+    }
+
+    try {
+      const params = { artist_id: artistId }
+      if (lastArtistTrack) params.exclude = lastArtistTrack
+      const { data } = await axios.get('/api/artists/random-track', { params })
+      lastArtistTrack = data.catalog_id
+
+      artistPlaying.value = artistId
+      await play({
+        id: data.catalog_id,
+        catalog_id: data.catalog_id,
+        title: data.title || '',
+        artist: data.artist || '',
+        bpm: data.bpm,
+        key: data.key,
+      })
+      artistPlaying.value = artistId
+    } catch {
+      lastArtistTrack = null
+    }
+  }
+
   return {
     // state
-    track, playing, currentTime, duration, volume, muted, loading, genrePlaying,
+    track, playing, currentTime, duration, volume, muted, loading, genrePlaying, artistPlaying,
     // getters
     visible, progress,
     // actions
-    play, toggle, seek, setVolume, toggleMute, close, playRandom, isCurrent,
+    play, toggle, seek, setVolume, toggleMute, close, playRandom, playRandomArtist, isCurrent,
   }
 })
