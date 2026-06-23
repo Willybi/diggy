@@ -79,7 +79,7 @@
                   }"
                   @click="e.has_preview && !(inLib && !e.in_lib) && player.play({ id: e.id, catalog_id: e.id, title: e.title, artist: e.artist, bpm: e.bpm, key: e.key })"
                 >
-                  <svg v-if="!player.isCurrent(e.id)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+                  <svg v-if="!(player.isCurrent(e.id) && player.playing)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
                   <svg v-else viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.4" height="14" rx="1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1"/></svg>
                 </span>
               </td>

@@ -34,12 +34,15 @@
       <span class="pl-elapsed mono">{{ fmtSec(player.currentTime) }}</span>
       <div
         class="pl-rail"
+        :class="{ scrubbing }"
         role="slider"
+        tabindex="0"
         aria-label="Seek"
         :aria-valuenow="Math.round(player.currentTime)"
         :aria-valuemax="Math.round(player.duration)"
         aria-valuemin="0"
         @pointerdown="onScrubStart"
+        @keydown="onRailKey"
       >
         <div class="pl-fill" :style="{ width: (player.progress * 100) + '%' }">
           <div class="pl-thumb" />
@@ -67,7 +70,7 @@
           type="range"
           class="pl-vol-slider"
           min="0" max="1" step="0.01"
-          :value="player.volume"
+          :value="player.muted ? 0 : player.volume"
           aria-label="Volume"
           @input="e => player.setVolume(parseFloat(e.target.value))"
         />
@@ -82,14 +85,29 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtSec } from '../utils/format'
 
 const player = useAudioPlayer()
+const scrubbing = ref(false)
+
+function onRailKey(e) {
+  const step = 1
+  switch (e.key) {
+    case 'ArrowRight': player.seek(Math.min(player.currentTime + step, player.duration)); break
+    case 'ArrowLeft':  player.seek(Math.max(player.currentTime - step, 0)); break
+    case 'Home':       player.seek(0); break
+    case 'End':        player.seek(player.duration); break
+    default: return
+  }
+  e.preventDefault()
+}
 
 function onScrubStart(e) {
   const rail = e.currentTarget
   rail.setPointerCapture(e.pointerId)
+  scrubbing.value = true
 
   const seek = (ev) => {
     const rect = rail.getBoundingClientRect()
@@ -100,6 +118,7 @@ function onScrubStart(e) {
   seek(e)
   const onMove = (ev) => seek(ev)
   const onUp = () => {
+    scrubbing.value = false
     rail.removeEventListener('pointermove', onMove)
     rail.removeEventListener('pointerup', onUp)
   }
@@ -112,7 +131,7 @@ function onScrubStart(e) {
 .player {
   position: fixed;
   bottom: 18px;
-  left: calc(232px + 24px);
+  left: calc(var(--sidebar-w, 232px) + 24px);
   right: 24px;
   max-width: 1200px;
   margin: 0 auto;
@@ -268,8 +287,14 @@ function onScrubStart(e) {
   transform: translateY(-50%) scale(0);
   transition: transform 0.12s;
 }
+.pl-rail:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .pl-rail:hover .pl-thumb,
-.pl-rail:active .pl-thumb {
+.pl-rail:active .pl-thumb,
+.pl-rail.scrubbing .pl-thumb {
   transform: translateY(-50%) scale(1);
 }
 
@@ -346,11 +371,6 @@ function onScrubStart(e) {
 @container player (max-width: 440px) {
   .pl-shell { gap: 8px; padding: 8px 12px; }
   .pl-vol { display: none; }
-}
-
-/* ── Sidebar responsive ── */
-@media (max-width: 900px) {
-  .player { left: calc(66px + 24px); }
 }
 
 /* ── Reduced motion ── */
