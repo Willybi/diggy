@@ -131,6 +131,7 @@
             :title="p.title"
             :subtitle="`${p.genreTrackCount} tracks`"
             :fallback-letter="(p.title || '?')[0]"
+            :to="`/playlists/${p.id}`"
           >
             <template #badge>
               <span class="source-badge" :class="p.source">{{ p.source }}</span>
