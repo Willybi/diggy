@@ -59,6 +59,7 @@ async def _trigger_crawl(playlist_id: int, db: AsyncSession):
     entity = entity_result.scalar_one_or_none()
     if entity:
         entity.current_task_id = result.id
+        entity.crawl_started_at = datetime.now(timezone.utc)
         await db.commit()
 
 
@@ -264,6 +265,7 @@ async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Not found")
     entry.last_crawled_at = datetime.now(timezone.utc)
     entry.current_task_id = None
+    entry.crawl_started_at = None
     await db.commit()
     await db.refresh(entry)
     return entry
@@ -287,14 +289,23 @@ async def crawl_status(
     task = AsyncResult(entity.current_task_id, app=celery)
     state = task.state  # PENDING, STARTED, SUCCESS, FAILURE, etc.
 
-    # PENDING in Celery means "unknown or queued" — task hasn't been picked up yet
-    if state in ("SUCCESS", "FAILURE"):
-        # Task finished — clean up
+    if state in ("SUCCESS", "FAILURE", "REVOKED"):
         entity.current_task_id = None
         await db.commit()
         return {"status": "done"}
     elif state == "STARTED":
         return {"status": "running"}
+    elif state == "PENDING":
+        # PENDING means "queued" OR "unknown/expired task_id".
+        # Safety: if task has been PENDING for >15 min, assume it's stale.
+        if entity.crawl_started_at:
+            elapsed = (datetime.now(timezone.utc) - entity.crawl_started_at.replace(tzinfo=timezone.utc)).total_seconds()
+            if elapsed > 900:  # 15 min
+                entity.current_task_id = None
+                entity.crawl_started_at = None
+                await db.commit()
+                return {"status": None}
+        return {"status": "queued"}
     else:
         return {"status": "queued"}
 
