@@ -136,25 +136,11 @@
               <td class="num col-key">
                 <span :class="t.key ? 'td-key' : 'td-empty'">{{ t.key || '—' }}</span>
               </td>
-              <td class="end c-act">
-                <span class="acts">
-                  <span
-                    class="act dislike"
-                    :class="{ on: uiStatus(t) === 'disliked' }"
-                    title="Dislike"
-                    @click="toggleAction(t, 'disliked')"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 10.5V19a1 1 0 0 0 1.5.9l1.2-.7a2 2 0 0 0 1-1.4l.6-3.3h4.9a2 2 0 0 0 2-2.4l-1-5A2 2 0 0 0 14.2 3H7M7 10.5H4.5a1.5 1.5 0 0 1-1.5-1.5v-4A1.5 1.5 0 0 1 4.5 3.5H7z" stroke-linejoin="round"/></svg>
-                  </span>
-                  <span
-                    class="act like"
-                    :class="{ on: uiStatus(t) === 'liked' }"
-                    title="Like"
-                    @click="toggleAction(t, 'liked')"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.4-7-9.3A3.7 3.7 0 0 1 12 8a3.7 3.7 0 0 1 7 2.7C19 15.6 12 20 12 20z" stroke-linejoin="round"/></svg>
-                  </span>
-                </span>
+              <td class="end c-act" @click.stop>
+                <LikeDislike
+                  :model-value="uiStatus(t)"
+                  @update:model-value="v => toggleAction(t, v)"
+                />
               </td>
             </tr>
           </tbody>
@@ -176,6 +162,7 @@ import { RouterLink } from 'vue-router'
 import axios from 'axios'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import StyleTag from '../components/StyleTag.vue'
+import LikeDislike from '../components/LikeDislike.vue'
 
 const PAGE_SIZE = 50
 
@@ -291,12 +278,12 @@ function sort(key) {
   fetchPage()
 }
 
-async function toggleAction(track, action) {
-  const current = uiStatus(track)
-  const newStatus = current === action ? 'new' : (STATUS_TO_API[action] || action)
+async function toggleAction(track, newOpinion) {
+  // newOpinion: 'liked' | 'disliked' | null (from LikeDislike)
+  const newStatus = newOpinion ? (STATUS_TO_API[newOpinion] || 'new') : 'new'
   try {
     await axios.patch(`/api/radar/${track.catalog_id}/state`, { status: newStatus })
-    track.status = newStatus === 'new' ? 'new' : newStatus
+    track.status = newStatus
     fetchPage()
   } catch { /* ignore */ }
 }
@@ -616,32 +603,8 @@ tr.playing .tt-title { color: var(--accent-ink); }
   white-space: nowrap;
 }
 
-/* ============ ACTIONS like / dislike ============ */
-.acts {
-  display: inline-flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-.act {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-3);
-  cursor: pointer;
-  transition: opacity .12s, color .12s, background .12s, border-color .12s;
-  opacity: 0;
-}
-tr:hover .act { opacity: 1; }
-.act svg { width: 16px; height: 16px; }
-.act.like:hover { color: var(--pos); border-color: var(--pos); }
-.act.dislike:hover { color: var(--neg); border-color: var(--neg); }
-.act.on { opacity: 1; }
-.act.like.on { background: var(--pos-soft); border-color: transparent; color: var(--pos-ink); }
-.act.dislike.on { background: var(--neg-soft); border-color: transparent; color: var(--neg-ink); }
+/* ============ AVIS (LikeDislike component) ============ */
+.c-act { padding: 0 14px; }
 
 /* ============ ÉTATS de ligne reco ============ */
 tr.liked { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .06); }

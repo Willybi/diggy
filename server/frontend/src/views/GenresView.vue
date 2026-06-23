@@ -17,6 +17,8 @@
         <div class="filterseg">
           <button :class="{ on: sortBy === 'tracks' }" @click="sortBy = 'tracks'">Tracks</button>
           <button :class="{ on: sortBy === 'alpha' }" @click="sortBy = 'alpha'">A–Z</button>
+          <button class="liked" :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">Liked</button>
+          <button class="disliked" :class="{ on: sortBy === 'disliked' }" @click="sortBy = 'disliked'">Disliked</button>
         </div>
       </div>
     </div>
@@ -64,7 +66,7 @@
     </div>
 
     <div v-else class="genre-grid">
-      <GenreCard v-for="g in items" :key="g.name" :genre="g" />
+      <GenreCard v-for="g in displayItems" :key="g.name" :genre="g" />
     </div>
 
     <!-- Sentinel (infinite scroll) -->
@@ -78,10 +80,12 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth.js'
+import { useOpinionsStore } from '../stores/opinions.js'
 import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
 import GenreCard from '../components/GenreCard.vue'
 
 const auth = useAuthStore()
+const opinions = useOpinionsStore()
 
 const FAMILY_HUES = { house: 260, techno: 320, trance: 352, other: 42 }
 const PAGE_SIZE = 24
@@ -110,7 +114,17 @@ const totalUnfiltered = computed(() => {
   return Object.values(fc).reduce((s, v) => s + v, 0)
 })
 
-const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all')
+const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all' || sortBy.value === 'liked' || sortBy.value === 'disliked')
+
+const displayItems = computed(() => {
+  if (sortBy.value === 'liked') {
+    return items.value.filter(g => opinions.get('genre', g.name) === 'liked')
+  }
+  if (sortBy.value === 'disliked') {
+    return items.value.filter(g => opinions.get('genre', g.name) === 'disliked')
+  }
+  return items.value
+})
 
 // Family chips
 const familyChips = computed(() => {
@@ -304,6 +318,14 @@ function pl(n, one, many) { return n === 1 ? one : many }
 .filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
+}
+.filterseg button.liked.on {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.filterseg button.disliked.on {
+  background: var(--neg-soft);
+  color: var(--neg-ink);
 }
 
 /* ── Admin strip ── */

@@ -18,6 +18,8 @@
         <div class="filterseg">
           <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Tous</button>
           <button :class="{ on: mode === 'followed' }" @click="mode = 'followed'">Suivis</button>
+          <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">Liked</button>
+          <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">Disliked</button>
         </div>
         <button
           class="btn-add"
@@ -175,7 +177,7 @@
             <td class="end td-avis" @click.stop>
               <LikeDislike
                 :model-value="opinions.get('set', s.id)"
-                @update:model-value="v => opinions.set('set', s.id, v)"
+                @update:model-value="v => setOpinion(s.id, v)"
               />
             </td>
           </tr>
@@ -260,7 +262,16 @@ function sortValue(s, key) {
 }
 
 const displayList = computed(() => {
-  let list = mode.value === 'followed' ? sets.value.filter(s => opinions.get('set', s.id) === 'liked') : [...sets.value]
+  let list
+  if (mode.value === 'followed') {
+    list = sets.value.filter(s => s.followed)
+  } else if (mode.value === 'liked') {
+    list = sets.value.filter(s => opinions.get('set', s.id) === 'liked')
+  } else if (mode.value === 'disliked') {
+    list = sets.value.filter(s => opinions.get('set', s.id) === 'disliked')
+  } else {
+    list = [...sets.value]
+  }
   const dir = sortDir.value === 'asc' ? 1 : -1
   const key = sortKey.value
   list.sort((a, b) => {
@@ -341,6 +352,12 @@ async function doImport() {
   } finally {
     importing.value = false
   }
+}
+
+async function setOpinion(setId, val) {
+  await opinions.set('set', setId, val)
+  // Refetch to update followed state
+  await fetchSets()
 }
 
 onMounted(fetchSets)
@@ -433,6 +450,14 @@ onMounted(fetchSets)
 .filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
+}
+.filterseg button.liked.on {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.filterseg button.disliked.on {
+  background: var(--neg-soft);
+  color: var(--neg-ink);
 }
 
 /* ============ BTN ADD ============ */

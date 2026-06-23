@@ -1,23 +1,23 @@
 <template>
   <span class="ld" :class="{ engaged: modelValue != null }">
     <button
-      class="ld-btn dislike"
-      :class="{ on: modelValue === 'disliked' }"
-      title="Dislike"
-      @click.stop.prevent="toggle('disliked')"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
-        <path d="M17 14V5a1 1 0 0 0-1.5-.9l-1.2.7a2 2 0 0 0-1 1.4l-.6 3.3H7.8a2 2 0 0 0-2 2.4l1 5A2 2 0 0 0 8.8 19H17m0-5h2.5a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 19.5 5H17z"/>
-      </svg>
-    </button>
-    <button
       class="ld-btn like"
       :class="{ on: modelValue === 'liked' }"
       title="Like"
       @click.stop.prevent="toggle('liked')"
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
-        <path d="M7 10.5V19a1 1 0 0 0 1.5.9l1.2-.7a2 2 0 0 0 1-1.4l.6-3.3h4.9a2 2 0 0 0 2-2.4l-1-5A2 2 0 0 0 14.2 3H7M7 10.5H4.5a1.5 1.5 0 0 1-1.5-1.5v-4A1.5 1.5 0 0 1 4.5 3.5H7z"/>
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+      </svg>
+    </button>
+    <button
+      class="ld-btn dislike"
+      :class="{ on: modelValue === 'disliked' }"
+      title="Dislike"
+      @click.stop.prevent="toggle('disliked')"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57c-.02.1-.03.2-.03.31 0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/>
       </svg>
     </button>
   </span>
@@ -52,7 +52,7 @@ function toggle(val) {
   transition: opacity .14s, color .14s, background .14s, border-color .14s;
   opacity: 0;
 }
-.ld-btn svg { width: 15px; height: 15px; }
+.ld-btn svg { width: 14px; height: 14px; }
 
 /* Show on hover of various parent contexts */
 tr:hover .ld-btn,
