@@ -11,7 +11,7 @@ from models import (
     DJSet, SetArtist, Artist, WatchedEntity, User,
 )
 from schemas import (
-    CatalogEntryOut, CatalogList, CatalogDetailOut,
+    CatalogEntryOut, CatalogList, CatalogDetailOut, CatalogAvisUpdate,
     RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut,
 )
 
@@ -81,6 +81,7 @@ async def list_catalog(
             UserTrack.rb_key,
             UserTrack.rb_mytags,
             UserTrack.has_artwork.label("ut_has_artwork"),
+            UserTrack.avis.label("ut_avis"),
         )
         .where(UserTrack.user_id == uid)
         .subquery()
@@ -96,6 +97,7 @@ async def list_catalog(
         ut_sub.c.rb_key.label("ut_key"),
         ut_sub.c.rb_mytags.label("ut_tags"),
         ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
+        ut_sub.c.ut_avis.label("ut_avis"),
     ).outerjoin(
         radar_count, CatalogEntry.id == radar_count.c.catalog_id
     ).outerjoin(
@@ -161,6 +163,7 @@ async def list_catalog(
         ut_key = row[6]
         ut_tags = row[7]
         ut_has_artwork = row[8]
+        ut_avis = row[9]
 
         # Style = premier tag RB
         lib_style = None
@@ -191,6 +194,7 @@ async def list_catalog(
             nb_radar_sets=nb_sets or 0,
             style=lib_style,
             rating=ut_rating,
+            avis=ut_avis,
         )
         entries.append(out)
 
@@ -370,3 +374,33 @@ async def get_preview_url(catalog_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No preview available")
 
     return {"preview_url": preview}
+
+
+@router.patch("/{catalog_id}/avis")
+async def update_avis(
+    catalog_id: int,
+    body: CatalogAvisUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    uid = _uid(user)
+    if body.avis not in (None, "liked", "disliked"):
+        raise HTTPException(status_code=422, detail="avis must be liked, disliked, or null")
+
+    result = await db.execute(
+        select(UserTrack).where(UserTrack.user_id == uid, UserTrack.catalog_id == catalog_id)
+    )
+    ut = result.scalar_one_or_none()
+
+    if ut:
+        ut.avis = body.avis
+    else:
+        # Verify catalog entry exists
+        cat = await db.execute(select(CatalogEntry.id).where(CatalogEntry.id == catalog_id))
+        if not cat.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Catalog entry not found")
+        ut = UserTrack(user_id=uid, catalog_id=catalog_id, avis=body.avis, source="catalog_avis")
+        db.add(ut)
+
+    await db.commit()
+    return {"catalog_id": catalog_id, "avis": body.avis}
