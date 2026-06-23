@@ -1,99 +1,110 @@
 """
 Celery tasks for Diggy.
-Main task: import a Rekordbox database into PostgreSQL.
+Pipeline tasks for crawling playlists, enriching catalog, syncing artists, etc.
 """
+import asyncio
 import os
 import sys
 import time
+import logging
 import requests
 from workers.celery_app import celery_app
 
 API_BASE = os.environ.get("DIGGY_API_URL", "http://api:8000")
 DEEZER_API = "https://api.deezer.com"
 
+logger = logging.getLogger(__name__)
 
-@celery_app.task(name="workers.tasks.crawl_radar")
-def crawl_radar():
+
+@celery_app.task(name="workers.tasks.crawl_radar", bind=True)
+def crawl_radar(self):
     """
     Crawl toutes les playlists surveillées (Deezer, TIDAL, Spotify).
-    Délègue chaque playlist à crawl_single_playlist pour enrichissement inline.
+    Fan-out: lance crawl_single_playlist en parallèle via Celery.
     """
-    import logging
     from workers.source_clients import get_fetchers
+    from workers.db import get_engine
+    from sqlalchemy.orm import Session
 
-    logger = logging.getLogger(__name__)
+    engine = get_engine()
     playlists = requests.get(f"{API_BASE}/api/watchlist/", timeout=10).json()
-    crawled = 0
-    skipped = 0
-    errors = 0
 
-    for pl in playlists:
-        source = pl.get("source")
-        try:
-            _, _, has_changed = get_fetchers(source)
-        except ValueError:
-            logger.warning("Unknown source %s for playlist %s, skipping", source, pl["id"])
-            continue
+    with Session(engine) as log_session:
+        from workers.crawl_logger import CrawlLogger
+        with CrawlLogger(log_session, task_type="crawl_radar",
+                         target_label=f"{len(playlists)} playlists",
+                         celery_task_id=self.request.id) as clog:
+            dispatched = 0
+            skipped = 0
+            errors = 0
 
-        try:
-            if not has_changed(pl["external_id"], pl.get("last_crawled_at")):
-                skipped += 1
-                continue
-        except Exception as e:
-            logger.warning("has_changed check failed for %s/%s: %s", source, pl["id"], e)
+            for pl in playlists:
+                source = pl.get("source")
+                try:
+                    _, _, has_changed = get_fetchers(source)
+                except ValueError:
+                    logger.warning("Unknown source %s for playlist %s, skipping", source, pl["id"])
+                    continue
 
-        try:
-            crawl_single_playlist(pl["id"])
-            crawled += 1
-        except Exception as e:
-            logger.error("crawl_single_playlist failed for %s/%s: %s", source, pl["id"], e)
-            errors += 1
+                try:
+                    if not has_changed(pl["external_id"], pl.get("last_crawled_at")):
+                        skipped += 1
+                        continue
+                except Exception as e:
+                    logger.warning("has_changed check failed for %s/%s: %s", source, pl["id"], e)
 
-    return {"crawled": crawled, "skipped_playlists": skipped, "errors": errors}
+                try:
+                    crawl_single_playlist.delay(pl["id"])
+                    dispatched += 1
+                except Exception as e:
+                    logger.error("Failed to dispatch crawl for %s/%s: %s", source, pl["id"], e)
+                    errors += 1
+
+            clog.set_stats({"dispatched": dispatched, "skipped": skipped, "errors": errors})
+
+    return {"dispatched": dispatched, "skipped_playlists": skipped, "errors": errors}
 
 
-@celery_app.task(name="workers.tasks.crawl_single_playlist")
-def crawl_single_playlist(playlist_id: int):
+@celery_app.task(name="workers.tasks.crawl_single_playlist", bind=True)
+def crawl_single_playlist(self, playlist_id: int):
     """
     Crawl une seule playlist (Deezer, TIDAL, ou Spotify) par son watched_entity ID.
-    Insere les tracks via l'API, puis enrichit les nouvelles entrees catalog
-    via Deezer cross-search (deezer_id, artwork, preview, duration).
+    Uses direct DB access (bulk ops) + concurrent async enrichment.
     """
-    import logging
-    from sqlalchemy import create_engine, select
+    from sqlalchemy import select, delete as sa_delete
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
-    from models import CatalogEntry, RadarTrack, WatchedEntity
-    from deezer_enrich import enrich_entry, search_deezer, upload_image_to_bucket, _get_s3, _ensure_bucket
+    from models import CatalogEntry, RadarTrack, WatchedEntity, UserFollow
+    from deezer_enrich import _get_s3, _ensure_bucket, upload_image_to_bucket
     from workers.source_clients import get_fetchers
+    from workers.db import get_engine, bulk_get_or_create_catalog, bulk_insert_radar_tracks
 
-    logger = logging.getLogger(__name__)
+    engine = get_engine()
 
-    pl = requests.get(f"{API_BASE}/api/watchlist/browse", timeout=10).json()
-    target = next((p for p in pl if p["id"] == playlist_id), None)
-    if not target:
-        return {"error": "playlist not found"}
+    # Load playlist info from DB directly
+    with Session(engine) as session:
+        entity = session.get(WatchedEntity, playlist_id)
+        if not entity:
+            return {"error": "playlist not found"}
+        source = entity.source
+        external_id = entity.external_id
+        entity_title = entity.title
 
-    source = target["source"]
     try:
         fetch_meta, fetch_tracks, _ = get_fetchers(source)
     except ValueError:
         return {"error": f"unknown source: {source}"}
 
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
     s3 = _get_s3()
     _ensure_bucket(s3)
 
     # 0. Fetch playlist metadata + update entity
     try:
-        meta = fetch_meta(target["external_id"])
+        meta = fetch_meta(external_id)
     except Exception as e:
         err_str = str(e).lower()
         if "not found" in err_str or "404" in err_str:
-            logger.warning("Playlist %s (%s) no longer exists on %s — removing", playlist_id, target.get("title"), source)
-            from sqlalchemy import delete as sa_delete
-            from models import UserFollow
+            logger.warning("Playlist %s (%s) no longer exists on %s — removing", playlist_id, entity_title, source)
             with Session(engine) as session:
                 session.execute(sa_delete(RadarTrack).where(RadarTrack.watched_entity_id == playlist_id))
                 session.execute(sa_delete(UserFollow).where(UserFollow.entity_id == playlist_id))
@@ -104,127 +115,137 @@ def crawl_single_playlist(playlist_id: int):
             return {"deleted": True, "playlist_id": playlist_id, "source": source, "reason": "not_found_on_source"}
         raise
 
-    with Session(engine) as session:
-        entity = session.get(WatchedEntity, playlist_id)
-        if entity:
-            if meta.track_count is not None:
-                entity.track_count = meta.track_count
-            if meta.description:
-                entity.description = meta.description
-            if meta.owner:
-                entity.owner = meta.owner
-            if meta.title and not entity.title:
-                entity.title = meta.title
-            if not entity.has_artwork and meta.cover_url:
-                _ensure_bucket(s3, "playlist-artworks")
-                if upload_image_to_bucket(s3, meta.cover_url, f"{playlist_id}.jpg", "playlist-artworks"):
-                    entity.has_artwork = True
-            session.commit()
+    # CrawlLogger wraps the main work
+    from workers.crawl_logger import CrawlLogger
 
-    # 1. Fetch all tracks from source
-    source_tracks = fetch_tracks(target["external_id"])
+    with Session(engine) as log_session:
+        with CrawlLogger(log_session, task_type="crawl_playlist",
+                         target_id=playlist_id, target_label=entity_title,
+                         source=source, celery_task_id=self.request.id) as clog:
 
-    # 2. Insert radar tracks via API (handles dedup + catalog creation)
-    inserted = 0
-    for st in source_tracks:
-        payload = {
-            "watched_playlist_id": target["id"],
-            "external_track_id": st.external_id,
-            "source": source,
-            "title": st.title,
-            "artist": st.artist,
-            "isrc": st.isrc,
-        }
-        r = requests.post(f"{API_BASE}/api/radar/", json=payload, timeout=10)
-        if r.status_code == 201:
-            inserted += 1
+            with Session(engine) as session:
+                entity = session.get(WatchedEntity, playlist_id)
+                if entity:
+                    if meta.track_count is not None:
+                        entity.track_count = meta.track_count
+                    if meta.description:
+                        entity.description = meta.description
+                    if meta.owner:
+                        entity.owner = meta.owner
+                    if meta.title and not entity.title:
+                        entity.title = meta.title
+                    if not entity.has_artwork and meta.cover_url:
+                        _ensure_bucket(s3, "playlist-artworks")
+                        if upload_image_to_bucket(s3, meta.cover_url, f"{playlist_id}.jpg", "playlist-artworks"):
+                            entity.has_artwork = True
+                    session.commit()
 
-    # 3. Enrich catalog entries that lack deezer_id
-    enriched = 0
-    with Session(engine) as session:
-        existing_isrcs = {r[0] for r in session.execute(
-            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
-        ).all()}
+            # 1. Fetch all tracks from source
+            source_tracks = fetch_tracks(external_id)
 
-        radar_rows = session.execute(
-            select(RadarTrack.external_track_id, RadarTrack.catalog_id)
-            .where(RadarTrack.watched_entity_id == playlist_id)
-        ).all()
+            # 2. Bulk insert radar tracks (direct DB, replaces per-track HTTP POST)
+            with Session(engine) as session:
+                track_dicts = [
+                    {"title": st.title, "artist": st.artist, "isrc": st.isrc, "duration_ms": st.duration_ms}
+                    for st in source_tracks
+                ]
+                catalog_map = bulk_get_or_create_catalog(session, track_dicts)
+                inserted = bulk_insert_radar_tracks(session, playlist_id, source, source_tracks, catalog_map)
+                session.commit()
 
-        catalog_ids = {row.catalog_id for row in radar_rows if row.catalog_id}
+            # 3 & 4. Async enrichment (Deezer + Beatport) — concurrent
+            async def _async_enrich():
+                from workers.rate_limiter import RateLimiter
+                from workers.async_http import HttpPool
+                from workers.enrichment import enrich_deezer_batch, enrich_beatport_batch
 
-        entries = session.execute(
-            select(CatalogEntry).where(
-                CatalogEntry.id.in_(catalog_ids),
-                CatalogEntry.deezer_id.is_(None),
-            )
-        ).scalars().all()
+                limiter = RateLimiter()
+                dz_stats = {"enriched": 0, "errors": 0}
+                bp_stats = {"enriched": 0, "not_found": 0, "errors": 0}
 
-        if source == "deezer":
-            # For Deezer: we have the external_track_id which IS the deezer track id
-            ext_to_catalog = {row.external_track_id: row.catalog_id for row in radar_rows}
-            catalog_to_ext = {}
-            for ext_id, cat_id in ext_to_catalog.items():
-                if cat_id:
-                    catalog_to_ext[cat_id] = ext_id
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        # Preload ISRCs
+                        existing_isrcs = {r[0] for r in session.execute(
+                            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+                        ).all()}
 
-            for entry in entries:
-                ext_id = catalog_to_ext.get(entry.id)
-                if not ext_id:
-                    continue
-                dz_resp = requests.get(f"{DEEZER_API}/track/{ext_id}", timeout=10).json()
-                if dz_resp.get("id") and enrich_entry(entry, dz_resp, s3=s3, _known_isrcs=existing_isrcs):
-                    enriched += 1
-                time.sleep(0.12)
-        else:
-            # For TIDAL/Spotify: cross-search via Deezer by artist+title
-            for entry in entries:
-                dz_hit = search_deezer(entry.artist, entry.title)
-                if dz_hit and enrich_entry(entry, dz_hit, s3=s3, _known_isrcs=existing_isrcs):
-                    enriched += 1
-                time.sleep(0.15)
+                        # Get catalog IDs from radar tracks for this playlist
+                        radar_rows = session.execute(
+                            select(RadarTrack.external_track_id, RadarTrack.catalog_id)
+                            .where(RadarTrack.watched_entity_id == playlist_id)
+                        ).all()
+                        catalog_ids = {row.catalog_id for row in radar_rows if row.catalog_id}
 
-        session.commit()
+                        # Deezer enrichment — entries missing deezer_id
+                        dz_entries = session.execute(
+                            select(CatalogEntry).where(
+                                CatalogEntry.id.in_(catalog_ids),
+                                CatalogEntry.deezer_id.is_(None),
+                            )
+                        ).scalars().all()
 
-    # 4. Enrich via Beatport (BPM, key, label) for entries still missing beatport_id
-    bp_enriched = 0
-    try:
-        from beatport.client import BeatportClient
-        from beatport.enrich import enrich_from_beatport
+                        if dz_entries:
+                            ext_id_map = None
+                            if source == "deezer":
+                                ext_to_catalog = {row.external_track_id: row.catalog_id for row in radar_rows}
+                                ext_id_map = {}
+                                for ext_id, cat_id in ext_to_catalog.items():
+                                    if cat_id:
+                                        ext_id_map[cat_id] = ext_id
 
-        bp_client = BeatportClient()
-        with Session(engine) as session:
-            bp_entries = session.execute(
-                select(CatalogEntry).where(
-                    CatalogEntry.id.in_(catalog_ids),
-                    CatalogEntry.beatport_id.is_(None),
-                )
-            ).scalars().all()
-            for entry in bp_entries:
-                try:
-                    bp_track = None
-                    if entry.isrc:
-                        bp_track = bp_client.search_track_by_isrc(entry.isrc)
-                    if not bp_track:
-                        bp_track_list = bp_client.search_track(entry.title, entry.artist)
-                        if bp_track_list:
-                            bp_track = bp_track_list[0]
-                    if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
-                        bp_enriched += 1
-                except Exception as e:
-                    logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
-            session.commit()
-    except Exception as e:
-        logger.warning("Beatport enrichment step skipped: %s", e)
+                            dz_stats = await enrich_deezer_batch(
+                                session, dz_entries, pool, s3, existing_isrcs,
+                                source=source if source == "deezer" else "cross-search",
+                                ext_id_map=ext_id_map,
+                            )
 
-    requests.patch(f"{API_BASE}/api/watchlist/{target['id']}/crawled", timeout=10)
+                        session.commit()
+
+                        # Beatport enrichment — entries missing beatport_id
+                        bp_entries = session.execute(
+                            select(CatalogEntry).where(
+                                CatalogEntry.id.in_(catalog_ids),
+                                CatalogEntry.beatport_id.is_(None),
+                            )
+                        ).scalars().all()
+
+                        if bp_entries:
+                            bp_stats = await enrich_beatport_batch(session, bp_entries, pool, s3)
+
+                        session.commit()
+
+                return dz_stats, bp_stats
+
+            try:
+                dz_stats, bp_stats = asyncio.run(_async_enrich())
+            except Exception as e:
+                logger.error("Async enrichment failed for playlist %s: %s", playlist_id, e)
+                dz_stats = {"enriched": 0, "errors": 1}
+                bp_stats = {"enriched": 0, "not_found": 0, "errors": 1}
+
+            # 5. Mark playlist as crawled
+            with Session(engine) as session:
+                from datetime import datetime, timezone
+                entity = session.get(WatchedEntity, playlist_id)
+                if entity:
+                    entity.last_crawled_at = datetime.now(timezone.utc)
+                    session.commit()
+
+            clog.set_stats({
+                "inserted": inserted,
+                "enriched": dz_stats.get("enriched", 0),
+                "bp_enriched": bp_stats.get("enriched", 0),
+                "total_tracks": len(source_tracks),
+            })
+
     return {
         "playlist_id": playlist_id,
         "source": source,
-        "title": target.get("title") or meta.title,
+        "title": entity_title or (meta.title if meta else None),
         "inserted": inserted,
-        "enriched": enriched,
-        "bp_enriched": bp_enriched,
+        "enriched": dz_stats.get("enriched", 0),
+        "bp_enriched": bp_stats.get("enriched", 0),
         "total_tracks": len(source_tracks),
     }
 
@@ -235,13 +256,13 @@ def check_previews():
     Vérifie chaque semaine si les tracks catalog ont une preview Deezer dispo.
     Met à jour has_preview dans les deux sens (True/False).
     """
-    from sqlalchemy import create_engine, select
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
     from models import CatalogEntry, RadarTrack
+    from workers.db import get_engine
 
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
 
     updated = 0
     with Session(engine) as session:
@@ -269,249 +290,235 @@ def check_previews():
     return {"updated": updated}
 
 
-@celery_app.task(name="workers.tasks.resolve_set_tracks")
-def resolve_set_tracks():
+@celery_app.task(name="workers.tasks.resolve_set_tracks", bind=True)
+def resolve_set_tracks(self):
     """
     Résout les set_tracks sans catalog_id.
-    Pour chaque set_track non-ID avec raw_title :
-    1. Cherche dans catalog par normalized_key
-    2. Si absent, crée une entrée catalog
-    3. Lie le set_track au catalog
-    4. Enrichit via Deezer (deezer_id, isrc, duration, preview, cover)
-    Idempotent : ne touche pas les tracks déjà résolus.
+    Uses bulk catalog operations + concurrent async enrichment.
     """
-    from datetime import datetime, timezone
-    from sqlalchemy import create_engine, select
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
     from models import SetTrack, CatalogEntry
-    from utils import make_normalized_key
-    from deezer_enrich import search_deezer, enrich_entry, _get_s3, _ensure_bucket
+    from deezer_enrich import _get_s3, _ensure_bucket
+    from workers.db import get_engine, bulk_get_or_create_catalog
+    from workers.crawl_logger import CrawlLogger
 
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
-
+    engine = get_engine()
     s3 = _get_s3()
     _ensure_bucket(s3)
 
-    resolved = 0
-    created = 0
-    enriched = 0
-    with Session(engine) as session:
-        # Preload ISRCs to avoid unique constraint violations
-        existing_isrcs = {r[0] for r in session.execute(
-            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
-        ).all()}
+    with Session(engine) as log_session:
+        with CrawlLogger(log_session, task_type="resolve_set_tracks",
+                         celery_task_id=self.request.id) as clog:
+            resolved = 0
 
-        tracks = session.execute(
-            select(SetTrack).where(
-                SetTrack.catalog_id.is_(None),
-                SetTrack.is_id == False,  # noqa: E712
-                SetTrack.raw_title.isnot(None),
-            )
-        ).scalars().all()
+            with Session(engine) as session:
+                tracks = session.execute(
+                    select(SetTrack).where(
+                        SetTrack.catalog_id.is_(None),
+                        SetTrack.is_id == False,  # noqa: E712
+                        SetTrack.raw_title.isnot(None),
+                    )
+                ).scalars().all()
 
-        for st in tracks:
-            norm_key = make_normalized_key(st.raw_title, st.raw_artist)
+                if not tracks:
+                    clog.set_stats({"resolved": 0, "enriched": 0, "bp_enriched": 0})
+                    return {"resolved": 0, "enriched": 0, "bp_enriched": 0}
 
-            entry = session.execute(
-                select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
-            ).scalar_one_or_none()
+                # Bulk catalog lookup/create
+                track_dicts = [
+                    {"title": st.raw_title, "artist": st.raw_artist}
+                    for st in tracks
+                ]
+                catalog_map = bulk_get_or_create_catalog(session, track_dicts)
 
-            is_new = False
-            if not entry:
-                entry = CatalogEntry(
-                    title=st.raw_title,
-                    artist=st.raw_artist,
-                    normalized_key=norm_key,
-                    created_at=datetime.now(timezone.utc),
-                )
-                session.add(entry)
-                session.flush()
-                created += 1
-                is_new = True
+                from utils import make_normalized_key
+                for st in tracks:
+                    nk = make_normalized_key(st.raw_title, st.raw_artist)
+                    entry = catalog_map.get(nk)
+                    if entry:
+                        st.catalog_id = entry.id
+                        resolved += 1
 
-            st.catalog_id = entry.id
-            resolved += 1
+                session.commit()
 
-            # Enrich new entries or entries missing deezer_id
-            if is_new or not entry.deezer_id:
-                hit = search_deezer(st.raw_artist, st.raw_title)
-                if hit and enrich_entry(entry, hit, s3=s3, _known_isrcs=existing_isrcs):
-                    enriched += 1
-                time.sleep(0.12)
+            # Async enrichment for entries missing deezer_id or beatport_id
+            async def _async_enrich():
+                from workers.rate_limiter import RateLimiter
+                from workers.async_http import HttpPool
+                from workers.enrichment import enrich_deezer_batch, enrich_beatport_batch
 
-        session.commit()
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        existing_isrcs = {r[0] for r in session.execute(
+                            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+                        ).all()}
 
-    # Beatport enrichment for entries still missing beatport_id
-    bp_enriched = 0
-    try:
-        from beatport.client import BeatportClient
-        from beatport.enrich import enrich_from_beatport
+                        resolved_ids = {st.catalog_id for st in tracks if st.catalog_id}
+                        dz_entries = session.execute(
+                            select(CatalogEntry).where(
+                                CatalogEntry.id.in_(resolved_ids),
+                                CatalogEntry.deezer_id.is_(None),
+                            )
+                        ).scalars().all()
 
-        bp_client = BeatportClient()
-        with Session(engine) as session:
-            bp_entries = session.execute(
-                select(CatalogEntry).where(
-                    CatalogEntry.beatport_id.is_(None),
-                    CatalogEntry.id.in_(
-                        select(SetTrack.catalog_id).where(SetTrack.catalog_id.isnot(None))
-                    ),
-                )
-            ).scalars().all()
-            for entry in bp_entries:
-                try:
-                    bp_track = None
-                    if entry.isrc:
-                        bp_track = bp_client.search_track_by_isrc(entry.isrc)
-                    if not bp_track:
-                        bp_track_list = bp_client.search_track(entry.title, entry.artist)
-                        if bp_track_list:
-                            bp_track = bp_track_list[0]
-                    if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
-                        bp_enriched += 1
-                except Exception as e:
-                    logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
-            session.commit()
-    except Exception as e:
-        logger.warning("Beatport enrichment step skipped: %s", e)
+                        dz_stats = {"enriched": 0}
+                        if dz_entries:
+                            dz_stats = await enrich_deezer_batch(session, dz_entries, pool, s3, existing_isrcs)
+                        session.commit()
 
-    return {"resolved": resolved, "catalog_created": created, "enriched": enriched, "bp_enriched": bp_enriched}
+                        bp_entries = session.execute(
+                            select(CatalogEntry).where(
+                                CatalogEntry.id.in_(resolved_ids),
+                                CatalogEntry.beatport_id.is_(None),
+                            )
+                        ).scalars().all()
+
+                        bp_stats = {"enriched": 0}
+                        if bp_entries:
+                            bp_stats = await enrich_beatport_batch(session, bp_entries, pool, s3)
+                        session.commit()
+
+                return dz_stats, bp_stats
+
+            try:
+                dz_stats, bp_stats = asyncio.run(_async_enrich())
+            except Exception as e:
+                logger.error("Async enrichment failed in resolve_set_tracks: %s", e)
+                dz_stats = {"enriched": 0}
+                bp_stats = {"enriched": 0}
+
+            result = {
+                "resolved": resolved,
+                "enriched": dz_stats.get("enriched", 0),
+                "bp_enriched": bp_stats.get("enriched", 0),
+            }
+            clog.set_stats(result)
+
+    return result
 
 
-@celery_app.task(name="workers.tasks.enrich_catalog")
-def enrich_catalog():
+@celery_app.task(name="workers.tasks.enrich_catalog", bind=True)
+def enrich_catalog(self):
     """
-    Enrichit les entrées catalog sans deezer_id via l'API Deezer.
-    Remplit : deezer_id, isrc, duration_ms, has_preview, has_artwork (+ cover).
-    Hebdomadaire, rate-limited.
+    Enrichit les entrées catalog sans deezer_id via Deezer.
+    Concurrent async enrichment (5 parallel requests).
     """
-    from sqlalchemy import create_engine, select
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
     from models import CatalogEntry
-    from deezer_enrich import search_deezer, enrich_entry, _get_s3, _ensure_bucket
+    from deezer_enrich import _get_s3, _ensure_bucket
+    from workers.db import get_engine
 
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
-
+    engine = get_engine()
     s3 = _get_s3()
     _ensure_bucket(s3)
 
-    enriched = 0
-    not_found = 0
-    with Session(engine) as session:
-        # Preload ISRCs to avoid unique constraint violations
-        existing_isrcs = {r[0] for r in session.execute(
-            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
-        ).all()}
+    from workers.crawl_logger import CrawlLogger
 
-        entries = session.execute(
-            select(CatalogEntry).where(CatalogEntry.deezer_id.is_(None))
-            .order_by(CatalogEntry.id)
-        ).scalars().all()
+    with Session(engine) as log_session:
+        with CrawlLogger(log_session, task_type="enrich_catalog",
+                         source="deezer", celery_task_id=self.request.id) as clog:
 
-        for i, entry in enumerate(entries):
+            async def _async_enrich():
+                from workers.rate_limiter import RateLimiter
+                from workers.async_http import HttpPool
+                from workers.enrichment import enrich_deezer_batch
+
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        existing_isrcs = {r[0] for r in session.execute(
+                            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+                        ).all()}
+
+                        entries = session.execute(
+                            select(CatalogEntry).where(
+                                CatalogEntry.deezer_id.is_(None),
+                                CatalogEntry.deezer_searched_at.is_(None),
+                            ).order_by(CatalogEntry.id)
+                        ).scalars().all()
+
+                        if not entries:
+                            return {"enriched": 0, "errors": 0}
+
+                        total_enriched = 0
+                        total_errors = 0
+                        for i in range(0, len(entries), 100):
+                            batch = entries[i:i + 100]
+                            stats = await enrich_deezer_batch(session, batch, pool, s3, existing_isrcs)
+                            total_enriched += stats.get("enriched", 0)
+                            total_errors += stats.get("errors", 0)
+                            session.commit()
+                            logger.info("Deezer enrich progress: %d/%d", min(i + 100, len(entries)), len(entries))
+
+                        return {"enriched": total_enriched, "errors": total_errors}
+
             try:
-                hit = search_deezer(entry.artist, entry.title)
-            except Exception:
-                time.sleep(0.5)
-                continue
+                stats = asyncio.run(_async_enrich())
+            except Exception as e:
+                logger.error("enrich_catalog failed: %s", e)
+                stats = {"enriched": 0, "errors": 1}
 
-            if hit and enrich_entry(entry, hit, s3=s3, _known_isrcs=existing_isrcs):
-                enriched += 1
-            else:
-                not_found += 1
+            clog.set_stats(stats)
 
-            time.sleep(0.12)
-
-            if (i + 1) % 100 == 0:
-                session.commit()
-
-        session.commit()
-
-    return {"enriched": enriched, "not_found": not_found}
+    return stats
 
 
-@celery_app.task(name="workers.tasks.sync_artists")
-def sync_artists():
+@celery_app.task(name="workers.tasks.sync_artists", bind=True)
+def sync_artists(self):
     """
     Sync artists from catalog.artist strings into the artists table.
-    Idempotent — safe to re-run.
+    Phase A: local resolution (CPU-only, fast).
+    Phase B: Deezer disambiguation for ambiguous names (concurrent).
+    Artwork deferred to fetch_artist_artworks task.
     """
     import re
     from datetime import datetime, timezone
-    from sqlalchemy import create_engine, select
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry
     from utils import normalize
-    from deezer_enrich import _get_s3, upload_image_to_bucket
+    from workers.db import get_engine
+
+    from workers.crawl_logger import CrawlLogger
 
     FEAT_RE = re.compile(r"\s+(?:feat\.?|featuring|ft\.?|vs\.?)\s+", flags=re.IGNORECASE)
-    RATE_LIMIT = 0.12
-    ARTIST_BUCKET = "artist-artworks"
+    engine = get_engine()
 
-    s3 = _get_s3()
-    existing_buckets = [b["Name"] for b in s3.list_buckets()["Buckets"]]
-    if ARTIST_BUCKET not in existing_buckets:
-        s3.create_bucket(Bucket=ARTIST_BUCKET)
-        s3.put_bucket_policy(
-            Bucket=ARTIST_BUCKET,
-            Policy=(
-                f'{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow",'
-                f'"Principal":"*","Action":"s3:GetObject",'
-                f'"Resource":"arn:aws:s3:::{ARTIST_BUCKET}/*"}}]}}'
-            ),
-        )
-
-    def _norm(s):
-        import unicodedata
-        s = unicodedata.normalize("NFKD", s.lower().strip())
-        return s.encode("ascii", "ignore").decode()
-
-    def _deezer_artist_id(name):
-        try:
-            resp = requests.get(
-                "https://api.deezer.com/search/artist",
-                params={"q": name, "limit": 10},
-                timeout=5,
-            )
-            name_norm = _norm(name)
-            for hit in resp.json().get("data", []):
-                dz_name = hit.get("name", "")
-                if dz_name.lower() == name.lower() or _norm(dz_name) == name_norm:
-                    return str(hit["id"])
-        except Exception:
-            pass
-        return None
-
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
+    # Start crawl log (running) — manual enter/exit to avoid re-indenting the entire body
+    _log_session = Session(engine)
+    _clog = CrawlLogger(_log_session, task_type="sync_artists", celery_task_id=self.request.id)
+    _clog.__enter__()
+    _clog_exc = None
 
     created = 0
     flagged = 0
     skipped = 0
 
-    with Session(engine) as session:
-        # Load all distinct catalog artist strings
+    # Collect names needing Deezer disambiguation
+    needs_deezer = []  # list of (raw_string, tokens, rule_type)
+
+    try:
+      with Session(engine) as session:
         all_strings = [r[0] for r in session.execute(
             select(CatalogEntry.artist).distinct().where(CatalogEntry.artist.isnot(None))
         ).all()]
 
-        # Build known normalized names set
         known_norms = set(r[0] for r in session.execute(select(Artist.normalized_name)).all())
         known_norms |= set(r[0] for r in session.execute(select(ArtistAlias.normalized_alias)).all())
-
-        # Load already-flagged strings
         already_flagged = set(r[0] for r in session.execute(select(ArtistFlag.raw_artist_string)).all())
 
         def _get_or_create(name):
+            nonlocal created
             norm = normalize(name)
             if norm in known_norms:
                 artist = session.execute(select(Artist).where(Artist.normalized_name == norm)).scalar_one_or_none()
-                # If found but name differs, ensure alias for this variant
                 if artist and name.strip() != artist.name:
                     _ensure_alias(artist, name.strip())
                 return artist
@@ -524,22 +531,7 @@ def sync_artists():
             known_norms.add(norm)
             return artist
 
-        def _fetch_artwork(artist):
-            """Fetch and store Deezer artist image if deezer_id is set and artwork missing."""
-            if not artist or not artist.deezer_id or artist.has_artwork:
-                return
-            try:
-                resp = requests.get(f"https://api.deezer.com/artist/{artist.deezer_id}", timeout=5)
-                data = resp.json()
-                pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
-                if pic_url and upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", ARTIST_BUCKET):
-                    artist.has_artwork = True
-            except Exception:
-                pass
-            time.sleep(RATE_LIMIT)
-
         def _ensure_alias(artist, alias_name):
-            """Create alias if normalized forms differ and alias doesn't exist yet."""
             if not artist or not alias_name:
                 return
             norm = normalize(alias_name)
@@ -553,20 +545,8 @@ def sync_artists():
             session.add(ArtistAlias(artist_id=artist.id, alias=alias_name, normalized_alias=norm))
             known_norms.add(norm)
 
-        def _flag(raw, reason, tokens, deezer_ids):
-            flag = ArtistFlag(
-                raw_artist_string=raw,
-                reason=reason,
-                tokens=tokens,
-                deezer_ids=deezer_ids,
-                status="pending",
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
-            )
-            session.add(flag)
-            already_flagged.add(raw)
-            session.flush()
-
+        # Phase A: local resolution
+        batch_count = 0
         for raw in all_strings:
             raw = raw.strip()
             if not raw:
@@ -576,199 +556,299 @@ def sync_artists():
                 skipped += 1
                 continue
 
-            # Rule 1: feat / featuring / ft / vs
+            # Rule 1: feat / featuring / ft / vs — always split locally
             if FEAT_RE.search(raw):
                 for name in [p.strip() for p in FEAT_RE.split(raw) if p.strip()]:
                     _get_or_create(name)
                     created += 1
-                session.commit()
+                batch_count += 1
+                if batch_count % 50 == 0:
+                    session.commit()
                 continue
 
-            # Rule 2: comma
+            # Rule 2: comma — if any token known, resolve locally
             if "," in raw:
                 tokens = [p.strip() for p in raw.split(",") if p.strip()]
                 if any(normalize(t) in known_norms for t in tokens):
                     for name in tokens:
                         _get_or_create(name)
                         created += 1
-                    session.commit()
+                    batch_count += 1
+                    if batch_count % 50 == 0:
+                        session.commit()
                 else:
-                    deezer_ids = {}
-                    for t in tokens:
-                        deezer_ids[t] = _deezer_artist_id(t)
-                        time.sleep(RATE_LIMIT)
-                    if all(deezer_ids[t] is not None for t in tokens):
-                        for name in tokens:
-                            a = _get_or_create(name)
-                            if a and not a.deezer_id and deezer_ids.get(name):
-                                a.deezer_id = deezer_ids[name]
-                                _fetch_artwork(a)
-                            created += 1
-                        session.commit()
-                    else:
-                        _flag(raw, "comma_unresolved", tokens, deezer_ids)
-                        session.commit()
-                        flagged += 1
+                    needs_deezer.append((raw, tokens, "comma"))
                 continue
 
-            # Rule 3: ampersand
+            # Rule 3: ampersand — if any token known, resolve locally
             if " & " in raw:
                 tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
                 if any(normalize(t) in known_norms for t in tokens):
                     for name in tokens:
                         _get_or_create(name)
                         created += 1
-                    session.commit()
+                    batch_count += 1
+                    if batch_count % 50 == 0:
+                        session.commit()
                     continue
-                deezer_full = _deezer_artist_id(raw)
-                time.sleep(RATE_LIMIT)
-                deezer_ids = {raw: deezer_full}
-                for t in tokens:
-                    deezer_ids[t] = _deezer_artist_id(t)
-                    time.sleep(RATE_LIMIT)
-                full_found = deezer_full is not None
-                tokens_found = all(deezer_ids[t] is not None for t in tokens)
-                if full_found and not tokens_found:
-                    a = _get_or_create(raw)
-                    if a and not a.deezer_id:
-                        a.deezer_id = deezer_full
-                        _fetch_artwork(a)
-                    session.commit()
-                    created += 1
-                elif tokens_found and not full_found:
-                    for name in tokens:
-                        a = _get_or_create(name)
-                        if a and not a.deezer_id and deezer_ids.get(name):
-                            a.deezer_id = deezer_ids[name]
-                            _fetch_artwork(a)
-                        created += 1
-                    session.commit()
-                else:
-                    reason = "ampersand_ambiguous" if (full_found and tokens_found) else "ampersand_unknown"
-                    _flag(raw, reason, tokens, deezer_ids)
-                    session.commit()
-                    flagged += 1
+                needs_deezer.append((raw, tokens, "ampersand"))
                 continue
 
-            # Rule 4: no separator
+            # Rule 4: no separator — create directly
             _get_or_create(raw)
-            session.commit()
             created += 1
+            batch_count += 1
+            if batch_count % 50 == 0:
+                session.commit()
 
-    return {"created": created, "flagged": flagged, "skipped": skipped}
+        session.commit()
+
+    # Phase B: Deezer disambiguation (concurrent)
+    if needs_deezer:
+        async def _deezer_resolve():
+            nonlocal created, flagged
+            import unicodedata
+            from workers.rate_limiter import RateLimiter
+            from workers.async_http import HttpPool
+
+            def _norm(s):
+                s = unicodedata.normalize("NFKD", s.lower().strip())
+                return s.encode("ascii", "ignore").decode()
+
+            async def _deezer_artist_id(pool, name):
+                data = await pool.deezer_get("/search/artist", params={"q": name, "limit": 10})
+                name_norm = _norm(name)
+                for hit in data.get("data", []):
+                    dz_name = hit.get("name", "")
+                    if dz_name.lower() == name.lower() or _norm(dz_name) == name_norm:
+                        return str(hit["id"])
+                return None
+
+            limiter = RateLimiter()
+            async with HttpPool(limiter) as pool:
+                with Session(engine) as session:
+                    # Re-load known_norms
+                    known = set(r[0] for r in session.execute(select(Artist.normalized_name)).all())
+                    known |= set(r[0] for r in session.execute(select(ArtistAlias.normalized_alias)).all())
+
+                    for raw, tokens, rule_type in needs_deezer:
+                        # Concurrent Deezer lookups for all tokens
+                        deezer_ids = {}
+                        tasks_list = []
+                        names_to_search = list(tokens)
+                        if rule_type == "ampersand":
+                            names_to_search = [raw] + list(tokens)
+
+                        for name in names_to_search:
+                            tasks_list.append(_deezer_artist_id(pool, name))
+                        results = await asyncio.gather(*tasks_list)
+
+                        for name, dz_id in zip(names_to_search, results):
+                            deezer_ids[name] = dz_id
+
+                        if rule_type == "comma":
+                            if all(deezer_ids.get(t) is not None for t in tokens):
+                                for name in tokens:
+                                    norm = normalize(name)
+                                    if norm not in known:
+                                        a = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                                        session.add(a)
+                                        session.flush()
+                                        known.add(norm)
+                                        if deezer_ids.get(name):
+                                            a.deezer_id = deezer_ids[name]
+                                    created += 1
+                            else:
+                                session.add(ArtistFlag(
+                                    raw_artist_string=raw, reason="comma_unresolved",
+                                    tokens=tokens, deezer_ids=deezer_ids, status="pending",
+                                    created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                                ))
+                                flagged += 1
+
+                        elif rule_type == "ampersand":
+                            deezer_full = deezer_ids.get(raw)
+                            full_found = deezer_full is not None
+                            tokens_found = all(deezer_ids.get(t) is not None for t in tokens)
+
+                            if full_found and not tokens_found:
+                                norm = normalize(raw)
+                                if norm not in known:
+                                    a = Artist(name=raw, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                                    a.deezer_id = deezer_full
+                                    session.add(a)
+                                    session.flush()
+                                    known.add(norm)
+                                created += 1
+                            elif tokens_found and not full_found:
+                                for name in tokens:
+                                    norm = normalize(name)
+                                    if norm not in known:
+                                        a = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                                        if deezer_ids.get(name):
+                                            a.deezer_id = deezer_ids[name]
+                                        session.add(a)
+                                        session.flush()
+                                        known.add(norm)
+                                    created += 1
+                            else:
+                                reason = "ampersand_ambiguous" if (full_found and tokens_found) else "ampersand_unknown"
+                                session.add(ArtistFlag(
+                                    raw_artist_string=raw, reason=reason,
+                                    tokens=tokens, deezer_ids=deezer_ids, status="pending",
+                                    created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                                ))
+                                flagged += 1
+
+                        session.commit()
+
+        try:
+            asyncio.run(_deezer_resolve())
+        except Exception as e:
+            logger.error("Deezer artist disambiguation failed: %s", e)
+
+    except Exception as exc:
+        _clog_exc = exc
+        raise
+    finally:
+        result = {"created": created, "flagged": flagged, "skipped": skipped}
+        _clog.set_stats(result)
+        if _clog_exc:
+            _clog.__exit__(type(_clog_exc), _clog_exc, _clog_exc.__traceback__)
+        else:
+            _clog.__exit__(None, None, None)
+        _log_session.close()
+
+    return result
 
 
-@celery_app.task(name="workers.tasks.fetch_artist_artworks")
-def fetch_artist_artworks():
+@celery_app.task(name="workers.tasks.fetch_artist_artworks", bind=True)
+def fetch_artist_artworks(self):
     """
-    One-shot + idempotent: fetch Deezer artist images for all artists with a deezer_id.
-    Uploads to MinIO bucket 'artist-artworks' as {artist_id}.jpg.
+    Fetch Deezer artist images concurrently.
+    Pass 1: link artists to Deezer (5 concurrent searches).
+    Pass 2: download artworks (5 concurrent downloads).
     """
-    from sqlalchemy import create_engine, select
+    import unicodedata
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import Artist
-    from deezer_enrich import _get_s3, upload_image_to_bucket
+    from deezer_enrich import _get_s3, _ensure_bucket
+    from workers.db import get_engine
+
+    from workers.crawl_logger import CrawlLogger
 
     ARTIST_BUCKET = "artist-artworks"
-
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
     s3 = _get_s3()
+    _ensure_bucket(s3, ARTIST_BUCKET)
 
-    # Ensure bucket exists and is public
-    existing_buckets = [b["Name"] for b in s3.list_buckets()["Buckets"]]
-    if ARTIST_BUCKET not in existing_buckets:
-        s3.create_bucket(Bucket=ARTIST_BUCKET)
-        s3.put_bucket_policy(
-            Bucket=ARTIST_BUCKET,
-            Policy=(
-                f'{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow",'
-                f'"Principal":"*","Action":"s3:GetObject",'
-                f'"Resource":"arn:aws:s3:::{ARTIST_BUCKET}/*"}}]}}'
-            ),
-        )
+    _log_session = Session(engine)
+    _clog = CrawlLogger(_log_session, task_type="fetch_artworks", celery_task_id=self.request.id)
+    _clog.__enter__()
 
-    fetched = 0
-    linked = 0
-    skipped = 0
+    async def _async_fetch():
+        from workers.rate_limiter import RateLimiter
+        from workers.async_http import HttpPool
 
-    def _norm(s):
-        import unicodedata
-        s = unicodedata.normalize("NFKD", s.lower().strip())
-        return s.encode("ascii", "ignore").decode()
+        def _norm(s):
+            s = unicodedata.normalize("NFKD", s.lower().strip())
+            return s.encode("ascii", "ignore").decode()
 
-    def _search_deezer_artist(name):
-        try:
-            resp = requests.get(
-                "https://api.deezer.com/search/artist",
-                params={"q": name, "limit": 10},
-                timeout=5,
-            )
-            name_norm = _norm(name)
-            for hit in resp.json().get("data", []):
-                dz_name = hit.get("name", "")
-                if dz_name.lower() == name.lower() or _norm(dz_name) == name_norm:
-                    return str(hit["id"])
-        except Exception:
-            pass
-        return None
+        limiter = RateLimiter()
+        linked = 0
+        fetched = 0
+        skipped = 0
 
-    def _fetch_pic(deezer_id):
-        try:
-            resp = requests.get(f"https://api.deezer.com/artist/{deezer_id}", timeout=5)
-            data = resp.json()
-            return data.get("picture_xl") or data.get("picture_big") or data.get("picture")
-        except Exception:
-            return None
+        async with HttpPool(limiter) as pool:
+            with Session(engine) as session:
+                # Pass 1: link artists to Deezer
+                no_id_artists = session.execute(
+                    select(Artist).where(Artist.deezer_id.is_(None))
+                ).scalars().all()
 
-    with Session(engine) as session:
-        # Pass 1: artists without deezer_id → search Deezer
-        no_id_artists = session.execute(
-            select(Artist).where(Artist.deezer_id.is_(None))
-        ).scalars().all()
+                used_ids = set(
+                    row[0] for row in session.execute(
+                        select(Artist.deezer_id).where(Artist.deezer_id.isnot(None))
+                    ).all()
+                )
 
-        # Collect already-used deezer_ids to avoid unique constraint violations
-        used_ids = set(
-            row[0] for row in session.execute(
-                select(Artist.deezer_id).where(Artist.deezer_id.isnot(None))
-            ).all()
-        )
+                async def _link_one(artist):
+                    nonlocal linked, skipped
+                    data = await pool.deezer_get("/search/artist", params={"q": artist.name, "limit": 10})
+                    name_norm = _norm(artist.name)
+                    for hit in data.get("data", []):
+                        dz_name = hit.get("name", "")
+                        if dz_name.lower() == artist.name.lower() or _norm(dz_name) == name_norm:
+                            dz_id = str(hit["id"])
+                            if dz_id not in used_ids:
+                                artist.deezer_id = dz_id
+                                used_ids.add(dz_id)
+                                linked += 1
+                                return
+                    skipped += 1
 
-        for artist in no_id_artists:
-            deezer_id = _search_deezer_artist(artist.name)
-            time.sleep(0.12)
-            if deezer_id and deezer_id not in used_ids:
-                artist.deezer_id = deezer_id
-                used_ids.add(deezer_id)
-                linked += 1
-            else:
-                skipped += 1
+                await asyncio.gather(*[_link_one(a) for a in no_id_artists])
+                session.commit()
 
-        session.commit()
+                # Pass 2: download artworks
+                artists_needing_art = session.execute(
+                    select(Artist).where(
+                        Artist.deezer_id.isnot(None),
+                        Artist.deezer_id != "NOT_FOUND",
+                        Artist.has_artwork == False,  # noqa: E712
+                    )
+                ).scalars().all()
 
-        # Pass 2: all artists with a real deezer_id but no artwork
-        artists_needing_art = session.execute(
-            select(Artist).where(
-                Artist.deezer_id.isnot(None),
-                Artist.deezer_id != "NOT_FOUND",
-                Artist.has_artwork == False,  # noqa: E712
-            )
-        ).scalars().all()
+                async def _fetch_one(artist):
+                    nonlocal fetched, skipped
+                    data = await pool.deezer_get(f"/artist/{artist.deezer_id}")
+                    pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
+                    if not pic_url:
+                        skipped += 1
+                        return
+                    img_data = await pool.download_image(pic_url)
+                    if img_data:
+                        import tempfile
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+                                f.write(img_data)
+                                tmp = f.name
+                            s3.upload_file(tmp, ARTIST_BUCKET, f"{artist.id}.jpg", ExtraArgs={"ContentType": "image/jpeg"})
+                            artist.has_artwork = True
+                            fetched += 1
+                        except Exception:
+                            skipped += 1
+                        finally:
+                            try:
+                                os.unlink(tmp)
+                            except Exception:
+                                pass
+                    else:
+                        skipped += 1
 
-        for artist in artists_needing_art:
-            pic_url = _fetch_pic(artist.deezer_id)
-            time.sleep(0.12)
-            if pic_url and upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", ARTIST_BUCKET):
-                artist.has_artwork = True
-                fetched += 1
-            else:
-                skipped += 1
+                await asyncio.gather(*[_fetch_one(a) for a in artists_needing_art])
+                session.commit()
 
-        session.commit()
+        return {"linked": linked, "fetched": fetched, "skipped": skipped}
 
-    return {"linked": linked, "fetched": fetched, "skipped": skipped}
+    try:
+        result = asyncio.run(_async_fetch())
+    except Exception as e:
+        logger.error("fetch_artist_artworks failed: %s", e)
+        result = {"linked": 0, "fetched": 0, "skipped": 0, "error": str(e)}
+
+    _clog.set_stats(result)
+    if "error" in result:
+        exc = Exception(result["error"])
+        _clog.__exit__(type(exc), exc, None)
+    else:
+        _clog.__exit__(None, None, None)
+    _log_session.close()
+
+    return result
 
 
 @celery_app.task(name="workers.tasks.link_set_artists")
@@ -778,15 +858,15 @@ def link_set_artists():
     Matches against known artists (by name and aliases). Idempotent.
     """
     import re as _re
-    from sqlalchemy import create_engine, select, func
+    from sqlalchemy import select, func
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import Artist, ArtistAlias, DJSet, SetArtist
     from utils import normalize
+    from workers.db import get_engine
 
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
 
     # Build lookup: normalized name/alias → artist_id
     with Session(engine) as session:
@@ -859,14 +939,14 @@ def crawl_followed_sets():
     """
     import asyncio
     from datetime import datetime, timezone
-    from sqlalchemy import create_engine, select, func
+    from sqlalchemy import select, func
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import DJSet, SetTrack, UserSetFollow
+    from workers.db import get_engine
 
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
 
     sets_to_crawl = []
     skipped_complete = 0
@@ -955,80 +1035,75 @@ def crawl_followed_sets():
     }
 
 
-@celery_app.task(name="workers.tasks.enrich_catalog_beatport")
-def enrich_catalog_beatport(batch_size: int = 0):
+@celery_app.task(name="workers.tasks.enrich_catalog_beatport", bind=True)
+def enrich_catalog_beatport(self, batch_size: int = 0):
     """
-    Enrichit les entrées catalog via Beatport (page scraping).
-    Priorité 1: lookup par ISRC (fiable).
-    Priorité 2: search par artist+title (fallback).
-    Remplit: bpm, key, bpm_source, key_source, beatport_id, label, genre, release_date, artwork.
-
-    Args:
-        batch_size: max entries to process (0 = all).
+    Enrichit les entrées catalog via Beatport (concurrent async scraping).
+    Uses 2 concurrent scrapers with Redis caching.
     """
-    import logging
-    from sqlalchemy import create_engine, select
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import CatalogEntry
-    from beatport.client import BeatportClient
-    from beatport.enrich import enrich_from_beatport
     from deezer_enrich import _get_s3, _ensure_bucket
+    from workers.db import get_engine
 
-    logger = logging.getLogger(__name__)
-
-    DATABASE_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
-    engine = create_engine(DATABASE_URL)
-
+    engine = get_engine()
     s3 = _get_s3()
     _ensure_bucket(s3)
 
-    client = BeatportClient()
-    enriched = 0
-    not_found = 0
-    errors = 0
+    from workers.crawl_logger import CrawlLogger
 
-    with Session(engine) as session:
-        query = (
-            select(CatalogEntry).where(CatalogEntry.beatport_id.is_(None))
-            .order_by(CatalogEntry.id)
-        )
-        if batch_size > 0:
-            query = query.limit(batch_size)
-        entries = session.execute(query).scalars().all()
-        total = len(entries)
+    with Session(engine) as log_session:
+        with CrawlLogger(log_session, task_type="enrich_beatport",
+                         source="beatport", celery_task_id=self.request.id) as clog:
 
-        for i, entry in enumerate(entries):
+            async def _async_enrich():
+                from workers.rate_limiter import RateLimiter
+                from workers.async_http import HttpPool
+                from workers.enrichment import enrich_beatport_batch
+
+                limiter = RateLimiter()
+                total_enriched = 0
+                total_not_found = 0
+                total_errors = 0
+
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        query = (
+                            select(CatalogEntry).where(
+                                CatalogEntry.beatport_id.is_(None),
+                                CatalogEntry.beatport_searched_at.is_(None),
+                            ).order_by(CatalogEntry.id)
+                        )
+                        if batch_size > 0:
+                            query = query.limit(batch_size)
+                        entries = session.execute(query).scalars().all()
+                        total = len(entries)
+
+                        if not entries:
+                            return {"enriched": 0, "not_found": 0, "errors": 0, "total": 0}
+
+                        for i in range(0, len(entries), 50):
+                            batch = entries[i:i + 50]
+                            stats = await enrich_beatport_batch(session, batch, pool, s3)
+                            total_enriched += stats.get("enriched", 0)
+                            total_not_found += stats.get("not_found", 0)
+                            total_errors += stats.get("errors", 0)
+                            session.commit()
+                            logger.info("Beatport enrich progress: %d/%d", min(i + 50, total), total)
+
+                        return {"enriched": total_enriched, "not_found": total_not_found, "errors": total_errors, "total": total}
+
             try:
-                bp_track = None
-
-                # Strategy 1: ISRC search (most reliable)
-                if entry.isrc:
-                    bp_track = client.search_track_by_isrc(entry.isrc)
-
-                # Strategy 2: title+artist search
-                if not bp_track and entry.title:
-                    results = client.search_track(entry.title, entry.artist)
-                    if results:
-                        bp_track = results[0]
-
-                if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
-                    enriched += 1
-                else:
-                    not_found += 1
-
+                result = asyncio.run(_async_enrich())
             except Exception as e:
-                logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
-                errors += 1
-                time.sleep(2)
+                logger.error("enrich_catalog_beatport failed: %s", e)
+                result = {"enriched": 0, "not_found": 0, "errors": 1, "total": 0}
 
-            if (i + 1) % 100 == 0:
-                session.commit()
-                logger.info("Beatport enrich progress: %d/%d", i + 1, total)
+            clog.set_stats(result)
 
-        session.commit()
-
-    return {"enriched": enriched, "not_found": not_found, "errors": errors, "total": total}
+    return result
 
 

@@ -18,6 +18,18 @@ celery_app.conf.update(
     task_track_started=True,
     timezone="Europe/Paris",
     enable_utc=True,
+    # Worker concurrency & reliability
+    worker_concurrency=4,
+    task_soft_time_limit=1800,      # 30 min soft limit
+    task_time_limit=3600,           # 60 min hard limit
+    task_acks_late=True,            # re-deliver on crash
+    worker_prefetch_multiplier=1,   # don't hoard tasks
+    # Task routing
+    task_routes={
+        "workers.tasks.crawl_single_playlist": {"queue": "crawl"},
+        "workers.tasks.enrich_catalog_beatport": {"queue": "enrich"},
+        "workers.tasks.enrich_catalog": {"queue": "enrich"},
+    },
     beat_schedule={
         "crawl-radar-daily": {
             "task": "workers.tasks.crawl_radar",
