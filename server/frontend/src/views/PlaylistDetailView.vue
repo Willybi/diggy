@@ -5,7 +5,7 @@
     <template v-else>
       <PageHero
         variant="square"
-        :image-src="playlist.has_artwork ? `/storage/catalog-artworks/playlist-${playlist.id}.jpg` : null"
+        :image-src="playlist.has_artwork ? `/storage/playlist-artworks/${playlist.id}.jpg` : null"
         :title="playlist.title || playlist.external_id"
         :subtitle="heroSub"
         :fallback-letter="(playlist.title || 'P')[0]"
@@ -24,6 +24,14 @@
           >Suivre</button>
         </template>
       </PageHero>
+
+      <!-- Admin: fetch artwork -->
+      <div v-if="auth.user?.is_admin && !playlist.has_artwork && playlist.source === 'deezer'" class="admin-card">
+        <button class="btn-ghost btn-ghost--accent" :disabled="fetchingArt" @click="fetchArtwork">
+          {{ fetchingArt ? 'Fetch en cours…' : 'Fetch artwork Deezer' }}
+        </button>
+        <span v-if="artMsg" class="admin-msg" :class="artMsgType">{{ artMsg }}</span>
+      </div>
 
       <StatStrip :stats="stats" />
 
@@ -89,15 +97,20 @@ import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { useAuthStore } from '../stores/auth.js'
 import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const player = useAudioPlayer()
 const { playingId } = storeToRefs(player)
 const { toggle: togglePlay } = player
 const playlist = ref(null)
 const loading = ref(true)
+const fetchingArt = ref(false)
+const artMsg = ref('')
+const artMsgType = ref('')
 
 const heroSub = computed(() => {
   if (!playlist.value) return null
@@ -139,6 +152,22 @@ async function toggleFollow() {
     }
     await fetchDetail()
   } catch {}
+}
+
+async function fetchArtwork() {
+  fetchingArt.value = true
+  artMsg.value = ''
+  try {
+    await axios.post(`/api/watchlist/${playlist.value.id}/fetch-artwork`)
+    artMsg.value = 'Artwork importé'
+    artMsgType.value = 'success'
+    await fetchDetail()
+  } catch (e) {
+    artMsg.value = e.response?.data?.detail || 'Erreur'
+    artMsgType.value = 'error'
+  } finally {
+    fetchingArt.value = false
+  }
 }
 
 onMounted(fetchDetail)
@@ -257,4 +286,20 @@ onMounted(fetchDetail)
   font-style: italic;
   padding-top: 40px;
 }
+
+.admin-card {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--orange, #e67e22);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--orange, #e67e22) 6%, var(--surface));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.admin-msg {
+  font: 400 13px/1 var(--font-ui);
+}
+.admin-msg.success { color: var(--pos-ink, #27ae60); }
+.admin-msg.error { color: var(--neg-ink, #c0392b); }
 </style>

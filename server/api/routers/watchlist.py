@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from celery_client import celery
 from database import get_db
-from dependencies import get_current_user_optional, uid as _uid
+from dependencies import get_current_user_optional, require_admin, uid as _uid
 from sqlalchemy import func
 
 from models import WatchedEntity, UserFollow, User, RadarTrack, CatalogEntry
@@ -19,10 +19,11 @@ from schemas import (
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 DEEZER_API = "https://api.deezer.com"
+PLAYLIST_ARTWORK_BUCKET = "playlist-artworks"
 
 
 def _fetch_deezer_playlist(external_id: str) -> dict:
-    """Fetch playlist metadata from Deezer: title, track_count, owner."""
+    """Fetch playlist metadata from Deezer: title, track_count, owner, picture."""
     try:
         resp = requests.get(f"{DEEZER_API}/playlist/{external_id}", timeout=5)
         data = resp.json()
@@ -30,9 +31,23 @@ def _fetch_deezer_playlist(external_id: str) -> dict:
             "title": data.get("title"),
             "track_count": data.get("nb_tracks"),
             "owner": data.get("creator", {}).get("name") if isinstance(data.get("creator"), dict) else None,
+            "picture": data.get("picture_xl") or data.get("picture_big") or data.get("picture_medium"),
         }
     except Exception:
         return {}
+
+
+def _upload_playlist_artwork(entity_id: int, picture_url: str) -> bool:
+    """Download playlist artwork and upload to MinIO. Returns True on success."""
+    if not picture_url:
+        return False
+    try:
+        from deezer_enrich import _get_s3, upload_image_to_bucket, _ensure_bucket
+        s3 = _get_s3()
+        _ensure_bucket(s3, PLAYLIST_ARTWORK_BUCKET)
+        return upload_image_to_bucket(s3, picture_url, f"{entity_id}.jpg", PLAYLIST_ARTWORK_BUCKET)
+    except Exception:
+        return False
 
 
 
@@ -166,6 +181,10 @@ async def add_watched(
         db.add(entity)
         await db.flush()
 
+        # Auto-fetch artwork from Deezer
+        if meta.get("picture") and _upload_playlist_artwork(entity.id, meta["picture"]):
+            entity.has_artwork = True
+
     follow = UserFollow(
         user_id=uid,
         entity_id=entity.id,
@@ -242,6 +261,35 @@ async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+@router.post("/{entry_id}/fetch-artwork")
+async def fetch_playlist_artwork(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Admin: fetch playlist artwork from Deezer and upload to MinIO."""
+    result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    if entity.source != "deezer":
+        raise HTTPException(status_code=400, detail="Only Deezer playlists supported for artwork fetch")
+
+    meta = _fetch_deezer_playlist(entity.external_id)
+    pic_url = meta.get("picture")
+    if not pic_url:
+        raise HTTPException(status_code=404, detail="No artwork found on Deezer")
+
+    if _upload_playlist_artwork(entity.id, pic_url):
+        entity.has_artwork = True
+        await db.commit()
+        await db.refresh(entity)
+        return {"ok": True, "has_artwork": True}
+
+    raise HTTPException(status_code=500, detail="Failed to upload artwork")
 
 
 @router.delete("/{entry_id}", status_code=204)
