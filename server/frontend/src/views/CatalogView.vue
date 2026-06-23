@@ -65,8 +65,12 @@
               <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="sort('nb_radar_playlists')">
                 Radar <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="end">In&nbsp;lib</th>
-              <th class="end">Avis</th>
+              <th class="end sortable" :class="{ 'is-sorted': sortKey === 'in_lib' }" @click="sort('in_lib')">
+                In&nbsp;lib <span v-if="sortKey === 'in_lib'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
+              <th class="end sortable" :class="{ 'is-sorted': sortKey === 'avis' }" @click="sort('avis')">
+                Avis <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
