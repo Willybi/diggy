@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from celery_client import celery
 from dependencies import require_admin
-from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, SetArtist, User
+from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, SetArtist, User, WatchedEntity
 from utils import normalize
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -493,3 +493,47 @@ async def genres_auto_classify(
     target_count = count_result.scalar_one()
     result = celery.send_task("workers.tasks.enrich_catalog_beatport", kwargs={"genre_only": True})
     return SyncQueued(status="queued", task_id=result.id)
+
+
+# ---------- Playlist Artworks ----------
+
+@router.post("/playlists/fetch-artworks")
+async def fetch_all_playlist_artworks(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Fetch Deezer artworks for all playlists missing artwork. Synchronous."""
+    import requests as req
+    from deezer_enrich import _get_s3, upload_image_to_bucket, _ensure_bucket
+
+    result = await db.execute(
+        select(WatchedEntity).where(
+            WatchedEntity.has_artwork.is_(False),
+            WatchedEntity.source == "deezer",
+        )
+    )
+    playlists = result.scalars().all()
+
+    if not playlists:
+        return {"fetched": 0, "failed": 0, "total": 0}
+
+    s3 = _get_s3()
+    _ensure_bucket(s3, "playlist-artworks")
+
+    fetched = 0
+    failed = 0
+    for pl in playlists:
+        try:
+            resp = req.get(f"https://api.deezer.com/playlist/{pl.external_id}", timeout=5)
+            data = resp.json()
+            pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture_medium")
+            if pic_url and upload_image_to_bucket(s3, pic_url, f"{pl.id}.jpg", "playlist-artworks"):
+                pl.has_artwork = True
+                fetched += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+
+    await db.commit()
+    return {"fetched": fetched, "failed": failed, "total": len(playlists)}

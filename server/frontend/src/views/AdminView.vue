@@ -38,6 +38,23 @@
       </div>
     </section>
 
+    <!-- Artworks playlists -->
+    <section class="admin-section">
+      <h2 class="section-title">Artworks playlists</h2>
+      <p class="section-sub">Fetche les images Deezer pour toutes les playlists sans artwork. Synchrone (~1s/playlist).</p>
+      <div class="sync-row">
+        <button class="btn-sync" :disabled="fetchingPlArtworks" @click="runFetchPlArtworks">
+          {{ fetchingPlArtworks ? 'Fetch en cours…' : 'Fetch artworks playlists' }}
+        </button>
+        <div v-if="plArtworksResult" class="sync-result">
+          <span class="result-item ok">✓ {{ plArtworksResult.fetched }} importés</span>
+          <span v-if="plArtworksResult.failed" class="result-item warn">⚠ {{ plArtworksResult.failed }} échoués</span>
+          <span class="result-item muted">/ {{ plArtworksResult.total }} sans artwork</span>
+        </div>
+        <span v-if="plArtworksError" class="sync-error">{{ plArtworksError }}</span>
+      </div>
+    </section>
+
     <!-- Lier artistes aux sets -->
     <section class="admin-section">
       <h2 class="section-title">Artistes des sets</h2>
@@ -252,6 +269,9 @@ const linkSetsResult = ref(null)
 const linkSetsError = ref('')
 const artworksResult = ref(null)
 const artworksError = ref('')
+const fetchingPlArtworks = ref(false)
+const plArtworksResult = ref(null)
+const plArtworksError = ref('')
 const enrichingBeatport = ref(false)
 const beatportBatchSize = ref(0)
 const beatportResult = ref(null)
@@ -385,6 +405,20 @@ function pollArtworksStatus(taskId) {
       clearInterval(timer); artworksError.value = 'Erreur polling: ' + (err.message || 'inconnue'); fetchingArtworks.value = false
     }
   }, 2000)
+}
+
+async function runFetchPlArtworks() {
+  fetchingPlArtworks.value = true
+  plArtworksResult.value = null
+  plArtworksError.value = ''
+  try {
+    const { data } = await axios.post('/api/admin/playlists/fetch-artworks', {}, { headers: authHeaders() })
+    plArtworksResult.value = data
+  } catch (e) {
+    plArtworksError.value = e.response?.data?.detail || 'Erreur'
+  } finally {
+    fetchingPlArtworks.value = false
+  }
 }
 
 async function runLinkSets() {
