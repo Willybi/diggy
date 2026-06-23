@@ -1,6 +1,6 @@
 import re
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,7 +69,28 @@ def _family_genre_names(family: str) -> list[str]:
     return [name for name, fam in _NAME_FAMILY.items() if fam == family]
 
 
-# ── Endpoint ─────────────────────────────────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────────────────────
+
+@router.get("/random-track")
+async def random_genre_track(
+    genre: str = Query(...),
+    exclude: int | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a random previewable catalog entry for the given genre."""
+    result = await db.execute(text("""
+        SELECT id FROM catalog
+        WHERE genre = :genre
+          AND has_preview = true
+          AND (:exclude_id::int IS NULL OR id != :exclude_id)
+        ORDER BY random()
+        LIMIT 1
+    """), {"genre": genre, "exclude_id": exclude})
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(404, "No previewable track for this genre")
+    return {"catalog_id": row.id}
+
 
 @router.get("")
 async def list_genres(

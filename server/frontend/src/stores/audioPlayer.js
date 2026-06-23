@@ -5,6 +5,7 @@ import axios from 'axios'
 export const useAudioPlayer = defineStore('audioPlayer', () => {
   const playingId = ref(null)
   let audio = null
+  let lastGenreTrack = null
 
   function stop() {
     if (audio) {
@@ -29,5 +30,23 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     } catch { /* pas de preview */ }
   }
 
-  return { playingId, toggle, stop }
+  async function playRandom(genreName) {
+    stop()
+    try {
+      const params = { genre: genreName }
+      if (lastGenreTrack) params.exclude = lastGenreTrack
+      const { data } = await axios.get('/api/genres/random-track', { params })
+      const catalogId = data.catalog_id
+      lastGenreTrack = catalogId
+      const { data: prev } = await axios.get(`/api/catalog/${catalogId}/preview-url`)
+      audio = new Audio(prev.preview_url)
+      audio.play()
+      playingId.value = `genre:${genreName}`
+      audio.addEventListener('ended', stop)
+    } catch {
+      lastGenreTrack = null
+    }
+  }
+
+  return { playingId, toggle, stop, playRandom }
 })
