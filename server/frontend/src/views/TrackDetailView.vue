@@ -18,7 +18,7 @@
           <StyleTag v-else-if="track.style" :name="track.style" />
         </template>
         <template #actions>
-          <HeroPlayer v-if="track.has_preview" :catalog-id="track.id" />
+          <HeroPlayer v-if="track.has_preview" :catalog-id="track.id" :title="track.title" :artist="track.artist" :bpm="track.bpm" :track-key="track.key" />
         </template>
       </PageHero>
 

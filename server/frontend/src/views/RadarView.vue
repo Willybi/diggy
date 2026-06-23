@@ -80,7 +80,7 @@
           <tbody>
             <tr v-for="t in items" :key="t.catalog_id"
               :class="{
-                playing: playingId === t.catalog_id,
+                playing: player.isCurrent(t.catalog_id),
                 liked: uiStatus(t) === 'liked',
                 disliked: uiStatus(t) === 'disliked',
               }"
@@ -89,12 +89,12 @@
                 <span
                   class="pbtn"
                   :class="{
-                    'pbtn--playing': playingId === t.catalog_id,
+                    'pbtn--playing': player.isCurrent(t.catalog_id),
                     'pbtn--disabled': !t.has_preview,
                   }"
-                  @click="t.has_preview && togglePlay(t.catalog_id, t.catalog_id)"
+                  @click="t.has_preview && player.play({ id: t.catalog_id, catalog_id: t.catalog_id, title: t.title, artist: t.artist, bpm: t.bpm, key: t.key })"
                 >
-                  <svg v-if="playingId !== t.catalog_id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+                  <svg v-if="!player.isCurrent(t.catalog_id)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
                   <svg v-else viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.4" height="14" rx="1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1"/></svg>
                 </span>
               </td>
@@ -174,15 +174,12 @@
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import axios from 'axios'
-import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import StyleTag from '../components/StyleTag.vue'
 
 const PAGE_SIZE = 50
 
 const player = useAudioPlayer()
-const { playingId } = storeToRefs(player)
-const { toggle: togglePlay } = player
 
 const items     = ref([])
 const total     = ref(0)

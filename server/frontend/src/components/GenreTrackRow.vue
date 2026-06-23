@@ -34,7 +34,6 @@
 
 <script setup>
 import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs } from '../utils/format'
 import LibDot from './LibDot.vue'
@@ -44,12 +43,18 @@ const props = defineProps({
 })
 
 const player = useAudioPlayer()
-const { playingId } = storeToRefs(player)
-const isPlaying = computed(() => playingId.value === props.track.id)
+const isPlaying = computed(() => player.isCurrent(props.track.id))
 
 function onPlay() {
   if (!props.track.hasPreview) return
-  player.toggle(props.track.id, props.track.id)
+  player.play({
+    id: props.track.id,
+    catalog_id: props.track.id,
+    title: props.track.title,
+    artist: props.track.artist,
+    bpm: props.track.bpm,
+    key: props.track.key,
+  })
 }
 </script>
 

@@ -80,7 +80,7 @@ async def random_genre_track(
 ):
     """Return a random previewable catalog entry for the given genre."""
     result = await db.execute(text("""
-        SELECT id FROM catalog
+        SELECT id, title, artist, bpm, key FROM catalog
         WHERE genre = :genre
           AND has_preview = true
           AND (:has_exclude = false OR id != :exclude_id)
@@ -90,7 +90,13 @@ async def random_genre_track(
     row = result.fetchone()
     if not row:
         raise HTTPException(404, "No previewable track for this genre")
-    return {"catalog_id": row.id}
+    return {
+        "catalog_id": row.id,
+        "title": row.title,
+        "artist": row.artist,
+        "bpm": row.bpm,
+        "key": row.key,
+    }
 
 
 @router.get("")

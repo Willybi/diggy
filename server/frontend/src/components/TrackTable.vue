@@ -23,15 +23,15 @@
           <td :colspan="COLS.length + 1" class="state-cell">Aucun track.</td>
         </tr>
         <tr v-else v-for="track in sortedTracks" :key="track.id"
-          :class="{ 'is-playing': playingId === track.id }"
+          :class="{ 'is-playing': player.isCurrent(track.catalog_id) }"
         >
           <td class="col-play">
             <span
               class="play-btn"
-              :class="{ 'play-btn--disabled': !track.has_preview, 'play-btn--playing': playingId === track.id }"
+              :class="{ 'play-btn--disabled': !track.has_preview, 'play-btn--playing': player.isCurrent(track.catalog_id) }"
               @click="track.has_preview && handlePlay(track)"
             >
-              <svg v-if="playingId !== track.id" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+              <svg v-if="!player.isCurrent(track.catalog_id)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
               <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
             </span>
           </td>
@@ -44,7 +44,7 @@
                 />
               </div>
               <div class="track-info">
-                <span class="track-title" :class="{ 'track-title--playing': playingId === track.id }">{{ track.title }}</span>
+                <span class="track-title" :class="{ 'track-title--playing': player.isCurrent(track.catalog_id) }">{{ track.title }}</span>
                 <span class="track-artist">{{ track.artist }}</span>
               </div>
             </div>
@@ -70,7 +70,6 @@
 <script setup>
 import { ref, computed } from 'vue'
 import StyleTag from './StyleTag.vue'
-import { storeToRefs } from 'pinia'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs } from '../utils/format'
 
@@ -92,11 +91,16 @@ const COLS = [
 ]
 
 const player = useAudioPlayer()
-const { playingId } = storeToRefs(player)
-const { toggle: togglePlay } = player
 
 function handlePlay(track) {
-  togglePlay(track.id, track.catalog_id)
+  player.play({
+    id: track.id,
+    catalog_id: track.catalog_id,
+    title: track.title,
+    artist: track.artist,
+    bpm: track.bpm,
+    key: track.key,
+  })
 }
 
 const sortKey = ref('title')

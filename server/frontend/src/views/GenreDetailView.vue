@@ -193,7 +193,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { storeToRefs } from 'pinia'
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
@@ -209,7 +208,6 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
-const { playingId } = storeToRefs(player)
 
 // -- State --
 const loading = ref(true)
@@ -247,7 +245,7 @@ const tone = computed(() => styleTone(genreName.value))
 const hue = computed(() => tone.value.hue)
 const isMisc = computed(() => tone.value.family === 'misc')
 const familyLabel = computed(() => FAMILY_LABELS[genre.value?.family] || FAMILY_LABELS.misc)
-const isPlaying = computed(() => playingId.value === `genre:${genreName.value}`)
+const isPlaying = computed(() => player.genrePlaying === genreName.value)
 
 const sixSlots = computed(() => {
   const aw = genre.value?.artworks || []
@@ -287,7 +285,7 @@ function ringClass(s) {
 // -- Hero play --
 function onHeroPlay() {
   if (isPlaying.value) {
-    player.stop()
+    player.close()
   } else {
     player.playRandom(genreName.value)
   }

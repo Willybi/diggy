@@ -30,6 +30,18 @@ export function fmtDate(d) {
 }
 
 /**
+ * seconds -> "m:ss" (player timeline). Handles negative for remaining time.
+ */
+export function fmtSec(sec) {
+  if (sec == null || isNaN(sec)) return '0:00'
+  const neg = sec < 0
+  const abs = Math.floor(Math.abs(sec))
+  const m = Math.floor(abs / 60)
+  const s = abs % 60
+  return `${neg ? '-' : ''}${m}:${String(s).padStart(2, '0')}`
+}
+
+/**
  * ms -> "H:MM:SS" timecode for sets
  */
 export function fmtCue(ms) {
