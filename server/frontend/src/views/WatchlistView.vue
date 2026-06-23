@@ -146,7 +146,8 @@ const following = reactive({})
 const pollTimers = {}
 
 const displayList = computed(() => {
-  if (mode.value === 'followed') return playlists.value
+  if (mode.value === 'followed')
+    return playlists.value.map(p => ({ ...p, followed: true }))
   return browsePlaylists.value
 })
 
