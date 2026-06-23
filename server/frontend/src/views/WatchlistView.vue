@@ -315,6 +315,9 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 <style scoped>
 .playlists-view {
   container-type: inline-size;
+  max-width: var(--page-max-w);
+  margin-inline: auto;
+  width: 100%;
 }
 
 .page-head {

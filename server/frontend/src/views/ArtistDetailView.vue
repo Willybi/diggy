@@ -262,8 +262,8 @@ onMounted(async () => {
 <style scoped>
 .detail-view {
   padding: var(--pad) calc(var(--pad) * 1.5);
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: var(--detail-max-w);
+  margin-inline: auto;
 }
 .aliases-text, .bio-text {
   padding: 12px 14px;
@@ -342,9 +342,9 @@ onMounted(async () => {
 .admin-card {
   margin: 16px 0;
   padding: 14px 18px;
-  background: var(--surface);
-  border: 1px solid var(--warn-ink, #e67e22);
-  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-md);
 }
 .admin-header {
   display: flex;
@@ -356,7 +356,7 @@ onMounted(async () => {
   font: 600 11px/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--warn-ink, #e67e22);
+  color: var(--ink-3);
 }
 .admin-link-row {
   display: flex;
@@ -425,15 +425,15 @@ onMounted(async () => {
   font: 500 12px/1 var(--font-ui);
   cursor: pointer;
 }
-.btn-ghost-sm.danger:hover { color: var(--neg-ink, #c0392b); border-color: var(--neg-ink, #c0392b); }
+.btn-ghost-sm.danger:hover { color: var(--neg-ink); border-color: var(--neg-ink); }
 .admin-msg {
   font: 400 12px/1 var(--font-ui);
   margin-top: 8px;
   padding: 6px 10px;
   border-radius: 4px;
 }
-.admin-msg.ok { color: var(--pos-ink, #27ae60); background: var(--pos-soft, #d4edda); }
-.admin-msg.err { color: var(--neg-ink, #c0392b); background: var(--neg-soft, #fde); }
+.admin-msg.ok { color: var(--pos-ink); background: var(--pos-soft); }
+.admin-msg.err { color: var(--neg-ink); background: var(--neg-soft); }
 .muted { color: var(--ink-3); }
 .mono { font-family: var(--font-mono); }
 </style>
