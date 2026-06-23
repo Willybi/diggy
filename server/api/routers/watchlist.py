@@ -52,9 +52,14 @@ def _upload_playlist_artwork(entity_id: int, picture_url: str) -> bool:
 
 
 
-def _trigger_crawl(playlist_id: int):
-    """Fire-and-forget Celery task to crawl a single playlist."""
-    celery.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
+async def _trigger_crawl(playlist_id: int, db: AsyncSession):
+    """Launch Celery crawl task and store task_id on the entity."""
+    result = celery.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
+    entity_result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == playlist_id))
+    entity = entity_result.scalar_one_or_none()
+    if entity:
+        entity.current_task_id = result.id
+        await db.commit()
 
 
 @router.get("/", response_model=list[WatchedEntityOut])
@@ -194,7 +199,7 @@ async def add_watched(
     await db.commit()
     await db.refresh(entity)
 
-    _trigger_crawl(entity.id)
+    await _trigger_crawl(entity.id, db)
     return entity
 
 
@@ -222,7 +227,7 @@ async def follow_playlist(
     await db.commit()
     await db.refresh(entity)
 
-    _trigger_crawl(entity.id)
+    await _trigger_crawl(entity.id, db)
     return entity
 
 
@@ -247,7 +252,7 @@ async def crawl_playlist(
                 detail=f"Crawl cooldown: retry in {remaining_h}h{remaining_m:02d}m",
             )
 
-    _trigger_crawl(entity.id)
+    await _trigger_crawl(entity.id, db)
     return {"status": "crawl_queued", "playlist_id": entry_id}
 
 
@@ -258,9 +263,40 @@ async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db)):
     if not entry:
         raise HTTPException(status_code=404, detail="Not found")
     entry.last_crawled_at = datetime.now(timezone.utc)
+    entry.current_task_id = None
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+@router.get("/{entry_id}/crawl-status")
+async def crawl_status(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Check crawl status for a playlist via Celery task state."""
+    result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    if not entity.current_task_id:
+        return {"status": None}
+
+    from celery.result import AsyncResult
+    task = AsyncResult(entity.current_task_id, app=celery)
+    state = task.state  # PENDING, STARTED, SUCCESS, FAILURE, etc.
+
+    # PENDING in Celery means "unknown or queued" — task hasn't been picked up yet
+    if state in ("SUCCESS", "FAILURE"):
+        # Task finished — clean up
+        entity.current_task_id = None
+        await db.commit()
+        return {"status": "done"}
+    elif state == "STARTED":
+        return {"status": "running"}
+    else:
+        return {"status": "queued"}
 
 
 @router.post("/{entry_id}/fetch-artwork")

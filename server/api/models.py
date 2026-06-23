@@ -130,6 +130,7 @@ class WatchedEntity(Base):
     has_artwork = Column(Boolean, default=False)
     track_count = Column(Integer, nullable=True)
     owner = Column(String(255), nullable=True)
+    current_task_id = Column(String(255), nullable=True)
 
 
 
