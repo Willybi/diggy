@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Float, func, select
+from sqlalchemy import Float, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/artists", tags=["artists"])
 
 @router.get("/")
 async def list_artists(
-    sort: str = Query("catalog", pattern="^(catalog|liked|rating|alpha)$"),
+    sort: str = Query("catalog", pattern="^(catalog|lib|liked|rating|alpha)$"),
     family: str | None = Query(None),
     q: str | None = None,
     no_deezer: bool = False,
@@ -179,6 +179,8 @@ async def list_artists(
     # -- sort --
     if sort == "catalog":
         out.sort(key=lambda a: a["nb_catalog"], reverse=True)
+    elif sort == "lib":
+        out.sort(key=lambda a: (a["nb_lib"], a["nb_catalog"]), reverse=True)
     elif sort == "liked":
         out.sort(key=lambda a: (a["nb_liked"], a["nb_catalog"]), reverse=True)
     elif sort == "rating":
@@ -191,6 +193,49 @@ async def list_artists(
     items = [{k: v for k, v in item.items() if k != "_family"} for item in page]
 
     return {"items": items, "total": total, "familyCounts": family_counts}
+
+
+@router.get("/random-track")
+async def random_artist_track(
+    artist_id: int = Query(...),
+    exclude: int | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a random previewable catalog entry for the given artist."""
+    # Collect artist name + aliases
+    result = await db.execute(
+        select(Artist).options(selectinload(Artist.aliases)).where(Artist.id == artist_id)
+    )
+    artist = result.scalar_one_or_none()
+    if not artist:
+        raise HTTPException(404, "Artist not found")
+
+    names = [artist.name]
+    for a in artist.aliases:
+        names.append(a.alias)
+
+    result = await db.execute(text("""
+        SELECT id, title, artist, bpm, key FROM catalog
+        WHERE LOWER(artist) = ANY(:names)
+          AND has_preview = true
+          AND (:has_exclude = false OR id != :exclude_id)
+        ORDER BY random()
+        LIMIT 1
+    """), {
+        "names": [n.lower() for n in names],
+        "has_exclude": exclude is not None,
+        "exclude_id": exclude or 0,
+    })
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(404, "No previewable track for this artist")
+    return {
+        "catalog_id": row.id,
+        "title": row.title,
+        "artist": row.artist,
+        "bpm": row.bpm,
+        "key": row.key,
+    }
 
 
 @router.get("/{artist_id}", response_model=ArtistDetailOut)
