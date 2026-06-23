@@ -84,7 +84,11 @@ const { playingId } = storeToRefs(player)
 const isPlaying = computed(() => playingId.value === `genre:${props.genre.name}`)
 
 function onPlay() {
-  player.playRandom(props.genre.name)
+  if (isPlaying.value) {
+    player.stop()
+  } else {
+    player.playRandom(props.genre.name)
+  }
 }
 
 const tone = computed(() => styleTone(props.genre.name))
