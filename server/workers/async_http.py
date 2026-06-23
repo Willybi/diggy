@@ -14,10 +14,9 @@ Usage:
 """
 import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 import httpx
-from curl_cffi import requests as curl_requests
+from curl_cffi.requests import AsyncSession as CurlAsyncSession
 
 from workers.rate_limiter import RateLimiter
 
@@ -44,8 +43,7 @@ class HttpPool:
             follow_redirects=False,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
-        self._bp_session = curl_requests.Session(impersonate="chrome124")
-        self._bp_executor = ThreadPoolExecutor(max_workers=2)
+        self._bp_session = CurlAsyncSession(impersonate="chrome124")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -53,9 +51,7 @@ class HttpPool:
             await self._client.aclose()
             self._client = None
         if hasattr(self, '_bp_session'):
-            self._bp_session.close()
-        if hasattr(self, '_bp_executor'):
-            self._bp_executor.shutdown(wait=False)
+            await self._bp_session.close()
         return False
 
     async def _request_with_retry(
@@ -101,16 +97,12 @@ class HttpPool:
     # ── Beatport ──
 
     async def beatport_get(self, path: str) -> httpx.Response:
-        """GET request to Beatport via curl_cffi in threadpool (bypasses Cloudflare TLS fingerprinting).
+        """GET request to Beatport via curl_cffi async (bypasses Cloudflare TLS fingerprinting).
         Returns an httpx.Response-compatible object."""
         url = f"{BEATPORT_URL}{path}"
-        loop = asyncio.get_event_loop()
 
         async with self.limiter.acquire("beatport"):
-            def _sync_get():
-                return self._bp_session.get(url, timeout=15)
-
-            resp = await loop.run_in_executor(self._bp_executor, _sync_get)
+            resp = await self._bp_session.get(url, timeout=15)
 
         # Wrap as a minimal object with .status_code and .text
         class _Resp:
