@@ -86,7 +86,23 @@ def crawl_single_playlist(playlist_id: int):
     _ensure_bucket(s3)
 
     # 0. Fetch playlist metadata + update entity
-    meta = fetch_meta(target["external_id"])
+    try:
+        meta = fetch_meta(target["external_id"])
+    except Exception as e:
+        err_str = str(e).lower()
+        if "not found" in err_str or "404" in err_str:
+            logger.warning("Playlist %s (%s) no longer exists on %s — removing", playlist_id, target.get("title"), source)
+            from sqlalchemy import delete as sa_delete
+            from models import UserFollow
+            with Session(engine) as session:
+                session.execute(sa_delete(RadarTrack).where(RadarTrack.watched_entity_id == playlist_id))
+                session.execute(sa_delete(UserFollow).where(UserFollow.entity_id == playlist_id))
+                entity = session.get(WatchedEntity, playlist_id)
+                if entity:
+                    session.delete(entity)
+                session.commit()
+            return {"deleted": True, "playlist_id": playlist_id, "source": source, "reason": "not_found_on_source"}
+        raise
 
     with Session(engine) as session:
         entity = session.get(WatchedEntity, playlist_id)
