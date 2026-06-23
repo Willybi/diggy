@@ -131,6 +131,7 @@ class WatchedEntity(Base):
     track_count = Column(Integer, nullable=True)
     owner = Column(String(255), nullable=True)
     current_task_id = Column(String(255), nullable=True)
+    crawl_started_at = Column(DateTime(timezone=True), nullable=True)
 
 
 
