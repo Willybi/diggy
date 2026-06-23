@@ -729,11 +729,19 @@ def fetch_artist_artworks():
             select(Artist).where(Artist.deezer_id.is_(None))
         ).scalars().all()
 
+        # Collect already-used deezer_ids to avoid unique constraint violations
+        used_ids = set(
+            row[0] for row in session.execute(
+                select(Artist.deezer_id).where(Artist.deezer_id.isnot(None))
+            ).all()
+        )
+
         for artist in no_id_artists:
             deezer_id = _search_deezer_artist(artist.name)
             time.sleep(0.12)
-            if deezer_id:
+            if deezer_id and deezer_id not in used_ids:
                 artist.deezer_id = deezer_id
+                used_ids.add(deezer_id)
                 linked += 1
             else:
                 skipped += 1
