@@ -15,7 +15,7 @@
         class="genre-card"
       >
         <StyleTag :name="g.name" />
-        <span class="genre-count">{{ g.count }} tracks</span>
+        <span class="genre-count">{{ g.count }} {{ g.count === 1 ? 'track' : 'tracks' }}</span>
       </RouterLink>
     </div>
   </div>

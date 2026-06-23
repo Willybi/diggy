@@ -70,9 +70,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { styleTone } from '../composables/useStyleMap.js'
-
-const FAMILY_LABELS = { house: 'House', techno: 'Techno', trance: 'Trance', other: 'Autre', misc: 'Misc' }
+import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
 
 const props = defineProps({
   genre: { type: Object, required: true },
@@ -80,7 +78,7 @@ const props = defineProps({
 
 const tone = computed(() => styleTone(props.genre.name))
 const hue = computed(() => tone.value.hue)
-const familyLabel = computed(() => FAMILY_LABELS[props.genre.family] || 'Misc')
+const familyLabel = computed(() => FAMILY_LABELS[props.genre.family] || FAMILY_LABELS.misc)
 
 // 4 slots: use available covers, null = tinted placeholder (no repeating)
 const fourSlots = computed(() => {
@@ -260,6 +258,7 @@ function onAvatarError(e) {
   flex: none;
   align-self: center;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
+  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / .28);
 }
 .gc-dot.misc { background: var(--ink-3); }
 .gc-title {

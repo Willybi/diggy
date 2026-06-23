@@ -26,7 +26,7 @@
       <div class="admin-block">
         <span class="admin-label">Admin</span>
         <span class="admin-txt">
-          <b>{{ fmtNum(unclassifiedCount) }}</b> tracks sans genre attribué — à classer
+          <b>{{ fmtNum(unclassifiedCount) }}</b> {{ pl(unclassifiedCount, 'track', 'tracks') }} sans genre attribué — à classer
         </span>
         <button class="btn-admin" :disabled="classifying" @click="launchClassify">
           {{ classifying ? 'En cours…' : 'Lancer le classement auto' }}
@@ -78,12 +78,12 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth.js'
-import { styleTone } from '../composables/useStyleMap.js'
+import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
 import GenreCard from '../components/GenreCard.vue'
 
 const auth = useAuthStore()
 
-const FAMILY_HUES = { house: 268, techno: 312, trance: 352, other: 42 }
+const FAMILY_HUES = { house: 260, techno: 320, trance: 352, other: 42 }
 const PAGE_SIZE = 24
 
 function authHeaders() {
@@ -118,10 +118,10 @@ const familyChips = computed(() => {
   const allCount = Object.values(fc).reduce((s, v) => s + v, 0)
   return [
     { key: 'all', label: 'Tous', hue: null, count: allCount },
-    { key: 'house', label: 'House', hue: FAMILY_HUES.house, count: fc.house || 0 },
-    { key: 'techno', label: 'Techno', hue: FAMILY_HUES.techno, count: fc.techno || 0 },
-    { key: 'trance', label: 'Trance', hue: FAMILY_HUES.trance, count: fc.trance || 0 },
-    { key: 'other', label: 'Autre', hue: FAMILY_HUES.other, count: (fc.other || 0) + (fc.misc || 0) },
+    { key: 'house', label: FAMILY_LABELS.house, hue: FAMILY_HUES.house, count: fc.house || 0 },
+    { key: 'techno', label: FAMILY_LABELS.techno, hue: FAMILY_HUES.techno, count: fc.techno || 0 },
+    { key: 'trance', label: FAMILY_LABELS.trance, hue: FAMILY_HUES.trance, count: fc.trance || 0 },
+    { key: 'other', label: FAMILY_LABELS.other, hue: FAMILY_HUES.other, count: (fc.other || 0) + (fc.misc || 0) },
   ]
 })
 
@@ -218,6 +218,8 @@ onUnmounted(() => {
 function fmtNum(n) {
   return (n || 0).toLocaleString('fr-FR').replace(/\u202f/g, ' ')
 }
+
+function pl(n, one, many) { return n === 1 ? one : many }
 </script>
 
 <style scoped>
@@ -379,6 +381,7 @@ function fmtNum(n) {
   border-radius: 50%;
   flex: none;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--fh));
+  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--fh) / .28);
 }
 .fc-n {
   font: 600 11px/1 var(--font-mono);
