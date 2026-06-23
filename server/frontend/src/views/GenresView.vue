@@ -84,8 +84,11 @@ import GenreCard from '../components/GenreCard.vue'
 const auth = useAuthStore()
 
 const FAMILY_HUES = { house: 268, techno: 312, trance: 352, other: 42 }
-const FAMILY_LABELS = { house: 'House', techno: 'Techno', trance: 'Trance', other: 'Autre', misc: 'Misc' }
 const PAGE_SIZE = 24
+
+function authHeaders() {
+  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
+}
 
 // ── State ──
 const items = ref([])
@@ -138,7 +141,7 @@ async function fetchGenres(reset = true) {
     if (familyFilter.value !== 'all') params.family = familyFilter.value
     if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
 
-    const { data } = await axios.get('/api/genres', { params })
+    const { data } = await axios.get('/api/genres', { params, headers: authHeaders() })
     if (reset) {
       items.value = data.items
     } else {
@@ -164,7 +167,7 @@ function loadMore() {
 async function fetchUnclassifiedCount() {
   if (!auth.user?.is_admin) return
   try {
-    const { data } = await axios.get('/api/admin/genres/unclassified-count')
+    const { data } = await axios.get('/api/admin/genres/unclassified-count', { headers: authHeaders() })
     unclassifiedCount.value = data.count
   } catch {}
 }
@@ -172,7 +175,7 @@ async function fetchUnclassifiedCount() {
 async function launchClassify() {
   classifying.value = true
   try {
-    await axios.post('/api/admin/genres/auto-classify')
+    await axios.post('/api/admin/genres/auto-classify', null, { headers: authHeaders() })
   } catch {}
   classifying.value = false
 }
