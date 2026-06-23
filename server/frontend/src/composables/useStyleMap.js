@@ -1,1 +1,1 @@
-export { slug, styleTone } from '../styles/diggy-style-map.js'
+export { slug, styleTone, FAMILY_LABELS } from '../styles/diggy-style-map.js'

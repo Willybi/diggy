@@ -46,6 +46,7 @@ const shortLabel = computed(() => props.name.split('/')[0].trim())
   border-radius: 50%;
   flex: none;
   background: oklch(calc(var(--tag-dot-l) + var(--ts)) var(--tag-dot-c) var(--th));
+  box-shadow: 0 0 0 1px oklch(calc(var(--tag-dot-l) + var(--ts)) var(--tag-dot-c) var(--th) / .28);
 }
 .style-tag.misc {
   background: var(--surface-2);

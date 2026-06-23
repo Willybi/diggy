@@ -2,8 +2,8 @@
    DIGGY — Genre -> colour mapping  ·  v3.0
    ------------------------------------------------------------
    Palette BORNEE a 5 tons (anti-rainbow) :
-     House  268 (violet)  — groovy / club
-     Techno 312 (magenta) — brut / hypnotique
+     House  260 (violet)  — groovy / club
+     Techno 320 (magenta) — brut / hypnotique
      Trance 352 (rose)    — psyche / euphorique
      Other   42 (ambre)   — vrais genres hors-piste
      Misc   null (gris)   — non-genres / bruit
@@ -21,8 +21,8 @@ export const slug = (name) =>
 
 /* ── Palette par famille ─────────────────────────────────────── */
 const FAMILY_HUES = {
-  house:  268,
-  techno: 312,
+  house:  260,
+  techno: 320,
   trance: 352,
   other:   42,
   misc:   null,
@@ -69,6 +69,12 @@ register('misc', [
   'Mainstage', 'Dance / Pop', 'Misc. Tracks',
 ])
 
+
+/* ── Labels famille (source unique) ────────────────────────── */
+export const FAMILY_LABELS = {
+  house: 'House', techno: 'Techno', trance: 'Trance',
+  other: 'Autre', misc: 'Autre',
+}
 
 /* ── API publique ──────────────────────────────────────────── */
 
