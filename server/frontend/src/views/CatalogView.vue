@@ -39,6 +39,7 @@
             <col class="w-rating col-rating">
             <col class="w-radar col-radar">
             <col class="w-lib">
+            <col class="w-avis">
           </colgroup>
           <thead>
             <tr>
@@ -65,10 +66,11 @@
                 Radar <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
               <th class="end">In&nbsp;lib</th>
+              <th class="end">Avis</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in items" :key="e.id" :class="{ playing: player.isCurrent(e.id) }">
+            <tr v-for="e in items" :key="e.id" :class="{ playing: player.isCurrent(e.id), liked: e.avis === 'liked', disliked: e.avis === 'disliked' }">
               <td class="c-play">
                 <span
                   class="pbtn"
@@ -121,6 +123,9 @@
               <td class="end">
                 <LibDot :in-lib="e.in_lib" />
               </td>
+              <td class="end c-avis">
+                <AvisActions :model-value="e.avis" @update:model-value="v => setAvis(e, v)" />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -141,6 +146,7 @@ import { useRoute, RouterLink } from 'vue-router'
 import axios from 'axios'
 import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
+import AvisActions from '../components/AvisActions.vue'
 import StyleTag from '../components/StyleTag.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs } from '../utils/format'
@@ -247,6 +253,16 @@ function sort(key) {
   }
   page.value = 1
   fetchPage()
+}
+
+async function setAvis(entry, avis) {
+  const prev = entry.avis
+  entry.avis = avis
+  try {
+    await axios.patch(`/api/catalog/${entry.id}/avis`, { avis })
+  } catch {
+    entry.avis = prev
+  }
 }
 
 onMounted(() => {
@@ -380,6 +396,7 @@ table.tt col.w-dur    { width: 84px; }
 table.tt col.w-rating { width: 104px; }
 table.tt col.w-radar  { width: 132px; }
 table.tt col.w-lib    { width: 70px; }
+table.tt col.w-avis   { width: 80px; }
 
 table.tt thead th {
   position: sticky;
@@ -513,6 +530,12 @@ tr.playing .tt-title { color: var(--accent-ink); }
 }
 .rating svg { width: 14px; height: 14px; }
 .rating .off { color: var(--line-2); }
+
+/* ============ ROW AVIS STATES ============ */
+table.tt tbody tr.liked { background: color-mix(in oklch, var(--pos) 6%, transparent); }
+table.tt tbody tr.liked:hover { background: color-mix(in oklch, var(--pos) 10%, transparent); }
+table.tt tbody tr.disliked td:not(.c-avis) { opacity: .42; }
+table.tt tbody tr.disliked:hover td:not(.c-avis) { opacity: .7; }
 
 /* ============ PAGINATION ============ */
 .pagination {

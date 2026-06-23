@@ -157,8 +157,13 @@ class CatalogEntryOut(BaseModel):
     in_lib: bool = False
     nb_radar_playlists: int = 0
     nb_radar_sets: int = 0
+    avis: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class CatalogAvisUpdate(BaseModel):
+    avis: Optional[str] = None
 
 
 class CatalogList(BaseModel):
