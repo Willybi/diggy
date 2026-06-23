@@ -38,8 +38,9 @@
       </div>
 
       <!-- Play button (hover reveal) -->
-      <button class="gc-play" aria-label="Lecture" @click.prevent>
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <button class="gc-play" :class="{ 'gc-play--playing': isPlaying }" aria-label="Lecture" @click.prevent.stop="onPlay">
+        <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
       </button>
     </div>
 
@@ -70,11 +71,21 @@
 
 <script setup>
 import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
+import { useAudioPlayer } from '../stores/audioPlayer'
 
 const props = defineProps({
   genre: { type: Object, required: true },
 })
+
+const player = useAudioPlayer()
+const { playingId } = storeToRefs(player)
+const isPlaying = computed(() => playingId.value === `genre:${props.genre.name}`)
+
+function onPlay() {
+  player.playRandom(props.genre.name)
+}
 
 const tone = computed(() => styleTone(props.genre.name))
 const hue = computed(() => tone.value.hue)
@@ -235,6 +246,7 @@ function onAvatarError(e) {
 }
 .gc-play svg { width: 17px; height: 17px; margin-left: 2px; }
 .genre-card:hover .gc-play { opacity: 1; transform: none; }
+.gc-play--playing { opacity: 1; transform: none; }
 .gc-play:hover { background: var(--accent-hover); }
 
 /* ── Body ── */
