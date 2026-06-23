@@ -24,8 +24,8 @@ class _TokenBucket:
 
     def __init__(self, rate: float):
         self._rate = rate  # tokens per second (0 = unlimited)
-        self._tokens = rate if rate > 0 else 0
-        self._max_tokens = rate if rate > 0 else 0
+        self._max_tokens = max(rate, 1.0) if rate > 0 else 0
+        self._tokens = self._max_tokens
         self._last_refill = time.monotonic()
 
     async def wait(self):
