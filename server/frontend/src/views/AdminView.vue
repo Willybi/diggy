@@ -217,7 +217,7 @@
               <td class="mono" style="font-size: 11px">
                 {{ log.duration_ms != null ? formatDuration(log.duration_ms) : '-' }}
               </td>
-              <td style="font-size: 11px">
+              <td style="font-size: 11px; display: flex; flex-wrap: wrap; gap: 3px; align-items: center">
                 <template v-if="log.stats">
                   <span v-for="(v, k) in log.stats" :key="k" class="stat-chip">
                     {{ k }}: {{ v }}
