@@ -60,12 +60,13 @@ body {
 
 <style scoped>
 .app-container {
+  --sidebar-w: 232px;
   container-type: inline-size;
   height: 100vh;
 }
 .app-shell {
   display: grid;
-  grid-template-columns: 232px 1fr;
+  grid-template-columns: var(--sidebar-w) 1fr;
   height: 100%;
   overflow: hidden;
 }
@@ -79,8 +80,6 @@ body {
 }
 
 @container (max-width: 900px) {
-  .app-shell {
-    grid-template-columns: 66px 1fr;
-  }
+  .app-container { --sidebar-w: 66px; }
 }
 </style>

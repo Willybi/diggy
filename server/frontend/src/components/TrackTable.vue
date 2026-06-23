@@ -31,7 +31,7 @@
               :class="{ 'play-btn--disabled': !track.has_preview, 'play-btn--playing': player.isCurrent(track.catalog_id) }"
               @click="track.has_preview && handlePlay(track)"
             >
-              <svg v-if="!player.isCurrent(track.catalog_id)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+              <svg v-if="!(player.isCurrent(track.catalog_id) && player.playing)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
               <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
             </span>
           </td>

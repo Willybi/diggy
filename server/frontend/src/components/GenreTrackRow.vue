@@ -1,7 +1,7 @@
 <template>
-  <div class="track-row" :class="{ playing: isPlaying }" @click="onPlay">
+  <div class="track-row" :class="{ playing: isCurrent }" @click="onPlay">
     <!-- Play overlay -->
-    <button class="play-btn" :class="{ visible: isPlaying }" @click.stop="onPlay" aria-label="Lecture">
+    <button class="play-btn" :class="{ visible: isCurrent }" @click.stop="onPlay" aria-label="Lecture">
       <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
     </button>
@@ -43,7 +43,8 @@ const props = defineProps({
 })
 
 const player = useAudioPlayer()
-const isPlaying = computed(() => player.isCurrent(props.track.id))
+const isCurrent = computed(() => player.isCurrent(props.track.id))
+const isPlaying = computed(() => isCurrent.value && player.playing)
 
 function onPlay() {
   if (!props.track.hasPreview) return

@@ -74,8 +74,9 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
       el.src = data.preview_url
       await el.play()
       loading.value = false
-    } catch {
-      loading.value = false
+    } catch (e) {
+      console.warn('[audioPlayer] preview failed:', e)
+      close()
     }
   }
 
