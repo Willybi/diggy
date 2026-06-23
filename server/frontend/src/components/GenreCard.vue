@@ -4,22 +4,18 @@
     class="genre-card"
     :style="hue != null ? { '--th': hue } : undefined"
   >
-    <!-- Artwork zone: 2x2 collage or tinted placeholder -->
+    <!-- Artwork zone: always 4 slots — image or tinted placeholder -->
     <div class="gc-art" :class="{ misc: tone.family === 'misc' }">
-      <template v-if="genre.artworks?.length">
+      <div v-for="(slot, i) in fourSlots" :key="i" class="gc-tile">
         <img
-          v-for="(url, i) in artworkSlots"
-          :key="i"
-          class="gc-tile gc-tile-img"
-          :src="url"
+          v-if="slot"
+          class="gc-cover"
+          :src="slot"
           alt=""
           loading="lazy"
+          @error="onCoverError"
         />
-      </template>
-      <template v-else>
-        <div class="gc-tile"></div><div class="gc-tile"></div>
-        <div class="gc-tile"></div><div class="gc-tile"></div>
-      </template>
+      </div>
       <div class="gc-scrim"></div>
 
       <!-- Badge in-lib -->
@@ -86,17 +82,18 @@ const tone = computed(() => styleTone(props.genre.name))
 const hue = computed(() => tone.value.hue)
 const familyLabel = computed(() => FAMILY_LABELS[props.genre.family] || 'Misc')
 
-// Pad artworks to always fill 4 slots (repeating if needed)
-const artworkSlots = computed(() => {
+// 4 slots: use available covers, null = tinted placeholder (no repeating)
+const fourSlots = computed(() => {
   const aw = props.genre.artworks || []
-  if (!aw.length) return []
-  const out = []
-  for (let i = 0; i < 4; i++) out.push(aw[i % aw.length])
-  return out
+  return [aw[0] || null, aw[1] || null, aw[2] || null, aw[3] || null]
 })
 
 function fmtNum(n) {
   return (n || 0).toLocaleString('fr-FR').replace(/\u202f/g, ' ')
+}
+
+function onCoverError(e) {
+  e.target.remove()
 }
 
 function onAvatarError(e) {
@@ -124,7 +121,7 @@ function onAvatarError(e) {
   border-color: var(--line-2);
 }
 
-/* ── Artwork zone ── */
+/* ── Artwork zone — 2×2 square cells, fixed height ── */
 .gc-art {
   --art-l: 0.910;
   --art-c: 0.052;
@@ -136,7 +133,11 @@ function onAvatarError(e) {
 }
 .gc-art.misc { --art-l: 0.880; --art-c: 0.008; --th: 70; }
 
+/* Each tile = grid cell, contains either a cover <img> or is a bare placeholder */
 .gc-tile {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
   background-color: oklch(var(--art-l) var(--art-c) var(--th));
   background-image: repeating-linear-gradient(135deg, oklch(1 0 0 / .10) 0 1px, transparent 1px 9px);
 }
@@ -144,15 +145,17 @@ function onAvatarError(e) {
 .gc-tile:nth-child(3) { background-color: oklch(calc(var(--art-l) - 0.030) calc(var(--art-c) + 0.018) var(--th)); }
 .gc-tile:nth-child(4) { background-color: oklch(calc(var(--art-l) + 0.030) var(--art-c) var(--th)); }
 
-.gc-tile-img {
+/* Cover image fills its tile cell — crop, never stretch */
+.gc-cover {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background-color: oklch(var(--art-l) var(--art-c) var(--th));
+  object-position: center;
+  display: block;
+  background: var(--surface-2);
 }
-.gc-tile-img:nth-child(2) { background-color: oklch(calc(var(--art-l) - 0.060) var(--art-c) var(--th)); }
-.gc-tile-img:nth-child(3) { background-color: oklch(calc(var(--art-l) - 0.030) calc(var(--art-c) + 0.018) var(--th)); }
-.gc-tile-img:nth-child(4) { background-color: oklch(calc(var(--art-l) + 0.030) var(--art-c) var(--th)); }
 
 .gc-scrim {
   position: absolute;
