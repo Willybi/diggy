@@ -14,11 +14,10 @@ Usage:
 """
 import asyncio
 import logging
-import random
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
-import requests as sync_requests
+from curl_cffi import requests as curl_requests
 
 from workers.rate_limiter import RateLimiter
 
@@ -26,14 +25,6 @@ logger = logging.getLogger(__name__)
 
 DEEZER_API = "https://api.deezer.com"
 BEATPORT_URL = "https://www.beatport.com"
-
-_BEATPORT_USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-]
 
 # Retry config
 MAX_RETRIES = 3
@@ -53,7 +44,7 @@ class HttpPool:
             follow_redirects=False,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
-        self._bp_session = sync_requests.Session()
+        self._bp_session = curl_requests.Session(impersonate="chrome131")
         self._bp_executor = ThreadPoolExecutor(max_workers=2)
         return self
 
@@ -110,15 +101,14 @@ class HttpPool:
     # ── Beatport ──
 
     async def beatport_get(self, path: str) -> httpx.Response:
-        """GET request to Beatport via sync requests in threadpool (Cloudflare blocks httpx).
+        """GET request to Beatport via curl_cffi in threadpool (bypasses Cloudflare TLS fingerprinting).
         Returns an httpx.Response-compatible object."""
-        headers = {"User-Agent": random.choice(_BEATPORT_USER_AGENTS)}
         url = f"{BEATPORT_URL}{path}"
         loop = asyncio.get_event_loop()
 
         async with self.limiter.acquire("beatport"):
             def _sync_get():
-                return self._bp_session.get(url, headers=headers, timeout=15)
+                return self._bp_session.get(url, timeout=15)
 
             resp = await loop.run_in_executor(self._bp_executor, _sync_get)
 
