@@ -1,0 +1,323 @@
+"""Shared async enrichment pipelines for Deezer and Beatport.
+
+Used by all pipeline tasks (crawl_single_playlist, resolve_set_tracks, enrich_catalog, etc.).
+Processes entries concurrently using the rate limiter.
+
+Usage:
+    async with HttpPool(limiter) as pool:
+        stats = await enrich_deezer_batch(session, entries, pool, s3, known_isrcs)
+        stats = await enrich_beatport_batch(session, entries, pool, s3)
+"""
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import re
+import tempfile
+from datetime import datetime, timezone
+
+import redis as redis_lib
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+DEEZER_API = "https://api.deezer.com"
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+_BEATPORT_CACHE_TTL = 86400  # 24 hours
+
+
+def _get_redis():
+    try:
+        return redis_lib.from_url(REDIS_URL, decode_responses=True)
+    except Exception:
+        return None
+
+
+def _cache_key(prefix: str, query: str) -> str:
+    h = hashlib.md5(query.lower().strip().encode()).hexdigest()
+    return f"bp:{prefix}:{h}"
+
+
+# ── Deezer enrichment (async) ──
+
+async def _search_deezer_async(pool, artist: str | None, title: str | None) -> dict | None:
+    """Async version of deezer_enrich.search_deezer — cascading search strategy."""
+    if not title:
+        return None
+
+    # Import the title-cleaning helpers from deezer_enrich
+    import sys
+    sys.path.insert(0, "/app")
+    from deezer_enrich import _strip_safe_suffixes, _strip_non_remix_parens, _first_artist
+
+    def _clean(s):
+        return s.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+
+    async def _search(t, a=artist):
+        clean_t = _clean(t)
+        clean_a = _clean(a) if a else a
+        if clean_a:
+            data = await pool.deezer_get("/search", params={"q": f'artist:"{clean_a}" track:"{clean_t}"', "limit": 1})
+            hits = data.get("data", [])
+            if hits:
+                return hits[0]
+        q = f"{clean_a} {clean_t}" if clean_a else clean_t
+        data = await pool.deezer_get("/search", params={"q": q, "limit": 1})
+        hits = data.get("data", [])
+        return hits[0] if hits else None
+
+    # 1. Original title
+    hit = await _search(title)
+    if hit:
+        return hit
+
+    # 2. Strip safe suffixes
+    safe = _strip_safe_suffixes(title)
+    if safe:
+        hit = await _search(safe)
+        if hit:
+            return hit
+
+    # 3. Strip non-remix parens
+    stripped = _strip_non_remix_parens(title)
+    if stripped and stripped != safe:
+        hit = await _search(stripped)
+        if hit:
+            return hit
+
+    # 4. First artist only
+    if artist:
+        first = _first_artist(artist)
+        if first:
+            t = stripped or safe or title
+            hit = await _search(t, a=first)
+            if hit:
+                return hit
+
+    return None
+
+
+async def _enrich_entry_async(entry, hit: dict, pool, s3, known_isrcs: set) -> bool:
+    """Async version of enrich_entry — applies Deezer data to a CatalogEntry."""
+    changed = False
+
+    deezer_id = str(hit["id"])
+    if entry.deezer_id != deezer_id:
+        entry.deezer_id = deezer_id
+        changed = True
+
+    isrc = hit.get("isrc")
+    if isrc and not entry.isrc:
+        if isrc not in known_isrcs:
+            entry.isrc = isrc
+            known_isrcs.add(isrc)
+            changed = True
+
+    duration_s = hit.get("duration")
+    if duration_s and not entry.duration_ms:
+        entry.duration_ms = duration_s * 1000
+        changed = True
+
+    has_preview = bool((hit.get("preview") or "").strip())
+    if entry.has_preview != has_preview:
+        entry.has_preview = has_preview
+        changed = True
+
+    # Upload cover if missing
+    if s3 and not entry.has_artwork:
+        cover_url = (hit.get("album") or {}).get("cover_medium") or (hit.get("album") or {}).get("cover_big")
+        if cover_url:
+            img_data = await pool.download_image(cover_url)
+            if img_data:
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+                        f.write(img_data)
+                        tmp = f.name
+                    s3.upload_file(tmp, "catalog-artworks", f"{entry.id}.jpg", ExtraArgs={"ContentType": "image/jpeg"})
+                    entry.has_artwork = True
+                    changed = True
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        os.unlink(tmp)
+                    except Exception:
+                        pass
+
+    return changed
+
+
+async def enrich_deezer_batch(
+    session: Session,
+    entries: list,
+    pool,
+    s3,
+    known_isrcs: set,
+    *,
+    source: str = "cross-search",
+    ext_id_map: dict | None = None,
+) -> dict:
+    """Enrich multiple catalog entries via Deezer concurrently.
+
+    Args:
+        entries: list of CatalogEntry objects missing deezer_id
+        pool: HttpPool instance (already entered)
+        s3: boto3 S3 client
+        known_isrcs: set of existing ISRCs to avoid constraint violations
+        source: "deezer" (use ext_id_map for direct lookup) or "cross-search" (search by title+artist)
+        ext_id_map: dict of {catalog_id: deezer_external_track_id} for direct Deezer lookups
+    """
+    enriched = 0
+    errors = 0
+
+    async def _enrich_one(entry):
+        nonlocal enriched, errors
+        try:
+            now = datetime.now(timezone.utc)
+            if source == "deezer" and ext_id_map:
+                ext_id = ext_id_map.get(entry.id)
+                if not ext_id:
+                    return
+                hit = await pool.deezer_get(f"/track/{ext_id}")
+                if not hit.get("id"):
+                    entry.deezer_searched_at = now
+                    return
+            else:
+                hit = await _search_deezer_async(pool, entry.artist, entry.title)
+                if not hit:
+                    entry.deezer_searched_at = now
+                    return
+
+            if await _enrich_entry_async(entry, hit, pool, s3, known_isrcs):
+                enriched += 1
+            entry.deezer_searched_at = now
+        except Exception as e:
+            logger.warning("Deezer enrich failed for catalog %s: %s", entry.id, e)
+            errors += 1
+
+    # Process concurrently (rate limiter handles concurrency cap)
+    await asyncio.gather(*[_enrich_one(e) for e in entries])
+
+    return {"enriched": enriched, "errors": errors}
+
+
+# ── Beatport enrichment (async) ──
+
+async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str | None, rcache=None) -> dict | None:
+    """Async Beatport search with ISRC-first strategy and Redis cache."""
+    import sys
+    sys.path.insert(0, "/app")
+
+    def _extract_next_data(html: str) -> dict:
+        match = re.search(
+            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+            html, re.DOTALL,
+        )
+        if not match:
+            return {}
+        return json.loads(match.group(1))
+
+    def _extract_tracks(data: dict) -> list[dict]:
+        queries = (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("dehydratedState", {})
+            .get("queries", [])
+        )
+        for query in queries:
+            state = query.get("state", {}).get("data", {})
+            if isinstance(state, dict) and "tracks" in state:
+                tracks_data = state["tracks"]
+                raw_list = tracks_data.get("data", []) if isinstance(tracks_data, dict) else []
+                return raw_list[:10]
+        return []
+
+    from beatport.client import _normalize_track
+
+    async def _do_search(q: str) -> list[dict]:
+        # Check Redis cache first
+        if rcache:
+            key = _cache_key("search", q)
+            try:
+                cached = rcache.get(key)
+                if cached is not None:
+                    return json.loads(cached)
+            except Exception:
+                pass
+
+        import urllib.parse
+        path = f"/search?q={urllib.parse.quote(q)}&type=tracks"
+        resp = await pool.beatport_get(path)
+        if resp.status_code != 200:
+            return []
+        data = _extract_next_data(resp.text)
+        raw = _extract_tracks(data)
+        results = [_normalize_track(t) for t in raw]
+
+        # Cache results
+        if rcache and results:
+            key = _cache_key("search", q)
+            try:
+                rcache.setex(key, _BEATPORT_CACHE_TTL, json.dumps(results))
+            except Exception:
+                pass
+
+        return results
+
+    # Strategy 1: ISRC search (most reliable)
+    if isrc:
+        results = await _do_search(isrc)
+        for t in results:
+            if t.get("isrc") == isrc:
+                return t
+
+    # Strategy 2: title+artist search
+    if title:
+        q = f"{artist} {title}" if artist else title
+        results = await _do_search(q)
+        if results:
+            return results[0]
+
+    return None
+
+
+async def enrich_beatport_batch(
+    session: Session,
+    entries: list,
+    pool,
+    s3,
+) -> dict:
+    """Enrich multiple catalog entries via Beatport concurrently.
+
+    Args:
+        entries: list of CatalogEntry objects missing beatport_id
+        pool: HttpPool instance (already entered)
+        s3: boto3 S3 client
+    """
+    import sys
+    sys.path.insert(0, "/app")
+    from beatport.enrich import enrich_from_beatport
+
+    rcache = _get_redis()
+    enriched = 0
+    not_found = 0
+    errors = 0
+
+    async def _enrich_one(entry):
+        nonlocal enriched, not_found, errors
+        try:
+            bp_track = await _search_beatport_async(pool, entry.title, entry.artist, entry.isrc, rcache=rcache)
+            if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
+                enriched += 1
+            else:
+                not_found += 1
+            entry.beatport_searched_at = datetime.now(timezone.utc)
+        except Exception as e:
+            logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
+            errors += 1
+
+    # Process concurrently (rate limiter handles concurrency cap at 2)
+    await asyncio.gather(*[_enrich_one(e) for e in entries])
+
+    return {"enriched": enriched, "not_found": not_found, "errors": errors}

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from celery_client import celery
 from dependencies import require_admin
-from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, SetArtist, User, WatchedEntity
+from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, CrawlLog, SetArtist, User, WatchedEntity
 from utils import normalize
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -537,3 +537,60 @@ async def fetch_all_playlist_artworks(
 
     await db.commit()
     return {"fetched": fetched, "failed": failed, "total": len(playlists)}
+
+
+# ---------- Crawl Logs ----------
+
+
+@router.get("/crawl-logs")
+async def get_crawl_logs(
+    page: int = 1,
+    per_page: int = 20,
+    task_type: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """List crawl logs with pagination and filters."""
+    query = select(CrawlLog).order_by(CrawlLog.started_at.desc())
+
+    if task_type:
+        query = query.where(CrawlLog.task_type == task_type)
+    if status:
+        query = query.where(CrawlLog.status == status)
+
+    # Count total
+    count_query = select(func.count(CrawlLog.id))
+    if task_type:
+        count_query = count_query.where(CrawlLog.task_type == task_type)
+    if status:
+        count_query = count_query.where(CrawlLog.status == status)
+    total = (await db.execute(count_query)).scalar() or 0
+
+    # Paginate
+    offset = (page - 1) * per_page
+    query = query.offset(offset).limit(per_page)
+    logs = (await db.execute(query)).scalars().all()
+
+    return {
+        "items": [
+            {
+                "id": log.id,
+                "task_type": log.task_type,
+                "target_id": log.target_id,
+                "target_label": log.target_label,
+                "source": log.source,
+                "status": log.status,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "finished_at": log.finished_at.isoformat() if log.finished_at else None,
+                "duration_ms": log.duration_ms,
+                "stats": log.stats,
+                "error_message": log.error_message,
+                "celery_task_id": log.celery_task_id,
+            }
+            for log in logs
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }

@@ -1,0 +1,166 @@
+"""Direct DB access for worker tasks — replaces HTTP self-calls.
+
+Provides:
+  - Sync engine/session factory (centralized)
+  - bulk_get_or_create_catalog: batch catalog dedup + insert
+  - bulk_insert_radar_tracks: batch radar track insertion with dedup
+"""
+import os
+from datetime import datetime, timezone
+
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+
+import sys
+sys.path.insert(0, "/app")
+from models import CatalogEntry, RadarTrack
+from utils import make_normalized_key
+
+
+_engine = None
+
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        url = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+        _engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+    return _engine
+
+
+def get_session() -> Session:
+    return Session(get_engine())
+
+
+def bulk_get_or_create_catalog(
+    session: Session,
+    tracks: list[dict],
+) -> dict[str, CatalogEntry]:
+    """Batch lookup/create catalog entries for a list of tracks.
+
+    Each track dict should have: title, artist, isrc (optional), duration_ms (optional).
+    Returns a dict mapping normalized_key -> CatalogEntry.
+    """
+    if not tracks:
+        return {}
+
+    # Compute normalized keys and collect ISRCs
+    for t in tracks:
+        t["_norm_key"] = make_normalized_key(t["title"], t.get("artist"))
+
+    isrcs = [t["isrc"] for t in tracks if t.get("isrc")]
+    norm_keys = [t["_norm_key"] for t in tracks]
+
+    # Batch lookup by ISRC
+    isrc_map: dict[str, CatalogEntry] = {}
+    if isrcs:
+        existing = session.execute(
+            select(CatalogEntry).where(CatalogEntry.isrc.in_(isrcs))
+        ).scalars().all()
+        isrc_map = {e.isrc: e for e in existing}
+
+    # Batch lookup by normalized_key
+    norm_map: dict[str, CatalogEntry] = {}
+    existing = session.execute(
+        select(CatalogEntry).where(CatalogEntry.normalized_key.in_(norm_keys))
+    ).scalars().all()
+    norm_map = {e.normalized_key: e for e in existing}
+
+    # Resolve each track: ISRC first, then norm_key, then create
+    result: dict[str, CatalogEntry] = {}
+    seen_isrcs = set(isrc_map.keys())
+    seen_norms = set(norm_map.keys())
+
+    for t in tracks:
+        nk = t["_norm_key"]
+        isrc = t.get("isrc")
+
+        # 1. Try ISRC match
+        if isrc and isrc in isrc_map:
+            entry = isrc_map[isrc]
+            result[nk] = entry
+            continue
+
+        # 2. Try normalized_key match
+        if nk in norm_map:
+            entry = norm_map[nk]
+            # Update ISRC if we have one and entry doesn't
+            if isrc and not entry.isrc and isrc not in seen_isrcs:
+                entry.isrc = isrc
+                seen_isrcs.add(isrc)
+            result[nk] = entry
+            continue
+
+        # 3. Already created in this batch
+        if nk in result:
+            continue
+
+        # 4. Create new entry
+        entry = CatalogEntry(
+            title=t["title"],
+            artist=t.get("artist"),
+            normalized_key=nk,
+            isrc=isrc if (isrc and isrc not in seen_isrcs) else None,
+            duration_ms=t.get("duration_ms"),
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(entry)
+        if isrc:
+            seen_isrcs.add(isrc)
+        seen_norms.add(nk)
+        norm_map[nk] = entry
+        result[nk] = entry
+
+    session.flush()
+    return result
+
+
+def bulk_insert_radar_tracks(
+    session: Session,
+    entity_id: int,
+    source: str,
+    source_tracks: list,
+    catalog_map: dict[str, CatalogEntry],
+) -> int:
+    """Bulk insert RadarTrack rows with dedup.
+
+    source_tracks: list of SourceTrack dataclass instances.
+    catalog_map: dict from bulk_get_or_create_catalog (norm_key -> entry).
+    Returns count of newly inserted tracks.
+    """
+    if not source_tracks:
+        return 0
+
+    # Load existing external_track_ids for this entity
+    existing_ext_ids = {
+        r[0] for r in session.execute(
+            select(RadarTrack.external_track_id)
+            .where(RadarTrack.watched_entity_id == entity_id)
+        ).all()
+    }
+
+    inserted = 0
+    now = datetime.now(timezone.utc)
+
+    for st in source_tracks:
+        if st.external_id in existing_ext_ids:
+            continue
+
+        nk = make_normalized_key(st.title, st.artist)
+        entry = catalog_map.get(nk)
+
+        session.add(RadarTrack(
+            watched_entity_id=entity_id,
+            external_track_id=st.external_id,
+            source=source,
+            title=st.title,
+            artist=st.artist,
+            isrc=st.isrc,
+            detected_at=now,
+            catalog_id=entry.id if entry else None,
+        ))
+        existing_ext_ids.add(st.external_id)
+        inserted += 1
+
+    session.flush()
+    return inserted
