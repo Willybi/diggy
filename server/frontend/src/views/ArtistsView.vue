@@ -17,7 +17,8 @@
         <div class="filterseg">
           <button :class="{ on: sortBy === 'catalog' }" @click="sortBy = 'catalog'">Catalog</button>
           <button :class="{ on: sortBy === 'lib' }" @click="sortBy = 'lib'">In Bib</button>
-          <button :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">Liked</button>
+          <button class="liked" :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">Liked</button>
+          <button class="disliked" :class="{ on: sortBy === 'disliked' }" @click="sortBy = 'disliked'">Disliked</button>
           <button :class="{ on: sortBy === 'rating' }" @click="sortBy = 'rating'">Rating</button>
           <button :class="{ on: sortBy === 'alpha' }" @click="sortBy = 'alpha'">A–Z</button>
         </div>
@@ -102,11 +103,14 @@ const totalUnfiltered = computed(() => {
   return Object.values(fc).reduce((s, v) => s + v, 0)
 })
 
-const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all' || sortBy.value === 'liked')
+const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all' || sortBy.value === 'liked' || sortBy.value === 'disliked')
 
 const displayItems = computed(() => {
   if (sortBy.value === 'liked') {
     return items.value.filter(a => opinions.get('artist', a.id) === 'liked')
+  }
+  if (sortBy.value === 'disliked') {
+    return items.value.filter(a => opinions.get('artist', a.id) === 'disliked')
   }
   return items.value
 })
@@ -282,6 +286,14 @@ function fmtNum(n) {
 .filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
+}
+.filterseg button.liked.on {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.filterseg button.disliked.on {
+  background: var(--neg-soft);
+  color: var(--neg-ink);
 }
 
 /* -- Family chips -- */

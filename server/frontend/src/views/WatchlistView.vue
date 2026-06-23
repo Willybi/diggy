@@ -9,6 +9,8 @@
         <div class="filterseg">
           <button :class="{ on: mode === 'followed' }" @click="mode = 'followed'">Suivies</button>
           <button :class="{ on: mode === 'browse' }" @click="mode = 'browse'">Toutes</button>
+          <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">Liked</button>
+          <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">Disliked</button>
         </div>
         <button
           class="btn-add"
@@ -101,7 +103,7 @@
               <template v-else>
                 <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
                 <button
-                  v-if="opinions.get('playlist', pl.id) === 'liked' && !isCooldown(pl)"
+                  v-if="pl.followed && !isCooldown(pl)"
                   class="btn-crawl"
                   @click.stop="triggerCrawl(pl)"
                 >Crawl</button>
@@ -110,7 +112,7 @@
             <td class="end td-avis" @click.stop>
               <LikeDislike
                 :model-value="opinions.get('playlist', pl.id)"
-                @update:model-value="v => opinions.set('playlist', pl.id, v)"
+                @update:model-value="v => setOpinion(pl.id, v)"
               />
             </td>
           </tr>
@@ -142,7 +144,11 @@ const pollTimers = {}
 
 const displayList = computed(() => {
   if (mode.value === 'followed')
+    return browsePlaylists.value.filter(p => p.followed)
+  if (mode.value === 'liked')
     return browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'liked')
+  if (mode.value === 'disliked')
+    return browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'disliked')
   return browsePlaylists.value
 })
 
@@ -277,6 +283,11 @@ function formatCrawled(iso) {
   return `il y a ${diffDays} j`
 }
 
+async function setOpinion(plId, val) {
+  await opinions.set('playlist', plId, val)
+  await fetchPlaylists()
+}
+
 onMounted(async () => {
   await fetchPlaylists()
   // Auto-detect playlists with active crawls
@@ -342,6 +353,14 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 .filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
+}
+.filterseg button.liked.on {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.filterseg button.disliked.on {
+  background: var(--neg-soft);
+  color: var(--neg-ink);
 }
 
 /* bouton ajouter */

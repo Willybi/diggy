@@ -44,13 +44,6 @@
         <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
       </button>
 
-      <!-- Like / Dislike overlay -->
-      <div class="gc-acts">
-        <LikeDislike
-          :model-value="opinion"
-          @update:model-value="v => opinions.set('genre', genre.name, v)"
-        />
-      </div>
     </div>
 
     <!-- Body -->
@@ -58,6 +51,12 @@
       <div class="gc-titlerow">
         <span class="gc-dot" :class="{ misc: tone.family === 'misc' }"></span>
         <span class="gc-title" :class="{ misc: tone.family === 'misc' }">{{ genre.name }}</span>
+        <span class="gc-avis" @click.prevent.stop>
+          <LikeDislike
+            :model-value="opinion"
+            @update:model-value="v => opinions.set('genre', genre.name, v)"
+          />
+        </span>
         <span class="gc-fam">{{ familyLabel }}</span>
       </div>
       <div class="gc-stats">
@@ -264,29 +263,19 @@ function onAvatarError(e) {
 .gc-play--playing { opacity: 1; transform: none; }
 .gc-play:hover { background: var(--accent-hover); }
 
-/* Like/Dislike overlay on artwork */
-.gc-acts {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  z-index: 3;
-  display: flex;
-  gap: 5px;
+/* Like/Dislike in title row */
+.gc-avis {
+  margin-left: auto;
+  display: inline-flex;
+  flex: none;
+}
+.gc-avis :deep(.ld-btn) {
   opacity: 0;
-  transition: opacity .14s;
 }
-.genre-card:hover .gc-acts,
-.genre-card.liked .gc-acts,
-.genre-card.disliked .gc-acts { opacity: 1; }
-
-.gc-acts :deep(.ld-btn) {
-  opacity: 1;
-  background: oklch(0.995 0.004 92 / .92);
-  backdrop-filter: blur(4px);
-}
-[data-theme="dark"] .gc-acts :deep(.ld-btn) {
-  background: oklch(0.238 0.014 262 / .88);
-}
+.genre-card:hover .gc-avis :deep(.ld-btn),
+.genre-card.liked .gc-avis :deep(.ld-btn),
+.genre-card.disliked .gc-avis :deep(.ld-btn) { opacity: 1; }
+.gc-avis :deep(.ld-btn.on) { opacity: 1; }
 
 /* Card liked / disliked states */
 .genre-card.liked {
@@ -331,7 +320,6 @@ function onAvatarError(e) {
 }
 .gc-title.misc { color: var(--ink-2); }
 .gc-fam {
-  margin-left: auto;
   font: 500 9.5px/1 var(--font-mono);
   letter-spacing: .1em;
   text-transform: uppercase;

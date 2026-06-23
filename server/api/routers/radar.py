@@ -8,7 +8,7 @@ from sqlalchemy.orm import aliased
 from catalog import get_or_create_catalog
 from database import get_db
 from dependencies import get_current_user_optional, uid as _uid
-from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User
+from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, UserOpinion, CatalogEntry, User
 from schemas import (
     RadarTrackIn,
     RadarTrackOut,
@@ -220,6 +220,36 @@ async def update_radar_state(
             updated_at=datetime.now(timezone.utc),
         )
         db.add(state)
+
+    # Sync → user_opinions + user_tracks.avis
+    RADAR_TO_OPINION = {"added": "liked", "ignored": "disliked"}
+    opinion_val = RADAR_TO_OPINION.get(resolved)
+
+    r2 = await db.execute(
+        select(UserOpinion).where(
+            UserOpinion.user_id == uid,
+            UserOpinion.entity_type == "track",
+            UserOpinion.entity_key == str(catalog_id),
+        )
+    )
+    op = r2.scalar_one_or_none()
+    if opinion_val is None:
+        if op:
+            await db.delete(op)
+    elif op:
+        op.opinion = opinion_val
+    else:
+        db.add(UserOpinion(
+            user_id=uid, entity_type="track", entity_key=str(catalog_id),
+            opinion=opinion_val, created_at=datetime.now(timezone.utc),
+        ))
+
+    r3 = await db.execute(
+        select(UserTrack).where(UserTrack.user_id == uid, UserTrack.catalog_id == catalog_id)
+    )
+    ut = r3.scalar_one_or_none()
+    if ut:
+        ut.avis = opinion_val
 
     await db.commit()
     return {"catalog_id": catalog_id, "status": body.status}
