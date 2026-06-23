@@ -6,15 +6,19 @@ class TestListArtists:
     async def test_empty_returns_empty_list(self, client):
         r = await client.get("/api/artists/")
         assert r.status_code == 200
-        assert r.json() == []
+        data = r.json()
+        assert data["items"] == []
+        assert data["total"] == 0
+        assert "familyCounts" in data
 
     async def test_returns_artists(self, client, db):
         db.add(Artist(name="CamelPhat", normalized_name="camelphat"))
         await db.commit()
         r = await client.get("/api/artists/")
         data = r.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "CamelPhat"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "CamelPhat"
+        assert data["total"] == 1
 
     async def test_search_filter(self, client, db):
         db.add(Artist(name="CamelPhat", normalized_name="camelphat"))
@@ -22,8 +26,8 @@ class TestListArtists:
         await db.commit()
         r = await client.get("/api/artists/?q=camel")
         data = r.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "CamelPhat"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "CamelPhat"
 
     async def test_no_deezer_filter(self, client, db):
         db.add(Artist(name="Known", normalized_name="known", deezer_id="123"))
@@ -31,8 +35,8 @@ class TestListArtists:
         await db.commit()
         r = await client.get("/api/artists/?no_deezer=true")
         data = r.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "Unknown"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "Unknown"
 
 
 class TestArtistDetail:
