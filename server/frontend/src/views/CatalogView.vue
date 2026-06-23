@@ -39,7 +39,7 @@
             <col class="w-rating col-rating">
             <col class="w-radar col-radar">
             <col class="w-lib">
-            <col class="w-avis">
+            <col class="w-avis col-avis">
           </colgroup>
           <thead>
             <tr>
@@ -68,7 +68,7 @@
               <th class="end sortable" :class="{ 'is-sorted': sortKey === 'in_lib' }" @click="sort('in_lib')">
                 In&nbsp;lib <span v-if="sortKey === 'in_lib'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th class="end sortable" :class="{ 'is-sorted': sortKey === 'avis' }" @click="sort('avis')">
+              <th class="end col-avis sortable" :class="{ 'is-sorted': sortKey === 'avis' }" @click="sort('avis')">
                 Avis <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
               </th>
             </tr>
@@ -127,7 +127,7 @@
               <td class="end">
                 <LibDot :in-lib="e.in_lib" />
               </td>
-              <td class="end c-avis">
+              <td class="end c-avis col-avis">
                 <AvisActions :model-value="e.avis" @update:model-value="v => setAvis(e, v)" />
               </td>
             </tr>
@@ -397,10 +397,10 @@ table.tt col.w-style  { width: 168px; }
 table.tt col.w-bpm    { width: 74px; }
 table.tt col.w-key    { width: 66px; }
 table.tt col.w-dur    { width: 84px; }
-table.tt col.w-rating { width: 104px; }
-table.tt col.w-radar  { width: 132px; }
-table.tt col.w-lib    { width: 70px; }
-table.tt col.w-avis   { width: 80px; }
+table.tt col.w-rating { width: 96px; }
+table.tt col.w-radar  { width: 120px; }
+table.tt col.w-lib    { width: 62px; }
+table.tt col.w-avis   { width: 76px; }
 
 table.tt thead th {
   position: sticky;
@@ -584,7 +584,7 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) { opacity: .7; }
   .col-rating { display: none; }
 }
 @container (max-width: 760px) {
-  .col-radar { display: none; }
+  .col-radar, .col-avis { display: none; }
   .head-tools { width: 100%; margin-left: 0; }
   .search { flex: 1; min-width: 0; }
 }
