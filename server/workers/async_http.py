@@ -14,9 +14,9 @@ Usage:
 """
 import asyncio
 import logging
+from concurrent.futures import ProcessPoolExecutor
 
 import httpx
-from curl_cffi.requests import AsyncSession as CurlAsyncSession
 
 from workers.rate_limiter import RateLimiter
 
@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 
 DEEZER_API = "https://api.deezer.com"
 BEATPORT_URL = "https://www.beatport.com"
+
+
+def _curl_cffi_get(url: str, timeout: int = 15) -> tuple[int, str, bytes]:
+    """Beatport GET via curl_cffi in a separate process (avoids asyncio conflicts).
+    Must be top-level function for ProcessPoolExecutor pickling."""
+    from curl_cffi import requests as curl_requests
+    s = curl_requests.Session(impersonate="chrome124")
+    try:
+        r = s.get(url, timeout=timeout)
+        return r.status_code, r.text, r.content
+    finally:
+        s.close()
+
 
 # Retry config
 MAX_RETRIES = 3
@@ -43,15 +56,15 @@ class HttpPool:
             follow_redirects=False,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
-        self._bp_session = CurlAsyncSession(impersonate="chrome124")
+        self._bp_executor = ProcessPoolExecutor(max_workers=2)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._client:
             await self._client.aclose()
             self._client = None
-        if hasattr(self, '_bp_session'):
-            await self._bp_session.close()
+        if hasattr(self, '_bp_executor'):
+            self._bp_executor.shutdown(wait=False)
         return False
 
     async def _request_with_retry(
@@ -97,20 +110,23 @@ class HttpPool:
     # ── Beatport ──
 
     async def beatport_get(self, path: str) -> httpx.Response:
-        """GET request to Beatport via curl_cffi async (bypasses Cloudflare TLS fingerprinting).
+        """GET request to Beatport via curl_cffi in subprocess (bypasses Cloudflare TLS fingerprinting).
         Returns an httpx.Response-compatible object."""
         url = f"{BEATPORT_URL}{path}"
+        loop = asyncio.get_event_loop()
 
         async with self.limiter.acquire("beatport"):
-            resp = await self._bp_session.get(url, timeout=15)
+            status_code, text, content = await loop.run_in_executor(
+                self._bp_executor, _curl_cffi_get, url
+            )
 
-        # Wrap as a minimal object with .status_code and .text
         class _Resp:
-            def __init__(self, r):
-                self.status_code = r.status_code
-                self.text = r.text
-                self.content = r.content
-        return _Resp(resp)
+            pass
+        resp = _Resp()
+        resp.status_code = status_code
+        resp.text = text
+        resp.content = content
+        return resp
 
     # ── Generic ──
 
