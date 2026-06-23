@@ -1,5 +1,5 @@
 <template>
-  <RouterLink :to="`/artist/${artist.id}`" class="artist-card" :style="cardStyle">
+  <RouterLink :to="`/artist/${artist.id}`" class="artist-card" :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked' }" :style="cardStyle">
     <div class="ac-art">
       <div class="ac-scrim"></div>
 
@@ -44,15 +44,11 @@
           <span v-if="artist.nb_lib" class="v">{{ artist.nb_lib }}</span>
           <span v-else class="v-empty">&mdash;</span>
         </div>
-        <div class="ac-stat liked">
-          <span class="k">Liked</span>
-          <template v-if="artist.nb_liked">
-            <span class="v">
-              <svg viewBox="0 0 24 24"><path d="M12 20.5l-1.5-1.35C5.2 14.5 2 11.6 2 8.05 2 5.6 3.9 3.7 6.35 3.7c1.4 0 2.75.66 3.65 1.7.9-1.04 2.25-1.7 3.65-1.7C16.1 3.7 18 5.6 18 8.05c0 3.55-3.2 6.45-8.5 11.1z"/></svg>
-              {{ artist.nb_liked }}
-            </span>
-          </template>
-          <span v-else class="v-empty">&mdash;</span>
+        <div class="ac-avis">
+          <LikeDislike
+            :model-value="opinions.get('artist', artist.id)"
+            @update:model-value="v => opinions.set('artist', artist.id, v)"
+          />
         </div>
       </div>
     </div>
@@ -63,14 +59,18 @@
 import { computed, ref } from 'vue'
 import { styleTone } from '../composables/useStyleMap.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { useOpinionsStore } from '../stores/opinions.js'
 import StyleTag from './StyleTag.vue'
+import LikeDislike from './LikeDislike.vue'
 
 const props = defineProps({
   artist: { type: Object, required: true },
 })
 
 const player = useAudioPlayer()
+const opinions = useOpinionsStore()
 const isPlaying = computed(() => player.artistPlaying === props.artist.id)
+const opinion = computed(() => opinions.get('artist', props.artist.id))
 
 function onPlay() {
   if (isPlaying.value) {
@@ -313,18 +313,29 @@ const displayGenres = computed(() => (props.artist.genres || []).slice(0, 2))
   font: 600 14px/1 var(--font-mono);
   color: var(--ink);
 }
-.ac-stat.liked .v {
-  color: var(--pos-ink);
-}
-.ac-stat.liked .v svg {
-  width: 12px;
-  height: 12px;
-  fill: var(--pos);
-  vertical-align: -1px;
-  margin-right: 3px;
-}
 .v-empty {
   font: 500 13px/1 var(--font-mono);
   color: var(--ink-3);
+}
+
+/* ---- avis separator + buttons ---- */
+.ac-avis {
+  border-left: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  margin-left: auto;
+}
+
+/* ---- card liked / disliked states ---- */
+.artist-card.liked {
+  border-color: var(--pos);
+  box-shadow: 0 0 0 2px var(--pos-soft);
+}
+.artist-card.disliked {
+  opacity: 0.52;
+}
+.artist-card.disliked:hover {
+  opacity: 0.72;
 }
 </style>

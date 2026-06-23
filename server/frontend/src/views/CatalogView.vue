@@ -128,7 +128,7 @@
                 <LibDot :in-lib="e.in_lib" />
               </td>
               <td class="end c-avis col-avis">
-                <AvisActions :model-value="e.avis" @update:model-value="v => setAvis(e, v)" />
+                <LikeDislike :model-value="e.avis" @update:model-value="v => setAvis(e, v)" />
               </td>
             </tr>
           </tbody>
@@ -150,7 +150,7 @@ import { useRoute, RouterLink } from 'vue-router'
 import axios from 'axios'
 import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
-import AvisActions from '../components/AvisActions.vue'
+import LikeDislike from '../components/LikeDislike.vue'
 import StyleTag from '../components/StyleTag.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs } from '../utils/format'
@@ -393,7 +393,7 @@ table.tt {
 }
 table.tt col.w-play   { width: 44px; }
 table.tt col.w-track  { width: auto; }
-table.tt col.w-style  { width: 168px; }
+table.tt col.w-style  { width: 130px; }
 table.tt col.w-bpm    { width: 74px; }
 table.tt col.w-key    { width: 66px; }
 table.tt col.w-dur    { width: 84px; }
@@ -436,8 +436,9 @@ table.tt td {
   vertical-align: middle;
 }
 
-/* ============ PLAY BTN ============ */
-.c-play { width: 44px; }
+/* ============ PLAY & AVIS SYMMETRY ============ */
+.c-play { width: 44px; padding: 0 14px; }
+.c-avis { padding: 0 14px; }
 .pbtn {
   width: 30px;
   height: 30px;

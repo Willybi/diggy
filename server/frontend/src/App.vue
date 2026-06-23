@@ -16,8 +16,11 @@
 import SidebarNav from './components/SidebarNav.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import { useAudioPlayer } from './stores/audioPlayer'
+import { useOpinionsStore } from './stores/opinions.js'
 
 const player = useAudioPlayer()
+const opinions = useOpinionsStore()
+opinions.load()
 </script>
 
 <style>

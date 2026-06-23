@@ -2,6 +2,7 @@
   <RouterLink
     :to="`/style/${encodeURIComponent(genre.name)}`"
     class="genre-card"
+    :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked' }"
     :style="hue != null ? { '--th': hue } : undefined"
   >
     <!-- Artwork zone: always 4 slots — image or tinted placeholder -->
@@ -42,6 +43,14 @@
         <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
       </button>
+
+      <!-- Like / Dislike overlay -->
+      <div class="gc-acts">
+        <LikeDislike
+          :model-value="opinion"
+          @update:model-value="v => opinions.set('genre', genre.name, v)"
+        />
+      </div>
     </div>
 
     <!-- Body -->
@@ -73,13 +82,17 @@
 import { computed } from 'vue'
 import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { useOpinionsStore } from '../stores/opinions.js'
+import LikeDislike from './LikeDislike.vue'
 
 const props = defineProps({
   genre: { type: Object, required: true },
 })
 
 const player = useAudioPlayer()
+const opinions = useOpinionsStore()
 const isPlaying = computed(() => player.genrePlaying === props.genre.name)
+const opinion = computed(() => opinions.get('genre', props.genre.name))
 
 function onPlay() {
   if (isPlaying.value) {
@@ -250,6 +263,39 @@ function onAvatarError(e) {
 .genre-card:hover .gc-play { opacity: 1; transform: none; }
 .gc-play--playing { opacity: 1; transform: none; }
 .gc-play:hover { background: var(--accent-hover); }
+
+/* Like/Dislike overlay on artwork */
+.gc-acts {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 3;
+  display: flex;
+  gap: 5px;
+  opacity: 0;
+  transition: opacity .14s;
+}
+.genre-card:hover .gc-acts,
+.genre-card.liked .gc-acts,
+.genre-card.disliked .gc-acts { opacity: 1; }
+
+.gc-acts :deep(.ld-btn) {
+  opacity: 1;
+  background: oklch(0.995 0.004 92 / .92);
+  backdrop-filter: blur(4px);
+}
+[data-theme="dark"] .gc-acts :deep(.ld-btn) {
+  background: oklch(0.238 0.014 262 / .88);
+}
+
+/* Card liked / disliked states */
+.genre-card.liked {
+  border-color: var(--pos);
+  box-shadow: 0 0 0 2px var(--pos-soft);
+}
+.genre-card.disliked {
+  opacity: 0.52;
+}
 
 /* ── Body ── */
 .gc-body {
