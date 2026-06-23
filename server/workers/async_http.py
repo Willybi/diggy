@@ -44,7 +44,7 @@ class HttpPool:
             follow_redirects=False,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
-        self._bp_session = curl_requests.Session(impersonate="chrome131")
+        self._bp_session = curl_requests.Session(impersonate="chrome124")
         self._bp_executor = ThreadPoolExecutor(max_workers=2)
         return self
 
