@@ -529,6 +529,7 @@ def sync_artists(self):
                 session.add(artist)
                 session.flush()
                 known_norms.add(norm)
+                created += 1
                 return artist
 
             def _ensure_alias(artist, alias_name):
@@ -559,7 +560,6 @@ def sync_artists(self):
                 if FEAT_RE.search(raw):
                     for name in [p.strip() for p in FEAT_RE.split(raw) if p.strip()]:
                         _get_or_create(name)
-                        created += 1
                     batch_count += 1
                     if batch_count % 50 == 0:
                         session.commit()
@@ -570,7 +570,6 @@ def sync_artists(self):
                     if any(normalize(t) in known_norms for t in tokens):
                         for name in tokens:
                             _get_or_create(name)
-                            created += 1
                         batch_count += 1
                         if batch_count % 50 == 0:
                             session.commit()
@@ -583,7 +582,6 @@ def sync_artists(self):
                     if any(normalize(t) in known_norms for t in tokens):
                         for name in tokens:
                             _get_or_create(name)
-                            created += 1
                         batch_count += 1
                         if batch_count % 50 == 0:
                             session.commit()
@@ -592,7 +590,6 @@ def sync_artists(self):
                     continue
 
                 _get_or_create(raw)
-                created += 1
                 batch_count += 1
                 if batch_count % 50 == 0:
                     session.commit()
@@ -648,7 +645,7 @@ def sync_artists(self):
                                             known.add(norm)
                                             if deezer_ids.get(name):
                                                 a.deezer_id = deezer_ids[name]
-                                        created += 1
+                                            created += 1
                                 else:
                                     session.add(ArtistFlag(
                                         raw_artist_string=raw, reason="comma_unresolved",
@@ -670,7 +667,7 @@ def sync_artists(self):
                                         session.add(a)
                                         session.flush()
                                         known.add(norm)
-                                    created += 1
+                                        created += 1
                                 elif tokens_found and not full_found:
                                     for name in tokens:
                                         norm = normalize(name)
@@ -681,7 +678,7 @@ def sync_artists(self):
                                             session.add(a)
                                             session.flush()
                                             known.add(norm)
-                                        created += 1
+                                            created += 1
                                 else:
                                     reason = "ampersand_ambiguous" if (full_found and tokens_found) else "ampersand_unknown"
                                     session.add(ArtistFlag(
