@@ -15,8 +15,10 @@ Usage:
 import asyncio
 import logging
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
+import requests as sync_requests
 
 from workers.rate_limiter import RateLimiter
 
@@ -48,15 +50,21 @@ class HttpPool:
     async def __aenter__(self):
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(20.0, connect=10.0),
-            follow_redirects=True,
+            follow_redirects=False,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
+        self._bp_session = sync_requests.Session()
+        self._bp_executor = ThreadPoolExecutor(max_workers=2)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._client:
             await self._client.aclose()
             self._client = None
+        if hasattr(self, '_bp_session'):
+            self._bp_session.close()
+        if hasattr(self, '_bp_executor'):
+            self._bp_executor.shutdown(wait=False)
         return False
 
     async def _request_with_retry(
@@ -102,9 +110,25 @@ class HttpPool:
     # ── Beatport ──
 
     async def beatport_get(self, path: str) -> httpx.Response:
-        """GET request to Beatport, rate-limited + retrying with UA rotation."""
+        """GET request to Beatport via sync requests in threadpool (Cloudflare blocks httpx).
+        Returns an httpx.Response-compatible object."""
         headers = {"User-Agent": random.choice(_BEATPORT_USER_AGENTS)}
-        return await self._request_with_retry("beatport", "GET", f"{BEATPORT_URL}{path}", headers=headers)
+        url = f"{BEATPORT_URL}{path}"
+        loop = asyncio.get_event_loop()
+
+        async with self.limiter.acquire("beatport"):
+            def _sync_get():
+                return self._bp_session.get(url, headers=headers, timeout=15)
+
+            resp = await loop.run_in_executor(self._bp_executor, _sync_get)
+
+        # Wrap as a minimal object with .status_code and .text
+        class _Resp:
+            def __init__(self, r):
+                self.status_code = r.status_code
+                self.text = r.text
+                self.content = r.content
+        return _Resp(resp)
 
     # ── Generic ──
 
