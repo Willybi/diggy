@@ -245,6 +245,7 @@ class ArtistListOut(BaseModel):
     has_artwork: bool = False
     nb_catalog: int = 0
     nb_lib: int = 0
+    nb_liked: int = 0
     avg_rating: Optional[float] = None
     genres: list[str] = []
 
