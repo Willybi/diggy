@@ -505,207 +505,198 @@ def sync_artists(self):
     needs_deezer = []  # list of (raw_string, tokens, rule_type)
 
     try:
-      with Session(engine) as session:
-        all_strings = [r[0] for r in session.execute(
-            select(CatalogEntry.artist).distinct().where(CatalogEntry.artist.isnot(None))
-        ).all()]
+        with Session(engine) as session:
+            all_strings = [r[0] for r in session.execute(
+                select(CatalogEntry.artist).distinct().where(CatalogEntry.artist.isnot(None))
+            ).all()]
 
-        known_norms = set(r[0] for r in session.execute(select(Artist.normalized_name)).all())
-        known_norms |= set(r[0] for r in session.execute(select(ArtistAlias.normalized_alias)).all())
-        already_flagged = set(r[0] for r in session.execute(select(ArtistFlag.raw_artist_string)).all())
+            known_norms = set(r[0] for r in session.execute(select(Artist.normalized_name)).all())
+            known_norms |= set(r[0] for r in session.execute(select(ArtistAlias.normalized_alias)).all())
+            already_flagged = set(r[0] for r in session.execute(select(ArtistFlag.raw_artist_string)).all())
 
-        def _get_or_create(name):
-            nonlocal created
-            norm = normalize(name)
-            if norm in known_norms:
-                artist = session.execute(select(Artist).where(Artist.normalized_name == norm)).scalar_one_or_none()
-                if artist and name.strip() != artist.name:
-                    _ensure_alias(artist, name.strip())
+            def _get_or_create(name):
+                nonlocal created
+                norm = normalize(name)
+                if norm in known_norms:
+                    artist = session.execute(select(Artist).where(Artist.normalized_name == norm)).scalar_one_or_none()
+                    if artist and name.strip() != artist.name:
+                        _ensure_alias(artist, name.strip())
+                    return artist
+                alias = session.execute(select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)).scalar_one_or_none()
+                if alias:
+                    return session.get(Artist, alias.artist_id)
+                artist = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                session.add(artist)
+                session.flush()
+                known_norms.add(norm)
                 return artist
-            alias = session.execute(select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)).scalar_one_or_none()
-            if alias:
-                return session.get(Artist, alias.artist_id)
-            artist = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
-            session.add(artist)
-            session.flush()
-            known_norms.add(norm)
-            return artist
 
-        def _ensure_alias(artist, alias_name):
-            if not artist or not alias_name:
-                return
-            norm = normalize(alias_name)
-            if norm == artist.normalized_name or norm in known_norms:
-                return
-            existing = session.execute(
-                select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
-            ).scalar_one_or_none()
-            if existing:
-                return
-            session.add(ArtistAlias(artist_id=artist.id, alias=alias_name, normalized_alias=norm))
-            known_norms.add(norm)
+            def _ensure_alias(artist, alias_name):
+                if not artist or not alias_name:
+                    return
+                norm = normalize(alias_name)
+                if norm == artist.normalized_name or norm in known_norms:
+                    return
+                existing = session.execute(
+                    select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
+                ).scalar_one_or_none()
+                if existing:
+                    return
+                session.add(ArtistAlias(artist_id=artist.id, alias=alias_name, normalized_alias=norm))
+                known_norms.add(norm)
 
-        # Phase A: local resolution
-        batch_count = 0
-        for raw in all_strings:
-            raw = raw.strip()
-            if not raw:
-                continue
-            norm = normalize(raw)
-            if norm in known_norms or raw in already_flagged:
-                skipped += 1
-                continue
+            # Phase A: local resolution
+            batch_count = 0
+            for raw in all_strings:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                norm = normalize(raw)
+                if norm in known_norms or raw in already_flagged:
+                    skipped += 1
+                    continue
 
-            # Rule 1: feat / featuring / ft / vs — always split locally
-            if FEAT_RE.search(raw):
-                for name in [p.strip() for p in FEAT_RE.split(raw) if p.strip()]:
-                    _get_or_create(name)
-                    created += 1
-                batch_count += 1
-                if batch_count % 50 == 0:
-                    session.commit()
-                continue
-
-            # Rule 2: comma — if any token known, resolve locally
-            if "," in raw:
-                tokens = [p.strip() for p in raw.split(",") if p.strip()]
-                if any(normalize(t) in known_norms for t in tokens):
-                    for name in tokens:
-                        _get_or_create(name)
-                        created += 1
-                    batch_count += 1
-                    if batch_count % 50 == 0:
-                        session.commit()
-                else:
-                    needs_deezer.append((raw, tokens, "comma"))
-                continue
-
-            # Rule 3: ampersand — if any token known, resolve locally
-            if " & " in raw:
-                tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
-                if any(normalize(t) in known_norms for t in tokens):
-                    for name in tokens:
+                if FEAT_RE.search(raw):
+                    for name in [p.strip() for p in FEAT_RE.split(raw) if p.strip()]:
                         _get_or_create(name)
                         created += 1
                     batch_count += 1
                     if batch_count % 50 == 0:
                         session.commit()
                     continue
-                needs_deezer.append((raw, tokens, "ampersand"))
-                continue
 
-            # Rule 4: no separator — create directly
-            _get_or_create(raw)
-            created += 1
-            batch_count += 1
-            if batch_count % 50 == 0:
-                session.commit()
+                if "," in raw:
+                    tokens = [p.strip() for p in raw.split(",") if p.strip()]
+                    if any(normalize(t) in known_norms for t in tokens):
+                        for name in tokens:
+                            _get_or_create(name)
+                            created += 1
+                        batch_count += 1
+                        if batch_count % 50 == 0:
+                            session.commit()
+                    else:
+                        needs_deezer.append((raw, tokens, "comma"))
+                    continue
 
-        session.commit()
+                if " & " in raw:
+                    tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
+                    if any(normalize(t) in known_norms for t in tokens):
+                        for name in tokens:
+                            _get_or_create(name)
+                            created += 1
+                        batch_count += 1
+                        if batch_count % 50 == 0:
+                            session.commit()
+                        continue
+                    needs_deezer.append((raw, tokens, "ampersand"))
+                    continue
 
-    # Phase B: Deezer disambiguation (concurrent)
-    if needs_deezer:
-        async def _deezer_resolve():
-            nonlocal created, flagged
-            import unicodedata
-            from workers.rate_limiter import RateLimiter
-            from workers.async_http import HttpPool
+                _get_or_create(raw)
+                created += 1
+                batch_count += 1
+                if batch_count % 50 == 0:
+                    session.commit()
 
-            def _norm(s):
-                s = unicodedata.normalize("NFKD", s.lower().strip())
-                return s.encode("ascii", "ignore").decode()
+            session.commit()
 
-            async def _deezer_artist_id(pool, name):
-                data = await pool.deezer_get("/search/artist", params={"q": name, "limit": 10})
-                name_norm = _norm(name)
-                for hit in data.get("data", []):
-                    dz_name = hit.get("name", "")
-                    if dz_name.lower() == name.lower() or _norm(dz_name) == name_norm:
-                        return str(hit["id"])
-                return None
+        # Phase B: Deezer disambiguation (concurrent)
+        if needs_deezer:
+            async def _deezer_resolve():
+                nonlocal created, flagged
+                import unicodedata
+                from workers.rate_limiter import RateLimiter
+                from workers.async_http import HttpPool
 
-            limiter = RateLimiter()
-            async with HttpPool(limiter) as pool:
-                with Session(engine) as session:
-                    # Re-load known_norms
-                    known = set(r[0] for r in session.execute(select(Artist.normalized_name)).all())
-                    known |= set(r[0] for r in session.execute(select(ArtistAlias.normalized_alias)).all())
+                def _norm(s):
+                    s = unicodedata.normalize("NFKD", s.lower().strip())
+                    return s.encode("ascii", "ignore").decode()
 
-                    for raw, tokens, rule_type in needs_deezer:
-                        # Concurrent Deezer lookups for all tokens
-                        deezer_ids = {}
-                        tasks_list = []
-                        names_to_search = list(tokens)
-                        if rule_type == "ampersand":
-                            names_to_search = [raw] + list(tokens)
+                async def _deezer_artist_id(pool, name):
+                    data = await pool.deezer_get("/search/artist", params={"q": name, "limit": 10})
+                    name_norm = _norm(name)
+                    for hit in data.get("data", []):
+                        dz_name = hit.get("name", "")
+                        if dz_name.lower() == name.lower() or _norm(dz_name) == name_norm:
+                            return str(hit["id"])
+                    return None
 
-                        for name in names_to_search:
-                            tasks_list.append(_deezer_artist_id(pool, name))
-                        results = await asyncio.gather(*tasks_list)
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        known = set(r[0] for r in session.execute(select(Artist.normalized_name)).all())
+                        known |= set(r[0] for r in session.execute(select(ArtistAlias.normalized_alias)).all())
 
-                        for name, dz_id in zip(names_to_search, results):
-                            deezer_ids[name] = dz_id
+                        for raw, tokens, rule_type in needs_deezer:
+                            deezer_ids = {}
+                            names_to_search = list(tokens)
+                            if rule_type == "ampersand":
+                                names_to_search = [raw] + list(tokens)
 
-                        if rule_type == "comma":
-                            if all(deezer_ids.get(t) is not None for t in tokens):
-                                for name in tokens:
-                                    norm = normalize(name)
+                            results = await asyncio.gather(*[_deezer_artist_id(pool, n) for n in names_to_search])
+
+                            for name, dz_id in zip(names_to_search, results):
+                                deezer_ids[name] = dz_id
+
+                            if rule_type == "comma":
+                                if all(deezer_ids.get(t) is not None for t in tokens):
+                                    for name in tokens:
+                                        norm = normalize(name)
+                                        if norm not in known:
+                                            a = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                                            session.add(a)
+                                            session.flush()
+                                            known.add(norm)
+                                            if deezer_ids.get(name):
+                                                a.deezer_id = deezer_ids[name]
+                                        created += 1
+                                else:
+                                    session.add(ArtistFlag(
+                                        raw_artist_string=raw, reason="comma_unresolved",
+                                        tokens=tokens, deezer_ids=deezer_ids, status="pending",
+                                        created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                                    ))
+                                    flagged += 1
+
+                            elif rule_type == "ampersand":
+                                deezer_full = deezer_ids.get(raw)
+                                full_found = deezer_full is not None
+                                tokens_found = all(deezer_ids.get(t) is not None for t in tokens)
+
+                                if full_found and not tokens_found:
+                                    norm = normalize(raw)
                                     if norm not in known:
-                                        a = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                                        a = Artist(name=raw, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                                        a.deezer_id = deezer_full
                                         session.add(a)
                                         session.flush()
                                         known.add(norm)
-                                        if deezer_ids.get(name):
-                                            a.deezer_id = deezer_ids[name]
                                     created += 1
-                            else:
-                                session.add(ArtistFlag(
-                                    raw_artist_string=raw, reason="comma_unresolved",
-                                    tokens=tokens, deezer_ids=deezer_ids, status="pending",
-                                    created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
-                                ))
-                                flagged += 1
+                                elif tokens_found and not full_found:
+                                    for name in tokens:
+                                        norm = normalize(name)
+                                        if norm not in known:
+                                            a = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+                                            if deezer_ids.get(name):
+                                                a.deezer_id = deezer_ids[name]
+                                            session.add(a)
+                                            session.flush()
+                                            known.add(norm)
+                                        created += 1
+                                else:
+                                    reason = "ampersand_ambiguous" if (full_found and tokens_found) else "ampersand_unknown"
+                                    session.add(ArtistFlag(
+                                        raw_artist_string=raw, reason=reason,
+                                        tokens=tokens, deezer_ids=deezer_ids, status="pending",
+                                        created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                                    ))
+                                    flagged += 1
 
-                        elif rule_type == "ampersand":
-                            deezer_full = deezer_ids.get(raw)
-                            full_found = deezer_full is not None
-                            tokens_found = all(deezer_ids.get(t) is not None for t in tokens)
+                            session.commit()
 
-                            if full_found and not tokens_found:
-                                norm = normalize(raw)
-                                if norm not in known:
-                                    a = Artist(name=raw, normalized_name=norm, created_at=datetime.now(timezone.utc))
-                                    a.deezer_id = deezer_full
-                                    session.add(a)
-                                    session.flush()
-                                    known.add(norm)
-                                created += 1
-                            elif tokens_found and not full_found:
-                                for name in tokens:
-                                    norm = normalize(name)
-                                    if norm not in known:
-                                        a = Artist(name=name, normalized_name=norm, created_at=datetime.now(timezone.utc))
-                                        if deezer_ids.get(name):
-                                            a.deezer_id = deezer_ids[name]
-                                        session.add(a)
-                                        session.flush()
-                                        known.add(norm)
-                                    created += 1
-                            else:
-                                reason = "ampersand_ambiguous" if (full_found and tokens_found) else "ampersand_unknown"
-                                session.add(ArtistFlag(
-                                    raw_artist_string=raw, reason=reason,
-                                    tokens=tokens, deezer_ids=deezer_ids, status="pending",
-                                    created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
-                                ))
-                                flagged += 1
-
-                        session.commit()
-
-        try:
-            asyncio.run(_deezer_resolve())
-        except Exception as e:
-            logger.error("Deezer artist disambiguation failed: %s", e)
+            try:
+                asyncio.run(_deezer_resolve())
+            except Exception as e:
+                logger.error("Deezer artist disambiguation failed: %s", e)
 
     except Exception as exc:
         _clog_exc = exc
