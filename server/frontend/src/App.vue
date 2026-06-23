@@ -45,6 +45,7 @@ body {
 .app-main {
   min-width: 0;
   overflow-y: auto;
+  container: app / inline-size;
 }
 
 @container (max-width: 900px) {
