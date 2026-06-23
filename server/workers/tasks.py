@@ -64,7 +64,7 @@ def crawl_single_playlist(playlist_id: int):
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
     from models import CatalogEntry, RadarTrack, WatchedEntity
-    from deezer_enrich import enrich_entry, search_deezer, upload_cover_from_url, _get_s3, _ensure_bucket
+    from deezer_enrich import enrich_entry, search_deezer, upload_image_to_bucket, _get_s3, _ensure_bucket
     from workers.source_clients import get_fetchers
 
     logger = logging.getLogger(__name__)
@@ -100,7 +100,8 @@ def crawl_single_playlist(playlist_id: int):
             if meta.title and not entity.title:
                 entity.title = meta.title
             if not entity.has_artwork and meta.cover_url:
-                if upload_cover_from_url(s3, meta.cover_url, f"playlist-{playlist_id}"):
+                _ensure_bucket(s3, "playlist-artworks")
+                if upload_image_to_bucket(s3, meta.cover_url, f"{playlist_id}.jpg", "playlist-artworks"):
                     entity.has_artwork = True
             session.commit()
 
