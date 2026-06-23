@@ -1,10 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import Float, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import Artist, ArtistAlias, CatalogEntry, UserTrack, DJSet, SetArtist, SetTrack
+from dependencies import get_current_user_optional, uid as _uid
+from models import (
+    Artist, ArtistAlias, CatalogEntry, UserTrack,
+    DJSet, SetArtist, SetTrack, User, UserRadarState,
+)
+from routers.genres import genre_family, _ALL_FAMILIES
 from schemas import (
     ArtistDetailOut, ArtistAliasOut, ArtistListOut,
     CatalogEntryOut, ArtistSetOut,
@@ -13,17 +20,23 @@ from schemas import (
 router = APIRouter(prefix="/artists", tags=["artists"])
 
 
-@router.get("/", response_model=list[ArtistListOut])
+@router.get("/")
 async def list_artists(
+    sort: str = Query("catalog", pattern="^(catalog|liked|rating|alpha)$"),
+    family: str | None = Query(None),
     q: str | None = None,
     no_deezer: bool = False,
-    limit: int = 500,
+    limit: int = Query(24, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
-    from sqlalchemy import Float
+    user_id = _uid(user)
 
+    # -- subqueries scoped to user --
     lib_sub = (
         select(UserTrack.catalog_id, UserTrack.rating)
+        .where(UserTrack.user_id == user_id)
         .subquery()
     )
 
@@ -39,44 +52,64 @@ async def list_artists(
         .subquery()
     )
 
+    liked_sub = (
+        select(
+            CatalogEntry.artist.label("artist_name"),
+            func.count(UserRadarState.catalog_id).label("nb_liked"),
+        )
+        .join(UserRadarState, UserRadarState.catalog_id == CatalogEntry.id)
+        .where(UserRadarState.status == "added", UserRadarState.user_id == user_id)
+        .group_by(CatalogEntry.artist)
+        .subquery()
+    )
+
+    # -- fetch all matching artists --
     q_artists = (
         select(Artist)
         .options(selectinload(Artist.aliases))
         .order_by(func.lower(Artist.name))
-        .limit(limit)
     )
     if q:
-        pattern = f"%{q}%"
-        q_artists = q_artists.where(Artist.name.ilike(pattern))
+        q_artists = q_artists.where(Artist.name.ilike(f"%{q}%"))
     if no_deezer:
         q_artists = q_artists.where(Artist.deezer_id.is_(None))
 
     result = await db.execute(q_artists)
     artists = result.scalars().all()
 
-    # Build name → stats map
+    # -- collect all name variants --
     all_names: set[str] = set()
     for a in artists:
         all_names.add(a.name.lower())
         for alias in a.aliases:
             all_names.add(alias.alias.lower())
 
+    if not all_names:
+        return {"items": [], "total": 0, "familyCounts": {f: 0 for f in _ALL_FAMILIES}}
+
+    # -- batch stats --
     stats_result = await db.execute(
         select(cat_sub).where(func.lower(cat_sub.c.artist_name).in_(all_names))
     )
-    raw_stats = stats_result.all()
-
-    # Group by normalized name → aggregate
-    from collections import defaultdict
-    stats_by_name: dict[str, dict] = defaultdict(lambda: {"nb_catalog": 0, "nb_lib": 0, "ratings": []})
-    for row in raw_stats:
+    stats_by_name: dict[str, dict] = defaultdict(
+        lambda: {"nb_catalog": 0, "nb_lib": 0, "ratings": []}
+    )
+    for row in stats_result.all():
         key = row.artist_name.lower()
         stats_by_name[key]["nb_catalog"] += row.nb_catalog
         stats_by_name[key]["nb_lib"] += row.nb_lib
         if row.avg_rating:
             stats_by_name[key]["ratings"].append(float(row.avg_rating))
 
-    # Genre aggregation from catalog.genre
+    # -- batch liked --
+    liked_result = await db.execute(
+        select(liked_sub).where(func.lower(liked_sub.c.artist_name).in_(all_names))
+    )
+    liked_by_name: dict[str, int] = {}
+    for row in liked_result.all():
+        liked_by_name[row.artist_name.lower()] = row.nb_liked
+
+    # -- batch genres --
     genre_result = await db.execute(
         select(
             func.lower(CatalogEntry.artist).label("artist_name"),
@@ -92,9 +125,10 @@ async def list_artists(
         genre_by_name[row.artist_name][row.genre] = row.cnt
         total_by_name[row.artist_name] += row.cnt
 
-    out = []
+    # -- assemble per-artist data --
+    out: list[dict] = []
     for a in artists:
-        agg = {"nb_catalog": 0, "nb_lib": 0, "ratings": []}
+        agg = {"nb_catalog": 0, "nb_lib": 0, "nb_liked": 0, "ratings": []}
         genre_counts: dict[str, int] = defaultdict(int)
         total_tracks = 0
         for key in [a.name.lower()] + [al.alias.lower() for al in a.aliases]:
@@ -103,24 +137,60 @@ async def list_artists(
                 agg["nb_catalog"] += s["nb_catalog"]
                 agg["nb_lib"] += s["nb_lib"]
                 agg["ratings"].extend(s["ratings"])
+            agg["nb_liked"] += liked_by_name.get(key, 0)
             for g, c in genre_by_name.get(key, {}).items():
                 genre_counts[g] += c
             total_tracks += total_by_name.get(key, 0)
+
         avg = round(sum(agg["ratings"]) / len(agg["ratings"]), 1) if agg["ratings"] else None
         threshold = max(1, int(total_tracks * 0.2))
-        genres = sorted([g for g, c in genre_counts.items() if c >= threshold])
-        out.append(ArtistListOut(
-            id=a.id,
-            name=a.name,
-            real_name=a.real_name,
-            country=a.country,
-            has_artwork=a.has_artwork,
-            nb_catalog=agg["nb_catalog"],
-            nb_lib=agg["nb_lib"],
-            avg_rating=avg,
-            genres=genres,
-        ))
-    return out
+        genres = sorted(
+            [g for g, c in genre_counts.items() if c >= threshold],
+            key=lambda g: -genre_counts[g],
+        )
+        primary_family = genre_family(genres[0]) if genres else "misc"
+
+        out.append({
+            "id": a.id,
+            "name": a.name,
+            "real_name": a.real_name,
+            "country": a.country,
+            "has_artwork": a.has_artwork,
+            "nb_catalog": agg["nb_catalog"],
+            "nb_lib": agg["nb_lib"],
+            "nb_liked": agg["nb_liked"],
+            "avg_rating": avg,
+            "genres": genres,
+            "_family": primary_family,
+        })
+
+    # -- familyCounts (before family filter, subject to search q) --
+    family_counts: dict[str, int] = {f: 0 for f in _ALL_FAMILIES}
+    for item in out:
+        family_counts[item["_family"]] += 1
+
+    # -- apply family filter --
+    if family and family in _ALL_FAMILIES:
+        if family == "other":
+            out = [a for a in out if a["_family"] in ("other", "misc")]
+        else:
+            out = [a for a in out if a["_family"] == family]
+
+    # -- sort --
+    if sort == "catalog":
+        out.sort(key=lambda a: a["nb_catalog"], reverse=True)
+    elif sort == "liked":
+        out.sort(key=lambda a: (a["nb_liked"], a["nb_catalog"]), reverse=True)
+    elif sort == "rating":
+        out.sort(key=lambda a: (a["avg_rating"] or -1), reverse=True)
+    elif sort == "alpha":
+        out.sort(key=lambda a: a["name"].lower())
+
+    total = len(out)
+    page = out[offset:offset + limit]
+    items = [{k: v for k, v in item.items() if k != "_family"} for item in page]
+
+    return {"items": items, "total": total, "familyCounts": family_counts}
 
 
 @router.get("/{artist_id}", response_model=ArtistDetailOut)

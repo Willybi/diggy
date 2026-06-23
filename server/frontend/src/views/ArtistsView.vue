@@ -1,151 +1,203 @@
 <template>
   <div class="artists-view">
+    <!-- Header -->
     <div class="page-head">
       <div class="titles">
         <h1>Artistes</h1>
-        <div class="sub">{{ total }} artiste{{ total !== 1 ? 's' : '' }}</div>
+        <div class="sub">
+          <template v-if="isFiltered">{{ fmtNum(total) }} / {{ fmtNum(totalUnfiltered) }} artistes</template>
+          <template v-else>{{ fmtNum(totalUnfiltered) }} artistes</template>
+        </div>
       </div>
       <div class="head-tools">
         <label class="search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>
-          <input
-            v-model="search"
-            type="text"
-            placeholder="Rechercher…"
-            @input="onSearch"
-          />
+          <input v-model="searchQuery" type="text" placeholder="Rechercher un artiste…" />
         </label>
+        <div class="filterseg">
+          <button :class="{ on: sortBy === 'catalog' }" @click="sortBy = 'catalog'">Catalog</button>
+          <button :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">Liked</button>
+          <button :class="{ on: sortBy === 'rating' }" @click="sortBy = 'rating'">Rating</button>
+          <button :class="{ on: sortBy === 'alpha' }" @click="sortBy = 'alpha'">A–Z</button>
+        </div>
       </div>
     </div>
 
-    <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="artists.length === 0" class="state">Aucun artiste trouvé.</div>
+    <!-- Family chips -->
+    <div class="fam-chips">
+      <button
+        v-for="chip in familyChips"
+        :key="chip.key"
+        class="fam-chip"
+        :class="{ on: familyFilter === chip.key }"
+        @click="familyFilter = chip.key"
+      >
+        <span v-if="chip.hue != null" class="fc-dot" :style="{ '--fh': chip.hue }"></span>
+        {{ chip.label }}<span class="fc-n">{{ fmtNum(chip.count) }}</span>
+      </button>
+    </div>
 
-    <div v-else class="table-wrap">
-      <table class="tt">
-        <colgroup>
-          <col class="w-artist">
-          <col class="w-genres col-genres">
-          <col class="w-catalog">
-          <col class="w-inlib col-inlib">
-          <col class="w-rating col-rating">
-        </colgroup>
-        <thead>
-          <tr>
-            <th>Artiste</th>
-            <th class="col-genres">Genres</th>
-            <th class="num sortable" @click="toggleSort('nb_catalog')">
-              Catalog
-              <span v-if="sortKey === 'nb_catalog'" class="arr">{{ sortDir === 'desc' ? '↓' : '↑' }}</span>
-            </th>
-            <th class="num col-inlib sortable" @click="toggleSort('nb_lib')">
-              In lib
-              <span v-if="sortKey === 'nb_lib'" class="arr">{{ sortDir === 'desc' ? '↓' : '↑' }}</span>
-            </th>
-            <th class="num col-rating sortable" @click="toggleSort('avg_rating')">
-              Rating
-              <span v-if="sortKey === 'avg_rating'" class="arr">{{ sortDir === 'desc' ? '↓' : '↑' }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="a in sortedArtists"
-            :key="a.id"
-            @click="$router.push(`/artist/${a.id}`)"
-          >
-            <td>
-              <div class="artist-cell">
-                <span class="av">
-                  <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" :alt="a.name" />
-                </span>
-                <span class="artist-name">{{ a.name }}</span>
-              </div>
-            </td>
-            <td class="col-genres">
-              <div v-if="a.genres && a.genres.length" class="genre-list">
-                <StyleTag v-for="g in a.genres" :key="g" :name="g" />
-              </div>
-              <span v-else class="td-empty">—</span>
-            </td>
-            <td class="num">
-              <span v-if="a.nb_catalog" class="td-num">{{ a.nb_catalog }}</span>
-              <span v-else class="td-empty">—</span>
-            </td>
-            <td class="num col-inlib">
-              <span v-if="a.nb_lib" class="td-num">{{ a.nb_lib }}</span>
-              <span v-else class="td-empty">—</span>
-            </td>
-            <td class="num col-rating">
-              <span v-if="a.avg_rating" class="td-rat">{{ Number(a.avg_rating).toFixed(1) }}</span>
-              <span v-else class="td-empty">—</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- Skeleton loading -->
+    <div v-if="loading && !items.length" class="artist-grid">
+      <div v-for="i in 12" :key="i" class="skeleton-card">
+        <div class="sk-art"></div>
+        <div class="sk-body">
+          <div class="sk-line w60"></div>
+          <div class="sk-line w40"></div>
+          <div class="sk-stats"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div v-else-if="!items.length && !loading" class="empty">
+      Aucun artiste ne correspond.
+    </div>
+
+    <!-- Card grid -->
+    <div v-else class="artist-grid">
+      <ArtistCard v-for="a in items" :key="a.id" :artist="a" />
+    </div>
+
+    <!-- Sentinel (infinite scroll) -->
+    <div ref="sentinelRef" class="sentinel" :class="{ on: hasMore }">
+      <span class="spin"></span>Chargement…
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
-import StyleTag from '../components/StyleTag.vue'
+import { useAuthStore } from '../stores/auth.js'
+import { FAMILY_LABELS } from '../composables/useStyleMap.js'
+import ArtistCard from '../components/ArtistCard.vue'
 
-const artists = ref([])
-const loading = ref(false)
-const search = ref('')
-const sortKey = ref(null)
-const sortDir = ref('desc')
-let debounceTimer = null
+const auth = useAuthStore()
 
-const total = computed(() => artists.value.length)
+const FAMILY_HUES = { house: 260, techno: 320, trance: 352, other: 42 }
+const PAGE_SIZE = 24
 
-const sortedArtists = computed(() => {
-  if (!sortKey.value) return artists.value
-  const key = sortKey.value
-  const dir = sortDir.value === 'desc' ? -1 : 1
-  return [...artists.value].sort((a, b) => {
-    const va = a[key] ?? 0
-    const vb = b[key] ?? 0
-    return (va - vb) * dir
-  })
-})
-
-function toggleSort(key) {
-  if (sortKey.value === key) {
-    sortDir.value = sortDir.value === 'desc' ? 'asc' : 'desc'
-  } else {
-    sortKey.value = key
-    sortDir.value = 'desc'
-  }
+function authHeaders() {
+  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
 }
 
-async function fetchArtists() {
+// -- State --
+const items = ref([])
+const total = ref(0)
+const familyCounts = ref({})
+const loading = ref(false)
+const searchQuery = ref('')
+const sortBy = ref('catalog')
+const familyFilter = ref('all')
+const offset = ref(0)
+const hasMore = ref(false)
+const sentinelRef = ref(null)
+
+const totalUnfiltered = computed(() => {
+  const fc = familyCounts.value
+  return Object.values(fc).reduce((s, v) => s + v, 0)
+})
+
+const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all')
+
+const familyChips = computed(() => {
+  const fc = familyCounts.value
+  const allCount = Object.values(fc).reduce((s, v) => s + v, 0)
+  return [
+    { key: 'all', label: 'Tous', hue: null, count: allCount },
+    { key: 'house', label: FAMILY_LABELS.house, hue: FAMILY_HUES.house, count: fc.house || 0 },
+    { key: 'techno', label: FAMILY_LABELS.techno, hue: FAMILY_HUES.techno, count: fc.techno || 0 },
+    { key: 'trance', label: FAMILY_LABELS.trance, hue: FAMILY_HUES.trance, count: fc.trance || 0 },
+    { key: 'other', label: FAMILY_LABELS.other, hue: FAMILY_HUES.other, count: (fc.other || 0) + (fc.misc || 0) },
+  ]
+})
+
+// -- Fetch --
+async function fetchArtists(reset = true) {
+  if (reset) {
+    offset.value = 0
+    items.value = []
+  }
   loading.value = true
   try {
-    const params = {}
-    if (search.value.trim()) params.q = search.value.trim()
-    const { data } = await axios.get('/api/artists/', { params })
-    artists.value = data
+    const params = {
+      sort: sortBy.value,
+      limit: PAGE_SIZE,
+      offset: offset.value,
+    }
+    if (familyFilter.value !== 'all') params.family = familyFilter.value
+    if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
+
+    const { data } = await axios.get('/api/artists/', { params, headers: authHeaders() })
+    if (reset) {
+      items.value = data.items
+    } else {
+      items.value = [...items.value, ...data.items]
+    }
+    total.value = data.total
+    familyCounts.value = data.familyCounts || {}
+    hasMore.value = items.value.length < data.total
+  } catch {
+    if (reset) items.value = []
   } finally {
     loading.value = false
   }
 }
 
-function onSearch() {
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(fetchArtists, 300)
+function loadMore() {
+  if (loading.value || !hasMore.value) return
+  offset.value = items.value.length
+  fetchArtists(false)
 }
 
-onMounted(fetchArtists)
+// -- Search debounce --
+let debounceTimer = null
+watch(searchQuery, () => {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => fetchArtists(true), 250)
+})
+
+// -- Sort & family: immediate reload --
+watch(sortBy, () => fetchArtists(true))
+watch(familyFilter, () => fetchArtists(true))
+
+// -- IntersectionObserver --
+let observer = null
+onMounted(() => {
+  fetchArtists()
+
+  nextTick(() => {
+    if (sentinelRef.value) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) loadMore()
+        },
+        { rootMargin: '0px 0px 360px 0px' }
+      )
+      observer.observe(sentinelRef.value)
+    }
+  })
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+  clearTimeout(debounceTimer)
+})
+
+function fmtNum(n) {
+  return (n || 0).toLocaleString('fr-FR').replace(/\u202f/g, ' ')
+}
 </script>
 
 <style scoped>
 .artists-view {
-  container-type: inline-size;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
+/* -- Header -- */
 .page-head {
   display: flex;
   align-items: flex-start;
@@ -153,13 +205,13 @@ onMounted(fetchArtists)
   padding: 26px 30px 18px;
   flex-wrap: wrap;
 }
-.page-head .titles h1 {
+.titles h1 {
   margin: 0;
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
+  font: 600 28px/1.1 var(--font-ui);
+  letter-spacing: -.3px;
+  color: var(--ink);
 }
-.page-head .sub {
+.sub {
   margin-top: 5px;
   font: 500 13px/1 var(--font-mono);
   color: var(--ink-2);
@@ -180,7 +232,7 @@ onMounted(fetchArtists)
   border-radius: var(--r-sm);
   padding: 0 12px;
   height: 38px;
-  min-width: 230px;
+  min-width: 220px;
 }
 .search svg {
   width: 16px;
@@ -197,104 +249,160 @@ onMounted(fetchArtists)
   color: var(--ink);
 }
 .search input::placeholder { color: var(--ink-3); }
-
-.table-wrap {
-  padding: 4px 30px 30px;
-  overflow-x: auto;
+.filterseg {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-2);
+  padding: 3px;
+  border-radius: var(--r-sm);
 }
-table.tt {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  min-width: 440px;
-}
-table.tt col.w-artist  { width: auto; }
-table.tt col.w-genres  { width: 260px; }
-table.tt col.w-catalog { width: 90px; }
-table.tt col.w-inlib   { width: 88px; }
-table.tt col.w-rating  { width: 88px; }
-
-table.tt thead th {
-  position: sticky;
-  top: 0;
-  font: 600 10.5px/1 var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  text-align: left;
-  padding: 0 14px 11px;
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
-  user-select: none;
-}
-table.tt th.num, table.tt td.num { text-align: center; }
-table.tt th.sortable { cursor: pointer; }
-table.tt th .arr { color: var(--accent-ink); margin-left: 4px; }
-table.tt tbody tr {
-  border-bottom: 1px solid var(--line);
+.filterseg button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  padding: 8px 13px;
+  border-radius: var(--r-xs);
   cursor: pointer;
 }
-table.tt tbody tr:hover { background: var(--surface-2); }
-table.tt td { padding: 10px 14px; vertical-align: middle; }
+.filterseg button:hover { color: var(--ink); }
+.filterseg button.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
 
-.artist-cell {
+/* -- Family chips -- */
+.fam-chips {
   display: flex;
   align-items: center;
-  gap: 13px;
-  min-width: 0;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 30px 16px;
 }
-.av {
-  width: 40px;
-  height: 40px;
+.fam-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .14s, border-color .14s, color .14s;
+}
+.fam-chip:hover { background: var(--surface-2); color: var(--ink); }
+.fc-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex: none;
-  background: var(--surface-3);
+  background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--fh));
+  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--fh) / .28);
+}
+.fc-n {
+  font: 600 11px/1 var(--font-mono);
+  color: var(--ink-3);
+}
+.fam-chip.on {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+.fam-chip.on .fc-n { color: var(--accent-ink); }
+
+/* -- Grid -- */
+.artist-grid {
+  padding: 2px 30px 36px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+  gap: 16px;
+}
+
+/* -- Empty -- */
+.empty {
+  padding: 60px 30px;
+  text-align: center;
+  color: var(--ink-3);
+  font: 500 14px var(--font-mono);
+}
+
+/* -- Skeleton -- */
+.skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   overflow: hidden;
-  display: flex;
+}
+.sk-art {
+  height: 132px;
+  background: var(--surface-2);
+  animation: shimmer 1.2s ease-in-out infinite alternate;
+}
+.sk-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.sk-line {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  animation: shimmer 1.2s ease-in-out infinite alternate;
+}
+.sk-line.w60 { width: 60%; }
+.sk-line.w40 { width: 40%; }
+.sk-stats {
+  height: 36px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  margin-top: auto;
+  animation: shimmer 1.2s ease-in-out infinite alternate;
+}
+@keyframes shimmer {
+  from { opacity: .6; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk-art, .sk-line, .sk-stats { animation: none; }
+}
+
+/* -- Sentinel -- */
+.sentinel {
+  display: none;
   align-items: center;
   justify-content: center;
-}
-.av img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.artist-name {
-  font: 500 14.5px var(--font-ui);
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.genre-list {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  align-items: flex-start;
-}
-
-.td-num { font: 600 13px var(--font-mono); color: var(--ink); }
-.td-rat { font: 600 13px var(--font-mono); color: var(--accent-ink); }
-.td-empty { font: 500 13px var(--font-mono); color: var(--ink-3); }
-
-.state {
-  padding: 60px 30px;
+  gap: 10px;
+  padding: 8px 30px 40px;
   color: var(--ink-3);
-  font: 400 14px var(--font-ui);
-  text-align: center;
+  font: 500 12px/1 var(--font-mono);
 }
+.sentinel.on { display: flex; }
+.spin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 
-/* ── responsive (container queries) ── */
-@container (max-width: 1040px) { .col-rating { display: none; } }
+/* -- Responsive (container queries) -- */
 @container (max-width: 820px) {
-  .col-inlib { display: none; }
   .head-tools { width: 100%; margin-left: 0; }
   .search { flex: 1; min-width: 0; }
 }
-@container (max-width: 640px) {
-  .col-genres { display: none; }
-  .page-head, .table-wrap { padding-left: 18px; padding-right: 18px; }
+@container (max-width: 680px) {
+  .page-head, .artist-grid, .fam-chips, .sentinel {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
+@container (max-width: 560px) {
+  .artist-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@container (max-width: 380px) {
+  .artist-grid { grid-template-columns: 1fr; }
 }
 </style>
