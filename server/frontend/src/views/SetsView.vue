@@ -368,6 +368,9 @@ onMounted(fetchSets)
 .sets-view {
   container-type: inline-size;
   min-height: 100%;
+  max-width: var(--page-max-w);
+  margin-inline: auto;
+  width: 100%;
 }
 
 /* ============ PAGE HEAD ============ */

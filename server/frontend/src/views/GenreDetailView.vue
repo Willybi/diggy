@@ -464,7 +464,7 @@ onUnmounted(() => { if (observer) observer.disconnect() })
 
 <style scoped>
 .detail-view {
-  max-width: 1080px;
+  max-width: var(--detail-max-w);
   margin-inline: auto;
   padding: 26px 30px 56px;
 }

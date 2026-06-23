@@ -105,6 +105,10 @@
   /* ---- density (table row height + base padding) ---- */
   --row-h: 56px;
   --pad: 16px;
+
+  /* ---- layout constraints ---- */
+  --page-max-w:   1400px;
+  --detail-max-w: 1080px;
 }
 
 [data-theme="dark"] {

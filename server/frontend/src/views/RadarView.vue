@@ -310,6 +310,9 @@ onMounted(fetchPage)
   min-width: 0;
   display: flex;
   flex-direction: column;
+  max-width: var(--page-max-w);
+  margin-inline: auto;
+  width: 100%;
 }
 .page-head {
   display: flex;

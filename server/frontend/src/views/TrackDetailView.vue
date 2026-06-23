@@ -175,8 +175,8 @@ onMounted(async () => {
 <style scoped>
 .detail-view {
   padding: var(--pad) calc(var(--pad) * 1.5);
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: var(--detail-max-w);
+  margin-inline: auto;
 }
 .state {
   color: var(--ink-3);
