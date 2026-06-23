@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import TagsView          from './views/TagsView.vue'
+import GenresView        from './views/GenresView.vue'
 import GenreDetailView   from './views/GenreDetailView.vue'
 import CatalogView       from './views/CatalogView.vue'
 import RadarView         from './views/RadarView.vue'
@@ -17,7 +17,8 @@ const routes = [
   { path: '/',             redirect: '/catalog' },
   { path: '/login',        component: LoginView, meta: { public: true } },
   { path: '/tracks',       redirect: '/catalog?inlib=true' },
-  { path: '/tags',         component: TagsView },
+  { path: '/genres',       component: GenresView },
+  { path: '/tags',         redirect: '/genres' },
   { path: '/style/:genre', component: GenreDetailView, props: true },
   { path: '/catalog',      component: CatalogView },
   { path: '/catalog/:id',  component: TrackDetailView, props: true },
