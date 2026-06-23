@@ -118,7 +118,7 @@
           <col class="w-date col-date">
           <col class="w-tracks">
           <col class="w-dur col-dur">
-          <col class="w-follow">
+          <col class="w-avis">
         </colgroup>
         <thead>
           <tr>
@@ -126,13 +126,14 @@
             <th class="col-date sortable" @click="toggleSort('date')">Date <span v-if="sortKey === 'date'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
             <th class="num sortable" @click="toggleSort('tracks')">Tracks <span v-if="sortKey === 'tracks'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
             <th class="num col-dur sortable" @click="toggleSort('duration')">Durée <span v-if="sortKey === 'duration'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
-            <th class="end"></th>
+            <th class="end">Avis</th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="s in displayList"
             :key="s.id"
+            :class="{ liked: opinions.get('set', s.id) === 'liked', disliked: opinions.get('set', s.id) === 'disliked' }"
             @click="$router.push(`/set/${s.id}`)"
           >
             <td>
@@ -171,17 +172,11 @@
             <td class="num col-dur">
               <span class="td-dur">{{ fmtMs(s.duration_ms) }}</span>
             </td>
-            <td class="end" @click.stop>
-              <button
-                v-if="s.followed"
-                class="btn-follow following"
-                @click="doUnfollow(s.id)"
-              >Ne plus suivre</button>
-              <button
-                v-else
-                class="btn-follow"
-                @click="doFollow(s.id)"
-              >Suivre</button>
+            <td class="end td-avis" @click.stop>
+              <LikeDislike
+                :model-value="opinions.get('set', s.id)"
+                @update:model-value="v => opinions.set('set', s.id, v)"
+              />
             </td>
           </tr>
         </tbody>
@@ -195,10 +190,13 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
+import { useOpinionsStore } from '../stores/opinions.js'
 import { fmtMs, fmtDate } from '../utils/format'
+import LikeDislike from '../components/LikeDislike.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
+const opinions = useOpinionsStore()
 
 const sets = ref([])
 const loading = ref(false)
@@ -262,7 +260,7 @@ function sortValue(s, key) {
 }
 
 const displayList = computed(() => {
-  let list = mode.value === 'followed' ? sets.value.filter(s => s.followed) : [...sets.value]
+  let list = mode.value === 'followed' ? sets.value.filter(s => opinions.get('set', s.id) === 'liked') : [...sets.value]
   const dir = sortDir.value === 'asc' ? 1 : -1
   const key = sortKey.value
   list.sort((a, b) => {
@@ -343,22 +341,6 @@ async function doImport() {
   } finally {
     importing.value = false
   }
-}
-
-async function doFollow(setId) {
-  try {
-    await axios.post(`/api/sets/${setId}/follow`, {}, { headers: authHeaders() })
-    const s = sets.value.find(x => x.id === setId)
-    if (s) s.followed = true
-  } catch {}
-}
-
-async function doUnfollow(setId) {
-  try {
-    await axios.delete(`/api/sets/${setId}/follow`, { headers: authHeaders() })
-    const s = sets.value.find(x => x.id === setId)
-    if (s) s.followed = false
-  } catch {}
 }
 
 onMounted(fetchSets)
@@ -627,7 +609,7 @@ table.tt col.w-set    { width: auto; }
 table.tt col.w-date   { width: 128px; }
 table.tt col.w-tracks { width: 116px; }
 table.tt col.w-dur    { width: 110px; }
-table.tt col.w-follow { width: 140px; }
+table.tt col.w-avis   { width: 100px; }
 table.tt thead th {
   font: 600 10.5px/1 var(--font-mono);
   letter-spacing: 0.1em;
@@ -751,40 +733,11 @@ table.tt td {
 }
 .ring.full .pct { color: var(--pos-ink); }
 
-/* ============ FOLLOW BUTTON ============ */
-.btn-follow {
-  height: 32px;
-  padding: 0 16px;
-  border-radius: 999px;
-  cursor: pointer;
-  white-space: nowrap;
-  font: 600 12.5px var(--font-ui);
-  border: 1px solid transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.btn-follow:hover { background: var(--accent-hover); }
-.btn-follow.following {
-  background: transparent;
-  color: var(--ink-3);
-  border-color: var(--line-2);
-}
-.btn-follow.following:hover {
-  color: var(--neg-ink);
-  border-color: var(--neg);
-  background: var(--neg-soft);
-}
-.btn-follow.done {
-  background: transparent;
-  color: var(--ink-3);
-  border-color: var(--line-2);
-  cursor: default;
-}
-.btn-follow.done:hover {
-  background: transparent;
-  color: var(--ink-3);
-  border-color: var(--line-2);
-}
+/* ============ ROW AVIS STATES ============ */
+table.tt tbody tr.liked { background: color-mix(in oklch, var(--pos) 6%, transparent); }
+table.tt tbody tr.liked:hover { background: color-mix(in oklch, var(--pos) 10%, transparent); }
+table.tt tbody tr.disliked td:not(.td-avis) { opacity: 0.42; }
+table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
 
 /* ============ STATES ============ */
 .state {

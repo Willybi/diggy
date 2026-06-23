@@ -57,7 +57,7 @@
 
     <!-- Card grid -->
     <div v-else class="artist-grid">
-      <ArtistCard v-for="a in items" :key="a.id" :artist="a" />
+      <ArtistCard v-for="a in displayItems" :key="a.id" :artist="a" />
     </div>
 
     <!-- Sentinel (infinite scroll) -->
@@ -71,10 +71,12 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth.js'
+import { useOpinionsStore } from '../stores/opinions.js'
 import { FAMILY_LABELS } from '../composables/useStyleMap.js'
 import ArtistCard from '../components/ArtistCard.vue'
 
 const auth = useAuthStore()
+const opinions = useOpinionsStore()
 
 const FAMILY_HUES = { house: 260, techno: 320, trance: 352, other: 42 }
 const PAGE_SIZE = 24
@@ -100,7 +102,14 @@ const totalUnfiltered = computed(() => {
   return Object.values(fc).reduce((s, v) => s + v, 0)
 })
 
-const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all')
+const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all' || sortBy.value === 'liked')
+
+const displayItems = computed(() => {
+  if (sortBy.value === 'liked') {
+    return items.value.filter(a => opinions.get('artist', a.id) === 'liked')
+  }
+  return items.value
+})
 
 const familyChips = computed(() => {
   const fc = familyCounts.value

@@ -60,7 +60,7 @@
           <col class="w-creator col-creator">
           <col class="w-tracks col-tracks">
           <col class="w-crawl col-crawl">
-          <col class="w-actions">
+          <col class="w-avis">
         </colgroup>
         <thead>
           <tr>
@@ -68,11 +68,11 @@
             <th class="col-creator">Créateur</th>
             <th class="num col-tracks">Tracks</th>
             <th class="col-crawl">Dernier crawl</th>
-            <th class="end"></th>
+            <th class="end">Avis</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="pl in displayList" :key="pl.id">
+          <tr v-for="pl in displayList" :key="pl.id" :class="{ liked: opinions.get('playlist', pl.id) === 'liked', disliked: opinions.get('playlist', pl.id) === 'disliked' }">
             <td>
               <div class="pl-cell">
                 <span class="aw">
@@ -98,27 +98,20 @@
             <td class="col-crawl">
               <span v-if="crawlStatus[pl.id] === 'running'" class="crawl-badge running">Crawl en cours</span>
               <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl-badge queued">En file d'attente</span>
-              <span v-else class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
+              <template v-else>
+                <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
+                <button
+                  v-if="opinions.get('playlist', pl.id) === 'liked' && !isCooldown(pl)"
+                  class="btn-crawl"
+                  @click.stop="triggerCrawl(pl)"
+                >Crawl</button>
+              </template>
             </td>
-            <td class="end">
-              <div class="actions">
-                <template v-if="pl.followed">
-                  <button
-                    class="btn-crawl"
-                    :disabled="!!crawlStatus[pl.id] || isCooldown(pl)"
-                    :title="crawlStatus[pl.id] ? 'Crawl en cours' : isCooldown(pl) ? 'Déjà crawlé dans les 12 dernières heures' : 'Lancer un crawl maintenant'"
-                    @click.stop="triggerCrawl(pl)"
-                  >{{ crawlStatus[pl.id] ? 'Crawl…' : isCooldown(pl) ? 'Déjà crawlé' : 'Crawl now' }}</button>
-                  <button class="btn-follow following" @click.stop="unfollow(pl.id)">Ne plus suivre</button>
-                </template>
-                <template v-else>
-                  <button
-                    class="btn-follow"
-                    :disabled="following[pl.id]"
-                    @click.stop="followPlaylist(pl.id)"
-                  >{{ following[pl.id] ? 'Suivi…' : 'Suivre' }}</button>
-                </template>
-              </div>
+            <td class="end td-avis" @click.stop>
+              <LikeDislike
+                :model-value="opinions.get('playlist', pl.id)"
+                @update:model-value="v => opinions.set('playlist', pl.id, v)"
+              />
             </td>
           </tr>
         </tbody>
@@ -130,7 +123,10 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import axios from 'axios'
+import { useOpinionsStore } from '../stores/opinions.js'
+import LikeDislike from '../components/LikeDislike.vue'
 
+const opinions = useOpinionsStore()
 const COOLDOWN_MS = 12 * 3600 * 1000
 
 const playlists = ref([])
@@ -142,12 +138,11 @@ const formError = ref('')
 const adding = ref(false)
 const mode = ref('followed')
 const crawlStatus = reactive({})  // pl.id → 'queued' | 'running' | null
-const following = reactive({})
 const pollTimers = {}
 
 const displayList = computed(() => {
   if (mode.value === 'followed')
-    return playlists.value.map(p => ({ ...p, followed: true }))
+    return browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'liked')
   return browsePlaylists.value
 })
 
@@ -222,26 +217,6 @@ async function addPlaylist() {
     }
   } finally {
     adding.value = false
-  }
-}
-
-async function unfollow(id) {
-  await axios.delete(`/api/watchlist/${id}`)
-  await fetchPlaylists()
-}
-
-async function followPlaylist(id) {
-  following[id] = true
-  try {
-    await axios.post(`/api/watchlist/${id}/follow`)
-    await fetchPlaylists()
-    startPolling(id)
-  } catch (e) {
-    if (e.response?.status === 409) {
-      await fetchPlaylists()
-    }
-  } finally {
-    following[id] = false
   }
 }
 
@@ -461,7 +436,7 @@ table.tt col.w-pl      { width: auto; }
 table.tt col.w-creator { width: 180px; }
 table.tt col.w-tracks  { width: 84px; }
 table.tt col.w-crawl   { width: 128px; }
-table.tt col.w-actions { width: 220px; }
+table.tt col.w-avis    { width: 100px; }
 
 table.tt thead th {
   position: sticky;
@@ -556,52 +531,28 @@ table.tt td { padding: 0 14px; vertical-align: middle; }
 .td-date { font: 500 12.5px var(--font-mono); color: var(--ink-2); white-space: nowrap; }
 .td-empty { font: 500 13px var(--font-mono); color: var(--ink-3); }
 
-/* actions */
-.actions {
-  display: inline-flex;
-  gap: 8px;
-  justify-content: flex-end;
-  align-items: center;
-}
+/* ── row avis states ── */
+table.tt tbody tr.liked { background: color-mix(in oklch, var(--pos) 6%, transparent); }
+table.tt tbody tr.liked:hover { background: color-mix(in oklch, var(--pos) 10%, transparent); }
+table.tt tbody tr.disliked td:not(.td-avis) { opacity: 0.42; }
+table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
+
+/* crawl button (inline in crawl column) */
 .btn-crawl {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: var(--r-sm);
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-xs);
   border: 1px solid var(--line-2);
   background: var(--surface);
-  color: var(--ink-2);
-  font: 500 12.5px var(--font-ui);
+  color: var(--ink-3);
+  font: 500 11px var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
+  margin-left: 8px;
 }
-.btn-crawl:hover:not(:disabled) {
+.btn-crawl:hover {
   border-color: var(--accent);
   color: var(--accent-ink);
-}
-.btn-crawl:disabled { opacity: 0.45; cursor: default; }
-
-.btn-follow {
-  height: 32px;
-  padding: 0 16px;
-  border-radius: 999px;
-  cursor: pointer;
-  white-space: nowrap;
-  font: 600 12.5px var(--font-ui);
-  border: 1px solid transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.btn-follow:hover { background: var(--accent-hover); }
-.btn-follow:disabled { opacity: 0.5; cursor: default; }
-.btn-follow.following {
-  background: transparent;
-  color: var(--ink-3);
-  border-color: var(--line-2);
-}
-.btn-follow.following:hover {
-  color: var(--neg-ink);
-  border-color: var(--neg);
-  background: var(--neg-soft);
 }
 
 /* crawl status badges */
