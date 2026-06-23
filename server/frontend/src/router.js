@@ -19,7 +19,7 @@ const routes = [
   { path: '/tracks',       redirect: '/catalog?inlib=true' },
   { path: '/genres',       component: GenresView },
   { path: '/tags',         redirect: '/genres' },
-  { path: '/style/:genre', component: GenreDetailView, props: true },
+  { path: '/style/:genre(.*)', component: GenreDetailView, props: true },
   { path: '/catalog',      component: CatalogView },
   { path: '/catalog/:id',  component: TrackDetailView, props: true },
   { path: '/artist/:id',   component: ArtistDetailView, props: true },
