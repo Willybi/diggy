@@ -274,7 +274,7 @@ async def merge_genres(
 
 # ── Genre detail endpoints ────────────────────────────────────────────────
 
-@router.get("/{name}")
+@router.get("/detail/{name:path}")
 async def get_genre_detail(
     name: str,
     db: AsyncSession = Depends(get_db),
@@ -359,7 +359,7 @@ async def get_genre_detail(
     }
 
 
-@router.get("/{name}/artists")
+@router.get("/artists/{name:path}")
 async def get_genre_artists(
     name: str,
     limit: int = Query(12, ge=1, le=100),
@@ -402,7 +402,7 @@ async def get_genre_artists(
     }
 
 
-@router.get("/{name}/sets")
+@router.get("/sets/{name:path}")
 async def get_genre_sets(
     name: str,
     limit: int = Query(12, ge=1, le=100),
@@ -446,7 +446,7 @@ async def get_genre_sets(
     }
 
 
-@router.get("/{name}/playlists")
+@router.get("/playlists/{name:path}")
 async def get_genre_playlists(
     name: str,
     limit: int = Query(12, ge=1, le=100),
@@ -486,7 +486,7 @@ async def get_genre_playlists(
     }
 
 
-@router.get("/{name}/tracks")
+@router.get("/tracks/{name:path}")
 async def get_genre_tracks(
     name: str,
     sort: str = Query("recent", pattern="^(recent|bpm|key|alpha)$"),
@@ -559,7 +559,7 @@ async def get_genre_tracks(
     }
 
 
-@router.get("/{name}/neighbors")
+@router.get("/neighbors/{name:path}")
 async def get_genre_neighbors(
     name: str,
     limit: int = Query(6, ge=1, le=20),
@@ -598,7 +598,7 @@ async def get_genre_neighbors(
     }
 
 
-@router.patch("/{name}")
+@router.patch("/rename/{name:path}")
 async def rename_genre(
     name: str,
     body: GenreRenameIn,

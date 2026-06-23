@@ -298,7 +298,7 @@ async function fetchGenre() {
   loading.value = true
   genre.value = null
   try {
-    const { data } = await axios.get(`/api/genres/${encodeURIComponent(genreName.value)}`)
+    const { data } = await axios.get(`/api/genres/detail/${encodeURIComponent(genreName.value)}`)
     genre.value = data
     renameVal.value = data.name
     // Fetch sub-data in parallel
@@ -320,7 +320,7 @@ async function fetchGenre() {
 
 async function fetchArtists() {
   try {
-    const { data } = await axios.get(`/api/genres/${encodeURIComponent(genreName.value)}/artists`, { params: { limit: 12 } })
+    const { data } = await axios.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
     artists.value = data.items
     artistsTotal.value = data.total
   } catch { artists.value = [] }
@@ -328,7 +328,7 @@ async function fetchArtists() {
 
 async function fetchSets() {
   try {
-    const { data } = await axios.get(`/api/genres/${encodeURIComponent(genreName.value)}/sets`, { params: { limit: 12 } })
+    const { data } = await axios.get(`/api/genres/sets/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
     sets.value = data.items
     setsTotal.value = data.total
   } catch { sets.value = [] }
@@ -336,7 +336,7 @@ async function fetchSets() {
 
 async function fetchPlaylists() {
   try {
-    const { data } = await axios.get(`/api/genres/${encodeURIComponent(genreName.value)}/playlists`, { params: { limit: 12 } })
+    const { data } = await axios.get(`/api/genres/playlists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
     playlists.value = data.items
     playlistsTotal.value = data.total
   } catch { playlists.value = [] }
@@ -357,7 +357,7 @@ async function fetchTracks(reset = false) {
     }
     if (trackSearch.value.trim()) params.q = trackSearch.value.trim()
     if (trackInLib.value != null) params.inLib = trackInLib.value
-    const { data } = await axios.get(`/api/genres/${encodeURIComponent(genreName.value)}/tracks`, { params })
+    const { data } = await axios.get(`/api/genres/tracks/${encodeURIComponent(genreName.value)}`, { params })
     if (reset) {
       tracks.value = data.items
     } else {
@@ -373,7 +373,7 @@ async function fetchTracks(reset = false) {
 
 async function fetchNeighbors() {
   try {
-    const { data } = await axios.get(`/api/genres/${encodeURIComponent(genreName.value)}/neighbors`)
+    const { data } = await axios.get(`/api/genres/neighbors/${encodeURIComponent(genreName.value)}`)
     neighbors.value = data.items
   } catch { neighbors.value = [] }
 }
@@ -412,7 +412,7 @@ async function doRename() {
   const newName = renameVal.value.trim()
   if (!newName || newName === genre.value.name) return
   try {
-    const { data } = await axios.patch(`/api/genres/${encodeURIComponent(genre.value.name)}`, { new_name: newName })
+    const { data } = await axios.patch(`/api/genres/rename/${encodeURIComponent(genre.value.name)}`, { new_name: newName })
     adminMsg.value = `Renommé → ${data.to} (${data.affected} tracks)`
     adminMsgType.value = 'ok'
     router.replace(`/style/${encodeURIComponent(data.to)}`)
