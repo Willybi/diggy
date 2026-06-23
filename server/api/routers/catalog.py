@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 import json as _json
@@ -140,7 +140,7 @@ async def list_catalog(
     elif sort == "style":
         sort_col = func.coalesce(CatalogEntry.genre, ut_sub.c.rb_mytags.op("->>")(0), "")
     elif sort == "in_lib":
-        sort_col = func.case((ut_sub.c.catalog_id.isnot(None), 1), else_=0)
+        sort_col = case((ut_sub.c.catalog_id.isnot(None), 1), else_=0)
     elif sort == "avis":
         sort_col = func.coalesce(ut_sub.c.ut_avis, "")
     elif sort in SORTABLE_COLS and SORTABLE_COLS[sort] is not None:
