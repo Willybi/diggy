@@ -80,8 +80,7 @@
           {{ enrichingSets ? 'Enrichissement…' : 'Enrichir sets' }}
         </button>
         <div v-if="enrichSetsResult" class="sync-result">
-          <span class="result-item ok">✓ {{ enrichSetsResult.enriched }} Deezer</span>
-          <span class="result-item ok">✓ {{ enrichSetsResult.bp_enriched }} Beatport</span>
+          <span class="result-item ok">✓ {{ enrichSetsResult.enriched }} enrichis</span>
           <span class="result-item muted">/ {{ enrichSetsResult.total }} tracks</span>
         </div>
         <span v-if="enrichSetsError" class="sync-error">{{ enrichSetsError }}</span>

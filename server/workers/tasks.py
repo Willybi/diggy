@@ -398,7 +398,7 @@ def enrich_set_tracks(self):
             async def _async_enrich():
                 from workers.rate_limiter import RateLimiter
                 from workers.async_http import HttpPool
-                from workers.enrichment import enrich_deezer_batch, enrich_beatport_batch
+                from workers.enrichment import enrich_deezer_batch
 
                 limiter = RateLimiter()
                 async with HttpPool(limiter) as pool:
@@ -425,32 +425,16 @@ def enrich_set_tracks(self):
                                 session.commit()
                                 logger.info("Set tracks Deezer enrich: %d/%d", min(i + 100, len(dz_entries)), len(dz_entries))
 
-                        bp_entries = session.execute(
-                            select(CatalogEntry).where(
-                                CatalogEntry.id.in_(catalog_ids),
-                                CatalogEntry.beatport_id.is_(None),
-                            )
-                        ).scalars().all()
-
-                        bp_total = 0
-                        if bp_entries:
-                            for i in range(0, len(bp_entries), 100):
-                                batch = bp_entries[i:i + 100]
-                                stats = await enrich_beatport_batch(session, batch, pool, s3)
-                                bp_total += stats.get("enriched", 0)
-                                session.commit()
-
-                return {"enriched": dz_total, "bp_enriched": bp_total, "errors": dz_errors}
+                return {"enriched": dz_total, "errors": dz_errors}
 
             try:
                 stats = asyncio.run(_async_enrich())
             except Exception as e:
                 logger.error("enrich_set_tracks failed: %s", e)
-                stats = {"enriched": 0, "bp_enriched": 0, "errors": 0}
+                stats = {"enriched": 0, "errors": 0}
 
             result = {
                 "enriched": stats.get("enriched", 0),
-                "bp_enriched": stats.get("bp_enriched", 0),
                 "total": len(catalog_ids),
             }
             clog.set_stats(result)
