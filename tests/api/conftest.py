@@ -28,14 +28,6 @@ mock_storage.ensure_bucket = MagicMock()
 mock_storage.upload_artwork = MagicMock()
 sys.modules["storage"] = mock_storage
 
-# google-auth n'est pas installé en CI
-sys.modules.setdefault("google", MagicMock())
-sys.modules.setdefault("google.oauth2", MagicMock())
-sys.modules.setdefault("google.oauth2.id_token", MagicMock())
-sys.modules.setdefault("google.auth", MagicMock())
-sys.modules.setdefault("google.auth.transport", MagicMock())
-sys.modules.setdefault("google.auth.transport.requests", MagicMock())
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
@@ -44,7 +36,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from database import Base, get_db
 from dependencies import get_current_user, require_admin
 from models import User
-from auth import create_token
+from auth import hash_password
 from main import app
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -86,7 +78,7 @@ async def auth_user(db):
     user = User(
         email="test@test.com",
         username="testuser",
-        google_id="google-test-123",
+        hashed_password=hash_password("testpass"),
         is_active=True,
         is_admin=False,
     )
@@ -101,7 +93,7 @@ async def admin_user(db):
     user = User(
         email="admin@test.com",
         username="admin",
-        google_id="google-admin-456",
+        hashed_password=hash_password("adminpass"),
         is_active=True,
         is_admin=True,
     )
