@@ -366,6 +366,15 @@ async def link_set_artists_task(
     return SyncQueued(status="queued", task_id=result.id)
 
 
+@router.post("/sets/enrich-tracks", response_model=SyncQueued)
+async def enrich_set_tracks_task(
+    _: User = Depends(require_admin),
+):
+    """Fire-and-forget: enrich set tracks missing Deezer/Beatport data."""
+    result = celery.send_task("workers.tasks.enrich_set_tracks")
+    return SyncQueued(status="queued", task_id=result.id)
+
+
 @router.post("/enrich-beatport", response_model=SyncQueued)
 async def trigger_enrich_beatport(
     batch_size: int = 0,
