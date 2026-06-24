@@ -105,15 +105,7 @@ const totalUnfiltered = computed(() => {
 
 const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all' || sortBy.value === 'liked' || sortBy.value === 'disliked')
 
-const displayItems = computed(() => {
-  if (sortBy.value === 'liked') {
-    return items.value.filter(a => opinions.get('artist', a.id) === 'liked')
-  }
-  if (sortBy.value === 'disliked') {
-    return items.value.filter(a => opinions.get('artist', a.id) === 'disliked')
-  }
-  return items.value
-})
+const displayItems = computed(() => items.value)
 
 const familyChips = computed(() => {
   const fc = familyCounts.value
@@ -133,6 +125,49 @@ async function fetchArtists(reset = true) {
     offset.value = 0
     items.value = []
   }
+
+  const isOpinionFilter = sortBy.value === 'liked' || sortBy.value === 'disliked'
+
+  // Opinion-based filters: fetch only matching artist IDs from opinions store
+  if (isOpinionFilter) {
+    if (!reset) return // no pagination for opinion filters
+    loading.value = true
+    try {
+      await opinions.load()
+      const artistOpinions = opinions.data.artist || {}
+      const matchingIds = Object.entries(artistOpinions)
+        .filter(([, v]) => v === sortBy.value)
+        .map(([k]) => k)
+
+      if (!matchingIds.length) {
+        total.value = 0
+        hasMore.value = false
+        return
+      }
+
+      const params = {
+        sort: 'alpha',
+        limit: 100,
+        offset: 0,
+        ids: matchingIds.join(','),
+      }
+      if (familyFilter.value !== 'all') params.family = familyFilter.value
+      if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
+
+      const { data } = await axios.get('/api/artists/', { params, headers: authHeaders() })
+      items.value = data.items
+      total.value = data.total
+      familyCounts.value = data.familyCounts || {}
+      hasMore.value = false
+    } catch {
+      items.value = []
+    } finally {
+      loading.value = false
+    }
+    return
+  }
+
+  // Normal paginated fetch
   loading.value = true
   try {
     const params = {
