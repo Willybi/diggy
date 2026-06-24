@@ -3,7 +3,10 @@
     <div class="page-head">
       <div class="titles">
         <h1>Sets</h1>
-        <div class="sub">{{ displayList.length }} set{{ displayList.length !== 1 ? 's' : '' }}</div>
+        <div class="sub">
+          {{ sets.length }} set{{ sets.length !== 1 ? 's' : '' }}
+          <span v-if="mode !== 'all'" class="muted">· {{ displayList.length }} {{ mode === 'liked' ? 'likés' : 'dislikés' }}</span>
+        </div>
       </div>
       <div class="head-tools">
         <label class="search">
@@ -75,15 +78,18 @@
               </div>
               <button
                 v-if="r.already_imported"
-                class="btn-follow done"
-                disabled
-              >Importé</button>
+                class="btn-like liked"
+                title="Déjà dans ta bibliothèque"
+                aria-label="Déjà dans ta bibliothèque"
+              ><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
               <button
                 v-else
-                class="btn-follow"
+                class="btn-like"
                 :disabled="r._importing"
+                title="Ajouter à ma bibliothèque"
+                aria-label="Ajouter à ma bibliothèque"
                 @click="doImportFromSearch(r)"
-              >{{ r._importing ? 'Import…' : 'Importer + Suivre' }}</button>
+              ><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
             </div>
           </div>
           <span v-if="formError" class="form-error">{{ formError }}</span>
@@ -158,7 +164,10 @@
                 :class="ringClass(s.identified_tracks, s.total_tracks)"
                 :title="`${s.identified_tracks} / ${s.total_tracks} tracks identifiées`"
               >
-                <svg viewBox="0 0 30 30">
+                <template v-if="ringPct(s.identified_tracks, s.total_tracks) >= 100">
+                  <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                </template>
+                <svg v-else viewBox="0 0 30 30">
                   <circle class="bg" cx="15" cy="15" :r="R" />
                   <circle
                     class="fg"
@@ -234,7 +243,7 @@ function ringOffset(ident, total) {
 
 function ringClass(ident, total) {
   const p = ringPct(ident, total)
-  if (p >= 100) return 'full'
+  if (p >= 100) return 'done'
   if (p >= 60) return 'mid'
   return 'low'
 }
@@ -387,6 +396,7 @@ onMounted(fetchSets)
   font: 500 13px/1 var(--font-mono);
   color: var(--ink-2);
 }
+.sub .muted { color: var(--ink-3); }
 
 .head-tools {
   margin-left: auto;
@@ -556,6 +566,21 @@ onMounted(fetchSets)
   font: 400 12px/1 var(--font-mono);
   color: var(--neg-ink);
 }
+
+/* ============ BTN LIKE (résultats recherche) ============ */
+.btn-like {
+  width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+  border-radius: var(--r-sm); border: 1px solid var(--line-2);
+  background: var(--surface); color: var(--ink-3); cursor: pointer; padding: 0;
+  transition: color .14s, border-color .14s, background .14s, transform .12s;
+}
+.btn-like svg { width: 16px; height: 16px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.btn-like:hover { color: var(--pos); border-color: var(--pos); }
+.btn-like:active { transform: scale(.92); }
+.btn-like:disabled { opacity: .6; cursor: default; }
+.btn-like.liked { background: var(--pos-soft); border-color: transparent; color: var(--pos-ink); cursor: default; }
+.btn-like.liked svg { fill: var(--pos-ink); stroke: var(--pos-ink); }
+.btn-like.liked:hover { background: var(--pos-soft); border-color: transparent; }
 
 /* ============ SEARCH RESULTS ============ */
 .results {
@@ -743,7 +768,6 @@ table.tt td {
   stroke-linecap: round;
   transition: stroke-dashoffset 0.4s ease;
 }
-.ring.full .fg { stroke: var(--pos); }
 .ring.mid  .fg { stroke: var(--accent); }
 .ring.low  .fg { stroke: oklch(0.74 0.13 60); }
 .ring .pct {
@@ -751,7 +775,14 @@ table.tt td {
   color: var(--ink-2);
   min-width: 34px;
 }
-.ring.full .pct { color: var(--pos-ink); }
+.ring.done .chk {
+  width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--surface-2); color: var(--ink-3);
+}
+.ring.done .chk svg { width: 13px; height: 13px; transform: none; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.ring.done .pct { color: var(--ink-3); }
+.ring.mid .pct { color: var(--accent-ink); }
+.ring.low .pct { color: oklch(0.52 0.13 60); }
 
 /* ============ AVIS: hover-reveal LikeDislike ============ */
 .td-avis :deep(.ld-btn) { opacity: 0; transition: opacity .14s; }
