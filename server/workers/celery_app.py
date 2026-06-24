@@ -33,23 +33,19 @@ celery_app.conf.update(
     beat_schedule={
         "crawl-radar-daily": {
             "task": "workers.tasks.crawl_radar",
-            "schedule": crontab(hour=8, minute=0),  # tous les jours à 8h
-        },
-        "check-previews-weekly": {
-            "task": "workers.tasks.check_previews",
-            "schedule": crontab(hour=3, minute=0, day_of_week=0),  # dimanche à 3h
-        },
-        "enrich-catalog-weekly": {
-            "task": "workers.tasks.enrich_catalog",
-            "schedule": crontab(hour=4, minute=0, day_of_week=0),  # dimanche à 4h
+            "schedule": crontab(hour=3, minute=0),  # tous les jours à 3h
         },
         "crawl-followed-sets-daily": {
             "task": "workers.tasks.crawl_followed_sets",
-            "schedule": crontab(hour=9, minute=0),  # tous les jours à 9h
+            "schedule": crontab(hour=4, minute=0),  # tous les jours à 4h
         },
-        "enrich-catalog-beatport-weekly": {
+        "enrich-catalog-daily": {
+            "task": "workers.tasks.enrich_catalog",
+            "schedule": crontab(hour=5, minute=0),  # tous les jours à 5h
+        },
+        "enrich-catalog-beatport-daily": {
             "task": "workers.tasks.enrich_catalog_beatport",
-            "schedule": crontab(hour=5, minute=0, day_of_week=0),  # dimanche à 5h
+            "schedule": crontab(hour=6, minute=0),  # tous les jours à 6h
         },
     },
 )
