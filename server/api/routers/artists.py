@@ -22,10 +22,11 @@ router = APIRouter(prefix="/artists", tags=["artists"])
 
 @router.get("/")
 async def list_artists(
-    sort: str = Query("catalog", pattern="^(catalog|lib|liked|rating|alpha)$"),
+    sort: str = Query("catalog", pattern="^(catalog|lib|liked|disliked|rating|alpha)$"),
     family: str | None = Query(None),
     q: str | None = None,
     no_deezer: bool = False,
+    ids: str | None = Query(None),
     limit: int = Query(24, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -69,6 +70,12 @@ async def list_artists(
         .options(selectinload(Artist.aliases))
         .order_by(func.lower(Artist.name))
     )
+    if ids:
+        id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
+        if id_list:
+            q_artists = q_artists.where(Artist.id.in_(id_list))
+        else:
+            return {"items": [], "total": 0, "familyCounts": {f: 0 for f in _ALL_FAMILIES}}
     if q:
         q_artists = q_artists.where(Artist.name.ilike(f"%{q}%"))
     if no_deezer:
@@ -183,6 +190,8 @@ async def list_artists(
         out.sort(key=lambda a: (a["nb_lib"], a["nb_catalog"]), reverse=True)
     elif sort == "liked":
         out.sort(key=lambda a: (a["nb_liked"], a["nb_catalog"]), reverse=True)
+    elif sort == "disliked":
+        out.sort(key=lambda a: a["name"].lower())
     elif sort == "rating":
         out.sort(key=lambda a: (a["avg_rating"] or -1), reverse=True)
     elif sort == "alpha":
