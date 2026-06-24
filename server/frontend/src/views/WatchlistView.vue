@@ -3,7 +3,10 @@
     <div class="page-head">
       <div class="titles">
         <h1>Playlists</h1>
-        <div class="sub">Playlists surveillées par le Radar</div>
+        <div class="sub">
+          {{ browsePlaylists.length }} playlist{{ browsePlaylists.length !== 1 ? 's' : '' }}
+          <span v-if="mode !== 'all'" class="muted">· {{ filteredList.length }} {{ mode === 'liked' ? 'likées' : 'dislikées' }}</span>
+        </div>
       </div>
       <div class="head-tools">
         <div class="filterseg">
@@ -70,18 +73,18 @@
         <tbody>
           <tr v-for="pl in displayList" :key="pl.id" :class="{ liked: opinions.get('playlist', pl.id) === 'liked', disliked: opinions.get('playlist', pl.id) === 'disliked' }">
             <td>
-              <div class="pl-cell">
+              <RouterLink :to="`/playlists/${pl.id}`" class="pl-cell">
                 <span class="aw">
                   <img v-if="pl.has_artwork" :src="`/storage/playlist-artworks/${pl.id}.jpg`" :alt="pl.title" />
                 </span>
                 <div class="pl-meta">
                   <div class="pl-top">
-                    <RouterLink :to="`/playlists/${pl.id}`" class="pl-name">{{ pl.title || pl.external_id }}</RouterLink>
+                    <span class="pl-name">{{ pl.title || pl.external_id }}</span>
                     <span class="src-badge" :class="srcClass(pl.source)">{{ (pl.source || '').toUpperCase() }}</span>
                   </div>
                   <span class="pl-id">{{ pl.external_id }}</span>
                 </div>
-              </div>
+              </RouterLink>
             </td>
             <td class="col-creator">
               <span v-if="pl.owner" class="td-creator">{{ pl.owner }}</span>
@@ -91,11 +94,18 @@
               <span v-if="pl.track_count != null" class="td-num">{{ pl.track_count }}</span>
               <span v-else class="td-empty">—</span>
             </td>
-            <td class="col-crawl">
+            <td class="col-crawl" @click.stop>
               <span v-if="crawlStatus[pl.id] === 'running'" class="crawl running"><span class="cdot"></span><span class="clbl">En cours</span></span>
               <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl queued"><span class="cdot"></span><span class="clbl">En attente</span></span>
               <span v-else-if="crawlStatus[pl.id] === 'done'" class="crawl done"><span class="cdot"></span><span class="clbl">Crawlé</span></span>
-              <span v-else class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
+              <template v-else>
+                <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
+                <button
+                  v-if="!isCooldown(pl)"
+                  class="btn-crawl"
+                  @click="triggerCrawl(pl)"
+                >Crawl</button>
+              </template>
             </td>
             <td class="end td-avis" @click.stop>
               <LikeDislike
@@ -106,17 +116,24 @@
           </tr>
         </tbody>
       </table>
+
+      <div v-if="totalPages > 1" class="pagination">
+        <button :disabled="page <= 1" @click="page--">&lsaquo;</button>
+        <span class="pg-info">{{ page }} / {{ totalPages }}</span>
+        <button :disabled="page >= totalPages" @click="page++">&rsaquo;</button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, reactive } from 'vue'
 import axios from 'axios'
 import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from '../components/LikeDislike.vue'
 
 const opinions = useOpinionsStore()
+const COOLDOWN_MS = 12 * 3600 * 1000
 
 const browsePlaylists = ref([])
 const loading = ref(false)
@@ -126,10 +143,14 @@ const formError = ref('')
 const adding = ref(false)
 const mode = ref('all')
 const crawlStatus = reactive({})  // pl.id → 'queued' | 'running' | null
+const page = ref(1)
+const perPage = 25
 
 // Sort
 const sortKey = ref('title')
 const sortDir = ref('asc')
+
+watch([mode, sortKey, sortDir], () => { page.value = 1 })
 
 function toggleSort(key) {
   if (sortKey.value === key) {
@@ -155,7 +176,7 @@ function sortValue(p, key) {
 }
 const pollTimers = {}
 
-const displayList = computed(() => {
+const filteredList = computed(() => {
   let list
   if (mode.value === 'liked') {
     list = browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'liked')
@@ -176,12 +197,37 @@ const displayList = computed(() => {
   return list
 })
 
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredList.value.length / perPage)))
+
+const displayList = computed(() => {
+  const start = (page.value - 1) * perPage
+  return filteredList.value.slice(start, start + perPage)
+})
+
 function srcClass(source) {
   const s = (source || '').toLowerCase()
   if (s === 'deezer') return 'deezer'
   if (s === 'tidal') return 'tidal'
   if (s === 'spotify') return 'spotify'
   return 'tidal'
+}
+
+function isCooldown(pl) {
+  if (!pl.last_crawled_at) return false
+  return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
+}
+
+async function triggerCrawl(pl) {
+  crawlStatus[pl.id] = 'queued'
+  try {
+    await axios.post(`/api/watchlist/${pl.id}/crawl`)
+    startPolling(pl.id)
+  } catch (e) {
+    if (e.response?.status === 429) {
+      await fetchPlaylists()
+    }
+    delete crawlStatus[pl.id]
+  }
 }
 
 function toggleForm() {
@@ -330,6 +376,7 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   font: 500 13px/1 var(--font-mono);
   color: var(--ink-2);
 }
+.sub .muted { color: var(--ink-3); }
 .head-tools {
   margin-left: auto;
   display: flex;
@@ -494,6 +541,8 @@ table.tt td { padding: 0 14px; vertical-align: middle; }
   align-items: center;
   gap: 13px;
   min-width: 0;
+  text-decoration: none;
+  color: inherit;
 }
 .aw {
   width: 40px;
@@ -527,9 +576,8 @@ table.tt td { padding: 0 14px; vertical-align: middle; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-decoration: none;
 }
-.pl-name:hover { color: var(--accent-ink); }
+.pl-cell:hover .pl-name { color: var(--accent-ink); }
 .pl-id {
   font: 500 11px var(--font-mono);
   color: var(--ink-3);
@@ -571,6 +619,24 @@ table.tt tbody tr.liked:hover { background: oklch(var(--pos-l) var(--pos-c) var(
 table.tt tbody tr.disliked td:not(.td-avis) { opacity: 0.42; }
 table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
 
+/* crawl button */
+.btn-crawl {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-3);
+  font: 500 11px var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+.btn-crawl:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
 /* crawl status chips (inline dot + label) */
 .crawl { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .crawl .cdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
@@ -588,6 +654,39 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .crawl.running .cdot { animation: crawlring 1.5s ease-out infinite; }
+}
+
+/* pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px 0 4px;
+}
+.pagination button {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 600 16px/1 var(--font-ui);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.pagination button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.pagination button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.pg-info {
+  font: 500 12.5px/1 var(--font-mono);
+  color: var(--ink-2);
 }
 
 .state {
