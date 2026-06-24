@@ -49,9 +49,10 @@
   --pos-ink:  oklch(0.460 0.098 var(--pos-h));
 
   /* ---- negative / dislike (Wildflower terracotta, hue 28) ---- */
-  --neg:      oklch(0.585 0.132 28);
-  --neg-soft: oklch(0.942 0.040 28);
-  --neg-ink:  oklch(0.490 0.130 28);
+  --neg-h: 28;
+  --neg:      oklch(0.585 0.132 var(--neg-h));
+  --neg-soft: oklch(0.942 0.040 var(--neg-h));
+  --neg-ink:  oklch(0.490 0.130 var(--neg-h));
 
   /* ---- error ---- */
   --error: oklch(0.55 0.18 25);
@@ -134,9 +135,9 @@
   --pos-soft: oklch(0.338 0.062 var(--pos-h));
   --pos-ink:  oklch(0.832 0.094 var(--pos-h));
 
-  --neg:      oklch(0.705 0.130 28);
-  --neg-soft: oklch(0.340 0.072 28);
-  --neg-ink:  oklch(0.818 0.108 28);
+  --neg:      oklch(0.705 0.130 var(--neg-h));
+  --neg-soft: oklch(0.340 0.072 var(--neg-h));
+  --neg-ink:  oklch(0.818 0.108 var(--neg-h));
 
   --error: oklch(0.65 0.18 25);
 

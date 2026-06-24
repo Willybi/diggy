@@ -38,6 +38,14 @@
         <span v-if="genre.artistCount > 3" class="more">+{{ fmtNum(genre.artistCount - 3) }}</span>
       </div>
 
+      <!-- Like/Dislike overlay (top-right of art zone) -->
+      <div class="gc-acts" @click.prevent.stop>
+        <LikeDislike
+          :model-value="opinion"
+          @update:model-value="v => opinions.set('genre', genre.name, v)"
+        />
+      </div>
+
       <!-- Play button (hover reveal) -->
       <button class="gc-play" :class="{ 'gc-play--playing': isPlaying }" aria-label="Lecture" @click.prevent.stop="onPlay">
         <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
@@ -51,12 +59,6 @@
       <div class="gc-titlerow">
         <span class="gc-dot" :class="{ misc: tone.family === 'misc' }"></span>
         <span class="gc-title" :class="{ misc: tone.family === 'misc' }">{{ genre.name }}</span>
-        <span class="gc-avis" @click.prevent.stop>
-          <LikeDislike
-            :model-value="opinion"
-            @update:model-value="v => opinions.set('genre', genre.name, v)"
-          />
-        </span>
         <span class="gc-fam">{{ familyLabel }}</span>
       </div>
       <div class="gc-stats">
@@ -263,19 +265,29 @@ function onAvatarError(e) {
 .gc-play--playing { opacity: 1; transform: none; }
 .gc-play:hover { background: var(--accent-hover); }
 
-/* Like/Dislike in title row */
-.gc-avis {
-  margin-left: auto;
-  display: inline-flex;
-  flex: none;
+/* Like/Dislike overlay in art zone */
+.gc-acts {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  padding: 3px 4px;
+  border-radius: var(--r-sm);
+  background: oklch(1 0 0 / .72);
+  backdrop-filter: blur(8px);
 }
-.gc-avis :deep(.ld-btn) {
+[data-theme="dark"] .gc-acts {
+  background: oklch(0.22 0.01 262 / .72);
+}
+.gc-acts :deep(.ld-btn) {
   opacity: 0;
+  transition: opacity .14s;
 }
-.genre-card:hover .gc-avis :deep(.ld-btn),
-.genre-card.liked .gc-avis :deep(.ld-btn),
-.genre-card.disliked .gc-avis :deep(.ld-btn) { opacity: 1; }
-.gc-avis :deep(.ld-btn.on) { opacity: 1; }
+.genre-card:hover .gc-acts :deep(.ld-btn) { opacity: 1; }
+.gc-acts :deep(.ld[data-state="liked"] .ld-btn.like),
+.gc-acts :deep(.ld[data-state="disliked"] .ld-btn.dislike) { opacity: 1; }
 
 /* Card liked / disliked states */
 .genre-card.liked {
@@ -283,7 +295,10 @@ function onAvatarError(e) {
   box-shadow: 0 0 0 2px var(--pos-soft);
 }
 .genre-card.disliked {
-  opacity: 0.52;
+  opacity: 0.55;
+}
+.genre-card.disliked:hover {
+  opacity: 0.8;
 }
 
 /* ── Body ── */

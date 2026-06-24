@@ -47,10 +47,14 @@ async def list_catalog(
     genre: str | None = Query(None),
     sort: str | None = Query(None),
     order: str | None = Query("desc"),
+    view: str | None = Query(None),
+    detected_after: datetime | None = Query(None),
+    avis: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     uid = _uid(user)
+    is_radar = view == "radar"
 
     # Sous-requête : nb de playlists distinctes dans radar_tracks par catalog_id
     radar_count = (
@@ -89,7 +93,35 @@ async def list_catalog(
         .subquery()
     )
 
-    query = select(
+    # Sous-requête radar source : playlist/set la plus récente par catalog_id
+    radar_src = (
+        select(
+            RadarTrack.catalog_id,
+            func.max(RadarTrack.detected_at).label("max_detected_at"),
+        )
+        .where(RadarTrack.catalog_id.isnot(None))
+        .group_by(RadarTrack.catalog_id)
+        .subquery()
+    )
+
+    # Sous-requête : la source la plus récente (nom + kind)
+    latest_radar = (
+        select(
+            RadarTrack.catalog_id,
+            WatchedEntity.title.label("src_name"),
+            WatchedEntity.source.label("src_kind"),
+        )
+        .join(WatchedEntity, WatchedEntity.id == RadarTrack.watched_entity_id)
+        .join(
+            radar_src,
+            (RadarTrack.catalog_id == radar_src.c.catalog_id)
+            & (RadarTrack.detected_at == radar_src.c.max_detected_at),
+        )
+        .distinct(RadarTrack.catalog_id)
+        .subquery()
+    )
+
+    select_cols = [
         CatalogEntry,
         func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
         func.coalesce(set_count.c.nb_sets, 0).label("nb_radar_sets"),
@@ -100,13 +132,33 @@ async def list_catalog(
         ut_sub.c.rb_mytags.label("ut_tags"),
         ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
         ut_sub.c.ut_avis.label("ut_avis"),
-    ).outerjoin(
+    ]
+
+    if is_radar:
+        select_cols.extend([
+            radar_src.c.max_detected_at.label("detected_at"),
+            latest_radar.c.src_name.label("source_name"),
+            latest_radar.c.src_kind.label("source_kind"),
+        ])
+
+    query = select(*select_cols).outerjoin(
         radar_count, CatalogEntry.id == radar_count.c.catalog_id
     ).outerjoin(
         set_count, CatalogEntry.id == set_count.c.catalog_id
     ).outerjoin(
         ut_sub, CatalogEntry.id == ut_sub.c.catalog_id
     )
+
+    if is_radar:
+        query = query.outerjoin(
+            radar_src, CatalogEntry.id == radar_src.c.catalog_id
+        ).outerjoin(
+            latest_radar, CatalogEntry.id == latest_radar.c.catalog_id
+        )
+        # Only tracks with radar appearances
+        query = query.where(radar_count.c.nb_playlists.isnot(None))
+        if detected_after:
+            query = query.where(radar_src.c.max_detected_at >= detected_after)
 
     if in_lib is True:
         query = query.where(ut_sub.c.catalog_id.isnot(None))
@@ -127,9 +179,14 @@ async def list_catalog(
             CatalogEntry.title.ilike(pattern) | CatalogEntry.artist.ilike(pattern)
         )
 
+    if avis:
+        query = query.where(ut_sub.c.ut_avis == avis)
+
     # Tri
     nb_radar_col = func.coalesce(radar_count.c.nb_playlists, 0)
-    if sort == "nb_radar_playlists":
+    if sort == "detected_at" and is_radar:
+        sort_col = func.coalesce(radar_src.c.max_detected_at, datetime(2000, 1, 1))
+    elif sort == "nb_radar_playlists":
         sort_col = nb_radar_col
     elif sort == "rating":
         sort_col = func.coalesce(ut_sub.c.rating, 0)
@@ -148,7 +205,10 @@ async def list_catalog(
     elif sort in SORTABLE_COLS and SORTABLE_COLS[sort] is not None:
         sort_col = SORTABLE_COLS[sort]
     else:
-        sort_col = nb_radar_col  # défaut
+        if is_radar:
+            sort_col = func.coalesce(radar_src.c.max_detected_at, datetime(2000, 1, 1))
+        else:
+            sort_col = nb_radar_col  # défaut
 
     query = query.order_by(sort_col.desc() if order != "asc" else sort_col.asc())
 
@@ -170,6 +230,14 @@ async def list_catalog(
         ut_tags = row[7]
         ut_has_artwork = row[8]
         ut_avis = row[9]
+
+        radar_fields = {}
+        if is_radar:
+            radar_fields = {
+                "detected_at": row[10],
+                "source_name": row[11],
+                "source_kind": row[12],
+            }
 
         # Style = premier tag RB
         lib_style = None
@@ -201,6 +269,7 @@ async def list_catalog(
             style=lib_style,
             rating=ut_rating,
             avis=ut_avis,
+            **radar_fields,
         )
         entries.append(out)
 
