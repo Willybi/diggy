@@ -210,8 +210,9 @@ const sortKey = ref(mode.value === 'radar' ? 'detected_at' : 'nb_radar_playlists
 const sortDir = ref('desc')
 
 // Recency filter (radar mode)
-const recency = ref(null)
+const recency = ref('24h')
 const recencyOptions = [
+  { value: '24h', label: '24h' },
   { value: '7d', label: '7j' },
   { value: '30d', label: '30j' },
   { value: null, label: 'Tout' },
@@ -255,7 +256,7 @@ function buildParams() {
   if (sortKey.value) params.sort = sortKey.value
   if (sortDir.value) params.order = sortDir.value
   if (mode.value === 'radar' && recency.value) {
-    const hours = recency.value === '7d' ? 168 : recency.value === '30d' ? 720 : 0
+    const hours = recency.value === '24h' ? 24 : recency.value === '7d' ? 168 : recency.value === '30d' ? 720 : 0
     if (hours) {
       const since = new Date(Date.now() - hours * 3600000)
       params.detected_after = since.toISOString()
@@ -546,12 +547,12 @@ table.tt th.col-avis   { width: 92px; }
 table.tt thead th {
   position: sticky; top: 0;
   background: var(--surface); z-index: 2;
-  font: 600 10.5px/1 var(--font-mono);
+  font: 600 10.5px/1.5 var(--font-mono);
   letter-spacing: .1em;
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: left;
-  padding: 0 14px 12px;
+  padding: 8px 14px 12px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
