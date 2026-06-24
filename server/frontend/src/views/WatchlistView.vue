@@ -7,8 +7,7 @@
       </div>
       <div class="head-tools">
         <div class="filterseg">
-          <button :class="{ on: mode === 'followed' }" @click="mode = 'followed'">Suivies</button>
-          <button :class="{ on: mode === 'browse' }" @click="mode = 'browse'">Toutes</button>
+          <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Toutes</button>
           <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">Liked</button>
           <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">Disliked</button>
         </div>
@@ -47,12 +46,7 @@
     <div v-if="loading" class="state">Chargement…</div>
 
     <div v-else-if="displayList.length === 0 && !showForm" class="state">
-      <template v-if="mode === 'followed'">
-        Aucune playlist suivie.
-      </template>
-      <template v-else>
-        Aucune playlist dans le système.
-      </template>
+      Aucune playlist trouvée.
     </div>
 
     <div v-else-if="displayList.length > 0" class="table-wrap">
@@ -66,11 +60,11 @@
         </colgroup>
         <thead>
           <tr>
-            <th>Playlist</th>
-            <th class="col-creator">Créateur</th>
-            <th class="num col-tracks">Tracks</th>
-            <th class="col-crawl">Dernier crawl</th>
-            <th class="end">Avis</th>
+            <th class="sortable" @click="toggleSort('title')">Playlist <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="col-creator sortable" @click="toggleSort('creator')">Créateur <span v-if="sortKey === 'creator'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="num col-tracks sortable" @click="toggleSort('tracks')">Tracks <span v-if="sortKey === 'tracks'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="col-crawl sortable" @click="toggleSort('crawl')">Dernier crawl <span v-if="sortKey === 'crawl'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="end sortable" @click="toggleSort('avis')">Avis <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -98,16 +92,10 @@
               <span v-else class="td-empty">—</span>
             </td>
             <td class="col-crawl">
-              <span v-if="crawlStatus[pl.id] === 'running'" class="crawl-badge running">Crawl en cours</span>
-              <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl-badge queued">En file d'attente</span>
-              <template v-else>
-                <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
-                <button
-                  v-if="pl.followed && !isCooldown(pl)"
-                  class="btn-crawl"
-                  @click.stop="triggerCrawl(pl)"
-                >Crawl</button>
-              </template>
+              <span v-if="crawlStatus[pl.id] === 'running'" class="crawl running"><span class="cdot"></span><span class="clbl">En cours</span></span>
+              <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl queued"><span class="cdot"></span><span class="clbl">En attente</span></span>
+              <span v-else-if="crawlStatus[pl.id] === 'done'" class="crawl done"><span class="cdot"></span><span class="clbl">Crawlé</span></span>
+              <span v-else class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
             </td>
             <td class="end td-avis" @click.stop>
               <LikeDislike
@@ -129,27 +117,63 @@ import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from '../components/LikeDislike.vue'
 
 const opinions = useOpinionsStore()
-const COOLDOWN_MS = 12 * 3600 * 1000
 
-const playlists = ref([])
 const browsePlaylists = ref([])
 const loading = ref(false)
 const showForm = ref(false)
 const inputValue = ref('')
 const formError = ref('')
 const adding = ref(false)
-const mode = ref('followed')
+const mode = ref('all')
 const crawlStatus = reactive({})  // pl.id → 'queued' | 'running' | null
+
+// Sort
+const sortKey = ref('title')
+const sortDir = ref('asc')
+
+function toggleSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortKey.value = key
+    sortDir.value = key === 'title' || key === 'creator' ? 'asc' : 'desc'
+  }
+}
+
+function sortValue(p, key) {
+  if (key === 'title') return (p.title || p.external_id || '').toLowerCase()
+  if (key === 'creator') return (p.owner || '').toLowerCase()
+  if (key === 'tracks') return p.track_count ?? -1
+  if (key === 'crawl') return p.last_crawled_at || ''
+  if (key === 'avis') {
+    const op = opinions.get('playlist', p.id)
+    if (op === 'liked') return 2
+    if (op === 'disliked') return 1
+    return 0
+  }
+  return 0
+}
 const pollTimers = {}
 
 const displayList = computed(() => {
-  if (mode.value === 'followed')
-    return browsePlaylists.value.filter(p => p.followed)
-  if (mode.value === 'liked')
-    return browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'liked')
-  if (mode.value === 'disliked')
-    return browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'disliked')
-  return browsePlaylists.value
+  let list
+  if (mode.value === 'liked') {
+    list = browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'liked')
+  } else if (mode.value === 'disliked') {
+    list = browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'disliked')
+  } else {
+    list = [...browsePlaylists.value]
+  }
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  const key = sortKey.value
+  list.sort((a, b) => {
+    const va = sortValue(a, key)
+    const vb = sortValue(b, key)
+    if (va < vb) return -1 * dir
+    if (va > vb) return 1 * dir
+    return 0
+  })
+  return list
 })
 
 function srcClass(source) {
@@ -158,11 +182,6 @@ function srcClass(source) {
   if (s === 'tidal') return 'tidal'
   if (s === 'spotify') return 'spotify'
   return 'tidal'
-}
-
-function isCooldown(pl) {
-  if (!pl.last_crawled_at) return false
-  return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
 }
 
 function toggleForm() {
@@ -190,12 +209,8 @@ function parsePlaylistInput(input) {
 async function fetchPlaylists() {
   loading.value = true
   try {
-    const [followed, all] = await Promise.all([
-      axios.get('/api/watchlist/'),
-      axios.get('/api/watchlist/browse'),
-    ])
-    playlists.value = followed.data
-    browsePlaylists.value = all.data
+    const { data } = await axios.get('/api/watchlist/browse')
+    browsePlaylists.value = data
   } finally {
     loading.value = false
   }
@@ -226,26 +241,18 @@ async function addPlaylist() {
   }
 }
 
-async function triggerCrawl(pl) {
-  crawlStatus[pl.id] = 'queued'
-  try {
-    await axios.post(`/api/watchlist/${pl.id}/crawl`)
-    startPolling(pl.id)
-  } catch (e) {
-    if (e.response?.status === 429) {
-      await fetchPlaylists()
-    }
-    delete crawlStatus[pl.id]
-  }
-}
-
 function startPolling(playlistId) {
   stopPolling(playlistId)
   if (!crawlStatus[playlistId]) crawlStatus[playlistId] = 'queued'
   pollTimers[playlistId] = setInterval(async () => {
     try {
       const { data } = await axios.get(`/api/watchlist/${playlistId}/crawl-status`)
-      if (!data.status || data.status === 'done') {
+      if (data.status === 'done') {
+        stopPolling(playlistId)
+        crawlStatus[playlistId] = 'done'
+        await fetchPlaylists()
+        setTimeout(() => { delete crawlStatus[playlistId] }, 3000)
+      } else if (!data.status) {
         stopPolling(playlistId)
         delete crawlStatus[playlistId]
         await fetchPlaylists()
@@ -256,7 +263,7 @@ function startPolling(playlistId) {
       stopPolling(playlistId)
       delete crawlStatus[playlistId]
     }
-  }, 3000)
+  }, 4000)
 }
 
 function startPollingIfActive(pl) {
@@ -290,8 +297,7 @@ async function setOpinion(plId, val) {
 
 onMounted(async () => {
   await fetchPlaylists()
-  // Auto-detect playlists with active crawls
-  for (const pl of [...playlists.value, ...browsePlaylists.value]) {
+  for (const pl of browsePlaylists.value) {
     startPollingIfActive(pl)
   }
 })
@@ -454,7 +460,7 @@ table.tt {
 table.tt col.w-pl      { width: auto; }
 table.tt col.w-creator { width: 180px; }
 table.tt col.w-tracks  { width: 84px; }
-table.tt col.w-crawl   { width: 128px; }
+table.tt col.w-crawl   { width: 140px; }
 table.tt col.w-avis    { width: 100px; }
 
 table.tt thead th {
@@ -470,6 +476,9 @@ table.tt thead th {
   white-space: nowrap;
   user-select: none;
 }
+table.tt th.sortable { cursor: pointer; }
+table.tt th.sortable:hover { color: var(--ink-2); }
+table.tt th .arr { color: var(--accent-ink); margin-left: 4px; }
 table.tt th.num, table.tt td.num { text-align: center; }
 table.tt th.end, table.tt td.end { text-align: right; }
 table.tt tbody tr {
@@ -562,59 +571,23 @@ table.tt tbody tr.liked:hover { background: oklch(var(--pos-l) var(--pos-c) var(
 table.tt tbody tr.disliked td:not(.td-avis) { opacity: 0.42; }
 table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
 
-/* crawl button (inline in crawl column) */
-.btn-crawl {
-  height: 24px;
-  padding: 0 10px;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-3);
-  font: 500 11px var(--font-ui);
-  cursor: pointer;
-  white-space: nowrap;
-  margin-left: 8px;
+/* crawl status chips (inline dot + label) */
+.crawl { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.crawl .cdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.crawl .clbl { font: 600 12.5px/1 var(--font-ui); }
+.crawl.running .cdot { background: var(--accent); }
+.crawl.running .clbl { color: var(--ink); }
+.crawl.queued  .cdot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.crawl.queued  .clbl { color: var(--ink-3); }
+.crawl.done    .cdot { background: var(--pos); }
+.crawl.done    .clbl { color: var(--pos-ink); }
+@keyframes crawlring {
+  0%   { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 60%, transparent); }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
-.btn-crawl:hover {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-
-/* crawl status badges */
-.crawl-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font: 500 11px/1 var(--font-mono);
-  white-space: nowrap;
-}
-.crawl-badge::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex: none;
-}
-.crawl-badge.running {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.crawl-badge.running::before {
-  background: var(--accent-ink);
-  animation: pulse-dot 1.2s ease-in-out infinite;
-}
-.crawl-badge.queued {
-  background: var(--surface-3);
-  color: var(--ink-2);
-}
-.crawl-badge.queued::before {
-  background: var(--ink-3);
-}
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+@media (prefers-reduced-motion: no-preference) {
+  .crawl.running .cdot { animation: crawlring 1.5s ease-out infinite; }
 }
 
 .state {
