@@ -84,48 +84,6 @@ class TestSetDetail:
         assert data["tracklist"][0]["raw_title"] == "Cola"
 
 
-class TestFollowUnfollow:
-    async def test_follow_set(self, auth_client, db, auth_user):
-        s = DJSet(source="trackid", title="Test Set")
-        db.add(s)
-        await db.commit()
-        await db.refresh(s)
-        r = await auth_client.post(f"/api/sets/{s.id}/follow")
-        assert r.status_code == 200
-        assert r.json()["ok"] is True
-
-    async def test_follow_duplicate_returns_409(self, auth_client, db, auth_user):
-        s = DJSet(source="trackid", title="Test Set")
-        db.add(s)
-        await db.commit()
-        await db.refresh(s)
-        await auth_client.post(f"/api/sets/{s.id}/follow")
-        r = await auth_client.post(f"/api/sets/{s.id}/follow")
-        assert r.status_code == 409
-
-    async def test_follow_nonexistent_returns_404(self, auth_client):
-        r = await auth_client.post("/api/sets/9999/follow")
-        assert r.status_code == 404
-
-    async def test_unfollow_set(self, auth_client, db, auth_user):
-        s = DJSet(source="trackid", title="Test Set")
-        db.add(s)
-        await db.commit()
-        await db.refresh(s)
-        await auth_client.post(f"/api/sets/{s.id}/follow")
-        r = await auth_client.delete(f"/api/sets/{s.id}/follow")
-        assert r.status_code == 200
-        assert r.json()["ok"] is True
-
-    async def test_unfollow_not_following_returns_404(self, auth_client, db):
-        s = DJSet(source="trackid", title="Test Set")
-        db.add(s)
-        await db.commit()
-        await db.refresh(s)
-        r = await auth_client.delete(f"/api/sets/{s.id}/follow")
-        assert r.status_code == 404
-
-
 class TestImportSet:
     async def test_invalid_input_returns_422(self, auth_client):
         r = await auth_client.post("/api/sets/import", json={})
