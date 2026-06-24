@@ -250,45 +250,6 @@ def crawl_single_playlist(self, playlist_id: int):
     }
 
 
-@celery_app.task(name="workers.tasks.check_previews")
-def check_previews():
-    """
-    Vérifie chaque semaine si les tracks catalog ont une preview Deezer dispo.
-    Met à jour has_preview dans les deux sens (True/False).
-    """
-    from sqlalchemy import select
-    from sqlalchemy.orm import Session
-    sys.path.insert(0, "/app")
-    from models import CatalogEntry, RadarTrack
-    from workers.db import get_engine
-
-    engine = get_engine()
-
-    updated = 0
-    with Session(engine) as session:
-        entries = session.execute(select(CatalogEntry)).scalars().all()
-        for entry in entries:
-            row = session.execute(
-                select(RadarTrack.external_track_id)
-                .where(RadarTrack.catalog_id == entry.id)
-                .where(RadarTrack.source == "deezer")
-                .limit(1)
-            ).first()
-            if not row:
-                continue
-            try:
-                r = requests.get(f"{DEEZER_API}/track/{row[0]}", timeout=10)
-                has = bool(r.json().get("preview", "").strip())
-            except Exception:
-                continue
-            if entry.has_preview != has:
-                entry.has_preview = has
-                updated += 1
-            time.sleep(0.15)
-        session.commit()
-
-    return {"updated": updated}
-
 
 @celery_app.task(name="workers.tasks.resolve_set_tracks", bind=True)
 def resolve_set_tracks(self):
