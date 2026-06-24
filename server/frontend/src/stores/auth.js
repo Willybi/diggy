@@ -35,23 +35,33 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function googleLogin(credential) {
-    const res = await fetch(`${API}/google`, {
+  async function login(email, password) {
+    const res = await fetch(`${API}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({ email, password }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || 'Google login failed')
+      throw new Error(err.detail || 'Login failed')
     }
     const data = await res.json()
-    _persist(data.token, {
-      id: data.user_id,
-      username: data.username,
-      is_admin: data.is_admin ?? false,
-      avatar_url: data.avatar_url ?? null,
+    _persist(data.token, { id: data.user_id, username: data.username, is_admin: data.is_admin ?? false })
+    return data
+  }
+
+  async function register(email, username, password) {
+    const res = await fetch(`${API}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, username, password }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Registration failed')
+    }
+    const data = await res.json()
+    _persist(data.token, { id: data.user_id, username: data.username, is_admin: data.is_admin ?? false })
     return data
   }
 
@@ -63,5 +73,5 @@ export const useAuthStore = defineStore('auth', () => {
     return token.value ? { Authorization: `Bearer ${token.value}` } : {}
   }
 
-  return { token, user, isAuthenticated, googleLogin, logout, authHeaders }
+  return { token, user, isAuthenticated, login, register, logout, authHeaders }
 })

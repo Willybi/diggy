@@ -62,7 +62,7 @@ def _find_eligible_sets(session):
 
 class TestCrawlFollowedSets:
     def _make_user(self, session):
-        u = User(email="t@t.com", username="t", google_id="g-test", is_active=True)
+        u = User(email="t@t.com", username="t", hashed_password="x", is_active=True)
         session.add(u)
         session.flush()
         return u
