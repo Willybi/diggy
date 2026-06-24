@@ -45,7 +45,8 @@
 
     <div class="sidebar-footer">
       <div v-if="auth.isAuthenticated" class="user-row">
-        <span class="nav-icon" v-html="iconUser" />
+        <img v-if="auth.user?.avatar_url" :src="auth.user.avatar_url" class="user-avatar" referrerpolicy="no-referrer" />
+        <span v-else class="nav-icon" v-html="iconUser" />
         <span class="user-name">{{ auth.user?.username }}</span>
         <button class="logout-btn" @click="handleLogout" title="Deconnexion">
           <span v-html="iconLogout" />
@@ -280,6 +281,13 @@ const discoverItems = computed(() => [
 .logout-btn :deep(svg) {
   width: 18px;
   height: 18px;
+}
+.user-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex: none;
+  object-fit: cover;
 }
 
 /* ============ RESPONSIVE — rail mode via container query ============ */
