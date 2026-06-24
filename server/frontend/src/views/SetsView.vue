@@ -336,6 +336,7 @@ async function doImportFromSearch(result) {
     const { data } = await axios.post('/api/sets/import', { slug: result.slug }, { headers: authHeaders() })
     result.already_imported = true
     result._importing = false
+    await opinions.set('set', data.id, 'liked')
     await fetchSets()
   } catch (e) {
     result._importing = false
