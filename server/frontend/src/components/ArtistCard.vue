@@ -283,9 +283,15 @@ const displayGenres = computed(() => (props.artist.genres || []).slice(0, 2))
 }
 .ac-genres {
   display: flex;
+  flex-wrap: nowrap;
   gap: 5px;
-  flex-wrap: wrap;
   min-height: 22px;
+  overflow: hidden;
+}
+.ac-genres :deep(.style-tag) {
+  min-width: 0;
+  max-width: 50%;
+  flex: 0 1 auto;
 }
 
 /* ---- stats ---- */
