@@ -552,7 +552,7 @@ table.tt thead th {
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: left;
-  padding: 8px 14px 12px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
