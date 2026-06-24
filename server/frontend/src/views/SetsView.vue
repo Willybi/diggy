@@ -133,7 +133,7 @@
             <th class="col-date sortable" @click="toggleSort('date')">Date <span v-if="sortKey === 'date'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
             <th class="num sortable" @click="toggleSort('tracks')">Tracks <span v-if="sortKey === 'tracks'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
             <th class="num col-dur sortable" @click="toggleSort('duration')">Durée <span v-if="sortKey === 'duration'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
-            <th class="end">Avis</th>
+            <th class="end sortable" @click="toggleSort('avis')">Avis <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -266,6 +266,12 @@ function sortValue(s, key) {
   if (key === 'date') return s.played_date || ''
   if (key === 'tracks') return s.total_tracks ? s.identified_tracks / s.total_tracks : 0
   if (key === 'duration') return s.duration_ms || 0
+  if (key === 'avis') {
+    const op = opinions.get('set', s.id)
+    if (op === 'liked') return 2
+    if (op === 'disliked') return 1
+    return 0
+  }
   return 0
 }
 
