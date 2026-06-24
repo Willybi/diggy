@@ -99,6 +99,8 @@ services:
       context: ./server/frontend
       target: development
     container_name: diggy_frontend
+    environment:
+      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
     networks:
       - diggy_network
     volumes:

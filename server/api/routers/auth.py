@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from database import get_db
-from auth import hash_password, verify_password, create_token
+from auth import verify_google_token, create_token
 from dependencies import get_current_user
 from models import User
 
@@ -15,15 +15,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # ---------- Schemas ----------
 
-class RegisterIn(BaseModel):
-    email: str
-    username: str
-    password: str
-
-
-class LoginIn(BaseModel):
-    email: str
-    password: str
+class GoogleLoginIn(BaseModel):
+    credential: str  # Google ID token from GSI
 
 
 class TokenOut(BaseModel):
@@ -31,6 +24,7 @@ class TokenOut(BaseModel):
     user_id: int
     username: str
     is_admin: bool = False
+    avatar_url: str | None = None
 
 
 class UserOut(BaseModel):
@@ -39,6 +33,7 @@ class UserOut(BaseModel):
     username: str
     is_active: bool
     is_admin: bool = False
+    avatar_url: str | None = None
     created_at: datetime | None
 
     model_config = {"from_attributes": True}
@@ -46,40 +41,57 @@ class UserOut(BaseModel):
 
 # ---------- Endpoints ----------
 
-@router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(
-        select(User).where((User.email == body.email) | (User.username == body.username))
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Email or username already taken")
+@router.post("/google", response_model=TokenOut)
+async def google_login(body: GoogleLoginIn, db: AsyncSession = Depends(get_db)):
+    payload = verify_google_token(body.credential)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
 
-    user = User(
-        email=body.email,
-        username=body.username,
-        hashed_password=hash_password(body.password),
-        is_active=True,
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    google_id = payload["sub"]
+    email = payload.get("email", "")
+    name = payload.get("name", email.split("@")[0])
+    picture = payload.get("picture")
 
-    return TokenOut(token=create_token(user.id), user_id=user.id, username=user.username, is_admin=user.is_admin)
-
-
-@router.post("/login", response_model=TokenOut)
-async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
+    # Look up by google_id first, then by email
+    result = await db.execute(select(User).where(User.google_id == google_id))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user:
+        # Check if email already exists (link existing account)
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+        if user:
+            user.google_id = google_id
+            user.avatar_url = picture
+        else:
+            # Auto-create account
+            user = User(
+                email=email,
+                username=name,
+                google_id=google_id,
+                avatar_url=picture,
+                is_active=True,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(user)
+
+    # Update avatar on each login
+    if picture and user.avatar_url != picture:
+        user.avatar_url = picture
 
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account disabled")
 
-    return TokenOut(token=create_token(user.id), user_id=user.id, username=user.username, is_admin=user.is_admin)
+    await db.commit()
+    await db.refresh(user)
+
+    return TokenOut(
+        token=create_token(user.id),
+        user_id=user.id,
+        username=user.username,
+        is_admin=user.is_admin,
+        avatar_url=user.avatar_url,
+    )
 
 
 @router.get("/me", response_model=UserOut)
