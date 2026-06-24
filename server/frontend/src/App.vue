@@ -79,7 +79,7 @@ body {
   container: app / inline-size;
 }
 .app-main.has-player {
-  padding-bottom: calc(var(--row-h) + 56px);
+  padding-bottom: 100px;
 }
 
 @container (max-width: 900px) {

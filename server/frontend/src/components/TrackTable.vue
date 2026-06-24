@@ -211,12 +211,12 @@ function firstTag(track) {
 
 /* Play button */
 .col-play {
-  width: 30px;
-  padding: 0 8px !important;
+  width: 44px;
+  padding: 0 14px;
 }
 .play-btn {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 1px solid var(--line-2);
   background: var(--surface);
@@ -247,7 +247,6 @@ function firstTag(track) {
 }
 
 /* Column widths */
-.col-play     { width: 38px; }
 .col-title    { width: auto; }
 .col-style    { width: 130px; }
 .col-bpm      { width: 72px; }
