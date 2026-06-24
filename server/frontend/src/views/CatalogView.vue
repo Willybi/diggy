@@ -37,12 +37,6 @@
 
     <!-- Sub-bar: fixed height, content changes per mode -->
     <div class="sub-bar">
-      <span v-if="mode === 'catalog'" class="sb-info">
-        {{ total }} résultats · triés par <b>{{ sortLabel }}</b>
-      </span>
-      <span v-else class="sb-info">
-        Mode <b>Radar</b> — pistes détectées par le crawler
-      </span>
       <div v-if="mode === 'radar'" class="recency">
         <span class="rlbl">Période</span>
         <div class="seg-rec">
@@ -140,14 +134,8 @@
               <!-- Zone d'échange: radar-only -->
               <td class="col-source">
                 <span v-if="e.source_name" class="src" :title="e.source_name">
-                  <span class="ic">
-                    <svg v-if="e.source_kind === 'set'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/></svg>
-                    <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h11M4 12h11M4 17h7" stroke-linecap="round"/><circle cx="18.5" cy="15.5" r="2.5"/><path d="M21 15.5V9l-2 .6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  </span>
-                  <span class="meta">
-                    <span class="nm">{{ e.source_name }}</span>
-                    <span class="kind">{{ e.source_kind === 'set' ? 'SET' : 'PLAYLIST' }}</span>
-                  </span>
+                  <span class="src-badge" :class="e.source_kind">{{ e.source_kind?.toUpperCase() }}</span>
+                  <span class="nm">{{ e.source_name }}</span>
                 </span>
                 <span v-else class="td-empty">—</span>
               </td>
@@ -240,24 +228,6 @@ function setInLib(val) {
 
 let searchTimer = null
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
-
-const SORT_LABELS = {
-  title: 'Track',
-  style: 'Style',
-  bpm: 'BPM',
-  key: 'Key',
-  duration_ms: 'Durée',
-  rating: 'Rating',
-  nb_radar_playlists: 'Radar',
-  in_lib: 'In lib',
-  avis: 'Avis',
-  detected_at: 'Détecté',
-  source_name: 'Source',
-}
-const sortLabel = computed(() => {
-  const label = SORT_LABELS[sortKey.value] || sortKey.value
-  return `${label} ${sortDir.value === 'asc' ? '↑' : '↓'}`
-})
 
 function fmtRelative(iso) {
   if (!iso) return '—'
@@ -512,12 +482,6 @@ watch(() => route.query.view, (v) => {
   min-height: 46px;
   padding: 0 30px 14px;
 }
-.sb-info {
-  font: 500 11.5px/1.4 var(--font-mono);
-  color: var(--ink-3);
-}
-.sb-info b { color: var(--accent-ink); font-weight: 600; }
-
 /* ============ RECENCY (radar only) ============ */
 .recency {
   margin-left: auto;
@@ -689,20 +653,18 @@ tr.playing .tt-title { color: var(--accent-ink); }
   display: inline-flex; align-items: center; gap: 9px;
   max-width: 100%; min-width: 0;
 }
-.src .ic {
-  width: 26px; height: 26px; border-radius: var(--r-xs); flex: none;
-  display: grid; place-items: center;
-  background: var(--surface-2); color: var(--ink-2);
+.src .src-badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 7px; border-radius: 4px;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.06em; white-space: nowrap; flex: none;
 }
-.src .ic svg { width: 14px; height: 14px; }
-.src .meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.src .src-badge.deezer  { background: var(--accent-soft); color: var(--accent-ink); }
+.src .src-badge.spotify { background: var(--pos-soft); color: var(--pos-ink); }
+.src .src-badge.tidal   { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--line-2); }
 .src .nm {
   font: 500 13px var(--font-ui); color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.src .kind {
-  font: 500 9.5px/1 var(--font-mono);
-  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
 }
 
 /* ============ DÉTECTÉ ============ */
