@@ -18,19 +18,6 @@
       </RouterLink>
     </nav>
 
-    <nav class="nav-section">
-      <p class="nav-label"><span>Discover</span></p>
-      <RouterLink v-for="item in discoverItems" :key="item.to"
-        :to="item.to" custom v-slot="{ isActive, navigate }"
-      >
-        <span class="nav-item" :class="{ 'is-active': isActive }" @click="navigate">
-          <span class="nav-icon" v-html="item.icon" />
-          <span class="nav-text">{{ item.label }}</span>
-          <span v-if="item.count != null" class="nav-count">{{ item.count }}</span>
-        </span>
-      </RouterLink>
-    </nav>
-
     <!-- ADMIN : surface utility, se detache (decision D2) -->
     <nav v-if="auth.user?.is_admin" class="nav-section nav-admin">
       <p class="nav-label"><span>Admin</span></p>
@@ -67,26 +54,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
 import { useTheme } from '../composables/useTheme.js'
 import { useAuthStore } from '../stores/auth.js'
 
 const { isDark, toggle } = useTheme()
 const auth = useAuthStore()
 const router = useRouter()
-
-const radarNewCount = ref(null)
-
-async function fetchRadarNewCount() {
-  try {
-    const { data } = await axios.get('/api/radar/new-count')
-    radarNewCount.value = data.count || null
-  } catch {}
-}
-
-onMounted(fetchRadarNewCount)
 
 function handleLogout() {
   auth.logout()
@@ -98,7 +72,6 @@ const iconAdmin = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const iconGrid = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`
 const iconSet = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>`
 const iconPlaylist = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 6h18M3 12h12M3 18h8"/></svg>`
-const iconRadar = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>`
 const iconTag = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-7 7-9-9z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></svg>`
 const iconSun = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`
 const iconMoon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
@@ -110,12 +83,8 @@ const libraryItems = [
   { to: '/artists',   label: 'Artistes',   icon: iconArtist,   count: null },
   { to: '/sets',      label: 'Sets',       icon: iconSet,      count: null },
   { to: '/playlists', label: 'Playlists',  icon: iconPlaylist, count: null },
+  { to: '/genres',    label: 'Genres',     icon: iconTag,      count: null },
 ]
-
-const discoverItems = computed(() => [
-  { to: '/catalog?view=radar', label: 'Radar', icon: iconRadar, count: radarNewCount.value || null },
-  { to: '/genres', label: 'Genres',      icon: iconTag,   count: null },
-])
 </script>
 
 <style scoped>
