@@ -71,6 +71,23 @@
       </div>
     </section>
 
+    <!-- Enrich set tracks -->
+    <section class="admin-section">
+      <h2 class="section-title">Enrichir tracks des sets</h2>
+      <p class="section-sub">Enrichit via Deezer + Beatport les tracks des sets sans infos. Ne touche pas aux tracks déjà enrichies.</p>
+      <div class="sync-row">
+        <button class="btn-sync" :disabled="enrichingSets" @click="runEnrichSets">
+          {{ enrichingSets ? 'Enrichissement…' : 'Enrichir sets' }}
+        </button>
+        <div v-if="enrichSetsResult" class="sync-result">
+          <span class="result-item ok">✓ {{ enrichSetsResult.enriched }} Deezer</span>
+          <span class="result-item ok">✓ {{ enrichSetsResult.bp_enriched }} Beatport</span>
+          <span class="result-item muted">/ {{ enrichSetsResult.total }} tracks</span>
+        </div>
+        <span v-if="enrichSetsError" class="sync-error">{{ enrichSetsError }}</span>
+      </div>
+    </section>
+
     <!-- Enrich Beatport -->
     <section class="admin-section">
       <h2 class="section-title">Enrichissement Beatport</h2>
@@ -355,6 +372,9 @@ const artworksError = ref('')
 const fetchingPlArtworks = ref(false)
 const plArtworksResult = ref(null)
 const plArtworksError = ref('')
+const enrichingSets = ref(false)
+const enrichSetsResult = ref(null)
+const enrichSetsError = ref('')
 const enrichingBeatport = ref(false)
 const beatportBatchSize = ref(0)
 const beatportResult = ref(null)
@@ -389,7 +409,7 @@ const crawlFilters = [
 ]
 const crawlTaskTypes = [
   'crawl_radar', 'crawl_playlist', 'enrich_catalog', 'enrich_beatport',
-  'sync_artists', 'fetch_artworks', 'resolve_set_tracks',
+  'sync_artists', 'fetch_artworks', 'resolve_set_tracks', 'enrich_set_tracks',
 ]
 
 function authHeaders() {
@@ -544,6 +564,30 @@ async function runLinkSets() {
   } catch (e) {
     linkSetsError.value = e.response?.data?.detail || 'Erreur'
     linkingSets.value = false
+  }
+}
+
+async function runEnrichSets() {
+  enrichingSets.value = true
+  enrichSetsResult.value = null
+  enrichSetsError.value = ''
+  try {
+    const { data } = await axios.post('/api/admin/sets/enrich-tracks', {}, { headers: authHeaders() })
+    let attempts = 0
+    const timer = setInterval(async () => {
+      attempts++
+      if (attempts > 300) { clearInterval(timer); enrichSetsError.value = 'Timeout'; enrichingSets.value = false; return }
+      try {
+        const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
+        if (st.status === 'done') { clearInterval(timer); enrichSetsResult.value = st.result; enrichingSets.value = false }
+        else if (st.status === 'error') { clearInterval(timer); enrichSetsError.value = st.error || 'Erreur'; enrichingSets.value = false }
+      } catch (err) {
+        clearInterval(timer); enrichSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue'); enrichingSets.value = false
+      }
+    }, 3000)
+  } catch (e) {
+    enrichSetsError.value = e.response?.data?.detail || 'Erreur'
+    enrichingSets.value = false
   }
 }
 

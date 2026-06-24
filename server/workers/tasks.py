@@ -302,6 +302,8 @@ def resolve_set_tracks(self):
                         st.catalog_id = entry.id
                         resolved += 1
 
+                # Save IDs before commit expires ORM attributes
+                resolved_ids = {st.catalog_id for st in tracks if st.catalog_id}
                 session.commit()
 
             # Async enrichment for entries missing deezer_id or beatport_id
@@ -316,8 +318,6 @@ def resolve_set_tracks(self):
                         existing_isrcs = {r[0] for r in session.execute(
                             select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
                         ).all()}
-
-                        resolved_ids = {st.catalog_id for st in tracks if st.catalog_id}
                         dz_entries = session.execute(
                             select(CatalogEntry).where(
                                 CatalogEntry.id.in_(resolved_ids),
@@ -355,6 +355,103 @@ def resolve_set_tracks(self):
                 "resolved": resolved,
                 "enriched": dz_stats.get("enriched", 0),
                 "bp_enriched": bp_stats.get("enriched", 0),
+            }
+            clog.set_stats(result)
+
+    return result
+
+
+@celery_app.task(name="workers.tasks.enrich_set_tracks", bind=True)
+def enrich_set_tracks(self):
+    """
+    Enrichit les entrées catalog liées aux sets qui n'ont pas encore de deezer_id.
+    Ne touche pas aux tracks déjà enrichies.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    sys.path.insert(0, "/app")
+    from models import SetTrack, CatalogEntry
+    from deezer_enrich import _get_s3, _ensure_bucket
+    from workers.db import get_engine
+    from workers.crawl_logger import CrawlLogger
+
+    engine = get_engine()
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
+    with Session(engine) as log_session:
+        with CrawlLogger(log_session, task_type="enrich_set_tracks",
+                         celery_task_id=self.request.id) as clog:
+
+            # Collect all catalog_ids from set_tracks
+            with Session(engine) as session:
+                catalog_ids = {r[0] for r in session.execute(
+                    select(SetTrack.catalog_id).where(
+                        SetTrack.catalog_id.isnot(None),
+                    ).distinct()
+                ).all()}
+
+            if not catalog_ids:
+                clog.set_stats({"enriched": 0, "bp_enriched": 0, "total": 0})
+                return {"enriched": 0, "bp_enriched": 0, "total": 0}
+
+            async def _async_enrich():
+                from workers.rate_limiter import RateLimiter
+                from workers.async_http import HttpPool
+                from workers.enrichment import enrich_deezer_batch, enrich_beatport_batch
+
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        existing_isrcs = {r[0] for r in session.execute(
+                            select(CatalogEntry.isrc).where(CatalogEntry.isrc.isnot(None))
+                        ).all()}
+
+                        dz_entries = session.execute(
+                            select(CatalogEntry).where(
+                                CatalogEntry.id.in_(catalog_ids),
+                                CatalogEntry.deezer_id.is_(None),
+                            )
+                        ).scalars().all()
+
+                        dz_total = 0
+                        dz_errors = 0
+                        if dz_entries:
+                            for i in range(0, len(dz_entries), 100):
+                                batch = dz_entries[i:i + 100]
+                                stats = await enrich_deezer_batch(session, batch, pool, s3, existing_isrcs)
+                                dz_total += stats.get("enriched", 0)
+                                dz_errors += stats.get("errors", 0)
+                                session.commit()
+                                logger.info("Set tracks Deezer enrich: %d/%d", min(i + 100, len(dz_entries)), len(dz_entries))
+
+                        bp_entries = session.execute(
+                            select(CatalogEntry).where(
+                                CatalogEntry.id.in_(catalog_ids),
+                                CatalogEntry.beatport_id.is_(None),
+                            )
+                        ).scalars().all()
+
+                        bp_total = 0
+                        if bp_entries:
+                            for i in range(0, len(bp_entries), 100):
+                                batch = bp_entries[i:i + 100]
+                                stats = await enrich_beatport_batch(session, batch, pool, s3)
+                                bp_total += stats.get("enriched", 0)
+                                session.commit()
+
+                return {"enriched": dz_total, "bp_enriched": bp_total, "errors": dz_errors}
+
+            try:
+                stats = asyncio.run(_async_enrich())
+            except Exception as e:
+                logger.error("enrich_set_tracks failed: %s", e)
+                stats = {"enriched": 0, "bp_enriched": 0, "errors": 0}
+
+            result = {
+                "enriched": stats.get("enriched", 0),
+                "bp_enriched": stats.get("bp_enriched", 0),
+                "total": len(catalog_ids),
             }
             clog.set_stats(result)
 
