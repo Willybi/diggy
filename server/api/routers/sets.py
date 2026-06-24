@@ -12,7 +12,7 @@ from database import get_db
 from dependencies import get_current_user, get_current_user_optional, uid as _uid
 from models import (
     DJSet, SetTrack, SetArtist, Artist, CatalogEntry, UserTrack,
-    UserSetFollow, User,
+    UserSetFollow, UserOpinion, User,
 )
 from schemas import (
     DJSetDetailOut, SetTrackDetailOut, SetArtistDetailOut,
@@ -87,19 +87,8 @@ async def search_trackid_sets(
 @router.get("/", response_model=list[SetListItemOut])
 async def list_sets(
     q: str | None = None,
-    followed: bool | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
 ):
-    uid = _uid(user)
-
-    follow_sub = (
-        select(UserSetFollow.set_id)
-        .where(UserSetFollow.user_id == uid, UserSetFollow.set_id == DJSet.id)
-        .correlate(DJSet)
-        .exists()
-    )
-
     stmt = (
         select(
             DJSet,
@@ -109,7 +98,6 @@ async def list_sets(
                     (and_(SetTrack.is_id.is_(False), SetTrack.catalog_id.isnot(None)), SetTrack.id),
                 )
             ).label("identified_tracks"),
-            follow_sub.label("followed"),
         )
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
         .group_by(DJSet.id)
@@ -118,8 +106,6 @@ async def list_sets(
 
     if q:
         stmt = stmt.where(DJSet.title.ilike(f"%{q}%"))
-    if followed is True:
-        stmt = stmt.where(follow_sub)
 
     rows = (await db.execute(stmt)).all()
 
@@ -148,9 +134,8 @@ async def list_sets(
             total_tracks=total,
             identified_tracks=identified,
             artists=set_artists_map.get(s.id, []),
-            followed=fol,
         )
-        for s, total, identified, fol in rows
+        for s, total, identified in rows
     ]
 
 
@@ -198,14 +183,22 @@ async def import_set_url(
         if not dj_set:
             raise HTTPException(status_code=500, detail="Import échoué")
 
-        # Auto-follow
-        ef = await db.execute(
-            select(UserSetFollow).where(
-                UserSetFollow.user_id == user.id,
-                UserSetFollow.set_id == dj_set.id,
+        # Auto-like (which also auto-follows via _sync_set_follow)
+        eo = await db.execute(
+            select(UserOpinion).where(
+                UserOpinion.user_id == user.id,
+                UserOpinion.entity_type == "set",
+                UserOpinion.entity_key == str(dj_set.id),
             )
         )
-        if not ef.scalar_one_or_none():
+        if not eo.scalar_one_or_none():
+            db.add(UserOpinion(
+                user_id=user.id,
+                entity_type="set",
+                entity_key=str(dj_set.id),
+                opinion="liked",
+                created_at=datetime.now(timezone.utc),
+            ))
             db.add(UserSetFollow(
                 user_id=user.id,
                 set_id=dj_set.id,
@@ -219,54 +212,6 @@ async def import_set_url(
         celery.send_task("workers.tasks.resolve_set_tracks")
 
         return {"id": dj_set.id, "title": dj_set.title}
-
-
-# ---------- Follow / Unfollow ----------
-
-@router.post("/{set_id}/follow")
-async def follow_set(
-    set_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    result = await db.execute(select(DJSet).where(DJSet.id == set_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Set not found")
-
-    existing = await db.execute(
-        select(UserSetFollow).where(
-            UserSetFollow.user_id == user.id, UserSetFollow.set_id == set_id
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Already following")
-
-    db.add(UserSetFollow(
-        user_id=user.id,
-        set_id=set_id,
-        followed_at=datetime.now(timezone.utc),
-    ))
-    await db.commit()
-    return {"ok": True}
-
-
-@router.delete("/{set_id}/follow")
-async def unfollow_set(
-    set_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    result = await db.execute(
-        select(UserSetFollow).where(
-            UserSetFollow.user_id == user.id, UserSetFollow.set_id == set_id
-        )
-    )
-    follow = result.scalar_one_or_none()
-    if not follow:
-        raise HTTPException(status_code=404, detail="Not following")
-    await db.delete(follow)
-    await db.commit()
-    return {"ok": True}
 
 
 # ---------- Detail ----------

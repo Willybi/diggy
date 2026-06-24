@@ -17,7 +17,6 @@
         </label>
         <div class="filterseg">
           <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Tous</button>
-          <button :class="{ on: mode === 'followed' }" @click="mode = 'followed'">Suivis</button>
           <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">Liked</button>
           <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">Disliked</button>
         </div>
@@ -263,9 +262,7 @@ function sortValue(s, key) {
 
 const displayList = computed(() => {
   let list
-  if (mode.value === 'followed') {
-    list = sets.value.filter(s => s.followed)
-  } else if (mode.value === 'liked') {
+  if (mode.value === 'liked') {
     list = sets.value.filter(s => opinions.get('set', s.id) === 'liked')
   } else if (mode.value === 'disliked') {
     list = sets.value.filter(s => opinions.get('set', s.id) === 'disliked')
@@ -328,7 +325,6 @@ async function doImportFromSearch(result) {
   formError.value = ''
   try {
     const { data } = await axios.post('/api/sets/import', { slug: result.slug }, { headers: authHeaders() })
-    await axios.post(`/api/sets/${data.id}/follow`, {}, { headers: authHeaders() }).catch(() => {})
     result.already_imported = true
     result._importing = false
     await fetchSets()
@@ -356,7 +352,6 @@ async function doImport() {
 
 async function setOpinion(setId, val) {
   await opinions.set('set', setId, val)
-  // Refetch to update followed state
   await fetchSets()
 }
 

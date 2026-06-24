@@ -272,7 +272,6 @@ class SetListItemOut(BaseModel):
     total_tracks: int = 0
     identified_tracks: int = 0
     artists: list[str] = []
-    followed: bool = False
 
     model_config = {"from_attributes": True}
 
