@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import GenresView        from './views/GenresView.vue'
 import GenreDetailView   from './views/GenreDetailView.vue'
 import CatalogView       from './views/CatalogView.vue'
-import RadarView         from './views/RadarView.vue'
 import WatchlistView     from './views/WatchlistView.vue'
 import TrackDetailView   from './views/TrackDetailView.vue'
 import ArtistDetailView  from './views/ArtistDetailView.vue'
@@ -27,7 +26,7 @@ const routes = [
   { path: '/set/:id',      component: SetDetailView, props: true },
   { path: '/artists',      component: ArtistsView },
   { path: '/admin',        component: AdminView },
-  { path: '/radar',        component: RadarView },
+  { path: '/radar',        redirect: '/catalog?view=radar' },
   { path: '/playlists',      component: WatchlistView },
   { path: '/playlists/:id',  component: PlaylistDetailView, props: true },
 ]

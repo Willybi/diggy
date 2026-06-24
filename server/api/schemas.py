@@ -158,6 +158,10 @@ class CatalogEntryOut(BaseModel):
     nb_radar_playlists: int = 0
     nb_radar_sets: int = 0
     avis: Optional[str] = None
+    # Radar enrichment (view=radar only)
+    detected_at: Optional[datetime] = None
+    source_name: Optional[str] = None
+    source_kind: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

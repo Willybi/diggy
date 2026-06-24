@@ -758,9 +758,15 @@ table.tt td {
 }
 .ring.full .pct { color: var(--pos-ink); }
 
+/* ============ AVIS: hover-reveal LikeDislike ============ */
+.td-avis :deep(.ld-btn) { opacity: 0; transition: opacity .14s; }
+table.tt tbody tr:hover .td-avis :deep(.ld-btn) { opacity: 1; }
+.td-avis :deep(.ld[data-state="liked"] .ld-btn.like),
+.td-avis :deep(.ld[data-state="disliked"] .ld-btn.dislike) { opacity: 1; }
+
 /* ============ ROW AVIS STATES ============ */
-table.tt tbody tr.liked { background: color-mix(in oklch, var(--pos) 6%, transparent); }
-table.tt tbody tr.liked:hover { background: color-mix(in oklch, var(--pos) 10%, transparent); }
+table.tt tbody tr.liked { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .06); }
+table.tt tbody tr.liked:hover { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .10); }
 table.tt tbody tr.disliked td:not(.td-avis) { opacity: 0.42; }
 table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
 

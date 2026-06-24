@@ -333,9 +333,9 @@ const displayGenres = computed(() => (props.artist.genres || []).slice(0, 2))
   box-shadow: 0 0 0 2px var(--pos-soft);
 }
 .artist-card.disliked {
-  opacity: 0.52;
+  opacity: 0.55;
 }
 .artist-card.disliked:hover {
-  opacity: 0.72;
+  opacity: 0.8;
 }
 </style>
