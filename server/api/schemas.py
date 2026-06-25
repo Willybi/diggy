@@ -158,6 +158,7 @@ class CatalogEntryOut(BaseModel):
     nb_radar_playlists: int = 0
     nb_radar_sets: int = 0
     avis: Optional[str] = None
+    artist_id: Optional[int] = None
     # Radar enrichment (view=radar only)
     detected_at: Optional[datetime] = None
     source_name: Optional[str] = None
