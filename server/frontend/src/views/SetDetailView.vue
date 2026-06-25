@@ -118,7 +118,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import axios from 'axios'
+import api from '../utils/api.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -135,15 +135,11 @@ const saQuery = ref('')
 const saResults = ref([])
 let saTimer = null
 
-function authHeaders() {
-  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
-}
-
 function onSaSearch() {
   clearTimeout(saTimer)
   if (!saQuery.value.trim()) { saResults.value = []; return }
   saTimer = setTimeout(async () => {
-    const { data } = await axios.get('/api/artists/', { params: { q: saQuery.value.trim(), limit: 10 } })
+    const { data } = await api.get('/api/artists/', { params: { q: saQuery.value.trim(), limit: 10 } })
     saResults.value = data
   }, 300)
 }
@@ -151,9 +147,9 @@ function onSaSearch() {
 async function addSetArtist(artistId) {
   if (!djSet.value) return
   try {
-    await axios.post(`/api/admin/sets/${djSet.value.id}/artists`, { artist_id: artistId, role: 'dj' }, { headers: authHeaders() })
+    await api.post(`/api/admin/sets/${djSet.value.id}/artists`, { artist_id: artistId, role: 'dj' })
     // Reload set data
-    const { data } = await axios.get(`/api/sets/${route.params.id}`)
+    const { data } = await api.get(`/api/sets/${route.params.id}`)
     djSet.value = data
     saQuery.value = ''
     saResults.value = []
@@ -163,7 +159,7 @@ async function addSetArtist(artistId) {
 async function removeSetArtist(artistId) {
   if (!djSet.value) return
   try {
-    await axios.delete(`/api/admin/sets/${djSet.value.id}/artists/${artistId}`, { headers: authHeaders() })
+    await api.delete(`/api/admin/sets/${djSet.value.id}/artists/${artistId}`)
     djSet.value.artists = djSet.value.artists.filter(a => a.artist_id !== artistId)
   } catch {}
 }
@@ -239,7 +235,7 @@ function trackRowClass(t) {
 
 onMounted(async () => {
   try {
-    const { data } = await axios.get(`/api/sets/${route.params.id}`)
+    const { data } = await api.get(`/api/sets/${route.params.id}`)
     djSet.value = data
   } catch {
     djSet.value = null
@@ -368,7 +364,7 @@ onMounted(async () => {
   margin: 16px 0;
   padding: 14px 18px;
   background: var(--surface);
-  border: 1px solid var(--warn-ink, #e67e22);
+  border: 1px solid var(--warn-ink);
   border-radius: var(--r-sm);
 }
 .admin-header { margin-bottom: 10px; }
@@ -376,7 +372,7 @@ onMounted(async () => {
   font: 600 11px/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--warn-ink, #e67e22);
+  color: var(--warn-ink);
 }
 .set-artists-list { margin-bottom: 10px; }
 .set-artist-row {
@@ -422,5 +418,5 @@ onMounted(async () => {
   font: 500 10px/1 var(--font-ui);
   cursor: pointer;
 }
-.btn-row-action:hover { color: var(--neg-ink, #c0392b); border-color: var(--neg-ink, #c0392b); }
+.btn-row-action:hover { color: var(--neg-ink); border-color: var(--neg-ink); }
 </style>

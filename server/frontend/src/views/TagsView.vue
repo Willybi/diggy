@@ -23,7 +23,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from 'axios'
+import api from '../utils/api.js'
 import StyleTag from '../components/StyleTag.vue'
 
 const genres  = ref([])
@@ -32,7 +32,7 @@ const loading = ref(false)
 async function fetchGenres() {
   loading.value = true
   try {
-    const { data } = await axios.get('/api/catalog/genres')
+    const { data } = await api.get('/api/catalog/genres')
     genres.value = data
   } catch {
     genres.value = []

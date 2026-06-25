@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import axios from 'axios'
+import api from '../utils/api.js'
 
 const VOLUME_KEY = 'diggy:volume'
 
@@ -72,7 +72,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     loading.value = true
 
     try {
-      const { data } = await axios.get(`/api/catalog/${trackObj.catalog_id}/preview-url`)
+      const { data } = await api.get(`/api/catalog/${trackObj.catalog_id}/preview-url`)
       const el = ensureAudio()
       el.src = data.preview_url
       await el.play()
@@ -133,7 +133,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     try {
       const params = { genre: genreName }
       if (lastGenreTrack) params.exclude = lastGenreTrack
-      const { data } = await axios.get('/api/genres/random-track', { params })
+      const { data } = await api.get('/api/genres/random-track', { params })
       lastGenreTrack = data.catalog_id
 
       genrePlaying.value = genreName
@@ -161,7 +161,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     try {
       const params = { artist_id: artistId }
       if (lastArtistTrack) params.exclude = lastArtistTrack
-      const { data } = await axios.get('/api/artists/random-track', { params })
+      const { data } = await api.get('/api/artists/random-track', { params })
       lastArtistTrack = data.catalog_id
 
       artistPlaying.value = artistId

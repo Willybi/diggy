@@ -1,22 +1,16 @@
 import { defineStore } from 'pinia'
 import { reactive } from 'vue'
-import axios from 'axios'
-import { useAuthStore } from './auth.js'
+import api from '../utils/api.js'
 
 export const useOpinionsStore = defineStore('opinions', () => {
   // { artist: { '42': 'liked', ... }, set: { ... }, playlist: { ... }, genre: { ... } }
   const data = reactive({})
   let loaded = false
 
-  function _headers() {
-    const auth = useAuthStore()
-    return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
-  }
-
   async function load() {
     if (loaded) return
     try {
-      const { data: resp } = await axios.get('/api/opinions/', { headers: _headers() })
+      const { data: resp } = await api.get('/api/opinions/')
       Object.assign(data, resp)
       loaded = true
     } catch {}
@@ -37,11 +31,11 @@ export const useOpinionsStore = defineStore('opinions', () => {
       delete data[entityType][key]
     }
     try {
-      await axios.patch('/api/opinions/', {
+      await api.patch('/api/opinions/', {
         entity_type: entityType,
         entity_key: key,
         opinion,
-      }, { headers: _headers() })
+      })
     } catch {
       // Rollback
       if (prev) {

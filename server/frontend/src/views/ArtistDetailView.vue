@@ -127,7 +127,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from 'axios'
+import api from '../utils/api.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -151,18 +151,13 @@ const adminMsg = ref('')
 const adminMsgType = ref('ok')
 let dzTimer = null
 
-function authHeaders() {
-  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
-}
-
 function onDzSearch() {
   clearTimeout(dzTimer)
   selectedHit.value = null
   if (!dzQuery.value.trim()) { dzHits.value = []; return }
   dzTimer = setTimeout(async () => {
-    const { data } = await axios.get('/api/admin/artists/search-deezer', {
+    const { data } = await api.get('/api/admin/artists/search-deezer', {
       params: { q: dzQuery.value.trim() },
-      headers: authHeaders(),
     })
     dzHits.value = data
   }, 300)
@@ -173,10 +168,9 @@ async function confirmRelink() {
   linking.value = true
   adminMsg.value = ''
   try {
-    const { data } = await axios.patch(
+    const { data } = await api.patch(
       `/api/admin/artists/${artist.value.id}/deezer`,
       { deezer_id: selectedHit.value.deezer_id },
-      { headers: authHeaders() },
     )
     if (data.merged && data.id !== artist.value.id) {
       adminMsg.value = `Fusionné avec l'artiste existant → redirection…`
@@ -184,7 +178,7 @@ async function confirmRelink() {
       setTimeout(() => router.replace(`/artist/${data.id}`), 1200)
     } else {
       // Reload the page to reflect new name/artwork
-      const { data: fresh } = await axios.get(`/api/artists/${artist.value.id}`)
+      const { data: fresh } = await api.get(`/api/artists/${artist.value.id}`)
       artist.value = fresh
       dzQuery.value = ''
       dzHits.value = []
@@ -203,10 +197,9 @@ async function confirmRelink() {
 async function unlinkDeezer() {
   if (!artist.value) return
   try {
-    await axios.patch(
+    await api.patch(
       `/api/admin/artists/${artist.value.id}/deezer`,
       { deezer_id: '' },
-      { headers: authHeaders() },
     )
     artist.value.deezer_id = null
     adminMsg.value = 'Deezer délié'
@@ -249,7 +242,7 @@ function setSub(s) {
 
 onMounted(async () => {
   try {
-    const { data } = await axios.get(`/api/artists/${route.params.id}`)
+    const { data } = await api.get(`/api/artists/${route.params.id}`)
     artist.value = data
   } catch {
     artist.value = null

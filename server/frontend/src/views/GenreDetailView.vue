@@ -193,11 +193,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from 'axios'
+import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
-import { fmtMs, fmtDate } from '../utils/format'
+import { fmtMs, fmtDate, fmtNum } from '../utils/format'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
 import StyleTag from '../components/StyleTag.vue'
@@ -271,10 +271,6 @@ const sortOptions = [
 ]
 
 // -- Helpers --
-function fmtNum(n) {
-  return (n || 0).toLocaleString('fr-FR').replace(/\u202f/g, ' ')
-}
-
 function ringClass(s) {
   const pct = s.totalTracks ? s.genreTrackCount / s.totalTracks : 0
   if (pct >= 0.8) return 'ring-full'
@@ -296,7 +292,7 @@ async function fetchGenre() {
   loading.value = true
   genre.value = null
   try {
-    const { data } = await axios.get(`/api/genres/detail/${encodeURIComponent(genreName.value)}`)
+    const { data } = await api.get(`/api/genres/detail/${encodeURIComponent(genreName.value)}`)
     genre.value = data
     renameVal.value = data.name
     // Fetch sub-data in parallel
@@ -318,7 +314,7 @@ async function fetchGenre() {
 
 async function fetchArtists() {
   try {
-    const { data } = await axios.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
+    const { data } = await api.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
     artists.value = data.items
     artistsTotal.value = data.total
   } catch { artists.value = [] }
@@ -326,7 +322,7 @@ async function fetchArtists() {
 
 async function fetchSets() {
   try {
-    const { data } = await axios.get(`/api/genres/sets/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
+    const { data } = await api.get(`/api/genres/sets/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
     sets.value = data.items
     setsTotal.value = data.total
   } catch { sets.value = [] }
@@ -334,7 +330,7 @@ async function fetchSets() {
 
 async function fetchPlaylists() {
   try {
-    const { data } = await axios.get(`/api/genres/playlists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
+    const { data } = await api.get(`/api/genres/playlists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
     playlists.value = data.items
     playlistsTotal.value = data.total
   } catch { playlists.value = [] }
@@ -355,7 +351,7 @@ async function fetchTracks(reset = false) {
     }
     if (trackSearch.value.trim()) params.q = trackSearch.value.trim()
     if (trackInLib.value != null) params.inLib = trackInLib.value
-    const { data } = await axios.get(`/api/genres/tracks/${encodeURIComponent(genreName.value)}`, { params })
+    const { data } = await api.get(`/api/genres/tracks/${encodeURIComponent(genreName.value)}`, { params })
     if (reset) {
       tracks.value = data.items
     } else {
@@ -371,7 +367,7 @@ async function fetchTracks(reset = false) {
 
 async function fetchNeighbors() {
   try {
-    const { data } = await axios.get(`/api/genres/neighbors/${encodeURIComponent(genreName.value)}`)
+    const { data } = await api.get(`/api/genres/neighbors/${encodeURIComponent(genreName.value)}`)
     neighbors.value = data.items
   } catch { neighbors.value = [] }
 }
@@ -410,7 +406,7 @@ async function doRename() {
   const newName = renameVal.value.trim()
   if (!newName || newName === genre.value.name) return
   try {
-    const { data } = await axios.patch(`/api/genres/rename/${encodeURIComponent(genre.value.name)}`, { new_name: newName })
+    const { data } = await api.patch(`/api/genres/rename/${encodeURIComponent(genre.value.name)}`, { new_name: newName })
     adminMsg.value = `Renommé → ${data.to} (${data.affected} tracks)`
     adminMsgType.value = 'ok'
     router.replace(`/style/${encodeURIComponent(data.to)}`)
@@ -426,7 +422,7 @@ function onMergeSearch() {
   if (!mergeQuery.value.trim()) { mergeSuggestions.value = []; return }
   mergeTimer = setTimeout(async () => {
     try {
-      const { data } = await axios.get('/api/genres', { params: { q: mergeQuery.value.trim(), limit: 5 } })
+      const { data } = await api.get('/api/genres', { params: { q: mergeQuery.value.trim(), limit: 5 } })
       mergeSuggestions.value = data.items.filter(g => g.name !== genre.value?.name)
     } catch { mergeSuggestions.value = [] }
   }, 250)
@@ -436,7 +432,7 @@ async function doMerge() {
   if (!mergeTarget.value) return
   if (!confirm(`Fusionner "${genre.value.name}" dans "${mergeTarget.value}" ?`)) return
   try {
-    const { data } = await axios.post('/api/genres/merge', { source: genre.value.name, target: mergeTarget.value })
+    const { data } = await api.post('/api/genres/merge', { source: genre.value.name, target: mergeTarget.value })
     adminMsg.value = `Fusionné ${data.affected} tracks → ${data.target}`
     adminMsgType.value = 'ok'
     router.replace(`/style/${encodeURIComponent(data.target)}`)

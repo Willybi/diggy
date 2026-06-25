@@ -129,7 +129,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, reactive } from 'vue'
-import axios from 'axios'
+import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from '../components/LikeDislike.vue'
 
@@ -223,7 +223,7 @@ function isCooldown(pl) {
 async function triggerCrawl(pl) {
   crawlStatus[pl.id] = 'queued'
   try {
-    await axios.post(`/api/watchlist/${pl.id}/crawl`)
+    await api.post(`/api/watchlist/${pl.id}/crawl`)
     startPolling(pl.id)
   } catch (e) {
     if (e.response?.status === 429) {
@@ -258,7 +258,7 @@ function parsePlaylistInput(input) {
 async function fetchPlaylists() {
   loading.value = true
   try {
-    const { data } = await axios.get('/api/watchlist/browse')
+    const { data } = await api.get('/api/watchlist/browse')
     browsePlaylists.value = data
   } finally {
     loading.value = false
@@ -274,7 +274,7 @@ async function addPlaylist() {
   }
   adding.value = true
   try {
-    const { data } = await axios.post('/api/watchlist/', parsed)
+    const { data } = await api.post('/api/watchlist/', parsed)
     inputValue.value = ''
     showForm.value = false
     await fetchPlaylists()
@@ -295,7 +295,7 @@ function startPolling(playlistId) {
   if (!crawlStatus[playlistId]) crawlStatus[playlistId] = 'queued'
   pollTimers[playlistId] = setInterval(async () => {
     try {
-      const { data } = await axios.get(`/api/watchlist/${playlistId}/crawl-status`)
+      const { data } = await api.get(`/api/watchlist/${playlistId}/crawl-status`)
       if (data.status === 'done') {
         stopPolling(playlistId)
         crawlStatus[playlistId] = 'done'

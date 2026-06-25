@@ -1,0 +1,25 @@
+/* ── Buttons · shared classes ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 13px var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.btn:hover { background: var(--surface-2); color: var(--ink); }
+.btn--accent { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
+.btn--accent:hover { background: var(--accent-hover); color: var(--on-accent); }
+.btn--ghost-accent { border-color: var(--accent); color: var(--accent-ink); }
+.btn--ghost-accent:hover { background: var(--accent-soft); }
+.btn--sm { height: 32px; padding: 0 12px; font-size: 12px; }
+.btn--danger:hover { color: var(--neg-ink); border-color: var(--neg-ink); background: var(--surface); }
+.btn svg { width: 15px; height: 15px; }

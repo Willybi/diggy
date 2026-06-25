@@ -54,6 +54,11 @@
   --neg-soft: oklch(0.942 0.040 var(--neg-h));
   --neg-ink:  oklch(0.490 0.130 var(--neg-h));
 
+  /* ---- warning (ambre) ---- */
+  --warn:      oklch(0.700 0.130 70);
+  --warn-soft: oklch(0.940 0.052 70);
+  --warn-ink:  oklch(0.520 0.110 70);
+
   /* ---- error ---- */
   --error: oklch(0.55 0.18 25);
 
@@ -138,6 +143,10 @@
   --neg:      oklch(0.705 0.130 var(--neg-h));
   --neg-soft: oklch(0.340 0.072 var(--neg-h));
   --neg-ink:  oklch(0.818 0.108 var(--neg-h));
+
+  --warn:      oklch(0.780 0.120 70);
+  --warn-soft: oklch(0.345 0.060 70);
+  --warn-ink:  oklch(0.830 0.105 70);
 
   --error: oklch(0.65 0.18 25);
 

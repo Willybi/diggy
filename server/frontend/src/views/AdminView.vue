@@ -350,7 +350,7 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
-import axios from 'axios'
+import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
 
 const auth = useAuthStore()
@@ -411,16 +411,12 @@ const crawlTaskTypes = [
   'sync_artists', 'fetch_artworks', 'resolve_set_tracks', 'enrich_set_tracks',
 ]
 
-function authHeaders() {
-  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
-}
-
 async function runSync() {
   syncing.value = true
   syncResult.value = null
   syncError.value = ''
   try {
-    const { data } = await axios.post('/api/admin/artists/sync', {}, { headers: authHeaders() })
+    const { data } = await api.post('/api/admin/artists/sync')
     pollStatus(data.task_id)
   } catch (e) {
     syncError.value = e.response?.data?.detail || 'Erreur lors de la sync'
@@ -440,7 +436,7 @@ function pollStatus(taskId) {
       return
     }
     try {
-      const { data } = await axios.get(`/api/admin/artists/sync/status/${taskId}`, { headers: authHeaders() })
+      const { data } = await api.get(`/api/admin/artists/sync/status/${taskId}`)
       if (data.status === 'done') {
         clearInterval(pollTimer)
         syncResult.value = data.result
@@ -458,9 +454,8 @@ function pollStatus(taskId) {
 async function fetchFlags() {
   loadingFlags.value = true
   try {
-    const { data } = await axios.get('/api/admin/artists/flags', {
+    const { data } = await api.get('/api/admin/artists/flags', {
       params: { status: filterStatus.value },
-      headers: authHeaders(),
     })
     flags.value = data
   } finally {
@@ -476,10 +471,9 @@ async function setFilter(s) {
 async function resolve(flagId, action) {
   resolving[flagId] = true
   try {
-    const { data } = await axios.post(
+    const { data } = await api.post(
       `/api/admin/artists/flags/${flagId}/resolve`,
       { action },
-      { headers: authHeaders() },
     )
     // Update in-place
     const idx = flags.value.findIndex(f => f.id === flagId)
@@ -498,7 +492,7 @@ async function runFetchArtworks() {
   artworksResult.value = null
   artworksError.value = ''
   try {
-    const { data } = await axios.post('/api/admin/artists/fetch-artworks', {}, { headers: authHeaders() })
+    const { data } = await api.post('/api/admin/artists/fetch-artworks')
     pollArtworksStatus(data.task_id)
   } catch (e) {
     artworksError.value = e.response?.data?.detail || 'Erreur'
@@ -512,7 +506,7 @@ function pollArtworksStatus(taskId) {
     attempts++
     if (attempts >= 150) { clearInterval(timer); fetchingArtworks.value = false; return }
     try {
-      const { data } = await axios.get(`/api/admin/artists/sync/status/${taskId}`, { headers: authHeaders() })
+      const { data } = await api.get(`/api/admin/artists/sync/status/${taskId}`)
       if (data.status === 'done') {
         clearInterval(timer)
         artworksResult.value = data.result
@@ -533,7 +527,7 @@ async function runFetchPlArtworks() {
   plArtworksResult.value = null
   plArtworksError.value = ''
   try {
-    const { data } = await axios.post('/api/admin/playlists/fetch-artworks', {}, { headers: authHeaders() })
+    const { data } = await api.post('/api/admin/playlists/fetch-artworks')
     plArtworksResult.value = data
   } catch (e) {
     plArtworksError.value = e.response?.data?.detail || 'Erreur'
@@ -547,13 +541,13 @@ async function runLinkSets() {
   linkSetsResult.value = null
   linkSetsError.value = ''
   try {
-    const { data } = await axios.post('/api/admin/sets/link-artists', {}, { headers: authHeaders() })
+    const { data } = await api.post('/api/admin/sets/link-artists')
     let attempts = 0
     const timer = setInterval(async () => {
       attempts++
       if (attempts > 150) { clearInterval(timer); linkSetsError.value = 'Timeout'; linkingSets.value = false; return }
       try {
-        const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
+        const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
         if (st.status === 'done') { clearInterval(timer); linkSetsResult.value = st.result; linkingSets.value = false }
         else if (st.status === 'error') { clearInterval(timer); linkSetsError.value = st.error || 'Erreur'; linkingSets.value = false }
       } catch (err) {
@@ -571,13 +565,13 @@ async function runEnrichSets() {
   enrichSetsResult.value = null
   enrichSetsError.value = ''
   try {
-    const { data } = await axios.post('/api/admin/sets/enrich-tracks', {}, { headers: authHeaders() })
+    const { data } = await api.post('/api/admin/sets/enrich-tracks')
     let attempts = 0
     const timer = setInterval(async () => {
       attempts++
       if (attempts > 300) { clearInterval(timer); enrichSetsError.value = 'Timeout'; enrichingSets.value = false; return }
       try {
-        const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
+        const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
         if (st.status === 'done') { clearInterval(timer); enrichSetsResult.value = st.result; enrichingSets.value = false }
         else if (st.status === 'error') { clearInterval(timer); enrichSetsError.value = st.error || 'Erreur'; enrichingSets.value = false }
       } catch (err) {
@@ -596,13 +590,13 @@ async function runEnrichBeatport() {
   beatportError.value = ''
   try {
     const params = beatportBatchSize.value > 0 ? `?batch_size=${beatportBatchSize.value}` : ''
-    const { data } = await axios.post(`/api/admin/enrich-beatport${params}`, {}, { headers: authHeaders() })
+    const { data } = await api.post(`/api/admin/enrich-beatport${params}`)
     let attempts = 0
     const timer = setInterval(async () => {
       attempts++
       if (attempts > 300) { clearInterval(timer); beatportError.value = 'Timeout'; enrichingBeatport.value = false; return }
       try {
-        const { data: st } = await axios.get(`/api/admin/artists/sync/status/${data.task_id}`, { headers: authHeaders() })
+        const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
         if (st.status === 'done') { clearInterval(timer); beatportResult.value = st.result; enrichingBeatport.value = false }
         else if (st.status === 'error') { clearInterval(timer); beatportError.value = st.error || 'Erreur'; enrichingBeatport.value = false }
       } catch (err) {
@@ -618,7 +612,7 @@ async function runEnrichBeatport() {
 async function fetchNoDeezerArtists(q = '') {
   const params = { no_deezer: true, limit: 100 }
   if (q) params.q = q
-  const { data } = await axios.get('/api/artists/', { params })
+  const { data } = await api.get('/api/artists/', { params })
   dbArtistResults.value = data
 }
 
@@ -633,9 +627,8 @@ function onDeezerSearch() {
   selectedDeezerHit.value = null
   if (!linkDeezerQuery.value.trim()) { deezerHits.value = []; return }
   linkDeezerTimer = setTimeout(async () => {
-    const { data } = await axios.get('/api/admin/artists/search-deezer', {
+    const { data } = await api.get('/api/admin/artists/search-deezer', {
       params: { q: linkDeezerQuery.value.trim() },
-      headers: authHeaders(),
     })
     deezerHits.value = data
   }, 300)
@@ -647,10 +640,9 @@ async function confirmLink() {
   linkSuccess.value = false
   linkError.value = ''
   try {
-    await axios.patch(
+    await api.patch(
       `/api/admin/artists/${selectedDbArtist.value.id}/deezer`,
       { deezer_id: selectedDeezerHit.value.deezer_id },
-      { headers: authHeaders() },
     )
     linkSuccess.value = true
     // Reset selections but keep query to refresh list
@@ -669,7 +661,7 @@ async function confirmLink() {
 
 async function markNoDeezer(artist) {
   try {
-    await axios.patch(`/api/admin/artists/${artist.id}/no-deezer`, {}, { headers: authHeaders() })
+    await api.patch(`/api/admin/artists/${artist.id}/no-deezer`)
     dbArtistResults.value = dbArtistResults.value.filter(a => a.id !== artist.id)
   } catch {}
 }
@@ -685,10 +677,9 @@ async function flagArtist(artist) {
   if (!sep) return
   const tokens = artist.name.split(sep).map(t => t.trim()).filter(Boolean)
   try {
-    await axios.post(
+    await api.post(
       '/api/admin/artists/flags/manual',
       { raw_artist_string: artist.name, tokens, reason: 'manual' },
-      { headers: authHeaders() },
     )
     // Remove from no-deezer list and refresh flags
     dbArtistResults.value = dbArtistResults.value.filter(a => a.id !== artist.id)
@@ -703,7 +694,7 @@ async function fetchCrawlLogs() {
     const params = { page: crawlPage.value, per_page: 20 }
     if (crawlFilter.value) params.status = crawlFilter.value
     if (crawlTaskType.value) params.task_type = crawlTaskType.value
-    const { data } = await axios.get('/api/admin/crawl-logs', { params, headers: authHeaders() })
+    const { data } = await api.get('/api/admin/crawl-logs', { params })
     crawlLogs.value = data.items
     crawlTotal.value = data.total
     crawlTotalPages.value = Math.ceil(data.total / data.per_page)
@@ -827,10 +818,10 @@ onMounted(() => {
   gap: 14px;
   font: 400 13px/1 var(--font-mono);
 }
-.result-item.ok { color: var(--pos-ink, #27ae60); }
-.result-item.warn { color: var(--warn-ink, #e67e22); }
+.result-item.ok { color: var(--pos-ink); }
+.result-item.warn { color: var(--warn-ink); }
 .result-item.muted { color: var(--ink-3); }
-.sync-error { font-size: 13px; color: var(--neg-ink, #c0392b); }
+.sync-error { font-size: 13px; color: var(--neg-ink); }
 
 /* Filter */
 .filter-group {
@@ -893,8 +884,8 @@ onMounted(() => {
   border-radius: 4px;
   white-space: nowrap;
 }
-.reason-badge.comma_unresolved { background: var(--warn-soft, #fef3cd); color: var(--warn-ink, #856404); }
-.reason-badge.ampersand_ambiguous { background: var(--neg-soft, #fde); color: var(--neg-ink, #c0392b); }
+.reason-badge.comma_unresolved { background: var(--warn-soft); color: var(--warn-ink); }
+.reason-badge.ampersand_ambiguous { background: var(--neg-soft); color: var(--neg-ink); }
 .reason-badge.ampersand_unknown { background: var(--surface-2); color: var(--ink-3); }
 
 .token-list { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -911,8 +902,8 @@ onMounted(() => {
 .deezer-entry { display: flex; gap: 6px; align-items: baseline; }
 .deezer-name { font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
 .deezer-id { font-size: 10px; }
-.deezer-entry.found .deezer-id { color: var(--pos-ink, #27ae60); }
-.deezer-entry.missing .deezer-id { color: var(--neg-ink, #c0392b); }
+.deezer-entry.found .deezer-id { color: var(--pos-ink); }
+.deezer-entry.missing .deezer-id { color: var(--neg-ink); }
 
 .action-btns { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; }
 .btn-split, .btn-keep, .btn-skip {
@@ -929,14 +920,14 @@ onMounted(() => {
 .btn-keep { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); }
 .btn-keep:hover:not(:disabled) { background: var(--surface-2); }
 .btn-skip { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-3); }
-.btn-skip:hover:not(:disabled) { color: var(--neg-ink, #c0392b); border-color: var(--neg-ink, #c0392b); }
+.btn-skip:hover:not(:disabled) { color: var(--neg-ink); border-color: var(--neg-ink); }
 
 .status-badge {
   font: 500 11px/1 var(--font-mono);
   padding: 3px 8px;
   border-radius: 4px;
 }
-.status-badge.validated { background: var(--pos-soft, #d4edda); color: var(--pos-ink, #27ae60); }
+.status-badge.validated { background: var(--pos-soft); color: var(--pos-ink); }
 .status-badge.skipped { background: var(--surface-2); color: var(--ink-3); }
 
 .state { font-size: 13px; color: var(--ink-3); font-style: italic; padding: 12px 0; }
@@ -1020,8 +1011,8 @@ onMounted(() => {
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-row-action:hover { color: var(--neg-ink, #c0392b); border-color: var(--neg-ink, #c0392b); }
-.btn-row-action.flag:hover { color: var(--warn-ink, #e67e22); border-color: var(--warn-ink, #e67e22); }
+.btn-row-action:hover { color: var(--neg-ink); border-color: var(--neg-ink); }
+.btn-row-action.flag:hover { color: var(--warn-ink); border-color: var(--warn-ink); }
 .link-confirm {
   display: flex;
   align-items: center;
@@ -1087,6 +1078,6 @@ onMounted(() => {
   white-space: nowrap;
 }
 .status-badge.running { background: var(--accent-soft); color: var(--accent-ink); }
-.status-badge.success { background: var(--pos-soft, #d4edda); color: var(--pos-ink, #27ae60); }
-.status-badge.error { background: var(--neg-soft, #fde); color: var(--neg-ink, #c0392b); }
+.status-badge.success { background: var(--pos-soft); color: var(--pos-ink); }
+.status-badge.error { background: var(--neg-soft); color: var(--neg-ink); }
 </style>

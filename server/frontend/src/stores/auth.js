@@ -69,9 +69,5 @@ export const useAuthStore = defineStore('auth', () => {
     _persist(null, null)
   }
 
-  function authHeaders() {
-    return token.value ? { Authorization: `Bearer ${token.value}` } : {}
-  }
-
-  return { token, user, isAuthenticated, login, register, logout, authHeaders }
+  return { token, user, isAuthenticated, login, register, logout }
 })
