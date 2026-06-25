@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
-    <div class="app-shell">
-      <SidebarNav class="app-sidebar" />
+    <div class="app-shell" :class="{ 'no-sidebar': !auth.isAuthenticated }">
+      <SidebarNav v-if="auth.isAuthenticated" class="app-sidebar" />
       <main class="app-main" :class="{ 'has-player': player.visible }">
         <RouterView />
       </main>
@@ -16,9 +16,11 @@
 import SidebarNav from './components/SidebarNav.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import { useAudioPlayer } from './stores/audioPlayer'
+import { useAuthStore } from './stores/auth'
 import { useOpinionsStore } from './stores/opinions.js'
 
 const player = useAudioPlayer()
+const auth = useAuthStore()
 const opinions = useOpinionsStore()
 opinions.load()
 </script>
@@ -72,6 +74,9 @@ body {
   grid-template-columns: var(--sidebar-w) 1fr;
   height: 100%;
   overflow: hidden;
+}
+.app-shell.no-sidebar {
+  grid-template-columns: 1fr;
 }
 .app-main {
   min-width: 0;

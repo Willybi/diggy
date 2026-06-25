@@ -1,4 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from './stores/auth'
+import HubView           from './views/HubView.vue'
 import GenresView        from './views/GenresView.vue'
 import GenreDetailView   from './views/GenreDetailView.vue'
 import CatalogView       from './views/CatalogView.vue'
@@ -13,7 +15,7 @@ import AdminView          from './views/AdminView.vue'
 import LoginView          from './views/LoginView.vue'
 
 const routes = [
-  { path: '/',             redirect: '/catalog' },
+  { path: '/',             component: HubView, meta: { public: true } },
   { path: '/login',        component: LoginView, meta: { public: true } },
   { path: '/tracks',       redirect: '/catalog?inlib=true' },
   { path: '/genres',       component: GenresView },
@@ -36,11 +38,9 @@ const router = createRouter({
   routes,
 })
 
-// Soft guard — pas encore enforced, juste la route /login disponible
 router.beforeEach((to) => {
-  // Phase 6 : décommenter pour enforcer l'auth
-  // const auth = useAuthStore()
-  // if (!to.meta.public && !auth.isAuthenticated) return '/login'
+  const auth = useAuthStore()
+  if (!to.meta.public && !auth.isAuthenticated) return '/'
 })
 
 export default router
