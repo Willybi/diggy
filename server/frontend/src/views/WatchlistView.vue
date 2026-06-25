@@ -5,7 +5,7 @@
         <h1>Playlists</h1>
         <div class="sub">
           {{ browsePlaylists.length }} playlist{{ browsePlaylists.length !== 1 ? 's' : '' }}
-          <span v-if="mode !== 'all'" class="muted">· {{ filteredList.length }} {{ mode === 'liked' ? 'likées' : 'dislikées' }}</span>
+          <span v-if="mode !== 'all'" class="muted">· {{ filteredList.length }} {{ mode === 'liked' ? 'likées' : mode === 'disliked' ? 'dislikées' : 'à explorer' }}</span>
         </div>
       </div>
       <div class="head-tools">
@@ -13,6 +13,7 @@
           <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Toutes</button>
           <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">Liked</button>
           <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">Disliked</button>
+          <button :class="{ on: mode === 'unrated' }" @click="mode = 'unrated'">À explorer</button>
         </div>
         <button
           class="btn-add"
@@ -182,6 +183,8 @@ const filteredList = computed(() => {
     list = browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'liked')
   } else if (mode.value === 'disliked') {
     list = browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'disliked')
+  } else if (mode.value === 'unrated') {
+    list = browsePlaylists.value.filter(p => !opinions.get('playlist', p.id))
   } else {
     list = [...browsePlaylists.value]
   }

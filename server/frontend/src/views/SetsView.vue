@@ -5,7 +5,7 @@
         <h1>Sets</h1>
         <div class="sub">
           {{ sets.length }} set{{ sets.length !== 1 ? 's' : '' }}
-          <span v-if="mode !== 'all'" class="muted">· {{ displayList.length }} {{ mode === 'liked' ? 'likés' : 'dislikés' }}</span>
+          <span v-if="mode !== 'all'" class="muted">· {{ displayList.length }} {{ mode === 'liked' ? 'likés' : mode === 'disliked' ? 'dislikés' : 'à explorer' }}</span>
         </div>
       </div>
       <div class="head-tools">
@@ -22,6 +22,7 @@
           <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Tous</button>
           <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">Liked</button>
           <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">Disliked</button>
+          <button :class="{ on: mode === 'unrated' }" @click="mode = 'unrated'">À explorer</button>
         </div>
         <button
           class="btn-add"
@@ -281,6 +282,8 @@ const displayList = computed(() => {
     list = sets.value.filter(s => opinions.get('set', s.id) === 'liked')
   } else if (mode.value === 'disliked') {
     list = sets.value.filter(s => opinions.get('set', s.id) === 'disliked')
+  } else if (mode.value === 'unrated') {
+    list = sets.value.filter(s => !opinions.get('set', s.id))
   } else {
     list = [...sets.value]
   }
