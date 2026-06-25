@@ -196,3 +196,50 @@ class TestDeleteWatched:
     async def test_delete_nonexistent_returns_404(self, client):
         r = await client.delete("/api/watchlist/9999")
         assert r.status_code == 404
+
+    async def test_delete_also_removes_opinion(self, client, mocker):
+        """Bug 2: DELETE /watchlist/{id} must also remove UserOpinion."""
+        _mock_deezer(mocker)
+        post_r = await client.post("/api/watchlist/", json=playlist_payload())
+        entry_id = post_r.json()["id"]
+
+        # Like the playlist via opinions endpoint
+        await client.patch("/api/opinions/", json={
+            "entity_type": "playlist",
+            "entity_key": str(entry_id),
+            "opinion": "liked",
+        })
+
+        # Unfollow via DELETE
+        r = await client.delete(f"/api/watchlist/{entry_id}")
+        assert r.status_code == 204
+
+        # Opinion should be gone
+        opinions = (await client.get("/api/opinions/")).json()
+        assert "playlist" not in opinions or str(entry_id) not in opinions.get("playlist", {})
+
+
+# ── GET /api/watchlist/active ───────────────────────────────────────────────
+
+class TestListActivePlaylists:
+    async def test_active_returns_playlists_with_followers(self, client, mocker):
+        _mock_deezer(mocker)
+        await client.post("/api/watchlist/", json=playlist_payload())
+
+        r = await client.get("/api/watchlist/active")
+        assert r.status_code == 200
+        assert len(r.json()) == 1
+
+    async def test_active_excludes_unfollowed_playlists(self, client, mocker):
+        _mock_deezer(mocker)
+        post_r = await client.post("/api/watchlist/", json=playlist_payload())
+        entry_id = post_r.json()["id"]
+
+        await client.delete(f"/api/watchlist/{entry_id}")
+
+        r = await client.get("/api/watchlist/active")
+        assert r.json() == []
+
+        # But browse still shows it
+        r2 = await client.get("/api/watchlist/browse")
+        assert len(r2.json()) == 1

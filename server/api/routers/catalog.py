@@ -9,9 +9,10 @@ from dependencies import get_current_user_optional, uid as _uid
 from datetime import datetime, timezone
 
 from models import (
-    CatalogEntry, UserTrack, UserRadarState, UserOpinion, RadarTrack, SetTrack,
+    CatalogEntry, UserTrack, UserRadarState, RadarTrack, SetTrack,
     DJSet, SetArtist, Artist, WatchedEntity, User,
 )
+from opinion_sync import sync_track_opinion
 from schemas import (
     CatalogEntryOut, CatalogList, CatalogDetailOut, CatalogAvisUpdate,
     RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut,
@@ -488,42 +489,8 @@ async def update_avis(
         ut = UserTrack(user_id=uid, catalog_id=catalog_id, avis=body.avis, source="catalog_avis")
         db.add(ut)
 
-    # Sync → user_opinions
-    result2 = await db.execute(
-        select(UserOpinion).where(
-            UserOpinion.user_id == uid,
-            UserOpinion.entity_type == "track",
-            UserOpinion.entity_key == str(catalog_id),
-        )
-    )
-    op = result2.scalar_one_or_none()
-    if body.avis is None:
-        if op:
-            await db.delete(op)
-    elif op:
-        op.opinion = body.avis
-    else:
-        db.add(UserOpinion(
-            user_id=uid, entity_type="track", entity_key=str(catalog_id),
-            opinion=body.avis, created_at=datetime.now(timezone.utc),
-        ))
-
-    # Sync → user_radar_state
-    AVIS_TO_RADAR = {"liked": "added", "disliked": "ignored"}
-    result3 = await db.execute(
-        select(UserRadarState).where(
-            UserRadarState.user_id == uid,
-            UserRadarState.catalog_id == catalog_id,
-        )
-    )
-    urs = result3.scalar_one_or_none()
-    if body.avis is None:
-        if urs:
-            urs.status = "new"
-            urs.updated_at = datetime.now(timezone.utc)
-    elif urs:
-        urs.status = AVIS_TO_RADAR.get(body.avis, "new")
-        urs.updated_at = datetime.now(timezone.utc)
+    # Sync → user_opinions + user_radar_state
+    await sync_track_opinion(db, uid, catalog_id, body.avis)
 
     await db.commit()
     return {"catalog_id": catalog_id, "avis": body.avis}

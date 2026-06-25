@@ -27,7 +27,7 @@ def crawl_radar(self):
     from sqlalchemy.orm import Session
 
     engine = get_engine()
-    playlists = requests.get(f"{API_BASE}/api/watchlist/", timeout=10).json()
+    playlists = requests.get(f"{API_BASE}/api/watchlist/active", timeout=10).json()
 
     with Session(engine) as log_session:
         from workers.crawl_logger import CrawlLogger

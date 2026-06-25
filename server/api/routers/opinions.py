@@ -1,17 +1,12 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import get_current_user_optional, uid as _uid
-from models import (
-    UserOpinion, UserSetFollow, UserFollow,
-    UserTrack, UserRadarState,
-    DJSet, WatchedEntity, Artist, User,
-)
+from models import UserOpinion, User
+from opinion_sync import sync_track_opinion, sync_set_opinion, sync_playlist_opinion
 
 router = APIRouter(prefix="/opinions", tags=["opinions"])
 
@@ -56,6 +51,7 @@ async def set_opinion(
     if body.opinion not in (None, "liked", "disliked"):
         raise HTTPException(422, "opinion must be 'liked', 'disliked', or null")
 
+    # Update UserOpinion
     result = await db.execute(
         select(UserOpinion).where(
             UserOpinion.user_id == uid,
@@ -66,12 +62,12 @@ async def set_opinion(
     existing = result.scalar_one_or_none()
 
     if body.opinion is None:
-        # Remove opinion
         if existing:
             await db.delete(existing)
     elif existing:
         existing.opinion = body.opinion
     else:
+        from datetime import datetime, timezone
         db.add(UserOpinion(
             user_id=uid,
             entity_type=body.entity_type,
@@ -80,97 +76,13 @@ async def set_opinion(
             created_at=datetime.now(timezone.utc),
         ))
 
-    # Sync follow state for sets and playlists
+    # Sync follow/avis state
     if body.entity_type == "set":
-        await _sync_set_follow(db, uid, int(body.entity_key), body.opinion)
+        await sync_set_opinion(db, uid, int(body.entity_key), body.opinion)
     elif body.entity_type == "playlist":
-        await _sync_playlist_follow(db, uid, int(body.entity_key), body.opinion)
+        await sync_playlist_opinion(db, uid, int(body.entity_key), body.opinion)
     elif body.entity_type == "track":
-        await _sync_track_avis(db, uid, int(body.entity_key), body.opinion)
+        await sync_track_opinion(db, uid, int(body.entity_key), body.opinion)
 
     await db.commit()
     return {"entity_type": body.entity_type, "entity_key": body.entity_key, "opinion": body.opinion}
-
-
-async def _sync_set_follow(db: AsyncSession, user_id: int, set_id: int, opinion: str | None):
-    """Like = follow, anything else = unfollow."""
-    result = await db.execute(
-        select(UserSetFollow).where(
-            UserSetFollow.user_id == user_id,
-            UserSetFollow.set_id == set_id,
-        )
-    )
-    follow = result.scalar_one_or_none()
-
-    if opinion == "liked":
-        if not follow:
-            db.add(UserSetFollow(
-                user_id=user_id,
-                set_id=set_id,
-                followed_at=datetime.now(timezone.utc),
-            ))
-    else:
-        if follow:
-            await db.delete(follow)
-
-
-async def _sync_playlist_follow(db: AsyncSession, user_id: int, entity_id: int, opinion: str | None):
-    """Like = follow, anything else = unfollow."""
-    result = await db.execute(
-        select(UserFollow).where(
-            UserFollow.user_id == user_id,
-            UserFollow.entity_id == entity_id,
-        )
-    )
-    follow = result.scalar_one_or_none()
-
-    if opinion == "liked":
-        if not follow:
-            db.add(UserFollow(
-                user_id=user_id,
-                entity_id=entity_id,
-                followed_at=datetime.now(timezone.utc),
-            ))
-    else:
-        if follow:
-            await db.delete(follow)
-
-
-async def _sync_track_avis(db: AsyncSession, user_id: int, catalog_id: int, opinion: str | None):
-    """Sync opinion → user_tracks.avis + user_radar_state.status."""
-    # Sync user_tracks.avis (if the row exists)
-    result = await db.execute(
-        select(UserTrack).where(
-            UserTrack.user_id == user_id,
-            UserTrack.catalog_id == catalog_id,
-        )
-    )
-    ut = result.scalar_one_or_none()
-    if ut:
-        ut.avis = opinion  # liked | disliked | None
-
-    # Sync user_radar_state.status
-    OPINION_TO_RADAR = {"liked": "added", "disliked": "ignored"}
-    result = await db.execute(
-        select(UserRadarState).where(
-            UserRadarState.user_id == user_id,
-            UserRadarState.catalog_id == catalog_id,
-        )
-    )
-    urs = result.scalar_one_or_none()
-    if opinion is None:
-        if urs:
-            urs.status = "new"
-            urs.updated_at = datetime.now(timezone.utc)
-    else:
-        new_status = OPINION_TO_RADAR.get(opinion, "new")
-        if urs:
-            urs.status = new_status
-            urs.updated_at = datetime.now(timezone.utc)
-        else:
-            db.add(UserRadarState(
-                user_id=user_id,
-                catalog_id=catalog_id,
-                status=new_status,
-                updated_at=datetime.now(timezone.utc),
-            ))

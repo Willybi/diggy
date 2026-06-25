@@ -8,7 +8,8 @@ from sqlalchemy.orm import aliased
 from catalog import get_or_create_catalog
 from database import get_db
 from dependencies import get_current_user_optional, uid as _uid
-from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, UserOpinion, CatalogEntry, User
+from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User
+from opinion_sync import sync_track_opinion, RADAR_TO_OPINION
 from schemas import (
     RadarTrackIn,
     RadarTrackOut,
@@ -222,34 +223,8 @@ async def update_radar_state(
         db.add(state)
 
     # Sync → user_opinions + user_tracks.avis
-    RADAR_TO_OPINION = {"added": "liked", "ignored": "disliked"}
     opinion_val = RADAR_TO_OPINION.get(resolved)
-
-    r2 = await db.execute(
-        select(UserOpinion).where(
-            UserOpinion.user_id == uid,
-            UserOpinion.entity_type == "track",
-            UserOpinion.entity_key == str(catalog_id),
-        )
-    )
-    op = r2.scalar_one_or_none()
-    if opinion_val is None:
-        if op:
-            await db.delete(op)
-    elif op:
-        op.opinion = opinion_val
-    else:
-        db.add(UserOpinion(
-            user_id=uid, entity_type="track", entity_key=str(catalog_id),
-            opinion=opinion_val, created_at=datetime.now(timezone.utc),
-        ))
-
-    r3 = await db.execute(
-        select(UserTrack).where(UserTrack.user_id == uid, UserTrack.catalog_id == catalog_id)
-    )
-    ut = r3.scalar_one_or_none()
-    if ut:
-        ut.avis = opinion_val
+    await sync_track_opinion(db, uid, catalog_id, opinion_val)
 
     await db.commit()
     return {"catalog_id": catalog_id, "status": body.status}
@@ -260,7 +235,7 @@ async def update_radar_state(
 
 @router.patch("/state/batch")
 async def batch_update_radar_state(
-    body: list[RadarStateUpdate | dict],
+    body: list[dict],
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -271,10 +246,12 @@ async def batch_update_radar_state(
     updated = 0
 
     for item in body:
-        cid = item.get("catalog_id") if isinstance(item, dict) else None
-        st = item.get("status") if isinstance(item, dict) else item.status
+        cid = item.get("catalog_id")
+        st = item.get("status")
         if not cid or st not in _VALID_STATUSES:
             continue
+
+        resolved = _STATUS_ALIAS.get(st, st)
 
         result = await db.execute(
             select(UserRadarState).where(
@@ -284,13 +261,18 @@ async def batch_update_radar_state(
         )
         state = result.scalar_one_or_none()
         if state:
-            state.status = st
+            state.status = resolved
             state.updated_at = datetime.now(timezone.utc)
         else:
             db.add(UserRadarState(
-                user_id=uid, catalog_id=cid, status=st,
+                user_id=uid, catalog_id=cid, status=resolved,
                 updated_at=datetime.now(timezone.utc),
             ))
+
+        # Sync → user_opinions + user_tracks.avis
+        opinion_val = RADAR_TO_OPINION.get(resolved)
+        await sync_track_opinion(db, uid, cid, opinion_val)
+
         updated += 1
 
     await db.commit()
