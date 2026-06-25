@@ -118,7 +118,10 @@
                     <RouterLink :to="`/catalog/${e.id}`" class="tt-title-link">
                       <div class="tt-title">{{ e.title }}</div>
                     </RouterLink>
-                    <div class="tt-art">{{ e.artist }}</div>
+                    <RouterLink v-if="e.artist_id" :to="`/artist/${e.artist_id}`" class="tt-art-link">
+                      <div class="tt-art">{{ e.artist }}</div>
+                    </RouterLink>
+                    <div v-else class="tt-art">{{ e.artist }}</div>
                   </span>
                 </div>
               </td>
@@ -633,9 +636,12 @@ tr:hover .pbtn { opacity: 1; }
 }
 .tt-title-link:hover .tt-title { color: var(--accent-ink); }
 tr.playing .tt-title { color: var(--accent-ink); }
+.tt-art-link { text-decoration: none; color: inherit; display: block; min-width: 0; }
+.tt-art-link:hover .tt-art { color: var(--accent-ink); }
 .tt-art {
   font-size: 12.5px; color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color .1s;
 }
 
 /* ============ DATA CELLS ============ */
