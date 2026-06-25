@@ -61,7 +61,7 @@
       </div>
     </div>
 
-    <div v-else-if="!items.length && !loading" class="empty">
+    <div v-else-if="!displayItems.length && !loading" class="empty">
       Aucun genre ne correspond.
     </div>
 
@@ -70,7 +70,7 @@
     </div>
 
     <!-- Sentinel (infinite scroll) -->
-    <div ref="sentinelRef" class="sentinel" :class="{ on: hasMore }">
+    <div ref="sentinelRef" class="sentinel" :class="{ on: hasMore && sortBy !== 'liked' && sortBy !== 'disliked' }">
       <span class="spin"></span>Chargement…
     </div>
   </div>
@@ -148,7 +148,7 @@ async function fetchGenres(reset = true) {
   loading.value = true
   try {
     const params = {
-      sort: sortBy.value,
+      sort: (sortBy.value === 'liked' || sortBy.value === 'disliked') ? 'tracks' : sortBy.value,
       limit: PAGE_SIZE,
       offset: offset.value,
     }
