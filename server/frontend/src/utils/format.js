@@ -52,3 +52,17 @@ export function fmtCue(ms) {
   const sec = s % 60
   return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
+
+/**
+ * Number -> locale-formatted string (fr-FR, e.g. 1 248)
+ */
+export function fmtNum(n) {
+  return n != null ? n.toLocaleString('fr-FR') : '—'
+}
+
+/**
+ * Simple pluralize: pl(1, 'track', 'tracks') -> 'track'
+ */
+export function pl(n, one, many) {
+  return n === 1 ? one : many
+}

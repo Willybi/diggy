@@ -83,6 +83,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { fmtNum } from '../utils/format'
 import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
@@ -114,10 +115,6 @@ const fourSlots = computed(() => {
   const aw = props.genre.artworks || []
   return [aw[0] || null, aw[1] || null, aw[2] || null, aw[3] || null]
 })
-
-function fmtNum(n) {
-  return (n || 0).toLocaleString('fr-FR').replace(/\u202f/g, ' ')
-}
 
 function onCoverError(e) {
   e.target.remove()

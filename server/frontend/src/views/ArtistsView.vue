@@ -70,21 +70,16 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import axios from 'axios'
-import { useAuthStore } from '../stores/auth.js'
+import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { FAMILY_LABELS } from '../composables/useStyleMap.js'
 import ArtistCard from '../components/ArtistCard.vue'
+import { fmtNum } from '../utils/format'
 
-const auth = useAuthStore()
 const opinions = useOpinionsStore()
 
 const FAMILY_HUES = { house: 260, techno: 320, trance: 352, other: 42 }
 const PAGE_SIZE = 24
-
-function authHeaders() {
-  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
-}
 
 // -- State --
 const items = ref([])
@@ -154,7 +149,7 @@ async function fetchArtists(reset = true) {
       if (familyFilter.value !== 'all') params.family = familyFilter.value
       if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
 
-      const { data } = await axios.get('/api/artists/', { params, headers: authHeaders() })
+      const { data } = await api.get('/api/artists/', { params })
       items.value = data.items
       total.value = data.total
       familyCounts.value = data.familyCounts || {}
@@ -178,7 +173,7 @@ async function fetchArtists(reset = true) {
     if (familyFilter.value !== 'all') params.family = familyFilter.value
     if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
 
-    const { data } = await axios.get('/api/artists/', { params, headers: authHeaders() })
+    const { data } = await api.get('/api/artists/', { params })
     if (reset) {
       items.value = data.items
     } else {
@@ -234,9 +229,6 @@ onUnmounted(() => {
   clearTimeout(debounceTimer)
 })
 
-function fmtNum(n) {
-  return (n || 0).toLocaleString('fr-FR').replace(/\u202f/g, ' ')
-}
 </script>
 
 <style scoped>

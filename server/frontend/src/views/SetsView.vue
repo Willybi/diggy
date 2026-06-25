@@ -198,7 +198,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import axios from 'axios'
+import api from '../utils/api.js'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useOpinionsStore } from '../stores/opinions.js'
@@ -247,10 +247,6 @@ function ringClass(ident, total) {
   if (p >= 100) return 'done'
   if (p >= 60) return 'mid'
   return 'low'
-}
-
-function authHeaders() {
-  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
 }
 
 function toggleSort(key) {
@@ -311,7 +307,7 @@ async function fetchSets() {
   try {
     const params = {}
     if (search.value.trim()) params.q = search.value.trim()
-    const { data } = await axios.get('/api/sets/', { params })
+    const { data } = await api.get('/api/sets/', { params })
     sets.value = data
   } finally {
     loading.value = false
@@ -328,7 +324,7 @@ async function doTrackIDSearch() {
   if (!tdQuery.value.trim()) return
   tdSearching.value = true
   try {
-    const { data } = await axios.get('/api/sets/search', { params: { q: tdQuery.value.trim() } })
+    const { data } = await api.get('/api/sets/search', { params: { q: tdQuery.value.trim() } })
     tdResults.value = data
     if (!data.length) formError.value = 'Aucun résultat sur TrackID'
   } catch (e) {
@@ -342,7 +338,7 @@ async function doImportFromSearch(result) {
   result._importing = true
   formError.value = ''
   try {
-    const { data } = await axios.post('/api/sets/import', { slug: result.slug }, { headers: authHeaders() })
+    const { data } = await api.post('/api/sets/import', { slug: result.slug })
     result.already_imported = true
     result._importing = false
     await opinions.set('set', data.id, 'liked')
@@ -358,7 +354,7 @@ async function doImport() {
   if (!importUrl.value.trim()) { formError.value = 'URL requise'; return }
   importing.value = true
   try {
-    const { data } = await axios.post('/api/sets/import', { url: importUrl.value.trim() }, { headers: authHeaders() })
+    const { data } = await api.post('/api/sets/import', { url: importUrl.value.trim() })
     importUrl.value = ''
     showForm.value = false
     router.push(`/set/${data.id}`)

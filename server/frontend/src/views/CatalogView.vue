@@ -181,7 +181,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import axios from 'axios'
+import api from '../utils/api.js'
 import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
 import LikeDislike from '../components/LikeDislike.vue'
@@ -271,7 +271,7 @@ function buildParams() {
 async function fetchPage() {
   loading.value = true
   try {
-    const { data } = await axios.get('/api/catalog/', { params: buildParams() })
+    const { data } = await api.get('/api/catalog/', { params: buildParams() })
     items.value = data.items
     total.value = data.total
   } finally {
@@ -282,7 +282,7 @@ async function fetchPage() {
 async function fetchNLib() {
   if (nLib.value > 0) return
   try {
-    const { data } = await axios.get('/api/catalog/', { params: { in_lib: true, limit: 1 } })
+    const { data } = await api.get('/api/catalog/', { params: { in_lib: true, limit: 1 } })
     nLib.value = data.total
   } catch {}
 }
@@ -355,7 +355,7 @@ async function setAvis(entry, avis) {
   const prev = entry.avis
   entry.avis = avis
   try {
-    await axios.patch(`/api/catalog/${entry.id}/avis`, { avis })
+    await api.patch(`/api/catalog/${entry.id}/avis`, { avis })
   } catch {
     entry.avis = prev
   }

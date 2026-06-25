@@ -88,7 +88,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import axios from 'axios'
+import api from '../utils/api.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -105,10 +105,6 @@ const track = ref(null)
 const loading = ref(true)
 const enriching = ref(false)
 const enrichResult = ref(null)
-
-function authHeaders() {
-  return auth.token ? { Authorization: `Bearer ${auth.token}` } : {}
-}
 
 const coverSrc = computed(() => {
   if (!track.value) return null
@@ -135,10 +131,9 @@ async function enrichBeatport() {
   enriching.value = true
   enrichResult.value = null
   try {
-    const { data } = await axios.post(
+    const { data } = await api.post(
       `/api/admin/enrich-beatport/${track.value.id}`,
       {},
-      { headers: authHeaders() },
     )
     if (data.status === 'enriched') {
       track.value.bpm = data.bpm
@@ -162,7 +157,7 @@ async function enrichBeatport() {
 
 onMounted(async () => {
   try {
-    const { data } = await axios.get(`/api/catalog/${route.params.id}`)
+    const { data } = await api.get(`/api/catalog/${route.params.id}`)
     track.value = data
   } catch {
     track.value = null
@@ -211,7 +206,7 @@ onMounted(async () => {
   margin: 16px 0;
   padding: 14px 18px;
   background: var(--surface);
-  border: 1px solid var(--warn-ink, #e67e22);
+  border: 1px solid var(--warn-ink);
   border-radius: var(--r-sm);
 }
 .admin-header {
@@ -223,7 +218,7 @@ onMounted(async () => {
 .admin-label {
   font: 600 11px/1 var(--font-mono);
   text-transform: uppercase;
-  color: var(--warn-ink, #e67e22);
+  color: var(--warn-ink);
 }
 .mono { font-family: var(--font-mono); font-size: 12px; }
 .muted { color: var(--ink-3); }
@@ -247,8 +242,8 @@ onMounted(async () => {
 .enrich-result {
   font: 400 13px/1.4 var(--font-ui);
 }
-.enrich-result.ok { color: var(--pos-ink, #27ae60); }
-.enrich-result.warn { color: var(--warn-ink, #e67e22); }
-.enrich-result.err { color: var(--neg-ink, #c0392b); }
+.enrich-result.ok { color: var(--pos-ink); }
+.enrich-result.warn { color: var(--warn-ink); }
+.enrich-result.err { color: var(--neg-ink); }
 .enrich-result.muted { color: var(--ink-3); }
 </style>

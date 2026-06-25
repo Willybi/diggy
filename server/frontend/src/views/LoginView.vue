@@ -102,7 +102,7 @@ async function submit() {
   height: 30px;
   border-radius: 9px;
   background: var(--accent);
-  color: var(--on-accent, #fff);
+  color: var(--on-accent);
   display: grid;
   place-items: center;
   font: 700 15px/1 var(--font-ui);

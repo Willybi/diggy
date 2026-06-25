@@ -168,7 +168,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { styleTone } from '../styles/diggy-style-map.js'
@@ -243,7 +243,7 @@ const topGenres = ref([])
 
 async function loadTopGenres() {
   try {
-    const { data } = await axios.get('/api/genres/', { headers: auth.authHeaders() })
+    const { data } = await api.get('/api/genres/')
     topGenres.value = (data || [])
       .sort((a, b) => (b.track_count || 0) - (a.track_count || 0))
       .slice(0, 10)
@@ -281,9 +281,8 @@ async function doSearch() {
   if (!q) return
   loading.value = true
   try {
-    const { data } = await axios.get('/api/search', {
+    const { data } = await api.get('/api/search', {
       params: { q, scope: scope.value, limit: 50 },
-      headers: auth.authHeaders(),
     })
     items.value = data.items || []
     total.value = data.total || 0

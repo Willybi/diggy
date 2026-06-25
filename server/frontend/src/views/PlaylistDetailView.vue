@@ -97,7 +97,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from 'axios'
+import api from '../utils/api.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -138,7 +138,7 @@ const stats = computed(() => {
 
 async function fetchDetail() {
   try {
-    const { data } = await axios.get(`/api/watchlist/${route.params.id}`)
+    const { data } = await api.get(`/api/watchlist/${route.params.id}`)
     playlist.value = data
     if (data.current_task_id && !crawlPollTimer) {
       crawlState.value = 'queued'
@@ -155,7 +155,7 @@ function startCrawlPoll() {
   stopCrawlPoll()
   crawlPollTimer = setInterval(async () => {
     try {
-      const { data } = await axios.get(`/api/watchlist/${route.params.id}/crawl-status`)
+      const { data } = await api.get(`/api/watchlist/${route.params.id}/crawl-status`)
       if (!data.status || data.status === 'done') {
         stopCrawlPoll()
         crawlState.value = null
@@ -181,9 +181,9 @@ async function toggleFollow() {
   if (!playlist.value) return
   try {
     if (playlist.value.followed) {
-      await axios.delete(`/api/watchlist/${playlist.value.id}`)
+      await api.delete(`/api/watchlist/${playlist.value.id}`)
     } else {
-      await axios.post(`/api/watchlist/${playlist.value.id}/follow`)
+      await api.post(`/api/watchlist/${playlist.value.id}/follow`)
     }
     await fetchDetail()
   } catch {}
@@ -193,7 +193,7 @@ async function fetchArtwork() {
   fetchingArt.value = true
   artMsg.value = ''
   try {
-    await axios.post(`/api/watchlist/${playlist.value.id}/fetch-artwork`)
+    await api.post(`/api/watchlist/${playlist.value.id}/fetch-artwork`)
     artMsg.value = 'Artwork importé'
     artMsgType.value = 'success'
     await fetchDetail()
@@ -243,8 +243,8 @@ onUnmounted(stopCrawlPoll)
   background: var(--accent-soft);
 }
 .btn-ghost--danger:hover {
-  color: var(--neg-ink, #c0392b);
-  border-color: var(--neg-ink, #c0392b);
+  color: var(--neg-ink);
+  border-color: var(--neg-ink);
 }
 
 /* Mini track table */
@@ -362,9 +362,9 @@ onUnmounted(stopCrawlPoll)
 .admin-card {
   margin: 12px 0;
   padding: 12px 16px;
-  border: 1px solid var(--orange, #e67e22);
+  border: 1px solid var(--warn-ink);
   border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--orange, #e67e22) 6%, var(--surface));
+  background: color-mix(in srgb, var(--warn-ink) 6%, var(--surface));
   display: flex;
   align-items: center;
   gap: 12px;
@@ -372,6 +372,6 @@ onUnmounted(stopCrawlPoll)
 .admin-msg {
   font: 400 13px/1 var(--font-ui);
 }
-.admin-msg.success { color: var(--pos-ink, #27ae60); }
-.admin-msg.error { color: var(--neg-ink, #c0392b); }
+.admin-msg.success { color: var(--pos-ink); }
+.admin-msg.error { color: var(--neg-ink); }
 </style>
