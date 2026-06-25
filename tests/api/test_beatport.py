@@ -11,7 +11,7 @@ sys.modules.setdefault("botocore", MagicMock())
 sys.modules.setdefault("botocore.client", MagicMock())
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 
-from beatport.client import _key_to_camelot, _normalize_track
+from beatport.client import _key_to_camelot, _normalize_track, _artist_matches, _pick_best_track, _title_matches
 from beatport.enrich import enrich_from_beatport
 
 
@@ -51,6 +51,7 @@ SAMPLE_RAW_TRACK = {
     "bpm": 128,
     "key_name": "Ab Minor",
     "isrc": "GBTDG1302861",
+    "artists": [{"artist_id": 12345, "artist_name": "deadmau5"}],
     "label": {"label_id": 6446, "label_name": "mau5trap"},
     "genre": [{"genre_id": 90, "genre_name": "Melodic House & Techno"}],
     "release": {
@@ -201,3 +202,117 @@ class TestEnrichFromBeatport:
         entry = _make_entry()
         enrich_from_beatport(entry, track)
         assert entry.release_date is None
+
+
+# ── _normalize_track artists ──
+
+
+class TestNormalizeTrackArtists:
+    def test_extracts_artists(self):
+        t = _normalize_track(SAMPLE_RAW_TRACK)
+        assert t["artists"] == [{"id": 12345, "name": "deadmau5"}]
+
+    def test_handles_missing_artists(self):
+        raw = {**SAMPLE_RAW_TRACK}
+        del raw["artists"]
+        t = _normalize_track(raw)
+        assert t["artists"] == []
+
+
+# ── _artist_matches ──
+
+
+class TestArtistMatches:
+    def test_exact_match_case_insensitive(self):
+        assert _artist_matches([{"name": "Malugi"}], "MALUGI") is True
+
+    def test_partial_match_bp_in_catalog(self):
+        assert _artist_matches([{"name": "Tennis"}], "DJ Tennis") is True
+
+    def test_partial_match_catalog_in_bp(self):
+        assert _artist_matches([{"name": "DJ Tennis"}], "Tennis") is True
+
+    def test_feat_split(self):
+        assert _artist_matches([{"name": "Malugi"}], "Malugi feat. Sam Harper") is True
+
+    def test_ampersand_split(self):
+        assert _artist_matches([{"name": "ArtistA"}], "ArtistA & ArtistB") is True
+
+    def test_no_match(self):
+        assert _artist_matches([{"name": "Honest"}], "MALUGI") is False
+
+    def test_none_catalog_artist_always_matches(self):
+        assert _artist_matches([{"name": "Anyone"}], None) is True
+
+    def test_empty_catalog_artist_always_matches(self):
+        assert _artist_matches([{"name": "Anyone"}], "") is True
+
+    def test_empty_bp_artists_no_match(self):
+        assert _artist_matches([], "MALUGI") is False
+
+
+# ── _pick_best_track ──
+
+
+class TestTitleMatches:
+    def test_exact_match(self):
+        assert _title_matches("Honestly", "Honestly") is True
+
+    def test_case_insensitive(self):
+        assert _title_matches("HONESTLY", "honestly") is True
+
+    def test_substring_bp_in_catalog(self):
+        assert _title_matches("Honestly feat. Sam Harper", "Honestly") is True
+
+    def test_substring_catalog_in_bp(self):
+        assert _title_matches("Honestly", "Honestly feat. Sam Harper") is True
+
+    def test_no_match(self):
+        assert _title_matches("Baby", "Honestly") is False
+
+    def test_none_values(self):
+        assert _title_matches(None, "Honestly") is False
+        assert _title_matches("Honestly", None) is False
+
+
+class TestPickBestTrack:
+    def test_picks_matching_artist_and_title(self):
+        results = [
+            {"name": "Honestly", "artists": [{"name": "Honest"}]},
+            {"name": "Baby", "artists": [{"name": "Malugi"}]},
+            {"name": "Honestly", "artists": [{"name": "Malugi"}]},
+        ]
+        picked = _pick_best_track(results, "MALUGI", "Honestly")
+        assert picked["name"] == "Honestly"
+        assert picked["artists"][0]["name"] == "Malugi"
+
+    def test_skips_wrong_title(self):
+        results = [
+            {"name": "Honestly", "artists": [{"name": "Honest"}]},
+            {"name": "Baby", "artists": [{"name": "Malugi"}]},
+            {"name": "Reach Out", "artists": [{"name": "Malugi"}]},
+        ]
+        assert _pick_best_track(results, "MALUGI", "Honestly") is None
+
+    def test_returns_none_when_no_match(self):
+        results = [
+            {"name": "Honestly", "artists": [{"name": "Honest"}]},
+            {"name": "Something", "artists": [{"name": "Other"}]},
+        ]
+        assert _pick_best_track(results, "MALUGI", "Honestly") is None
+
+    def test_none_artist_and_no_title_picks_first(self):
+        results = [
+            {"name": "Track1", "artists": [{"name": "A"}]},
+            {"name": "Track2", "artists": [{"name": "B"}]},
+        ]
+        picked = _pick_best_track(results, None)
+        assert picked["name"] == "Track1"
+
+    def test_no_title_filter_matches_artist_only(self):
+        results = [
+            {"name": "Honestly", "artists": [{"name": "Honest"}]},
+            {"name": "Baby", "artists": [{"name": "Malugi"}]},
+        ]
+        picked = _pick_best_track(results, "MALUGI")
+        assert picked["name"] == "Baby"
