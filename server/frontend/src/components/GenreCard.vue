@@ -72,7 +72,9 @@
         </div>
         <div class="gc-stat bpm">
           <span class="k">BPM</span>
-          <span class="v">{{ genre.bpmLo }}–{{ genre.bpmHi }}</span>
+          <span v-if="!genre.bpmLo && !genre.bpmHi" class="v-empty">–</span>
+          <span v-else-if="genre.bpmLo === genre.bpmHi" class="v">{{ genre.bpmLo }}</span>
+          <span v-else class="v">{{ genre.bpmLo }}–{{ genre.bpmHi }}</span>
         </div>
       </div>
     </div>
@@ -193,7 +195,7 @@ function onAvatarError(e) {
 .gc-lib {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 10px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -268,26 +270,15 @@ function onAvatarError(e) {
 /* Like/Dislike overlay in art zone */
 .gc-acts {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 10px;
   z-index: 4;
   display: flex;
   align-items: center;
-  padding: 3px 4px;
-  border-radius: var(--r-sm);
-  background: oklch(1 0 0 / .72);
-  backdrop-filter: blur(8px);
-}
-[data-theme="dark"] .gc-acts {
-  background: oklch(0.22 0.01 262 / .72);
 }
 .gc-acts :deep(.ld-btn) {
-  opacity: 0;
-  transition: opacity .14s;
+  box-shadow: var(--shadow-sm);
 }
-.genre-card:hover .gc-acts :deep(.ld-btn) { opacity: 1; }
-.gc-acts :deep(.ld[data-state="liked"] .ld-btn.like),
-.gc-acts :deep(.ld[data-state="disliked"] .ld-btn.dislike) { opacity: 1; }
 
 /* Card liked / disliked states */
 .genre-card.liked {
@@ -375,5 +366,9 @@ function onAvatarError(e) {
 .gc-stat.bpm .v {
   color: var(--ink-2);
   font-size: 13px;
+}
+.gc-stat .v-empty {
+  font: 500 13px/1 var(--font-mono);
+  color: var(--ink-3);
 }
 </style>
