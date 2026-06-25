@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routers import catalog, tracks, watchlist, radar, artists, sets, auth, admin, genres, opinions
+from routers import catalog, tracks, watchlist, radar, artists, sets, auth, admin, genres, opinions, search
 
 
 @asynccontextmanager
@@ -39,6 +39,7 @@ app.include_router(sets.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(genres.router, prefix="/api/genres")
 app.include_router(opinions.router, prefix="/api")
+app.include_router(search.router, prefix="/api")
 
 
 @app.get("/api/health")
