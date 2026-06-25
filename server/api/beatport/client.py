@@ -55,6 +55,10 @@ def _normalize_track(raw: dict) -> dict:
         "id": raw.get("track_id"),
         "name": raw.get("track_name"),
         "mix_name": raw.get("mix_name"),
+        "artists": [
+            {"id": a.get("artist_id"), "name": a.get("artist_name")}
+            for a in (raw.get("artists") or [])
+        ],
         "bpm": raw.get("bpm"),
         "key": _key_to_camelot(raw.get("key_name")),
         "isrc": raw.get("isrc"),
@@ -70,6 +74,83 @@ def _normalize_track(raw: dict) -> dict:
         "publish_date": publish[:10] if publish else None,
         "length_ms": raw.get("length"),
     }
+
+
+def _normalize_release_page_track(raw: dict) -> dict:
+    """Normalize a track from a release page (different field names than search)."""
+    release = raw.get("release") or {}
+    release_label = release.get("label") or {}
+    genre_obj = raw.get("genre") or {}
+    key_obj = raw.get("key") or {}
+
+    # Build Camelot key from structured key object
+    camelot = None
+    if key_obj.get("camelot_number") and key_obj.get("camelot_letter"):
+        camelot = f"{key_obj['camelot_number']}{key_obj['camelot_letter']}"
+
+    release_image = release.get("image") or {}
+
+    return {
+        "id": raw.get("id"),
+        "name": raw.get("name"),
+        "mix_name": raw.get("mix_name"),
+        "artists": [
+            {"id": a.get("id"), "name": a.get("name")}
+            for a in (raw.get("artists") or [])
+        ],
+        "bpm": raw.get("bpm"),
+        "key": camelot,
+        "isrc": raw.get("isrc"),
+        "label": {"name": release_label.get("name")} if release_label.get("name") else None,
+        "genre": {"name": genre_obj.get("name")} if genre_obj.get("name") else None,
+        "release": {
+            "name": release.get("name"),
+            "label": {"name": release_label.get("name")} if release_label.get("name") else None,
+            "image": {
+                "dynamic_uri": release_image.get("dynamic_uri"),
+            },
+        },
+        "publish_date": (raw.get("publish_date") or "")[:10] or None,
+        "length_ms": raw.get("length_ms"),
+    }
+
+
+_ARTIST_SEPARATORS = re.compile(r"\s*(?:,\s*|\s+&\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+x\s+|\s+vs\.?\s+)", re.IGNORECASE)
+
+
+def _artist_matches(bp_artists: list[dict], catalog_artist: str | None) -> bool:
+    """Check if at least one Beatport artist matches the catalog artist string."""
+    if not catalog_artist:
+        return True
+    if not bp_artists:
+        return False
+    catalog_names = [n.strip().lower() for n in _ARTIST_SEPARATORS.split(catalog_artist) if n.strip()]
+    bp_names = [a["name"].lower() for a in bp_artists if a.get("name")]
+    for cat in catalog_names:
+        for bp in bp_names:
+            if cat in bp or bp in cat:
+                return True
+    return False
+
+
+def _title_matches(bp_name: str | None, catalog_title: str | None) -> bool:
+    """Check if a Beatport track name matches the catalog title (substring)."""
+    if not catalog_title or not bp_name:
+        return False
+    cat = catalog_title.lower()
+    bp = bp_name.lower()
+    return cat in bp or bp in cat
+
+
+def _pick_best_track(results: list[dict], catalog_artist: str | None, catalog_title: str | None = None) -> dict | None:
+    """Return the first result matching both artist and title."""
+    for t in results:
+        if not _artist_matches(t.get("artists", []), catalog_artist):
+            continue
+        if catalog_title and not _title_matches(t.get("name"), catalog_title):
+            continue
+        return t
+    return None
 
 
 class BeatportClient:
@@ -127,3 +208,73 @@ class BeatportClient:
             if t.get("isrc") == isrc:
                 return t
         return None
+
+    def search_releases(self, title: str, artist: str | None = None) -> list[dict]:
+        """Search Beatport releases. Returns normalized release dicts."""
+        q = f"{artist} {title}" if artist else title
+        data = self._scrape_page(f"/search?q={requests.utils.quote(q)}&type=releases")
+
+        for query in self._extract_queries(data):
+            state = query.get("state", {}).get("data", {})
+            if isinstance(state, dict) and "releases" in state:
+                releases_data = state["releases"]
+                raw_list = releases_data.get("data", []) if isinstance(releases_data, dict) else []
+                return [
+                    {
+                        "id": r.get("release_id"),
+                        "name": r.get("release_name"),
+                        "slug": re.sub(r"[^a-z0-9]+", "-", (r.get("release_name") or "").lower()).strip("-"),
+                        "artists": [
+                            {"id": a.get("artist_id"), "name": a.get("artist_name")}
+                            for a in (r.get("artists") or [])
+                        ],
+                        "tracks": [
+                            {"id": t.get("track_id"), "name": t.get("track_name")}
+                            for t in (r.get("tracks") or [])
+                        ],
+                    }
+                    for r in raw_list[:10]
+                ]
+        return []
+
+    def get_release_tracks(self, release_name: str, release_id: int) -> list[dict]:
+        """Scrape a release page to get full track details."""
+        slug = re.sub(r"[^a-z0-9]+", "-", release_name.lower()).strip("-")
+        data = self._scrape_page(f"/release/{slug}/{release_id}")
+
+        for query in self._extract_queries(data):
+            state = query.get("state", {}).get("data", {})
+            if isinstance(state, dict) and "results" in state:
+                return [_normalize_release_page_track(t) for t in state["results"]]
+        return []
+
+    def search_release_fallback(self, title: str, artist: str | None = None) -> dict | None:
+        """Search releases, filter by artist, scrape release page for full track data."""
+        releases = self.search_releases(title, artist)
+        for rel in releases:
+            if not _artist_matches(rel.get("artists", []), artist):
+                continue
+            tracks = self.get_release_tracks(rel["name"], rel["id"])
+            if not tracks:
+                continue
+            # Pick track whose title best matches
+            title_lower = title.lower()
+            for t in tracks:
+                t_name = (t.get("name") or "").lower()
+                if title_lower in t_name or t_name in title_lower:
+                    return t
+            # If only one track in release, take it
+            if len(tracks) == 1:
+                return tracks[0]
+        return None
+
+    def search_track_validated(self, title: str, artist: str | None = None) -> dict | None:
+        """Search tracks with artist validation, falling back to releases."""
+        # Strategy 1: track search with artist + title matching
+        results = self.search_track(title, artist)
+        match = _pick_best_track(results, artist, title)
+        if match:
+            return match
+
+        # Strategy 2: release fallback
+        return self.search_release_fallback(title, artist)

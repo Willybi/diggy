@@ -205,9 +205,15 @@ async def enrich_deezer_batch(
 # ── Beatport enrichment (async) ──
 
 async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str | None, rcache=None) -> dict | None:
-    """Async Beatport search with ISRC-first strategy and Redis cache."""
+    """Async Beatport search with ISRC-first strategy, artist validation, and release fallback."""
     import sys
+    import urllib.parse
     sys.path.insert(0, "/app")
+
+    from beatport.client import (
+        _normalize_track, _normalize_release_page_track,
+        _artist_matches, _pick_best_track, _title_matches,
+    )
 
     def _extract_next_data(html: str) -> dict:
         match = re.search(
@@ -218,14 +224,16 @@ async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str
             return {}
         return json.loads(match.group(1))
 
-    def _extract_tracks(data: dict) -> list[dict]:
-        queries = (
+    def _extract_queries(data: dict) -> list[dict]:
+        return (
             data.get("props", {})
             .get("pageProps", {})
             .get("dehydratedState", {})
             .get("queries", [])
         )
-        for query in queries:
+
+    def _extract_tracks(data: dict) -> list[dict]:
+        for query in _extract_queries(data):
             state = query.get("state", {}).get("data", {})
             if isinstance(state, dict) and "tracks" in state:
                 tracks_data = state["tracks"]
@@ -233,12 +241,9 @@ async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str
                 return raw_list[:10]
         return []
 
-    from beatport.client import _normalize_track
-
     async def _do_search(q: str) -> list[dict]:
-        # Check Redis cache first
         if rcache:
-            key = _cache_key("search", q)
+            key = _cache_key("tsearch", q)
             try:
                 cached = rcache.get(key)
                 if cached is not None:
@@ -246,7 +251,6 @@ async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str
             except Exception:
                 pass
 
-        import urllib.parse
         path = f"/search?q={urllib.parse.quote(q)}&type=tracks"
         resp = await pool.beatport_get(path)
         if resp.status_code != 200:
@@ -255,15 +259,85 @@ async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str
         raw = _extract_tracks(data)
         results = [_normalize_track(t) for t in raw]
 
-        # Cache results
         if rcache and results:
-            key = _cache_key("search", q)
+            key = _cache_key("tsearch", q)
             try:
                 rcache.setex(key, _BEATPORT_CACHE_TTL, json.dumps(results))
             except Exception:
                 pass
 
         return results
+
+    async def _do_release_search(q: str) -> list[dict]:
+        if rcache:
+            key = _cache_key("rsearch", q)
+            try:
+                cached = rcache.get(key)
+                if cached is not None:
+                    return json.loads(cached)
+            except Exception:
+                pass
+
+        path = f"/search?q={urllib.parse.quote(q)}&type=releases"
+        resp = await pool.beatport_get(path)
+        if resp.status_code != 200:
+            return []
+        data = _extract_next_data(resp.text)
+        releases = []
+        for query in _extract_queries(data):
+            state = query.get("state", {}).get("data", {})
+            if isinstance(state, dict) and "releases" in state:
+                releases_data = state["releases"]
+                raw_list = releases_data.get("data", []) if isinstance(releases_data, dict) else []
+                for r in raw_list[:10]:
+                    releases.append({
+                        "id": r.get("release_id"),
+                        "name": r.get("release_name"),
+                        "artists": [
+                            {"id": a.get("artist_id"), "name": a.get("artist_name")}
+                            for a in (r.get("artists") or [])
+                        ],
+                    })
+                break
+
+        if rcache and releases:
+            key = _cache_key("rsearch", q)
+            try:
+                rcache.setex(key, _BEATPORT_CACHE_TTL, json.dumps(releases))
+            except Exception:
+                pass
+
+        return releases
+
+    async def _fetch_release_tracks(release_name: str, release_id: int) -> list[dict]:
+        cache_key = f"bp:reltracks:{release_id}"
+        if rcache:
+            try:
+                cached = rcache.get(cache_key)
+                if cached is not None:
+                    return json.loads(cached)
+            except Exception:
+                pass
+
+        slug = re.sub(r"[^a-z0-9]+", "-", release_name.lower()).strip("-")
+        resp = await pool.beatport_get(f"/release/{slug}/{release_id}")
+        if resp.status_code != 200:
+            return []
+        data = _extract_next_data(resp.text)
+        tracks = []
+        for query in _extract_queries(data):
+            state = query.get("state", {}).get("data", {})
+            if isinstance(state, dict) and "results" in state:
+                tracks = [_normalize_release_page_track(t) for t in state["results"]]
+                break
+
+        if rcache and tracks:
+            try:
+                rcache.setex(cache_key, _BEATPORT_CACHE_TTL, json.dumps(tracks))
+            except Exception:
+                pass
+
+        return tracks
 
     # Strategy 1: ISRC search (most reliable)
     if isrc:
@@ -272,12 +346,29 @@ async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str
             if t.get("isrc") == isrc:
                 return t
 
-    # Strategy 2: title+artist search
+    # Strategy 2: title+artist track search WITH artist validation
     if title:
         q = f"{artist} {title}" if artist else title
         results = await _do_search(q)
-        if results:
-            return results[0]
+        match = _pick_best_track(results, artist, title)
+        if match:
+            return match
+
+        # Strategy 3: release fallback
+        releases = await _do_release_search(q)
+        title_lower = title.lower()
+        for rel in releases:
+            if not _artist_matches(rel.get("artists", []), artist):
+                continue
+            tracks = await _fetch_release_tracks(rel["name"], rel["id"])
+            if not tracks:
+                continue
+            for t in tracks:
+                t_name = (t.get("name") or "").lower()
+                if title_lower in t_name or t_name in title_lower:
+                    return t
+            if len(tracks) == 1:
+                return tracks[0]
 
     return None
 

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -387,6 +387,39 @@ async def trigger_enrich_beatport(
     return SyncQueued(status="queued", task_id=result.id)
 
 
+@router.post("/reset-beatport")
+async def reset_beatport(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Reset all Beatport-sourced data so a fresh crawl can re-enrich everything."""
+    from models import CatalogEntry
+
+    # Clear beatport_id and searched_at on all entries
+    r1 = await db.execute(
+        update(CatalogEntry).values(beatport_id=None, beatport_searched_at=None)
+    )
+    # Revert BPM sourced from Beatport
+    r2 = await db.execute(
+        update(CatalogEntry)
+        .where(CatalogEntry.bpm_source == "beatport")
+        .values(bpm=None, bpm_source=None)
+    )
+    # Revert key sourced from Beatport
+    r3 = await db.execute(
+        update(CatalogEntry)
+        .where(CatalogEntry.key_source == "beatport")
+        .values(key=None, key_source=None)
+    )
+    await db.commit()
+    return {
+        "status": "reset",
+        "cleared": r1.rowcount,
+        "bpm_reverted": r2.rowcount,
+        "key_reverted": r3.rowcount,
+    }
+
+
 @router.post("/enrich-beatport/{catalog_id}")
 async def enrich_single_beatport(
     catalog_id: int,
@@ -410,9 +443,7 @@ async def enrich_single_beatport(
     if entry.isrc:
         bp_track = client.search_track_by_isrc(entry.isrc)
     if not bp_track and entry.title:
-        results = client.search_track(entry.title, entry.artist)
-        if results:
-            bp_track = results[0]
+        bp_track = client.search_track_validated(entry.title, entry.artist)
 
     if not bp_track:
         return {"status": "not_found", "catalog_id": catalog_id}
