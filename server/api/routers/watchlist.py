@@ -2,7 +2,7 @@ import requests
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, exists, case, literal
+from sqlalchemy import select, delete, exists, case, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from celery_client import celery
@@ -10,7 +10,7 @@ from database import get_db
 from dependencies import get_current_user_optional, require_admin, uid as _uid
 from sqlalchemy import func
 
-from models import WatchedEntity, UserFollow, User, RadarTrack, CatalogEntry
+from models import WatchedEntity, UserFollow, UserOpinion, User, RadarTrack, CatalogEntry
 from schemas import (
     WatchedEntityIn, WatchedEntityOut, WatchedEntityBrowseOut,
     WatchedEntityDetailOut, PlaylistTrackOut,
@@ -73,6 +73,22 @@ async def list_watched(
         select(WatchedEntity)
         .join(UserFollow, UserFollow.entity_id == WatchedEntity.id)
         .where(UserFollow.user_id == uid)
+    )
+    return result.scalars().all()
+
+
+@router.get("/active", response_model=list[WatchedEntityOut])
+async def list_active_playlists(
+    db: AsyncSession = Depends(get_db),
+):
+    """All playlists with at least 1 follower. Used by crawl_radar."""
+    result = await db.execute(
+        select(WatchedEntity).where(
+            select(UserFollow.entity_id)
+            .where(UserFollow.entity_id == WatchedEntity.id)
+            .correlate(WatchedEntity)
+            .exists()
+        )
     )
     return result.scalars().all()
 
@@ -356,4 +372,14 @@ async def delete_watched(
     if not follow:
         raise HTTPException(status_code=404, detail="Not found")
     await db.delete(follow)
+
+    # Sync: remove associated opinion
+    await db.execute(
+        delete(UserOpinion).where(
+            UserOpinion.user_id == uid,
+            UserOpinion.entity_type == "playlist",
+            UserOpinion.entity_key == str(entry_id),
+        )
+    )
+
     await db.commit()
