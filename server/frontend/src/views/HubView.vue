@@ -103,6 +103,8 @@
               </span>
               <!-- artwork -->
               <div class="rart" :class="artClass(item)" :style="artStyle(item)">
+                <img v-if="artworkUrl(item)" :src="artworkUrl(item)" alt="" loading="lazy"
+                  @error="e => e.target.style.display = 'none'" />
                 <span v-if="needsInitials(item)" class="ini">{{ initials(item) }}</span>
                 <span v-if="item.type === 'genre'" class="gd"></span>
                 <div v-if="isPlayable(item)" class="play" @click.stop="onPlay(item)">
@@ -353,6 +355,15 @@ function typeIcon(type) {
 function initials(item) {
   const s = item.name || item.artist || item.title || '?'
   return s.replace(/[^A-Za-zÀ-ÿ0-9 ]/g, '').trim().split(/\s+/).slice(0, 2).map(w => (w[0] || '')).join('').toUpperCase() || '?'
+}
+
+function artworkUrl(item) {
+  if (!item.has_artwork) return null
+  if (item.type === 'track') return `/storage/catalog-artworks/${item.id}.jpg`
+  if (item.type === 'artist') return `/storage/artist-artworks/${item.id}.jpg`
+  if (item.type === 'set') return `/storage/set-artworks/${item.id}.jpg`
+  if (item.type === 'playlist') return `/storage/playlist-artworks/${item.id}.jpg`
+  return null
 }
 
 function needsInitials(item) {
@@ -679,6 +690,10 @@ const vClickOutside = {
   box-shadow: var(--shadow-sm); display: grid; place-items: center;
 }
 .rart.round { border-radius: 50%; }
+.rart img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
 .rart .ini { font: 600 14px var(--font-mono); color: var(--ink-3); }
 .rart .play {
   position: absolute; inset: 0; display: grid; place-items: center;

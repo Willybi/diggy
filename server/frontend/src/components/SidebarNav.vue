@@ -1,9 +1,9 @@
 <template>
   <aside class="sidebar">
-    <div class="sidebar-brand">
+    <RouterLink to="/" class="sidebar-brand">
       <div class="brand-glyph">D</div>
       <span class="brand-name">Diggy</span>
-    </div>
+    </RouterLink>
 
     <nav class="nav-section">
       <p class="nav-label"><span>Library</span></p>
@@ -77,10 +77,7 @@ const iconSun = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const iconMoon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
 const iconUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`
 const iconLogout = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M17 16l4-4-4-4M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>`
-const iconSearch = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>`
-
 const libraryItems = [
-  { to: '/',          label: 'Recherche',  icon: iconSearch,   count: null },
   { to: '/catalog',   label: 'Catalog',    icon: iconGrid,     count: null },
   { to: '/artists',   label: 'Artistes',   icon: iconArtist,   count: null },
   { to: '/sets',      label: 'Sets',       icon: iconSet,      count: null },
@@ -104,6 +101,8 @@ const libraryItems = [
   align-items: center;
   gap: 10px;
   padding: 4px 8px 18px;
+  text-decoration: none;
+  cursor: pointer;
 }
 .brand-glyph {
   width: 30px;
