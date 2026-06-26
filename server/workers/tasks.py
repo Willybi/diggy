@@ -1138,3 +1138,116 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
     return result
 
 
+@celery_app.task(name="workers.tasks.reclassify_all_genres", bind=True,
+                 soft_time_limit=25200, time_limit=28800)
+def reclassify_all_genres(self):
+    """
+    Re-classify genres for ALL catalog entries.
+    Strategy per track: clear genre → try Deezer (album) → fallback Beatport → commit.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import CatalogEntry
+    from deezer_enrich import _get_s3, _ensure_bucket
+    from workers.db import get_engine
+    from workers.crawl_logger import CrawlLogger
+
+    engine = get_engine()
+    s3 = _get_s3()
+    _ensure_bucket(s3)
+
+    with Session(engine) as log_session:
+        with CrawlLogger(log_session, task_type="reclassify_genres",
+                         source="deezer+beatport", celery_task_id=self.request.id) as clog:
+
+            async def _async_reclassify():
+                import httpx
+                from workers.rate_limiter import RateLimiter
+                from workers.async_http import HttpPool
+                from workers.enrichment import _search_beatport_async
+
+                limiter = RateLimiter()
+                rcache = None
+                try:
+                    import redis as redis_lib
+                    rcache = redis_lib.from_url(
+                        os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+                        decode_responses=True,
+                    )
+                except Exception:
+                    pass
+
+                stats = {"total": 0, "deezer": 0, "beatport": 0, "cleared": 0, "errors": 0}
+
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        entries = session.execute(
+                            select(CatalogEntry).order_by(CatalogEntry.id)
+                        ).scalars().all()
+                        stats["total"] = len(entries)
+
+                        async with httpx.AsyncClient(timeout=10) as dz_client:
+                            for i, entry in enumerate(entries):
+                                entry.genre = None
+                                found = False
+
+                                # 1) Try Deezer: track → album → genres
+                                if entry.deezer_id:
+                                    try:
+                                        r = await dz_client.get(f"https://api.deezer.com/track/{entry.deezer_id}")
+                                        track_data = r.json()
+                                        album_id = (track_data.get("album") or {}).get("id")
+                                        if album_id:
+                                            r2 = await dz_client.get(f"https://api.deezer.com/album/{album_id}")
+                                            genres_data = (r2.json().get("genres") or {}).get("data") or []
+                                            if genres_data:
+                                                entry.genre = genres_data[0]["name"][:100]
+                                                stats["deezer"] += 1
+                                                found = True
+                                        await asyncio.sleep(0.12)
+                                    except Exception as e:
+                                        logger.warning("Deezer genre failed for catalog %s: %s", entry.id, e)
+                                        stats["errors"] += 1
+
+                                # 2) Fallback: Beatport
+                                if not found:
+                                    try:
+                                        bp_track = await _search_beatport_async(
+                                            pool, entry.title, entry.artist, entry.isrc, rcache=rcache
+                                        )
+                                        if bp_track:
+                                            genre_obj = bp_track.get("genre")
+                                            if genre_obj:
+                                                genre_name = genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj)
+                                                if genre_name:
+                                                    entry.genre = genre_name[:100]
+                                                    stats["beatport"] += 1
+                                                    found = True
+                                    except Exception as e:
+                                        logger.warning("Beatport genre failed for catalog %s: %s", entry.id, e)
+                                        stats["errors"] += 1
+
+                                if not found:
+                                    stats["cleared"] += 1
+
+                                if (i + 1) % 50 == 0:
+                                    session.commit()
+                                    logger.info("Reclassify progress: %d/%d (dz=%d bp=%d cleared=%d)",
+                                                i + 1, stats["total"], stats["deezer"],
+                                                stats["beatport"], stats["cleared"])
+
+                            session.commit()
+
+                return stats
+
+            try:
+                result = asyncio.run(_async_reclassify())
+            except Exception as e:
+                logger.error("reclassify_all_genres failed: %s", e)
+                result = {"total": 0, "deezer": 0, "beatport": 0, "cleared": 0, "errors": 1}
+
+            clog.set_stats(result)
+
+    return result

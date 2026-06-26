@@ -587,6 +587,26 @@ async def genres_auto_classify(
     return SyncQueued(status="queued", task_id=result.id)
 
 
+@router.post("/genres/reclassify", response_model=SyncQueued)
+async def genres_reclassify(
+    eta: str | None = None,
+    _: User = Depends(require_admin),
+):
+    """Reclassify ALL genres (Deezer first, Beatport fallback).
+    Optional `eta` param: ISO datetime to schedule (e.g. 2026-06-27T03:00:00Z).
+    """
+    kwargs = {}
+    if eta:
+        from datetime import datetime as dt, timezone as tz
+        try:
+            scheduled_at = dt.fromisoformat(eta.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Format eta invalide (ISO 8601 attendu)")
+        kwargs["eta"] = scheduled_at
+    result = celery.send_task("workers.tasks.reclassify_all_genres", **kwargs)
+    return SyncQueued(status="queued", task_id=result.id)
+
+
 # ---------- Playlist Artworks ----------
 
 @router.post("/playlists/fetch-artworks")
