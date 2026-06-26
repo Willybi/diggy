@@ -109,6 +109,22 @@
       </div>
     </section>
 
+    <!-- Reclassifier genres -->
+    <section class="admin-section">
+      <h2 class="section-title">Reclassifier tous les genres</h2>
+      <p class="section-sub">Efface tous les genres et re-fetche : Deezer (album) d'abord, fallback Beatport. ~5200 tracks, peut prendre plusieurs heures.</p>
+      <div class="sync-row">
+        <label class="batch-label">
+          Planifier à
+          <input v-model="reclassifyEta" type="datetime-local" class="batch-input" style="width:180px" />
+        </label>
+        <button class="btn-sync" :disabled="reclassifying" @click="runReclassify">
+          {{ reclassifying ? 'Lancé…' : reclassifyEta ? 'Planifier' : 'Lancer maintenant' }}
+        </button>
+        <span v-if="reclassifyResult" class="enrich-result" :class="reclassifyResult.cls">{{ reclassifyResult.text }}</span>
+      </div>
+    </section>
+
     <!-- Liaison manuelle artiste ↔ Deezer -->
     <section class="admin-section">
       <h2 class="section-title">Lier un artiste à Deezer</h2>
@@ -378,6 +394,9 @@ const enrichingBeatport = ref(false)
 const beatportBatchSize = ref(0)
 const beatportResult = ref(null)
 const beatportError = ref('')
+const reclassifying = ref(false)
+const reclassifyEta = ref('')
+const reclassifyResult = ref(null)
 
 // Manual link
 const linkArtistQuery = ref('')
@@ -408,7 +427,7 @@ const crawlFilters = [
 ]
 const crawlTaskTypes = [
   'crawl_radar', 'crawl_playlist', 'enrich_catalog', 'enrich_beatport',
-  'sync_artists', 'fetch_artworks', 'resolve_set_tracks', 'enrich_set_tracks',
+  'reclassify_genres', 'sync_artists', 'fetch_artworks', 'resolve_set_tracks', 'enrich_set_tracks',
 ]
 
 async function runSync() {
@@ -606,6 +625,21 @@ async function runEnrichBeatport() {
   } catch (e) {
     beatportError.value = e.response?.data?.detail || 'Erreur'
     enrichingBeatport.value = false
+  }
+}
+
+async function runReclassify() {
+  reclassifying.value = true
+  reclassifyResult.value = null
+  try {
+    const params = reclassifyEta.value ? `?eta=${new Date(reclassifyEta.value).toISOString()}` : ''
+    const { data } = await api.post(`/api/admin/genres/reclassify${params}`)
+    const when = reclassifyEta.value ? ` pour ${reclassifyEta.value}` : ''
+    reclassifyResult.value = { text: `Task planifiée${when} (${data.task_id.slice(0, 8)}…)`, cls: 'ok' }
+  } catch (e) {
+    reclassifyResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
+  } finally {
+    reclassifying.value = false
   }
 }
 
