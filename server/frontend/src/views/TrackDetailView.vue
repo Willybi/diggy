@@ -168,7 +168,8 @@ async function enrichBeatport(forceGenre = false) {
     } else if (data.status === 'unchanged') {
       enrichResult.value = { text: 'Déjà à jour', cls: 'muted' }
     } else {
-      enrichResult.value = { text: 'Non trouvé sur Beatport', cls: 'warn' }
+      if (forceGenre) track.value.genre = null
+      enrichResult.value = { text: 'Non trouvé sur Beatport' + (forceGenre ? ' — genre effacé' : ''), cls: 'warn' }
     }
   } catch (e) {
     enrichResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
