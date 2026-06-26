@@ -109,7 +109,7 @@ class RadarFullOut(BaseModel):
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration_ms: Optional[int] = None
-    genre: Optional[str] = None
+    genres: list[str] = []
     has_artwork: bool = False
     has_preview: bool = False
     detected_at: Optional[datetime] = None
@@ -144,7 +144,7 @@ class CatalogEntryOut(BaseModel):
     deezer_id: Optional[str] = None
     beatport_id: Optional[str] = None
     duration_ms: Optional[int]
-    genre: Optional[str]
+    genres: list[str] = []
     release_date: Optional[date]
     preview_url: Optional[str]
     has_artwork: bool = False

@@ -126,9 +126,11 @@
                 </div>
               </td>
               <td class="col-style">
-                <RouterLink v-if="e.genre" :to="`/style/${encodeURIComponent(e.genre)}`" style="text-decoration:none">
-                  <StyleTag :name="e.genre" />
-                </RouterLink>
+                <template v-if="e.genres?.length">
+                  <RouterLink v-for="g in e.genres" :key="g" :to="`/style/${encodeURIComponent(g)}`" style="text-decoration:none">
+                    <StyleTag :name="g" />
+                  </RouterLink>
+                </template>
                 <StyleTag v-else-if="e.style" :name="e.style" />
                 <span v-else class="td-empty">—</span>
               </td>

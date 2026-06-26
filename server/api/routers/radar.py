@@ -86,7 +86,7 @@ async def list_radar_full(
             CatalogEntry.bpm,
             CatalogEntry.key,
             CatalogEntry.duration_ms,
-            CatalogEntry.genre,
+            CatalogEntry.genres,
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
             func.max(RadarTrack.detected_at).label("detected_at"),
@@ -145,7 +145,7 @@ async def list_radar_full(
         "artist": CatalogEntry.artist,
         "bpm": CatalogEntry.bpm,
         "key": CatalogEntry.key,
-        "genre": CatalogEntry.genre,
+        "genre": CatalogEntry.genres[1],
         "playlist_title": latest_playlist_title,
     }
     sort_col = sort_map.get(sort, func.max(RadarTrack.detected_at))

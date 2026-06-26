@@ -1190,10 +1190,10 @@ def reclassify_all_genres(self):
 
                         async with httpx.AsyncClient(timeout=10) as dz_client:
                             for i, entry in enumerate(entries):
-                                entry.genre = None
+                                entry.genres = []
                                 found = False
 
-                                # 1) Try Deezer: track → album → genres
+                                # 1) Try Deezer: track → album → genres (up to 3)
                                 if entry.deezer_id:
                                     try:
                                         r = await dz_client.get(f"https://api.deezer.com/track/{entry.deezer_id}")
@@ -1203,7 +1203,7 @@ def reclassify_all_genres(self):
                                             r2 = await dz_client.get(f"https://api.deezer.com/album/{album_id}")
                                             genres_data = (r2.json().get("genres") or {}).get("data") or []
                                             if genres_data:
-                                                entry.genre = genres_data[0]["name"][:100]
+                                                entry.genres = [g["name"][:100] for g in genres_data[:3]]
                                                 stats["deezer"] += 1
                                                 found = True
                                         await asyncio.sleep(0.12)
@@ -1211,7 +1211,7 @@ def reclassify_all_genres(self):
                                         logger.warning("Deezer genre failed for catalog %s: %s", entry.id, e)
                                         stats["errors"] += 1
 
-                                # 2) Fallback: Beatport
+                                # 2) Fallback: Beatport (single genre)
                                 if not found:
                                     try:
                                         bp_track = await _search_beatport_async(
@@ -1222,7 +1222,7 @@ def reclassify_all_genres(self):
                                             if genre_obj:
                                                 genre_name = genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj)
                                                 if genre_name:
-                                                    entry.genre = genre_name[:100]
+                                                    entry.genres = [genre_name[:100]]
                                                     stats["beatport"] += 1
                                                     found = True
                                     except Exception as e:

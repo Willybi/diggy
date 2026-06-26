@@ -116,15 +116,19 @@ async def list_artists(
     for row in liked_result.all():
         liked_by_name[row.artist_name.lower()] = row.nb_liked
 
-    # -- batch genres --
+    # -- batch genres (unnest array) --
+    genre_col = func.unnest(CatalogEntry.genres).label("genre")
     genre_result = await db.execute(
         select(
             func.lower(CatalogEntry.artist).label("artist_name"),
-            CatalogEntry.genre,
-            func.count(CatalogEntry.id).label("cnt"),
+            genre_col,
+            func.count().label("cnt"),
         )
-        .where(CatalogEntry.genre.isnot(None), func.lower(CatalogEntry.artist).in_(all_names))
-        .group_by(func.lower(CatalogEntry.artist), CatalogEntry.genre)
+        .where(
+            func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) > 0,
+            func.lower(CatalogEntry.artist).in_(all_names),
+        )
+        .group_by(func.lower(CatalogEntry.artist), genre_col)
     )
     genre_by_name: dict[str, dict[str, int]] = defaultdict(dict)
     total_by_name: dict[str, int] = defaultdict(int)
@@ -339,7 +343,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
             bpm=lib_bpm if lib_bpm else entry.bpm,
             key=lib_key if lib_key else entry.key,
             duration_ms=entry.duration_ms,
-            genre=entry.genre,
+            genres=entry.genres or [],
             release_date=entry.release_date,
             preview_url=entry.preview_url,
             has_artwork=entry.has_artwork,
@@ -372,12 +376,11 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         for r in sets_result.all()
     ]
 
-    # 4. Stats + genres from catalog.genre
+    # 4. Stats + genres from catalog.genres
     avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
     genre_counts: dict[str, int] = {}
     for row in cat_rows:
-        g = row[0].genre
-        if g:
+        for g in (row[0].genres or []):
             genre_counts[g] = genre_counts.get(g, 0) + 1
     total = len(cat_rows)
     threshold = max(1, int(total * 0.2))
