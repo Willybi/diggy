@@ -408,6 +408,7 @@ async def get_catalog_detail(
         duration_ms=entry.duration_ms,
         genre=entry.genre,
         label=entry.label,
+        deezer_id=entry.deezer_id,
         beatport_id=entry.beatport_id,
         release_date=entry.release_date,
         preview_url=entry.preview_url,
