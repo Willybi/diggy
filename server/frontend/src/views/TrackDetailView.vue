@@ -35,21 +35,36 @@
         >Beatport ↗</a>
       </div>
 
-      <!-- Admin: Beatport enrichment -->
+      <!-- Admin: enrichment actions -->
       <div v-if="auth.user?.is_admin" class="admin-card">
         <div class="admin-header">
           <span class="admin-label">Admin</span>
-          <span class="mono muted">beatport_id: {{ track.beatport_id || '—' }}</span>
+          <span class="mono muted">beatport_id: {{ track.beatport_id || '—' }} · deezer_id: {{ track.deezer_id || '—' }}</span>
         </div>
+
         <div class="admin-row">
-          <button
-            class="btn-sync"
-            :disabled="enriching"
-            @click="enrichBeatport"
-          >
+          <button class="btn-sync" :disabled="enriching" @click="enrichBeatport(false)">
             {{ enriching ? 'Recherche…' : track.beatport_id ? 'Re-enrichir Beatport' : 'Enrichir via Beatport' }}
           </button>
+          <button class="btn-sync" :disabled="enriching" @click="enrichBeatport(true)">
+            {{ enriching ? '…' : 'Forcer genre Beatport' }}
+          </button>
           <span v-if="enrichResult" class="enrich-result" :class="enrichResult.cls">{{ enrichResult.text }}</span>
+        </div>
+
+        <div class="admin-row" style="margin-top:8px">
+          <button class="btn-sync" :disabled="!track.deezer_id || fetchingDzGenre" @click="fetchDeezerGenre(false)">
+            {{ fetchingDzGenre ? 'Recherche…' : 'Genre Deezer' }}
+          </button>
+          <template v-if="dzGenreResult">
+            <span class="enrich-result" :class="dzGenreResult.cls">{{ dzGenreResult.text }}</span>
+            <button
+              v-if="dzGenreResult.genres?.length"
+              class="btn-sync"
+              :disabled="fetchingDzGenre"
+              @click="applyDeezerGenre(dzGenreResult.genres[0])"
+            >Appliquer « {{ dzGenreResult.genres[0] }} »</button>
+          </template>
         </div>
       </div>
 
@@ -105,6 +120,8 @@ const track = ref(null)
 const loading = ref(true)
 const enriching = ref(false)
 const enrichResult = ref(null)
+const fetchingDzGenre = ref(false)
+const dzGenreResult = ref(null)
 
 const coverSrc = computed(() => {
   if (!track.value) return null
@@ -127,22 +144,27 @@ const stats = computed(() => {
   ]
 })
 
-async function enrichBeatport() {
+async function enrichBeatport(forceGenre = false) {
   enriching.value = true
   enrichResult.value = null
   try {
+    const params = forceGenre ? '?force_genre=true' : ''
     const { data } = await api.post(
-      `/api/admin/enrich-beatport/${track.value.id}`,
+      `/api/admin/enrich-beatport/${track.value.id}${params}`,
       {},
     )
     if (data.status === 'enriched') {
       track.value.bpm = data.bpm
       track.value.key = data.key
       track.value.label = data.label
+      track.value.genre = data.genre
       track.value.beatport_id = data.beatport_id
       track.value.bpm_source = 'beatport'
       track.value.key_source = 'beatport'
-      enrichResult.value = { text: `BPM=${data.bpm} Key=${data.key} Label=${data.label}`, cls: 'ok' }
+      const parts = [`BPM=${data.bpm}`, `Key=${data.key}`]
+      if (data.genre) parts.push(`Genre=${data.genre}`)
+      if (data.label) parts.push(`Label=${data.label}`)
+      enrichResult.value = { text: parts.join(' '), cls: 'ok' }
     } else if (data.status === 'unchanged') {
       enrichResult.value = { text: 'Déjà à jour', cls: 'muted' }
     } else {
@@ -152,6 +174,36 @@ async function enrichBeatport() {
     enrichResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
   } finally {
     enriching.value = false
+  }
+}
+
+async function fetchDeezerGenre() {
+  fetchingDzGenre.value = true
+  dzGenreResult.value = null
+  try {
+    const { data } = await api.get(`/api/admin/deezer-genre/${track.value.id}`)
+    if (data.genres?.length) {
+      dzGenreResult.value = { text: data.genres.join(', '), cls: 'ok', genres: data.genres }
+    } else {
+      dzGenreResult.value = { text: 'Aucun genre Deezer', cls: 'warn' }
+    }
+  } catch (e) {
+    dzGenreResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
+  } finally {
+    fetchingDzGenre.value = false
+  }
+}
+
+async function applyDeezerGenre(genre) {
+  fetchingDzGenre.value = true
+  try {
+    await api.get(`/api/admin/deezer-genre/${track.value.id}?apply=true`)
+    track.value.genre = genre
+    dzGenreResult.value = { text: `Appliqué : ${genre}`, cls: 'ok' }
+  } catch (e) {
+    dzGenreResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
+  } finally {
+    fetchingDzGenre.value = false
   }
 }
 

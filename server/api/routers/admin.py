@@ -423,6 +423,7 @@ async def reset_beatport(
 @router.post("/enrich-beatport/{catalog_id}")
 async def enrich_single_beatport(
     catalog_id: int,
+    force_genre: bool = False,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -448,6 +449,9 @@ async def enrich_single_beatport(
     if not bp_track:
         return {"status": "not_found", "catalog_id": catalog_id}
 
+    if force_genre:
+        entry.genre = None
+
     changed = enrich_from_beatport(entry, bp_track)
     if changed:
         await db.commit()
@@ -458,8 +462,53 @@ async def enrich_single_beatport(
         "bpm": entry.bpm,
         "key": entry.key,
         "label": entry.label,
+        "genre": entry.genre,
         "beatport_id": entry.beatport_id,
     }
+
+
+@router.get("/deezer-genre/{catalog_id}")
+async def deezer_genre_lookup(
+    catalog_id: int,
+    apply: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Fetch genre from Deezer for a catalog entry (via track -> album -> genres)."""
+    import httpx
+    from models import CatalogEntry
+
+    entry = (await db.execute(
+        select(CatalogEntry).where(CatalogEntry.id == catalog_id)
+    )).scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if not entry.deezer_id:
+        raise HTTPException(status_code=400, detail="Pas de deezer_id pour ce track")
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        # Fetch track to get album id
+        r = await client.get(f"https://api.deezer.com/track/{entry.deezer_id}")
+        track_data = r.json()
+        album_id = (track_data.get("album") or {}).get("id")
+        if not album_id:
+            return {"status": "no_album", "genres": []}
+
+        # Fetch album to get genres
+        r2 = await client.get(f"https://api.deezer.com/album/{album_id}")
+        album_data = r2.json()
+        genres_data = (album_data.get("genres") or {}).get("data") or []
+        genre_names = [g["name"] for g in genres_data if g.get("name")]
+
+    result = {"status": "ok", "genres": genre_names, "applied": False}
+
+    if apply and genre_names:
+        entry.genre = genre_names[0]
+        await db.commit()
+        result["applied"] = True
+        result["genre"] = genre_names[0]
+
+    return result
 
 
 @router.post("/sets/{set_id}/artists")
