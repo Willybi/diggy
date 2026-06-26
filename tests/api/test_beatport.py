@@ -101,7 +101,7 @@ def _make_entry(**overrides):
     entry.key = overrides.get("key", None)
     entry.key_source = overrides.get("key_source", None)
     entry.label = overrides.get("label", None)
-    entry.genre = overrides.get("genre", None)
+    entry.genres = overrides.get("genres", [])
     entry.release_date = overrides.get("release_date", None)
     entry.has_artwork = overrides.get("has_artwork", False)
     return entry
@@ -124,7 +124,7 @@ class TestEnrichFromBeatport:
         assert entry.key == "1A"
         assert entry.key_source == "beatport"
         assert entry.label == "mau5trap"
-        assert entry.genre == "Melodic House & Techno"
+        assert entry.genres == ["Melodic House & Techno"]
         assert entry.release_date == date(2024, 9, 13)
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
@@ -148,9 +148,9 @@ class TestEnrichFromBeatport:
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=False)
     def test_does_not_overwrite_existing_genre(self, mock_upload):
-        entry = _make_entry(genre="Techno")
+        entry = _make_entry(genres=["Techno"])
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
-        assert entry.genre == "Techno"
+        assert entry.genres == ["Techno"]
 
     @patch("deezer_enrich.upload_cover_from_url", return_value=True)
     def test_uploads_artwork_when_missing(self, mock_upload):
@@ -174,7 +174,7 @@ class TestEnrichFromBeatport:
             bpm=128.0, bpm_source="beatport",
             key="1A", key_source="beatport",
             label="mau5trap",
-            genre="Melodic House & Techno",
+            genres=["Melodic House & Techno"],
             release_date=date(2024, 9, 13),
             has_artwork=True,
         )
