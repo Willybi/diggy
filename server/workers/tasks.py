@@ -1065,7 +1065,8 @@ def crawl_followed_sets():
     }
 
 
-@celery_app.task(name="workers.tasks.enrich_catalog_beatport", bind=True)
+@celery_app.task(name="workers.tasks.enrich_catalog_beatport", bind=True,
+                 soft_time_limit=25200, time_limit=28800)
 def enrich_catalog_beatport(self, batch_size: int = 0):
     """
     Enrichit les entrées catalog via Beatport (concurrent async scraping).
