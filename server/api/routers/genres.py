@@ -81,7 +81,7 @@ async def random_genre_track(
     """Return a random previewable catalog entry for the given genre."""
     result = await db.execute(text("""
         SELECT id, title, artist, bpm, key FROM catalog
-        WHERE genre = :genre
+        WHERE :genre = ANY(genres)
           AND has_preview = true
           AND (:has_exclude = false OR id != :exclude_id)
         ORDER BY random()
@@ -123,21 +123,20 @@ async def list_genres(
 
     q_pattern = f"%{q.lower()}%" if q else ""
 
-    # ── Stats per genre ──
+    # ── Stats per genre (unnested) ──
     stats_result = await db.execute(text("""
         SELECT
-            c.genre,
+            g AS genre,
             COUNT(*)::int                                                    AS track_count,
             COUNT(DISTINCT LOWER(c.artist))::int                             AS artist_count,
             COALESCE(ROUND(PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY c.bpm))::int, 0) AS bpm_lo,
             COALESCE(ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY c.bpm))::int, 0) AS bpm_hi,
             COUNT(DISTINCT ut.catalog_id)::int                               AS in_lib_count
-        FROM catalog c
+        FROM catalog c, unnest(c.genres) AS g
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
-        WHERE c.genre IS NOT NULL AND c.genre != ''
-          AND (:family_filter = false OR c.genre = ANY(:family_genres))
-          AND (:q_filter = false OR LOWER(c.genre) LIKE :q_pattern)
-        GROUP BY c.genre
+        WHERE (:family_filter = false OR g = ANY(:family_genres))
+          AND (:q_filter = false OR LOWER(g) LIKE :q_pattern)
+        GROUP BY g
     """), {
         "user_id": user_id,
         "family_filter": family_genres is not None,
@@ -164,10 +163,10 @@ async def list_genres(
     if genre_names:
         aw_result = await db.execute(text("""
             SELECT genre, id FROM (
-                SELECT c.genre, c.id,
-                       ROW_NUMBER() OVER (PARTITION BY c.genre ORDER BY c.id DESC) AS rn
-                FROM catalog c
-                WHERE c.genre = ANY(:genres) AND c.has_artwork = true
+                SELECT g AS genre, c.id,
+                       ROW_NUMBER() OVER (PARTITION BY g ORDER BY c.id DESC) AS rn
+                FROM catalog c, unnest(c.genres) AS g
+                WHERE g = ANY(:genres) AND c.has_artwork = true
             ) sub WHERE rn <= 4
         """), {"genres": genre_names})
         for row in aw_result.fetchall():
@@ -178,17 +177,17 @@ async def list_genres(
     if genre_names:
         ar_result = await db.execute(text("""
             SELECT genre, artist_id, artist_name FROM (
-                SELECT c.genre, a.id AS artist_id, a.name AS artist_name,
+                SELECT g AS genre, a.id AS artist_id, a.name AS artist_name,
                        COUNT(*) AS track_cnt,
                        ROW_NUMBER() OVER (
-                           PARTITION BY c.genre
+                           PARTITION BY g
                            ORDER BY COUNT(*) DESC, a.id
                        ) AS rn
-                FROM catalog c
+                FROM catalog c, unnest(c.genres) AS g
                 JOIN artists a ON a.normalized_name = LOWER(c.artist)
                     AND a.has_artwork = true
-                WHERE c.genre = ANY(:genres) AND c.artist IS NOT NULL
-                GROUP BY c.genre, a.id, a.name
+                WHERE g = ANY(:genres) AND c.artist IS NOT NULL
+                GROUP BY g, a.id, a.name
             ) ranked WHERE rn <= 3
         """), {"genres": genre_names})
         for row in ar_result.fetchall():
@@ -215,11 +214,10 @@ async def list_genres(
 
     # ── Family counts (independent of family filter, respects search) ──
     fc_result = await db.execute(text("""
-        SELECT c.genre, COUNT(*)::int AS cnt
-        FROM catalog c
-        WHERE c.genre IS NOT NULL AND c.genre != ''
-          AND (:q_filter = false OR LOWER(c.genre) LIKE :q_pattern)
-        GROUP BY c.genre
+        SELECT g AS genre, COUNT(*)::int AS cnt
+        FROM catalog c, unnest(c.genres) AS g
+        WHERE (:q_filter = false OR LOWER(g) LIKE :q_pattern)
+        GROUP BY g
     """), {"q_filter": bool(q), "q_pattern": q_pattern})
 
     family_counts: dict[str, int] = {f: 0 for f in _ALL_FAMILIES}
@@ -248,14 +246,14 @@ class GenreMergeIn(BaseModel):
 async def _resolve_genre(db: AsyncSession, name: str) -> str:
     """Return the canonical genre name (exact casing from DB). Raise 404 if not found."""
     result = await db.execute(text("""
-        SELECT genre FROM catalog
-        WHERE LOWER(genre) = LOWER(:name)
+        SELECT g FROM catalog, unnest(genres) AS g
+        WHERE LOWER(g) = LOWER(:name)
         LIMIT 1
     """), {"name": name})
     row = result.fetchone()
     if not row:
         raise HTTPException(404, "Genre not found")
-    return row.genre
+    return row.g
 
 
 # ── Admin (must be declared BEFORE /{name} routes) ───────────────────────
@@ -272,7 +270,9 @@ async def merge_genres(
     if source == target:
         raise HTTPException(400, "Source and target are the same genre")
     result = await db.execute(text("""
-        UPDATE catalog SET genre = :target WHERE genre = :source
+        UPDATE catalog
+        SET genres = (SELECT ARRAY(SELECT DISTINCT unnest(array_replace(genres, :source, :target))))
+        WHERE :source = ANY(genres)
     """), {"source": source, "target": target})
     await db.commit()
     return {"merged": True, "source": source, "target": target, "affected": result.rowcount}
@@ -300,7 +300,7 @@ async def get_genre_detail(
             COUNT(DISTINCT ut.catalog_id)::int                                   AS in_lib_count
         FROM catalog c
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
-        WHERE c.genre = :genre
+        WHERE :genre = ANY(c.genres)
     """), {"genre": genre, "user_id": user_id})
     s = stats.fetchone()
 
@@ -309,7 +309,7 @@ async def get_genre_detail(
         SELECT COUNT(DISTINCT st.set_id)::int AS cnt
         FROM set_tracks st
         JOIN catalog c ON c.id = st.catalog_id
-        WHERE c.genre = :genre
+        WHERE :genre = ANY(c.genres)
     """), {"genre": genre})
     set_count = set_result.scalar()
 
@@ -318,7 +318,7 @@ async def get_genre_detail(
         SELECT COUNT(DISTINCT rt.watched_entity_id)::int AS cnt
         FROM radar_tracks rt
         JOIN catalog c ON c.id = rt.catalog_id
-        WHERE c.genre = :genre
+        WHERE :genre = ANY(c.genres)
     """), {"genre": genre})
     playlist_count = pl_result.scalar()
 
@@ -328,7 +328,7 @@ async def get_genre_detail(
             SELECT c.id,
                    ROW_NUMBER() OVER (ORDER BY c.id DESC) AS rn
             FROM catalog c
-            WHERE c.genre = :genre AND c.has_artwork = true
+            WHERE :genre = ANY(c.genres) AND c.has_artwork = true
         ) sub WHERE rn <= 6
     """), {"genre": genre})
     artworks = [f"/storage/catalog-artworks/{r.id}.jpg" for r in aw_result.fetchall()]
@@ -341,7 +341,7 @@ async def get_genre_detail(
                    ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, a.id) AS rn
             FROM catalog c
             JOIN artists a ON a.normalized_name = LOWER(c.artist) AND a.has_artwork = true
-            WHERE c.genre = :genre AND c.artist IS NOT NULL
+            WHERE :genre = ANY(c.genres) AND c.artist IS NOT NULL
             GROUP BY a.id, a.name
         ) ranked WHERE rn <= 3
     """), {"genre": genre})
@@ -385,7 +385,7 @@ async def get_genre_artists(
         FROM catalog c
         JOIN artists a ON a.normalized_name = LOWER(c.artist)
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
-        WHERE c.genre = :genre AND c.artist IS NOT NULL AND c.artist != ''
+        WHERE :genre = ANY(c.genres) AND c.artist IS NOT NULL AND c.artist != ''
         GROUP BY a.id, a.name, a.has_artwork
         ORDER BY track_count DESC, a.name
         LIMIT :limit OFFSET :offset
@@ -425,7 +425,7 @@ async def get_genre_sets(
                COUNT(*) OVER()::int AS total
         FROM sets s
         JOIN set_tracks st ON st.set_id = s.id
-        JOIN catalog c ON c.id = st.catalog_id AND c.genre = :genre
+        JOIN catalog c ON c.id = st.catalog_id AND :genre = ANY(c.genres)
         CROSS JOIN LATERAL (
             SELECT COUNT(*)::int AS total_tracks FROM set_tracks WHERE set_id = s.id
         ) total_sub
@@ -468,7 +468,7 @@ async def get_genre_playlists(
                COUNT(*) OVER()::int AS total
         FROM watched_entities we
         JOIN radar_tracks rt ON rt.watched_entity_id = we.id
-        JOIN catalog c ON c.id = rt.catalog_id AND c.genre = :genre
+        JOIN catalog c ON c.id = rt.catalog_id AND :genre = ANY(c.genres)
         GROUP BY we.id, we.title, we.source, we.has_artwork, we.owner
         ORDER BY genre_track_count DESC
         LIMIT :limit OFFSET :offset
@@ -526,7 +526,7 @@ async def get_genre_tracks(
                COUNT(*) OVER()::int AS total
         FROM catalog c
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
-        WHERE c.genre = :genre
+        WHERE :genre = ANY(c.genres)
           AND (:q_filter = false OR (LOWER(c.title) LIKE :q_pattern OR LOWER(c.artist) LIKE :q_pattern))
           AND (:lib_filter = false OR
                (:in_lib = 1 AND ut.catalog_id IS NOT NULL) OR
@@ -578,15 +578,15 @@ async def get_genre_neighbors(
         WITH genre_artists AS (
             SELECT DISTINCT LOWER(artist) AS artist_name
             FROM catalog
-            WHERE genre = :genre AND artist IS NOT NULL AND artist != ''
+            WHERE :genre = ANY(genres) AND artist IS NOT NULL AND artist != ''
         )
-        SELECT c.genre,
+        SELECT g AS genre,
                COUNT(DISTINCT LOWER(c.artist))::int AS common_artists,
                COUNT(*)::int AS track_count
-        FROM catalog c
+        FROM catalog c, unnest(c.genres) AS g
         JOIN genre_artists ga ON LOWER(c.artist) = ga.artist_name
-        WHERE c.genre IS NOT NULL AND c.genre != '' AND c.genre != :genre
-        GROUP BY c.genre
+        WHERE g != :genre
+        GROUP BY g
         ORDER BY common_artists DESC
         LIMIT :limit
     """), {"genre": genre, "limit": limit})
@@ -621,13 +621,15 @@ async def rename_genre(
 
     # Check if target already exists
     existing = await db.execute(text("""
-        SELECT 1 FROM catalog WHERE genre = :new_name LIMIT 1
+        SELECT 1 FROM catalog WHERE :new_name = ANY(genres) LIMIT 1
     """), {"new_name": new_name})
     if existing.fetchone():
         raise HTTPException(409, f"Genre '{new_name}' already exists — use merge instead")
 
     result = await db.execute(text("""
-        UPDATE catalog SET genre = :new_name WHERE genre = :old_name
+        UPDATE catalog
+        SET genres = array_replace(genres, :old_name, :new_name)
+        WHERE :old_name = ANY(genres)
     """), {"old_name": genre, "new_name": new_name})
     await db.commit()
     return {"renamed": True, "from": genre, "to": new_name, "affected": result.rowcount}

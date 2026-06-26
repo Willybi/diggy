@@ -12,9 +12,11 @@
       >
         <template #badges>
           <InLibBadge :in-lib="track.in_lib" />
-          <RouterLink v-if="track.genre" :to="`/style/${encodeURIComponent(track.genre)}`" style="text-decoration:none">
-            <StyleTag :name="track.genre" />
-          </RouterLink>
+          <template v-if="track.genres?.length">
+            <RouterLink v-for="g in track.genres" :key="g" :to="`/style/${encodeURIComponent(g)}`" style="text-decoration:none">
+              <StyleTag :name="g" />
+            </RouterLink>
+          </template>
           <StyleTag v-else-if="track.style" :name="track.style" />
         </template>
         <template #actions>
@@ -62,8 +64,8 @@
               v-if="dzGenreResult.genres?.length"
               class="btn-sync"
               :disabled="fetchingDzGenre"
-              @click="applyDeezerGenre(dzGenreResult.genres[0])"
-            >Appliquer « {{ dzGenreResult.genres[0] }} »</button>
+              @click="applyDeezerGenres()"
+            >Appliquer {{ dzGenreResult.genres.join(', ') }}</button>
           </template>
         </div>
       </div>
@@ -157,18 +159,18 @@ async function enrichBeatport(forceGenre = false) {
       track.value.bpm = data.bpm
       track.value.key = data.key
       track.value.label = data.label
-      track.value.genre = data.genre
+      track.value.genres = data.genres
       track.value.beatport_id = data.beatport_id
       track.value.bpm_source = 'beatport'
       track.value.key_source = 'beatport'
       const parts = [`BPM=${data.bpm}`, `Key=${data.key}`]
-      if (data.genre) parts.push(`Genre=${data.genre}`)
+      if (data.genres?.length) parts.push(`Genres=${data.genres.join(', ')}`)
       if (data.label) parts.push(`Label=${data.label}`)
       enrichResult.value = { text: parts.join(' '), cls: 'ok' }
     } else if (data.status === 'unchanged') {
       enrichResult.value = { text: 'Déjà à jour', cls: 'muted' }
     } else {
-      if (forceGenre) track.value.genre = null
+      if (forceGenre) track.value.genres = []
       enrichResult.value = { text: 'Non trouvé sur Beatport' + (forceGenre ? ' — genre effacé' : ''), cls: 'warn' }
     }
   } catch (e) {
@@ -195,12 +197,12 @@ async function fetchDeezerGenre() {
   }
 }
 
-async function applyDeezerGenre(genre) {
+async function applyDeezerGenres() {
   fetchingDzGenre.value = true
   try {
-    await api.get(`/api/admin/deezer-genre/${track.value.id}?apply=true`)
-    track.value.genre = genre
-    dzGenreResult.value = { text: `Appliqué : ${genre}`, cls: 'ok' }
+    const { data } = await api.get(`/api/admin/deezer-genre/${track.value.id}?apply=true`)
+    track.value.genres = data.genres || dzGenreResult.value.genres
+    dzGenreResult.value = { text: `Appliqué : ${track.value.genres.join(', ')}`, cls: 'ok' }
   } catch (e) {
     dzGenreResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
   } finally {

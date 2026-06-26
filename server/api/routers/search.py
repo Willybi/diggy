@@ -272,15 +272,14 @@ async def _search_genres(
 
     result = await db.execute(text("""
         SELECT
-            c.genre AS name,
+            g AS name,
             COUNT(*)::int AS track_count,
             COUNT(DISTINCT LOWER(c.artist))::int AS artist_count,
             COALESCE(ROUND(PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY c.bpm))::int, 0) AS bpm_lo,
             COALESCE(ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY c.bpm))::int, 0) AS bpm_hi
-        FROM catalog c
-        WHERE c.genre IS NOT NULL AND c.genre != ''
-          AND LOWER(c.genre) LIKE LOWER(:pattern)
-        GROUP BY c.genre
+        FROM catalog c, unnest(c.genres) AS g
+        WHERE LOWER(g) LIKE LOWER(:pattern)
+        GROUP BY g
         ORDER BY COUNT(*) DESC
         LIMIT :lim
     """), {"pattern": pattern, "lim": limit})
@@ -288,10 +287,9 @@ async def _search_genres(
 
     # total distinct genres matching
     total_r = await db.execute(text("""
-        SELECT COUNT(DISTINCT c.genre)::int
-        FROM catalog c
-        WHERE c.genre IS NOT NULL AND c.genre != ''
-          AND LOWER(c.genre) LIKE LOWER(:pattern)
+        SELECT COUNT(DISTINCT g)::int
+        FROM catalog c, unnest(c.genres) AS g
+        WHERE LOWER(g) LIKE LOWER(:pattern)
     """), {"pattern": pattern})
     total = total_r.scalar() or 0
 

@@ -28,12 +28,13 @@ SORTABLE_COLS = {
 
 @router.get("/genres")
 async def list_genres(db: AsyncSession = Depends(get_db)):
-    """Return all distinct Beatport genres with track counts."""
+    """Return all distinct genres with track counts (unnested from arrays)."""
+    genre_col = func.unnest(CatalogEntry.genres).label("genre")
     result = await db.execute(
-        select(CatalogEntry.genre, func.count(CatalogEntry.id))
-        .where(CatalogEntry.genre.isnot(None), CatalogEntry.genre != "")
-        .group_by(CatalogEntry.genre)
-        .order_by(func.count(CatalogEntry.id).desc())
+        select(genre_col, func.count())
+        .where(func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) > 0)
+        .group_by(genre_col)
+        .order_by(func.count().desc())
     )
     return [{"name": row[0], "count": row[1]} for row in result.all()]
 
@@ -181,7 +182,7 @@ async def list_catalog(
         )
 
     if genre:
-        query = query.where(CatalogEntry.genre == genre)
+        query = query.where(CatalogEntry.genres.any(genre))
 
     if search:
         pattern = f"%{search}%"
@@ -207,7 +208,7 @@ async def list_catalog(
     elif sort == "key":
         sort_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key, "")
     elif sort == "style":
-        sort_col = func.coalesce(CatalogEntry.genre, ut_sub.c.rb_mytags.op("->>")(0), "")
+        sort_col = func.coalesce(CatalogEntry.genres[1], ut_sub.c.rb_mytags.op("->>")(0), "")
     elif sort == "in_lib":
         sort_col = case((ut_sub.c.catalog_id.isnot(None), 1), else_=0)
     elif sort == "avis":
@@ -267,7 +268,7 @@ async def list_catalog(
             bpm=ut_bpm if ut_bpm is not None else entry.bpm,
             key=ut_key if ut_key is not None else entry.key,
             duration_ms=entry.duration_ms,
-            genre=entry.genre,
+            genres=entry.genres or [],
             release_date=entry.release_date,
             preview_url=entry.preview_url,
             has_artwork=ut_has_artwork if ut_has_artwork else entry.has_artwork,
@@ -406,7 +407,7 @@ async def get_catalog_detail(
         bpm=ut.rb_bpm if ut and ut.rb_bpm else entry.bpm,
         key=ut.rb_key if ut and ut.rb_key else entry.key,
         duration_ms=entry.duration_ms,
-        genre=entry.genre,
+        genres=entry.genres or [],
         label=entry.label,
         deezer_id=entry.deezer_id,
         beatport_id=entry.beatport_id,

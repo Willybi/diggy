@@ -48,10 +48,10 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
 
     # Genre — fill only if missing
     genre_obj = bp_track.get("genre")
-    if genre_obj and not entry.genre:
+    if genre_obj and not entry.genres:
         genre_name = genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj)
         if genre_name:
-            entry.genre = genre_name[:100]
+            entry.genres = [genre_name[:100]]
             changed = True
 
     # Release date — fill only if missing

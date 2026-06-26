@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 
 
@@ -78,7 +79,7 @@ class CatalogEntry(Base):
     bpm = Column(Float, nullable=True)
     key = Column(String(10), nullable=True)
     duration_ms = Column(Integer, nullable=True)
-    genre = Column(String(100), nullable=True)
+    genres = Column(ARRAY(Text), server_default="{}", default=list)
     release_date = Column(Date, nullable=True)
     preview_url = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)

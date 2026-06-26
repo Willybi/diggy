@@ -147,7 +147,7 @@ async def get_playlist_detail(
             CatalogEntry.bpm,
             CatalogEntry.key,
             CatalogEntry.duration_ms,
-            CatalogEntry.genre,
+            CatalogEntry.genres,
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
             func.max(RadarTrack.detected_at).label("detected_at"),

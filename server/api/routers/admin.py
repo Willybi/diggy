@@ -447,13 +447,13 @@ async def enrich_single_beatport(
         bp_track = client.search_track_validated(entry.title, entry.artist)
 
     if not bp_track:
-        if force_genre and entry.genre:
-            entry.genre = None
+        if force_genre and entry.genres:
+            entry.genres = []
             await db.commit()
-        return {"status": "not_found", "catalog_id": catalog_id, "genre": entry.genre}
+        return {"status": "not_found", "catalog_id": catalog_id, "genres": entry.genres}
 
     if force_genre:
-        entry.genre = None
+        entry.genres = []
 
     changed = enrich_from_beatport(entry, bp_track)
     if force_genre or changed:
@@ -465,7 +465,7 @@ async def enrich_single_beatport(
         "bpm": entry.bpm,
         "key": entry.key,
         "label": entry.label,
-        "genre": entry.genre,
+        "genres": entry.genres or [],
         "beatport_id": entry.beatport_id,
     }
 
@@ -506,10 +506,10 @@ async def deezer_genre_lookup(
     result = {"status": "ok", "genres": genre_names, "applied": False}
 
     if apply and genre_names:
-        entry.genre = genre_names[0]
+        entry.genres = genre_names[:3]
         await db.commit()
         result["applied"] = True
-        result["genre"] = genre_names[0]
+        result["genres"] = entry.genres
 
     return result
 
@@ -567,7 +567,7 @@ async def genres_unclassified_count(
     """Count catalog entries with no genre assigned."""
     result = await db.execute(
         select(func.count(CatalogEntry.id))
-        .where((CatalogEntry.genre.is_(None)) | (CatalogEntry.genre == ""))
+        .where(func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0)
     )
     return {"count": result.scalar_one()}
 
@@ -580,7 +580,7 @@ async def genres_auto_classify(
     """Launch Beatport enrichment targeting only tracks without a genre."""
     count_result = await db.execute(
         select(func.count(CatalogEntry.id))
-        .where((CatalogEntry.genre.is_(None)) | (CatalogEntry.genre == ""))
+        .where(func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0)
     )
     target_count = count_result.scalar_one()
     result = celery.send_task("workers.tasks.enrich_catalog_beatport", kwargs={"genre_only": True})
