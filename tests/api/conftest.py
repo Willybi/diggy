@@ -31,7 +31,9 @@ sys.modules["storage"] = mock_storage
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
+import json
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from database import Base, get_db
 from dependencies import get_current_user, require_admin
@@ -42,6 +44,36 @@ from main import app
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 test_engine = create_async_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
 TestSession = async_sessionmaker(test_engine, expire_on_commit=False)
+
+
+def _sqlite_unnest(val):
+    """SQLite shim: return first element of a JSON array (genres stored as JSON in SQLite)."""
+    if val is None:
+        return None
+    if isinstance(val, str):
+        try:
+            arr = json.loads(val)
+            return arr[0] if arr else None
+        except (json.JSONDecodeError, IndexError):
+            return val
+    return val
+
+
+def _sqlite_array_length(val, _dim=None):
+    if val is None:
+        return 0
+    if isinstance(val, str):
+        try:
+            return len(json.loads(val))
+        except (json.JSONDecodeError, TypeError):
+            return 0
+    return 0
+
+
+@event.listens_for(test_engine.sync_engine, "connect")
+def _register_sqlite_functions(dbapi_conn, _rec):
+    dbapi_conn.create_function("unnest", 1, _sqlite_unnest)
+    dbapi_conn.create_function("array_length", 2, _sqlite_array_length)
 
 
 async def override_get_db():

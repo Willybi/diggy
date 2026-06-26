@@ -13,7 +13,7 @@ async def get_or_create_catalog(
     artist: str | None,
     isrc: str | None = None,
     duration_ms: int | None = None,
-    genre: str | None = None,
+    genres: list[str] | None = None,
     release_date=None,
     preview_url: str | None = None,
 ) -> CatalogEntry:
@@ -43,7 +43,7 @@ async def get_or_create_catalog(
         normalized_key=norm_key,
         isrc=isrc or None,
         duration_ms=duration_ms,
-        genre=genre,
+        genres=genres or [],
         release_date=release_date,
         preview_url=preview_url,
         created_at=datetime.now(timezone.utc),
