@@ -447,13 +447,16 @@ async def enrich_single_beatport(
         bp_track = client.search_track_validated(entry.title, entry.artist)
 
     if not bp_track:
-        return {"status": "not_found", "catalog_id": catalog_id}
+        if force_genre and entry.genre:
+            entry.genre = None
+            await db.commit()
+        return {"status": "not_found", "catalog_id": catalog_id, "genre": entry.genre}
 
     if force_genre:
         entry.genre = None
 
     changed = enrich_from_beatport(entry, bp_track)
-    if changed:
+    if force_genre or changed:
         await db.commit()
 
     return {

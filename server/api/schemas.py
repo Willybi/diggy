@@ -141,6 +141,7 @@ class CatalogEntryOut(BaseModel):
     bpm_source: Optional[str] = None
     key_source: Optional[str] = None
     label: Optional[str] = None
+    deezer_id: Optional[str] = None
     beatport_id: Optional[str] = None
     duration_ms: Optional[int]
     genre: Optional[str]
