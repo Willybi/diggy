@@ -132,7 +132,8 @@ async def list_genres(
             COALESCE(ROUND(PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY c.bpm))::int, 0) AS bpm_lo,
             COALESCE(ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY c.bpm))::int, 0) AS bpm_hi,
             COUNT(DISTINCT ut.catalog_id)::int                               AS in_lib_count
-        FROM catalog c, unnest(c.genres) AS g
+        FROM catalog c
+        CROSS JOIN LATERAL unnest(c.genres) AS g
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
         WHERE (:family_filter = false OR g = ANY(:family_genres))
           AND (:q_filter = false OR LOWER(g) LIKE :q_pattern)
@@ -165,7 +166,7 @@ async def list_genres(
             SELECT genre, id FROM (
                 SELECT g AS genre, c.id,
                        ROW_NUMBER() OVER (PARTITION BY g ORDER BY c.id DESC) AS rn
-                FROM catalog c, unnest(c.genres) AS g
+                FROM catalog c CROSS JOIN LATERAL unnest(c.genres) AS g
                 WHERE g = ANY(:genres) AND c.has_artwork = true
             ) sub WHERE rn <= 4
         """), {"genres": genre_names})
@@ -183,7 +184,7 @@ async def list_genres(
                            PARTITION BY g
                            ORDER BY COUNT(*) DESC, a.id
                        ) AS rn
-                FROM catalog c, unnest(c.genres) AS g
+                FROM catalog c CROSS JOIN LATERAL unnest(c.genres) AS g
                 JOIN artists a ON a.normalized_name = LOWER(c.artist)
                     AND a.has_artwork = true
                 WHERE g = ANY(:genres) AND c.artist IS NOT NULL
@@ -215,7 +216,7 @@ async def list_genres(
     # ── Family counts (independent of family filter, respects search) ──
     fc_result = await db.execute(text("""
         SELECT g AS genre, COUNT(*)::int AS cnt
-        FROM catalog c, unnest(c.genres) AS g
+        FROM catalog c CROSS JOIN LATERAL unnest(c.genres) AS g
         WHERE (:q_filter = false OR LOWER(g) LIKE :q_pattern)
         GROUP BY g
     """), {"q_filter": bool(q), "q_pattern": q_pattern})
@@ -583,7 +584,8 @@ async def get_genre_neighbors(
         SELECT g AS genre,
                COUNT(DISTINCT LOWER(c.artist))::int AS common_artists,
                COUNT(*)::int AS track_count
-        FROM catalog c, unnest(c.genres) AS g
+        FROM catalog c
+        CROSS JOIN LATERAL unnest(c.genres) AS g
         JOIN genre_artists ga ON LOWER(c.artist) = ga.artist_name
         WHERE g != :genre
         GROUP BY g
