@@ -1143,7 +1143,7 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
 def reclassify_all_genres(self):
     """
     Re-classify genres for ALL catalog entries.
-    Strategy per track: clear genre → try Deezer (album) → fallback Beatport → commit.
+    Strategy per track: clear genre → try Beatport → fallback Deezer (album) → commit.
     """
     from sqlalchemy import select
     from sqlalchemy.orm import Session
@@ -1160,7 +1160,7 @@ def reclassify_all_genres(self):
 
     with Session(engine) as log_session:
         with CrawlLogger(log_session, task_type="reclassify_genres",
-                         source="deezer+beatport", celery_task_id=self.request.id) as clog:
+                         source="beatport+deezer", celery_task_id=self.request.id) as clog:
 
             async def _async_reclassify():
                 import httpx
@@ -1193,8 +1193,25 @@ def reclassify_all_genres(self):
                                 entry.genres = []
                                 found = False
 
-                                # 1) Try Deezer: track → album → genres (up to 3)
-                                if entry.deezer_id:
+                                # 1) Try Beatport first (better genre taxonomy)
+                                try:
+                                    bp_track = await _search_beatport_async(
+                                        pool, entry.title, entry.artist, entry.isrc, rcache=rcache
+                                    )
+                                    if bp_track:
+                                        genre_obj = bp_track.get("genre")
+                                        if genre_obj:
+                                            genre_name = genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj)
+                                            if genre_name:
+                                                entry.genres = [genre_name[:100]]
+                                                stats["beatport"] += 1
+                                                found = True
+                                except Exception as e:
+                                    logger.warning("Beatport genre failed for catalog %s: %s", entry.id, e)
+                                    stats["errors"] += 1
+
+                                # 2) Fallback: Deezer (album → genres, up to 3)
+                                if not found and entry.deezer_id:
                                     try:
                                         r = await dz_client.get(f"https://api.deezer.com/track/{entry.deezer_id}")
                                         track_data = r.json()
@@ -1209,24 +1226,6 @@ def reclassify_all_genres(self):
                                         await asyncio.sleep(0.12)
                                     except Exception as e:
                                         logger.warning("Deezer genre failed for catalog %s: %s", entry.id, e)
-                                        stats["errors"] += 1
-
-                                # 2) Fallback: Beatport (single genre)
-                                if not found:
-                                    try:
-                                        bp_track = await _search_beatport_async(
-                                            pool, entry.title, entry.artist, entry.isrc, rcache=rcache
-                                        )
-                                        if bp_track:
-                                            genre_obj = bp_track.get("genre")
-                                            if genre_obj:
-                                                genre_name = genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj)
-                                                if genre_name:
-                                                    entry.genres = [genre_name[:100]]
-                                                    stats["beatport"] += 1
-                                                    found = True
-                                    except Exception as e:
-                                        logger.warning("Beatport genre failed for catalog %s: %s", entry.id, e)
                                         stats["errors"] += 1
 
                                 if not found:

@@ -592,7 +592,7 @@ async def genres_reclassify(
     eta: str | None = None,
     _: User = Depends(require_admin),
 ):
-    """Reclassify ALL genres (Deezer first, Beatport fallback).
+    """Reclassify ALL genres (Beatport first, Deezer fallback).
     Optional `eta` param: ISO datetime to schedule (e.g. 2026-06-27T03:00:00Z).
     """
     kwargs = {}
