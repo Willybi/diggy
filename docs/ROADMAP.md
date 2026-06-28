@@ -15,7 +15,7 @@
   =====================================================
   T1  Securite & Auth           ██████░░  URGENT       (~25% fait — port 5432 + JWT)
   T2  Resilience Workers        █████░░░  URGENT       (~40% fait — retry+lock+re-raise)
-  T3  Infra & DevOps            █████░░░  URGENT       (~60% fait — critiques done)
+  T3  Infra & DevOps            █████░░░  URGENT       (~80% fait — critiques+nginx+CI done)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
   T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
   T6  Schema DB & Integrite     ███░░░░░  MOYEN        (~80% fait — CHECK+CASCADE+index+genres)
@@ -250,22 +250,10 @@ Reste a faire : health check post-deploy CI/CD, timeouts Nginx, gzip, cache head
   - Health checks Docker : postgres (`pg_isready`), redis (`redis-cli ping`), minio (`mc ready`)
   - Les services api, worker, beat dependent de `condition: service_healthy`
   - Reste a faire : health check sur api/worker/frontend eux-memes (pas juste leurs deps)
-- [ ] **Health check post-deploy dans CI/CD** :
-  ```yaml
-  - name: Health check
-    run: |
-      ssh ... '
-        sleep 15
-        curl -sf http://localhost/api/health || exit 1
-      '
-  ```
+- [x] **Health check post-deploy dans CI/CD** : etape separee apres deploy,
+  `curl -sf http://localhost/api/health || exit 1` (workflow echoue si API down)
 - [ ] **Tests frontend dans CI/CD** : ajouter `npm run lint` (minimum) dans le workflow
-- [ ] **Timeouts Nginx** :
-  ```nginx
-  proxy_connect_timeout 60s;
-  proxy_send_timeout 180s;
-  proxy_read_timeout 180s;
-  ```
+- [x] **Timeouts Nginx** : `proxy_connect_timeout 60s`, `proxy_send/read_timeout 180s`
 
 #### Moyen
 
@@ -294,19 +282,8 @@ Reste a faire : health check post-deploy CI/CD, timeouts Nginx, gzip, cache head
         cpus: '2'
         memory: 1G
   ```
-- [ ] **Gzip Nginx** :
-  ```nginx
-  gzip on;
-  gzip_types application/json application/javascript text/css;
-  gzip_min_length 1000;
-  ```
-- [ ] **Cache headers** pour assets statiques frontend :
-  ```nginx
-  location ~* \.(js|css|png|jpg|svg|woff2)$ {
-      expires 30d;
-      add_header Cache-Control "public, immutable";
-  }
-  ```
+- [x] **Gzip Nginx** : `gzip on` pour JSON, JS, CSS, text (`gzip_min_length 1000`)
+- [x] **Cache headers** : assets statiques `expires 30d` + `Cache-Control: public, immutable`
 - [ ] **Backup PostgreSQL** : cron quotidien `pg_dump` vers un volume dedie ou S3
 - [ ] **Backup MinIO** : `mc mirror` periodique des buckets artworks
 
@@ -706,7 +683,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Securite | 4/10 | 5/10 (port 5432 ferme, JWT strict) | 8/10 |
 | Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
 | Resilience Workers | 4/10 | 5.5/10 (retry policy 11 tasks, lock Redis, re-raise) | 7/10 |
-| Infra/DevOps | 4/10 | 6.5/10 (--reload, restart, log rotation, health checks, .dockerignore) | 8/10 |
+| Infra/DevOps | 4/10 | 7.5/10 (--reload, restart, log rotation, health checks, .dockerignore, gzip, timeouts, cache, CI health) | 8/10 |
 | Base de donnees | 7/10 | 8/10 (genres refonde, CHECK constraints, CASCADE, index) | 8/10 |
 | Tests | 3/10 | 3/10 | 5/10 |
 

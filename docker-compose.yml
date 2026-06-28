@@ -3,6 +3,11 @@ services:
     image: postgres:16-alpine
     container_name: diggy_postgres
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -25,6 +30,11 @@ services:
     image: redis:7-alpine
     container_name: diggy_redis
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
     networks:
       - diggy_network
     logging:
@@ -42,6 +52,11 @@ services:
       context: ./server/api
     container_name: diggy_api
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
     env_file: .env
     depends_on:
       postgres:
@@ -64,6 +79,11 @@ services:
       context: ./server/api
     container_name: diggy_worker
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
     env_file: .env
     depends_on:
       postgres:
@@ -87,6 +107,11 @@ services:
       context: ./server/api
     container_name: diggy_worker_enrich
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
     env_file: .env
     depends_on:
       postgres:
@@ -110,6 +135,11 @@ services:
       context: ./server/api
     container_name: diggy_beat
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     env_file: .env
     depends_on:
       postgres:
@@ -134,6 +164,11 @@ services:
       target: development
     container_name: diggy_frontend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
     networks:
       - diggy_network
     volumes:
@@ -149,6 +184,11 @@ services:
     image: minio/minio:latest
     container_name: diggy_minio
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
@@ -171,6 +211,11 @@ services:
     image: nginx:alpine
     container_name: diggy_nginx
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
     ports:
       - "${NGINX_PORT:-8080}:80"
     volumes:
