@@ -7,7 +7,7 @@ from sqlalchemy.orm import aliased
 
 from catalog import get_or_create_catalog
 from database import get_db
-from dependencies import get_current_user_optional, uid as _uid
+from dependencies import get_current_user, get_current_user_optional, uid as _uid
 from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User
 from opinion_sync import sync_track_opinion, RADAR_TO_OPINION
 from schemas import (
@@ -194,7 +194,7 @@ async def update_radar_state(
     catalog_id: int,
     body: RadarStateUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     if body.status not in _VALID_STATUSES:
         raise HTTPException(status_code=422, detail=f"Invalid status. Must be one of: {_VALID_STATUSES}")
@@ -237,7 +237,7 @@ async def update_radar_state(
 async def batch_update_radar_state(
     body: list[dict],
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Update state for multiple catalog_ids at once.
     Body: [{"catalog_id": 123, "status": "seen"}, ...]
@@ -306,7 +306,7 @@ async def list_radar_tracks(
 
 
 @router.post("/", response_model=RadarTrackOut, status_code=201)
-async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSession = Depends(get_db)):
+async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     entity = await db.execute(
         select(WatchedEntity).where(WatchedEntity.id == body.watched_playlist_id)
     )
@@ -348,7 +348,7 @@ async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSessi
 
 
 @router.delete("/{entry_id}", status_code=204)
-async def delete_radar_track(entry_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_radar_track(entry_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     result = await db.execute(select(RadarTrack).where(RadarTrack.id == entry_id))
     entry = result.scalar_one_or_none()
     if not entry:

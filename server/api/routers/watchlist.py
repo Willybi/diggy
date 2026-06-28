@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from celery_client import celery
 from database import get_db
-from dependencies import get_current_user_optional, require_admin, uid as _uid
+from dependencies import get_current_user, get_current_user_optional, require_admin, uid as _uid
 from sqlalchemy import func
 
 from models import WatchedEntity, UserFollow, UserOpinion, User, RadarTrack, CatalogEntry
@@ -169,7 +169,7 @@ async def get_playlist_detail(
 async def add_watched(
     body: WatchedEntityIn,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     uid = _uid(user)
 
@@ -224,7 +224,7 @@ async def add_watched(
 async def follow_playlist(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Follow (reactivate) an existing playlist."""
     uid = _uid(user)
@@ -359,7 +359,7 @@ async def fetch_playlist_artwork(
 async def delete_watched(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     uid = _uid(user)
     result = await db.execute(

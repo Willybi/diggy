@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from dependencies import get_current_user_optional, uid as _uid
+from dependencies import get_current_user, get_current_user_optional, uid as _uid
 from models import UserOpinion, User
 from opinion_sync import sync_track_opinion, sync_set_opinion, sync_playlist_opinion
 
@@ -41,7 +41,7 @@ async def get_opinions(
 async def set_opinion(
     body: OpinionUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Set, update, or remove an opinion on an entity."""
     uid = _uid(user)

@@ -4,7 +4,7 @@ from sqlalchemy import select, func, text
 from database import get_db
 from models import UserTrack, CatalogEntry, User
 from schemas import TrackOut, TrackList, TrackExisting, TrackImport, BulkImportResult
-from dependencies import get_current_user_optional, uid as _uid
+from dependencies import get_current_user, get_current_user_optional, uid as _uid
 import base64
 import tempfile
 import os
@@ -30,7 +30,7 @@ async def get_existing_ids(
 async def bulk_import(
     tracks: list[TrackImport],
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """
     Upsert une liste de tracks dans user_tracks.

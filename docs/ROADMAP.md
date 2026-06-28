@@ -13,7 +13,7 @@
 ```
                          SOCLE TECHNIQUE
   =====================================================
-  T1  Securite & Auth           ██████░░  URGENT       (~25% fait — port 5432 + JWT)
+  T1  Securite & Auth           ██████░░  URGENT       (~60% fait — port+JWT+CORS+headers+exception)
   T2  Resilience Workers        █████░░░  URGENT       (~40% fait — retry+lock+re-raise)
   T3  Infra & DevOps            █████░░░  URGENT       (~95% fait — reste backups)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
@@ -81,9 +81,7 @@ critiques et 4 problemes moyens.
 
 #### Critique (bloquant)
 
-- [ ] **Fermer CORS** : remplacer `allow_origins=["*"]` par les domaines autorises
-  - `main.py` : `allow_origins=[os.environ.get("CORS_ORIGIN", "http://localhost:5173")]`
-  - Ajouter `CORS_ORIGIN` dans `.env.example`
+- [x] **Fermer CORS** : `allow_origins=os.environ.get("CORS_ORIGIN", "...").split(",")`
 - [x] **Supprimer port 5432 public** : `ports: - "5432:5432"` retire de `docker-compose.yml`
   - PostgreSQL accessible uniquement depuis le reseau Docker interne
 - [ ] **Forcer auth sur mutations** : les endpoints POST/PATCH/DELETE doivent utiliser
@@ -102,15 +100,9 @@ critiques et 4 problemes moyens.
 
 #### Moyen
 
-- [ ] **Headers securite Nginx** :
-  ```nginx
-  add_header X-Content-Type-Options "nosniff" always;
-  add_header X-Frame-Options "SAMEORIGIN" always;
-  add_header X-XSS-Protection "1; mode=block" always;
-  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-  ```
-- [ ] **Handler d'exception global** : intercepter les 500 non geres pour ne pas leaker
-  de details internes (stack traces, noms de tables)
+- [x] **Headers securite Nginx** : `X-Content-Type-Options`, `X-Frame-Options`,
+  `X-XSS-Protection`, `Referrer-Policy`
+- [x] **Handler d'exception global** : log + reponse generique 500 (pas de leak stack traces)
 
 ### Definition of Done
 
@@ -659,7 +651,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Domaine | Score audit (juin 2026) | Actuel (juin 2026 fin) | Cible apres T1-T6 |
 |---------|------------------------|------------------------|--------------------|
 | Architecture | 7/10 | 7/10 | 8/10 |
-| Securite | 4/10 | 5/10 (port 5432 ferme, JWT strict) | 8/10 |
+| Securite | 4/10 | 6.5/10 (port 5432, JWT strict, CORS, headers Nginx, exception handler) | 8/10 |
 | Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
 | Resilience Workers | 4/10 | 5.5/10 (retry policy 11 tasks, lock Redis, re-raise) | 7/10 |
 | Infra/DevOps | 4/10 | 8/10 (cible atteinte — reste backups optionnels) | 8/10 |
