@@ -504,6 +504,12 @@ async function fetchMappings() {
     if (mappingShowUnmapped.value) params.unmapped = true
     const { data } = await api.get('/api/taxonomy/mappings', { params })
     mappings.value = data.items
+    for (const m of data.items) {
+      if (!(m.id in mappingSearch)) mappingSearch[m.id] = ''
+      if (!(m.id in mappingResults)) mappingResults[m.id] = []
+      if (!(m.id in mappingSelected)) mappingSelected[m.id] = null
+      if (!(m.id in savingMapping)) savingMapping[m.id] = false
+    }
   } finally {
     loadingMappings.value = false
   }
