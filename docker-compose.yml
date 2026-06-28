@@ -232,9 +232,39 @@ services:
     networks:
       - diggy_network
 
+  backup:
+    image: alpine:3.20
+    container_name: diggy_backup
+    profiles: ["backup"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - diggy_network
+    volumes:
+      - ./server/scripts/backup.sh:/backup.sh:ro
+      - backups:/backups
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        apk add --no-cache postgresql16-client curl > /dev/null 2>&1
+        curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+        chmod +x /usr/local/bin/mc /backup.sh
+        /backup.sh
+
 volumes:
   postgres_data:
   minio_data:
+  backups:
 
 networks:
   diggy_network:

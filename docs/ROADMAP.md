@@ -27,6 +27,8 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 - Les tests CI doivent passer a chaque commit (`pytest tests/ -v`).
 - Apres chaque serie, mettre a jour les scores et checkboxes dans ce document.
 - Le dernier chantier (C13) est un audit tests global pour consolider la couverture.
+- **Tests** : l'agent doit ecrire les tests qu'il juge utiles pour le code modifie/ajoute
+  (dans `tests/`). Il choisit le type et la granularite selon ce qui fait sens.
 - **Commit naming** : l'agent doit proposer un nom de commit a la fin de son travail.
   Format : `type(scope): description` (conventional commits).
   Exemples : `fix(workers): use ON CONFLICT for ISRC dedup`, `feat(api): add pagination to /sets/`.
@@ -55,7 +57,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
                          SOCLE TECHNIQUE
   =====================================================
   T1  Securite & Auth           ████████  DONE         (100% — JWT 7j, CORS, port, auth, rate limit, headers)
-  T2  Resilience Workers        █████░░░  URGENT       (~40% fait — retry+lock+re-raise)
+  T2  Resilience Workers        ███████░  QUASI-DONE   (~90% fait — reste circuit breaker Beatport optionnel)
   T3  Infra & DevOps            █████░░░  URGENT       (~95% fait — reste backups)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
   T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
@@ -83,7 +85,7 @@ C1   JWT expiry 30j → 7j                   T1      DONE (deja applique)
 C2   Fix race condition ISRC               T2      DONE
 C3   Unifier rate limiting workers          T2      DONE
 C4   Refactorer image upload 3→1           T2      DONE
-C5   DLQ + TIDAL refresh + moyens workers  T2      A FAIRE
+C5   DLQ + TIDAL refresh + moyens workers  T2      DONE
 C6   Backups PostgreSQL + MinIO            T3      A FAIRE
 C7   Mega-query catalog + paginations      T4      A FAIRE
 C8   Validation & contrats API             T5      A FAIRE
@@ -219,16 +221,16 @@ Reste : unification rate limiting, DLQ, refresh TIDAL, refactoring image upload.
 
 - [x] **Unifier le rate limiting** : wrapper sync ajoute a `rate_limiter.py`,
   tous les `time.sleep()` remplaces par `limiter.acquire()`/`acquire_sync()`
-- [ ] **DLQ (Dead Letter Queue)** : configurer Celery pour router les tasks echouees
-  apres 3 retries vers une queue dediee, consultable depuis l'admin
-- [ ] **Gerer l'expiration TIDAL** : implementer le refresh token automatique dans
-  `_get_tidal_session()`, stocker les tokens actualises
+- [x] **DLQ (Dead Letter Queue)** : signal `task_failure` → Redis list `dead_letter` (max 1000),
+  `task_reject_on_worker_lost=True`
+- [x] **Gerer l'expiration TIDAL** : auto-refresh via `session.token_refresh()`,
+  tokens persistes dans Redis hash `tidal:tokens`
 - [x] **Refactorer image upload** : `upload_image_bytes_to_bucket` centralisee dans
   `deezer_enrich.py`, callers refactores (enrichment.py, tasks.py)
 
 #### Moyen
 
-- [ ] **Externaliser les hardcoded** : timeouts, bucket names, concurrency → env vars
+- [x] **Externaliser les hardcoded** : timeouts, concurrency, cache TTL → env vars avec defaults
   ```
   CELERY_WORKER_CONCURRENCY=4
   DEEZER_RATE_LIMIT=0.12
@@ -237,7 +239,7 @@ Reste : unification rate limiting, DLQ, refresh TIDAL, refactoring image upload.
 - [ ] **Circuit breaker Beatport** : si N echecs consecutifs Cloudflare, skip pendant 1h
 - [ ] **Batch commits workers** : remplacer les `session.commit()` dans les boucles
   par des commits toutes les 100 iterations
-- [ ] **Structured logging** : ajouter `task_id` dans tous les logs workers pour correlation
+- [x] **Structured logging** : `CeleryTaskFilter` injecte `task_id`/`task_name` dans tous les logs
 
 ### Definition of Done
 
