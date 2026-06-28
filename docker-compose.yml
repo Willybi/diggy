@@ -156,7 +156,7 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    command: celery -A workers.celery_app beat --loglevel=info
+    command: celery -A workers.celery_app beat --loglevel=info -s /tmp/celerybeat-schedule
 
   frontend:
     build:
