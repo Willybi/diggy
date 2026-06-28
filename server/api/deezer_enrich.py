@@ -208,10 +208,11 @@ def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
     return upload_image_to_bucket(s3, cover_url, f"{catalog_id}.jpg", BUCKET)
 
 
-def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None) -> bool:
+def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None, session=None) -> bool:
     """Apply Deezer data to a CatalogEntry. Returns True if anything changed.
 
     Pass _known_isrcs (set of ISRCs already in DB) to avoid unique constraint violations.
+    When session is provided, uses a conflict-safe SQL UPDATE for ISRC assignment.
     """
     changed = False
 
@@ -222,12 +223,26 @@ def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None) -> 
 
     isrc = hit.get("isrc")
     if isrc and not entry.isrc:
-        # Skip if ISRC already used by another entry
+        # Skip if ISRC already used by another entry (in-memory fast check)
         if _known_isrcs is None or isrc not in _known_isrcs:
-            entry.isrc = isrc
+            if session is not None:
+                from sqlalchemy import text
+                result = session.execute(
+                    text(
+                        "UPDATE catalog SET isrc = :isrc "
+                        "WHERE id = :id AND isrc IS NULL "
+                        "AND NOT EXISTS (SELECT 1 FROM catalog WHERE isrc = :isrc)"
+                    ),
+                    {"isrc": isrc, "id": entry.id},
+                )
+                if result.rowcount > 0:
+                    entry.isrc = isrc
+                    changed = True
+            else:
+                entry.isrc = isrc
+                changed = True
             if _known_isrcs is not None:
                 _known_isrcs.add(isrc)
-            changed = True
 
     duration_s = hit.get("duration")
     if duration_s and not entry.duration_ms:

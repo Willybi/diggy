@@ -18,6 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 
 import redis as redis_lib
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ async def _search_deezer_async(pool, artist: str | None, title: str | None) -> d
     return None
 
 
-async def _enrich_entry_async(entry, hit: dict, pool, s3, known_isrcs: set) -> bool:
+async def _enrich_entry_async(entry, hit: dict, pool, s3, known_isrcs: set, session=None) -> bool:
     """Async version of enrich_entry — applies Deezer data to a CatalogEntry."""
     changed = False
 
@@ -110,9 +111,23 @@ async def _enrich_entry_async(entry, hit: dict, pool, s3, known_isrcs: set) -> b
     isrc = hit.get("isrc")
     if isrc and not entry.isrc:
         if isrc not in known_isrcs:
-            entry.isrc = isrc
+            # Use conflict-safe UPDATE to avoid IntegrityError on ISRC unique constraint
+            if session is not None:
+                result = session.execute(
+                    text(
+                        "UPDATE catalog SET isrc = :isrc "
+                        "WHERE id = :id AND isrc IS NULL "
+                        "AND NOT EXISTS (SELECT 1 FROM catalog WHERE isrc = :isrc)"
+                    ),
+                    {"isrc": isrc, "id": entry.id},
+                )
+                if result.rowcount > 0:
+                    entry.isrc = isrc
+                    changed = True
+            else:
+                entry.isrc = isrc
+                changed = True
             known_isrcs.add(isrc)
-            changed = True
 
     duration_s = hit.get("duration")
     if duration_s and not entry.duration_ms:
@@ -189,7 +204,7 @@ async def enrich_deezer_batch(
                     entry.deezer_searched_at = now
                     return
 
-            if await _enrich_entry_async(entry, hit, pool, s3, known_isrcs):
+            if await _enrich_entry_async(entry, hit, pool, s3, known_isrcs, session=session):
                 enriched += 1
             entry.deezer_searched_at = now
         except Exception as e:

@@ -3,8 +3,30 @@
 > Document maitre. Regroupe les chantiers fonctionnels (multi-user, HTTPS, design)
 > et les chantiers techniques issus de l'audit backend de juin 2026.
 >
-> Chaque chantier est autonome et peut etre confie a une equipe independante.
+> Chaque chantier est autonome et peut etre confie a un agent independant.
 > Les dependances inter-chantiers sont explicites.
+
+---
+
+## Methode de travail (juin 2026)
+
+Le travail est organise en **chantiers deployables (C1-C13)**, chacun avec un prompt
+autonome confie a un agent Claude "collegue". Le cycle est :
+
+1. **L'orchestrateur** (Claude principal) redige un prompt decrivant le chantier
+2. **L'agent** (autre session Claude) execute le travail selon le prompt
+3. **L'orchestrateur** review le travail : lecture du code, tests CI (`pytest tests/ -v`),
+   verification de coherence
+4. **Deploiement** : `git push origin master` → GitHub Actions → SSH → rebuild Docker
+5. **Verification VPS** : `ssh root@82.29.168.247` puis `curl`/`docker logs` pour valider
+6. **Mise a jour** : cocher les taches dans cette roadmap, passer au chantier suivant
+
+**Regles :**
+- Un chantier = un correctif deployable. On ne passe pas au suivant tant que le precedent
+  n'est pas deploye et verifie.
+- Les tests CI doivent passer a chaque commit (`pytest tests/ -v`).
+- Apres chaque serie, mettre a jour les scores et checkboxes dans ce document.
+- Le dernier chantier (C13) est un audit tests global pour consolider la couverture.
 
 ---
 
@@ -13,7 +35,7 @@
 ```
                          SOCLE TECHNIQUE
   =====================================================
-  T1  Securite & Auth           ██████░░  URGENT       (~80% fait — reste rate limiting + JWT expiry)
+  T1  Securite & Auth           ████████  DONE         (100% — JWT 7j, CORS, port, auth, rate limit, headers)
   T2  Resilience Workers        █████░░░  URGENT       (~40% fait — retry+lock+re-raise)
   T3  Infra & DevOps            █████░░░  URGENT       (~95% fait — reste backups)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
@@ -24,7 +46,7 @@
   =====================================================
   F1  Multi-User (Phases 5-7)   ████░░░░  PLANIFIE     (Phase 6 ~70% fait)
   F2  HTTPS / Domaine           ██░░░░░░  EN ATTENTE
-  F3  Design Realignment        ██████░░  EN COURS     (Vagues 0-2 done, 3-5 a faire)
+  F3  Design Realignment        ██████░░  HORS SCOPE   (Vagues 3-5 = pages detail, report)
 
                          LONG TERME
   =====================================================
@@ -33,23 +55,35 @@
   L3  Graphe artistes             ░░░░░░  BACKLOG
 ```
 
-### Ordre recommande
+### Plan de chantiers (C1-C13)
 
 ```
-Sprint 1 (semaine 1)     : T1 + T3 critiques (securite + infra)
-Sprint 2 (semaines 2-3)  : T2 + T6 (workers + DB)
-Sprint 3 (semaines 3-4)  : T4 + T5 (perf + validation)
-En parallele continu     : F3 (design realignment)
-Apres stabilisation      : F1 phase 5 → F2 HTTPS → F1 phases 6-7
+ #   Chantier                              Source   Statut
+───  ──────────────────────────────────────  ──────  ──────────
+C1   JWT expiry 30j → 7j                   T1      DONE (deja applique)
+C2   Fix race condition ISRC               T2      A FAIRE
+C3   Unifier rate limiting workers          T2      A FAIRE
+C4   Refactorer image upload 3→1           T2      A FAIRE
+C5   DLQ + TIDAL refresh + moyens workers  T2      A FAIRE
+C6   Backups PostgreSQL + MinIO            T3      A FAIRE
+C7   Mega-query catalog + paginations      T4      A FAIRE
+C8   Validation & contrats API             T5      A FAIRE
+C9   Coherence DateTime timezone           T6      A FAIRE
+C10  F1 Phase 6 — Enforcement auth         F1      A FAIRE
+C11  F1 Phase 5 — Trends + Collections     F1      A FAIRE
+C12  F1 Phase 7 — Import multi-user        F1      A FAIRE
+C13  Audit tests global                    ALL     A FAIRE
 ```
 
 ### Dependances
 
 ```
-T1 (securite) ──────> F1 phase 6 (enforcement auth)
-T3 (infra)    ──────> F2 (HTTPS necessite docker hardening)
-T6 (schema)   ──────> F1 phase 5 (trends table)
-T5 (validation) ───> F1 phase 7 (import multi-user)
+T1 (C1 securite) ──────> C10 F1 phase 6 (enforcement auth)
+T3 (C6 backups)  ──────> F2 (HTTPS necessite docker hardening)
+T6 (C9 schema)   ──────> C11 F1 phase 5 (trends table)
+T5 (C8 validation) ───> C12 F1 phase 7 (import multi-user)
+C1-C9 (socle tech) ───> C10-C12 (fonctionnel multi-user)
+C1-C12 ────────────────> C13 (audit tests global)
 ```
 
 ---
@@ -90,11 +124,12 @@ critiques et 4 problemes moyens.
 
 #### Haut
 
-- [ ] **Rate limiting** : integrer `slowapi` sur `/auth/login` (5/min), `/auth/register` (3/min)
-  - Middleware global `@limiter.limit("60/minute")` sur les autres routes
+- [x] **Rate limiting** : middleware Redis custom sur `/auth/login` (5/min), `/auth/register` (3/min)
+  - slowapi abandonne (incompatible decorateurs FastAPI), remplace par `RateLimitMiddleware` pur
+  - Compteurs partages entre workers via Redis
 - [x] **Valider email** : `EmailStr` dans `RegisterIn`
 - [x] **Valider password** : `Field(min_length=8, max_length=128)` dans `RegisterIn`
-- [ ] **Reduire expiration JWT** : passer de 30 jours a 7 jours (compromis usage solo)
+- [x] **Reduire expiration JWT** : passe de 30 jours a 7 jours (168h, applique dans auth.py)
 
 #### Moyen
 
@@ -649,7 +684,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Domaine | Score audit (juin 2026) | Actuel (juin 2026 fin) | Cible apres T1-T6 |
 |---------|------------------------|------------------------|--------------------|
 | Architecture | 7/10 | 7/10 | 8/10 |
-| Securite | 4/10 | 7.5/10 (port, JWT, CORS, headers, exception handler, auth mutations, validation) | 8/10 |
+| Securite | 4/10 | 8/10 (port, JWT, CORS, headers, exception handler, auth mutations, validation, rate limiting Redis) | 8/10 |
 | Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
 | Resilience Workers | 4/10 | 5.5/10 (retry policy 11 tasks, lock Redis, re-raise) | 7/10 |
 | Infra/DevOps | 4/10 | 8/10 (cible atteinte — reste backups optionnels) | 8/10 |

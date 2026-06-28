@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 import sys
@@ -70,6 +71,7 @@ def bulk_get_or_create_catalog(
     result: dict[str, CatalogEntry] = {}
     seen_isrcs = set(isrc_map.keys())
     seen_norms = set(norm_map.keys())
+    to_insert = []
 
     for t in tracks:
         nk = t["_norm_key"]
@@ -77,8 +79,7 @@ def bulk_get_or_create_catalog(
 
         # 1. Try ISRC match
         if isrc and isrc in isrc_map:
-            entry = isrc_map[isrc]
-            result[nk] = entry
+            result[nk] = isrc_map[isrc]
             continue
 
         # 2. Try normalized_key match
@@ -91,27 +92,39 @@ def bulk_get_or_create_catalog(
             result[nk] = entry
             continue
 
-        # 3. Already created in this batch
-        if nk in result:
+        # 3. Already queued in this batch
+        if nk in seen_norms:
             continue
 
-        # 4. Create new entry
-        entry = CatalogEntry(
-            title=t["title"],
-            artist=t.get("artist"),
-            normalized_key=nk,
-            isrc=isrc if (isrc and isrc not in seen_isrcs) else None,
-            duration_ms=t.get("duration_ms"),
-            created_at=datetime.now(timezone.utc),
-        )
-        session.add(entry)
+        # 4. Queue for insert
+        to_insert.append({
+            "title": t["title"],
+            "artist": t.get("artist"),
+            "normalized_key": nk,
+            "isrc": isrc if (isrc and isrc not in seen_isrcs) else None,
+            "duration_ms": t.get("duration_ms"),
+            "created_at": datetime.now(timezone.utc),
+        })
         if isrc:
             seen_isrcs.add(isrc)
         seen_norms.add(nk)
-        norm_map[nk] = entry
-        result[nk] = entry
 
-    session.flush()
+    # Bulk insert with ON CONFLICT DO NOTHING — safe against concurrent workers
+    if to_insert:
+        stmt = pg_insert(CatalogEntry).values(to_insert).on_conflict_do_nothing(
+            index_elements=["normalized_key"]
+        )
+        session.execute(stmt)
+        session.flush()
+
+        # Re-fetch all newly inserted + conflict-skipped rows
+        new_nks = [row["normalized_key"] for row in to_insert]
+        fetched = session.execute(
+            select(CatalogEntry).where(CatalogEntry.normalized_key.in_(new_nks))
+        ).scalars().all()
+        for entry in fetched:
+            result[entry.normalized_key] = entry
+
     return result
 
 
@@ -139,8 +152,8 @@ def bulk_insert_radar_tracks(
         ).all()
     }
 
-    inserted = 0
     now = datetime.now(timezone.utc)
+    to_insert = []
 
     for st in source_tracks:
         if st.external_id in existing_ext_ids:
@@ -149,18 +162,23 @@ def bulk_insert_radar_tracks(
         nk = make_normalized_key(st.title, st.artist)
         entry = catalog_map.get(nk)
 
-        session.add(RadarTrack(
-            watched_entity_id=entity_id,
-            external_track_id=st.external_id,
-            source=source,
-            title=st.title,
-            artist=st.artist,
-            isrc=st.isrc,
-            detected_at=now,
-            catalog_id=entry.id if entry else None,
-        ))
+        to_insert.append({
+            "watched_entity_id": entity_id,
+            "external_track_id": st.external_id,
+            "source": source,
+            "title": st.title,
+            "artist": st.artist,
+            "isrc": st.isrc,
+            "detected_at": now,
+            "catalog_id": entry.id if entry else None,
+        })
         existing_ext_ids.add(st.external_id)
-        inserted += 1
 
-    session.flush()
-    return inserted
+    if to_insert:
+        stmt = pg_insert(RadarTrack).values(to_insert).on_conflict_do_nothing(
+            constraint="uq_radar_playlist_track"
+        )
+        session.execute(stmt)
+        session.flush()
+
+    return len(to_insert)
