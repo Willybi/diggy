@@ -16,7 +16,10 @@ DEEZER_API = "https://api.deezer.com"
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="workers.tasks.crawl_radar", bind=True)
+@celery_app.task(name="workers.tasks.crawl_radar", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
 def crawl_radar(self):
     """
     Crawl toutes les playlists surveillées (Deezer, TIDAL, Spotify).
@@ -65,7 +68,10 @@ def crawl_radar(self):
     return {"dispatched": dispatched, "skipped_playlists": skipped, "errors": errors}
 
 
-@celery_app.task(name="workers.tasks.crawl_single_playlist", bind=True)
+@celery_app.task(name="workers.tasks.crawl_single_playlist", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
 def crawl_single_playlist(self, playlist_id: int):
     """
     Crawl une seule playlist (Deezer, TIDAL, ou Spotify) par son watched_entity ID.
@@ -219,10 +225,9 @@ def crawl_single_playlist(self, playlist_id: int):
 
             try:
                 dz_stats, bp_stats = asyncio.run(_async_enrich())
-            except Exception as e:
-                logger.error("Async enrichment failed for playlist %s: %s", playlist_id, e)
-                dz_stats = {"enriched": 0, "errors": 1}
-                bp_stats = {"enriched": 0, "not_found": 0, "errors": 1}
+            except Exception:
+                logger.exception("Async enrichment failed for playlist %s", playlist_id)
+                raise
 
             # 5. Mark playlist as crawled
             with Session(engine) as session:
@@ -251,7 +256,10 @@ def crawl_single_playlist(self, playlist_id: int):
 
 
 
-@celery_app.task(name="workers.tasks.resolve_set_tracks", bind=True)
+@celery_app.task(name="workers.tasks.resolve_set_tracks", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
 def resolve_set_tracks(self):
     """
     Résout les set_tracks sans catalog_id.
@@ -346,10 +354,9 @@ def resolve_set_tracks(self):
 
             try:
                 dz_stats, bp_stats = asyncio.run(_async_enrich())
-            except Exception as e:
-                logger.error("Async enrichment failed in resolve_set_tracks: %s", e)
-                dz_stats = {"enriched": 0}
-                bp_stats = {"enriched": 0}
+            except Exception:
+                logger.exception("Async enrichment failed in resolve_set_tracks")
+                raise
 
             result = {
                 "resolved": resolved,
@@ -361,7 +368,10 @@ def resolve_set_tracks(self):
     return result
 
 
-@celery_app.task(name="workers.tasks.enrich_set_tracks", bind=True)
+@celery_app.task(name="workers.tasks.enrich_set_tracks", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
 def enrich_set_tracks(self):
     """
     Enrichit les entrées catalog liées aux sets qui n'ont pas encore de deezer_id.
@@ -429,9 +439,9 @@ def enrich_set_tracks(self):
 
             try:
                 stats = asyncio.run(_async_enrich())
-            except Exception as e:
-                logger.error("enrich_set_tracks failed: %s", e)
-                stats = {"enriched": 0, "errors": 0}
+            except Exception:
+                logger.exception("enrich_set_tracks failed")
+                raise
 
             result = {
                 "enriched": stats.get("enriched", 0),
@@ -442,7 +452,10 @@ def enrich_set_tracks(self):
     return result
 
 
-@celery_app.task(name="workers.tasks.enrich_catalog", bind=True)
+@celery_app.task(name="workers.tasks.enrich_catalog", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
 def enrich_catalog(self):
     """
     Enrichit les entrées catalog sans deezer_id via Deezer.
@@ -501,16 +514,19 @@ def enrich_catalog(self):
 
             try:
                 stats = asyncio.run(_async_enrich())
-            except Exception as e:
-                logger.error("enrich_catalog failed: %s", e)
-                stats = {"enriched": 0, "errors": 1}
+            except Exception:
+                logger.exception("enrich_catalog failed")
+                raise
 
             clog.set_stats(stats)
 
     return stats
 
 
-@celery_app.task(name="workers.tasks.sync_artists", bind=True)
+@celery_app.task(name="workers.tasks.sync_artists", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
 def sync_artists(self):
     """
     Sync artists from catalog.artist strings into the artists table.
@@ -734,8 +750,9 @@ def sync_artists(self):
 
             try:
                 asyncio.run(_deezer_resolve())
-            except Exception as e:
-                logger.error("Deezer artist disambiguation failed: %s", e)
+            except Exception:
+                logger.exception("Deezer artist disambiguation failed")
+                raise
 
     except Exception as exc:
         _clog_exc = exc
@@ -752,7 +769,10 @@ def sync_artists(self):
     return result
 
 
-@celery_app.task(name="workers.tasks.fetch_artist_artworks", bind=True)
+@celery_app.task(name="workers.tasks.fetch_artist_artworks", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
 def fetch_artist_artworks(self):
     """
     Fetch Deezer artist images concurrently.
@@ -850,6 +870,7 @@ def fetch_artist_artworks(self):
                             artist.has_artwork = True
                             fetched += 1
                         except Exception:
+                            logger.exception("fetch_artist_artworks: upload failed for artist %s", artist.id)
                             skipped += 1
                         finally:
                             try:
@@ -866,23 +887,26 @@ def fetch_artist_artworks(self):
 
     try:
         result = asyncio.run(_async_fetch())
-    except Exception as e:
-        logger.error("fetch_artist_artworks failed: %s", e)
-        result = {"linked": 0, "fetched": 0, "skipped": 0, "error": str(e)}
+    except Exception:
+        logger.exception("fetch_artist_artworks failed")
+        _clog.set_stats({"linked": 0, "fetched": 0, "skipped": 0})
+        import sys as _sys
+        _clog.__exit__(*_sys.exc_info())
+        _log_session.close()
+        raise
 
     _clog.set_stats(result)
-    if "error" in result:
-        exc = Exception(result["error"])
-        _clog.__exit__(type(exc), exc, None)
-    else:
-        _clog.__exit__(None, None, None)
+    _clog.__exit__(None, None, None)
     _log_session.close()
 
     return result
 
 
-@celery_app.task(name="workers.tasks.link_set_artists")
-def link_set_artists():
+@celery_app.task(name="workers.tasks.link_set_artists", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
+def link_set_artists(self):
     """
     Parse set titles to extract artist names and link them to the artists table.
     Matches against known artists (by name and aliases). Idempotent.
@@ -960,8 +984,11 @@ def link_set_artists():
     return {"linked": linked, "skipped": skipped}
 
 
-@celery_app.task(name="workers.tasks.crawl_followed_sets")
-def crawl_followed_sets():
+@celery_app.task(name="workers.tasks.crawl_followed_sets", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True)
+def crawl_followed_sets(self):
     """
     Re-crawl followed sets whose tracklist is not 100% identified.
     Skips sets crawled < 12h ago.
@@ -1048,7 +1075,7 @@ def crawl_followed_sets():
                         await db.commit()
                     await asyncio.sleep(1.5)
                 except Exception:
-                    pass
+                    logger.exception("crawl_followed_sets: failed for set %s", info.get("slug"))
 
         await async_engine.dispose()
         return crawled
@@ -1066,6 +1093,9 @@ def crawl_followed_sets():
 
 
 @celery_app.task(name="workers.tasks.enrich_catalog_beatport", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True,
                  soft_time_limit=25200, time_limit=28800)
 def enrich_catalog_beatport(self, batch_size: int = 0):
     """
@@ -1129,9 +1159,9 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
 
             try:
                 result = asyncio.run(_async_enrich())
-            except Exception as e:
-                logger.error("enrich_catalog_beatport failed: %s", e)
-                result = {"enriched": 0, "not_found": 0, "errors": 1, "total": 0}
+            except Exception:
+                logger.exception("enrich_catalog_beatport failed")
+                raise
 
             clog.set_stats(result)
 
@@ -1139,6 +1169,9 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
 
 
 @celery_app.task(name="workers.tasks.reclassify_genres_chunk", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True,
                  soft_time_limit=14400, time_limit=16200)
 def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
     """
@@ -1236,15 +1269,18 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
 
     try:
         result = asyncio.run(_async_reclassify())
-    except Exception as e:
-        logger.error("reclassify_genres_chunk %d failed: %s", chunk_index, e)
-        result = {"total": len(catalog_ids), "deezer": 0, "beatport": 0, "cleared": 0, "errors": 1}
+    except Exception:
+        logger.exception("reclassify_genres_chunk %d failed", chunk_index)
+        raise
 
     logger.info("Chunk %d done: %s", chunk_index, result)
     return result
 
 
 @celery_app.task(name="workers.tasks.reclassify_all_genres", bind=True,
+                 autoretry_for=(Exception,),
+                 retry_kwargs={"max_retries": 3, "countdown": 60},
+                 retry_backoff=True,
                  soft_time_limit=25200, time_limit=28800)
 def reclassify_all_genres(self, num_chunks: int = 3):
     """

@@ -13,12 +13,12 @@
 ```
                          SOCLE TECHNIQUE
   =====================================================
-  T1  Securite & Auth           ██████░░  URGENT       (0% fait)
+  T1  Securite & Auth           ██████░░  URGENT       (~25% fait — port 5432 + JWT)
   T2  Resilience Workers        █████░░░  URGENT       (0% fait)
-  T3  Infra & DevOps            █████░░░  URGENT       (~20% fait — health checks)
-  T4  Performance Queries       ████░░░░  HAUT         (~15% fait — preview_url cache)
+  T3  Infra & DevOps            █████░░░  URGENT       (~60% fait — critiques done)
+  T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
   T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
-  T6  Schema DB & Integrite     ███░░░░░  MOYEN        (genres refonde, reste CHECK/index)
+  T6  Schema DB & Integrite     ███░░░░░  MOYEN        (~80% fait — CHECK+CASCADE+index+genres)
 
                          FONCTIONNEL
   =====================================================
@@ -84,15 +84,13 @@ critiques et 4 problemes moyens.
 - [ ] **Fermer CORS** : remplacer `allow_origins=["*"]` par les domaines autorises
   - `main.py` : `allow_origins=[os.environ.get("CORS_ORIGIN", "http://localhost:5173")]`
   - Ajouter `CORS_ORIGIN` dans `.env.example`
-- [ ] **Supprimer port 5432 public** : retirer `ports: - "5432:5432"` de `docker-compose.yml`
-  - PostgreSQL ne doit etre accessible que depuis le reseau Docker interne
-  - Si besoin d'acces distant : SSH tunnel uniquement
+- [x] **Supprimer port 5432 public** : `ports: - "5432:5432"` retire de `docker-compose.yml`
+  - PostgreSQL accessible uniquement depuis le reseau Docker interne
 - [ ] **Forcer auth sur mutations** : les endpoints POST/PATCH/DELETE doivent utiliser
   `get_current_user` (obligatoire), pas `get_current_user_optional`
   - Le fallback `user_id=1` fait que tous les guests modifient les donnees du meme user
   - Garder `get_current_user_optional` uniquement pour les GET en lecture
-- [ ] **Supprimer le fallback JWT_SECRET** : `os.environ["JWT_SECRET"]` (crash si absent)
-  au lieu de `os.environ.get("JWT_SECRET", "dev-secret-change-in-production")`
+- [x] **Supprimer le fallback JWT_SECRET** : `os.environ["JWT_SECRET"]` (crash si absent)
 
 #### Haut
 
@@ -239,9 +237,9 @@ celery call crawl_single_playlist --args='[42]' → "skipped, already running"
 
 ### Contexte pour l'equipe
 
-L'infra Docker Compose fonctionne mais est configuree comme un environnement de dev.
-Uvicorn tourne avec `--reload`, pas de restart policies, pas de health checks,
-logs non rotates. Le CI/CD deploie sans verifier que l'app est up apres le deploy.
+L'infra Docker Compose est desormais configuree pour la prod : uvicorn sans `--reload`
+(2 workers), restart policies, log rotation, health checks sur postgres/redis/minio.
+Reste a faire : health check post-deploy CI/CD, timeouts Nginx, gzip, cache headers, backups.
 
 ### Perimetre a auditer avant de coder
 
@@ -258,35 +256,10 @@ logs non rotates. Le CI/CD deploie sans verifier que l'app est up apres le deplo
 
 #### Critique
 
-- [ ] **Retirer `--reload`** de la commande uvicorn en production
-  - `docker-compose.yml` : `command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2`
-- [ ] **Ajouter restart policies** sur tous les services :
-  ```yaml
-  restart: unless-stopped
-  ```
-- [ ] **Creer `.dockerignore`** a la racine et dans `server/api/` et `server/frontend/` :
-  ```
-  .env
-  .git
-  .github
-  __pycache__
-  *.pyc
-  .venv
-  node_modules
-  _design
-  docs
-  tests
-  .claude
-  *.md
-  ```
-- [ ] **Log rotation Docker** sur tous les services :
-  ```yaml
-  logging:
-    driver: json-file
-    options:
-      max-size: "50m"
-      max-file: "3"
-  ```
+- [x] **Retirer `--reload`** : uvicorn tourne avec `--workers 2` en prod
+- [x] **Ajouter restart policies** : `restart: unless-stopped` sur les 9 services
+- [x] **Creer `.dockerignore`** a la racine (`.env`, `.git`, `__pycache__`, `node_modules`, `_design`, `docs`, etc.)
+- [x] **Log rotation Docker** : `max-size: 50m`, `max-file: 3` sur les 9 services
 
 #### Haut
 
@@ -381,18 +354,19 @@ curl http://localhost/api/health → {"status": "ok"}
 
 ### Contexte pour l'equipe
 
-L'API a ete construite incrementalement. Certaines routes accumulent des queries complexes
-(6 OUTER JOINs dans catalog, filtrage Python post-fetch dans tracks, N+1 dans radar batch).
-Avec ~5 200 entries catalog et ~5 000 radar tracks, ca tient. Au-dela de 20k, ca cassera.
+L'API a ete construite incrementalement. Les problemes les plus urgents ont ete corriges :
+filtrage tags en SQL (plus de post-fetch Python), batch radar en bulk, index sur les colonnes
+cles, preview_url en DB. Reste : mega-query catalog (6 JOINs), pagination sets/watchlist,
+agregation artistes en memoire.
 
 ### Perimetre a auditer avant de coder
 
 | Fichier | Probleme principal | Lignes |
 |---------|-------------------|--------|
 | `server/api/routers/catalog.py` | Mega-query 6 OUTER JOINs + subqueries | ~60-170 |
-| `server/api/routers/tracks.py` | Filtrage tags en Python post-fetch (casse pagination) | `/tags` endpoint + tag filter |
-| `server/api/routers/tracks.py` | `/tracks/tags` charge tous les tracks en memoire | endpoint `list_tags` |
-| `server/api/routers/radar.py` | Batch update : 1 query par item dans la boucle | `batch_update_radar_state` |
+| `server/api/routers/tracks.py` | ~~Filtrage tags Python~~ FAIT : filtre SQL `? :tag` | |
+| `server/api/routers/tracks.py` | ~~`/tracks/tags` en memoire~~ FAIT : SQL direct | |
+| `server/api/routers/radar.py` | ~~Batch N+1~~ FAIT : bulk `IN(...)` | |
 | `server/api/routers/artists.py` | Charge 2686 artistes + agregation memoire | `list_artists` |
 | `server/api/routers/genres.py` | Percentile BPM calcule en boucle par genre | `PERCENTILE_CONT` |
 | `server/api/routers/catalog.py` | ~~Appel HTTP Deezer inline~~ FAIT : `preview_url` en DB | |
@@ -404,39 +378,16 @@ ou utiliser `EXPLAIN ANALYZE` sur les routes lentes.
 
 #### Haut
 
-- [ ] **Filtrage tags en SQL** : remplacer le filtrage Python par :
-  ```sql
-  WHERE rb_mytags::jsonb ? :tag_name
-  ```
-  - Le filtrage actuel casse la pagination (fetch 200 → filtre a 5 → renvoie 5)
-- [ ] **`/tracks/tags` en SQL** : remplacer la boucle Python par :
-  ```sql
-  SELECT DISTINCT jsonb_array_elements_text(rb_mytags) AS tag
-  FROM user_tracks WHERE user_id = :uid AND rb_mytags IS NOT NULL
-  ORDER BY tag
-  ```
-- [ ] **Batch radar SQL** : remplacer le N+1 par un bulk lookup :
-  ```python
-  catalog_ids = [item["catalog_id"] for item in body]
-  existing = await db.execute(
-      select(UserRadarState).where(
-          UserRadarState.user_id == uid,
-          UserRadarState.catalog_id.in_(catalog_ids),
-      )
-  )
-  existing_map = {s.catalog_id: s for s in existing.scalars()}
-  # Puis boucle sans query individuelle
-  ```
+- [x] **Filtrage tags en SQL** : `rb_mytags::jsonb ? :tag` applique avant pagination
+- [x] **`/tracks/tags` en SQL** : `SELECT DISTINCT jsonb_array_elements_text(...)` direct
+- [x] **Batch radar SQL** : bulk `SELECT ... WHERE catalog_id IN (...)` + boucle sans query
 - [ ] **Decomposer la mega-query catalog** : splitter en 2-3 requetes separees
   plutot que 6 OUTER JOINs (risque produit cartesien)
   - Option A : requetes separees + assemblage Python
   - Option B : vue materialisee PostgreSQL rafraichie periodiquement
-- [ ] **Index manquants** (migration Alembic) :
-  ```sql
-  CREATE INDEX ix_radar_tracks_catalog_id ON radar_tracks(catalog_id);
-  CREATE INDEX ix_catalog_deezer_id ON catalog(deezer_id);
-  CREATE INDEX ix_catalog_beatport_id ON catalog(beatport_id);
-  ```
+- [x] **Index manquants** (migration 0020) : `ix_radar_tracks_catalog`, `ix_radar_tracks_watched_entity`,
+  `ix_catalog_deezer_id` (partiel), `ix_catalog_beatport_id` (partiel), `ix_watched_entities_source`,
+  `ix_catalog_genres` (GIN)
 
 #### Moyen
 
@@ -564,32 +515,11 @@ et des index sur les colonnes frequemment filtrees.
 
 ### Taches (une seule migration Alembic)
 
-- [ ] **Fix RadarTrack FK** : ajouter `ondelete="CASCADE"` sur `watched_entity_id`
-  ```python
-  watched_entity_id = Column(Integer, ForeignKey("watched_entities.id", ondelete="CASCADE"))
-  ```
-- [ ] **CHECK constraints** :
-  ```sql
-  ALTER TABLE catalog ADD CONSTRAINT ck_bpm_positive
-      CHECK (bpm > 0 OR bpm IS NULL);
-  ALTER TABLE user_tracks ADD CONSTRAINT ck_rating_range
-      CHECK (rating >= 0 AND rating <= 5 OR rating IS NULL);
-  ALTER TABLE set_tracks ADD CONSTRAINT ck_position_positive
-      CHECK (position >= 1);
-  ALTER TABLE user_opinions ADD CONSTRAINT ck_opinion_valid
-      CHECK (opinion IN ('liked', 'disliked'));
-  ALTER TABLE artist_flags ADD CONSTRAINT ck_flag_status_valid
-      CHECK (status IN ('pending', 'validated', 'skipped'));
-  ```
-- [ ] **Index sur colonnes filtrees** :
-  ```sql
-  CREATE INDEX ix_radar_tracks_watched_entity ON radar_tracks(watched_entity_id);
-  CREATE INDEX ix_radar_tracks_catalog ON radar_tracks(catalog_id);
-  CREATE INDEX ix_catalog_deezer_id ON catalog(deezer_id) WHERE deezer_id IS NOT NULL;
-  CREATE INDEX ix_catalog_beatport_id ON catalog(beatport_id) WHERE beatport_id IS NOT NULL;
-  CREATE INDEX ix_watched_entities_source ON watched_entities(source);
-  CREATE INDEX ix_catalog_genres ON catalog USING GIN(genres);
-  ```
+- [x] **Fix RadarTrack FK** : `ondelete="CASCADE"` sur `watched_entity_id` (migration 0021)
+- [x] **CHECK constraints** (migration 0021) : `ck_bpm_positive`, `ck_rating_range`,
+  `ck_position_positive`, `ck_opinion_valid`, `ck_flag_status_valid`
+- [x] **Index sur colonnes filtrees** (migration 0020) : 6 index ajoutes
+  (voir T4 pour le detail)
 - [ ] **Coherence DateTime** : verifier que toutes les colonnes timestamp utilisent
   `DateTime(timezone=True)` (pas `DateTime` sans timezone)
 
@@ -791,11 +721,11 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Domaine | Score audit (juin 2026) | Actuel (juin 2026 fin) | Cible apres T1-T6 |
 |---------|------------------------|------------------------|--------------------|
 | Architecture | 7/10 | 7/10 | 8/10 |
-| Securite | 4/10 | 4/10 | 8/10 |
-| Performance | 5/10 | 5.5/10 (preview_url cache) | 7/10 |
+| Securite | 4/10 | 5/10 (port 5432 ferme, JWT strict) | 8/10 |
+| Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
 | Resilience Workers | 4/10 | 4/10 | 7/10 |
-| Infra/DevOps | 4/10 | 5/10 (health checks + /api/health) | 8/10 |
-| Base de donnees | 7/10 | 7.5/10 (refonte genres TEXT[] + taxonomy) | 8/10 |
+| Infra/DevOps | 4/10 | 6.5/10 (--reload, restart, log rotation, health checks, .dockerignore) | 8/10 |
+| Base de donnees | 7/10 | 8/10 (genres refonde, CHECK constraints, CASCADE, index) | 8/10 |
 | Tests | 3/10 | 3/10 | 5/10 |
 
 ---
@@ -809,6 +739,6 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | T3 Infra | `docker-compose.yml`, `server/api/Dockerfile`, `server/frontend/Dockerfile`, `.github/workflows/deploy.yml`, `nginx/default.conf` |
 | T4 Perf | `routers/catalog.py`, `routers/tracks.py`, `routers/radar.py`, `routers/artists.py`, `routers/genres.py`, `routers/search.py` |
 | T5 Validation | Tous les `routers/*.py`, `main.py` (exception handler) |
-| T6 Schema | `models.py` (incl. `GenreNode`, `GenreEdge`), `alembic/versions/` (19 migrations) |
+| T6 Schema | `models.py` (incl. `GenreNode`, `GenreEdge`), `alembic/versions/` (21 migrations) |
 | F1 Multi-User | `models.py`, `routers/tracks.py`, `routers/radar.py`, `dependencies.py`, `main.py` (import) |
 | F3 Design | `frontend/src/views/`, `frontend/src/components/`, `frontend/src/styles/diggy-tokens.css` |
