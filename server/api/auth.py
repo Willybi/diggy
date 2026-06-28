@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 from jose import JWTError, jwt
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
+JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24 * 30  # 30 days — self-hosted personal app
 

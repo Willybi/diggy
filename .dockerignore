@@ -1,0 +1,12 @@
+.env
+.git
+.github
+__pycache__
+*.pyc
+.venv
+node_modules
+_design
+docs
+tests
+.claude
+*.md
