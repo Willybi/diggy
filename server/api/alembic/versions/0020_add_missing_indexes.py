@@ -16,7 +16,7 @@ def upgrade():
     )
     op.create_index("ix_watched_entities_source", "watched_entities", ["source"])
     op.execute(
-        "CREATE INDEX ix_catalog_genres ON catalog USING GIN(genres)"
+        "CREATE INDEX IF NOT EXISTS ix_catalog_genres ON catalog USING GIN(genres)"
     )
 
 
