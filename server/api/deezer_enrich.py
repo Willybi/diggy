@@ -182,6 +182,23 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
     return None
 
 
+def upload_image_bytes_to_bucket(s3, img_data: bytes, key: str, bucket: str) -> bool:
+    """Upload raw image bytes to a MinIO bucket. Returns True on success."""
+    if not img_data or len(img_data) < 1000:  # skip placeholder images
+        return False
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            f.write(img_data)
+            tmp = f.name
+        try:
+            s3.upload_file(tmp, bucket, key, ExtraArgs={"ContentType": "image/jpeg"})
+        finally:
+            os.unlink(tmp)
+        return True
+    except Exception:
+        return False
+
+
 def upload_image_to_bucket(s3, image_url: str, key: str, bucket: str) -> bool:
     """Download image from URL and upload to any MinIO bucket. Returns True on success."""
     if not image_url:
@@ -189,16 +206,7 @@ def upload_image_to_bucket(s3, image_url: str, key: str, bucket: str) -> bool:
     try:
         img_resp = requests.get(image_url, timeout=15)
         img_resp.raise_for_status()
-        if len(img_resp.content) < 1000:  # skip placeholder images
-            return False
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-            f.write(img_resp.content)
-            tmp = f.name
-        try:
-            s3.upload_file(tmp, bucket, key, ExtraArgs={"ContentType": "image/jpeg"})
-        finally:
-            os.unlink(tmp)
-        return True
+        return upload_image_bytes_to_bucket(s3, img_resp.content, key, bucket)
     except Exception:
         return False
 

@@ -81,7 +81,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 ───  ──────────────────────────────────────  ──────  ──────────
 C1   JWT expiry 30j → 7j                   T1      DONE (deja applique)
 C2   Fix race condition ISRC               T2      DONE
-C3   Unifier rate limiting workers          T2      A FAIRE
+C3   Unifier rate limiting workers          T2      DONE
 C4   Refactorer image upload 3→1           T2      A FAIRE
 C5   DLQ + TIDAL refresh + moyens workers  T2      A FAIRE
 C6   Backups PostgreSQL + MinIO            T3      A FAIRE
@@ -217,8 +217,8 @@ Reste : unification rate limiting, DLQ, refresh TIDAL, refactoring image upload.
 
 #### Haut
 
-- [ ] **Unifier le rate limiting** : supprimer les `time.sleep(0.12)` de `source_clients.py`,
-  tout passer par `rate_limiter.py`
+- [x] **Unifier le rate limiting** : wrapper sync ajoute a `rate_limiter.py`,
+  tous les `time.sleep()` remplaces par `limiter.acquire()`/`acquire_sync()`
 - [ ] **DLQ (Dead Letter Queue)** : configurer Celery pour router les tasks echouees
   apres 3 retries vers une queue dediee, consultable depuis l'admin
 - [ ] **Gerer l'expiration TIDAL** : implementer le refresh token automatique dans

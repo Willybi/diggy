@@ -878,22 +878,12 @@ def fetch_artist_artworks(self):
                         return
                     img_data = await pool.download_image(pic_url)
                     if img_data:
-                        import tempfile
-                        try:
-                            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-                                f.write(img_data)
-                                tmp = f.name
-                            s3.upload_file(tmp, ARTIST_BUCKET, f"{artist.id}.jpg", ExtraArgs={"ContentType": "image/jpeg"})
+                        from deezer_enrich import upload_image_bytes_to_bucket
+                        if upload_image_bytes_to_bucket(s3, img_data, f"{artist.id}.jpg", ARTIST_BUCKET):
                             artist.has_artwork = True
                             fetched += 1
-                        except Exception:
-                            logger.exception("fetch_artist_artworks: upload failed for artist %s", artist.id)
+                        else:
                             skipped += 1
-                        finally:
-                            try:
-                                os.unlink(tmp)
-                            except Exception:
-                                pass
                     else:
                         skipped += 1
 

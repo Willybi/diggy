@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import re
-import tempfile
 from datetime import datetime, timezone
 
 import redis as redis_lib
@@ -145,20 +144,10 @@ async def _enrich_entry_async(entry, hit: dict, pool, s3, known_isrcs: set, sess
         if cover_url:
             img_data = await pool.download_image(cover_url)
             if img_data:
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-                        f.write(img_data)
-                        tmp = f.name
-                    s3.upload_file(tmp, "catalog-artworks", f"{entry.id}.jpg", ExtraArgs={"ContentType": "image/jpeg"})
+                from deezer_enrich import upload_image_bytes_to_bucket
+                if upload_image_bytes_to_bucket(s3, img_data, f"{entry.id}.jpg", "catalog-artworks"):
                     entry.has_artwork = True
                     changed = True
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        os.unlink(tmp)
-                    except Exception:
-                        pass
 
     return changed
 
