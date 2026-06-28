@@ -5,11 +5,9 @@ Shared counters across all uvicorn workers via Redis.
 """
 
 import os
-import time
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-import redis
 
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
@@ -26,6 +24,7 @@ _redis = None
 def _get_redis():
     global _redis
     if _redis is None:
+        import redis
         _redis = redis.from_url(REDIS_URL, decode_responses=True)
     return _redis
 
@@ -39,7 +38,6 @@ def _get_real_ip(request) -> str:
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        # Only check POST on rate-limited paths
         if request.method != "POST":
             return await call_next(request)
 
@@ -70,8 +68,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     content={"detail": f"Rate limit exceeded. Try again in {ttl}s."},
                     headers={"Retry-After": str(ttl)},
                 )
-        except redis.RedisError:
-            # If Redis is down, let the request through
+        except Exception:
+            # If Redis is unavailable, let the request through
             pass
 
         return await call_next(request)
