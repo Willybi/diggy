@@ -91,6 +91,10 @@ celery_app.conf.update(
             "task": "workers.tasks.enrich_catalog_beatport",
             "schedule": crontab(hour=6, minute=0),  # tous les jours à 6h
         },
+        "compute-trends-daily": {
+            "task": "workers.tasks.compute_trends",
+            "schedule": crontab(hour=7, minute=0),  # tous les jours à 7h
+        },
     },
 )
 

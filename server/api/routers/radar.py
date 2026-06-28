@@ -9,7 +9,7 @@ from sqlalchemy.orm import aliased
 from catalog import get_or_create_catalog
 from database import get_db
 from dependencies import get_current_user
-from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User
+from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User, RadarTrend
 from opinion_sync import sync_track_opinion, RADAR_TO_OPINION
 from schemas import (
     RadarTrackIn,
@@ -35,7 +35,7 @@ async def list_radar_full(
     playlist_id: int | None = Query(None),
     search: str | None = Query(None, max_length=200),
     detected_after: datetime | None = Query(None),
-    sort: Literal["detected_at", "title", "artist", "bpm", "key", "genre", "playlist_title"] = Query("detected_at"),
+    sort: Literal["detected_at", "title", "artist", "bpm", "key", "genre", "playlist_title", "trend_score"] = Query("detected_at"),
     order: Literal["asc", "desc"] = Query("desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -79,7 +79,9 @@ async def list_radar_full(
         .scalar_subquery()
     )
 
-    # Base query: radar_tracks joined with catalog + state + playlist
+    # Base query: radar_tracks joined with catalog + state + playlist + trends
+    rt = aliased(RadarTrend)
+
     base = (
         select(
             CatalogEntry.id.label("catalog_id"),
@@ -96,12 +98,14 @@ async def list_radar_full(
             latest_playlist_title.label("playlist_title"),
             func.coalesce(func.min(urs.status), literal("new")).label("status"),
             in_lib_sq.label("in_lib"),
+            rt.trend_score.label("trend_score"),
         )
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
         .outerjoin(urs, and_(urs.user_id == uid, urs.catalog_id == CatalogEntry.id))
+        .outerjoin(rt, rt.catalog_id == CatalogEntry.id)
         .where(RadarTrack.catalog_id.isnot(None))
-        .group_by(CatalogEntry.id, urs.status)
+        .group_by(CatalogEntry.id, urs.status, rt.trend_score)
     )
 
     # Filters
@@ -149,6 +153,7 @@ async def list_radar_full(
         "key": CatalogEntry.key,
         "genre": CatalogEntry.genres[1],
         "playlist_title": latest_playlist_title,
+        "trend_score": func.coalesce(rt.trend_score, literal(0)),
     }
     sort_col = sort_map.get(sort, func.max(RadarTrack.detected_at))
     if order == "asc":

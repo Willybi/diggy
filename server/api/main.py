@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from rate_limit import RateLimitMiddleware
 from auth_middleware import JWTAuthMiddleware
 from database import engine, Base
-from routers import catalog, tracks, watchlist, radar, artists, sets, auth, admin, genres, opinions, search, taxonomy
+from routers import catalog, tracks, watchlist, radar, artists, sets, auth, admin, genres, opinions, search, taxonomy, collections
 
 
 @asynccontextmanager
@@ -57,6 +57,7 @@ app.include_router(genres.router, prefix="/api/genres")
 app.include_router(opinions.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(taxonomy.router, prefix="/api/taxonomy")
+app.include_router(collections.router, prefix="/api")
 
 
 @app.get("/api/health")
