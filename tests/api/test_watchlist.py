@@ -8,14 +8,17 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from main import app
+from dependencies import get_current_user
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture
-async def client():
+async def client(auth_user):
+    app.dependency_overrides[get_current_user] = lambda: auth_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -26,18 +26,18 @@ class TestRegister:
         assert data["user_id"] > 0
 
     async def test_duplicate_email_returns_409(self, client):
-        body = {"email": "dup@test.com", "username": "user1", "password": "pass"}
+        body = {"email": "dup@test.com", "username": "user1", "password": "password123"}
         await client.post("/api/auth/register", json=body)
         r = await client.post("/api/auth/register", json={
-            "email": "dup@test.com", "username": "user2", "password": "pass",
+            "email": "dup@test.com", "username": "user2", "password": "password123",
         })
         assert r.status_code == 409
 
     async def test_duplicate_username_returns_409(self, client):
-        body = {"email": "a@test.com", "username": "sameuser", "password": "pass"}
+        body = {"email": "a@test.com", "username": "sameuser", "password": "password123"}
         await client.post("/api/auth/register", json=body)
         r = await client.post("/api/auth/register", json={
-            "email": "b@test.com", "username": "sameuser", "password": "pass",
+            "email": "b@test.com", "username": "sameuser", "password": "password123",
         })
         assert r.status_code == 409
 
@@ -45,10 +45,10 @@ class TestRegister:
 class TestLogin:
     async def test_login_success(self, client):
         await client.post("/api/auth/register", json={
-            "email": "login@test.com", "username": "loginuser", "password": "mypass",
+            "email": "login@test.com", "username": "loginuser", "password": "mypassword",
         })
         r = await client.post("/api/auth/login", json={
-            "email": "login@test.com", "password": "mypass",
+            "email": "login@test.com", "password": "mypassword",
         })
         assert r.status_code == 200
         data = r.json()
@@ -57,16 +57,16 @@ class TestLogin:
 
     async def test_bad_password_returns_401(self, client):
         await client.post("/api/auth/register", json={
-            "email": "bp@test.com", "username": "bpuser", "password": "correct",
+            "email": "bp@test.com", "username": "bpuser", "password": "correctpass",
         })
         r = await client.post("/api/auth/login", json={
-            "email": "bp@test.com", "password": "wrong",
+            "email": "bp@test.com", "password": "wrongpass",
         })
         assert r.status_code == 401
 
     async def test_unknown_email_returns_401(self, client):
         r = await client.post("/api/auth/login", json={
-            "email": "nope@test.com", "password": "pass",
+            "email": "nope@test.com", "password": "password123",
         })
         assert r.status_code == 401
 
@@ -74,7 +74,7 @@ class TestLogin:
 class TestMe:
     async def test_returns_user_info(self, client):
         reg = await client.post("/api/auth/register", json={
-            "email": "me@test.com", "username": "meuser", "password": "pass",
+            "email": "me@test.com", "username": "meuser", "password": "password123",
         })
         token = reg.json()["token"]
         r = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})

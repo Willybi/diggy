@@ -16,9 +16,12 @@ from models import (
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture
-async def client():
+async def client(auth_user):
+    from dependencies import get_current_user
+    app.dependency_overrides[get_current_user] = lambda: auth_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest_asyncio.fixture
