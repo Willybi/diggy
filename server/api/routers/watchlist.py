@@ -252,6 +252,7 @@ async def follow_playlist(
 async def crawl_playlist(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Trigger an immediate crawl of a single playlist. Cooldown: 12h."""
     result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
@@ -274,7 +275,7 @@ async def crawl_playlist(
 
 
 @router.patch("/{entry_id}/crawled", response_model=WatchedEntityOut)
-async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db)):
+async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
     entry = result.scalar_one_or_none()
     if not entry:
