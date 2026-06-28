@@ -82,7 +82,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 C1   JWT expiry 30j → 7j                   T1      DONE (deja applique)
 C2   Fix race condition ISRC               T2      DONE
 C3   Unifier rate limiting workers          T2      DONE
-C4   Refactorer image upload 3→1           T2      A FAIRE
+C4   Refactorer image upload 3→1           T2      DONE
 C5   DLQ + TIDAL refresh + moyens workers  T2      A FAIRE
 C6   Backups PostgreSQL + MinIO            T3      A FAIRE
 C7   Mega-query catalog + paginations      T4      A FAIRE
@@ -223,8 +223,8 @@ Reste : unification rate limiting, DLQ, refresh TIDAL, refactoring image upload.
   apres 3 retries vers une queue dediee, consultable depuis l'admin
 - [ ] **Gerer l'expiration TIDAL** : implementer le refresh token automatique dans
   `_get_tidal_session()`, stocker les tokens actualises
-- [ ] **Refactorer image upload** : 3 implementations dupliquees
-  (`deezer_enrich.py`, `async_http.py`, `enrichment.py`) → une seule fonction utilitaire
+- [x] **Refactorer image upload** : `upload_image_bytes_to_bucket` centralisee dans
+  `deezer_enrich.py`, callers refactores (enrichment.py, tasks.py)
 
 #### Moyen
 

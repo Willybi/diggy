@@ -114,13 +114,101 @@ def _parse_expiry(value) -> "datetime | None":
         return None
 
 
+def _save_tidal_tokens_to_redis(session):
+    """Persist refreshed TIDAL tokens to Redis for cross-restart durability.
+
+    Tokens are stored as a JSON hash at key 'tidal:tokens'. This avoids
+    relying on .env (read-only in Docker) or ephemeral env vars.
+    """
+    import redis as redis_lib
+    from datetime import timezone
+
+    try:
+        r = redis_lib.from_url(
+            os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+            decode_responses=True,
+        )
+        expiry_ts = ""
+        if session.expiry_time:
+            ts = session.expiry_time
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            expiry_ts = str(ts.timestamp())
+
+        r.hset("tidal:tokens", mapping={
+            "token_type": session.token_type or "Bearer",
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token or "",
+            "expiry_time": expiry_ts,
+        })
+        logger.info("TIDAL tokens saved to Redis after refresh")
+    except Exception as e:
+        logger.warning("Failed to save TIDAL tokens to Redis: %s", e)
+
+
+def _try_refresh_tidal(session) -> bool:
+    """Attempt to refresh an expired TIDAL session and persist new tokens."""
+    if not session.refresh_token:
+        return False
+    try:
+        session.token_refresh(session.refresh_token)
+        if session.check_login():
+            _save_tidal_tokens_to_redis(session)
+            logger.info("TIDAL token refreshed successfully")
+            return True
+    except Exception as e:
+        logger.warning("TIDAL token refresh failed: %s", e)
+    return False
+
+
+def _load_tidal_tokens_from_redis():
+    """Load TIDAL tokens from Redis (persisted after last refresh)."""
+    import redis as redis_lib
+
+    try:
+        r = redis_lib.from_url(
+            os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+            decode_responses=True,
+        )
+        tokens = r.hgetall("tidal:tokens")
+        if tokens and tokens.get("access_token"):
+            return tokens
+    except Exception:
+        pass
+    return None
+
+
 def _get_tidal_session():
-    """Load TIDAL session from environment variables or token file."""
+    """Load TIDAL session with automatic token refresh.
+
+    Resolution order:
+    1. Redis (tokens persisted from last successful refresh)
+    2. Env vars (initial bootstrap from .env on VPS)
+    3. Token file (dev fallback)
+
+    If tokens are expired, attempts refresh via tidalapi and persists
+    new tokens to Redis for subsequent calls.
+    """
     import tidalapi
 
     session = tidalapi.Session()
 
-    # Try env vars first (production)
+    # 1. Try Redis first (refreshed tokens survive container restarts)
+    redis_tokens = _load_tidal_tokens_from_redis()
+    if redis_tokens:
+        session.load_oauth_session(
+            token_type=redis_tokens.get("token_type", "Bearer"),
+            access_token=redis_tokens["access_token"],
+            refresh_token=redis_tokens.get("refresh_token") or None,
+            expiry_time=_parse_expiry(redis_tokens.get("expiry_time")),
+        )
+        if session.check_login():
+            return session
+        logger.info("TIDAL Redis tokens expired, attempting refresh")
+        if _try_refresh_tidal(session):
+            return session
+
+    # 2. Try env vars (production bootstrap)
     access_token = os.environ.get("TIDAL_ACCESS_TOKEN")
     if access_token:
         session.load_oauth_session(
@@ -130,10 +218,13 @@ def _get_tidal_session():
             expiry_time=_parse_expiry(os.environ.get("TIDAL_EXPIRY")),
         )
         if session.check_login():
+            _save_tidal_tokens_to_redis(session)
             return session
-        logger.warning("TIDAL env var tokens expired or invalid")
+        logger.info("TIDAL env var tokens expired, attempting refresh")
+        if _try_refresh_tidal(session):
+            return session
 
-    # Fallback: token file (dev)
+    # 3. Fallback: token file (dev)
     token_file = Path(__file__).parent.parent / "scripts" / ".tidal_tokens.json"
     if token_file.exists():
         tokens = json.loads(token_file.read_text())
@@ -145,7 +236,9 @@ def _get_tidal_session():
         )
         if session.check_login():
             return session
-        logger.warning("TIDAL token file expired")
+        logger.info("TIDAL token file expired, attempting refresh")
+        if _try_refresh_tidal(session):
+            return session
 
     raise RuntimeError("TIDAL: no valid session. Re-run test_sources.py tidal or set TIDAL env vars.")
 

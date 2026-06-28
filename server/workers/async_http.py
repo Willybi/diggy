@@ -14,6 +14,7 @@ Usage:
 """
 import asyncio
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 DEEZER_API = "https://api.deezer.com"
 BEATPORT_URL = "https://www.beatport.com"
 
+# Configurable via env vars
+HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", "20.0"))
+HTTP_CONNECT_TIMEOUT = float(os.environ.get("HTTP_CONNECT_TIMEOUT", "10.0"))
+HTTP_MAX_CONNECTIONS = int(os.environ.get("HTTP_MAX_CONNECTIONS", "20"))
 
 # Retry config
 MAX_RETRIES = 3
@@ -41,9 +46,9 @@ class HttpPool:
 
     async def __aenter__(self):
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(20.0, connect=10.0),
+            timeout=httpx.Timeout(HTTP_TIMEOUT, connect=HTTP_CONNECT_TIMEOUT),
             follow_redirects=False,
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            limits=httpx.Limits(max_connections=HTTP_MAX_CONNECTIONS, max_keepalive_connections=10),
         )
         self._bp_session = curl_requests.Session(impersonate="chrome124")
         self._bp_executor = ThreadPoolExecutor(max_workers=2)

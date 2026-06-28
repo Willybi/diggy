@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 DEEZER_API = "https://api.deezer.com"
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-_BEATPORT_CACHE_TTL = 86400  # 24 hours
+_BEATPORT_CACHE_TTL = int(os.environ.get("BEATPORT_CACHE_TTL", "86400"))  # default 24h
 
 
 def _get_redis():
