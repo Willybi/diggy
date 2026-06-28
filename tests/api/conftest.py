@@ -40,7 +40,9 @@ from database import Base, get_db
 from dependencies import get_current_user, require_admin
 from models import User
 from auth import hash_password
-from main import app
+from main import app, limiter
+
+limiter.enabled = False
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 test_engine = create_async_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
