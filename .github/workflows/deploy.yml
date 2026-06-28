@@ -47,3 +47,13 @@ jobs:
             docker compose up -d --build &&
             docker compose exec -T nginx nginx -s reload 2>/dev/null || true
           '
+
+      - name: Health check
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o ConnectTimeout=30 "$VPS_USER@$VPS_HOST" '
+            sleep 15
+            curl -sf http://localhost/api/health || exit 1
+          '
