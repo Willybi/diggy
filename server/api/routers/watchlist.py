@@ -1,7 +1,7 @@
 import requests
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, delete, exists, case, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,7 @@ from models import WatchedEntity, UserFollow, UserOpinion, User, RadarTrack, Cat
 from schemas import (
     WatchedEntityIn, WatchedEntityOut, WatchedEntityBrowseOut,
     WatchedEntityDetailOut, PlaylistTrackOut,
+    WatchlistListResponse, WatchlistBrowseResponse,
 )
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
@@ -63,18 +64,23 @@ async def _trigger_crawl(playlist_id: int, db: AsyncSession):
         await db.commit()
 
 
-@router.get("/", response_model=list[WatchedEntityOut])
+@router.get("/", response_model=WatchlistListResponse)
 async def list_watched(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     uid = _uid(user)
-    result = await db.execute(
+    base = (
         select(WatchedEntity)
         .join(UserFollow, UserFollow.entity_id == WatchedEntity.id)
         .where(UserFollow.user_id == uid)
     )
-    return result.scalars().all()
+    count_result = await db.execute(select(func.count()).select_from(base.subquery()))
+    total = count_result.scalar()
+    result = await db.execute(base.offset(offset).limit(limit))
+    return WatchlistListResponse(total=total, items=result.scalars().all())
 
 
 @router.get("/active", response_model=list[WatchedEntityOut])
@@ -93,8 +99,10 @@ async def list_active_playlists(
     return result.scalars().all()
 
 
-@router.get("/browse", response_model=list[WatchedEntityBrowseOut])
+@router.get("/browse", response_model=WatchlistBrowseResponse)
 async def browse_playlists(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -106,17 +114,23 @@ async def browse_playlists(
         .correlate(WatchedEntity)
         .exists()
     )
-    result = await db.execute(
+    base = (
         select(WatchedEntity, follow_exists.label("followed"))
         .order_by(WatchedEntity.title)
     )
+    count_result = await db.execute(select(func.count()).select_from(
+        select(WatchedEntity.id).subquery()
+    ))
+    total = count_result.scalar()
+    result = await db.execute(base.offset(offset).limit(limit))
     rows = result.all()
-    return [
+    items = [
         WatchedEntityBrowseOut.model_validate(
             {**entity.__dict__, "followed": followed}
         )
         for entity, followed in rows
     ]
+    return WatchlistBrowseResponse(total=total, items=items)
 
 
 @router.get("/{entry_id}", response_model=WatchedEntityDetailOut)

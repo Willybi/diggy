@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Float, func, select, text
+from sqlalchemy import Float, func, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,177 +33,182 @@ async def list_artists(
     user: User | None = Depends(get_current_user_optional),
 ):
     user_id = _uid(user)
+    empty = {"items": [], "total": 0, "familyCounts": {f: 0 for f in _ALL_FAMILIES}}
 
-    # -- subqueries scoped to user --
+    # -- name_map: artist_id -> all lowercase name variants --
+    name_map = union_all(
+        select(Artist.id.label("artist_id"), func.lower(Artist.name).label("artist_lower")),
+        select(ArtistAlias.artist_id.label("artist_id"), func.lower(ArtistAlias.alias).label("artist_lower")),
+    ).subquery("name_map")
+
+    # -- stats per artist_id via SQL --
     lib_sub = (
         select(UserTrack.catalog_id, UserTrack.rating)
         .where(UserTrack.user_id == user_id)
         .subquery()
     )
 
-    cat_sub = (
+    stats_sub = (
         select(
-            CatalogEntry.artist.label("artist_name"),
-            func.count(CatalogEntry.id).label("nb_catalog"),
-            func.count(lib_sub.c.catalog_id).label("nb_lib"),
+            name_map.c.artist_id,
+            func.count(func.distinct(CatalogEntry.id)).label("nb_catalog"),
+            func.count(func.distinct(lib_sub.c.catalog_id)).label("nb_lib"),
             func.avg(lib_sub.c.rating.cast(Float)).label("avg_rating"),
         )
+        .join(CatalogEntry, func.lower(CatalogEntry.artist) == name_map.c.artist_lower)
         .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
-        .group_by(CatalogEntry.artist)
+        .group_by(name_map.c.artist_id)
         .subquery()
     )
 
     liked_sub = (
         select(
-            CatalogEntry.artist.label("artist_name"),
-            func.count(UserRadarState.catalog_id).label("nb_liked"),
+            name_map.c.artist_id,
+            func.count(func.distinct(UserRadarState.catalog_id)).label("nb_liked"),
         )
+        .join(CatalogEntry, func.lower(CatalogEntry.artist) == name_map.c.artist_lower)
         .join(UserRadarState, UserRadarState.catalog_id == CatalogEntry.id)
         .where(UserRadarState.status == "added", UserRadarState.user_id == user_id)
-        .group_by(CatalogEntry.artist)
+        .group_by(name_map.c.artist_id)
         .subquery()
     )
 
-    # -- fetch all matching artists --
-    q_artists = (
-        select(Artist)
-        .options(selectinload(Artist.aliases))
-        .order_by(func.lower(Artist.name))
+    # -- main query: Artist + stats --
+    nb_catalog_col = func.coalesce(stats_sub.c.nb_catalog, 0)
+    nb_lib_col = func.coalesce(stats_sub.c.nb_lib, 0)
+    nb_liked_col = func.coalesce(liked_sub.c.nb_liked, 0)
+    avg_rating_col = func.round(stats_sub.c.avg_rating.cast(Float), 1)
+
+    base_query = (
+        select(
+            Artist.id,
+            Artist.name,
+            Artist.real_name,
+            Artist.country,
+            Artist.has_artwork,
+            nb_catalog_col.label("nb_catalog"),
+            nb_lib_col.label("nb_lib"),
+            nb_liked_col.label("nb_liked"),
+            avg_rating_col.label("avg_rating"),
+        )
+        .outerjoin(stats_sub, Artist.id == stats_sub.c.artist_id)
+        .outerjoin(liked_sub, Artist.id == liked_sub.c.artist_id)
     )
+
+    # -- filters --
+    if ids:
+        id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
+        if not id_list:
+            return empty
+        base_query = base_query.where(Artist.id.in_(id_list))
+    if q:
+        base_query = base_query.where(Artist.name.ilike(f"%{q}%"))
+    if no_deezer:
+        base_query = base_query.where(Artist.deezer_id.is_(None))
+
+    # -- genres + family for all matching artists (lightweight: just IDs + genres) --
+    # Get all matching artist IDs first
+    id_filter_query = select(Artist.id)
     if ids:
         id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
         if id_list:
-            q_artists = q_artists.where(Artist.id.in_(id_list))
-        else:
-            return {"items": [], "total": 0, "familyCounts": {f: 0 for f in _ALL_FAMILIES}}
+            id_filter_query = id_filter_query.where(Artist.id.in_(id_list))
     if q:
-        q_artists = q_artists.where(Artist.name.ilike(f"%{q}%"))
+        id_filter_query = id_filter_query.where(Artist.name.ilike(f"%{q}%"))
     if no_deezer:
-        q_artists = q_artists.where(Artist.deezer_id.is_(None))
+        id_filter_query = id_filter_query.where(Artist.deezer_id.is_(None))
 
-    result = await db.execute(q_artists)
-    artists = result.scalars().all()
+    all_ids_result = await db.execute(id_filter_query)
+    all_artist_ids = [r[0] for r in all_ids_result.all()]
 
-    # -- collect all name variants --
-    all_names: set[str] = set()
-    for a in artists:
-        all_names.add(a.name.lower())
-        for alias in a.aliases:
-            all_names.add(alias.alias.lower())
+    if not all_artist_ids:
+        return empty
 
-    if not all_names:
-        return {"items": [], "total": 0, "familyCounts": {f: 0 for f in _ALL_FAMILIES}}
-
-    # -- batch stats --
-    stats_result = await db.execute(
-        select(cat_sub).where(func.lower(cat_sub.c.artist_name).in_(all_names))
-    )
-    stats_by_name: dict[str, dict] = defaultdict(
-        lambda: {"nb_catalog": 0, "nb_lib": 0, "ratings": []}
-    )
-    for row in stats_result.all():
-        key = row.artist_name.lower()
-        stats_by_name[key]["nb_catalog"] += row.nb_catalog
-        stats_by_name[key]["nb_lib"] += row.nb_lib
-        if row.avg_rating:
-            stats_by_name[key]["ratings"].append(float(row.avg_rating))
-
-    # -- batch liked --
-    liked_result = await db.execute(
-        select(liked_sub).where(func.lower(liked_sub.c.artist_name).in_(all_names))
-    )
-    liked_by_name: dict[str, int] = {}
-    for row in liked_result.all():
-        liked_by_name[row.artist_name.lower()] = row.nb_liked
-
-    # -- batch genres (unnest array) --
+    # Fetch genres for all matching artists via name_map
     genre_col = func.unnest(CatalogEntry.genres).label("genre")
     genre_result = await db.execute(
         select(
-            func.lower(CatalogEntry.artist).label("artist_name"),
+            name_map.c.artist_id,
             genre_col,
             func.count().label("cnt"),
         )
+        .join(CatalogEntry, func.lower(CatalogEntry.artist) == name_map.c.artist_lower)
         .where(
             func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) > 0,
-            func.lower(CatalogEntry.artist).in_(all_names),
+            name_map.c.artist_id.in_(all_artist_ids),
         )
-        .group_by(func.lower(CatalogEntry.artist), genre_col)
+        .group_by(name_map.c.artist_id, genre_col)
     )
-    genre_by_name: dict[str, dict[str, int]] = defaultdict(dict)
-    total_by_name: dict[str, int] = defaultdict(int)
+    genre_by_artist: dict[int, dict[str, int]] = defaultdict(dict)
+    total_genre_by_artist: dict[int, int] = defaultdict(int)
     for row in genre_result.all():
-        genre_by_name[row.artist_name][row.genre] = row.cnt
-        total_by_name[row.artist_name] += row.cnt
+        genre_by_artist[row.artist_id][row.genre] = row.cnt
+        total_genre_by_artist[row.artist_id] += row.cnt
 
-    # -- assemble per-artist data --
-    out: list[dict] = []
-    for a in artists:
-        agg = {"nb_catalog": 0, "nb_lib": 0, "nb_liked": 0, "ratings": []}
-        genre_counts: dict[str, int] = defaultdict(int)
-        total_tracks = 0
-        for key in [a.name.lower()] + [al.alias.lower() for al in a.aliases]:
-            s = stats_by_name.get(key)
-            if s:
-                agg["nb_catalog"] += s["nb_catalog"]
-                agg["nb_lib"] += s["nb_lib"]
-                agg["ratings"].extend(s["ratings"])
-            agg["nb_liked"] += liked_by_name.get(key, 0)
-            for g, c in genre_by_name.get(key, {}).items():
-                genre_counts[g] += c
-            total_tracks += total_by_name.get(key, 0)
-
-        avg = round(sum(agg["ratings"]) / len(agg["ratings"]), 1) if agg["ratings"] else None
-        threshold = max(1, int(total_tracks * 0.2))
-        genres = sorted(
-            [g for g, c in genre_counts.items() if c >= threshold],
-            key=lambda g: -genre_counts[g],
+    def _artist_genres(artist_id: int) -> list[str]:
+        gc = genre_by_artist.get(artist_id, {})
+        tot = total_genre_by_artist.get(artist_id, 0)
+        threshold = max(1, int(tot * 0.2))
+        return sorted(
+            [g for g, c in gc.items() if c >= threshold],
+            key=lambda g: -gc[g],
         )
-        primary_family = genre_family(genres[0]) if genres else "misc"
 
-        out.append({
-            "id": a.id,
-            "name": a.name,
-            "real_name": a.real_name,
-            "country": a.country,
-            "has_artwork": a.has_artwork,
-            "nb_catalog": agg["nb_catalog"],
-            "nb_lib": agg["nb_lib"],
-            "nb_liked": agg["nb_liked"],
-            "avg_rating": avg,
-            "genres": genres,
-            "_family": primary_family,
-        })
+    def _artist_family(artist_id: int) -> str:
+        genres = _artist_genres(artist_id)
+        return genre_family(genres[0]) if genres else "misc"
 
-    # -- familyCounts (before family filter, subject to search q) --
+    # -- familyCounts (all matching artists, before family filter) --
     family_counts: dict[str, int] = {f: 0 for f in _ALL_FAMILIES}
-    for item in out:
-        family_counts[item["_family"]] += 1
+    family_by_id: dict[int, str] = {}
+    for aid in all_artist_ids:
+        fam = _artist_family(aid)
+        family_by_id[aid] = fam
+        family_counts[fam] += 1
 
     # -- apply family filter --
     if family and family in _ALL_FAMILIES:
         if family == "other":
-            out = [a for a in out if a["_family"] in ("other", "misc")]
+            filtered_ids = {aid for aid, fam in family_by_id.items() if fam in ("other", "misc")}
         else:
-            out = [a for a in out if a["_family"] == family]
+            filtered_ids = {aid for aid, fam in family_by_id.items() if fam == family}
+        base_query = base_query.where(Artist.id.in_(filtered_ids))
 
     # -- sort --
     if sort == "catalog":
-        out.sort(key=lambda a: a["nb_catalog"], reverse=True)
+        base_query = base_query.order_by(nb_catalog_col.desc())
     elif sort == "lib":
-        out.sort(key=lambda a: (a["nb_lib"], a["nb_catalog"]), reverse=True)
+        base_query = base_query.order_by(nb_lib_col.desc(), nb_catalog_col.desc())
     elif sort == "liked":
-        out.sort(key=lambda a: (a["nb_liked"], a["nb_catalog"]), reverse=True)
+        base_query = base_query.order_by(nb_liked_col.desc(), nb_catalog_col.desc())
     elif sort == "disliked":
-        out.sort(key=lambda a: a["name"].lower())
+        base_query = base_query.order_by(func.lower(Artist.name))
     elif sort == "rating":
-        out.sort(key=lambda a: (a["avg_rating"] or -1), reverse=True)
+        base_query = base_query.order_by(func.coalesce(stats_sub.c.avg_rating, -1).desc())
     elif sort == "alpha":
-        out.sort(key=lambda a: a["name"].lower())
+        base_query = base_query.order_by(func.lower(Artist.name))
 
-    total = len(out)
-    page = out[offset:offset + limit]
-    items = [{k: v for k, v in item.items() if k != "_family"} for item in page]
+    # -- count + paginate --
+    count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
+    total = count_result.scalar()
+
+    result = await db.execute(base_query.offset(offset).limit(limit))
+    rows = result.all()
+
+    items = []
+    for row in rows:
+        items.append({
+            "id": row.id,
+            "name": row.name,
+            "real_name": row.real_name,
+            "country": row.country,
+            "has_artwork": row.has_artwork,
+            "nb_catalog": row.nb_catalog,
+            "nb_lib": row.nb_lib,
+            "nb_liked": row.nb_liked,
+            "avg_rating": float(row.avg_rating) if row.avg_rating is not None else None,
+            "genres": _artist_genres(row.id),
+        })
 
     return {"items": items, "total": total, "familyCounts": family_counts}
 

@@ -259,7 +259,7 @@ async function fetchPlaylists() {
   loading.value = true
   try {
     const { data } = await api.get('/api/watchlist/browse')
-    browsePlaylists.value = data
+    browsePlaylists.value = data.items
   } finally {
     loading.value = false
   }

@@ -44,7 +44,9 @@ class TestListWatched:
     async def test_empty_db_returns_empty_list(self, client):
         r = await client.get("/api/watchlist/")
         assert r.status_code == 200
-        assert r.json() == []
+        data = r.json()
+        assert data["total"] == 0
+        assert data["items"] == []
 
     async def test_returns_entry_after_insert(self, client, mocker):
         _mock_deezer(mocker)
@@ -52,8 +54,9 @@ class TestListWatched:
 
         r = await client.get("/api/watchlist/")
         assert r.status_code == 200
-        assert len(r.json()) == 1
-        assert r.json()[0]["external_id"] == "1950581322"
+        data = r.json()
+        assert data["total"] == 1
+        assert data["items"][0]["external_id"] == "1950581322"
 
 
 # ── GET /api/watchlist/browse ────────────────────────────────────────────────
@@ -66,8 +69,8 @@ class TestBrowsePlaylists:
         r = await client.get("/api/watchlist/browse")
         assert r.status_code == 200
         data = r.json()
-        assert len(data) == 1
-        assert data[0]["followed"] is True
+        assert data["total"] == 1
+        assert data["items"][0]["followed"] is True
 
     async def test_browse_shows_unfollowed_after_unfollow(self, client, mocker):
         _mock_deezer(mocker)
@@ -77,8 +80,9 @@ class TestBrowsePlaylists:
         await client.delete(f"/api/watchlist/{entry_id}")
 
         r = await client.get("/api/watchlist/browse")
-        assert len(r.json()) == 1
-        assert r.json()[0]["followed"] is False
+        data = r.json()
+        assert data["total"] == 1
+        assert data["items"][0]["followed"] is False
 
 
 # ── POST /api/watchlist/ ──────────────────────────────────────────────────────
@@ -194,7 +198,7 @@ class TestDeleteWatched:
         assert r.status_code == 204
 
         r = await client.get("/api/watchlist/")
-        assert r.json() == []
+        assert r.json()["items"] == []
 
     async def test_delete_nonexistent_returns_404(self, client):
         r = await client.delete("/api/watchlist/9999")
@@ -245,4 +249,4 @@ class TestListActivePlaylists:
 
         # But browse still shows it
         r2 = await client.get("/api/watchlist/browse")
-        assert len(r2.json()) == 1
+        assert r2.json()["total"] == 1

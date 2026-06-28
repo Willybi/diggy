@@ -10,10 +10,12 @@ from models import DJSet, SetTrack, SetArtist, Artist, UserSetFollow
 
 
 class TestListSets:
-    async def test_empty_returns_empty_list(self, client):
+    async def test_empty_returns_zero(self, client):
         r = await client.get("/api/sets/")
         assert r.status_code == 200
-        assert r.json() == []
+        data = r.json()
+        assert data["total"] == 0
+        assert data["items"] == []
 
     async def test_returns_sets(self, client, db):
         db.add(DJSet(source="trackid", title="Boiler Room London"))
@@ -21,8 +23,8 @@ class TestListSets:
         r = await client.get("/api/sets/")
         assert r.status_code == 200
         data = r.json()
-        assert len(data) == 1
-        assert data[0]["title"] == "Boiler Room London"
+        assert data["total"] == 1
+        assert data["items"][0]["title"] == "Boiler Room London"
 
     async def test_filter_by_title(self, client, db):
         db.add(DJSet(source="trackid", title="Boiler Room London"))
@@ -30,8 +32,8 @@ class TestListSets:
         await db.commit()
         r = await client.get("/api/sets/?q=boiler")
         data = r.json()
-        assert len(data) == 1
-        assert data[0]["title"] == "Boiler Room London"
+        assert data["total"] == 1
+        assert data["items"][0]["title"] == "Boiler Room London"
 
     async def test_includes_track_counts(self, client, db):
         s = DJSet(source="trackid", title="Test Set")
@@ -42,7 +44,7 @@ class TestListSets:
         await db.commit()
         r = await client.get("/api/sets/")
         data = r.json()
-        assert data[0]["total_tracks"] == 2
+        assert data["items"][0]["total_tracks"] == 2
 
     async def test_includes_artists(self, client, db):
         a = Artist(name="ANNA", normalized_name="anna")
@@ -54,7 +56,25 @@ class TestListSets:
         await db.commit()
         r = await client.get("/api/sets/")
         data = r.json()
-        assert data[0]["artists"] == ["ANNA"]
+        assert data["items"][0]["artists"] == ["ANNA"]
+
+    async def test_pagination(self, client, db):
+        for i in range(5):
+            db.add(DJSet(source="trackid", title=f"Set {i}"))
+        await db.commit()
+        r = await client.get("/api/sets/?limit=2")
+        data = r.json()
+        assert len(data["items"]) == 2
+        assert data["total"] == 5
+
+    async def test_pagination_offset(self, client, db):
+        for i in range(5):
+            db.add(DJSet(source="trackid", title=f"Set {i}"))
+        await db.commit()
+        r = await client.get("/api/sets/?offset=3&limit=10")
+        data = r.json()
+        assert len(data["items"]) == 2
+        assert data["total"] == 5
 
 
 class TestSetDetail:

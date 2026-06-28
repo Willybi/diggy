@@ -278,6 +278,21 @@ class SetListItemOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SetListResponse(BaseModel):
+    total: int
+    items: list[SetListItemOut]
+
+
+class WatchlistListResponse(BaseModel):
+    total: int
+    items: list[WatchedEntityOut]
+
+
+class WatchlistBrowseResponse(BaseModel):
+    total: int
+    items: list[WatchedEntityBrowseOut]
+
+
 class SetTrackOut(BaseModel):
     id: int
     set_id: int

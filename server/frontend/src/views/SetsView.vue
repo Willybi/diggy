@@ -308,7 +308,7 @@ async function fetchSets() {
     const params = {}
     if (search.value.trim()) params.q = search.value.trim()
     const { data } = await api.get('/api/sets/', { params })
-    sets.value = data
+    sets.value = data.items
   } finally {
     loading.value = false
   }

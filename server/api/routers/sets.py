@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,7 @@ from models import (
 )
 from schemas import (
     DJSetDetailOut, SetTrackDetailOut, SetArtistDetailOut,
-    SetListItemOut,
+    SetListItemOut, SetListResponse,
 )
 
 router = APIRouter(prefix="/sets", tags=["sets"])
@@ -84,9 +84,11 @@ async def search_trackid_sets(
 
 # ---------- List ----------
 
-@router.get("/", response_model=list[SetListItemOut])
+@router.get("/", response_model=SetListResponse)
 async def list_sets(
     q: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
@@ -107,7 +109,11 @@ async def list_sets(
     if q:
         stmt = stmt.where(DJSet.title.ilike(f"%{q}%"))
 
-    rows = (await db.execute(stmt)).all()
+    # Total count
+    count_result = await db.execute(select(func.count()).select_from(stmt.subquery()))
+    total = count_result.scalar()
+
+    rows = (await db.execute(stmt.offset(offset).limit(limit))).all()
 
     # Batch-fetch artists
     set_ids = [row[0].id for row in rows]
@@ -122,7 +128,7 @@ async def list_sets(
         for sid, name in aq.all():
             set_artists_map.setdefault(sid, []).append(name)
 
-    return [
+    items = [
         SetListItemOut(
             id=s.id,
             title=s.title,
@@ -131,12 +137,13 @@ async def list_sets(
             played_date=s.played_date,
             duration_ms=s.duration_ms,
             has_artwork=s.has_artwork,
-            total_tracks=total,
+            total_tracks=total_tracks,
             identified_tracks=identified,
             artists=set_artists_map.get(s.id, []),
         )
-        for s, total, identified in rows
+        for s, total_tracks, identified in rows
     ]
+    return SetListResponse(total=total, items=items)
 
 
 # ---------- Import ----------

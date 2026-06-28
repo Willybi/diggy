@@ -29,6 +29,9 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 - Le dernier chantier (C13) est un audit tests global pour consolider la couverture.
 - **Tests** : l'agent doit ecrire les tests qu'il juge utiles pour le code modifie/ajoute
   (dans `tests/`). Il choisit le type et la granularite selon ce qui fait sens.
+- **Opportunites** : les points mineurs, tweaks et ameliorations non-bloquants reperes
+  pendant les reviews sont notes dans la section "Opportunites" en bas de ce document,
+  pour etre revisites plus tard si pertinent.
 - **Commit naming** : l'agent doit proposer un nom de commit a la fin de son travail.
   Format : `type(scope): description` (conventional commits).
   Exemples : `fix(workers): use ON CONFLICT for ISRC dedup`, `feat(api): add pagination to /sets/`.
@@ -58,7 +61,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
   =====================================================
   T1  Securite & Auth           ████████  DONE         (100% — JWT 7j, CORS, port, auth, rate limit, headers)
   T2  Resilience Workers        ███████░  QUASI-DONE   (~90% fait — reste circuit breaker Beatport optionnel)
-  T3  Infra & DevOps            █████░░░  URGENT       (~95% fait — reste backups)
+  T3  Infra & DevOps            ████████  DONE         (100% — backups, health checks, multi-stage, gzip, cache)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
   T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
   T6  Schema DB & Integrite     ███░░░░░  MOYEN        (~80% fait — CHECK+CASCADE+index+genres)
@@ -86,7 +89,7 @@ C2   Fix race condition ISRC               T2      DONE
 C3   Unifier rate limiting workers          T2      DONE
 C4   Refactorer image upload 3→1           T2      DONE
 C5   DLQ + TIDAL refresh + moyens workers  T2      DONE
-C6   Backups PostgreSQL + MinIO            T3      A FAIRE
+C6   Backups PostgreSQL + MinIO            T3      DONE
 C7   Mega-query catalog + paginations      T4      A FAIRE
 C8   Validation & contrats API             T5      A FAIRE
 C9   Coherence DateTime timezone           T6      A FAIRE
@@ -309,8 +312,8 @@ Reste a faire : health check post-deploy CI/CD, timeouts Nginx, gzip, cache head
   beat 0.5cpu/256M, redis/frontend/minio/nginx 1cpu/512M)
 - [x] **Gzip Nginx** : `gzip on` pour JSON, JS, CSS, text (`gzip_min_length 1000`)
 - [x] **Cache headers** : assets statiques `expires 30d` + `Cache-Control: public, immutable`
-- [ ] **Backup PostgreSQL** : cron quotidien `pg_dump` vers un volume dedie ou S3
-- [ ] **Backup MinIO** : `mc mirror` periodique des buckets artworks
+- [x] **Backup PostgreSQL** : `pg_dump` gzip, retention 7j, service Docker `profiles: ["backup"]`
+- [x] **Backup MinIO** : `mc mirror` des 3 buckets, meme service Docker
 
 ### Definition of Done
 
@@ -697,6 +700,24 @@ Note : 136 artistes orphelins issus de splits feat attendent cette feature.
 Visualisation des connexions entre artistes via sets communs, feats, playlists partagees.
 Necessite L2 (multi-artiste) pour les connexions feat.
 Stack envisagee : D3.js ou vue-flow cote frontend.
+
+---
+
+## Opportunites
+
+> Points mineurs, tweaks et ameliorations non-bloquants reperes pendant les reviews.
+> A revisiter quand le backlog principal est vide ou si un chantier les rend faciles a integrer.
+
+- [ ] **Backup : Dockerfile dedie** — eviter le telechargement de `mc` (~20 Mo) + install
+  `postgresql16-client` a chaque run du service backup. Creer un Dockerfile avec outils pre-installes.
+  _(repere lors de la review C6)_
+- [ ] **`bulk_insert_radar_tracks` retourne `len(to_insert)`** au lieu du nombre reellement
+  insere (les conflits ON CONFLICT sont comptes). Compteur cosmétique, pas bloquant.
+  _(repere lors de la review C2)_
+- [ ] **Scripts one-shot upload non refactores** — `scripts/fetch_catalog_artworks.py` et
+  `scripts/backfill_set_artworks.py` ont encore leur propre logique d'upload image au lieu
+  d'utiliser `upload_image_bytes_to_bucket` centralise dans `deezer_enrich.py`.
+  _(repere lors de la review C4)_
 
 ---
 

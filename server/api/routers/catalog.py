@@ -123,12 +123,6 @@ async def list_catalog(
         .subquery()
     )
 
-    # Sous-requête : artist_id via normalized_name
-    artist_sub = (
-        select(Artist.id.label("artist_id"), Artist.normalized_name)
-        .subquery()
-    )
-
     select_cols = [
         CatalogEntry,
         func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
@@ -140,7 +134,6 @@ async def list_catalog(
         ut_sub.c.rb_mytags.label("ut_tags"),
         ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
         ut_sub.c.ut_avis.label("ut_avis"),
-        artist_sub.c.artist_id.label("artist_id"),
     ]
 
     if is_radar:
@@ -156,8 +149,6 @@ async def list_catalog(
         set_count, CatalogEntry.id == set_count.c.catalog_id
     ).outerjoin(
         ut_sub, CatalogEntry.id == ut_sub.c.catalog_id
-    ).outerjoin(
-        artist_sub, artist_sub.c.normalized_name == func.lower(CatalogEntry.artist)
     )
 
     if is_radar:
@@ -229,6 +220,17 @@ async def list_catalog(
     result = await db.execute(query.offset(skip).limit(limit))
     rows = result.all()
 
+    # Batch-fetch artist_ids for the page's entries (separate query, avoids cartesian product)
+    page_artists_lower = {row[0].artist.lower() for row in rows if row[0].artist}
+    artist_id_map: dict[str, int] = {}
+    if page_artists_lower:
+        artist_result = await db.execute(
+            select(Artist.id, Artist.normalized_name)
+            .where(Artist.normalized_name.in_(page_artists_lower))
+        )
+        for aid, aname in artist_result.all():
+            artist_id_map[aname] = aid
+
     entries = []
     for row in rows:
         entry = row[0]
@@ -241,14 +243,14 @@ async def list_catalog(
         ut_tags = row[7]
         ut_has_artwork = row[8]
         ut_avis = row[9]
-        art_id = row[10]
+        art_id = artist_id_map.get(entry.artist.lower()) if entry.artist else None
 
         radar_fields = {}
         if is_radar:
             radar_fields = {
-                "detected_at": row[11],
-                "source_name": row[12],
-                "source_kind": row[13],
+                "detected_at": row[10],
+                "source_name": row[11],
+                "source_kind": row[12],
             }
 
         # Style = premier tag RB
