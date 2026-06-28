@@ -15,7 +15,7 @@
   =====================================================
   T1  Securite & Auth           ██████░░  URGENT       (~25% fait — port 5432 + JWT)
   T2  Resilience Workers        █████░░░  URGENT       (~40% fait — retry+lock+re-raise)
-  T3  Infra & DevOps            █████░░░  URGENT       (~80% fait — critiques+nginx+CI done)
+  T3  Infra & DevOps            █████░░░  URGENT       (~95% fait — reste backups)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
   T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
   T6  Schema DB & Integrite     ███░░░░░  MOYEN        (~80% fait — CHECK+CASCADE+index+genres)
@@ -257,31 +257,10 @@ Reste a faire : health check post-deploy CI/CD, timeouts Nginx, gzip, cache head
 
 #### Moyen
 
-- [ ] **Multi-stage Dockerfile API** :
-  ```dockerfile
-  FROM python:3.13-slim AS builder
-  COPY requirements.txt .
-  RUN pip install --user --no-cache-dir -r requirements.txt
-
-  FROM python:3.13-slim
-  COPY --from=builder /root/.local /root/.local
-  ENV PATH=/root/.local/bin:$PATH
-  WORKDIR /app
-  COPY . .
-  ```
-- [ ] **Non-root user** dans le Dockerfile API :
-  ```dockerfile
-  RUN useradd -m -u 1000 diggy
-  USER diggy
-  ```
-- [ ] **Resource limits** Docker (eviter qu'un container mange tout le VPS) :
-  ```yaml
-  deploy:
-    resources:
-      limits:
-        cpus: '2'
-        memory: 1G
-  ```
+- [x] **Multi-stage Dockerfile API** : stage `builder` pour pip, stage final copie packages
+- [x] **Non-root user** : user `diggy` (uid 1000), `chown /app`, `USER diggy`
+- [x] **Resource limits** Docker : limites CPU/RAM sur les 9 services (api/workers 2cpu/1G,
+  beat 0.5cpu/256M, redis/frontend/minio/nginx 1cpu/512M)
 - [x] **Gzip Nginx** : `gzip on` pour JSON, JS, CSS, text (`gzip_min_length 1000`)
 - [x] **Cache headers** : assets statiques `expires 30d` + `Cache-Control: public, immutable`
 - [ ] **Backup PostgreSQL** : cron quotidien `pg_dump` vers un volume dedie ou S3
@@ -683,7 +662,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Securite | 4/10 | 5/10 (port 5432 ferme, JWT strict) | 8/10 |
 | Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
 | Resilience Workers | 4/10 | 5.5/10 (retry policy 11 tasks, lock Redis, re-raise) | 7/10 |
-| Infra/DevOps | 4/10 | 7.5/10 (--reload, restart, log rotation, health checks, .dockerignore, gzip, timeouts, cache, CI health) | 8/10 |
+| Infra/DevOps | 4/10 | 8/10 (cible atteinte — reste backups optionnels) | 8/10 |
 | Base de donnees | 7/10 | 8/10 (genres refonde, CHECK constraints, CASCADE, index) | 8/10 |
 | Tests | 3/10 | 3/10 | 5/10 |
 
