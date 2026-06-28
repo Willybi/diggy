@@ -269,4 +269,9 @@ def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None, ses
             entry.has_artwork = True
             changed = True
 
+    # Promote private → shared when Deezer confirms the track exists
+    if changed and getattr(entry, "scope", None) == "private" and entry.deezer_id:
+        entry.scope = "shared"
+        entry.owner_id = None
+
     return changed

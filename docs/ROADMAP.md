@@ -98,7 +98,7 @@ C7   Mega-query catalog + paginations      T4      DONE
 C8   Validation & contrats API             T5      DONE
 C9   Coherence DateTime timezone           T6      DONE (deja conforme)
 C10  F1 Phase 6 — Enforcement auth         F1      DONE
-C11  F1 Phase 5 — Trends + Collections     F1      A FAIRE
+C11  F1 Phase 5 — Trends + Collections     F1      DONE
 C12  F1 Phase 7 — Import multi-user        F1      A FAIRE
 C13  Audit tests global                    ALL     A FAIRE
 ```

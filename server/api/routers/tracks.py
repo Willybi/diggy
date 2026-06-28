@@ -127,6 +127,7 @@ async def bulk_import(
                     artist=t.artist,
                     normalized_key=norm_key,
                     scope="private",
+                    owner_id=uid,
                     origin="rekordbox",
                 )
                 db.add(cat_entry)
