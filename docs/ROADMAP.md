@@ -13,7 +13,7 @@
 ```
                          SOCLE TECHNIQUE
   =====================================================
-  T1  Securite & Auth           ██████░░  URGENT       (~60% fait — port+JWT+CORS+headers+exception)
+  T1  Securite & Auth           ██████░░  URGENT       (~80% fait — reste rate limiting + JWT expiry)
   T2  Resilience Workers        █████░░░  URGENT       (~40% fait — retry+lock+re-raise)
   T3  Infra & DevOps            █████░░░  URGENT       (~95% fait — reste backups)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
@@ -84,18 +84,16 @@ critiques et 4 problemes moyens.
 - [x] **Fermer CORS** : `allow_origins=os.environ.get("CORS_ORIGIN", "...").split(",")`
 - [x] **Supprimer port 5432 public** : `ports: - "5432:5432"` retire de `docker-compose.yml`
   - PostgreSQL accessible uniquement depuis le reseau Docker interne
-- [ ] **Forcer auth sur mutations** : les endpoints POST/PATCH/DELETE doivent utiliser
-  `get_current_user` (obligatoire), pas `get_current_user_optional`
-  - Le fallback `user_id=1` fait que tous les guests modifient les donnees du meme user
-  - Garder `get_current_user_optional` uniquement pour les GET en lecture
+- [x] **Forcer auth sur mutations** : tous les POST/PATCH/DELETE utilisent `get_current_user`
+  (tracks, radar, opinions, watchlist). GET restent avec `get_current_user_optional`.
 - [x] **Supprimer le fallback JWT_SECRET** : `os.environ["JWT_SECRET"]` (crash si absent)
 
 #### Haut
 
 - [ ] **Rate limiting** : integrer `slowapi` sur `/auth/login` (5/min), `/auth/register` (3/min)
   - Middleware global `@limiter.limit("60/minute")` sur les autres routes
-- [ ] **Valider email** : utiliser `pydantic.EmailStr` dans `RegisterIn`
-- [ ] **Valider password** : `Field(min_length=8)` dans `RegisterIn`
+- [x] **Valider email** : `EmailStr` dans `RegisterIn`
+- [x] **Valider password** : `Field(min_length=8, max_length=128)` dans `RegisterIn`
 - [ ] **Reduire expiration JWT** : passer de 30 jours a 7 jours (compromis usage solo)
 
 #### Moyen
@@ -651,7 +649,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Domaine | Score audit (juin 2026) | Actuel (juin 2026 fin) | Cible apres T1-T6 |
 |---------|------------------------|------------------------|--------------------|
 | Architecture | 7/10 | 7/10 | 8/10 |
-| Securite | 4/10 | 6.5/10 (port 5432, JWT strict, CORS, headers Nginx, exception handler) | 8/10 |
+| Securite | 4/10 | 7.5/10 (port, JWT, CORS, headers, exception handler, auth mutations, validation) | 8/10 |
 | Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
 | Resilience Workers | 4/10 | 5.5/10 (retry policy 11 tasks, lock Redis, re-raise) | 7/10 |
 | Infra/DevOps | 4/10 | 8/10 (cible atteinte — reste backups optionnels) | 8/10 |
