@@ -243,40 +243,48 @@ async def batch_update_radar_state(
     Body: [{"catalog_id": 123, "status": "seen"}, ...]
     """
     uid = _uid(user)
-    updated = 0
+    now = datetime.now(timezone.utc)
 
+    # Validate & resolve statuses upfront
+    valid_items = []
     for item in body:
         cid = item.get("catalog_id")
         st = item.get("status")
         if not cid or st not in _VALID_STATUSES:
             continue
+        valid_items.append((cid, _STATUS_ALIAS.get(st, st)))
 
-        resolved = _STATUS_ALIAS.get(st, st)
+    if not valid_items:
+        return {"updated": 0}
 
-        result = await db.execute(
-            select(UserRadarState).where(
-                UserRadarState.user_id == uid,
-                UserRadarState.catalog_id == cid,
-            )
+    catalog_ids = [cid for cid, _ in valid_items]
+
+    # Single SELECT for all existing states
+    existing_result = await db.execute(
+        select(UserRadarState).where(
+            UserRadarState.user_id == uid,
+            UserRadarState.catalog_id.in_(catalog_ids),
         )
-        state = result.scalar_one_or_none()
-        if state:
-            state.status = resolved
-            state.updated_at = datetime.now(timezone.utc)
+    )
+    existing_map = {s.catalog_id: s for s in existing_result.scalars()}
+
+    # Update or insert without individual queries
+    for cid, resolved in valid_items:
+        if cid in existing_map:
+            existing_map[cid].status = resolved
+            existing_map[cid].updated_at = now
         else:
             db.add(UserRadarState(
                 user_id=uid, catalog_id=cid, status=resolved,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=now,
             ))
 
         # Sync → user_opinions + user_tracks.avis
         opinion_val = RADAR_TO_OPINION.get(resolved)
         await sync_track_opinion(db, uid, cid, opinion_val)
 
-        updated += 1
-
     await db.commit()
-    return {"updated": updated}
+    return {"updated": len(valid_items)}
 
 
 # ---------- Legacy endpoints (kept for crawl_radar task compat) ----------
