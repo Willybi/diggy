@@ -188,6 +188,81 @@
       </div>
     </section>
 
+    <!-- Mappings genres -->
+    <section class="admin-section">
+      <div class="section-header">
+        <h2 class="section-title">
+          Mappings genres
+          <span v-if="mappingStats" class="flag-count">{{ mappingStats.unmapped }} / {{ mappingStats.total }} non mappés</span>
+        </h2>
+        <div class="filter-group">
+          <button class="filter-btn" :class="{ active: !mappingShowUnmapped }" @click="mappingShowUnmapped = false; fetchMappings()">Tous</button>
+          <button class="filter-btn" :class="{ active: mappingShowUnmapped }" @click="mappingShowUnmapped = true; fetchMappings()">Non mappés</button>
+        </div>
+      </div>
+      <p class="section-sub">Associe les noms de genres bruts (Beatport/Deezer) aux nœuds de la taxonomie Wikidata.</p>
+
+      <div v-if="loadingMappings" class="state">Chargement…</div>
+      <div v-else-if="mappings.length === 0" class="state">Aucun mapping.</div>
+
+      <div v-else class="table-wrap">
+        <table class="flag-table">
+          <thead>
+            <tr>
+              <th>Nom brut</th>
+              <th>Nœud taxonomique</th>
+              <th style="width: 260px">Recherche</th>
+              <th style="width: 80px" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in mappings" :key="m.id">
+              <td>
+                <span class="raw-string">{{ m.rawName }}</span>
+              </td>
+              <td>
+                <span v-if="m.nodeLabel" class="token-pill">{{ m.nodeLabel }}</span>
+                <span v-else class="muted" style="font-size: 12px; color: var(--ink-3)">—</span>
+              </td>
+              <td>
+                <div class="mapping-search-wrap">
+                  <input
+                    v-model="mappingSearch[m.id]"
+                    class="mapping-search-input"
+                    placeholder="Chercher un genre…"
+                    @input="onMappingSearch(m.id)"
+                  />
+                  <div v-if="mappingResults[m.id]?.length" class="mapping-dropdown">
+                    <div
+                      v-for="n in mappingResults[m.id]"
+                      :key="n.id"
+                      class="mapping-option"
+                      :class="{ selected: mappingSelected[m.id] === n.id }"
+                      @click="mappingSelected[m.id] = n.id; mappingSearch[m.id] = n.label; mappingResults[m.id] = []"
+                    >
+                      <span class="mapping-option-label">{{ n.label }}</span>
+                      <span class="mapping-option-qid mono">{{ n.wikidataId }}</span>
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <button
+                  v-if="mappingSelected[m.id]"
+                  class="btn-sync"
+                  style="padding: 5px 12px; font-size: 11px"
+                  :disabled="savingMapping[m.id]"
+                  @click="saveMapping(m)"
+                >
+                  {{ savingMapping[m.id] ? '…' : 'Associer' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Crawl History -->
     <section class="admin-section">
       <div class="section-header">
@@ -410,6 +485,75 @@ const linkSuccess = ref(false)
 const linkError = ref('')
 let linkDbTimer = null
 let linkDeezerTimer = null
+
+// Genre mappings
+const mappings = ref([])
+const loadingMappings = ref(false)
+const mappingShowUnmapped = ref(true)
+const mappingStats = ref(null)
+const mappingSearch = reactive({})
+const mappingResults = reactive({})
+const mappingSelected = reactive({})
+const savingMapping = reactive({})
+let mappingTimers = {}
+
+async function fetchMappings() {
+  loadingMappings.value = true
+  try {
+    const params = { limit: 200 }
+    if (mappingShowUnmapped.value) params.unmapped = true
+    const { data } = await api.get('/api/taxonomy/mappings', { params })
+    mappings.value = data.items
+  } finally {
+    loadingMappings.value = false
+  }
+}
+
+async function fetchMappingStats() {
+  const [all, unmapped] = await Promise.all([
+    api.get('/api/taxonomy/mappings', { params: { limit: 1 } }),
+    api.get('/api/taxonomy/mappings', { params: { unmapped: true, limit: 1 } }),
+  ])
+  mappingStats.value = { total: all.data.total, unmapped: unmapped.data.total }
+}
+
+function onMappingSearch(mappingId) {
+  clearTimeout(mappingTimers[mappingId])
+  mappingSelected[mappingId] = null
+  const q = (mappingSearch[mappingId] || '').trim()
+  if (!q) { mappingResults[mappingId] = []; return }
+  mappingTimers[mappingId] = setTimeout(async () => {
+    const { data } = await api.get('/api/taxonomy/nodes', { params: { q, limit: 8 } })
+    mappingResults[mappingId] = data.items
+  }, 250)
+}
+
+async function saveMapping(m) {
+  const nodeId = mappingSelected[m.id]
+  if (!nodeId) return
+  savingMapping[m.id] = true
+  try {
+    await api.put(`/api/taxonomy/mappings/${encodeURIComponent(m.rawName)}`, null, {
+      params: { node_id: nodeId },
+    })
+    // Update in-place
+    const node = mappingResults[m.id]?.find(n => n.id === nodeId)
+    m.nodeId = nodeId
+    m.nodeLabel = node?.label || mappingSearch[m.id]
+    m.nodeWikidataId = node?.wikidataId
+    // Clear search state
+    mappingSearch[m.id] = ''
+    mappingResults[m.id] = []
+    mappingSelected[m.id] = null
+    // If showing unmapped, remove it from list
+    if (mappingShowUnmapped.value) {
+      mappings.value = mappings.value.filter(x => x.id !== m.id)
+    }
+    await fetchMappingStats()
+  } finally {
+    savingMapping[m.id] = false
+  }
+}
 
 // Crawl logs
 const crawlLogs = ref([])
@@ -762,6 +906,8 @@ onMounted(() => {
   fetchFlags()
   fetchNoDeezerArtists()
   fetchCrawlLogs()
+  fetchMappings()
+  fetchMappingStats()
 })
 </script>
 
@@ -1114,4 +1260,44 @@ onMounted(() => {
 .status-badge.running { background: var(--accent-soft); color: var(--accent-ink); }
 .status-badge.success { background: var(--pos-soft); color: var(--pos-ink); }
 .status-badge.error { background: var(--neg-soft); color: var(--neg-ink); }
+
+/* Genre mappings */
+.mapping-search-wrap { position: relative; }
+.mapping-search-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 12px/1 var(--font-ui);
+  box-sizing: border-box;
+}
+.mapping-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 2px;
+}
+.mapping-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.mapping-option:hover { background: var(--surface-2); }
+.mapping-option.selected { background: var(--accent-soft); }
+.mapping-option-label { font: 400 12px/1.3 var(--font-ui); color: var(--ink); }
+.mapping-option-qid { font-size: 10px; color: var(--ink-3); }
+.muted { color: var(--ink-3); }
 </style>

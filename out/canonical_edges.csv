@@ -1,0 +1,730 @@
+from_id,from_label,to_id,to_label,type,source
+Q1071961,Chicago house,Q58339,disco,parent,genregenealogy
+Q341364,acid house,Q1071961,Chicago house,parent,genregenealogy
+Q874038,deep house,Q1071961,Chicago house,parent,genregenealogy
+Q928825,garage house,Q1071961,Chicago house,parent,genregenealogy
+Q20502,house music,Q1071961,Chicago house,parent,genregenealogy
+Q915152,progressive house,Q20502,house music,parent,genregenealogy
+Q915152,progressive house,Q170611,techno,parent,genregenealogy
+Q780517,speed garage,Q928825,garage house,parent,genregenealogy
+Q780517,speed garage,Q874038,deep house,parent,genregenealogy
+Q1455292,French house,Q20502,house music,parent,genregenealogy
+Q1455292,French house,Q58339,disco,parent,genregenealogy
+Q627906,electro house,Q1455292,French house,parent,genregenealogy
+Q598593,tech house,Q170611,techno,parent,genregenealogy
+Q598593,tech house,Q20502,house music,parent,genregenealogy
+Q851213,electronic dance music,Q627906,electro house,parent,genregenealogy
+Q851213,electronic dance music,Q915152,progressive house,parent,genregenealogy
+Q526463,Detroit techno,kraftwerk,Kraftwerk,parent,genregenealogy
+Q526463,Detroit techno,Q744417,Italo disco,parent,genregenealogy
+Q526463,Detroit techno,Q1071961,Chicago house,parent,genregenealogy
+Q526463,Detroit techno,Q217597,electro,parent,genregenealogy
+Q170611,techno,Q526463,Detroit techno,parent,genregenealogy
+Q170435,trance,Q341364,acid house,parent,genregenealogy
+Q170435,trance,Q170611,techno,parent,genregenealogy
+Q1430587,minimal techno,Q170611,techno,parent,genregenealogy
+Q9149801,ambient techno,Q170611,techno,parent,genregenealogy
+uk-rave,UK Rave,Q341364,acid house,parent,genregenealogy
+Q1585075,breakbeat hardcore,uk-rave,UK Rave,parent,genregenealogy
+Q1585075,breakbeat hardcore,Q341364,acid house,parent,genregenealogy
+Q1102161,jungle,Q1585075,breakbeat hardcore,parent,genregenealogy
+Q339906,happy hardcore,Q1585075,breakbeat hardcore,parent,genregenealogy
+Q188994,drum and bass,Q1102161,jungle,parent,genregenealogy
+Q1165777,UK garage,Q1102161,jungle,parent,genregenealogy
+liquid-dnb,Liquid DnB,Q188994,drum and bass,parent,genregenealogy
+Q1165777,UK garage,Q20502,house music,parent,genregenealogy
+Q1165777,UK garage,Q928825,garage house,parent,genregenealogy
+Q1165777,UK garage,Q780517,speed garage,parent,genregenealogy
+Q188994,drum and bass,Q1165777,UK garage,influence,genregenealogy
+trip-hop,Trip Hop,Q1165777,UK garage,influence,genregenealogy
+Q1751409,2-step garage,Q1165777,UK garage,parent,genregenealogy
+Q1166726,grime,Q1165777,UK garage,parent,genregenealogy
+Q20474,dubstep,Q1165777,UK garage,parent,genregenealogy
+Q4846346,bassline,Q1165777,UK garage,parent,genregenealogy
+Q5510816,future garage,Q1165777,UK garage,parent,genregenealogy
+Q20903,brostep,Q20474,dubstep,parent,genregenealogy
+Q2346991,UK bass,Q20474,dubstep,parent,genregenealogy
+Q20903,brostep,Q851213,electronic dance music,influence,genregenealogy
+Q5510816,future garage,Q2346991,UK bass,influence,genregenealogy
+Q663519,breakbeat,Q58339,disco,parent,genregenealogy
+Q1165777,UK garage,Q1166726,grime,influence,genregenealogy
+nyc-loft-culture,NYC Loft Culture,Q58339,disco,parent,genregenealogy
+Q606393,Hi-NRG,nyc-loft-culture,NYC Loft Culture,parent,genregenealogy
+Q606393,Hi-NRG,Q58339,disco,parent,genregenealogy
+Q20502,house music,Q606393,Hi-NRG,parent,genregenealogy
+Q20502,house music,Q58339,disco,parent,genregenealogy
+Q20502,house music,Q744417,Italo disco,parent,genregenealogy
+Q20502,house music,Q217597,electro,parent,genregenealogy
+Q1071961,Chicago house,Q20502,house music,parent,genregenealogy
+Q874038,deep house,Q20502,house music,parent,genregenealogy
+Q341364,acid house,Q20502,house music,parent,genregenealogy
+Q928825,garage house,Q20502,house music,parent,genregenealogy
+Q928825,garage house,nyc-loft-culture,NYC Loft Culture,parent,genregenealogy
+Q915152,progressive house,Q341364,acid house,parent,genregenealogy
+Q915152,progressive house,Q874038,deep house,parent,genregenealogy
+Q598593,tech house,Q874038,deep house,parent,genregenealogy
+Q202925,tribal house,Q1071961,Chicago house,parent,genregenealogy
+Q360596,disco house,Q20502,house music,parent,genregenealogy
+Q360596,disco house,Q58339,disco,parent,genregenealogy
+Q1931555,microhouse,Q1071961,Chicago house,parent,genregenealogy
+Q1931555,microhouse,Q598593,tech house,parent,genregenealogy
+Q116296482,melodic house,Q915152,progressive house,parent,genregenealogy
+Q116296482,melodic house,Q874038,deep house,parent,genregenealogy
+lo-fi-house,Lo-Fi House,Q874038,deep house,parent,genregenealogy
+Q109148913,organic house,Q874038,deep house,parent,genregenealogy
+Q915152,progressive house,Q170435,trance,influence,genregenealogy
+Q1165777,UK garage,Q874038,deep house,parent,genregenealogy
+Q874038,deep house,Q20474,dubstep,influence,genregenealogy
+Q170611,techno,kraftwerk,Kraftwerk,parent,genregenealogy
+Q170611,techno,Q1071961,Chicago house,parent,genregenealogy
+Q526463,Detroit techno,Q170611,techno,parent,genregenealogy
+Q341395,acid techno,Q526463,Detroit techno,parent,genregenealogy
+Q341395,acid techno,Q1071961,Chicago house,parent,genregenealogy
+Q106522080,bleep techno,Q526463,Detroit techno,parent,genregenealogy
+Q341395,acid techno,Q106522080,bleep techno,influence,genregenealogy
+Q1430587,minimal techno,Q526463,Detroit techno,parent,genregenealogy
+Q9149801,ambient techno,Q526463,Detroit techno,parent,genregenealogy
+Q1262781,dub techno,Q526463,Detroit techno,parent,genregenealogy
+Q1262781,dub techno,Q1430587,minimal techno,parent,genregenealogy
+Q388906,hardcore,Q170611,techno,parent,genregenealogy
+Q820049,gabber,Q388906,hardcore,parent,genregenealogy
+schranz,Schranz,Q388906,hardcore,parent,genregenealogy
+Q86674318,Berlin techno,Q526463,Detroit techno,parent,genregenealogy
+Q86674318,Berlin techno,Q1430587,minimal techno,parent,genregenealogy
+Q86674318,Berlin techno,Q341395,acid techno,parent,genregenealogy
+Q110185782,melodic techno,Q1430587,minimal techno,parent,genregenealogy
+Q110185782,melodic techno,Q1262781,dub techno,parent,genregenealogy
+Q29480448,industrial techno,Q1430587,minimal techno,parent,genregenealogy
+hypnotic-techno,Hypnotic Techno,Q1430587,minimal techno,parent,genregenealogy
+hypnotic-techno,Hypnotic Techno,Q86674318,Berlin techno,parent,genregenealogy
+Q170435,trance,Q341395,acid techno,parent,genregenealogy
+Q170611,techno,Q20502,house music,influence,genregenealogy
+Q170611,techno,Q1585075,breakbeat hardcore,influence,genregenealogy
+Q1335569,techstep,Q188994,drum and bass,parent,genregenealogy
+Q46649,jump-up,Q188994,drum and bass,parent,genregenealogy
+roller-dnb,Rollers,Q188994,drum and bass,parent,genregenealogy
+Q1166321,darkstep,Q1335569,techstep,parent,genregenealogy
+Q1166321,darkstep,Q188994,drum and bass,parent,genregenealogy
+Q107010574,halftime,Q188994,drum and bass,parent,genregenealogy
+Q135553474,autonomic,liquid-dnb,Liquid DnB,parent,genregenealogy
+Q135553474,autonomic,Q188994,drum and bass,parent,genregenealogy
+deep-dnb,Deep DnB,liquid-dnb,Liquid DnB,parent,genregenealogy
+deep-dnb,Deep DnB,Q188994,drum and bass,parent,genregenealogy
+hospital-dnb,Mainstream DnB,liquid-dnb,Liquid DnB,parent,genregenealogy
+hospital-dnb,Mainstream DnB,Q188994,drum and bass,parent,genregenealogy
+dnb-170,170bpm Revival,Q46649,jump-up,parent,genregenealogy
+dnb-170,170bpm Revival,Q188994,drum and bass,parent,genregenealogy
+Q107010574,halftime,Q20474,dubstep,influence,genregenealogy
+Q188994,drum and bass,Q20474,dubstep,influence,genregenealogy
+euro-disco,Euro Disco,Q58339,disco,influence,genregenealogy
+euro-disco,Euro Disco,Q58339,disco,parent,genregenealogy
+post-disco,Post-Disco,Q58339,disco,parent,genregenealogy
+boogie,Boogie,post-disco,Post-Disco,parent,genregenealogy
+Q744417,Italo disco,post-disco,Post-Disco,parent,genregenealogy
+Q744417,Italo disco,euro-disco,Euro Disco,parent,genregenealogy
+Q606393,Hi-NRG,Q744417,Italo disco,influence,genregenealogy
+Q655514,freestyle music,post-disco,Post-Disco,parent,genregenealogy
+Q216961,Eurodance,Q744417,Italo disco,parent,genregenealogy
+Q216961,Eurodance,Q606393,Hi-NRG,parent,genregenealogy
+Q4045538,nu-disco,Q58339,disco,parent,genregenealogy
+Q20502,house music,post-disco,Post-Disco,parent,genregenealogy
+Q20502,house music,boogie,Boogie,parent,genregenealogy
+Q606393,Hi-NRG,Q20502,house music,influence,genregenealogy
+Q20502,house music,Q655514,freestyle music,parent,genregenealogy
+Q217597,electro,post-disco,Post-Disco,parent,genregenealogy
+boogie,Boogie,Q217597,electro,influence,genregenealogy
+Q851213,electronic dance music,Q11787389,club/dance music,parent,wikidata
+Q19358266,electro latino,Q851213,electronic dance music,parent,wikidata
+Q25408203,meme techno,Q851213,electronic dance music,parent,wikidata
+Q10293901,Hardcore Continuum,Q851213,electronic dance music,parent,wikidata
+Q11332204,funkot,Q851213,electronic dance music,parent,wikidata
+Q106547179,Bahia house,Q9300201,samba de roda,parent,wikidata
+Q1166726,grime,Q851213,electronic dance music,parent,wikidata
+Q12200830,progressive electronic dance music,Q851213,electronic dance music,parent,wikidata
+Q663519,breakbeat,Q851213,electronic dance music,parent,wikidata
+Q388906,hardcore,Q851213,electronic dance music,parent,wikidata
+Q372103,electronic body music,Q851213,electronic dance music,parent,wikidata
+Q2304103,Sound of Frankfurt,Q851213,electronic dance music,parent,wikidata
+Q362515,electrotango,Q851213,electronic dance music,parent,wikidata
+Q1166726,grime,Q6010,rapping,parent,wikidata
+Q372103,electronic body music,Q936942,post-industrial music,parent,wikidata
+Q3039303,dreck-electro,Q851213,electronic dance music,parent,wikidata
+Q1325944,electro,Q851213,electronic dance music,parent,wikidata
+Q21006606,bass,Q96740854,bass music,parent,wikidata
+Q216961,Eurodance,Q3328676,music of Europe,parent,wikidata
+Q655514,freestyle music,Q116985035,electronic pop,parent,wikidata
+Q3108920,glitch hop,Q1100989,glitch,parent,wikidata
+Q170435,trance,Q851213,electronic dance music,parent,wikidata
+Q65937774,breaks,Q851213,electronic dance music,parent,wikidata
+Q7844612,tribal guarachero,Q98528166,Latin electronic music,parent,wikidata
+Q2406633,broken beat,Q851213,electronic dance music,parent,wikidata
+Q1191544,kuduro,Q851213,electronic dance music,parent,wikidata
+Q851213,electronic dance music,Q9778,electronic music,parent,wikidata
+Q216961,Eurodance,Q851213,electronic dance music,parent,wikidata
+Q848852,Eurobeat,Q851213,electronic dance music,parent,wikidata
+Q104602773,tanzhammer-pop,Q851213,electronic dance music,parent,wikidata
+Q65330805,singeli,Q3868600,music of Tanzania,parent,wikidata
+Q5716953,bakalao,Q851213,electronic dance music,parent,wikidata
+Q21092,moombahton,Q851213,electronic dance music,parent,wikidata
+Q2467789,US-Dancefloor,Q851213,electronic dance music,parent,wikidata
+Q170611,techno,Q851213,electronic dance music,parent,wikidata
+Q602561,electro swing,Q851213,electronic dance music,parent,wikidata
+Q4045538,nu-disco,Q851213,electronic dance music,parent,wikidata
+Q655514,freestyle music,Q211756,dance-pop,parent,wikidata
+Q7844612,tribal guarachero,Q851213,electronic dance music,parent,wikidata
+Q65330805,singeli,Q851213,electronic dance music,parent,wikidata
+Q17146868,shangaan electro,Q851213,electronic dance music,parent,wikidata
+Q217597,electro,Q851213,electronic dance music,parent,wikidata
+Q106514601,glitch hop (EDM),Q851213,electronic dance music,parent,wikidata
+Q19358266,electro latino,Q116985035,electronic pop,parent,wikidata
+Q4049849,spacesynth,Q851213,electronic dance music,parent,wikidata
+Q2866725,Balearic beat,Q757143,chill-out music,parent,wikidata
+Q3108920,glitch hop,Q851213,electronic dance music,parent,wikidata
+Q2866725,Balearic beat,Q851213,electronic dance music,parent,wikidata
+Q105672644,electro-jazz,Q105527,jazz fusion,parent,wikidata
+Q861823,electroclash,Q851213,electronic dance music,parent,wikidata
+Q106520965,nerdcore techno,Q851213,electronic dance music,parent,wikidata
+Q382343,Nortec,Q851213,electronic dance music,parent,wikidata
+Q30902501,tecnorumba,Q211756,dance-pop,parent,wikidata
+Q106130091,post-dubstep,Q851213,electronic dance music,parent,wikidata
+Q655514,freestyle music,Q851213,electronic dance music,parent,wikidata
+Q1191544,kuduro,Q106588687,music of Central Africa,parent,wikidata
+Q188994,drum and bass,Q851213,electronic dance music,parent,wikidata
+Q888137,skweee,Q851213,electronic dance music,parent,wikidata
+Q3108920,glitch hop,Q11401,hip-hop,parent,wikidata
+Q101109587,future rave,Q851213,electronic dance music,parent,wikidata
+Q513357,coupé-décalé,Q227036,zouglou,parent,wikidata
+Q30594541,hardvapour,Q15733887,vaporwave,parent,wikidata
+Q19358266,electro latino,Q98528166,Latin electronic music,parent,wikidata
+Q98528149,electro-disco,Q851213,electronic dance music,parent,wikidata
+Q1136045,wonky,Q851213,electronic dance music,parent,wikidata
+Q1661924,industrial dance,Q851213,electronic dance music,parent,wikidata
+Q1165777,UK garage,Q851213,electronic dance music,parent,wikidata
+Q21006606,bass,Q851213,electronic dance music,parent,wikidata
+Q9364028,UK funky,Q851213,electronic dance music,parent,wikidata
+Q100922002,budots,Q851213,electronic dance music,parent,wikidata
+Q30594541,hardvapour,Q851213,electronic dance music,parent,wikidata
+Q30902501,tecnorumba,Q851213,electronic dance music,parent,wikidata
+Q56276781,powwow-step,Q851213,electronic dance music,parent,wikidata
+Q2406633,broken beat,Q817138,electronica,parent,wikidata
+Q98528149,electro-disco,Q58339,disco,parent,wikidata
+Q55641646,Russ music,Q833189,music of Norway,parent,wikidata
+Q55641646,Russ music,Q851213,electronic dance music,parent,wikidata
+Q55641735,shamstep,Q851213,electronic dance music,parent,wikidata
+Q898709,rave music,Q851213,electronic dance music,parent,wikidata
+Q18379604,Christian electronic dance music,Q6452410,Christian music,parent,wikidata
+Q30902501,tecnorumba,Q964987,music of Spain,parent,wikidata
+Q513357,coupé-décalé,Q851213,electronic dance music,parent,wikidata
+Q18379604,Christian electronic dance music,Q851213,electronic dance music,parent,wikidata
+Q106547179,Bahia house,Q851213,electronic dance music,parent,wikidata
+Q1033912,hard dance,Q851213,electronic dance music,parent,wikidata
+Q660984,intelligent dance music,Q851213,electronic dance music,parent,wikidata
+Q105672644,electro-jazz,Q851213,electronic dance music,parent,wikidata
+Q20502,house music,Q851213,electronic dance music,parent,wikidata
+Q2304103,Sound of Frankfurt,Q2743758,music of Germany,parent,wikidata
+Q627906,electro house,Q20502,house music,parent,wikidata
+Q105636940,leftfield house,Q65937906,leftfield electronic,parent,wikidata
+Q173844,vocal house,Q20502,house music,parent,wikidata
+Q18358879,outsider house,Q20502,house music,parent,wikidata
+Q3056538,Latin house,Q20502,house music,parent,wikidata
+Q388100,Afro house,Q20502,house music,parent,wikidata
+Q29973057,gqom,Q4794612,music of South Africa,parent,wikidata
+Q341364,acid house,Q106528337,acid,parent,wikidata
+Q11693015,dark house,Q20502,house music,parent,wikidata
+Q85748774,Brazilian bass,Q20502,house music,parent,wikidata
+Q1938987,club house,Q20502,house music,parent,wikidata
+Q108321657,jackin' house,Q20502,house music,parent,wikidata
+Q106634944,festival progressive house,Q20502,house music,parent,wikidata
+Q107090501,Chicago hard house,Q20502,house music,parent,wikidata
+Q1931555,microhouse,Q20502,house music,parent,wikidata
+Q27345019,bass house,Q20502,house music,parent,wikidata
+Q1585015,hard house,Q1033912,hard dance,parent,wikidata
+Q1027999,vocal trance,Q170435,trance,parent,wikidata
+Q3032212,diva house,Q20502,house music,parent,wikidata
+Q80725127,future funk,Q15733887,vaporwave,parent,wikidata
+Q106576141,ghetto club,Q851213,electronic dance music,parent,wikidata
+Q601235,hip house,Q11401,hip-hop,parent,wikidata
+Q601235,hip house,Q6010,rapping,parent,wikidata
+Q3050572,electro urban,Q2529400,urban contemporary,parent,wikidata
+Q20021059,future house,Q20502,house music,parent,wikidata
+Q85741139,Amapiano,Q20502,house music,parent,wikidata
+Q106522098,ballroom,Q20502,house music,parent,wikidata
+Q5071702,changa tuki,Q98528166,Latin electronic music,parent,wikidata
+Q30917612,Eurohouse,Q20502,house music,parent,wikidata
+Q4852979,Baltimore club,Q20502,house music,parent,wikidata
+Q2702280,Italo house,Q20502,house music,parent,wikidata
+Q2465085,ambient house,Q757143,chill-out music,parent,wikidata
+Q106876075,bubbling,Q474027,dancehall,parent,wikidata
+Q11696996,epic house,Q20502,house music,parent,wikidata
+Q9373944,vixa,Q20502,house music,parent,wikidata
+Q780517,speed garage,Q20502,house music,parent,wikidata
+Q601235,hip house,Q20502,house music,parent,wikidata
+Q202925,tribal house,Q20502,house music,parent,wikidata
+Q4852979,Baltimore club,Q107091813,East Coast club,parent,wikidata
+Q29973057,gqom,Q20502,house music,parent,wikidata
+Q108297243,flex dance music,Q474027,dancehall,parent,wikidata
+Q27345019,bass house,Q114880130,bass music (EDM),parent,wikidata
+Q106876075,bubbling,Q851213,electronic dance music,parent,wikidata
+Q108610259,circuit house,Q20502,house music,parent,wikidata
+Q98088041,smurf house,Q20502,house music,parent,wikidata
+Q1415568,filter house,Q20502,house music,parent,wikidata
+Q915152,progressive house,Q12200830,progressive electronic dance music,parent,wikidata
+Q106522098,ballroom,Q114880124,US bass music,parent,wikidata
+Q108297187,balani show,Q6942329,music of West Africa,parent,wikidata
+Q108297187,balani show,Q851213,electronic dance music,parent,wikidata
+Q108297243,flex dance music,Q851213,electronic dance music,parent,wikidata
+Q202925,tribal house,Q106576170,tribal music,parent,wikidata
+Q956717,kwaito,Q4794612,music of South Africa,parent,wikidata
+Q15300817,big room house,Q20502,house music,parent,wikidata
+Q890887,Eurotrance,Q170435,trance,parent,wikidata
+Q107697201,hard drum,Q851213,electronic dance music,parent,wikidata
+Q3056538,Latin house,Q18345375,Latin music,parent,wikidata
+Q2465085,ambient house,Q20502,house music,parent,wikidata
+Q80725127,future funk,Q20502,house music,parent,wikidata
+Q481900,acid trance,Q106528337,acid,parent,wikidata
+Q1339027,dream trance,Q170435,trance,parent,wikidata
+Q2302695,tech trance,Q170435,trance,parent,wikidata
+Q25407483,stadium house,Q20502,house music,parent,wikidata
+Q2260696,progressive trance,Q170435,trance,parent,wikidata
+Q4852979,Baltimore club,Q663519,breakbeat,parent,wikidata
+Q3050572,electro urban,Q20502,house music,parent,wikidata
+Q341364,acid house,Q898709,rave music,parent,wikidata
+Q832665,Hard trance,Q170435,trance,parent,wikidata
+Q832665,Hard trance,Q1033912,hard dance,parent,wikidata
+Q18342587,tropical house,Q20502,house music,parent,wikidata
+Q780517,speed garage,Q1165777,UK garage,parent,wikidata
+Q5071702,changa tuki,Q20502,house music,parent,wikidata
+Q108297203,bubbling house,Q20502,house music,parent,wikidata
+Q890887,Eurotrance,Q3328676,music of Europe,parent,wikidata
+Q622871,psychedelic trance,Q170435,trance,parent,wikidata
+Q56342439,dream house,Q20502,house music,parent,wikidata
+Q105636940,leftfield house,Q20502,house music,parent,wikidata
+Q105637110,jazz house,Q20502,house music,parent,wikidata
+Q60729751,soulful house,Q20502,house music,parent,wikidata
+Q1585015,hard house,Q20502,house music,parent,wikidata
+Q481900,acid trance,Q170435,trance,parent,wikidata
+Q2748817,ghetto house,Q20502,house music,parent,wikidata
+Q2260696,progressive trance,Q12200830,progressive electronic dance music,parent,wikidata
+Q107697041,g-house,Q20502,house music,parent,wikidata
+Q27961199,moombahsoul,Q21092,moombahton,parent,wikidata
+Q956717,kwaito,Q20502,house music,parent,wikidata
+Q85741139,Amapiano,Q4794612,music of South Africa,parent,wikidata
+Q949369,funky house,Q20502,house music,parent,wikidata
+Q1136765,uplifting trance,Q170435,trance,parent,wikidata
+Q9373944,vixa,Q473602,music of Poland,parent,wikidata
+Q967654,neurofunk,Q188994,drum and bass,parent,wikidata
+Q105636937,experimental techno,Q110527222,experimental club music,parent,wikidata
+Q341396,acidcore,Q388906,hardcore,parent,wikidata
+Q341395,acid techno,Q170611,techno,parent,wikidata
+Q903735,breakcore,Q388906,hardcore,parent,wikidata
+Q3179786,sambass,Q188994,drum and bass,parent,wikidata
+Q1738175,Schaffel,Q170611,techno,parent,wikidata
+Q2615500,intelligent drum and bass,Q188994,drum and bass,parent,wikidata
+Q29480448,industrial techno,Q936942,post-industrial music,parent,wikidata
+Q16837290,Balearic trance,Q757143,chill-out music,parent,wikidata
+Q7845403,Tromsø techno scene,Q170611,techno,parent,wikidata
+Q4040357,halfstep,Q188994,drum and bass,parent,wikidata
+Q56580,digital hardcore,Q25554481,punk music,parent,wikidata
+Q2076779,bubblegum dance,Q216961,Eurodance,parent,wikidata
+Q2693142,techno body music,Q170611,techno,parent,wikidata
+Q930592,Italo dance,Q216961,Eurodance,parent,wikidata
+Q105636937,experimental techno,Q170611,techno,parent,wikidata
+Q3538739,tribe,Q388906,hardcore,parent,wikidata
+Q1585075,breakbeat hardcore,Q388906,hardcore,parent,wikidata
+Q1191299,industrial hardcore,Q936942,post-industrial music,parent,wikidata
+Q106521662,deep techno,Q170611,techno,parent,wikidata
+Q11877639,electro trance,Q170435,trance,parent,wikidata
+Q106522080,bleep techno,Q170611,techno,parent,wikidata
+Q106522238,techno bass,Q217597,electro,parent,wikidata
+Q3492949,speedbass,Q388906,hardcore,parent,wikidata
+Q1585075,breakbeat hardcore,Q663519,breakbeat,parent,wikidata
+Q9356246,psytech,Q170611,techno,parent,wikidata
+Q828243,futurepop,Q1298934,synth-pop,parent,wikidata
+Q1890098,new beat,Q372103,electronic body music,parent,wikidata
+Q3538739,tribe,Q1524033,free tekno,parent,wikidata
+Q2181965,freeform hardcore,Q388906,hardcore,parent,wikidata
+Q3084222,hard techno,Q170611,techno,parent,wikidata
+Q2121992,drumfunk,Q188994,drum and bass,parent,wikidata
+Q2693142,techno body music,Q372103,electronic body music,parent,wikidata
+Q24876318,drumstep,Q188994,drum and bass,parent,wikidata
+Q10268931,dubwise drum and bass,Q188994,drum and bass,parent,wikidata
+Q9364029,UK hardcore (techno),Q170611,techno,parent,wikidata
+Q828243,futurepop,Q372103,electronic body music,parent,wikidata
+Q10856835,wonky techno,Q170611,techno,parent,wikidata
+Q86674318,Berlin techno,Q170611,techno,parent,wikidata
+Q3501147,gabber metal,Q388906,hardcore,parent,wikidata
+Q2112253,progressive techno,Q170611,techno,parent,wikidata
+Q922865,trancecore,Q388906,hardcore,parent,wikidata
+Q7845403,Tromsø techno scene,Q833189,music of Norway,parent,wikidata
+Q12629666,deathcore,Q388906,hardcore,parent,wikidata
+Q106522238,techno bass,Q546206,Miami bass,parent,wikidata
+Q15957030,electro,Q372103,electronic body music,parent,wikidata
+Q2638634,old school EBM,Q372103,electronic body music,parent,wikidata
+Q1242484,doomcore,Q388906,hardcore,parent,wikidata
+Q30912999,German techno,Q170611,techno,parent,wikidata
+Q2640307,hardstep,Q188994,drum and bass,parent,wikidata
+Q9356246,psytech,Q622871,psychedelic trance,parent,wikidata
+Q30917047,classic trance,Q170435,trance,parent,wikidata
+Q1585075,breakbeat hardcore,Q898709,rave music,parent,wikidata
+Q4181927,technoid,Q188994,drum and bass,parent,wikidata
+Q56342573,dancecore,Q388906,hardcore,parent,wikidata
+Q56342573,dancecore,Q1033912,hard dance,parent,wikidata
+Q1102161,jungle,Q188994,drum and bass,parent,wikidata
+Q5402470,hard NRG,Q170435,trance,parent,wikidata
+Q5402470,hard NRG,Q1033912,hard dance,parent,wikidata
+Q2082572,liquid drum and bass,Q188994,drum and bass,parent,wikidata
+Q11334714,breaktrance,Q170435,trance,parent,wikidata
+Q2112253,progressive techno,Q12200830,progressive electronic dance music,parent,wikidata
+Q29480448,industrial techno,Q170611,techno,parent,wikidata
+Q1455487,Frenchcore,Q388906,hardcore,parent,wikidata
+Q2460288,neo trance,Q170435,trance,parent,wikidata
+Q11830421,crossbreed,Q388906,hardcore,parent,wikidata
+Q56580,digital hardcore,Q388906,hardcore,parent,wikidata
+Q11334714,breaktrance,Q663519,breakbeat,parent,wikidata
+Q3501147,gabber metal,Q820049,gabber,parent,wikidata
+Q16837290,Balearic trance,Q170435,trance,parent,wikidata
+Q1191299,industrial hardcore,Q388906,hardcore,parent,wikidata
+Q848457,speedcore,Q388906,hardcore,parent,wikidata
+Q11830421,crossbreed,Q1166321,darkstep,parent,wikidata
+Q30912999,German techno,Q2743758,music of Germany,parent,wikidata
+Q341395,acid techno,Q106528337,acid,parent,wikidata
+Q341396,acidcore,Q106528337,acid,parent,wikidata
+Q9615674,anhalt EBM,Q372103,electronic body music,parent,wikidata
+Q4155078,dark electro,Q1403744,electro-industrial,parent,wikidata
+Q10541010,Jtek,Q170611,techno,parent,wikidata
+Q106922571,cybergoth music,Q372103,electronic body music,parent,wikidata
+Q3098078,J-core,Q388906,hardcore,parent,wikidata
+Q5801257,deep trance,Q170435,trance,parent,wikidata
+Q339906,happy hardcore,Q388906,hardcore,parent,wikidata
+Q3098078,J-core,Q1046920,Dōjin music,parent,wikidata
+Q22909461,toytown techno,Q170611,techno,parent,wikidata
+Q30765672,turbine,Q170611,techno,parent,wikidata
+Q106404300,minimal drum and bass,Q188994,drum and bass,parent,wikidata
+Q24876318,drumstep,Q20903,brostep,parent,wikidata
+Q646165,trancestep,Q188994,drum and bass,parent,wikidata
+Q4155078,dark electro,Q372103,electronic body music,parent,wikidata
+Q10541010,Jtek,Q257533,music of Japan,parent,wikidata
+Q1265050,terrorcore,Q388906,hardcore,parent,wikidata
+Q3066180,bouncy techno,Q339906,happy hardcore,parent,wikidata
+Q10360435,rhythm & grime,Q850412,contemporary R&B,parent,wikidata
+Q106594174,uptempo hardcore,Q388906,hardcore,parent,wikidata
+Q106594174,uptempo hardcore,Q1033912,hard dance,parent,wikidata
+Q80480981,nightstep,Q20474,dubstep,parent,wikidata
+Q744417,Italo disco,Q98528149,electro-disco,parent,wikidata
+Q98528158,purple sound,Q20474,dubstep,parent,wikidata
+Q11680297,psybreaks,Q663519,breakbeat,parent,wikidata
+Q606393,Hi-NRG,Q98528149,electro-disco,parent,wikidata
+Q1460303,funkstep,Q114880130,bass music (EDM),parent,wikidata
+Q111678759,guaracha,Q202925,tribal house,parent,wikidata
+Q106653596,ambient breakbeat,Q757143,chill-out music,parent,wikidata
+Q110226234,red disco,Q117000933,Eastern European pop,parent,wikidata
+Q2428625,dubstyle,Q223840,hardstyle,parent,wikidata
+Q108297238,euphoric hardstyle,Q223840,hardstyle,parent,wikidata
+Q3066180,bouncy techno,Q898709,rave music,parent,wikidata
+Q1259016,drill and bass,Q660984,intelligent dance music,parent,wikidata
+Q744417,Italo disco,Q3679098,music of Italy,parent,wikidata
+Q2346991,UK bass,Q114880130,bass music (EDM),parent,wikidata
+Q1524033,free tekno,Q3084222,hard techno,parent,wikidata
+Q2374619,UK hardcore,Q339906,happy hardcore,parent,wikidata
+Q3048168,mákina,Q3084222,hard techno,parent,wikidata
+Q2634010,acid breaks,Q663519,breakbeat,parent,wikidata
+Q733804,hands up,Q890887,Eurotrance,parent,wikidata
+Q106388388,hardwave,Q106369996,wave,parent,wikidata
+Q1102871,clownstep,Q46649,jump-up,parent,wikidata
+Q110226234,red disco,Q130572,music of the Soviet Union,parent,wikidata
+Q1243254,lento violento,Q1033912,hard dance,parent,wikidata
+Q1983750,mainstream hardcore,Q1033912,hard dance,parent,wikidata
+Q106521759,funky breaks,Q663519,breakbeat,parent,wikidata
+Q110226234,red disco,Q98528149,electro-disco,parent,wikidata
+Q107091813,East Coast club,Q106576141,ghetto club,parent,wikidata
+Q106594523,Latin freestyle,Q18345375,Latin music,parent,wikidata
+Q20474,dubstep,Q114880130,bass music (EDM),parent,wikidata
+Q47781397,EDM trap music,Q114880130,bass music (EDM),parent,wikidata
+Q106594523,Latin freestyle,Q655514,freestyle music,parent,wikidata
+Q1524033,free tekno,Q898709,rave music,parent,wikidata
+Q2396639,Florida breaks,Q663519,breakbeat,parent,wikidata
+Q18393891,reggaestep,Q20474,dubstep,parent,wikidata
+Q2963621,chillstep,Q20474,dubstep,parent,wikidata
+Q106388388,hardwave,Q114880130,bass music (EDM),parent,wikidata
+Q110874814,West Coast breaks,Q663519,breakbeat,parent,wikidata
+Q3116754,grindie,Q183504,indie rock,parent,wikidata
+Q106404229,melodic dubstep,Q20474,dubstep,parent,wikidata
+Q108297194,batida,Q1191544,kuduro,parent,wikidata
+Q3116754,grindie,Q1166726,grime,parent,wikidata
+Q4846346,bassline,Q114880130,bass music (EDM),parent,wikidata
+Q107091813,East Coast club,Q114880124,US bass music,parent,wikidata
+Q108297232,doskpop,Q4049849,spacesynth,parent,wikidata
+Q858579,big beat,Q663519,breakbeat,parent,wikidata
+Q4637208,4-beat,Q1585075,breakbeat hardcore,parent,wikidata
+Q1756101,nu skool breaks,Q663519,breakbeat,parent,wikidata
+Q4637208,4-beat,Q339906,happy hardcore,parent,wikidata
+Q389631,jumpstyle,Q1033912,hard dance,parent,wikidata
+Q1983750,mainstream hardcore,Q820049,gabber,parent,wikidata
+Q106636289,breakbeat kota,Q663519,breakbeat,parent,wikidata
+Q65065491,riddim,Q20474,dubstep,parent,wikidata
+Q65065491,riddim,Q20903,brostep,parent,wikidata
+Q106477753,midtempo bass,Q114880130,bass music (EDM),parent,wikidata
+Q5466607,footwork,Q114880130,bass music (EDM),parent,wikidata
+Q106576261,bérite club,Q106576141,ghetto club,parent,wikidata
+Q80480981,nightstep,Q3876770,nightcore,parent,wikidata
+Q10360435,rhythm & grime,Q1166726,grime,parent,wikidata
+Q1460303,funkstep,Q9364028,UK funky,parent,wikidata
+Q2452152,dark psytrance,Q622871,psychedelic trance,parent,wikidata
+Q106636289,breakbeat kota,Q11332204,funkot,parent,wikidata
+Q1987980,breakstep,Q1165777,UK garage,parent,wikidata
+Q835131,Goa trance,Q622871,psychedelic trance,parent,wikidata
+Q750811,minimal house,Q598593,tech house,parent,wikidata
+Q21000514,rawstyle,Q223840,hardstyle,parent,wikidata
+Q2497323,suomisaundi,Q622871,psychedelic trance,parent,wikidata
+Q31836693,jungle terror,Q114880130,bass music (EDM),parent,wikidata
+Q28721502,Finnish grime,Q1166726,grime,parent,wikidata
+Q96376113,deconstructed club,Q110527222,experimental club music,parent,wikidata
+Q113510667,artcore,Q388906,hardcore,parent,wikidata
+Q6907397,moombahcore,Q114880130,bass music (EDM),parent,wikidata
+Q22908553,future bass,Q114880130,bass music (EDM),parent,wikidata
+Q10286190,full-on,Q622871,psychedelic trance,parent,wikidata
+Q2611143,early hardstyle,Q223840,hardstyle,parent,wikidata
+Q106653596,ambient breakbeat,Q663519,breakbeat,parent,wikidata
+Q733804,hands up,Q1033912,hard dance,parent,wikidata
+Q2385862,progressive psytrance,Q12200830,progressive electronic dance music,parent,wikidata
+Q25389262,progressive breaks,Q663519,breakbeat,parent,wikidata
+Q2608506,space disco,Q98528149,electro-disco,parent,wikidata
+Q106654239,weightless,Q1166726,grime,parent,wikidata
+Q223840,hardstyle,Q1033912,hard dance,parent,wikidata
+Q106591506,bubblegum bass,Q114880130,bass music (EDM),parent,wikidata
+Q2634010,acid breaks,Q106528337,acid,parent,wikidata
+Q108297232,doskpop,Q106423092,tracker music,parent,wikidata
+Q18432631,neurohop,Q106514601,glitch hop (EDM),parent,wikidata
+Q25389262,progressive breaks,Q12200830,progressive electronic dance music,parent,wikidata
+Q2374619,UK hardcore,Q1033912,hard dance,parent,wikidata
+Q112829330,deep tech,Q598593,tech house,parent,wikidata
+Q109335331,dungeon sound,Q20474,dubstep,parent,wikidata
+Q3048168,mákina,Q1033912,hard dance,parent,wikidata
+Q2385862,progressive psytrance,Q622871,psychedelic trance,parent,wikidata
+Q114238485,meme techno,Q3084222,hard techno,parent,wikidata
+Q123413364,Afro tech,Q388100,Afro house,parent,wikidata
+Q116952929,hyper techno,Q898709,rave music,parent,wikidata
+Q124333204,sinogrime,Q1166726,grime,parent,wikidata
+Q122474257,rominimal,Q598593,tech house,parent,wikidata
+Q112663444,Belgian hardcore techno,Q388906,hardcore,parent,wikidata
+Q112663444,Belgian hardcore techno,Q170611,techno,parent,wikidata
+Q122839839,deathchant hardcore,Q388906,hardcore,parent,wikidata
+Q114878571,speed house,Q27345019,bass house,parent,wikidata
+Q110127020,tranceira,Q170435,trance,parent,wikidata
+Q127471087,hard IDM,Q660984,intelligent dance music,parent,wikidata
+Q136206123,nustyle,Q223840,hardstyle,parent,wikidata
+Q127606394,3-step,Q388100,Afro house,parent,wikidata
+Q136696186,frapcore,Q388906,hardcore,parent,wikidata
+Q114238485,meme techno,Q25554481,punk music,parent,wikidata
+Q135493744,melodic bass,Q114880130,bass music (EDM),parent,wikidata
+Q110584468,experimental electro,Q217597,electro,parent,wikidata
+Q110584608,neo-electro,Q217597,electro,parent,wikidata
+Q113600471,hardtek,Q898709,rave music,parent,wikidata
+Q111804002,deep drum and bass,Q188994,drum and bass,parent,wikidata
+Q124791567,Drum and bass electronic rock,Q188994,drum and bass,parent,wikidata
+Q107697221,hardgroove techno,Q170611,techno,parent,wikidata
+Q123543092,darkcore,Q388906,hardcore,parent,wikidata
+Q108831582,big room trance,Q170435,trance,parent,wikidata
+Q139567714,neo rave,Q1033912,hard dance,parent,wikidata
+Q110127020,tranceira,Q97278139,brega funk,parent,wikidata
+Q124791567,Drum and bass electronic rock,Q325504,electronic rock,parent,wikidata
+Q133520038,J-euro,Q131578,J-pop,parent,wikidata
+Q110584483,industrial drum and bass,Q188994,drum and bass,parent,wikidata
+Q120715859,ghetto funk,Q106514601,glitch hop (EDM),parent,wikidata
+Q139488139,dark garage,Q1165777,UK garage,parent,wikidata
+Q139807789,trance 2.0,Q170435,trance,parent,wikidata
+Q130474688,hypnotic trance,Q170435,trance,parent,wikidata
+Q130474689,raw trance,Q170435,trance,parent,wikidata
+Q123009321,neo-grime,Q106369996,wave,parent,wikidata
+Q110967939,footwork jungle,Q5466607,footwork,parent,wikidata
+Q114743580,psystyle,Q223840,hardstyle,parent,wikidata
+Q112663444,Belgian hardcore techno,Q898709,rave music,parent,wikidata
+Q130474681,Latin tech,Q98528166,Latin electronic music,parent,wikidata
+Q110584483,industrial drum and bass,Q936942,post-industrial music,parent,wikidata
+Q127470401,techno-tribal,Q106576170,tribal music,parent,wikidata
+Q110967939,footwork jungle,Q188994,drum and bass,parent,wikidata
+Q118798959,tearout dubstep,Q20474,dubstep,parent,wikidata
+Q133520038,J-euro,Q848852,Eurobeat,parent,wikidata
+Q123009321,neo-grime,Q1166726,grime,parent,wikidata
+Q139907460,raw techno,Q170611,techno,parent,wikidata
+Q107332291,dancefloor drum and bass,Q188994,drum and bass,parent,wikidata
+Q114878405,electro-techno,Q170611,techno,parent,wikidata
+Q114878405,electro-techno,Q217597,electro,parent,wikidata
+Q110185782,melodic techno,Q170611,techno,parent,wikidata
+Q114878571,speed house,Q1033912,hard dance,parent,wikidata
+Q130474681,Latin tech,Q598593,tech house,parent,wikidata
+Q125854043,amigacore,Q106423092,tracker music,parent,wikidata
+Q113600471,hardtek,Q1033912,hard dance,parent,wikidata
+Q111182811,peak time techno,Q170611,techno,parent,wikidata
+Q127470401,techno-tribal,Q170611,techno,parent,wikidata
+Q127471087,hard IDM,Q388906,hardcore,parent,wikidata
+Q134997891,hi-tech full-on,Q170435,trance,parent,wikidata
+Q106922571,cybergoth music,Q487965,industrial music,parent,wikidata
+Q114238485,meme techno,Q188994,drum and bass,parent,wikidata
+Q123922710,aquacrunk,Q1136045,wonky,parent,wikidata
+Q110584468,experimental electro,Q105763581,experimental electronic music,parent,wikidata
+Q125854043,amigacore,Q388906,hardcore,parent,wikidata
+Q16951912,Birmingham sound,Q29480448,industrial techno,parent,wikidata
+Q307054,schranz,Q3084222,hard techno,parent,wikidata
+Q3062629,extratone,Q848457,speedcore,parent,wikidata
+Q98076452,Sabadell Sound,Q744417,Italo disco,parent,wikidata
+Q113493820,French electro,Q627906,electro house,parent,wikidata
+Q105404852,hi-tech psytrance,Q2452152,dark psytrance,parent,wikidata
+Q1091450,aggrotech,Q4155078,dark electro,parent,wikidata
+Q106577108,hard beat,Q1890098,new beat,parent,wikidata
+Q1275972,raggacore,Q903735,breakcore,parent,wikidata
+Q2710523,ragga jungle,Q1102161,jungle,parent,wikidata
+Q11831728,pumping house,Q1585015,hard house,parent,wikidata
+Q108716407,skullstep,Q1166321,darkstep,parent,wikidata
+Q25389065,minimal psytrance,Q622871,psychedelic trance,parent,wikidata
+Q28458027,hardbass,Q11831728,pumping house,parent,wikidata
+Q117405746,raggatek,Q113600471,hardtek,parent,wikidata
+Q124846645,gabber punk,Q3071,punk rock,parent,wikidata
+Q107407607,hard trap,Q47781397,EDM trap music,parent,wikidata
+Q9149801,ambient techno,Q106521662,deep techno,parent,wikidata
+Q113621229,future core,Q2374619,UK hardcore,parent,wikidata
+Q106493832,slap house,Q20021059,future house,parent,wikidata
+Q6081528,poky,Q1585015,hard house,parent,wikidata
+Q111540473,experimental jungle,Q105763581,experimental electronic music,parent,wikidata
+Q106577542,kawaii future bass,Q22908553,future bass,parent,wikidata
+Q111653578,hybrid trap,Q47781397,EDM trap music,parent,wikidata
+Q109714084,twilight psytrance,Q10286190,full-on,parent,wikidata
+Q109715091,morning psytrance,Q10286190,full-on,parent,wikidata
+Q113621229,future core,Q3098078,J-core,parent,wikidata
+Q111971785,heaven trap,Q47781397,EDM trap music,parent,wikidata
+Q20047305,Melbourne bounce,Q627906,electro house,parent,wikidata
+Q106636283,jungle dutch,Q106636289,breakbeat kota,parent,wikidata
+Q116745991,Afropiano,Q85741139,Amapiano,parent,wikidata
+Q127606323,Afrikaans gqom,Q29973057,gqom,parent,wikidata
+Q127606347,core tribe,Q29973057,gqom,parent,wikidata
+Q127606355,electro gqom,Q29973057,gqom,parent,wikidata
+Q127606361,gospel gqom,Q29973057,gqom,parent,wikidata
+Q127606370,gqom tech,Q29973057,gqom,parent,wikidata
+Q2842043,atmospheric drum and bass,Q2615500,intelligent drum and bass,parent,wikidata
+Q109715837,zenonesque,Q2385862,progressive psytrance,parent,wikidata
+Q122910849,future trap,Q47781397,EDM trap music,parent,wikidata
+Q109753757,twerk,Q47781397,EDM trap music,parent,wikidata
+Q124151378,dream folk,Q1339027,dream trance,parent,wikidata
+Q106522190,scouse house,Q1585015,hard house,parent,wikidata
+Q4177625,hardcore breaks,Q1585075,breakbeat hardcore,parent,wikidata
+Q1262781,dub techno,Q106521662,deep techno,parent,wikidata
+Q2710523,ragga jungle,Q740911,ragga,parent,wikidata
+Q108555812,lo-fi house,Q18358879,outsider house,parent,wikidata
+Q111971801,LA hard house,Q107090501,Chicago hard house,parent,wikidata
+Q111540473,experimental jungle,Q1102161,jungle,parent,wikidata
+Q109713845,classic psytrance,Q622871,psychedelic trance,parent,wikidata
+Q109713947,offbeat psytrance,Q622871,psychedelic trance,parent,wikidata
+Q109713928,tribal psytrance,Q622871,psychedelic trance,parent,wikidata
+Q109714096,forest psytrance,Q622871,psychedelic trance,parent,wikidata
+Q109714050,uplifting psy,Q622871,psychedelic trance,parent,wikidata
+Q24885387,juke,Q2748817,ghetto house,parent,wikidata
+Q5655695,hardbag,Q3032212,diva house,parent,wikidata
+Q9348934,symphonic trance,Q890887,Eurotrance,parent,wikidata
+Q123421084,briddim,Q20903,brostep,parent,wikidata
+Q114594005,rawphoric,Q21000514,rawstyle,parent,wikidata
+Q115690999,future riddim,Q65065491,riddim,parent,wikidata
+Q97277483,New Jersey sound,Q928825,garage house,parent,wikidata
+Q4965901,Jersey club,Q107091813,East Coast club,parent,wikidata
+Q109322851,mashcore,Q903735,breakcore,parent,wikidata
+Q108555812,lo-fi house,Q874038,deep house,parent,wikidata
+Q5978495,lolicore,Q903735,breakcore,parent,wikidata
+Q11312853,splittercore,Q848457,speedcore,parent,wikidata
+Q1521688,ghettotech,Q114880124,US bass music,parent,wikidata
+Q11693017,darkcore,Q1585075,breakbeat hardcore,parent,wikidata
+Q124357128,gabberpop,Q820049,gabber,parent,wikidata
+Q11691380,complextro,Q627906,electro house,parent,wikidata
+Q109713720,minatory,Q106528420,deathstep,parent,wikidata
+Q5655695,hardbag,Q30917612,Eurohouse,parent,wikidata
+Q11882045,melodic trance,Q2260696,progressive trance,parent,wikidata
+Q122474184,mega funk,Q117745223,Brazilian funk,parent,wikidata
+Q124151378,dream folk,Q43343,folk music,parent,wikidata
+Q117750973,powerstomp,Q2374619,UK hardcore,parent,wikidata
+Q119259589,tearout brostep,Q20903,brostep,parent,wikidata
+Q108197774,colour bass,Q20903,brostep,parent,wikidata
+Q113621229,future core,Q106577542,kawaii future bass,parent,wikidata
+Q9011351,jazzstep,Q2615500,intelligent drum and bass,parent,wikidata
+Q122474184,mega funk,Q85748774,Brazilian bass,parent,wikidata
+Q1521688,ghettotech,Q2748817,ghetto house,parent,wikidata
+Q2365784,fidget house,Q627906,electro house,parent,wikidata
+Q106634926,future bounce,Q20021059,future house,parent,wikidata
+Q106594102,Philly club,Q107091813,East Coast club,parent,wikidata
+Q114809047,anthem trance,Q890887,Eurotrance,parent,wikidata
+Q110526823,progressive electro house,Q627906,electro house,parent,wikidata
+Q124357128,gabberpop,Q37073,pop music,parent,wikidata
+Q1262781,dub techno,Q2478478,dubtronica,parent,wikidata
+Q30919272,artcore drum and bass,Q2615500,intelligent drum and bass,parent,wikidata
+Q116745991,Afropiano,Q25099840,Afrobeats,parent,wikidata
+Q1228230,Dutch house,Q627906,electro house,parent,wikidata
+Q724755,early hardcore,Q820049,gabber,parent,wikidata
+Q111628716,festival trap,Q47781397,EDM trap music,parent,wikidata
+Q4706203,nitzhonot,Q835131,Goa trance,parent,wikidata
+Q106493832,slap house,Q85748774,Brazilian bass,parent,wikidata
+Q124846645,gabber punk,Q820049,gabber,parent,wikidata
+Q114107195,psycore,Q2452152,dark psytrance,parent,wikidata
+Q110526770,dark progressive house,Q915152,progressive house,parent,wikidata
+Q110526823,progressive electro house,Q915152,progressive house,parent,wikidata
+Q106528420,deathstep,Q20903,brostep,parent,wikidata
+Q137442001,pumpcore,Q113600471,hardtek,parent,wikidata
+Q110391587,Vocaloid music,Q257533,music of Japan,parent,wikidata
+Q109873537,dark disco,Q851213,electronic dance music,parent,wikidata
+Q114443489,partyschlager,Q851213,electronic dance music,parent,wikidata
+Q132324210,bloghouse,Q851213,electronic dance music,parent,wikidata
+Q109469638,indie dance,Q851213,electronic dance music,parent,wikidata
+Q114443489,partyschlager,Q959583,schlager music,parent,wikidata
+Q114880130,bass music (EDM),Q851213,electronic dance music,parent,wikidata
+Q135369460,bacardi,Q956717,kwaito,parent,wikidata
+Q132165415,buchiage trance,Q257533,music of Japan,parent,wikidata
+Q123753500,phonk house,Q112997482,drift phonk,parent,wikidata
+Q115890848,epadunk,Q846784,music of Sweden,parent,wikidata
+Q115890848,epadunk,Q851213,electronic dance music,parent,wikidata
+Q110527222,experimental club music,Q105763581,experimental electronic music,parent,wikidata
+Q110391587,Vocaloid music,Q851213,electronic dance music,parent,wikidata
+Q135396723,hypertone,Q848457,speedcore,parent,wikidata
+Q135396809,supertone,Q848457,speedcore,parent,wikidata
+Q127606375,gqom trap,Q29973057,gqom,parent,wikidata
+Q127606386,sgubhu,Q29973057,gqom,parent,wikidata
+Q127606390,taxi kick,Q29973057,gqom,parent,wikidata
+Q127606411,uThayela,Q29973057,gqom,parent,wikidata
+Q122932896,ori deck,Q6942287,music of Tahiti,parent,wikidata
+Q122932896,ori deck,Q851213,electronic dance music,parent,wikidata
+Q132165415,buchiage trance,Q733804,hands up,parent,wikidata
+Q119438497,UK jackin',Q20502,house music,parent,wikidata
+Q109378734,popcorn music,Q20502,house music,parent,wikidata
+Q131529620,krushclub,Q851213,electronic dance music,parent,wikidata
+Q109538574,vinahouse,Q20502,house music,parent,wikidata
+Q117198196,cruise,Q2738838,music of Nigeria,parent,wikidata
+Q108610706,Detroit house,Q20502,house music,parent,wikidata
+Q116875230,gospel house,Q20502,house music,parent,wikidata
+Q114880130,bass music (EDM),Q96740854,bass music,parent,wikidata
+Q110101956,eletrofunk,Q20502,house music,parent,wikidata
+Q135437136,dek bass,Q98528267,music of South Asia,parent,wikidata
+Q139567721,xtra raw,Q21000514,rawstyle,parent,wikidata
+Q126335126,hypertechno,Q851213,electronic dance music,parent,wikidata
+Q117198196,cruise,Q851213,electronic dance music,parent,wikidata
+Q139566596,indie sleaze revival,Q851213,electronic dance music,parent,wikidata
+Q140369806,outrun,Q19938910,synthwave,parent,wikidata
+Q126175574,stutter house,Q20502,house music,parent,wikidata
+Q136539124,liquid riddim,Q65065491,riddim,parent,wikidata
+Q140369806,outrun,Q851213,electronic dance music,parent,wikidata
+Q116296482,melodic house,Q20502,house music,parent,wikidata
+Q109378734,popcorn music,Q116985035,electronic pop,parent,wikidata
+Q109378734,popcorn music,Q117000933,Eastern European pop,parent,wikidata
+Q109589387,manyao,Q851213,electronic dance music,parent,wikidata
+Q140221083,hardtekk,Q851213,electronic dance music,parent,wikidata
+Q109589387,manyao,Q930592,Italo dance,parent,wikidata
+Q135553474,autonomic,Q106404300,minimal drum and bass,parent,wikidata
+Q110101956,eletrofunk,Q117745223,Brazilian funk,parent,wikidata
+Q130301602,noiadance,Q117745223,Brazilian funk,parent,wikidata
+Q135437136,dek bass,Q851213,electronic dance music,parent,wikidata
+Q111442385,Japanese artcore,Q851213,electronic dance music,parent,wikidata
+Q120484427,dariacore,Q851213,electronic dance music,parent,wikidata
+Q131529620,krushclub,Q107697234,HexD,parent,wikidata
+Q110527222,experimental club music,Q851213,electronic dance music,parent,wikidata
+Q134380635,slimepunk,Q851213,electronic dance music,parent,wikidata
+Q130325403,car audio bass,Q106522238,techno bass,parent,wikidata
+Q109146989,piano house,Q20502,house music,parent,wikidata
+Q135437342,microfunk,Q106404300,minimal drum and bass,parent,wikidata
+Q109148913,organic house,Q20502,house music,parent,wikidata
+Q109378734,popcorn music,Q211756,dance-pop,parent,wikidata
+Q123753500,phonk house,Q20502,house music,parent,wikidata
+Q130301602,noiadance,Q1228230,Dutch house,parent,wikidata
