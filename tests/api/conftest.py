@@ -40,7 +40,8 @@ from database import Base, get_db
 from dependencies import get_current_user, require_admin
 from models import User
 from auth import hash_password
-from main import app, limiter
+from main import app
+from rate_limit import limiter
 
 limiter.enabled = False
 

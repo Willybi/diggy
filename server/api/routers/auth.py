@@ -4,15 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from database import get_db
 from auth import hash_password, verify_password, create_token
 from dependencies import get_current_user
 from models import User
-
-limiter = Limiter(key_func=get_remote_address)
+from rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
