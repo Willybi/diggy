@@ -47,8 +47,8 @@ class UserOut(BaseModel):
 
 # ---------- Endpoints ----------
 
-@router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/minute")
+@router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 async def register(request: Request, body: RegisterIn, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(
         select(User).where((User.email == body.email) | (User.username == body.username))
@@ -70,8 +70,8 @@ async def register(request: Request, body: RegisterIn, db: AsyncSession = Depend
     return TokenOut(token=create_token(user.id), user_id=user.id, username=user.username, is_admin=user.is_admin)
 
 
-@router.post("/login", response_model=TokenOut)
 @limiter.limit("5/minute")
+@router.post("/login", response_model=TokenOut)
 async def login(request: Request, body: LoginIn, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
