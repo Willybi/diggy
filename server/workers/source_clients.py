@@ -5,12 +5,15 @@ Used by crawl tasks to fetch playlist metadata and tracks.
 
 import json
 import os
-import time
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+
+from workers.rate_limiter import RateLimiter
+
+_limiter = RateLimiter()
 
 logger = logging.getLogger(__name__)
 
@@ -166,15 +169,15 @@ def fetch_tidal_tracks(external_id: str) -> list[SourceTrack]:
 
     tracks = []
     for t in tidal_tracks:
-        artist_name = t.artist.name if t.artist else None
-        tracks.append(SourceTrack(
-            external_id=str(t.id),
-            title=t.name,
-            artist=artist_name,
-            isrc=getattr(t, "isrc", None),
-            duration_ms=(t.duration or 0) * 1000 or None,
-        ))
-        time.sleep(0.05)  # gentle rate limiting
+        with _limiter.acquire_sync("tidal"):
+            artist_name = t.artist.name if t.artist else None
+            tracks.append(SourceTrack(
+                external_id=str(t.id),
+                title=t.name,
+                artist=artist_name,
+                isrc=getattr(t, "isrc", None),
+                duration_ms=(t.duration or 0) * 1000 or None,
+            ))
     return tracks
 
 

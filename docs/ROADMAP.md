@@ -27,6 +27,25 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 - Les tests CI doivent passer a chaque commit (`pytest tests/ -v`).
 - Apres chaque serie, mettre a jour les scores et checkboxes dans ce document.
 - Le dernier chantier (C13) est un audit tests global pour consolider la couverture.
+- **Commit naming** : l'agent doit proposer un nom de commit a la fin de son travail.
+  Format : `type(scope): description` (conventional commits).
+  Exemples : `fix(workers): use ON CONFLICT for ISRC dedup`, `feat(api): add pagination to /sets/`.
+- **Rapport de fin de travaux** : a la fin de chaque chantier, l'agent produit un rapport
+  structure a transmettre a l'orchestrateur :
+  ```
+  ## Rapport C[N] — [Titre]
+  ### Fichiers modifies
+  - `path/file.py` — resume du changement (1 ligne)
+  ### Decisions prises
+  - Choix techniques, cas limites rencontres
+  ### Points d'attention pour review
+  - Ce que l'orchestrateur doit verifier en priorite
+  ### Tests
+  - Resultat pytest (pass/fail/count)
+  - Nouveaux tests ajoutes ? (si oui, lesquels)
+  ### Commit recommande
+  `type(scope): description`
+  ```
 
 ---
 
@@ -61,7 +80,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
  #   Chantier                              Source   Statut
 ───  ──────────────────────────────────────  ──────  ──────────
 C1   JWT expiry 30j → 7j                   T1      DONE (deja applique)
-C2   Fix race condition ISRC               T2      A FAIRE
+C2   Fix race condition ISRC               T2      DONE
 C3   Unifier rate limiting workers          T2      A FAIRE
 C4   Refactorer image upload 3→1           T2      A FAIRE
 C5   DLQ + TIDAL refresh + moyens workers  T2      A FAIRE
@@ -193,8 +212,8 @@ Reste : unification rate limiting, DLQ, refresh TIDAL, refactoring image upload.
   Les except specifiques (ValueError, inner loop) sont conserves.
 - [x] **Lock Redis sur crawl playlist** : `r.lock(f"crawl:playlist:{id}", timeout=900)`.
   Skip si lock deja pris. Release dans `finally` avec catch `LockNotOwnedError`.
-- [ ] **Fix race condition ISRC** : remplacer le set `_known_isrcs` en memoire par
-  `ON CONFLICT DO NOTHING` au niveau SQL
+- [x] **Fix race condition ISRC** : `ON CONFLICT DO NOTHING` sur bulk insert catalog/radar,
+  UPDATE conditionnel `NOT EXISTS` sur enrichissement ISRC
 
 #### Haut
 

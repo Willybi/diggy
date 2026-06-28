@@ -1072,7 +1072,9 @@ def crawl_followed_sets(self):
         from sqlalchemy.orm import sessionmaker as async_sessionmaker
         from trackid.client import TrackIDClient
         from trackid.importer import import_audiostream
+        from workers.rate_limiter import RateLimiter
 
+        limiter = RateLimiter()
         async_engine = create_async_engine(os.environ["DATABASE_URL"])
         AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
         crawled = 0
@@ -1082,15 +1084,15 @@ def crawl_followed_sets(self):
                 if not info["slug"]:
                     continue
                 try:
-                    async with AsyncS() as db:
-                        audiostream = {"id": info["ext_id"], "slug": info["slug"]}
-                        result, track_count = await import_audiostream(
-                            db, client, audiostream, min_age_hours=0
-                        )
-                        if result and track_count > 0:
-                            crawled += 1
-                        await db.commit()
-                    await asyncio.sleep(1.5)
+                    async with limiter.acquire("trackid"):
+                        async with AsyncS() as db:
+                            audiostream = {"id": info["ext_id"], "slug": info["slug"]}
+                            result, track_count = await import_audiostream(
+                                db, client, audiostream, min_age_hours=0
+                            )
+                            if result and track_count > 0:
+                                crawled += 1
+                            await db.commit()
                 except Exception:
                     logger.exception("crawl_followed_sets: failed for set %s", info.get("slug"))
 
@@ -1256,17 +1258,18 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
                         # 2) Fallback: Deezer (album → genres, up to 3)
                         if not found and entry.deezer_id:
                             try:
-                                r = await dz_client.get(f"https://api.deezer.com/track/{entry.deezer_id}")
+                                async with limiter.acquire("deezer"):
+                                    r = await dz_client.get(f"https://api.deezer.com/track/{entry.deezer_id}")
                                 track_data = r.json()
                                 album_id = (track_data.get("album") or {}).get("id")
                                 if album_id:
-                                    r2 = await dz_client.get(f"https://api.deezer.com/album/{album_id}")
+                                    async with limiter.acquire("deezer"):
+                                        r2 = await dz_client.get(f"https://api.deezer.com/album/{album_id}")
                                     genres_data = (r2.json().get("genres") or {}).get("data") or []
                                     if genres_data:
                                         entry.genres = [g["name"][:100] for g in genres_data[:3]]
                                         stats["deezer"] += 1
                                         found = True
-                                await asyncio.sleep(0.12)
                             except Exception as e:
                                 logger.warning("Deezer genre failed for catalog %s: %s", entry.id, e)
                                 stats["errors"] += 1
