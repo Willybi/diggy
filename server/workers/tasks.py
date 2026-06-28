@@ -8,6 +8,7 @@ import sys
 import time
 import logging
 import requests
+import redis as redis_lib
 from workers.celery_app import celery_app
 
 API_BASE = os.environ.get("DIGGY_API_URL", "http://api:8000")
@@ -77,6 +78,22 @@ def crawl_single_playlist(self, playlist_id: int):
     Crawl une seule playlist (Deezer, TIDAL, ou Spotify) par son watched_entity ID.
     Uses direct DB access (bulk ops) + concurrent async enrichment.
     """
+    r = redis_lib.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+    lock = r.lock(f"crawl:playlist:{playlist_id}", timeout=900)
+    if not lock.acquire(blocking=False):
+        logger.info("Crawl already running for playlist %s, skipping", playlist_id)
+        return {"skipped": True, "playlist_id": playlist_id, "reason": "lock"}
+
+    try:
+        return _crawl_single_playlist_inner(self, playlist_id)
+    finally:
+        try:
+            lock.release()
+        except redis_lib.exceptions.LockNotOwnedError:
+            pass  # lock expired before we finished
+
+
+def _crawl_single_playlist_inner(self, playlist_id: int):
     from sqlalchemy import select, delete as sa_delete
     from sqlalchemy.orm import Session
     sys.path.insert(0, "/app")
