@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from database import get_db
 from models import UserTrack, CatalogEntry, User
 from schemas import TrackOut, TrackList, TrackExisting, TrackImport, BulkImportResult
 from dependencies import get_current_user_optional, uid as _uid
-import json
 import base64
 import tempfile
 import os
@@ -171,21 +170,16 @@ async def list_tags(
     user: User | None = Depends(get_current_user_optional),
 ):
     """Retourne tous les tags uniques extraits de user_tracks."""
+    uid = _uid(user)
     result = await db.execute(
-        select(UserTrack.rb_mytags)
-        .where(UserTrack.user_id == _uid(user))
-        .where(UserTrack.rb_mytags.isnot(None))
+        text(
+            "SELECT DISTINCT jsonb_array_elements_text(rb_mytags::jsonb) AS tag "
+            "FROM user_tracks "
+            "WHERE user_id = :uid AND rb_mytags IS NOT NULL "
+            "ORDER BY tag"
+        ).bindparams(uid=uid)
     )
-    tags_set = set()
-    for (tags_val,) in result.all():
-        try:
-            tags = tags_val if isinstance(tags_val, list) else json.loads(tags_val)
-            for tag in tags:
-                if tag:
-                    tags_set.add(tag)
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return sorted(tags_set)
+    return [row[0] for row in result.all()]
 
 
 @router.get("/", response_model=TrackList)
@@ -223,7 +217,7 @@ async def list_tracks(
         query = query.where(CatalogEntry.artist.ilike(f"%{artist}%"))
 
     if tag:
-        query = query.where(UserTrack.rb_mytags.isnot(None))
+        query = query.where(text("rb_mytags::jsonb ? :tag").bindparams(tag=tag))
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
@@ -234,11 +228,6 @@ async def list_tracks(
     items = []
     for row in rows:
         rb_id, cat_id, rb_bpm, rb_key, rb_mytags, rating, file_path, date_added, has_artwork, title, artist_name, duration_ms, has_preview = row
-
-        if tag:
-            tags_list = rb_mytags if isinstance(rb_mytags, list) else []
-            if tag not in tags_list:
-                continue
 
         out = TrackOut(
             id=rb_id or cat_id,
