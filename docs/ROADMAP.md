@@ -68,7 +68,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 
                          FONCTIONNEL
   =====================================================
-  F1  Multi-User (Phases 5-7)   ████░░░░  PLANIFIE     (Phase 6 ~70% fait)
+  F1  Multi-User (Phases 5-7)   ██████░░  EN COURS     (Phase 6 DONE, reste Phase 5+7)
   F2  HTTPS / Domaine           ██░░░░░░  EN ATTENTE
   F3  Design Realignment        ██████░░  HORS SCOPE   (Vagues 3-5 = pages detail, report)
 
@@ -93,7 +93,7 @@ C6   Backups PostgreSQL + MinIO            T3      DONE
 C7   Mega-query catalog + paginations      T4      DONE
 C8   Validation & contrats API             T5      DONE
 C9   Coherence DateTime timezone           T6      DONE (deja conforme)
-C10  F1 Phase 6 — Enforcement auth         F1      A FAIRE
+C10  F1 Phase 6 — Enforcement auth         F1      DONE
 C11  F1 Phase 5 — Trends + Collections     F1      A FAIRE
 C12  F1 Phase 7 — Import multi-user        F1      A FAIRE
 C13  Audit tests global                    ALL     A FAIRE
@@ -712,6 +712,10 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 - [ ] **`bulk_insert_radar_tracks` retourne `len(to_insert)`** au lieu du nombre reellement
   insere (les conflits ON CONFLICT sont comptes). Compteur cosmétique, pas bloquant.
   _(repere lors de la review C2)_
+- [ ] **Tests PostgreSQL vs SQLite** — C7 a introduit un bug `round(float, int)` invisible en
+  SQLite mais crash en PostgreSQL. Envisager des tests d'integration avec PostgreSQL reel
+  (ou au moins un shim SQLite pour `round(x, n)`).
+  _(repere lors du hotfix C7/C10)_
 - [ ] **Artists familyCounts** — le calcul des genres/familles pour `familyCounts` charge
   tous les artist_ids matchant le filtre pour calculer en Python. Acceptable pour ~2700 artistes,
   mais si le nombre grandit, envisager une vue materialisee `artist_genres`.

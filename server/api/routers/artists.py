@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Float, func, select, text, union_all
+from sqlalchemy import Float, Numeric, func, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -77,7 +77,7 @@ async def list_artists(
     nb_catalog_col = func.coalesce(stats_sub.c.nb_catalog, 0)
     nb_lib_col = func.coalesce(stats_sub.c.nb_lib, 0)
     nb_liked_col = func.coalesce(liked_sub.c.nb_liked, 0)
-    avg_rating_col = func.round(stats_sub.c.avg_rating.cast(Float), 1)
+    avg_rating_col = func.round(stats_sub.c.avg_rating.cast(Numeric), 1)
 
     base_query = (
         select(
