@@ -14,7 +14,7 @@
                          SOCLE TECHNIQUE
   =====================================================
   T1  Securite & Auth           ██████░░  URGENT       (~25% fait — port 5432 + JWT)
-  T2  Resilience Workers        █████░░░  URGENT       (0% fait)
+  T2  Resilience Workers        █████░░░  URGENT       (~40% fait — retry+lock+re-raise)
   T3  Infra & DevOps            █████░░░  URGENT       (~60% fait — critiques done)
   T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
   T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
@@ -140,8 +140,9 @@ nmap -p 5432 82.29.168.247 → filtered/closed
 
 Le layer Celery (server/workers/) gere le crawl radar, l'enrichissement Deezer/Beatport,
 la synchronisation artistes et les imports de sets. ~2 750 lignes de code reparties sur
-10+ fichiers. Le code *fonctionne* mais n'a aucune tolerance aux pannes : zero retry,
-exceptions avalees silencieusement, race conditions sur les ecritures paralleles.
+10+ fichiers. Les fondations de resilience sont en place : retry policy sur les 11 tasks,
+exceptions re-raised, lock Redis anti-doublon sur crawl playlist.
+Reste : unification rate limiting, DLQ, refresh TIDAL, refactoring image upload.
 
 ### Perimetre a auditer avant de coder
 
@@ -161,31 +162,12 @@ exceptions avalees silencieusement, race conditions sur les ecritures paralleles
 
 #### Critique
 
-- [ ] **Ajouter retry policy Celery** sur toutes les tasks :
-  ```python
-  @celery_app.task(
-      bind=True,
-      autoretry_for=(Exception,),
-      retry_kwargs={"max_retries": 3, "countdown": 60},
-      retry_backoff=True,
-  )
-  ```
-  - Exceptions metier (ex: "playlist not found") doivent etre exclues du retry
-- [ ] **Re-raise les exceptions** : remplacer tous les `except Exception: return []`
-  par un pattern qui log ET propage :
-  ```python
-  except Exception:
-      logger.exception("Task failed")
-      raise  # Celery doit voir l'echec
-  ```
-- [ ] **Lock Redis sur crawl playlist** : empecher deux crawls simultanes de la meme playlist
-  ```python
-  lock = redis.lock(f"crawl:{playlist_id}", timeout=900)
-  if not lock.acquire(blocking=False):
-      logger.info("Crawl already running, skipping")
-      return
-  ```
-  - Le `DELETE + INSERT` de `radar_tracks` sans lock peut perdre des donnees
+- [x] **Retry policy Celery** : `autoretry_for=(Exception,)`, `max_retries=3`, `retry_backoff=True`
+  sur les 11 tasks. Exceptions metier (playlist not found, unknown source) retournent avant le raise.
+- [x] **Re-raise les exceptions** : tous les `except Exception` generiques loguent + `raise`.
+  Les except specifiques (ValueError, inner loop) sont conserves.
+- [x] **Lock Redis sur crawl playlist** : `r.lock(f"crawl:playlist:{id}", timeout=900)`.
+  Skip si lock deja pris. Release dans `finally` avec catch `LockNotOwnedError`.
 - [ ] **Fix race condition ISRC** : remplacer le set `_known_isrcs` en memoire par
   `ON CONFLICT DO NOTHING` au niveau SQL
 
@@ -723,7 +705,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Architecture | 7/10 | 7/10 | 8/10 |
 | Securite | 4/10 | 5/10 (port 5432 ferme, JWT strict) | 8/10 |
 | Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
-| Resilience Workers | 4/10 | 4/10 | 7/10 |
+| Resilience Workers | 4/10 | 5.5/10 (retry policy 11 tasks, lock Redis, re-raise) | 7/10 |
 | Infra/DevOps | 4/10 | 6.5/10 (--reload, restart, log rotation, health checks, .dockerignore) | 8/10 |
 | Base de donnees | 7/10 | 8/10 (genres refonde, CHECK constraints, CASCADE, index) | 8/10 |
 | Tests | 3/10 | 3/10 | 5/10 |
