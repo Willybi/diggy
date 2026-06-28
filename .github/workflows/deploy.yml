@@ -57,3 +57,22 @@ jobs:
             sleep 15
             curl -sf http://localhost/api/health || exit 1
           '
+
+      - name: Smoke test endpoints
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o ConnectTimeout=30 "$VPS_USER@$VPS_HOST" '
+            FAIL=0
+            for endpoint in /api/catalog/?limit=1 /api/artists/?limit=1 /api/sets/?limit=1 /api/genres/; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost${endpoint}")
+              if [ "$STATUS" != "200" ]; then
+                echo "FAIL: ${endpoint} returned ${STATUS}"
+                FAIL=1
+              else
+                echo "OK: ${endpoint}"
+              fi
+            done
+            exit $FAIL
+          '

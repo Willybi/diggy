@@ -29,6 +29,10 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 - Le dernier chantier (C13) est un audit tests global pour consolider la couverture.
 - **Tests** : l'agent doit ecrire les tests qu'il juge utiles pour le code modifie/ajoute
   (dans `tests/`). Il choisit le type et la granularite selon ce qui fait sens.
+- **SQLite vs PostgreSQL** : les tests CI tournent sur SQLite, la prod sur PostgreSQL.
+  L'agent doit eviter les fonctions/syntaxes specifiques a un dialecte (ARRAY indexing,
+  `round(float, int)` → utiliser `Numeric`, pas de `::type` raw, etc.). En cas de doute,
+  verifier la compatibilite PostgreSQL dans la doc SQLAlchemy.
 - **Opportunites** : les points mineurs, tweaks et ameliorations non-bloquants reperes
   pendant les reviews sont notes dans la section "Opportunites" en bas de ce document,
   pour etre revisites plus tard si pertinent.
