@@ -143,7 +143,7 @@
             >
               <div class="cover-thumb-sm">
                 <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
-                <span v-else class="fallback-sm">{{ a.name[0] }}</span>
+                <span v-else class="fallback-sm">{{ a.name?.[0] }}</span>
               </div>
               <span class="ar-name-sm">{{ a.name }}</span>
               <div class="row-actions" @click.stop>
@@ -162,7 +162,7 @@
             >
               <div class="cover-thumb-sm">
                 <img v-if="h.picture" :src="h.picture" />
-                <span v-else class="fallback-sm">{{ h.name[0] }}</span>
+                <span v-else class="fallback-sm">{{ h.name?.[0] }}</span>
               </div>
               <div>
                 <span class="ar-name-sm">{{ h.name }}</span>
@@ -797,7 +797,7 @@ async function fetchNoDeezerArtists(q = '') {
   const params = { no_deezer: true, limit: 100 }
   if (q) params.q = q
   const { data } = await api.get('/api/artists/', { params })
-  dbArtistResults.value = data
+  dbArtistResults.value = data.items || data
 }
 
 function onLinkSearch() {
