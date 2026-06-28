@@ -13,18 +13,18 @@
 ```
                          SOCLE TECHNIQUE
   =====================================================
-  T1  Securite & Auth           ██████░░  URGENT
-  T2  Resilience Workers        █████░░░  URGENT
-  T3  Infra & DevOps            █████░░░  URGENT
-  T4  Performance Queries       ████░░░░  HAUT
-  T5  Validation & Contrats API ███░░░░░  MOYEN
-  T6  Schema DB & Integrite     ███░░░░░  MOYEN
+  T1  Securite & Auth           ██████░░  URGENT       (0% fait)
+  T2  Resilience Workers        █████░░░  URGENT       (0% fait)
+  T3  Infra & DevOps            █████░░░  URGENT       (~20% fait — health checks)
+  T4  Performance Queries       ████░░░░  HAUT         (~15% fait — preview_url cache)
+  T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
+  T6  Schema DB & Integrite     ███░░░░░  MOYEN        (genres refonde, reste CHECK/index)
 
                          FONCTIONNEL
   =====================================================
-  F1  Multi-User (Phases 5-7)   ████░░░░  PLANIFIE
+  F1  Multi-User (Phases 5-7)   ████░░░░  PLANIFIE     (Phase 6 ~70% fait)
   F2  HTTPS / Domaine           ██░░░░░░  EN ATTENTE
-  F3  Design Realignment        ██████░░  EN COURS
+  F3  Design Realignment        ██████░░  EN COURS     (Vagues 0-2 done, 3-5 a faire)
 
                          LONG TERME
   =====================================================
@@ -290,17 +290,11 @@ logs non rotates. Le CI/CD deploie sans verifier que l'app est up apres le deplo
 
 #### Haut
 
-- [ ] **Health checks** sur les services sans :
-  ```yaml
-  api:
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-  ```
-  - Creer `GET /api/health` dans l'API (retourne 200 + version)
-  - Health checks pour : api, worker (celery inspect ping), frontend, minio
+- [x] **Health checks** sur les services critiques :
+  - `GET /api/health` existe dans l'API
+  - Health checks Docker : postgres (`pg_isready`), redis (`redis-cli ping`), minio (`mc ready`)
+  - Les services api, worker, beat dependent de `condition: service_healthy`
+  - Reste a faire : health check sur api/worker/frontend eux-memes (pas juste leurs deps)
 - [ ] **Health check post-deploy dans CI/CD** :
   ```yaml
   - name: Health check
@@ -401,7 +395,7 @@ Avec ~5 200 entries catalog et ~5 000 radar tracks, ca tient. Au-dela de 20k, ca
 | `server/api/routers/radar.py` | Batch update : 1 query par item dans la boucle | `batch_update_radar_state` |
 | `server/api/routers/artists.py` | Charge 2686 artistes + agregation memoire | `list_artists` |
 | `server/api/routers/genres.py` | Percentile BPM calcule en boucle par genre | `PERCENTILE_CONT` |
-| `server/api/routers/catalog.py` | Appel HTTP Deezer inline (8s timeout) | `get_preview_url` |
+| `server/api/routers/catalog.py` | ~~Appel HTTP Deezer inline~~ FAIT : `preview_url` en DB | |
 
 Outil recommande : activer `echo=True` sur SQLAlchemy en dev pour voir les queries generees,
 ou utiliser `EXPLAIN ANALYZE` sur les routes lentes.
@@ -448,8 +442,8 @@ ou utiliser `EXPLAIN ANALYZE` sur les routes lentes.
 
 - [ ] **Pagination sur `/sets/` et `/watchlist/`** : ces deux endpoints retournent
   tous les resultats sans limite
-- [ ] **Cache preview URL** : stocker le `preview_url` Deezer en DB au lieu de fetch
-  live a chaque requete (8s timeout bloquant)
+- [x] **Cache preview URL** : `preview_url` est maintenant une colonne sur `catalog`,
+  plus de fetch Deezer live a chaque requete
 - [ ] **Artistes : pagination DB** : remplacer le chargement complet par une vraie
   pagination SQL avec agrégats en subquery
 - [ ] **Stats genres pre-calculees** : table ou vue materialisee pour les percentiles
@@ -551,22 +545,27 @@ curl "/api/search?q=$(python -c 'print("a"*1000)')" → 422
 ### Contexte pour l'equipe
 
 Le schema PostgreSQL est globalement solide (bonnes FK, UNIQUE constraints, index sur les PK).
-Mais il manque des CHECK constraints sur les valeurs metier, un CASCADE sur RadarTrack,
+Il manque des CHECK constraints sur les valeurs metier, un CASCADE sur RadarTrack,
 et des index sur les colonnes frequemment filtrees.
+
+**Evolution depuis l'audit :** le systeme de genres a ete entierement refonde :
+- Tables `catalog_genres`, `artist_genres`, `set_genres` **supprimees** (migration 0013)
+- Genres sur catalog : desormais un array `genres TEXT[]` directement sur la table `catalog` (migration 0018)
+- Taxonomie : nouvelles tables `genre_nodes` + `genre_edges` (graphe DAG, migration 0019)
+- Les index et CHECK proposes initialement pour les anciennes tables genres sont donc caducs
 
 ### Perimetre a auditer avant de coder
 
 | Fichier | Quoi verifier |
 |---------|---------------|
 | `server/api/models.py` | Toutes les FK : verifier `ondelete`, `nullable`, `index` |
-| `server/api/alembic/versions/` | 17 migrations existantes — verifier coherence |
+| `server/api/alembic/versions/` | 19 migrations existantes — verifier coherence |
 | `server/workers/tasks.py` | Pattern `session.commit()` dans les boucles |
 
 ### Taches (une seule migration Alembic)
 
 - [ ] **Fix RadarTrack FK** : ajouter `ondelete="CASCADE"` sur `watched_entity_id`
   ```python
-  # models.py ligne ~177
   watched_entity_id = Column(Integer, ForeignKey("watched_entities.id", ondelete="CASCADE"))
   ```
 - [ ] **CHECK constraints** :
@@ -589,6 +588,7 @@ et des index sur les colonnes frequemment filtrees.
   CREATE INDEX ix_catalog_deezer_id ON catalog(deezer_id) WHERE deezer_id IS NOT NULL;
   CREATE INDEX ix_catalog_beatport_id ON catalog(beatport_id) WHERE beatport_id IS NOT NULL;
   CREATE INDEX ix_watched_entities_source ON watched_entities(source);
+  CREATE INDEX ix_catalog_genres ON catalog USING GIN(genres);
   ```
 - [ ] **Coherence DateTime** : verifier que toutes les colonnes timestamp utilisent
   `DateTime(timezone=True)` (pas `DateTime` sans timezone)
@@ -607,6 +607,10 @@ DELETE FROM watched_entities WHERE id = 1;
 -- Index utilises
 EXPLAIN ANALYZE SELECT * FROM radar_tracks WHERE catalog_id = 42;
 -- → Index Scan using ix_radar_tracks_catalog
+
+-- Index GIN genres fonctionne
+EXPLAIN ANALYZE SELECT * FROM catalog WHERE genres @> ARRAY['House'];
+-- → Bitmap Index Scan using ix_catalog_genres
 ```
 
 ---
@@ -648,13 +652,20 @@ Detail complet : voir `ROADMAP_MULTIUSER.md` Phase 5.
 ### Phase 6 — Enforcement auth + Cleanup
 
 **Depend de : T1 (securite deja en place)**
+**Etat : ~70% FAIT**
 
-- Middleware auth obligatoire sur tous les endpoints sauf `/api/auth/*` et `/api/health`
-- Suppression definitive de `lib_tracks` (migration `DROP TABLE`)
-- Router guards frontend : redirect `/login` si pas de token
-- Cleanup : supprimer `get_current_user_optional` des routes qui ne l'utilisent plus
+Deja fait :
+- [x] Suppression definitive de `lib_tracks` (migration 0009 `DROP TABLE`)
+- [x] `LibTrack` supprime de `models.py`
+- [x] Router guards frontend : redirect `/login` si pas de token (`router.beforeEach`)
+- [x] Bouton logout dans la sidebar (`SidebarNav.vue`)
+- [x] Gestion du 401 : auto-logout + redirect login (`api.js` intercepteur)
 
-Note : si T1 est fait correctement, Phase 6 devient principalement du cleanup.
+Reste a faire :
+- [ ] Middleware auth obligatoire backend (tous les endpoints sauf `/api/auth/*` et `/api/health`)
+- [ ] Migrer `get_current_user_optional` → `get_current_user` sur les routes qui le justifient
+- [ ] CORS : restreindre `allow_origins` (releve de T1)
+- [ ] Headers securite Nginx (releve de T1)
 
 ### Phase 7 — Import multi-user
 
@@ -701,10 +712,10 @@ Note : si T1 est fait correctement, Phase 6 devient principalement du cleanup.
 | Vague | Statut | Contenu |
 |-------|--------|---------|
 | Vague 0 | DONE | Decisions transversales (cible DA, admin role-gated, dark mode, densite) |
-| Vague 1 | EN COURS | Kit composants partages (SidebarNav, PageHero, StatStrip, Player...) |
-| Vague 2 | DONE (5/6) | Listes (Catalog, Radar, Sets, Artistes, Playlists). Genre Detail en attente. |
+| Vague 1 | EN COURS | Kit composants partages. Player implemente. Reste : SidebarNav, PageHero, StatStrip, tables, filtres |
+| Vague 2 | DONE (5/6) | Listes (Catalog, Radar, Sets, Artistes v2, Playlists). Genre Detail : maquette livree, a implementer |
 | **Vague 3** | **A FAIRE** | **Pages detail** (Track, Artist, Set, Playlist) |
-| **Vague 4** | **A FAIRE** | **Entrees & navigation** (Genres grid, Login) |
+| **Vague 4** | **EN COURS** | Genres : maquette livree, a implementer. Login a faire |
 | **Vague 5** | **A FAIRE** | **Admin panel** (sync, artworks, flags, liaison Deezer) |
 
 ### Regles a respecter (grille d'audit par ecran)
@@ -777,15 +788,15 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 
 ## Annexe A — Scores de l'audit (juin 2026)
 
-| Domaine | Score | Apres T1-T6 (cible) |
-|---------|-------|---------------------|
-| Architecture | 7/10 | 8/10 |
-| Securite | 4/10 | 8/10 |
-| Performance | 5/10 | 7/10 |
-| Resilience Workers | 4/10 | 7/10 |
-| Infra/DevOps | 4/10 | 8/10 |
-| Base de donnees | 7/10 | 8/10 |
-| Tests | 3/10 | 5/10 |
+| Domaine | Score audit (juin 2026) | Actuel (juin 2026 fin) | Cible apres T1-T6 |
+|---------|------------------------|------------------------|--------------------|
+| Architecture | 7/10 | 7/10 | 8/10 |
+| Securite | 4/10 | 4/10 | 8/10 |
+| Performance | 5/10 | 5.5/10 (preview_url cache) | 7/10 |
+| Resilience Workers | 4/10 | 4/10 | 7/10 |
+| Infra/DevOps | 4/10 | 5/10 (health checks + /api/health) | 8/10 |
+| Base de donnees | 7/10 | 7.5/10 (refonte genres TEXT[] + taxonomy) | 8/10 |
+| Tests | 3/10 | 3/10 | 5/10 |
 
 ---
 
@@ -794,10 +805,10 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 | Chantier | Fichiers principaux |
 |----------|-------------------|
 | T1 Security | `main.py`, `dependencies.py`, `auth.py`, `routers/auth.py`, `nginx/default.conf`, `docker-compose.yml` |
-| T2 Workers | `workers/tasks.py`, `workers/celery_app.py`, `workers/source_clients.py`, `workers/enrichment.py`, `workers/async_http.py`, `workers/rate_limiter.py`, `workers/db.py` |
+| T2 Workers | `workers/tasks.py`, `workers/celery_app.py`, `workers/source_clients.py`, `workers/enrichment.py`, `workers/async_http.py`, `workers/rate_limiter.py`, `workers/db.py`, `workers/crawl_logger.py` |
 | T3 Infra | `docker-compose.yml`, `server/api/Dockerfile`, `server/frontend/Dockerfile`, `.github/workflows/deploy.yml`, `nginx/default.conf` |
-| T4 Perf | `routers/catalog.py`, `routers/tracks.py`, `routers/radar.py`, `routers/artists.py`, `routers/genres.py` |
+| T4 Perf | `routers/catalog.py`, `routers/tracks.py`, `routers/radar.py`, `routers/artists.py`, `routers/genres.py`, `routers/search.py` |
 | T5 Validation | Tous les `routers/*.py`, `main.py` (exception handler) |
-| T6 Schema | `models.py`, `alembic/versions/` |
+| T6 Schema | `models.py` (incl. `GenreNode`, `GenreEdge`), `alembic/versions/` (19 migrations) |
 | F1 Multi-User | `models.py`, `routers/tracks.py`, `routers/radar.py`, `dependencies.py`, `main.py` (import) |
 | F3 Design | `frontend/src/views/`, `frontend/src/components/`, `frontend/src/styles/diggy-tokens.css` |
