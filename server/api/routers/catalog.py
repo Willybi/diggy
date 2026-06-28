@@ -7,7 +7,7 @@ import httpx
 import json as _json
 
 from database import get_db
-from dependencies import get_current_user_optional, uid as _uid
+from dependencies import get_current_user, get_current_user_optional, uid as _uid
 from datetime import datetime, timezone
 
 CatalogSortField = Literal[
@@ -479,9 +479,9 @@ async def update_avis(
     catalog_id: int,
     body: CatalogAvisUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    uid = _uid(user)
+    uid = user.id
 
     result = await db.execute(
         select(UserTrack).where(UserTrack.user_id == uid, UserTrack.catalog_id == catalog_id)

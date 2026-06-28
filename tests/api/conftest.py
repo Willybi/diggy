@@ -37,9 +37,11 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from database import Base, get_db
-from dependencies import get_current_user, require_admin
+from dependencies import get_current_user, get_current_user_optional, require_admin
 from models import User
 from auth import hash_password
+import auth_middleware
+auth_middleware.enabled = False  # Tests use dependency overrides, not real JWTs
 from main import app
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -139,16 +141,20 @@ async def admin_user(db):
 @pytest_asyncio.fixture
 async def auth_client(auth_user):
     app.dependency_overrides[get_current_user] = lambda: auth_user
+    app.dependency_overrides[get_current_user_optional] = lambda: auth_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(get_current_user_optional, None)
 
 
 @pytest_asyncio.fixture
 async def admin_client(admin_user):
     app.dependency_overrides[get_current_user] = lambda: admin_user
+    app.dependency_overrides[get_current_user_optional] = lambda: admin_user
     app.dependency_overrides[require_admin] = lambda: admin_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(get_current_user_optional, None)
     app.dependency_overrides.pop(require_admin, None)

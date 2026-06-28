@@ -4,7 +4,7 @@ from sqlalchemy import select, func, text
 from database import get_db
 from models import UserTrack, CatalogEntry, User
 from schemas import TrackOut, TrackList, TrackExisting, TrackImport, BulkImportResult
-from dependencies import get_current_user, get_current_user_optional, uid as _uid
+from dependencies import get_current_user
 import base64
 import tempfile
 import os
@@ -17,12 +17,12 @@ router = APIRouter(prefix="/tracks", tags=["tracks"])
 @router.get("/existing-ids", response_model=list[TrackExisting])
 async def get_existing_ids(
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Retourne tous les rekordbox_id existants avec leur statut has_artwork."""
     result = await db.execute(
         select(UserTrack.rekordbox_id, UserTrack.has_artwork)
-        .where(UserTrack.user_id == _uid(user))
+        .where(UserTrack.user_id == user.id)
         .where(UserTrack.rekordbox_id.isnot(None))
     )
     return [{"id": row.rekordbox_id, "has_artwork": row.has_artwork} for row in result.all()]
@@ -43,7 +43,7 @@ async def bulk_import(
     from utils import make_normalized_key
     ensure_bucket()
 
-    uid = _uid(user)
+    uid = user.id
 
     # Chargement des user_tracks existants (rekordbox_id → (catalog_id, has_artwork))
     existing_result = await db.execute(
@@ -175,10 +175,10 @@ async def bulk_import(
 @router.get("/tags", response_model=list[str])
 async def list_tags(
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Retourne tous les tags uniques extraits de user_tracks."""
-    uid = _uid(user)
+    uid = user.id
     result = await db.execute(
         text(
             "SELECT DISTINCT jsonb_array_elements_text(rb_mytags::jsonb) AS tag "
@@ -197,9 +197,9 @@ async def list_tracks(
     artist: str | None = None,
     tag: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    uid = _uid(user)
+    uid = user.id
 
     query = (
         select(
@@ -261,10 +261,10 @@ async def list_tracks(
 async def get_track(
     track_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Récupère un track par rekordbox_id."""
-    uid = _uid(user)
+    uid = user.id
     result = await db.execute(
         select(
             UserTrack.rekordbox_id,

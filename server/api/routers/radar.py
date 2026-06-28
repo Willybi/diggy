@@ -8,7 +8,7 @@ from sqlalchemy.orm import aliased
 
 from catalog import get_or_create_catalog
 from database import get_db
-from dependencies import get_current_user, get_current_user_optional, uid as _uid
+from dependencies import get_current_user
 from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User
 from opinion_sync import sync_track_opinion, RADAR_TO_OPINION
 from schemas import (
@@ -40,9 +40,9 @@ async def list_radar_full(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    uid = _uid(user)
+    uid = user.id
 
     urs = aliased(UserRadarState)
     ut = aliased(UserTrack)
@@ -169,9 +169,9 @@ async def list_radar_full(
 @router.get("/new-count")
 async def radar_new_count(
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    uid = _uid(user)
+    uid = user.id
     urs = aliased(UserRadarState)
 
     q = (
@@ -199,7 +199,7 @@ async def update_radar_state(
     user: User = Depends(get_current_user),
 ):
     resolved = _STATUS_ALIAS.get(body.status, body.status)
-    uid = _uid(user)
+    uid = user.id
 
     result = await db.execute(
         select(UserRadarState).where(
@@ -239,7 +239,7 @@ async def batch_update_radar_state(
     user: User = Depends(get_current_user),
 ):
     """Update state for multiple catalog_ids at once."""
-    uid = _uid(user)
+    uid = user.id
     now = datetime.now(timezone.utc)
 
     valid_items = [(item.catalog_id, _STATUS_ALIAS.get(item.status, item.status)) for item in body]

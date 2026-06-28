@@ -63,8 +63,8 @@ autonome confie a un agent Claude "collegue". Le cycle est :
   T2  Resilience Workers        ███████░  QUASI-DONE   (~90% fait — reste circuit breaker Beatport optionnel)
   T3  Infra & DevOps            ████████  DONE         (100% — backups, health checks, multi-stage, gzip, cache)
   T4  Performance Queries       ███████░  QUASI-DONE   (~90% fait — reste stats genres pre-calculees optionnel)
-  T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
-  T6  Schema DB & Integrite     ███░░░░░  MOYEN        (~80% fait — CHECK+CASCADE+index+genres)
+  T5  Validation & Contrats API ████████  DONE         (schemas, Literal enums, max_length, temp cleanup)
+  T6  Schema DB & Integrite     ████████  DONE         (100% — CHECK+CASCADE+index+genres+TIMESTAMPTZ)
 
                          FONCTIONNEL
   =====================================================
@@ -91,8 +91,8 @@ C4   Refactorer image upload 3→1           T2      DONE
 C5   DLQ + TIDAL refresh + moyens workers  T2      DONE
 C6   Backups PostgreSQL + MinIO            T3      DONE
 C7   Mega-query catalog + paginations      T4      DONE
-C8   Validation & contrats API             T5      A FAIRE
-C9   Coherence DateTime timezone           T6      A FAIRE
+C8   Validation & contrats API             T5      DONE
+C9   Coherence DateTime timezone           T6      DONE (deja conforme)
 C10  F1 Phase 6 — Enforcement auth         F1      A FAIRE
 C11  F1 Phase 5 — Trends + Collections     F1      A FAIRE
 C12  F1 Phase 7 — Import multi-user        F1      A FAIRE
@@ -505,8 +505,8 @@ et des index sur les colonnes frequemment filtrees.
   `ck_position_positive`, `ck_opinion_valid`, `ck_flag_status_valid`
 - [x] **Index sur colonnes filtrees** (migration 0020) : 6 index ajoutes
   (voir T4 pour le detail)
-- [ ] **Coherence DateTime** : verifier que toutes les colonnes timestamp utilisent
-  `DateTime(timezone=True)` (pas `DateTime` sans timezone)
+- [x] **Coherence DateTime** : audit confirme que les 21 colonnes DateTime utilisent
+  toutes `timezone=True` — rien a corriger
 
 ### Definition of Done
 
