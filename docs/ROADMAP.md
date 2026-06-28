@@ -62,7 +62,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
   T1  Securite & Auth           ████████  DONE         (100% — JWT 7j, CORS, port, auth, rate limit, headers)
   T2  Resilience Workers        ███████░  QUASI-DONE   (~90% fait — reste circuit breaker Beatport optionnel)
   T3  Infra & DevOps            ████████  DONE         (100% — backups, health checks, multi-stage, gzip, cache)
-  T4  Performance Queries       ████░░░░  HAUT         (~60% fait — tags/batch/index/preview)
+  T4  Performance Queries       ███████░  QUASI-DONE   (~90% fait — reste stats genres pre-calculees optionnel)
   T5  Validation & Contrats API ███░░░░░  MOYEN        (0% fait)
   T6  Schema DB & Integrite     ███░░░░░  MOYEN        (~80% fait — CHECK+CASCADE+index+genres)
 
@@ -90,7 +90,7 @@ C3   Unifier rate limiting workers          T2      DONE
 C4   Refactorer image upload 3→1           T2      DONE
 C5   DLQ + TIDAL refresh + moyens workers  T2      DONE
 C6   Backups PostgreSQL + MinIO            T3      DONE
-C7   Mega-query catalog + paginations      T4      A FAIRE
+C7   Mega-query catalog + paginations      T4      DONE
 C8   Validation & contrats API             T5      A FAIRE
 C9   Coherence DateTime timezone           T6      A FAIRE
 C10  F1 Phase 6 — Enforcement auth         F1      A FAIRE
@@ -368,22 +368,20 @@ ou utiliser `EXPLAIN ANALYZE` sur les routes lentes.
 - [x] **Filtrage tags en SQL** : `rb_mytags::jsonb ? :tag` applique avant pagination
 - [x] **`/tracks/tags` en SQL** : `SELECT DISTINCT jsonb_array_elements_text(...)` direct
 - [x] **Batch radar SQL** : bulk `SELECT ... WHERE catalog_id IN (...)` + boucle sans query
-- [ ] **Decomposer la mega-query catalog** : splitter en 2-3 requetes separees
-  plutot que 6 OUTER JOINs (risque produit cartesien)
-  - Option A : requetes separees + assemblage Python
-  - Option B : vue materialisee PostgreSQL rafraichie periodiquement
+- [x] **Decomposer la mega-query catalog** : `artist_sub` extrait en batch-fetch
+  post-pagination, 4 autres subqueries conservees (pre-agregees, safe)
 - [x] **Index manquants** (migration 0020) : `ix_radar_tracks_catalog`, `ix_radar_tracks_watched_entity`,
   `ix_catalog_deezer_id` (partiel), `ix_catalog_beatport_id` (partiel), `ix_watched_entities_source`,
   `ix_catalog_genres` (GIN)
 
 #### Moyen
 
-- [ ] **Pagination sur `/sets/` et `/watchlist/`** : ces deux endpoints retournent
-  tous les resultats sans limite
+- [x] **Pagination sur `/sets/` et `/watchlist/`** : `{total, items}` avec limit/offset,
+  defaults limit=50
 - [x] **Cache preview URL** : `preview_url` est maintenant une colonne sur `catalog`,
   plus de fetch Deezer live a chaque requete
-- [ ] **Artistes : pagination DB** : remplacer le chargement complet par une vraie
-  pagination SQL avec agrégats en subquery
+- [x] **Artistes : pagination DB** : union_all name+aliases, stats/liked en subqueries SQL,
+  tri et pagination SQL
 - [ ] **Stats genres pre-calculees** : table ou vue materialisee pour les percentiles
   BPM par genre, rafraichie quotidiennement
 
@@ -714,6 +712,10 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 - [ ] **`bulk_insert_radar_tracks` retourne `len(to_insert)`** au lieu du nombre reellement
   insere (les conflits ON CONFLICT sont comptes). Compteur cosmétique, pas bloquant.
   _(repere lors de la review C2)_
+- [ ] **Artists familyCounts** — le calcul des genres/familles pour `familyCounts` charge
+  tous les artist_ids matchant le filtre pour calculer en Python. Acceptable pour ~2700 artistes,
+  mais si le nombre grandit, envisager une vue materialisee `artist_genres`.
+  _(repere lors de la review C7)_
 - [ ] **Scripts one-shot upload non refactores** — `scripts/fetch_catalog_artworks.py` et
   `scripts/backfill_set_artworks.py` ont encore leur propre logique d'upload image au lieu
   d'utiliser `upload_image_bytes_to_bucket` centralise dans `deezer_enrich.py`.

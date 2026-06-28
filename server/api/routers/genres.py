@@ -74,7 +74,7 @@ def _family_genre_names(family: str) -> list[str]:
 
 @router.get("/random-track")
 async def random_genre_track(
-    genre: str = Query(...),
+    genre: str = Query(..., max_length=100),
     exclude: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -102,8 +102,8 @@ async def random_genre_track(
 @router.get("")
 async def list_genres(
     sort: str = Query("tracks", pattern="^(tracks|alpha)$"),
-    family: str | None = Query(None),
-    q: str | None = Query(None),
+    family: str | None = Query(None, max_length=100),
+    q: str | None = Query(None, max_length=200),
     limit: int = Query(24, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -497,7 +497,7 @@ async def get_genre_playlists(
 async def get_genre_tracks(
     name: str,
     sort: str = Query("recent", pattern="^(recent|bpm|key|alpha)$"),
-    q: str | None = Query(None),
+    q: str | None = Query(None, max_length=200),
     in_lib: int | None = Query(None, alias="inLib"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),

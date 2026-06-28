@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,11 @@ import json as _json
 from database import get_db
 from dependencies import get_current_user_optional, uid as _uid
 from datetime import datetime, timezone
+
+CatalogSortField = Literal[
+    "title", "nb_radar_playlists", "detected_at", "rating",
+    "bpm", "duration_ms", "key", "style", "in_lib", "avis",
+]
 
 from models import (
     CatalogEntry, UserTrack, UserRadarState, RadarTrack, SetTrack,
@@ -45,13 +52,13 @@ async def list_catalog(
     limit: int = Query(50, ge=1, le=200),
     in_lib: bool | None = Query(None),
     min_radar_playlists: int | None = Query(None),
-    search: str | None = Query(None),
-    genre: str | None = Query(None),
-    sort: str | None = Query(None),
-    order: str | None = Query("desc"),
-    view: str | None = Query(None),
+    search: str | None = Query(None, max_length=200),
+    genre: str | None = Query(None, max_length=100),
+    sort: CatalogSortField | None = Query(None),
+    order: Literal["asc", "desc"] | None = Query("desc"),
+    view: Literal["radar"] | None = Query(None),
     detected_after: datetime | None = Query(None),
-    avis: str | None = Query(None),
+    avis: Literal["liked", "disliked"] | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -475,8 +482,6 @@ async def update_avis(
     user: User | None = Depends(get_current_user_optional),
 ):
     uid = _uid(user)
-    if body.avis not in (None, "liked", "disliked"):
-        raise HTTPException(status_code=422, detail="avis must be liked, disliked, or null")
 
     result = await db.execute(
         select(UserTrack).where(UserTrack.user_id == uid, UserTrack.catalog_id == catalog_id)

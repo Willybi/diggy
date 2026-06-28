@@ -23,10 +23,10 @@ router = APIRouter(prefix="/artists", tags=["artists"])
 @router.get("/")
 async def list_artists(
     sort: str = Query("catalog", pattern="^(catalog|lib|liked|disliked|rating|alpha)$"),
-    family: str | None = Query(None),
-    q: str | None = None,
+    family: str | None = Query(None, max_length=100),
+    q: str | None = Query(None, max_length=200),
     no_deezer: bool = False,
-    ids: str | None = Query(None),
+    ids: str | None = Query(None, max_length=500),
     limit: int = Query(24, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),

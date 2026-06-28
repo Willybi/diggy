@@ -1,6 +1,6 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 import json
 
 
@@ -127,8 +127,16 @@ class RadarFullList(BaseModel):
     counts: dict[str, int] = {}
 
 
+RadarStatus = Literal["new", "seen", "added", "ignored", "liked", "disliked"]
+
+
 class RadarStateUpdate(BaseModel):
-    status: str  # new, seen, added, ignored
+    status: RadarStatus
+
+
+class RadarBatchItem(BaseModel):
+    catalog_id: int
+    status: RadarStatus
 
 
 class CatalogEntryOut(BaseModel):
@@ -169,7 +177,7 @@ class CatalogEntryOut(BaseModel):
 
 
 class CatalogAvisUpdate(BaseModel):
-    avis: Optional[str] = None
+    avis: Literal["liked", "disliked"] | None = None
 
 
 class CatalogList(BaseModel):

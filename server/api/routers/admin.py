@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,7 +56,7 @@ class SyncStatus(BaseModel):
 
 
 class ResolveIn(BaseModel):
-    action: str  # "split" | "keep" | "skip"
+    action: Literal["split", "keep", "skip"]
 
 
 class ArtistDeezerIn(BaseModel):
@@ -123,7 +125,7 @@ async def fetch_artworks(
 
 @router.get("/artists/search-deezer", response_model=list[DeezerArtistHit])
 async def search_deezer_artist(
-    q: str,
+    q: str = Query(..., max_length=100),
     _: User = Depends(require_admin),
 ):
     """Search Deezer for an artist by name."""
@@ -299,7 +301,7 @@ async def create_manual_flag(
 
 @router.get("/artists/flags", response_model=list[ArtistFlagOut])
 async def list_flags(
-    status: str = "pending",
+    status: Literal["pending", "validated", "skipped"] = "pending",
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -331,9 +333,6 @@ async def resolve_flag(
         await db.commit()
         await db.refresh(flag)
         return flag
-
-    if body.action not in ("split", "keep"):
-        raise HTTPException(status_code=422, detail="action must be split, keep, or skip")
 
     from trackid.importer import get_or_create_artist
 
@@ -658,8 +657,8 @@ async def fetch_all_playlist_artworks(
 async def get_crawl_logs(
     page: int = 1,
     per_page: int = 20,
-    task_type: str | None = None,
-    status: str | None = None,
+    task_type: str | None = Query(None, max_length=100),
+    status: str | None = Query(None, max_length=50),
     db: AsyncSession = Depends(get_db),
     _admin=Depends(require_admin),
 ):

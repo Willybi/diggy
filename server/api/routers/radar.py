@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select, func, case, literal, and_, desc as sa_desc
@@ -16,6 +17,7 @@ from schemas import (
     RadarFullOut,
     RadarFullList,
     RadarStateUpdate,
+    RadarBatchItem,
 )
 
 router = APIRouter(prefix="/radar", tags=["radar"])
@@ -29,12 +31,12 @@ _STATUS_ALIAS = {"liked": "added", "disliked": "ignored"}
 
 @router.get("/full", response_model=RadarFullList)
 async def list_radar_full(
-    status: str | None = Query(None),
+    status: Literal["new", "seen", "added", "ignored", "liked", "disliked"] | None = Query(None),
     playlist_id: int | None = Query(None),
-    search: str | None = Query(None),
+    search: str | None = Query(None, max_length=200),
     detected_after: datetime | None = Query(None),
-    sort: str = Query("detected_at"),
-    order: str = Query("desc"),
+    sort: Literal["detected_at", "title", "artist", "bpm", "key", "genre", "playlist_title"] = Query("detected_at"),
+    order: Literal["asc", "desc"] = Query("desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -196,9 +198,6 @@ async def update_radar_state(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if body.status not in _VALID_STATUSES:
-        raise HTTPException(status_code=422, detail=f"Invalid status. Must be one of: {_VALID_STATUSES}")
-
     resolved = _STATUS_ALIAS.get(body.status, body.status)
     uid = _uid(user)
 
@@ -235,24 +234,15 @@ async def update_radar_state(
 
 @router.patch("/state/batch")
 async def batch_update_radar_state(
-    body: list[dict],
+    body: list[RadarBatchItem],
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Update state for multiple catalog_ids at once.
-    Body: [{"catalog_id": 123, "status": "seen"}, ...]
-    """
+    """Update state for multiple catalog_ids at once."""
     uid = _uid(user)
     now = datetime.now(timezone.utc)
 
-    # Validate & resolve statuses upfront
-    valid_items = []
-    for item in body:
-        cid = item.get("catalog_id")
-        st = item.get("status")
-        if not cid or st not in _VALID_STATUSES:
-            continue
-        valid_items.append((cid, _STATUS_ALIAS.get(st, st)))
+    valid_items = [(item.catalog_id, _STATUS_ALIAS.get(item.status, item.status)) for item in body]
 
     if not valid_items:
         return {"updated": 0}
@@ -293,7 +283,7 @@ async def batch_update_radar_state(
 @router.get("/", response_model=list[RadarTrackOut])
 async def list_radar_tracks(
     watched_playlist_id: int | None = Query(None),
-    source: str | None = Query(None),
+    source: str | None = Query(None, max_length=50),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(RadarTrack)

@@ -311,8 +311,8 @@ async def _search_genres(
 
 @router.get("/search", response_model=SearchResponse)
 async def search(
-    q: str = Query("", min_length=0),
-    scope: str = Query("all"),
+    q: str = Query("", min_length=0, max_length=200),
+    scope: str = Query("all", max_length=50),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),

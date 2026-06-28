@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from database import get_db
@@ -8,6 +8,8 @@ from dependencies import get_current_user, get_current_user_optional, uid as _ui
 import base64
 import tempfile
 import os
+
+MAX_BULK_IMPORT_SIZE = 5000
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
 
@@ -28,7 +30,7 @@ async def get_existing_ids(
 
 @router.post("/bulk", response_model=BulkImportResult)
 async def bulk_import(
-    tracks: list[TrackImport],
+    tracks: list[TrackImport] = Body(max_length=MAX_BULK_IMPORT_SIZE),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -68,18 +70,21 @@ async def bulk_import(
             has_artwork = already_has_artwork
 
             if t.image_base64 and not already_has_artwork:
+                tmp_path = None
                 try:
                     img_bytes = base64.b64decode(t.image_base64)
                     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
                         f.write(img_bytes)
                         tmp_path = f.name
                     upload_artwork(tmp_path, f"{rb_id}.jpg")
-                    os.unlink(tmp_path)
                     has_artwork = True
                     artworks_uploaded += 1
                 except Exception as e:
                     import logging
                     logging.getLogger("diggy").error(f"Artwork upload failed for track {rb_id}: {e}")
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
 
             ut_result = await db.execute(
                 select(UserTrack).where(
@@ -131,18 +136,21 @@ async def bulk_import(
             has_artwork = False
 
             if t.image_base64:
+                tmp_path = None
                 try:
                     img_bytes = base64.b64decode(t.image_base64)
                     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
                         f.write(img_bytes)
                         tmp_path = f.name
                     upload_artwork(tmp_path, f"{rb_id}.jpg")
-                    os.unlink(tmp_path)
                     has_artwork = True
                     artworks_uploaded += 1
                 except Exception as e:
                     import logging
                     logging.getLogger("diggy").error(f"Artwork upload failed for track {rb_id}: {e}")
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
 
             ut = UserTrack(
                 user_id=uid,
