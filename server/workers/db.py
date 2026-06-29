@@ -178,7 +178,8 @@ def bulk_insert_radar_tracks(
         stmt = pg_insert(RadarTrack).values(to_insert).on_conflict_do_nothing(
             constraint="uq_radar_playlist_track"
         )
-        session.execute(stmt)
+        result = session.execute(stmt)
         session.flush()
+        return result.rowcount
 
-    return len(to_insert)
+    return 0

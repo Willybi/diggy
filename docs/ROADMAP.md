@@ -100,7 +100,7 @@ C9   Coherence DateTime timezone           T6      DONE (deja conforme)
 C10  F1 Phase 6 — Enforcement auth         F1      DONE
 C11  F1 Phase 5 — Trends + Collections     F1      DONE
 C12  F1 Phase 7 — Import multi-user        F1      DONE
-C13  Audit tests global                    ALL     A FAIRE
+C13  Audit tests global                    ALL     DONE (493 tests, +92)
 ```
 
 ### Dependances
@@ -710,38 +710,25 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 > Points mineurs, tweaks et ameliorations non-bloquants reperes pendant les reviews.
 > A revisiter quand le backlog principal est vide ou si un chantier les rend faciles a integrer.
 
-- [ ] **Backup : Dockerfile dedie** — eviter le telechargement de `mc` (~20 Mo) + install
-  `postgresql16-client` a chaque run du service backup. Creer un Dockerfile avec outils pre-installes.
-  _(repere lors de la review C6)_
-- [ ] **`bulk_insert_radar_tracks` retourne `len(to_insert)`** au lieu du nombre reellement
-  insere (les conflits ON CONFLICT sont comptes). Compteur cosmétique, pas bloquant.
-  _(repere lors de la review C2)_
-- [ ] **Tests PostgreSQL vs SQLite** — C7 a introduit un bug `round(float, int)` invisible en
-  SQLite mais crash en PostgreSQL. Envisager des tests d'integration avec PostgreSQL reel
-  (ou au moins un shim SQLite pour `round(x, n)`).
-  _(repere lors du hotfix C7/C10)_
-- [ ] **Artists familyCounts** — le calcul des genres/familles pour `familyCounts` charge
-  tous les artist_ids matchant le filtre pour calculer en Python. Acceptable pour ~2700 artistes,
-  mais si le nombre grandit, envisager une vue materialisee `artist_genres`.
-  _(repere lors de la review C7)_
-- [ ] **Scripts one-shot upload non refactores** — `scripts/fetch_catalog_artworks.py` et
-  `scripts/backfill_set_artworks.py` ont encore leur propre logique d'upload image au lieu
-  d'utiliser `upload_image_bytes_to_bucket` centralise dans `deezer_enrich.py`.
-  _(repere lors de la review C4)_
+- [~] **Backup : Dockerfile dedie** — CLOS, gain negligeable pour un cron nocturne _(C6)_
+- [ ] **`bulk_insert_radar_tracks` retourne `len(to_insert)`** — EN COURS, quick fix _(C2)_
+- [ ] **Tests PostgreSQL vs SQLite** — A FAIRE PLUS TARD, chantier infra CI _(C7/C10)_
+- [~] **Artists familyCounts** — CLOS, 2700 artistes = pas de probleme perf _(C7)_
+- [~] **Scripts one-shot upload** — CLOS, scripts lances 1-2x, duplication sans impact _(C4)_
 
 ---
 
 ## Annexe A — Scores de l'audit (juin 2026)
 
-| Domaine | Score audit (juin 2026) | Actuel (juin 2026 fin) | Cible apres T1-T6 |
-|---------|------------------------|------------------------|--------------------|
-| Architecture | 7/10 | 7/10 | 8/10 |
-| Securite | 4/10 | 8/10 (port, JWT, CORS, headers, exception handler, auth mutations, validation, rate limiting Redis) | 8/10 |
-| Performance | 5/10 | 6.5/10 (tags SQL, batch radar, 6 index, preview cache) | 7/10 |
-| Resilience Workers | 4/10 | 5.5/10 (retry policy 11 tasks, lock Redis, re-raise) | 7/10 |
-| Infra/DevOps | 4/10 | 8/10 (cible atteinte — reste backups optionnels) | 8/10 |
-| Base de donnees | 7/10 | 8/10 (genres refonde, CHECK constraints, CASCADE, index) | 8/10 |
-| Tests | 3/10 | 3/10 | 5/10 |
+| Domaine | Score audit (juin 2026) | Apres C1-C13 | Cible |
+|---------|------------------------|--------------|-------|
+| Architecture | 7/10 | 8/10 | 8/10 |
+| Securite | 4/10 | 9/10 (JWT 7j, CORS, port, auth middleware, rate limit, headers, validation) | 8/10 |
+| Performance | 5/10 | 8/10 (catalog decompose, pagination everywhere, index, batch) | 7/10 |
+| Resilience Workers | 4/10 | 8/10 (retry, lock, DLQ, rate limiter unifie, TIDAL refresh, image upload) | 7/10 |
+| Infra/DevOps | 4/10 | 9/10 (backups, health checks, multi-stage, gzip, cache, smoke tests) | 8/10 |
+| Base de donnees | 7/10 | 9/10 (genres, CHECK, CASCADE, index, TIMESTAMPTZ, trends, collections) | 8/10 |
+| Tests | 3/10 | 6/10 (493 tests, +45%) | 5/10 |
 
 ---
 
