@@ -711,7 +711,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 > A revisiter quand le backlog principal est vide ou si un chantier les rend faciles a integrer.
 
 - [~] **Backup : Dockerfile dedie** — CLOS, gain negligeable pour un cron nocturne _(C6)_
-- [ ] **`bulk_insert_radar_tracks` retourne `len(to_insert)`** — EN COURS, quick fix _(C2)_
+- [x] **`bulk_insert_radar_tracks` retourne `result.rowcount`** — DONE _(C2)_
 - [ ] **Tests PostgreSQL vs SQLite** — A FAIRE PLUS TARD, chantier infra CI _(C7/C10)_
 - [~] **Artists familyCounts** — CLOS, 2700 artistes = pas de probleme perf _(C7)_
 - [~] **Scripts one-shot upload** — CLOS, scripts lances 1-2x, duplication sans impact _(C4)_
