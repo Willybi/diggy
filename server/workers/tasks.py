@@ -31,7 +31,11 @@ def crawl_radar(self):
     from sqlalchemy.orm import Session
 
     engine = get_engine()
-    playlists = requests.get(f"{API_BASE}/api/watchlist/active", timeout=10).json()
+    resp = requests.get(f"{API_BASE}/api/watchlist/active", timeout=10)
+    resp.raise_for_status()
+    playlists = resp.json()
+    if not isinstance(playlists, list):
+        raise TypeError(f"Expected list from /api/watchlist/active, got {type(playlists).__name__}: {str(playlists)[:200]}")
 
     with Session(engine) as log_session:
         from workers.crawl_logger import CrawlLogger
