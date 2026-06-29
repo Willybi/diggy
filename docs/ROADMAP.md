@@ -3,19 +3,7 @@
 > Roadmaps completees : voir `docs/completed/`
 > - `ROADMAP_2026-06.md` — audit technique T1-T6, chantiers C1-C13 (100% fait)
 > - `ROADMAP_MULTIUSER.md` — phases 0-7 multi-user (100% fait)
-
----
-
-## En attente
-
-### F2 — HTTPS / Domaine
-
-**Bloque par :** achat du nom de domaine
-**Plan pret :** `docs/PLAN_HTTPS.md`
-
-- [ ] Acheter et configurer le nom de domaine
-- [ ] Pointer le DNS A vers 82.29.168.247
-- [ ] Executer le provisioning initial (voir PLAN_HTTPS.md)
+> - F2 HTTPS — domaine `diggy-music.fr`, Let's Encrypt, certbot auto-renew (100% fait)
 
 ---
 
@@ -49,8 +37,10 @@ Necessite L2. Stack envisagee : D3.js ou vue-flow.
 
 ## Opportunites techniques
 
-- [ ] **Tests CI avec PostgreSQL** — remplacer SQLite par un service PG dans GitHub Actions
-  pour eviter les bugs dialecte (ex: `round(float, int)`)
+- [x] **Tests CI avec PostgreSQL** — service PG 16 dans GitHub Actions, conftest dual SQLite/PG,
+  asyncpg en CI. Les tests tournent sur le meme dialecte que la prod.
+- [x] **Lint frontend dans CI/CD** — ESLint + eslint-plugin-vue, job `lint-frontend`
+  dans le workflow deploy. Zero erreurs/warnings au depart.
 
 ---
 

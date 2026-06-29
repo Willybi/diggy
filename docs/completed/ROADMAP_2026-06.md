@@ -243,9 +243,8 @@ Reste : unification rate limiting, DLQ, refresh TIDAL, refactoring image upload.
   DEEZER_RATE_LIMIT=0.12
   ENRICHMENT_BATCH_SIZE=100
   ```
-- [ ] **Circuit breaker Beatport** : si N echecs consecutifs Cloudflare, skip pendant 1h
-- [ ] **Batch commits workers** : remplacer les `session.commit()` dans les boucles
-  par des commits toutes les 100 iterations
+- [~] **Circuit breaker Beatport** — CLOS, pas de source Beatport active, retries Celery suffisent
+- [~] **Batch commits workers** — CLOS, volume trop faible (~5000 tracks), pas d'impact perf
 - [x] **Structured logging** : `CeleryTaskFilter` injecte `task_id`/`task_name` dans tous les logs
 
 ### Definition of Done
@@ -305,7 +304,7 @@ Reste a faire : health check post-deploy CI/CD, timeouts Nginx, gzip, cache head
   - Reste a faire : health check sur api/worker/frontend eux-memes (pas juste leurs deps)
 - [x] **Health check post-deploy dans CI/CD** : etape separee apres deploy,
   `curl -sf http://localhost/api/health || exit 1` (workflow echoue si API down)
-- [ ] **Tests frontend dans CI/CD** : ajouter `npm run lint` (minimum) dans le workflow
+- [~] **Tests frontend dans CI/CD** — DEPLACE vers ROADMAP.md opportunites techniques
 - [x] **Timeouts Nginx** : `proxy_connect_timeout 60s`, `proxy_send/read_timeout 180s`
 
 #### Moyen
@@ -386,8 +385,7 @@ ou utiliser `EXPLAIN ANALYZE` sur les routes lentes.
   plus de fetch Deezer live a chaque requete
 - [x] **Artistes : pagination DB** : union_all name+aliases, stats/liked en subqueries SQL,
   tri et pagination SQL
-- [ ] **Stats genres pre-calculees** : table ou vue materialisee pour les percentiles
-  BPM par genre, rafraichie quotidiennement
+- [~] **Stats genres pre-calculees** — CLOS, 26 genres + 5200 tracks = calcul instantane, over-engineering
 
 ### Definition of Done
 
@@ -712,7 +710,7 @@ Stack envisagee : D3.js ou vue-flow cote frontend.
 
 - [~] **Backup : Dockerfile dedie** — CLOS, gain negligeable pour un cron nocturne _(C6)_
 - [x] **`bulk_insert_radar_tracks` retourne `result.rowcount`** — DONE _(C2)_
-- [ ] **Tests PostgreSQL vs SQLite** — A FAIRE PLUS TARD, chantier infra CI _(C7/C10)_
+- [~] **Tests PostgreSQL vs SQLite** — DEPLACE vers ROADMAP.md opportunites techniques _(C7/C10)_
 - [~] **Artists familyCounts** — CLOS, 2700 artistes = pas de probleme perf _(C7)_
 - [~] **Scripts one-shot upload** — CLOS, scripts lances 1-2x, duplication sans impact _(C4)_
 

@@ -96,7 +96,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
@@ -106,7 +106,6 @@ import { useAuthStore } from '../stores/auth.js'
 import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
 
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
 const playlist = ref(null)

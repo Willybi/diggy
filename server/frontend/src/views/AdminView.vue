@@ -442,9 +442,6 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
 import api from '../utils/api.js'
-import { useAuthStore } from '../stores/auth.js'
-
-const auth = useAuthStore()
 const syncing = ref(false)
 const syncResult = ref(null)
 const syncError = ref('')

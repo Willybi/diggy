@@ -81,7 +81,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useOpinionsStore } from '../stores/opinions.js'
-import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
+import { FAMILY_LABELS } from '../composables/useStyleMap.js'
 import GenreCard from '../components/GenreCard.vue'
 import { fmtNum, pl } from '../utils/format'
 

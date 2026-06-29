@@ -200,13 +200,11 @@
 import { ref, computed, onMounted } from 'vue'
 import api from '../utils/api.js'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { fmtMs, fmtDate } from '../utils/format'
 import LikeDislike from '../components/LikeDislike.vue'
 
 const router = useRouter()
-const auth = useAuthStore()
 const opinions = useOpinionsStore()
 
 const sets = ref([])

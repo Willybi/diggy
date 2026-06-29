@@ -386,7 +386,6 @@ function artStyle(item) {
     if (tone.hue != null) return { '--th': tone.hue }
   }
   if (item.type === 'artist') {
-    const tone = styleTone('')  // neutral for artist without genre info
     return {}
   }
   return {}

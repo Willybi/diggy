@@ -1,6 +1,6 @@
 """
-Patch les dépendances d'infra (boto3, botocore, storage) avant leur import.
-Configure la DB SQLite en mémoire partagée pour tous les tests API.
+Patch les dependances d'infra (boto3, botocore, storage) avant leur import.
+Configure la DB pour les tests API : PostgreSQL si DATABASE_URL est set, sinon SQLite.
 Permet de tester l'API sans MinIO ni variables d'environnement.
 """
 from unittest.mock import MagicMock
@@ -9,7 +9,7 @@ import os
 import pytest
 import pytest_asyncio
 
-# Modules non installés dans l'env de test
+# Modules non installes dans l'env de test
 sys.modules.setdefault("boto3", MagicMock())
 sys.modules.setdefault("botocore", MagicMock())
 sys.modules.setdefault("botocore.client", MagicMock())
@@ -22,7 +22,7 @@ mock_celery_mod.Celery.return_value.send_task.return_value = _mock_task_result
 sys.modules.setdefault("celery", mock_celery_mod)
 sys.modules.setdefault("celery.result", MagicMock())
 
-# storage.py lit des vars d'env à l'import — on le remplace entièrement
+# storage.py lit des vars d'env a l'import — on le remplace entierement
 mock_storage = MagicMock()
 mock_storage.ensure_bucket = MagicMock()
 mock_storage.upload_artwork = MagicMock()
@@ -36,6 +36,7 @@ import json
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from database import Base, get_db
 from dependencies import get_current_user, get_current_user_optional, require_admin
 from models import User
@@ -44,8 +45,16 @@ import auth_middleware
 auth_middleware.enabled = False  # Tests use dependency overrides, not real JWTs
 from main import app
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-test_engine = create_async_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+TEST_DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+_is_postgres = TEST_DATABASE_URL.startswith("postgresql")
+
+if _is_postgres:
+    test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+else:
+    test_engine = create_async_engine(
+        TEST_DATABASE_URL, connect_args={"check_same_thread": False}
+    )
+
 TestSession = async_sessionmaker(test_engine, expire_on_commit=False)
 
 
@@ -73,10 +82,11 @@ def _sqlite_array_length(val, _dim=None):
     return 0
 
 
-@event.listens_for(test_engine.sync_engine, "connect")
-def _register_sqlite_functions(dbapi_conn, _rec):
-    dbapi_conn.create_function("unnest", 1, _sqlite_unnest)
-    dbapi_conn.create_function("array_length", 2, _sqlite_array_length)
+if not _is_postgres:
+    @event.listens_for(test_engine.sync_engine, "connect")
+    def _register_sqlite_functions(dbapi_conn, _rec):
+        dbapi_conn.create_function("unnest", 1, _sqlite_unnest)
+        dbapi_conn.create_function("array_length", 2, _sqlite_array_length)
 
 
 async def override_get_db():
