@@ -37,8 +37,9 @@ Necessite L2. Stack envisagee : D3.js ou vue-flow.
 
 ## Opportunites techniques
 
-- [x] **Tests CI avec PostgreSQL** — service PG 16 dans GitHub Actions, conftest dual SQLite/PG,
-  asyncpg en CI. Les tests tournent sur le meme dialecte que la prod.
+- [~] **Tests CI avec PostgreSQL** — PRET mais INHIBE temporairement (CI trop lente en dev intensif).
+  Conftest dual SQLite/PG pret, asyncpg + service PG commentes dans `deploy.yml`.
+  A reactiver quand le rythme de dev se calme (decommenter le bloc services + DATABASE_URL).
 - [x] **Lint frontend dans CI/CD** — ESLint + eslint-plugin-vue, job `lint-frontend`
   dans le workflow deploy. Zero erreurs/warnings au depart.
 

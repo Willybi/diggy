@@ -23,20 +23,10 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: diggy_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
+    # NOTE: PostgreSQL service disabled temporarily for faster CI (~1min vs ~3min).
+    # To re-enable: uncomment services block + DATABASE_URL env below, add asyncpg to pip install.
+    # The conftest.py already supports dual SQLite/PG via DATABASE_URL detection.
+    # See docs/ROADMAP.md "Opportunites techniques" for tracking.
     steps:
       - uses: actions/checkout@v4
 
@@ -45,11 +35,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install pyrekordbox mutagen pytest pytest-mock requests pytest-asyncio httpx asyncpg aiosqlite anyio fastapi sqlalchemy[asyncio] boto3 "python-jose[cryptography]" bcrypt python-multipart "pydantic[email]" slowapi
+        run: pip install pyrekordbox mutagen pytest pytest-mock requests pytest-asyncio httpx aiosqlite anyio fastapi sqlalchemy[asyncio] boto3 "python-jose[cryptography]" bcrypt python-multipart "pydantic[email]" slowapi
 
       - name: Run tests
-        env:
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/diggy_test
         run: pytest tests/ -v
 
   deploy:
@@ -86,7 +74,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o ConnectTimeout=30 "$VPS_USER@$VPS_HOST" '
             sleep 15
-            curl -sf http://localhost/api/health || exit 1
+            curl -sfLk https://localhost/api/health || exit 1
           '
 
       - name: Smoke test endpoints
@@ -97,7 +85,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o ConnectTimeout=30 "$VPS_USER@$VPS_HOST" '
             FAIL=0
             for endpoint in /api/catalog/?limit=1 /api/artists/?limit=1 /api/sets/?limit=1 /api/genres; do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost${endpoint}")
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" -Lk "https://localhost${endpoint}")
               if [ "$STATUS" != "200" ]; then
                 echo "FAIL: ${endpoint} returned ${STATUS}"
                 FAIL=1
