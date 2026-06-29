@@ -56,9 +56,7 @@ class TestDecodeToken:
 
     def test_tampered_token_returns_none(self):
         token = create_token(42)
-        # Flip a character in the signature
+        # Replace the entire signature with garbage
         parts = token.split(".")
-        sig = parts[2]
-        tampered = sig[:-1] + ("A" if sig[-1] != "A" else "B")
-        parts[2] = tampered
+        parts[2] = "AAAA_TAMPERED_SIGNATURE_AAAA"
         assert decode_token(".".join(parts)) is None

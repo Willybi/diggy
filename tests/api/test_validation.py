@@ -33,9 +33,13 @@ class TestRadarStatusValidation:
         r = await client.patch("/api/radar/1/state", json={"status": "banana"})
         assert r.status_code == 422
 
-    async def test_valid_status_accepted(self, client):
-        # Will get a DB error or succeed, but not a 422
-        r = await client.patch("/api/radar/1/state", json={"status": "seen"})
+    async def test_valid_status_accepted(self, client, db):
+        from models import CatalogEntry
+        entry = CatalogEntry(title="T", artist="A", normalized_key="a|t")
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+        r = await client.patch(f"/api/radar/{entry.id}/state", json={"status": "seen"})
         assert r.status_code != 422
 
 
@@ -54,10 +58,15 @@ class TestRadarBatchValidation:
         )
         assert r.status_code == 422
 
-    async def test_valid_batch_accepted(self, client):
+    async def test_valid_batch_accepted(self, client, db):
+        from models import CatalogEntry
+        entry = CatalogEntry(title="T", artist="A", normalized_key="a|t")
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
         r = await client.patch(
             "/api/radar/state/batch",
-            json=[{"catalog_id": 1, "status": "seen"}],
+            json=[{"catalog_id": entry.id, "status": "seen"}],
         )
         assert r.status_code != 422
 
