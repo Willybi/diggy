@@ -27,7 +27,15 @@ Table `catalog_artists(catalog_id, artist_id, role)` pour les feats.
 Visualisation des connexions entre artistes (sets, feats, playlists).
 Necessite L2. Stack envisagee : D3.js ou vue-flow.
 
-### F3 — Design Realignment (vagues 3-5)
+### F3 — Google OAuth
+
+Connexion via compte Google en alternative au login email/password.
+- Google Cloud Console : projet + ecran de consentement OAuth
+- Redirect URI : `https://diggy-music.fr/api/auth/google/callback`
+- Backend : endpoint callback, creation/liaison de compte, JWT
+- Frontend : bouton "Se connecter avec Google" sur LoginView
+
+### F4 — Design Realignment (vagues 3-5)
 
 - Vague 3 : Pages detail (Track, Artist, Set, Playlist)
 - Vague 4 : Genres + Login redesign

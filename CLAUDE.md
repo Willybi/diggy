@@ -139,15 +139,14 @@ All sources go through `crawl_single_playlist` -> `get_fetchers()` -> RadarTrack
 
 ## Deploy
 
-- VPS: Hostinger, Ubuntu 24.04, port 80
+- Domain: `diggy-music.fr` (HTTPS, Let's Encrypt, certbot auto-renew)
+- VPS: Hostinger, Ubuntu 24.04, ports 80 (redirect) + 443 (HTTPS)
 - `.env` only on VPS, never in git
-- Docker containers: `diggy_api`, `diggy_worker`, `diggy_beat`, `diggy_frontend`, `diggy_nginx`, `diggy_redis`, `diggy_postgres`, `diggy_minio`
-- CI/CD: push to `master` -> GitHub Actions -> SSH -> `git reset --hard origin/master` + rebuild
+- Docker containers: `diggy_api`, `diggy_worker`, `diggy_beat`, `diggy_frontend`, `diggy_nginx`, `diggy_redis`, `diggy_postgres`, `diggy_minio`, `diggy_certbot`
+- CI/CD: push to `master` -> GitHub Actions (lint + test + deploy) -> SSH -> rebuild
 
-## Current State & Roadmap
+## Roadmap
 
-**Done**: Library, Catalog, Radar, Watchlist, Artists (with Deezer linking, aliases, genres), Sets, Multi-source (Deezer/TIDAL/Spotify), Admin panel
-
-**Pending**: HTTPS (plan ready in `docs/PLAN_HTTPS.md`, waiting for domain name)
-
-**Future ideas**: Multi-artist per track (feat support), artist connection graph, Soundcloud/Bandcamp sources
+- **Active roadmap**: `docs/ROADMAP.md` — backlog and pending items only
+- **Completed roadmaps**: `docs/completed/` — archived, DO NOT modify unless explicitly asked
+- **Future ideas**: Multi-artist per track (feat support), artist connection graph, Soundcloud/Bandcamp sources
