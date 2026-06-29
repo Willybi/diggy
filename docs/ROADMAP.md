@@ -72,7 +72,7 @@ autonome confie a un agent Claude "collegue". Le cycle est :
 
                          FONCTIONNEL
   =====================================================
-  F1  Multi-User (Phases 5-7)   ██████░░  EN COURS     (Phase 6 DONE, reste Phase 5+7)
+  F1  Multi-User (Phases 5-7)   ████████  DONE         (Phases 5-7 terminées)
   F2  HTTPS / Domaine           ██░░░░░░  EN ATTENTE
   F3  Design Realignment        ██████░░  HORS SCOPE   (Vagues 3-5 = pages detail, report)
 
@@ -99,7 +99,7 @@ C8   Validation & contrats API             T5      DONE
 C9   Coherence DateTime timezone           T6      DONE (deja conforme)
 C10  F1 Phase 6 — Enforcement auth         F1      DONE
 C11  F1 Phase 5 — Trends + Collections     F1      DONE
-C12  F1 Phase 7 — Import multi-user        F1      A FAIRE
+C12  F1 Phase 7 — Import multi-user        F1      DONE
 C13  Audit tests global                    ALL     A FAIRE
 ```
 
