@@ -4,6 +4,12 @@ from typing import Literal, Optional
 import json
 
 
+class GenreRef(BaseModel):
+    name: str
+    pillar: str = 'autres'
+    depth: int = 0
+
+
 class TrackOut(BaseModel):
     id: int
     title: Optional[str]
@@ -406,7 +412,7 @@ class ArtistSetOut(BaseModel):
 
 class ArtistDetailOut(ArtistOut):
     aliases: list[ArtistAliasOut] = []
-    genres: list[str] = []
+    genres: list[GenreRef] = []
     catalog_tracks: list[CatalogEntryOut] = []
     sets: list[ArtistSetOut] = []
     stats: dict = {}

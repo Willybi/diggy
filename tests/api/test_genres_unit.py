@@ -1,8 +1,8 @@
-"""Tests for genres.py — pure function tests (genre_family, _slug).
+"""Tests for genres.py — pure function tests (genre_pillar, slug).
 
-Note: The SQL-heavy endpoints in genres.py use PostgreSQL-specific features
-(unnest, PERCENTILE_CONT, array_replace, CROSS JOIN LATERAL) that cannot
-run on SQLite. Only pure Python logic is tested here.
+Note: The SQL-heavy endpoints and taxonomy-based pillar resolution cannot
+run without PostgreSQL. Only pure Python logic is tested here.
+The pillar cache is tested with mock data.
 """
 import os
 import sys
@@ -11,74 +11,43 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
-from routers.genres import genre_family, _slug, _ALL_FAMILIES, _family_genre_names
+from routers.genres import genre_pillar, _ALL_PILLARS, _pillar_genre_names, _PILLAR_CACHE
 
 
-class TestSlug:
-    def test_basic(self):
-        assert _slug("Deep House") == "deep-house"
-
-    def test_special_chars(self):
-        assert _slug("Drum & Bass") == "drum-bass"
-
-    def test_leading_trailing_dashes(self):
-        assert _slug("  House  ") == "house"
-
-    def test_single_word(self):
-        assert _slug("Techno") == "techno"
-
-    def test_slash(self):
-        assert _slug("Nu Disco / Disco") == "nu-disco-disco"
+class TestAllPillars:
+    def test_has_expected_pillars(self):
+        assert set(_ALL_PILLARS) == {
+            "house", "techno", "trance", "dnb", "hardcore", "harddance", "autres"
+        }
 
 
-class TestGenreFamily:
-    def test_house_genres(self):
-        assert genre_family("House") == "house"
-        assert genre_family("Deep House") == "house"
-        assert genre_family("Tech House") == "house"
-        assert genre_family("Afro House") == "house"
-        assert genre_family("Nu Disco / Disco") == "house"
+class TestGenrePillar:
+    def test_unknown_genre_returns_autres(self):
+        assert genre_pillar("Unknown Genre XYZ") == ("autres", 0)
 
-    def test_techno_genres(self):
-        assert genre_family("Techno (Peak Time / Driving)") == "techno"
-        assert genre_family("Hard Techno") == "techno"
-        assert genre_family("Melodic House & Techno") == "techno"
-
-    def test_trance_genres(self):
-        assert genre_family("Trance (Main Floor)") == "trance"
-        assert genre_family("Psy-Trance") == "trance"
-
-    def test_other_genres(self):
-        assert genre_family("Drum & Bass") == "other"
-        assert genre_family("Hip-Hop") == "other"
-
-    def test_misc_genres(self):
-        assert genre_family("DJ Tools / Acapellas") == "misc"
-
-    def test_unknown_genre_returns_misc(self):
-        assert genre_family("Unknown Genre XYZ") == "misc"
-
-    def test_case_insensitive(self):
-        assert genre_family("deep house") == "house"
-        assert genre_family("DEEP HOUSE") == "house"
+    def test_cached_genre(self):
+        _PILLAR_CACHE["Test Genre"] = ("house", 1)
+        try:
+            assert genre_pillar("Test Genre") == ("house", 1)
+        finally:
+            del _PILLAR_CACHE["Test Genre"]
 
 
-class TestAllFamilies:
-    def test_has_expected_families(self):
-        assert set(_ALL_FAMILIES) == {"house", "techno", "trance", "other", "misc"}
-
-
-class TestFamilyGenreNames:
-    def test_house_has_entries(self):
-        names = _family_genre_names("house")
-        assert len(names) > 0
-        assert "House" in names
-        assert "Deep House" in names
-
-    def test_techno_has_entries(self):
-        names = _family_genre_names("techno")
-        assert len(names) > 0
-
-    def test_unknown_family_returns_empty(self):
-        names = _family_genre_names("nonexistent")
+class TestPillarGenreNames:
+    def test_empty_cache_returns_empty(self):
+        names = _pillar_genre_names("nonexistent")
         assert names == []
+
+    def test_returns_matching(self):
+        _PILLAR_CACHE["Foo"] = ("techno", 0)
+        _PILLAR_CACHE["Bar"] = ("techno", 1)
+        _PILLAR_CACHE["Baz"] = ("house", 0)
+        try:
+            names = _pillar_genre_names("techno")
+            assert "Foo" in names
+            assert "Bar" in names
+            assert "Baz" not in names
+        finally:
+            del _PILLAR_CACHE["Foo"]
+            del _PILLAR_CACHE["Bar"]
+            del _PILLAR_CACHE["Baz"]

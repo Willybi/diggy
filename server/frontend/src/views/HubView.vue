@@ -57,8 +57,8 @@
         <div class="ex-section">
           <div class="ex-label">Genres populaires</div>
           <div class="gpills">
-            <button v-for="g in topGenres" :key="g.name" class="gpill" :class="{ 'is-misc': g.isMisc }"
-              :style="g.isMisc ? {} : { '--th': g.hue }" @click="searchGenre(g.name)">
+            <button v-for="g in topGenres" :key="g.name" class="gpill"
+              :data-fam="g.pillar" @click="searchGenre(g.name)">
               <span class="vd"></span>
               <span class="vn">{{ g.name }}</span>
               <span class="vc">{{ g.count }}</span>
@@ -102,7 +102,7 @@
                 <span class="lbl">{{ typeLabel(item.type) }}</span>
               </span>
               <!-- artwork -->
-              <div class="rart" :class="artClass(item)" :style="artStyle(item)">
+              <div class="rart" :class="artClass(item)" :data-fam="artFam(item)">
                 <img v-if="artworkUrl(item)" :src="artworkUrl(item)" alt="" loading="lazy"
                   @error="e => e.target.style.display = 'none'" />
                 <span v-if="needsInitials(item)" class="ini">{{ initials(item) }}</span>
@@ -171,7 +171,7 @@ import { useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import { styleTone } from '../styles/diggy-style-map.js'
+import { styleTone } from '../composables/useStyleMap.js'
 import { fmtMs, fmtBpm } from '../utils/format.js'
 
 const router = useRouter()
@@ -243,19 +243,16 @@ const topGenres = ref([])
 
 async function loadTopGenres() {
   try {
-    const { data } = await api.get('/api/genres/')
-    topGenres.value = (data || [])
-      .sort((a, b) => (b.track_count || 0) - (a.track_count || 0))
-      .slice(0, 10)
-      .map(g => {
-        const tone = styleTone(g.name || g.genre || '')
-        return {
-          name: g.name || g.genre,
-          count: g.track_count || 0,
-          hue: tone.hue,
-          isMisc: tone.family === 'misc',
-        }
-      })
+    const { data } = await api.get('/api/genres/', { params: { limit: 10, sort: 'tracks' } })
+    topGenres.value = (data.items || []).map(g => {
+      const tone = styleTone({ pillar: g.pillar, depth: g.depth })
+      return {
+        name: g.name,
+        count: g.trackCount || 0,
+        pillar: tone.pillar,
+        isAutres: tone.pillar === 'autres',
+      }
+    })
   } catch { /* silent */ }
 }
 
@@ -374,21 +371,14 @@ function artClass(item) {
   if (item.type === 'artist') cls.push('round')
   if (item.type === 'genre') {
     cls.push('genre')
-    const tone = styleTone(item.name || '')
-    if (tone.family === 'misc') cls.push('is-misc')
+    if (item.pillar === 'autres' || !item.pillar) cls.push('is-autres')
   }
   return cls
 }
 
-function artStyle(item) {
-  if (item.type === 'genre') {
-    const tone = styleTone(item.name || '')
-    if (tone.hue != null) return { '--th': tone.hue }
-  }
-  if (item.type === 'artist') {
-    return {}
-  }
-  return {}
+function artFam(item) {
+  if (item.type === 'genre') return item.pillar || 'autres'
+  return undefined
 }
 
 function isPlayable(item) {
@@ -603,6 +593,16 @@ const vClickOutside = {
 }
 
 /* genre pills */
+/* pillar hue mapping for genre pills */
+.gpill[data-fam="house"]     { --th: var(--hue-house); }
+.gpill[data-fam="techno"]    { --th: var(--hue-techno); }
+.gpill[data-fam="trance"]    { --th: var(--hue-trance); }
+.gpill[data-fam="dnb"]       { --th: var(--hue-dnb); }
+.gpill[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
+.gpill[data-fam="harddance"] { --th: var(--hue-harddance); }
+.gpill[data-fam="autres"] .vd { background: var(--ink-3); }
+.gpill[data-fam="autres"] .vn { color: var(--ink); }
+
 .gpills { display: flex; flex-wrap: wrap; gap: 9px; }
 .gpill {
   display: inline-flex; align-items: center; gap: 9px;
@@ -616,13 +616,11 @@ const vClickOutside = {
   width: 9px; height: 9px; border-radius: 50%; flex: none;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
 }
-.gpill.is-misc .vd { background: var(--ink-3); }
 .gpill .vn {
   font: 600 13.5px var(--font-ui);
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
   white-space: nowrap;
 }
-.gpill.is-misc .vn { color: var(--ink); }
 .gpill .vc { font: 500 11px/1 var(--font-mono); color: var(--ink-3); }
 
 /* suggestions */
@@ -701,16 +699,22 @@ const vClickOutside = {
 .rart .play svg { width: 17px; height: 17px; margin-left: 1px; }
 .rrow:hover .rart .play, .rrow.playing .rart .play { opacity: 1; }
 
-/* genre result artwork */
+/* genre result artwork — hue from [data-fam] on .rart */
+.rart[data-fam="house"]     { --th: var(--hue-house); }
+.rart[data-fam="techno"]    { --th: var(--hue-techno); }
+.rart[data-fam="trance"]    { --th: var(--hue-trance); }
+.rart[data-fam="dnb"]       { --th: var(--hue-dnb); }
+.rart[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
+.rart[data-fam="harddance"] { --th: var(--hue-harddance); }
 .rart.genre {
   background: oklch(0.94 0.055 var(--th)); background-image: none;
 }
-.rart.genre.is-misc { background: var(--surface-3); }
+.rart.genre.is-autres { background: var(--surface-3); }
 .rart.genre .gd {
   width: 16px; height: 16px; border-radius: 50%;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
 }
-.rart.genre.is-misc .gd { background: var(--ink-3); }
+.rart.genre.is-autres .gd { background: var(--ink-3); }
 
 /* text */
 .rtx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }

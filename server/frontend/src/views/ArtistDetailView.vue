@@ -11,8 +11,8 @@
         :fallback-letter="artist.name[0]"
       >
         <template #badges>
-          <RouterLink v-for="g in artist.genres" :key="g" :to="`/style/${encodeURIComponent(g)}`" style="text-decoration:none">
-            <StyleTag :name="g" />
+          <RouterLink v-for="g in artist.genres" :key="g.name" :to="`/style/${encodeURIComponent(g.name)}`" style="text-decoration:none">
+            <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
           </RouterLink>
         </template>
         <template #actions>

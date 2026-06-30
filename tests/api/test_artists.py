@@ -9,7 +9,7 @@ class TestListArtists:
         data = r.json()
         assert data["items"] == []
         assert data["total"] == 0
-        assert "familyCounts" in data
+        assert "pillarCounts" in data
 
     async def test_returns_artists(self, client, db):
         db.add(Artist(name="CamelPhat", normalized_name="camelphat"))

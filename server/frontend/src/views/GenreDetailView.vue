@@ -23,8 +23,8 @@
       <RouterLink to="/genres" class="back-link">← Genres</RouterLink>
 
       <!-- Hero -->
-      <div class="hero" :style="hue != null ? { '--th': hue } : undefined">
-        <div class="hero-mosaic" :class="{ misc: isMisc }">
+      <div class="hero" :data-fam="tone.pillar">
+        <div class="hero-mosaic">
           <div v-for="(slot, i) in sixSlots" :key="i" class="hero-tile">
             <img v-if="slot" :src="slot" alt="" loading="lazy" @error="e => e.target.remove()" />
           </div>
@@ -53,10 +53,10 @@
 
         <div class="hero-body">
           <div class="hero-titlerow">
-            <span class="hero-dot" :class="{ misc: isMisc }"></span>
-            <h1 class="hero-title" :class="{ misc: isMisc }">{{ genre.name }}</h1>
+            <span class="hero-dot"></span>
+            <h1 class="hero-title">{{ genre.name }}</h1>
           </div>
-          <span class="hero-fam">{{ familyLabel }}</span>
+          <span class="hero-fam">{{ pillarLabel }}</span>
         </div>
       </div>
 
@@ -181,7 +181,7 @@
             :to="`/style/${encodeURIComponent(n.name)}`"
             class="neighbor-chip"
           >
-            <StyleTag :name="n.name" />
+            <StyleTag :name="n.name" :family="n.pillar" :depth="n.depth" />
             <span class="neighbor-meta mono">{{ n.commonArtists }} artistes en commun</span>
           </RouterLink>
         </div>
@@ -196,7 +196,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
+import { styleTone, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import { fmtDate, fmtNum } from '../utils/format'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -241,10 +241,8 @@ let mergeTimer = null
 
 // -- Computed --
 const genreName = computed(() => decodeURIComponent(route.params.genre || ''))
-const tone = computed(() => styleTone(genreName.value))
-const hue = computed(() => tone.value.hue)
-const isMisc = computed(() => tone.value.family === 'misc')
-const familyLabel = computed(() => FAMILY_LABELS[genre.value?.family] || FAMILY_LABELS.misc)
+const tone = computed(() => styleTone({ pillar: genre.value?.pillar, depth: genre.value?.depth }))
+const pillarLabel = computed(() => PILLAR_LABELS[tone.value.pillar] || PILLAR_LABELS.autres)
 const isPlaying = computed(() => player.genrePlaying === genreName.value)
 
 const sixSlots = computed(() => {
@@ -475,34 +473,44 @@ onUnmounted(() => { if (observer) observer.disconnect() })
 }
 .back-link:hover { color: var(--ink); }
 
+/* ── Pillar hue mapping ── */
+.hero[data-fam="house"]     { --th: var(--hue-house); }
+.hero[data-fam="techno"]    { --th: var(--hue-techno); }
+.hero[data-fam="trance"]    { --th: var(--hue-trance); }
+.hero[data-fam="dnb"]       { --th: var(--hue-dnb); }
+.hero[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
+.hero[data-fam="harddance"] { --th: var(--hue-harddance); }
+.hero[data-fam="autres"]    { --th: 0; }
+.hero[data-fam="autres"] .hero-tile { --mc: 0; }
+.hero[data-fam="autres"] .hero-dot { background: var(--ink-3); box-shadow: none; }
+.hero[data-fam="autres"] .hero-title { color: var(--ink); }
+
 /* ── Hero ── */
 .hero {
   margin-bottom: 16px;
 }
 .hero-mosaic {
-  --art-l: 0.910;
-  --art-c: 0.052;
   position: relative;
   height: 180px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: 1fr 1fr;
+  gap: 2px;
   border-radius: var(--r-md);
   overflow: hidden;
 }
-.hero-mosaic.misc { --art-l: 0.880; --art-c: 0.008; --th: 70; }
 
 .hero-tile {
   position: relative;
   overflow: hidden;
-  background-color: oklch(var(--art-l) var(--art-c) var(--th, 0));
-  background-image: repeating-linear-gradient(135deg, oklch(1 0 0 / .10) 0 1px, transparent 1px 9px);
+  background: oklch(var(--ml) var(--mc, 0.15) var(--th, 0));
 }
-.hero-tile:nth-child(2) { background-color: oklch(calc(var(--art-l) - 0.040) var(--art-c) var(--th, 0)); }
-.hero-tile:nth-child(3) { background-color: oklch(calc(var(--art-l) - 0.060) var(--art-c) var(--th, 0)); }
-.hero-tile:nth-child(4) { background-color: oklch(calc(var(--art-l) + 0.030) var(--art-c) var(--th, 0)); }
-.hero-tile:nth-child(5) { background-color: oklch(calc(var(--art-l) - 0.020) calc(var(--art-c) + 0.018) var(--th, 0)); }
-.hero-tile:nth-child(6) { background-color: oklch(calc(var(--art-l) + 0.010) var(--art-c) var(--th, 0)); }
+.hero-tile:nth-child(1) { --ml: 0.66; --mc: 0.155; }
+.hero-tile:nth-child(2) { --ml: 0.75; --mc: 0.115; }
+.hero-tile:nth-child(3) { --ml: 0.56; --mc: 0.165; }
+.hero-tile:nth-child(4) { --ml: 0.70; --mc: 0.095; }
+.hero-tile:nth-child(5) { --ml: 0.60; --mc: 0.140; }
+.hero-tile:nth-child(6) { --ml: 0.72; --mc: 0.110; }
 .hero-tile img {
   position: absolute;
   inset: 0;
@@ -590,7 +598,6 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0));
   box-shadow: 0 0 0 2px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0) / .28);
 }
-.hero-dot.misc { background: var(--ink-3); box-shadow: none; }
 .hero-title {
   font: 700 26px/1.1 var(--font-ui);
   letter-spacing: -0.3px;
@@ -600,7 +607,6 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.hero-title.misc { color: var(--ink); }
 .hero-fam {
   font: 500 10px/1 var(--font-mono);
   letter-spacing: .1em;

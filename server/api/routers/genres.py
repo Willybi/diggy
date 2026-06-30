@@ -1,3 +1,4 @@
+import logging
 import re
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -10,64 +11,104 @@ from dependencies import get_current_user_optional, require_admin, uid as _uid
 from models import User
 
 router = APIRouter(tags=["genres"])
+log = logging.getLogger(__name__)
 
-# ── Genre -> family mapping (mirror of frontend diggy-style-map.js) ──────
+# ── Genre -> pillar mapping (v2 taxonomy: 6 piliers + Autres) ─────────
+#    Resolved dynamically from genre_mappings + genre_nodes + genre_edges.
+#    Cached after first load; admin can POST /genres/refresh-pillars.
 
-_ALL_FAMILIES = ('house', 'techno', 'trance', 'other', 'misc')
+_ALL_PILLARS = ('house', 'techno', 'trance', 'dnb', 'hardcore', 'harddance', 'autres')
 
-_SLUG_FAMILY: dict[str, str] = {}
-_NAME_FAMILY: dict[str, str] = {}   # original name -> family (for reverse lookup)
+# Taxonomy root labels -> pillar key (mirrors frontend ROOT_TO_PILLAR)
+_ROOT_TO_PILLAR = {
+    'house music':   'house',
+    'disco':         'house',
+    'UK garage':     'house',
+    'techno':        'techno',
+    'trance':        'trance',
+    'drum and bass': 'dnb',
+    'dubstep':       'dnb',
+    'breakbeat':     'dnb',
+    'hardcore':      'hardcore',
+    'hard dance':    'harddance',
+}
 
-
-def _slug(name: str) -> str:
-    return re.sub(r'^-|-$', '', re.sub(r'[^a-z0-9]+', '-', name.lower()))
-
-
-def _register(family: str, names: list[str]):
-    for n in names:
-        _SLUG_FAMILY[_slug(n)] = family
-        _NAME_FAMILY[n] = family
-
-
-_register('house', [
-    'House', 'Deep House', 'Tech House', 'Afro House', 'Bass House',
-    'Progressive House', 'Jackin House', 'Funky House', 'Soulful House',
-    'Organic House', 'Organic House / Downtempo', 'Afro / Organic House',
-    'Nu Disco / Disco', 'Nu-Disco', 'Nu Disco', 'Indie Dance',
-    'Melodic House', 'French Touch', 'UK House', 'UK Garage', 'UK Garage / Bassline',
-    'Downtempo', 'Minimal / Deep Tech',
-])
-_register('techno', [
-    'Techno (Peak Time / Driving)', 'Techno (Peak Time)', 'Techno (Raw / Deep / Hypnotic)',
-    'Hard Techno', 'Melodic House & Techno', 'Melodic Techno', 'Minimal Techno',
-    'Electro (Classic / Detroit / Modern)', 'Electro Brut', 'Electro brut',
-    'Classic/Min. Techno', 'Hard/Dark Techno', 'Trance Techno',
-])
-_register('trance', [
-    'Trance (Main Floor)', 'Trance (Raw / Deep / Hypnotic)',
-    'Psy-Trance', 'Psytrance',
-    'Hard Dance / Hardcore / Neo Rave', 'Hard Dance',
-])
-_register('other', [
-    'Drum & Bass', 'Breaks / Breakbeat / UK Bass', 'Electronica',
-    'Rock', 'Hip-Hop', 'R&B', 'Pop', 'Funk / Soul', 'Funk-Soul',
-    'Bass', 'Country', 'Latin', 'Latin Electronic',
-    '140 / Deep Dubstep / Grime', 'Dubstep', 'Trap / Future Bass',
-    'Bass / Club', 'Ambient / Experimental', 'African', 'Caribbean',
-])
-_register('misc', [
-    'DJ Tools / Acapellas', 'DJ Tools / Acape', 'DJ Edits',
-    'Mainstage', 'Dance / Pop', 'Misc. Tracks',
-])
+# Cache: raw_name -> (pillar, depth)
+_PILLAR_CACHE: dict[str, tuple[str, int]] = {}
 
 
-def genre_family(genre_name: str) -> str:
-    return _SLUG_FAMILY.get(_slug(genre_name), 'misc')
+def genre_pillar(genre_name: str) -> tuple[str, int]:
+    """Return (pillar, depth) for a genre. Fallback: ('autres', 0)."""
+    return _PILLAR_CACHE.get(genre_name, ('autres', 0))
 
 
-def _family_genre_names(family: str) -> list[str]:
-    """Original genre names belonging to a family."""
-    return [name for name, fam in _NAME_FAMILY.items() if fam == family]
+async def _load_pillar_cache(db: AsyncSession) -> None:
+    """Resolve pillar+depth for all mapped genres via taxonomy ancestors."""
+    global _PILLAR_CACHE
+
+    root_labels = list(_ROOT_TO_PILLAR.keys())
+
+    rows = (await db.execute(text("""
+        WITH mapped AS (
+            SELECT gm.raw_name, gm.node_id, gn.label AS node_label
+            FROM genre_mappings gm
+            JOIN genre_nodes gn ON gn.id = gm.node_id
+        ),
+        anc AS (
+            SELECT m.raw_name, m.node_id, ge.to_node_id AS ancestor_id, 1 AS depth
+            FROM mapped m
+            JOIN genre_edges ge ON ge.from_node_id = m.node_id AND ge.type = 'parent'
+            UNION ALL
+            SELECT a.raw_name, a.node_id, ge.to_node_id, a.depth + 1
+            FROM anc a
+            JOIN genre_edges ge ON ge.from_node_id = a.ancestor_id AND ge.type = 'parent'
+            WHERE a.depth < 10
+        ),
+        ancestor_match AS (
+            SELECT a.raw_name, gn.label AS ancestor_label, MIN(a.depth) AS depth
+            FROM anc a
+            JOIN genre_nodes gn ON gn.id = a.ancestor_id
+            WHERE gn.label = ANY(:root_labels)
+            GROUP BY a.raw_name, gn.label
+        ),
+        best AS (
+            SELECT DISTINCT ON (raw_name) raw_name, ancestor_label, depth
+            FROM ancestor_match
+            ORDER BY raw_name, depth
+        )
+        SELECT m.raw_name, m.node_label,
+               b.ancestor_label, b.depth AS ancestor_depth
+        FROM mapped m
+        LEFT JOIN best b ON b.raw_name = m.raw_name
+    """), {"root_labels": root_labels})).fetchall()
+
+    cache: dict[str, tuple[str, int]] = {}
+    for r in rows:
+        # Check if the node itself is a root
+        if r.node_label in _ROOT_TO_PILLAR:
+            cache[r.raw_name] = (_ROOT_TO_PILLAR[r.node_label], 0)
+        elif r.ancestor_label and r.ancestor_label in _ROOT_TO_PILLAR:
+            depth = min(r.ancestor_depth, 3)
+            cache[r.raw_name] = (_ROOT_TO_PILLAR[r.ancestor_label], depth)
+        else:
+            cache[r.raw_name] = ('autres', 0)
+
+    _PILLAR_CACHE.update(cache)
+    log.info("Pillar cache loaded: %d genres", len(cache))
+
+
+async def _ensure_pillar_cache(db: AsyncSession) -> None:
+    if not _PILLAR_CACHE:
+        try:
+            await _load_pillar_cache(db)
+        except Exception:
+            log.warning("Pillar cache load failed (SQLite?), using empty cache")
+            pass
+
+
+def _pillar_genre_names(pillar: str) -> list[str]:
+    """Genre names belonging to a pillar (from cache)."""
+    return [name for name, (p, _d) in _PILLAR_CACHE.items() if p == pillar]
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────
@@ -111,15 +152,14 @@ async def list_genres(
 ):
     """Aggregated genre cards with stats, artworks, and artist photos."""
     user_id = _uid(user)
+    await _ensure_pillar_cache(db)
 
-    # Family filter — "other" includes misc (front merges both into "Autre" chip)
+    # Pillar filter
     family_genres: list[str] | None = None
-    if family and family in _ALL_FAMILIES:
-        family_genres = _family_genre_names(family)
-        if family == 'other':
-            family_genres = family_genres + _family_genre_names('misc')
+    if family and family in _ALL_PILLARS:
+        family_genres = _pillar_genre_names(family)
         if not family_genres:
-            return {"items": [], "total": 0, "familyCounts": {f: 0 for f in _ALL_FAMILIES}}
+            return {"items": [], "total": 0, "pillarCounts": {p: 0 for p in _ALL_PILLARS}}
 
     q_pattern = f"%{q.lower()}%" if q else ""
 
@@ -201,9 +241,11 @@ async def list_genres(
     # ── Build items ──
     items = []
     for row in page_genres:
+        pillar, depth = genre_pillar(row.genre)
         items.append({
             "name": row.genre,
-            "family": genre_family(row.genre),
+            "pillar": pillar,
+            "depth": depth,
             "trackCount": row.track_count,
             "artistCount": row.artist_count,
             "bpmLo": row.bpm_lo,
@@ -213,7 +255,7 @@ async def list_genres(
             "artists": artists_map.get(row.genre, []),
         })
 
-    # ── Family counts (independent of family filter, respects search) ──
+    # ── Pillar counts (independent of pillar filter, respects search) ──
     fc_result = await db.execute(text("""
         SELECT g AS genre, COUNT(*)::int AS cnt
         FROM catalog c CROSS JOIN LATERAL unnest(c.genres) AS g
@@ -221,14 +263,15 @@ async def list_genres(
         GROUP BY g
     """), {"q_filter": bool(q), "q_pattern": q_pattern})
 
-    family_counts: dict[str, int] = {f: 0 for f in _ALL_FAMILIES}
+    pillar_counts: dict[str, int] = {p: 0 for p in _ALL_PILLARS}
     for fc_row in fc_result.fetchall():
-        family_counts[genre_family(fc_row.genre)] += 1
+        p, _d = genre_pillar(fc_row.genre)
+        pillar_counts[p] += 1
 
     return {
         "items": items,
         "total": total,
-        "familyCounts": family_counts,
+        "pillarCounts": pillar_counts,
     }
 
 
@@ -290,6 +333,7 @@ async def get_genre_detail(
     """Aggregated stats for a single genre (hero + StatStrip)."""
     genre = await _resolve_genre(db, name)
     user_id = _uid(user)
+    await _ensure_pillar_cache(db)
 
     # Stats
     stats = await db.execute(text("""
@@ -351,9 +395,11 @@ async def get_genre_detail(
         for r in ar_result.fetchall()
     ]
 
+    pillar, depth = genre_pillar(genre)
     return {
         "name": genre,
-        "family": genre_family(genre),
+        "pillar": pillar,
+        "depth": depth,
         "trackCount": s.track_count,
         "artistCount": s.artist_count,
         "bpmLo": s.bpm_lo,
@@ -574,6 +620,7 @@ async def get_genre_neighbors(
 ):
     """Neighboring genres by common artists."""
     genre = await _resolve_genre(db, name)
+    await _ensure_pillar_cache(db)
 
     result = await db.execute(text("""
         WITH genre_artists AS (
@@ -593,17 +640,28 @@ async def get_genre_neighbors(
         LIMIT :limit
     """), {"genre": genre, "limit": limit})
 
-    return {
-        "items": [
-            {
-                "name": r.genre,
-                "family": genre_family(r.genre),
-                "commonArtists": r.common_artists,
-                "trackCount": r.track_count,
-            }
-            for r in result.fetchall()
-        ],
-    }
+    neighbor_items = []
+    for r in result.fetchall():
+        p, d = genre_pillar(r.genre)
+        neighbor_items.append({
+            "name": r.genre,
+            "pillar": p,
+            "depth": d,
+            "commonArtists": r.common_artists,
+            "trackCount": r.track_count,
+        })
+    return {"items": neighbor_items}
+
+
+@router.post("/refresh-pillars")
+async def refresh_pillars(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Admin: reload pillar cache from taxonomy."""
+    _PILLAR_CACHE.clear()
+    await _load_pillar_cache(db)
+    return {"ok": True, "cached": len(_PILLAR_CACHE)}
 
 
 @router.patch("/rename/{name:path}")

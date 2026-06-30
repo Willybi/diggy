@@ -3,10 +3,10 @@
     :to="`/style/${encodeURIComponent(genre.name)}`"
     class="genre-card"
     :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked' }"
-    :style="hue != null ? { '--th': hue } : undefined"
+    :data-fam="tone.pillar"
   >
     <!-- Artwork zone: always 4 slots — image or tinted placeholder -->
-    <div class="gc-art" :class="{ misc: tone.family === 'misc' }">
+    <div class="gc-art">
       <div v-for="(slot, i) in fourSlots" :key="i" class="gc-tile">
         <img
           v-if="slot"
@@ -57,9 +57,9 @@
     <!-- Body -->
     <div class="gc-body">
       <div class="gc-titlerow">
-        <span class="gc-dot" :class="{ misc: tone.family === 'misc' }"></span>
-        <span class="gc-title" :class="{ misc: tone.family === 'misc' }">{{ genre.name }}</span>
-        <span class="gc-fam">{{ familyLabel }}</span>
+        <span class="gc-dot"></span>
+        <span class="gc-title">{{ genre.name }}</span>
+        <span class="gc-fam">{{ pillarLabel }}</span>
       </div>
       <div class="gc-stats">
         <div class="gc-stat">
@@ -84,7 +84,7 @@
 <script setup>
 import { computed } from 'vue'
 import { fmtNum } from '../utils/format'
-import { styleTone, FAMILY_LABELS } from '../composables/useStyleMap.js'
+import { styleTone, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from './LikeDislike.vue'
@@ -106,9 +106,8 @@ function onPlay() {
   }
 }
 
-const tone = computed(() => styleTone(props.genre.name))
-const hue = computed(() => tone.value.hue)
-const familyLabel = computed(() => FAMILY_LABELS[props.genre.family] || FAMILY_LABELS.misc)
+const tone = computed(() => styleTone({ pillar: props.genre.pillar, depth: props.genre.depth }))
+const pillarLabel = computed(() => PILLAR_LABELS[tone.value.pillar] || PILLAR_LABELS.autres)
 
 // 4 slots: use available covers, null = tinted placeholder (no repeating)
 const fourSlots = computed(() => {
@@ -126,6 +125,18 @@ function onAvatarError(e) {
 </script>
 
 <style scoped>
+/* ── Pillar hue mapping ── */
+.genre-card[data-fam="house"]     { --th: var(--hue-house); }
+.genre-card[data-fam="techno"]    { --th: var(--hue-techno); }
+.genre-card[data-fam="trance"]    { --th: var(--hue-trance); }
+.genre-card[data-fam="dnb"]       { --th: var(--hue-dnb); }
+.genre-card[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
+.genre-card[data-fam="harddance"] { --th: var(--hue-harddance); }
+.genre-card[data-fam="autres"]    { --th: 0; }
+.genre-card[data-fam="autres"] .gc-tile { --mc: 0; }
+.genre-card[data-fam="autres"] .gc-dot { background: var(--ink-3); box-shadow: none; }
+.genre-card[data-fam="autres"] .gc-title { color: var(--ink-2); }
+
 .genre-card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -145,29 +156,26 @@ function onAvatarError(e) {
   border-color: var(--line-2);
 }
 
-/* ── Artwork zone — 2×2 square cells, fixed height ── */
+/* ── Artwork zone — 2×2 mosaic, hue from [data-fam] on parent ── */
 .gc-art {
-  --art-l: 0.910;
-  --art-c: 0.052;
   position: relative;
   height: 130px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
+  gap: 2px;
 }
-.gc-art.misc { --art-l: 0.880; --art-c: 0.008; --th: 70; }
 
-/* Each tile = grid cell, contains either a cover <img> or is a bare placeholder */
 .gc-tile {
   position: relative;
   overflow: hidden;
   min-height: 0;
-  background-color: oklch(var(--art-l) var(--art-c) var(--th));
-  background-image: repeating-linear-gradient(135deg, oklch(1 0 0 / .10) 0 1px, transparent 1px 9px);
+  background: oklch(var(--ml) var(--mc, 0.15) var(--th));
 }
-.gc-tile:nth-child(2) { background-color: oklch(calc(var(--art-l) - 0.060) var(--art-c) var(--th)); }
-.gc-tile:nth-child(3) { background-color: oklch(calc(var(--art-l) - 0.030) calc(var(--art-c) + 0.018) var(--th)); }
-.gc-tile:nth-child(4) { background-color: oklch(calc(var(--art-l) + 0.030) var(--art-c) var(--th)); }
+.gc-tile:nth-child(1) { --ml: 0.66; --mc: 0.155; }
+.gc-tile:nth-child(2) { --ml: 0.75; --mc: 0.115; }
+.gc-tile:nth-child(3) { --ml: 0.56; --mc: 0.165; }
+.gc-tile:nth-child(4) { --ml: 0.70; --mc: 0.095; }
 
 /* Cover image fills its tile cell — crop, never stretch */
 .gc-cover {
@@ -312,7 +320,6 @@ function onAvatarError(e) {
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
   box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / .28);
 }
-.gc-dot.misc { background: var(--ink-3); }
 .gc-title {
   font: 600 17px var(--font-ui);
   letter-spacing: -.2px;
@@ -321,7 +328,6 @@ function onAvatarError(e) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gc-title.misc { color: var(--ink-2); }
 .gc-fam {
   font: 500 9.5px/1 var(--font-mono);
   letter-spacing: .1em;

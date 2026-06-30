@@ -36,6 +36,8 @@ SORTABLE_COLS = {
 @router.get("/genres")
 async def list_genres(db: AsyncSession = Depends(get_db)):
     """Return all distinct genres with track counts (unnested from arrays)."""
+    from routers.genres import genre_pillar, _ensure_pillar_cache
+    await _ensure_pillar_cache(db)
     genre_col = func.unnest(CatalogEntry.genres).label("genre")
     result = await db.execute(
         select(genre_col, func.count())
@@ -43,7 +45,11 @@ async def list_genres(db: AsyncSession = Depends(get_db)):
         .group_by(genre_col)
         .order_by(func.count().desc())
     )
-    return [{"name": row[0], "count": row[1]} for row in result.all()]
+    items = []
+    for row in result.all():
+        p, d = genre_pillar(row[0])
+        items.append({"name": row[0], "count": row[1], "pillar": p, "depth": d})
+    return items
 
 
 @router.get("/", response_model=CatalogList)

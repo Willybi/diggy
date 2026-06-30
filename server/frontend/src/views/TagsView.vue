@@ -14,7 +14,7 @@
         :to="`/style/${encodeURIComponent(g.name)}`"
         class="genre-card"
       >
-        <StyleTag :name="g.name" />
+        <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
         <span class="genre-count">{{ g.count }} {{ g.count === 1 ? 'track' : 'tracks' }}</span>
       </RouterLink>
     </div>

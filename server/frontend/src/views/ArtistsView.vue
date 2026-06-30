@@ -25,16 +25,17 @@
       </div>
     </div>
 
-    <!-- Family chips -->
+    <!-- Pillar chips -->
     <div class="fam-chips">
       <button
-        v-for="chip in familyChips"
+        v-for="chip in pillarChips"
         :key="chip.key"
         class="fam-chip"
         :class="{ on: familyFilter === chip.key }"
+        :data-fam="chip.fam"
         @click="familyFilter = chip.key"
       >
-        <span v-if="chip.hue != null" class="fc-dot" :style="{ '--fh': chip.hue }"></span>
+        <span v-if="chip.fam" class="fc-dot"></span>
         {{ chip.label }}<span class="fc-n">{{ fmtNum(chip.count) }}</span>
       </button>
     </div>
@@ -72,13 +73,12 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
-import { FAMILY_LABELS } from '../composables/useStyleMap.js'
+import { PILLAR_ORDER, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import ArtistCard from '../components/ArtistCard.vue'
 import { fmtNum } from '../utils/format'
 
 const opinions = useOpinionsStore()
 
-const FAMILY_HUES = { house: 260, techno: 320, trance: 352, other: 42 }
 const PAGE_SIZE = 24
 
 // -- State --
@@ -102,15 +102,14 @@ const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value
 
 const displayItems = computed(() => items.value)
 
-const familyChips = computed(() => {
-  const fc = familyCounts.value
-  const allCount = Object.values(fc).reduce((s, v) => s + v, 0)
+const pillarChips = computed(() => {
+  const pc = familyCounts.value
+  const allCount = Object.values(pc).reduce((s, v) => s + v, 0)
   return [
-    { key: 'all', label: 'Tous', hue: null, count: allCount },
-    { key: 'house', label: FAMILY_LABELS.house, hue: FAMILY_HUES.house, count: fc.house || 0 },
-    { key: 'techno', label: FAMILY_LABELS.techno, hue: FAMILY_HUES.techno, count: fc.techno || 0 },
-    { key: 'trance', label: FAMILY_LABELS.trance, hue: FAMILY_HUES.trance, count: fc.trance || 0 },
-    { key: 'other', label: FAMILY_LABELS.other, hue: FAMILY_HUES.other, count: (fc.other || 0) + (fc.misc || 0) },
+    { key: 'all', label: 'Tous', fam: null, count: allCount },
+    ...PILLAR_ORDER.map(k => ({
+      key: k, label: PILLAR_LABELS[k], fam: k, count: pc[k] || 0,
+    })),
   ]
 })
 
@@ -152,7 +151,7 @@ async function fetchArtists(reset = true) {
       const { data } = await api.get('/api/artists/', { params })
       items.value = data.items
       total.value = data.total
-      familyCounts.value = data.familyCounts || {}
+      familyCounts.value = data.pillarCounts || {}
       hasMore.value = false
     } catch {
       items.value = []
@@ -180,7 +179,7 @@ async function fetchArtists(reset = true) {
       items.value = [...items.value, ...data.items]
     }
     total.value = data.total
-    familyCounts.value = data.familyCounts || {}
+    familyCounts.value = data.pillarCounts || {}
     hasMore.value = items.value.length < data.total
   } catch {
     if (reset) items.value = []
@@ -324,6 +323,15 @@ onUnmounted(() => {
 }
 
 /* -- Family chips -- */
+/* ── Pillar chip hue mapping ── */
+.fam-chip[data-fam="house"]     { --th: var(--hue-house); }
+.fam-chip[data-fam="techno"]    { --th: var(--hue-techno); }
+.fam-chip[data-fam="trance"]    { --th: var(--hue-trance); }
+.fam-chip[data-fam="dnb"]       { --th: var(--hue-dnb); }
+.fam-chip[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
+.fam-chip[data-fam="harddance"] { --th: var(--hue-harddance); }
+.fam-chip[data-fam="autres"] .fc-dot { background: var(--ink-3); box-shadow: 0 0 0 1px oklch(0 0 0 / .08); }
+
 .fam-chips {
   display: flex;
   align-items: center;
@@ -352,8 +360,8 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   flex: none;
-  background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--fh));
-  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--fh) / .28);
+  background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
+  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / .28);
 }
 .fc-n {
   font: 600 11px/1 var(--font-mono);

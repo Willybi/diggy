@@ -16,7 +16,7 @@ from models import (
     WatchedEntity,
     User,
 )
-from routers.genres import genre_family
+from routers.genres import genre_pillar, _ensure_pillar_cache
 
 router = APIRouter(tags=["search"])
 
@@ -46,7 +46,8 @@ class SearchItem(BaseModel):
     # playlist
     source: str | None = None
     # genre
-    family: str | None = None
+    pillar: str | None = None
+    depth: int | None = None
     artist_count: int | None = None
     bpm_lo: int | None = None
     bpm_hi: int | None = None
@@ -295,10 +296,12 @@ async def _search_genres(
 
     items: list[SearchItem] = []
     for r in rows:
+        p, d = genre_pillar(r.name)
         items.append(SearchItem(
             type="genre",
             name=r.name,
-            family=genre_family(r.name),
+            pillar=p,
+            depth=d,
             track_count=r.track_count,
             artist_count=r.artist_count,
             bpm_lo=r.bpm_lo,
@@ -320,6 +323,7 @@ async def search(
 ):
     user_id = _uid(user)
     is_guest = user is None
+    await _ensure_pillar_cache(db)
     q_lower = q.strip().lower()
 
     if not q_lower:

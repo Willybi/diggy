@@ -11,10 +11,10 @@ from models import (
     Artist, ArtistAlias, CatalogEntry, UserTrack,
     DJSet, SetArtist, SetTrack, User, UserRadarState,
 )
-from routers.genres import genre_family, _ALL_FAMILIES
+from routers.genres import genre_pillar, _ALL_PILLARS, _ensure_pillar_cache
 from schemas import (
     ArtistDetailOut, ArtistAliasOut, ArtistListOut,
-    CatalogEntryOut, ArtistSetOut,
+    CatalogEntryOut, ArtistSetOut, GenreRef,
 )
 
 router = APIRouter(prefix="/artists", tags=["artists"])
@@ -33,7 +33,8 @@ async def list_artists(
     user: User | None = Depends(get_current_user_optional),
 ):
     user_id = _uid(user)
-    empty = {"items": [], "total": 0, "familyCounts": {f: 0 for f in _ALL_FAMILIES}}
+    await _ensure_pillar_cache(db)
+    empty = {"items": [], "total": 0, "pillarCounts": {p: 0 for p in _ALL_PILLARS}}
 
     # -- name_map: artist_id -> all lowercase name variants --
     name_map = union_all(
@@ -154,24 +155,21 @@ async def list_artists(
             key=lambda g: -gc[g],
         )
 
-    def _artist_family(artist_id: int) -> str:
+    def _artist_pillar_key(artist_id: int) -> str:
         genres = _artist_genres(artist_id)
-        return genre_family(genres[0]) if genres else "misc"
+        return genre_pillar(genres[0])[0] if genres else "autres"
 
-    # -- familyCounts (all matching artists, before family filter) --
-    family_counts: dict[str, int] = {f: 0 for f in _ALL_FAMILIES}
-    family_by_id: dict[int, str] = {}
+    # -- pillarCounts (all matching artists, before pillar filter) --
+    pillar_counts: dict[str, int] = {p: 0 for p in _ALL_PILLARS}
+    pillar_by_id: dict[int, str] = {}
     for aid in all_artist_ids:
-        fam = _artist_family(aid)
-        family_by_id[aid] = fam
-        family_counts[fam] += 1
+        pil = _artist_pillar_key(aid)
+        pillar_by_id[aid] = pil
+        pillar_counts[pil] += 1
 
-    # -- apply family filter --
-    if family and family in _ALL_FAMILIES:
-        if family == "other":
-            filtered_ids = {aid for aid, fam in family_by_id.items() if fam in ("other", "misc")}
-        else:
-            filtered_ids = {aid for aid, fam in family_by_id.items() if fam == family}
+    # -- apply pillar filter --
+    if family and family in _ALL_PILLARS:
+        filtered_ids = {aid for aid, pil in pillar_by_id.items() if pil == family}
         base_query = base_query.where(Artist.id.in_(filtered_ids))
 
     # -- sort --
@@ -207,10 +205,13 @@ async def list_artists(
             "nb_lib": row.nb_lib,
             "nb_liked": row.nb_liked,
             "avg_rating": float(row.avg_rating) if row.avg_rating is not None else None,
-            "genres": _artist_genres(row.id),
+            "genres": [
+                {"name": g, "pillar": genre_pillar(g)[0], "depth": genre_pillar(g)[1]}
+                for g in _artist_genres(row.id)
+            ],
         })
 
-    return {"items": items, "total": total, "familyCounts": family_counts}
+    return {"items": items, "total": total, "pillarCounts": pillar_counts}
 
 
 @router.get("/random-track")
@@ -258,6 +259,7 @@ async def random_artist_track(
 
 @router.get("/{artist_id}", response_model=ArtistDetailOut)
 async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
+    await _ensure_pillar_cache(db)
     # 1. Artist + aliases + genres
     result = await db.execute(
         select(Artist)
@@ -404,7 +406,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         has_artwork=artist.has_artwork,
         created_at=artist.created_at,
         aliases=[ArtistAliasOut.model_validate(a) for a in artist.aliases],
-        genres=computed_genres,
+        genres=[GenreRef(name=g, pillar=genre_pillar(g)[0], depth=genre_pillar(g)[1]) for g in computed_genres],
         catalog_tracks=catalog_tracks,
         sets=sets,
         stats={

@@ -1,87 +1,55 @@
 /* ============================================================
-   DIGGY — Genre -> colour mapping  ·  v3.0
+   DIGGY — Genre → colour map  ·  v2 "taxonomy"
    ------------------------------------------------------------
-   Palette BORNEE a 5 tons (anti-rainbow) :
-     House  260 (violet)  — groovy / club
-     Techno 320 (magenta) — brut / hypnotique
-     Trance 352 (rose)    — psyche / euphorique
-     Other   42 (ambre)   — vrais genres hors-piste
-     Misc   null (gris)   — non-genres / bruit
-
-   Normalisation par slug : "Nu-Disco" et "Nu Disco / Disco"
-   tombent sur le meme slug -> meme couleur, toujours.
-
-   Tout genre non mappe tombe en Misc (gris neutre).
-   Pas de fallback hash — si un genre manque, on l'ajoute ici.
+   6 piliers + Autres. Chaque pilier = UN hue (tokens --hue-*).
+   Le hue d'un genre = le hue de sa RACINE taxonomique
+   (résolu côté API via genre_mappings → ancestors → ROOT_TO_PILLAR).
+   La PROFONDEUR (0..3) désature le chip — ne touche JAMAIS le hue.
+   Roue : "Évocateur". Collision : Option A (tolérant).
    ============================================================ */
+
+export const DEPTH_MAX = 3
+
+export const PILLARS = {
+  house:     { hue: 72,   label: 'House',       vibe: 'Groovy · club · disco roots' },
+  techno:    { hue: 242,  label: 'Techno',      vibe: 'Brut · industriel · hypnotique' },
+  trance:    { hue: 292,  label: 'Trance',      vibe: 'Euphorique · psyché · éthéré' },
+  dnb:       { hue: 162,  label: 'Drum & Bass', vibe: 'Rapide · jungle · liquide' },
+  hardcore:  { hue: 28,   label: 'Hardcore',    vibe: 'Dur · gabber · distorsion' },
+  harddance: { hue: 338,  label: 'Hard Dance',  vibe: 'Hardstyle · jumpstyle · rave' },
+  autres:    { hue: null, label: 'Autres',      vibe: 'Inclassable' },
+}
+
+export const PILLAR_ORDER = ['house', 'techno', 'trance', 'dnb', 'hardcore', 'harddance', 'autres']
+
+export const PILLAR_LABELS = Object.fromEntries(
+  Object.entries(PILLARS).map(([k, v]) => [k, v.label])
+)
 
 /* CSS-safe slug: 'Classic/Min. Techno' -> 'classic-min-techno' */
 export const slug = (name) =>
-  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
-/* ── Palette par famille ─────────────────────────────────────── */
-const FAMILY_HUES = {
-  house:  260,
-  techno: 320,
-  trance: 352,
-  other:   42,
-  misc:   null,
-}
-
-/* ── Mapping exhaustif : slug -> famille ─────────────────────── */
-const SLUG_FAMILY = {}
-function register(family, names) {
-  names.forEach(n => { SLUG_FAMILY[slug(n)] = family })
-}
-
-register('house', [
-  'House', 'Deep House', 'Tech House', 'Afro House', 'Bass House',
-  'Progressive House', 'Jackin House', 'Funky House', 'Soulful House',
-  'Organic House', 'Organic House / Downtempo', 'Afro / Organic House',
-  'Nu Disco / Disco', 'Nu-Disco', 'Nu Disco', 'Indie Dance',
-  'Melodic House', 'French Touch', 'UK House', 'UK Garage', 'UK Garage / Bassline',
-  'Downtempo', 'Minimal / Deep Tech',
-])
-
-register('techno', [
-  'Techno (Peak Time / Driving)', 'Techno (Peak Time)', 'Techno (Raw / Deep / Hypnotic)',
-  'Hard Techno', 'Melodic House & Techno', 'Melodic Techno', 'Minimal Techno',
-  'Electro (Classic / Detroit / Modern)', 'Electro Brut', 'Electro brut',
-  'Classic/Min. Techno', 'Hard/Dark Techno', 'Trance Techno',
-])
-
-register('trance', [
-  'Trance (Main Floor)', 'Trance (Raw / Deep / Hypnotic)',
-  'Psy-Trance', 'Psytrance',
-  'Hard Dance / Hardcore / Neo Rave', 'Hard Dance',
-])
-
-register('other', [
-  'Drum & Bass', 'Breaks / Breakbeat / UK Bass', 'Electronica',
-  'Rock', 'Hip-Hop', 'R&B', 'Pop', 'Funk / Soul', 'Funk-Soul',
-  'Bass', 'Country', 'Latin', 'Latin Electronic',
-  '140 / Deep Dubstep / Grime', 'Dubstep', 'Trap / Future Bass',
-  'Bass / Club', 'Ambient / Experimental', 'African', 'Caribbean',
-])
-
-register('misc', [
-  'DJ Tools / Acapellas', 'DJ Tools / Acape', 'DJ Edits',
-  'Mainstage', 'Dance / Pop', 'Misc. Tracks',
-])
-
-
-/* ── Labels famille (source unique) ────────────────────────── */
-export const FAMILY_LABELS = {
-  house: 'House', techno: 'Techno', trance: 'Trance',
-  other: 'Autre', misc: 'Autre',
-}
-
-/* ── API publique ──────────────────────────────────────────── */
-
-export function styleTone(name) {
-  const family = SLUG_FAMILY[slug(name)]
-  if (family === 'misc' || family === undefined) {
-    return { family: 'misc', hue: null, shade: 0 }
+/**
+ * Tonalité d'un genre.
+ * @param {{pillar:string, depth?:number}} g  pilier + profondeur (de l'API)
+ * @returns {{pillar:string, hue:number|null, depth:number}}
+ */
+export function styleTone({ pillar, depth = 0 } = {}) {
+  const key = PILLARS[pillar] ? pillar : 'autres'
+  return {
+    pillar: key,
+    hue: PILLARS[key].hue,
+    depth: Math.max(0, Math.min(DEPTH_MAX, depth | 0)),
   }
-  return { family, hue: FAMILY_HUES[family], shade: 0 }
+}
+
+/**
+ * Attributs prêts à binder sur <StyleTag>, dot mosaïque, etc.
+ *   <span class="style-tag" v-bind="tagAttrs(tone)">…</span>
+ * Le hue est lu côté CSS via [data-fam] -> var(--hue-*) ; Autres
+ * passe en chroma 0 par le même sélecteur. On ne pousse que --d.
+ */
+export function tagAttrs(tone) {
+  return { 'data-fam': tone.pillar, style: `--d:${tone.depth}` }
 }

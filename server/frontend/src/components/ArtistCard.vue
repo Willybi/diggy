@@ -1,5 +1,5 @@
 <template>
-  <RouterLink :to="`/artist/${artist.id}`" class="artist-card" :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked' }" :style="cardStyle">
+  <RouterLink :to="`/artist/${artist.id}`" class="artist-card" :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked' }" :data-fam="tone.pillar">
     <div class="ac-art">
       <div class="ac-scrim"></div>
 
@@ -32,7 +32,7 @@
     <div class="ac-body">
       <div class="ac-name">{{ artist.name }}</div>
       <div v-if="displayGenres.length" class="ac-genres">
-        <StyleTag v-for="g in displayGenres" :key="g" :name="g" />
+        <StyleTag v-for="g in displayGenres" :key="g.name" :name="g.name" :family="g.pillar" :depth="g.depth" />
       </div>
       <div class="ac-stats">
         <div class="ac-stat">
@@ -58,6 +58,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { styleTone } from '../composables/useStyleMap.js'
+
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
 import StyleTag from './StyleTag.vue'
@@ -83,13 +84,10 @@ function onPlay() {
 const imgBroken = ref(false)
 
 const tone = computed(() => {
-  if (!props.artist.genres?.length) return { family: 'misc', hue: null }
-  return styleTone(props.artist.genres[0])
+  const g = props.artist.genres?.[0]
+  if (!g) return styleTone({ pillar: 'autres' })
+  return styleTone({ pillar: g.pillar, depth: g.depth })
 })
-
-const cardStyle = computed(() =>
-  tone.value.hue != null ? { '--th': tone.value.hue } : undefined
-)
 
 const initials = computed(() => {
   const words = props.artist.name.trim().split(/[\s\-_./]+/).filter(w => /[a-zA-Z0-9]/.test(w))
@@ -98,10 +96,22 @@ const initials = computed(() => {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase()
 })
 
-const displayGenres = computed(() => (props.artist.genres || []).slice(0, 2))
+const displayGenres = computed(() => {
+  const genres = props.artist.genres || []
+  return genres.slice(0, 2)
+})
 </script>
 
 <style scoped>
+/* ── Pillar hue mapping ── */
+.artist-card[data-fam="house"]     { --th: var(--hue-house); }
+.artist-card[data-fam="techno"]    { --th: var(--hue-techno); }
+.artist-card[data-fam="trance"]    { --th: var(--hue-trance); }
+.artist-card[data-fam="dnb"]       { --th: var(--hue-dnb); }
+.artist-card[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
+.artist-card[data-fam="harddance"] { --th: var(--hue-harddance); }
+.artist-card[data-fam="autres"]    { --th: 42; }
+
 .artist-card {
   background: var(--surface);
   border: 1px solid var(--line);
