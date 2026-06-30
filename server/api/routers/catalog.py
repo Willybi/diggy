@@ -218,7 +218,8 @@ async def list_catalog(
     elif sort == "style":
         # Sort by pillar order (house=0..autres=6), then alphabetical genre name
         from routers.genres import _PILLAR_CACHE
-        first_genre = func.coalesce(CatalogEntry.genres[1], "")
+        from sqlalchemy import literal_column
+        first_genre = func.coalesce(literal_column("genres[1]"), "")
         pillar_rank = {'house': 0, 'techno': 1, 'trance': 2, 'dnb': 3, 'hardcore': 4, 'harddance': 5, 'autres': 6}
         pillar_case = case(
             *[(first_genre == g, pillar_rank.get(p, 6)) for g, (p, _d) in _PILLAR_CACHE.items()],
