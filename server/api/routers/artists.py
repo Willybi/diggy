@@ -193,6 +193,36 @@ async def list_artists(
     result = await db.execute(base_query.offset(offset).limit(limit))
     rows = result.all()
 
+    # -- top 4 track artworks + artwork count per page artist --
+    page_ids = [row.id for row in rows]
+    artworks_map: dict[int, list[str]] = {aid: [] for aid in page_ids}
+    artwork_count_map: dict[int, int] = {aid: 0 for aid in page_ids}
+    if page_ids:
+        aw_result = await db.execute(text("""
+            WITH artist_names AS (
+                SELECT id AS artist_id, LOWER(name) AS artist_lower FROM artists WHERE id = ANY(:ids)
+                UNION
+                SELECT artist_id, LOWER(alias) AS artist_lower FROM artist_aliases WHERE artist_id = ANY(:ids)
+            ),
+            matched AS (
+                SELECT an.artist_id, c.id AS catalog_id, c.has_artwork,
+                       ROW_NUMBER() OVER (PARTITION BY an.artist_id ORDER BY c.id DESC) AS rn
+                FROM artist_names an
+                JOIN catalog c ON LOWER(c.artist) = an.artist_lower
+                WHERE c.has_artwork = true
+            )
+            SELECT artist_id,
+                   COUNT(*)::int AS total_with_artwork,
+                   ARRAY_AGG(catalog_id ORDER BY rn) FILTER (WHERE rn <= 4) AS top_ids
+            FROM matched
+            GROUP BY artist_id
+        """), {"ids": page_ids})
+        for r in aw_result.fetchall():
+            artwork_count_map[r.artist_id] = r.total_with_artwork
+            artworks_map[r.artist_id] = [
+                f"/storage/catalog-artworks/{cid}.jpg" for cid in (r.top_ids or [])
+            ]
+
     items = []
     for row in rows:
         items.append({
@@ -209,6 +239,8 @@ async def list_artists(
                 {"name": g, "pillar": genre_pillar(g)[0], "depth": genre_pillar(g)[1]}
                 for g in _artist_genres(row.id)
             ],
+            "top_track_artworks": artworks_map.get(row.id, []),
+            "tracks_with_artwork": artwork_count_map.get(row.id, 0),
         })
 
     return {"items": items, "total": total, "pillarCounts": pillar_counts}

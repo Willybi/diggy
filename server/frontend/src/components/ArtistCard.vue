@@ -1,18 +1,25 @@
 <template>
   <RouterLink :to="`/artist/${artist.id}`" class="artist-card" :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked' }" :data-fam="tone.pillar">
-    <div class="ac-art">
-      <div class="ac-scrim"></div>
+    <div class="ac-art" :class="{ fallback: !hasMosaic }">
+      <!-- Mosaic covers (like GenreCard) -->
+      <template v-if="hasMosaic">
+        <div class="ac-mosaic">
+          <div v-for="(slot, i) in fourSlots" :key="i" class="ac-tile">
+            <img
+              v-if="slot"
+              class="ac-cover"
+              :src="slot"
+              alt=""
+              loading="lazy"
+              @error="onCoverError"
+            />
+          </div>
+        </div>
+        <div class="ac-scrim"></div>
+      </template>
 
-      <span v-if="artist.avg_rating != null" class="ac-rating">
-        <svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.2 6.6.7-4.9 4.5 1.4 6.6L12 18.6 6 21l1.4-6.6L2.5 9.4l6.6-.7z"/></svg>
-        {{ artist.avg_rating.toFixed(1) }}
-      </span>
-
-      <span v-if="artist.nb_lib > 0" class="ac-lib">
-        <span class="libdot"></span>{{ artist.nb_lib }} en bib
-      </span>
-
-      <div class="ac-avatar">
+      <!-- Avatar (always visible, centered) -->
+      <div class="ac-avatar" :class="{ init: !artist.has_artwork || imgBroken }">
         <img
           v-if="artist.has_artwork && !imgBroken"
           :src="`/storage/artist-artworks/${artist.id}.jpg`"
@@ -23,6 +30,18 @@
         <template v-else>{{ initials }}</template>
       </div>
 
+      <!-- Rating badge -->
+      <span v-if="artist.avg_rating != null" class="ac-rating">
+        <svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.2 6.6.7-4.9 4.5 1.4 6.6L12 18.6 6 21l1.4-6.6L2.5 9.4l6.6-.7z"/></svg>
+        {{ artist.avg_rating.toFixed(1) }}
+      </span>
+
+      <!-- In-lib badge -->
+      <span v-if="artist.nb_lib > 0" class="ac-lib">
+        <span class="libdot"></span>{{ artist.nb_lib }} en bib
+      </span>
+
+      <!-- Play button (hover reveal) -->
       <button class="ac-play" :class="{ 'ac-play--playing': isPlaying }" aria-label="Lecture" @click.prevent.stop="onPlay">
         <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
@@ -100,6 +119,17 @@ const displayGenres = computed(() => {
   const genres = props.artist.genres || []
   return genres.slice(0, 2)
 })
+
+const hasMosaic = computed(() => (props.artist.tracks_with_artwork || 0) >= 1)
+
+const fourSlots = computed(() => {
+  const aw = props.artist.top_track_artworks || []
+  return [aw[0] || null, aw[1] || null, aw[2] || null, aw[3] || null]
+})
+
+function onCoverError(e) {
+  e.target.remove()
+}
 </script>
 
 <style scoped>
@@ -110,7 +140,7 @@ const displayGenres = computed(() => {
 .artist-card[data-fam="dnb"]       { --th: var(--hue-dnb); }
 .artist-card[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
 .artist-card[data-fam="harddance"] { --th: var(--hue-harddance); }
-.artist-card[data-fam="autres"]    { --th: 42; }
+.artist-card[data-fam="autres"]    { --th: 0; --ct-c: 0; --fb-c1: 0; --fb-c2: 0; }
 
 .artist-card {
   background: var(--surface);
@@ -132,21 +162,59 @@ const displayGenres = computed(() => {
 
 /* ---- art zone ---- */
 .ac-art {
-  --art-l: 0.920;
-  --art-c: 0.054;
   position: relative;
-  height: 132px;
-  background: oklch(var(--art-l) var(--art-c) var(--th, 42));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  height: 186px;
   overflow: hidden;
 }
-[data-theme="dark"] .ac-art {
-  --art-l: 0.258;
-  --art-c: 0.068;
+
+/* Mosaic (4 covers grid, like GenreCard) */
+.ac-mosaic {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
 }
-.ac-art::before {
+.ac-tile {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  background: var(--surface-2);
+}
+.ac-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+/* Scrim: radial dark top + linear gradient towards family hue at bottom */
+.ac-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 92% at 50% 22%, transparent 0%, oklch(0.12 0.02 262 / .34) 100%),
+    linear-gradient(to bottom, transparent 30%, oklch(var(--ct-l) calc(var(--ct-c) * 4.2) var(--th) / .96) 100%);
+}
+.artist-card[data-fam="autres"] .ac-scrim {
+  background:
+    radial-gradient(120% 92% at 50% 22%, transparent 0%, oklch(0.12 0.02 262 / .34) 100%),
+    linear-gradient(to bottom, transparent 30%, oklch(var(--ct-l) 0 70 / .96) 100%);
+}
+
+/* Fallback: solid family gradient (no covers) */
+.ac-art.fallback {
+  background: linear-gradient(155deg,
+    oklch(var(--fb-l1) var(--fb-c1) var(--th)) 0%,
+    oklch(var(--fb-l2) var(--fb-c2) var(--th)) 100%);
+}
+.ac-art.fallback::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -157,37 +225,25 @@ const displayGenres = computed(() => {
   );
   pointer-events: none;
 }
-.ac-scrim {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, oklch(0.14 0.018 70 / .24) 0%, transparent 56%);
-  pointer-events: none;
-}
 
-/* ---- avatar ---- */
+/* ---- avatar (centered in art zone) ---- */
 .ac-avatar {
-  width: 84px;
-  height: 84px;
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -56%);
+  width: 92px;
+  height: 92px;
   border-radius: 50%;
-  border: 3px solid var(--surface);
-  background: oklch(calc(var(--art-l) - 0.072) calc(var(--art-c) + 0.022) var(--th, 42));
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 0 0 4px var(--surface), var(--shadow-md);
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 700 27px/1 var(--font-ui);
-  letter-spacing: -.5px;
-  color: oklch(0.40 0.130 var(--th, 42));
-  box-shadow: 0 4px 18px oklch(0.14 0.018 70 / .24), 0 1px 4px oklch(0.14 0.018 70 / .16);
-  position: relative;
-  z-index: 1;
-  flex: none;
-  overflow: hidden;
   transition: transform .18s ease;
-  user-select: none;
-}
-[data-theme="dark"] .ac-avatar {
-  border-color: oklch(0.270 0.015 262);
-  color: oklch(0.76 0.088 var(--th, 42));
 }
 .ac-avatar img {
   width: 100%;
@@ -195,8 +251,17 @@ const displayGenres = computed(() => {
   object-fit: cover;
   display: block;
 }
+.ac-avatar.init {
+  background: oklch(var(--tag-bg-l) calc(var(--tag-bg-c) * .9) var(--th));
+  color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
+  font: 600 30px/1 var(--font-ui);
+}
+.artist-card[data-fam="autres"] .ac-avatar.init {
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
 .artist-card:hover .ac-avatar {
-  transform: scale(1.07);
+  transform: translate(-50%, -56%) scale(1.07);
 }
 
 /* ---- rating badge ---- */
@@ -204,22 +269,22 @@ const displayGenres = computed(() => {
   position: absolute;
   top: 10px;
   right: 10px;
-  z-index: 2;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  height: 23px;
+  padding: 0 9px;
   border-radius: 999px;
-  padding: 4px 8px 4px 7px;
-  font: 700 11.5px/1 var(--font-mono);
-  color: var(--accent-ink);
-  box-shadow: var(--shadow-sm);
+  background: oklch(0.20 0.02 262 / .72);
+  backdrop-filter: blur(6px);
+  color: oklch(0.96 0.01 92);
+  font: 600 11px/1 var(--font-mono);
   pointer-events: none;
 }
 .ac-rating svg {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   fill: var(--accent);
   flex: none;
 }
@@ -227,24 +292,24 @@ const displayGenres = computed(() => {
 /* ---- in-lib badge ---- */
 .ac-lib {
   position: absolute;
-  bottom: 10px;
+  top: 10px;
   left: 10px;
-  z-index: 2;
+  z-index: 4;
   display: flex;
   align-items: center;
-  gap: 5px;
-  font: 600 10.5px/1 var(--font-mono);
-  color: var(--pos-ink);
-  background: var(--surface);
-  padding: 5px 8px 5px 7px;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
   border-radius: 999px;
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--line);
+  background: oklch(0.20 0.02 262 / .72);
+  backdrop-filter: blur(6px);
+  color: oklch(0.96 0.01 92);
+  font: 600 10px/1 var(--font-mono);
   pointer-events: none;
 }
 .libdot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--pos);
   flex: none;
@@ -255,7 +320,7 @@ const displayGenres = computed(() => {
   position: absolute;
   right: 10px;
   bottom: 10px;
-  z-index: 3;
+  z-index: 4;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -275,18 +340,20 @@ const displayGenres = computed(() => {
 .ac-play--playing { opacity: 1; transform: none; }
 .ac-play:hover { background: var(--accent-hover); }
 
-/* ---- body ---- */
+/* ---- body (tinted) ---- */
 .ac-body {
-  padding: 13px 14px 14px;
+  padding: 14px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 9px;
   flex: 1;
+  background: oklch(var(--ct-l) var(--ct-c) var(--th));
 }
 .ac-name {
-  font: 600 15px/1.2 var(--font-ui);
+  font: 600 16px/1.15 var(--font-ui);
   letter-spacing: -.2px;
   color: var(--ink);
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -295,6 +362,7 @@ const displayGenres = computed(() => {
   display: flex;
   flex-wrap: nowrap;
   gap: 5px;
+  justify-content: center;
   min-height: 22px;
   overflow: hidden;
 }
@@ -308,7 +376,7 @@ const displayGenres = computed(() => {
 .ac-stats {
   display: flex;
   margin-top: auto;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--ct-line);
   padding-top: 10px;
 }
 .ac-stat {
@@ -318,7 +386,7 @@ const displayGenres = computed(() => {
   flex: 1;
   align-items: center;
 }
-.ac-stat + .ac-stat { border-left: 1px solid var(--line); }
+.ac-stat + .ac-stat { border-left: 1px solid var(--ct-line); }
 .ac-stat .k {
   font: 600 8.5px/1 var(--font-mono);
   letter-spacing: .1em;
@@ -336,7 +404,7 @@ const displayGenres = computed(() => {
 
 /* ---- avis separator + buttons ---- */
 .ac-avis {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--ct-line);
   display: flex;
   align-items: center;
   padding-left: 12px;

@@ -67,6 +67,13 @@
   --tag-fg-l: 0.460;  --tag-fg-c: 0.130;
   --tag-dot-l: 0.650; --tag-dot-c: 0.152;
 
+  /* ---- card body tint (Genre + Artist cards) — hue set per card via --th ---- */
+  --ct-l: 0.965;  --ct-c: 0.030;
+  --ct-line: oklch(0.30 0.02 70 / 0.10);
+
+  /* ---- artist card fallback gradient (no track covers) ---- */
+  --fb-l1: 0.92;  --fb-c1: 0.07;  --fb-l2: 0.97;  --fb-c2: 0.03;
+
   /* ============================================================
      GENRE PILLARS  ·  v2 "taxonomy" — 6 piliers + Autres (gris)
      Chaque pilier = un hue. Tout descendant hérite du hue de sa
@@ -139,6 +146,11 @@
   --tag-bg-l: 0.336;  --tag-bg-c: 0.064;
   --tag-fg-l: 0.836;  --tag-fg-c: 0.106;
   --tag-dot-l: 0.730; --tag-dot-c: 0.138;
+
+  --ct-l: 0.268;  --ct-c: 0.044;
+  --ct-line: oklch(1 0 0 / 0.07);
+
+  --fb-l1: 0.36;  --fb-c1: 0.085;  --fb-l2: 0.24;  --fb-c2: 0.05;
 
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.30);
   --shadow-md: 0 4px 14px oklch(0 0 0 / 0.34), 0 2px 5px oklch(0 0 0 / 0.28);
