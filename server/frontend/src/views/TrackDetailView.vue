@@ -13,8 +13,8 @@
         <template #badges>
           <InLibBadge :in-lib="track.in_lib" />
           <template v-if="track.genres?.length">
-            <RouterLink v-for="g in track.genres" :key="g" :to="`/style/${encodeURIComponent(g)}`" style="text-decoration:none">
-              <StyleTag :name="g" />
+            <RouterLink v-for="g in track.genres" :key="g.name" :to="`/style/${encodeURIComponent(g.name)}`" style="text-decoration:none">
+              <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
             </RouterLink>
           </template>
           <StyleTag v-else-if="track.style" :name="track.style" />
@@ -159,7 +159,7 @@ async function enrichBeatport(forceGenre = false) {
       track.value.bpm = data.bpm
       track.value.key = data.key
       track.value.label = data.label
-      track.value.genres = data.genres
+      track.value.genres = (data.genres || []).map(g => typeof g === 'string' ? { name: g, pillar: 'autres', depth: 0 } : g)
       track.value.beatport_id = data.beatport_id
       track.value.bpm_source = 'beatport'
       track.value.key_source = 'beatport'
@@ -201,8 +201,9 @@ async function applyDeezerGenres() {
   fetchingDzGenre.value = true
   try {
     const { data } = await api.get(`/api/admin/deezer-genre/${track.value.id}?apply=true`)
-    track.value.genres = data.genres || dzGenreResult.value.genres
-    dzGenreResult.value = { text: `Appliqué : ${track.value.genres.join(', ')}`, cls: 'ok' }
+    const rawGenres = data.genres || dzGenreResult.value.genres
+    track.value.genres = rawGenres.map(g => typeof g === 'string' ? { name: g, pillar: 'autres', depth: 0 } : g)
+    dzGenreResult.value = { text: `Appliqué : ${rawGenres.join(', ')}`, cls: 'ok' }
   } catch (e) {
     dzGenreResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
   } finally {

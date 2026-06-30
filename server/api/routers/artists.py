@@ -385,7 +385,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
             bpm=lib_bpm if lib_bpm else entry.bpm,
             key=lib_key if lib_key else entry.key,
             duration_ms=entry.duration_ms,
-            genres=entry.genres or [],
+            genres=[GenreRef(name=g, pillar=genre_pillar(g)[0], depth=genre_pillar(g)[1]) for g in (entry.genres or [])],
             release_date=entry.release_date,
             preview_url=entry.preview_url,
             has_artwork=entry.has_artwork,

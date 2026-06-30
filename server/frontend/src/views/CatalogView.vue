@@ -127,8 +127,8 @@
               </td>
               <td class="col-style">
                 <template v-if="e.genres?.length">
-                  <RouterLink v-for="g in e.genres" :key="g" :to="`/style/${encodeURIComponent(g)}`" style="text-decoration:none">
-                    <StyleTag :name="g" />
+                  <RouterLink v-for="g in e.genres" :key="g.name" :to="`/style/${encodeURIComponent(g.name)}`" style="text-decoration:none">
+                    <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
                   </RouterLink>
                 </template>
                 <StyleTag v-else-if="e.style" :name="e.style" />

@@ -159,7 +159,7 @@ class CatalogEntryOut(BaseModel):
     deezer_id: Optional[str] = None
     beatport_id: Optional[str] = None
     duration_ms: Optional[int]
-    genres: list[str] = []
+    genres: list[GenreRef] = []
     release_date: Optional[date]
     preview_url: Optional[str]
     has_artwork: bool = False
@@ -273,7 +273,7 @@ class ArtistListOut(BaseModel):
     nb_lib: int = 0
     nb_liked: int = 0
     avg_rating: Optional[float] = None
-    genres: list[str] = []
+    genres: list[GenreRef] = []
 
     model_config = {"from_attributes": True}
 

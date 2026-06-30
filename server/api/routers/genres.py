@@ -97,13 +97,21 @@ async def _load_pillar_cache(db: AsyncSession) -> None:
     log.info("Pillar cache loaded: %d genres", len(cache))
 
 
+_pillar_cache_attempted = False
+
 async def _ensure_pillar_cache(db: AsyncSession) -> None:
-    if not _PILLAR_CACHE:
+    global _pillar_cache_attempted
+    if _PILLAR_CACHE or _pillar_cache_attempted:
+        return
+    _pillar_cache_attempted = True
+    try:
+        await _load_pillar_cache(db)
+    except Exception:
         try:
-            await _load_pillar_cache(db)
-        except Exception:
             await db.rollback()
-            log.warning("Pillar cache load failed (SQLite?), using empty cache")
+        except Exception:
+            pass
+        log.warning("Pillar cache load failed (SQLite?), using empty cache")
 
 
 def _pillar_genre_names(pillar: str) -> list[str]:

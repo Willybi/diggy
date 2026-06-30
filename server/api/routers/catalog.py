@@ -22,7 +22,7 @@ from models import (
 from opinion_sync import sync_track_opinion
 from schemas import (
     CatalogEntryOut, CatalogList, CatalogDetailOut, CatalogAvisUpdate,
-    RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut,
+    RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut, GenreRef,
 )
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -197,6 +197,10 @@ async def list_catalog(
     if avis:
         query = query.where(ut_sub.c.ut_avis == avis)
 
+    # Ensure genre pillar cache is loaded (needed for style sort + genre enrichment)
+    from routers.genres import genre_pillar, _ensure_pillar_cache
+    await _ensure_pillar_cache(db)
+
     # Tri
     nb_radar_col = func.coalesce(radar_count.c.nb_playlists, 0)
     if sort == "detected_at" and is_radar:
@@ -212,7 +216,17 @@ async def list_catalog(
     elif sort == "key":
         sort_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key, "")
     elif sort == "style":
-        sort_col = func.coalesce(CatalogEntry.genres[1], ut_sub.c.rb_mytags.op("->>")(0), "")
+        # Sort by pillar order (house=0..autres=6), then alphabetical genre name
+        from routers.genres import _PILLAR_CACHE
+        first_genre = func.coalesce(CatalogEntry.genres[1], "")
+        pillar_rank = {'house': 0, 'techno': 1, 'trance': 2, 'dnb': 3, 'hardcore': 4, 'harddance': 5, 'autres': 6}
+        pillar_case = case(
+            *[(first_genre == g, pillar_rank.get(p, 6)) for g, (p, _d) in _PILLAR_CACHE.items()],
+            else_=6,
+        )
+        dir_fn = lambda c: c.desc() if order != "asc" else c.asc()
+        query = query.order_by(dir_fn(pillar_case), dir_fn(first_genre))
+        sort_col = None  # already handled
     elif sort == "in_lib":
         sort_col = case((ut_sub.c.catalog_id.isnot(None), 1), else_=0)
     elif sort == "avis":
@@ -225,7 +239,8 @@ async def list_catalog(
         else:
             sort_col = nb_radar_col  # défaut
 
-    query = query.order_by(sort_col.desc() if order != "asc" else sort_col.asc())
+    if sort_col is not None:
+        query = query.order_by(sort_col.desc() if order != "asc" else sort_col.asc())
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
@@ -275,6 +290,12 @@ async def list_catalog(
             except Exception:
                 pass
 
+        # Build GenreRef list with pillar/depth
+        genre_refs = []
+        for g in (entry.genres or []):
+            p, d = genre_pillar(g)
+            genre_refs.append(GenreRef(name=g, pillar=p, depth=d))
+
         out = CatalogEntryOut(
             id=entry.id,
             title=entry.title,
@@ -283,7 +304,7 @@ async def list_catalog(
             bpm=ut_bpm if ut_bpm is not None else entry.bpm,
             key=ut_key if ut_key is not None else entry.key,
             duration_ms=entry.duration_ms,
-            genres=entry.genres or [],
+            genres=genre_refs,
             release_date=entry.release_date,
             preview_url=entry.preview_url,
             has_artwork=ut_has_artwork if ut_has_artwork else entry.has_artwork,
@@ -414,6 +435,10 @@ async def get_catalog_detail(
     nb_radar = len(radar_appearances)
     nb_sets = len(set_appearances)
 
+    # Build GenreRef list with pillar/depth (genre_pillar defaults to 'autres' if cache empty)
+    from routers.genres import genre_pillar
+    genre_refs = [GenreRef(name=g, pillar=p, depth=d) for g in (entry.genres or []) for p, d in [genre_pillar(g)]]
+
     return CatalogDetailOut(
         id=entry.id,
         title=entry.title,
@@ -422,7 +447,7 @@ async def get_catalog_detail(
         bpm=ut.rb_bpm if ut and ut.rb_bpm else entry.bpm,
         key=ut.rb_key if ut and ut.rb_key else entry.key,
         duration_ms=entry.duration_ms,
-        genres=entry.genres or [],
+        genres=genre_refs,
         label=entry.label,
         deezer_id=entry.deezer_id,
         beatport_id=entry.beatport_id,
