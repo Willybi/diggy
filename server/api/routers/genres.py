@@ -49,7 +49,7 @@ async def _load_pillar_cache(db: AsyncSession) -> None:
     root_labels = list(_ROOT_TO_PILLAR.keys())
 
     rows = (await db.execute(text("""
-        WITH mapped AS (
+        WITH RECURSIVE mapped AS (
             SELECT gm.raw_name, gm.node_id, gn.label AS node_label
             FROM genre_mappings gm
             JOIN genre_nodes gn ON gn.id = gm.node_id
@@ -102,8 +102,8 @@ async def _ensure_pillar_cache(db: AsyncSession) -> None:
         try:
             await _load_pillar_cache(db)
         except Exception:
+            await db.rollback()
             log.warning("Pillar cache load failed (SQLite?), using empty cache")
-            pass
 
 
 def _pillar_genre_names(pillar: str) -> list[str]:
