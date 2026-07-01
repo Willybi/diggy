@@ -71,6 +71,21 @@
         </div>
       </div>
 
+      <div class="hero-actions">
+        <button class="btn btn--accent" @click="player.playRandom(genreName)">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          Écouter un aperçu
+        </button>
+        <RouterLink
+          :to="`/catalog?genre=${encodeURIComponent(genreName)}`"
+          class="btn btn--ghost-accent"
+        >
+          Tout filtrer dans Catalog
+        </RouterLink>
+      </div>
+
       <!-- StatStrip -->
       <StatStrip :stats="stats" />
 
@@ -137,6 +152,7 @@
             :to="`/set/${s.id}`"
             :fallback-letter="(s.title || '?')[0]"
           >
+            <template #badge><span class="type-badge">Set</span></template>
             <template #overlay>
               <span class="ring" :class="ringClass(s)"
                 >{{ Math.round((s.genreTrackCount / s.totalTracks) * 100) }}%</span
@@ -294,12 +310,15 @@ const sixSlots = computed(() => {
 const stats = computed(() => {
   if (!genre.value) return []
   const g = genre.value
-  return [
+  const s = [
     { label: 'Tracks', value: fmtNum(g.trackCount) },
     { label: 'Artistes', value: fmtNum(g.artistCount) },
     { label: 'BPM', value: `${g.bpmLo}–${g.bpmHi}` },
     { label: 'En bib', value: fmtNum(g.inLibCount) },
   ]
+  if (g.setCount) s.push({ label: 'Sets', value: fmtNum(g.setCount) })
+  if (g.playlistCount) s.push({ label: 'Playlists', value: fmtNum(g.playlistCount) })
+  return s
 })
 
 const sortOptions = [
@@ -731,13 +750,31 @@ onUnmounted(() => {
   box-shadow: 0 0 0 2px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0) / 0.28);
 }
 .hero-title {
-  font: 700 26px/1.1 var(--font-ui);
+  font: 700 clamp(24px, 2.2vw, 34px)/1.1 var(--font-ui);
   letter-spacing: -0.3px;
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th, 0));
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.type-badge {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.hero-actions .btn svg {
+  width: 15px;
+  height: 15px;
 }
 .hero-fam {
   font: 500 10px/1 var(--font-mono);
