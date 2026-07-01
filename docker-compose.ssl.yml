@@ -11,7 +11,12 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
     # Reload config every 6h to pick up renewed certs
-    command: /bin/sh -c 'nginx -g "daemon off;" & while :; do sleep 6h; nginx -s reload; done'
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        /docker-entrypoint.sh nginx -g "daemon off;" &
+        while :; do sleep 6h; nginx -s reload 2>/dev/null; done
 
   certbot:
     image: certbot/certbot
