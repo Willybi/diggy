@@ -10,7 +10,10 @@
       </div>
       <div class="head-tools">
         <label class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.2-3.2" stroke-linecap="round" />
+          </svg>
           <input v-model="search" type="text" placeholder="Artiste ou titre…" @input="onSearch" />
         </label>
         <button class="chip" :class="{ on: notInLib }" @click="toggleNotInLib">
@@ -24,11 +27,20 @@
         </button>
         <div class="viewseg">
           <button :class="{ on: mode === 'catalog' }" @click="switchMode('catalog')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
             Catalog
           </button>
           <button :class="{ on: mode === 'radar' }" @click="switchMode('radar')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="9" />
+              <circle cx="12" cy="12" r="4.5" />
+              <circle cx="12" cy="12" r="1" />
+            </svg>
             Radar
           </button>
         </div>
@@ -40,10 +52,14 @@
       <div v-if="mode === 'radar'" class="recency">
         <span class="rlbl">Période</span>
         <div class="seg-rec">
-          <button v-for="r in recencyOptions" :key="r.value"
+          <button
+            v-for="r in recencyOptions"
+            :key="r.value"
             :class="{ on: recency === r.value }"
             @click="setRecency(r.value)"
-          >{{ r.label }}</button>
+          >
+            {{ r.label }}
+          </button>
         </div>
       </div>
     </div>
@@ -56,46 +72,131 @@
           <thead>
             <tr>
               <th class="c-play"></th>
-              <th class="sortable" :class="{ 'is-sorted': sortKey === 'title' }" @click="doSort('title')">
-                Track <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="sortable"
+                :class="{ 'is-sorted': sortKey === 'title' }"
+                @click="doSort('title')"
+              >
+                Track
+                <span v-if="sortKey === 'title'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
-              <th class="col-style sortable" :class="{ 'is-sorted': sortKey === 'style' }" @click="doSort('style')">
-                Style <span v-if="sortKey === 'style'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="col-style sortable"
+                :class="{ 'is-sorted': sortKey === 'style' }"
+                @click="doSort('style')"
+              >
+                Style
+                <span v-if="sortKey === 'style'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
-              <th class="num sortable col-bpm" :class="{ 'is-sorted': sortKey === 'bpm' }" @click="doSort('bpm')">
-                BPM <span v-if="sortKey === 'bpm'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="num sortable col-bpm"
+                :class="{ 'is-sorted': sortKey === 'bpm' }"
+                @click="doSort('bpm')"
+              >
+                BPM
+                <span v-if="sortKey === 'bpm'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
-              <th class="num sortable col-key" :class="{ 'is-sorted': sortKey === 'key' }" @click="doSort('key')">
-                Key <span v-if="sortKey === 'key'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="num sortable col-key"
+                :class="{ 'is-sorted': sortKey === 'key' }"
+                @click="doSort('key')"
+              >
+                Key
+                <span v-if="sortKey === 'key'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
               <!-- Zone d'échange: radar-only -->
-              <th class="col-source sortable" :class="{ 'is-sorted': sortKey === 'source_name' }" @click="doSort('source_name')">
-                Source <span v-if="sortKey === 'source_name'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="col-source sortable"
+                :class="{ 'is-sorted': sortKey === 'source_name' }"
+                @click="doSort('source_name')"
+              >
+                Source
+                <span v-if="sortKey === 'source_name'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
-              <th class="col-detect sortable" :class="{ 'is-sorted': sortKey === 'detected_at' }" @click="doSort('detected_at')">
-                Détecté <span v-if="sortKey === 'detected_at'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="col-detect sortable"
+                :class="{ 'is-sorted': sortKey === 'detected_at' }"
+                @click="doSort('detected_at')"
+              >
+                Détecté
+                <span v-if="sortKey === 'detected_at'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
               <!-- Zone d'échange: catalog-only -->
-              <th class="num sortable col-dur" :class="{ 'is-sorted': sortKey === 'duration_ms' }" @click="doSort('duration_ms')">
-                Durée <span v-if="sortKey === 'duration_ms'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="num sortable col-dur"
+                :class="{ 'is-sorted': sortKey === 'duration_ms' }"
+                @click="doSort('duration_ms')"
+              >
+                Durée
+                <span v-if="sortKey === 'duration_ms'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
-              <th class="col-rating sortable" :class="{ 'is-sorted': sortKey === 'rating' }" @click="doSort('rating')">
-                Rating <span v-if="sortKey === 'rating'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="col-rating sortable"
+                :class="{ 'is-sorted': sortKey === 'rating' }"
+                @click="doSort('rating')"
+              >
+                Rating
+                <span v-if="sortKey === 'rating'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
-              <th class="num col-lib sortable" :class="{ 'is-sorted': sortKey === 'in_lib' }" @click="doSort('in_lib')">
-                In&nbsp;lib <span v-if="sortKey === 'in_lib'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="num col-lib sortable"
+                :class="{ 'is-sorted': sortKey === 'in_lib' }"
+                @click="doSort('in_lib')"
+              >
+                In&nbsp;lib
+                <span v-if="sortKey === 'in_lib'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
               <!-- Colonnes communes suite -->
-              <th class="col-radar sortable" :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }" @click="doSort('nb_radar_playlists')">
-                Radar <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="col-radar sortable"
+                :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }"
+                @click="doSort('nb_radar_playlists')"
+              >
+                Radar
+                <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
-              <th class="end col-avis sortable" :class="{ 'is-sorted': sortKey === 'avis' }" @click="doSort('avis')">
-                Avis <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+              <th
+                class="end col-avis sortable"
+                :class="{ 'is-sorted': sortKey === 'avis' }"
+                @click="doSort('avis')"
+              >
+                Avis
+                <span v-if="sortKey === 'avis'" class="arr">{{
+                  sortDir === 'asc' ? '↑' : '↓'
+                }}</span>
               </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in items" :key="e.id" :class="{ playing: player.isCurrent(e.id), liked: e.avis === 'liked', disliked: e.avis === 'disliked' }">
+            <tr
+              v-for="e in items"
+              :key="e.id"
+              :class="{
+                playing: player.isCurrent(e.id),
+                liked: e.avis === 'liked',
+                disliked: e.avis === 'disliked',
+              }"
+            >
               <td class="c-play">
                 <span
                   class="pbtn"
@@ -103,16 +204,39 @@
                     'pbtn--disabled': !e.has_preview,
                     'pbtn--playing': player.isCurrent(e.id),
                   }"
-                  @click="e.has_preview && player.play({ id: e.id, catalog_id: e.id, title: e.title, artist: e.artist, bpm: e.bpm, key: e.key })"
+                  @click="
+                    e.has_preview &&
+                    player.play({
+                      id: e.id,
+                      catalog_id: e.id,
+                      title: e.title,
+                      artist: e.artist,
+                      bpm: e.bpm,
+                      key: e.key,
+                    })
+                  "
                 >
-                  <svg v-if="!(player.isCurrent(e.id) && player.playing)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
-                  <svg v-else viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.4" height="14" rx="1"/><rect x="13.6" y="5" width="3.4" height="14" rx="1"/></svg>
+                  <svg
+                    v-if="!(player.isCurrent(e.id) && player.playing)"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="M8 5.5v13l11-6.5z" />
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="7" y="5" width="3.4" height="14" rx="1" />
+                    <rect x="13.6" y="5" width="3.4" height="14" rx="1" />
+                  </svg>
                 </span>
               </td>
               <td>
                 <div class="td-track">
                   <span class="aw">
-                    <img v-if="e.has_artwork" :src="`/storage/catalog-artworks/${e.id}.jpg`" :alt="e.title" />
+                    <img
+                      v-if="e.has_artwork"
+                      :src="`/storage/catalog-artworks/${e.id}.jpg`"
+                      :alt="e.title"
+                    />
                   </span>
                   <span class="tx">
                     <RouterLink :to="`/catalog/${e.id}`" class="tt-title-link">
@@ -126,19 +250,32 @@
               </td>
               <td class="col-style">
                 <template v-if="e.genres?.length">
-                  <RouterLink v-for="g in e.genres" :key="g.name" :to="`/style/${encodeURIComponent(g.name)}`" style="text-decoration:none">
+                  <RouterLink
+                    v-for="g in e.genres"
+                    :key="g.name"
+                    :to="`/style/${encodeURIComponent(g.name)}`"
+                    style="text-decoration: none"
+                  >
                     <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
                   </RouterLink>
                 </template>
                 <StyleTag v-else-if="e.style" :name="e.style" />
                 <span v-else class="td-empty">—</span>
               </td>
-              <td class="num col-bpm"><span :class="e.bpm != null ? 'td-bpm' : 'td-empty'">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span></td>
-              <td class="num col-key"><span :class="e.key ? 'td-key' : 'td-empty'">{{ e.key || '—' }}</span></td>
+              <td class="num col-bpm">
+                <span :class="e.bpm != null ? 'td-bpm' : 'td-empty'">{{
+                  e.bpm != null ? Math.round(e.bpm) : '—'
+                }}</span>
+              </td>
+              <td class="num col-key">
+                <span :class="e.key ? 'td-key' : 'td-empty'">{{ e.key || '—' }}</span>
+              </td>
               <!-- Zone d'échange: radar-only -->
               <td class="col-source">
                 <span v-if="e.source_name" class="src" :title="e.source_name">
-                  <span class="src-badge" :class="e.source_kind">{{ e.source_kind?.toUpperCase() }}</span>
+                  <span class="src-badge" :class="e.source_kind">{{
+                    e.source_kind?.toUpperCase()
+                  }}</span>
                   <span class="nm">{{ e.source_name }}</span>
                 </span>
                 <span v-else class="td-empty">—</span>
@@ -147,10 +284,22 @@
                 <span class="detect">{{ fmtRelative(e.detected_at) }}</span>
               </td>
               <!-- Zone d'échange: catalog-only -->
-              <td class="num col-dur"><span class="td-dur">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—' }}</span></td>
+              <td class="num col-dur">
+                <span class="td-dur">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—' }}</span>
+              </td>
               <td class="col-rating">
                 <span v-if="e.rating" class="rating">
-                  <svg v-for="n in 5" :key="n" :class="{ off: n > e.rating }" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.9 6.6 19.4l1.2-5.9L3.4 9.4l6-.7z"/></svg>
+                  <svg
+                    v-for="n in 5"
+                    :key="n"
+                    :class="{ off: n > e.rating }"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.9 6.6 19.4l1.2-5.9L3.4 9.4l6-.7z"
+                    />
+                  </svg>
                 </span>
                 <span v-else class="td-empty">—</span>
               </td>
@@ -159,11 +308,14 @@
               </td>
               <!-- Colonnes communes suite -->
               <td class="col-radar">
-                <ScorePill v-if="e.nb_radar_playlists > 0" :score="Math.min(e.nb_radar_playlists * 2, 10)" />
+                <ScorePill
+                  v-if="e.nb_radar_playlists > 0"
+                  :score="Math.min(e.nb_radar_playlists * 2, 10)"
+                />
                 <span v-else class="td-empty">—</span>
               </td>
               <td class="end c-avis col-avis">
-                <LikeDislike :model-value="e.avis" @update:model-value="v => setAvis(e, v)" />
+                <LikeDislike :model-value="e.avis" @update:model-value="(v) => setAvis(e, v)" />
               </td>
             </tr>
           </tbody>
@@ -197,15 +349,15 @@ const route = useRoute()
 const router = useRouter()
 const player = useAudioPlayer()
 
-const items     = ref([])
-const total     = ref(0)
-const nLib      = ref(0)
-const loading   = ref(false)
-const search    = ref('')
-const notInLib  = ref(false)
+const items = ref([])
+const total = ref(0)
+const nLib = ref(0)
+const loading = ref(false)
+const search = ref('')
+const notInLib = ref(false)
 const radarMin2 = ref(false)
-const page      = ref(1)
-const swapping  = ref(false)
+const page = ref(1)
+const swapping = ref(false)
 
 // Mode: catalog or radar
 const mode = ref(route.query.view === 'radar' ? 'radar' : 'catalog')
@@ -261,7 +413,14 @@ function buildParams() {
   if (sortKey.value) params.sort = sortKey.value
   if (sortDir.value) params.order = sortDir.value
   if (mode.value === 'radar' && recency.value) {
-    const hours = recency.value === '24h' ? 24 : recency.value === '7d' ? 168 : recency.value === '30d' ? 720 : 0
+    const hours =
+      recency.value === '24h'
+        ? 24
+        : recency.value === '7d'
+          ? 168
+          : recency.value === '30d'
+            ? 720
+            : 0
     if (hours) {
       const since = new Date(Date.now() - hours * 3600000)
       params.detected_after = since.toISOString()
@@ -369,10 +528,13 @@ onMounted(() => {
 })
 
 // React to route query changes (e.g. sidebar click)
-watch(() => route.query.view, (v) => {
-  const newMode = v === 'radar' ? 'radar' : 'catalog'
-  if (newMode !== mode.value) switchMode(newMode)
-})
+watch(
+  () => route.query.view,
+  (v) => {
+    const newMode = v === 'radar' ? 'radar' : 'catalog'
+    if (newMode !== mode.value) switchMode(newMode)
+  },
+)
 </script>
 
 <style scoped>
@@ -397,7 +559,7 @@ watch(() => route.query.view, (v) => {
 .titles h1 {
   margin: 0;
   font: 600 28px/1 var(--font-ui);
-  letter-spacing: -.3px;
+  letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
@@ -405,7 +567,10 @@ watch(() => route.query.view, (v) => {
   font: 500 13px/1 var(--font-mono);
   color: var(--ink-2);
 }
-.sub b { color: var(--pos-ink); font-weight: 600; }
+.sub b {
+  color: var(--pos-ink);
+  font-weight: 600;
+}
 .head-tools {
   margin-left: auto;
   display: flex;
@@ -427,12 +592,23 @@ watch(() => route.query.view, (v) => {
   height: 38px;
   min-width: 230px;
 }
-.search svg { width: 16px; height: 16px; color: var(--ink-3); flex: none; }
-.search input {
-  border: 0; background: transparent; outline: none;
-  width: 100%; font: 400 14px var(--font-ui); color: var(--ink);
+.search svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+  flex: none;
 }
-.search input::placeholder { color: var(--ink-3); }
+.search input {
+  border: 0;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font: 400 14px var(--font-ui);
+  color: var(--ink);
+}
+.search input::placeholder {
+  color: var(--ink-3);
+}
 
 /* ============ CHIPS ============ */
 .chip {
@@ -448,15 +624,31 @@ watch(() => route.query.view, (v) => {
   font: 500 13px var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
 }
-.chip:hover { border-color: var(--ink-3); color: var(--ink); }
-.chip.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
+.chip:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.chip.on {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
 .sw {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--ink-3); box-shadow: 0 0 0 3px var(--surface-2);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  box-shadow: 0 0 0 3px var(--surface-2);
 }
-.chip.on .sw { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-2); }
+.chip.on .sw {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft-2);
+}
 
 /* ============ VIEW SEGMENT ============ */
 .viewseg {
@@ -468,15 +660,28 @@ watch(() => route.query.view, (v) => {
   border-radius: 999px;
 }
 .viewseg button {
-  border: 0; background: transparent; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 7px;
-  font: 600 12.5px var(--font-ui); color: var(--ink-2);
-  padding: 7px 14px; border-radius: 999px; line-height: 1;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 600 12.5px var(--font-ui);
+  color: var(--ink-2);
+  padding: 7px 14px;
+  border-radius: 999px;
+  line-height: 1;
 }
-.viewseg button svg { width: 15px; height: 15px; }
-.viewseg button:hover { color: var(--ink); }
+.viewseg button svg {
+  width: 15px;
+  height: 15px;
+}
+.viewseg button:hover {
+  color: var(--ink);
+}
 .viewseg button.on {
-  background: var(--surface); color: var(--accent-ink);
+  background: var(--surface);
+  color: var(--accent-ink);
   box-shadow: var(--shadow-sm);
 }
 
@@ -497,7 +702,7 @@ watch(() => route.query.view, (v) => {
 }
 .rlbl {
   font: 600 10px/1 var(--font-mono);
-  letter-spacing: .1em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
@@ -509,13 +714,20 @@ watch(() => route.query.view, (v) => {
   border-radius: var(--r-sm);
 }
 .seg-rec button {
-  border: 0; background: transparent; color: var(--ink-2);
-  font: 500 12px/1 var(--font-mono); padding: 7px 11px;
-  border-radius: var(--r-xs); cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 12px/1 var(--font-mono);
+  padding: 7px 11px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
 }
-.seg-rec button:hover { color: var(--ink); }
+.seg-rec button:hover {
+  color: var(--ink);
+}
 .seg-rec button.on {
-  background: var(--surface); color: var(--accent-ink);
+  background: var(--surface);
+  color: var(--accent-ink);
   box-shadow: var(--shadow-sm);
 }
 
@@ -529,31 +741,57 @@ table.tt {
   border-collapse: collapse;
   table-layout: fixed;
   min-width: 1060px;
-  transition: opacity .16s ease;
+  transition: opacity 0.16s ease;
 }
-table.tt.swapping { opacity: .25; }
+table.tt.swapping {
+  opacity: 0.25;
+}
 
 /* Column widths on <th> (table-layout: fixed) */
-table.tt th.c-play    { width: 44px; }
-table.tt th.col-style { width: 158px; }
-table.tt th.col-bpm   { width: 72px; }
-table.tt th.col-key   { width: 64px; }
+table.tt th.c-play {
+  width: 44px;
+}
+table.tt th.col-style {
+  width: 158px;
+}
+table.tt th.col-bpm {
+  width: 72px;
+}
+table.tt th.col-key {
+  width: 64px;
+}
 /* Zone d'échange — radar-only (300px total) */
-table.tt th.col-source { width: 196px; }
-table.tt th.col-detect { width: 104px; }
+table.tt th.col-source {
+  width: 196px;
+}
+table.tt th.col-detect {
+  width: 104px;
+}
 /* Zone d'échange — catalog-only (300px total) */
-table.tt th.col-dur    { width: 86px; }
-table.tt th.col-rating { width: 110px; }
-table.tt th.col-lib    { width: 104px; }
+table.tt th.col-dur {
+  width: 86px;
+}
+table.tt th.col-rating {
+  width: 110px;
+}
+table.tt th.col-lib {
+  width: 104px;
+}
 /* Colonnes communes suite */
-table.tt th.col-radar  { width: 128px; }
-table.tt th.col-avis   { width: 92px; }
+table.tt th.col-radar {
+  width: 128px;
+}
+table.tt th.col-avis {
+  width: 92px;
+}
 
 table.tt thead th {
-  position: sticky; top: 0;
-  background: var(--surface); z-index: 2;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 2;
   font: 600 10.5px/1.5 var(--font-mono);
-  letter-spacing: .1em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: left;
@@ -562,20 +800,41 @@ table.tt thead th {
   white-space: nowrap;
   user-select: none;
 }
-table.tt th.num, table.tt td.num { text-align: center; }
-table.tt th.end, table.tt td.end { text-align: right; }
-table.tt th.sortable { cursor: pointer; }
-table.tt th.sortable:hover { color: var(--ink-2); }
-table.tt th.is-sorted { color: var(--accent-ink); }
-.arr { color: var(--accent-ink); margin-left: 4px; }
+table.tt th.num,
+table.tt td.num {
+  text-align: center;
+}
+table.tt th.end,
+table.tt td.end {
+  text-align: right;
+}
+table.tt th.sortable {
+  cursor: pointer;
+}
+table.tt th.sortable:hover {
+  color: var(--ink-2);
+}
+table.tt th.is-sorted {
+  color: var(--accent-ink);
+}
+.arr {
+  color: var(--accent-ink);
+  margin-left: 4px;
+}
 
 table.tt tbody tr {
   border-bottom: 1px solid var(--line);
   height: var(--row-h);
 }
-table.tt tbody tr:hover { background: var(--surface-2); }
-table.tt tbody tr.playing { background: var(--accent-wash); }
-table.tt tbody tr.playing:hover { background: var(--accent-soft); }
+table.tt tbody tr:hover {
+  background: var(--surface-2);
+}
+table.tt tbody tr.playing {
+  background: var(--accent-wash);
+}
+table.tt tbody tr.playing:hover {
+  background: var(--accent-soft);
+}
 table.tt td {
   padding: 0 14px;
   vertical-align: middle;
@@ -583,29 +842,46 @@ table.tt td {
 
 /* ============ COLUMN TOGGLE ============ */
 /* Radar-only columns: hidden by default */
-.col-source, .col-detect { display: none; }
-.catalog-view[data-mode="radar"] .col-source,
-.catalog-view[data-mode="radar"] .col-detect { display: table-cell; }
+.col-source,
+.col-detect {
+  display: none;
+}
+.catalog-view[data-mode='radar'] .col-source,
+.catalog-view[data-mode='radar'] .col-detect {
+  display: table-cell;
+}
 /* Catalog-only columns: hidden in radar */
-.catalog-view[data-mode="radar"] .col-dur,
-.catalog-view[data-mode="radar"] .col-rating,
-.catalog-view[data-mode="radar"] .col-lib { display: none; }
+.catalog-view[data-mode='radar'] .col-dur,
+.catalog-view[data-mode='radar'] .col-rating,
+.catalog-view[data-mode='radar'] .col-lib {
+  display: none;
+}
 
 /* ============ PLAY BTN ============ */
-.c-play { width: 44px; padding: 0 14px; }
+.c-play {
+  width: 44px;
+  padding: 0 14px;
+}
 .pbtn {
-  width: 30px; height: 30px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  display: grid; place-items: center;
+  display: grid;
+  place-items: center;
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
   cursor: pointer;
   opacity: 0;
-  transition: opacity .12s;
+  transition: opacity 0.12s;
 }
-tr:hover .pbtn { opacity: 1; }
-.pbtn svg { width: 13px; height: 13px; }
+tr:hover .pbtn {
+  opacity: 1;
+}
+.pbtn svg {
+  width: 13px;
+  height: 13px;
+}
 .pbtn--playing {
   opacity: 1 !important;
   background: var(--accent-soft);
@@ -620,95 +896,213 @@ tr:hover .pbtn { opacity: 1; }
 
 /* ============ TRACK CELL ============ */
 .td-track {
-  display: flex; align-items: center; gap: 12px; min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 .aw {
-  width: 38px; height: 38px; border-radius: var(--r-xs); flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-xs);
+  flex: none;
   background: var(--surface-3);
-  background-image: repeating-linear-gradient(135deg, transparent 0 5px, oklch(0.50 0.01 70 / .05) 5px 6px);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    oklch(0.5 0.01 70 / 0.05) 5px 6px
+  );
   overflow: hidden;
 }
-.aw img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.tx { min-width: 0; flex: 1; }
-.tt-title-link { text-decoration: none; color: inherit; display: block; min-width: 0; }
-.tt-title {
-  font-size: 14.5px; font-weight: 500; color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  transition: color .1s;
+.aw img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
-.tt-title-link:hover .tt-title { color: var(--accent-ink); }
-tr.playing .tt-title { color: var(--accent-ink); }
-.tt-art-link { text-decoration: none; color: inherit; display: block; min-width: 0; }
-.tt-art-link:hover .tt-art { color: var(--accent-ink); }
+.tx {
+  min-width: 0;
+  flex: 1;
+}
+.tt-title-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  min-width: 0;
+}
+.tt-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.1s;
+}
+.tt-title-link:hover .tt-title {
+  color: var(--accent-ink);
+}
+tr.playing .tt-title {
+  color: var(--accent-ink);
+}
+.tt-art-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  min-width: 0;
+}
+.tt-art-link:hover .tt-art {
+  color: var(--accent-ink);
+}
 .tt-art {
-  font-size: 12.5px; color: var(--ink-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  transition: color .1s;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.1s;
 }
 
 /* ============ DATA CELLS ============ */
-.td-bpm { font: 500 13px var(--font-mono); color: var(--ink-2); }
-.td-key { font: 500 13px var(--font-mono); color: var(--accent-ink); }
-.td-dur { font: 500 13px var(--font-mono); color: var(--ink-2); }
-.td-empty { font: 500 13px var(--font-mono); color: var(--ink-3); }
+.td-bpm {
+  font: 500 13px var(--font-mono);
+  color: var(--ink-2);
+}
+.td-key {
+  font: 500 13px var(--font-mono);
+  color: var(--accent-ink);
+}
+.td-dur {
+  font: 500 13px var(--font-mono);
+  color: var(--ink-2);
+}
+.td-empty {
+  font: 500 13px var(--font-mono);
+  color: var(--ink-3);
+}
 
 /* ============ RATING ============ */
-.rating { display: inline-flex; gap: 2px; color: var(--accent); }
-.rating svg { width: 14px; height: 14px; }
-.rating .off { color: var(--line-2); }
+.rating {
+  display: inline-flex;
+  gap: 2px;
+  color: var(--accent);
+}
+.rating svg {
+  width: 14px;
+  height: 14px;
+}
+.rating .off {
+  color: var(--line-2);
+}
 
 /* ============ SOURCE (radar mode) ============ */
 .src {
-  display: inline-flex; align-items: center; gap: 9px;
-  max-width: 100%; min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+  min-width: 0;
 }
 .src .src-badge {
-  display: inline-flex; align-items: center;
-  padding: 3px 7px; border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 4px;
   font: 600 10px/1 var(--font-mono);
-  letter-spacing: 0.06em; white-space: nowrap; flex: none;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex: none;
 }
-.src .src-badge.deezer  { background: var(--accent-soft); color: var(--accent-ink); }
-.src .src-badge.spotify { background: var(--pos-soft); color: var(--pos-ink); }
-.src .src-badge.tidal   { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--line-2); }
+.src .src-badge.deezer {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.src .src-badge.spotify {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.src .src-badge.tidal {
+  background: var(--surface-3);
+  color: var(--ink-2);
+  border: 1px solid var(--line-2);
+}
 .src .nm {
-  font: 500 13px var(--font-ui); color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 500 13px var(--font-ui);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ============ DÉTECTÉ ============ */
-.detect { font: 500 12.5px var(--font-mono); color: var(--ink-2); white-space: nowrap; }
+.detect {
+  font: 500 12.5px var(--font-mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
 
 /* ============ AVIS (LikeDislike) ============ */
-.c-avis { padding: 0 14px; }
-.c-avis :deep(.ld-btn) { opacity: 0; }
-tr:hover .c-avis :deep(.ld-btn) { opacity: 1; }
-.c-avis :deep(.ld[data-state="liked"] .ld-btn.like),
-.c-avis :deep(.ld[data-state="disliked"] .ld-btn.dislike) { opacity: 1; }
+.c-avis {
+  padding: 0 14px;
+}
+.c-avis :deep(.ld-btn) {
+  opacity: 0;
+}
+tr:hover .c-avis :deep(.ld-btn) {
+  opacity: 1;
+}
+.c-avis :deep(.ld[data-state='liked'] .ld-btn.like),
+.c-avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
+  opacity: 1;
+}
 
 /* ============ ROW AVIS STATES ============ */
-table.tt tbody tr.liked { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .06); }
-table.tt tbody tr.liked:hover { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .10); }
-table.tt tbody tr.disliked td:not(.c-avis) { opacity: .42; }
-table.tt tbody tr.disliked:hover td:not(.c-avis) { opacity: .7; }
-[data-theme="dark"] table.tt tbody tr.liked { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .10); }
+table.tt tbody tr.liked {
+  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.06);
+}
+table.tt tbody tr.liked:hover {
+  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+}
+table.tt tbody tr.disliked td:not(.c-avis) {
+  opacity: 0.42;
+}
+table.tt tbody tr.disliked:hover td:not(.c-avis) {
+  opacity: 0.7;
+}
+[data-theme='dark'] table.tt tbody tr.liked {
+  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+}
 
 /* ============ PAGINATION ============ */
 .pagination {
-  display: flex; align-items: center; justify-content: center;
-  gap: 12px; padding: 0 30px 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 30px 30px;
 }
 .page-btn {
-  padding: 6px 14px; border-radius: var(--r-sm);
-  border: 1px solid var(--line-2); background: var(--surface);
-  color: var(--ink-2); font: 500 13px/1 var(--font-ui);
-  cursor: pointer; transition: background 0.12s;
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s;
 }
-.page-btn:hover:not(:disabled) { background: var(--surface-2); }
-.page-btn:disabled { opacity: 0.35; cursor: default; }
+.page-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .page-info {
-  font: 400 12px/1 var(--font-mono); color: var(--ink-3);
-  min-width: 60px; text-align: center;
+  font: 400 12px/1 var(--font-mono);
+  color: var(--ink-3);
+  min-width: 60px;
+  text-align: center;
 }
 
 /* ============ STATES ============ */
@@ -721,14 +1115,34 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) { opacity: .7; }
 
 /* ============ RESPONSIVE ============ */
 @container (max-width: 880px) {
-  .page-head { flex-wrap: wrap; }
-  .head-tools { width: 100%; margin-left: 0; justify-content: flex-start; }
-  .search { flex: 1; min-width: 0; }
+  .page-head {
+    flex-wrap: wrap;
+  }
+  .head-tools {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+  }
 }
 @container (max-width: 600px) {
-  .page-head { padding-left: 18px; padding-right: 18px; }
-  .table-wrap { padding-left: 18px; padding-right: 18px; }
-  .sub-bar { padding-left: 18px; padding-right: 18px; }
-  .pagination { padding: 0 18px 22px; }
+  .page-head {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .table-wrap {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .sub-bar {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .pagination {
+    padding: 0 18px 22px;
+  }
 }
 </style>

@@ -1,6 +1,15 @@
 <template>
   <span class="badge" :class="inLib ? 'badge--in' : 'badge--out'">
-    <svg v-if="inLib" class="check-icon" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg
+      v-if="inLib"
+      class="check-icon"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
       <path d="M2 6.5 4.5 9 10 3.5" />
     </svg>
     {{ inLib ? 'In lib' : 'Not in lib' }}

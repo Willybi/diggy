@@ -25,7 +25,9 @@ export function fmtBpm(v) {
 export function fmtDate(d) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('fr-FR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
   })
 }
 

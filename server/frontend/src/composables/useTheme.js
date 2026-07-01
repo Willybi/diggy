@@ -21,6 +21,8 @@ watch(isDark, (val) => {
 export function useTheme() {
   return {
     isDark,
-    toggle: () => { isDark.value = !isDark.value },
+    toggle: () => {
+      isDark.value = !isDark.value
+    },
   }
 }

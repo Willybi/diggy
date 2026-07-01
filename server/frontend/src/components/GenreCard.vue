@@ -8,14 +8,7 @@
     <!-- Artwork zone: always 4 slots — image or tinted placeholder -->
     <div class="gc-art">
       <div v-for="(slot, i) in fourSlots" :key="i" class="gc-tile">
-        <img
-          v-if="slot"
-          class="gc-cover"
-          :src="slot"
-          alt=""
-          loading="lazy"
-          @error="onCoverError"
-        />
+        <img v-if="slot" class="gc-cover" :src="slot" alt="" loading="lazy" @error="onCoverError" />
       </div>
       <div class="gc-scrim"></div>
 
@@ -42,16 +35,24 @@
       <div class="gc-acts" @click.prevent.stop>
         <LikeDislike
           :model-value="opinion"
-          @update:model-value="v => opinions.set('genre', genre.name, v)"
+          @update:model-value="(v) => opinions.set('genre', genre.name, v)"
         />
       </div>
 
       <!-- Play button (hover reveal) -->
-      <button class="gc-play" :class="{ 'gc-play--playing': isPlaying }" aria-label="Lecture" @click.prevent.stop="onPlay">
-        <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+      <button
+        class="gc-play"
+        :class="{ 'gc-play--playing': isPlaying }"
+        aria-label="Lecture"
+        @click.prevent.stop="onPlay"
+      >
+        <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+        <svg v-else viewBox="0 0 24 24" fill="currentColor">
+          <path d="M6 5h4v14H6zm8 0h4v14h-4z" />
+        </svg>
       </button>
-
     </div>
 
     <!-- Body -->
@@ -126,16 +127,38 @@ function onAvatarError(e) {
 
 <style scoped>
 /* ── Pillar hue mapping ── */
-.genre-card[data-fam="house"]     { --th: var(--hue-house); }
-.genre-card[data-fam="techno"]    { --th: var(--hue-techno); }
-.genre-card[data-fam="trance"]    { --th: var(--hue-trance); }
-.genre-card[data-fam="dnb"]       { --th: var(--hue-dnb); }
-.genre-card[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
-.genre-card[data-fam="harddance"] { --th: var(--hue-harddance); }
-.genre-card[data-fam="autres"]    { --th: 0; --ct-c: 0; }
-.genre-card[data-fam="autres"] .gc-tile { --mc: 0; }
-.genre-card[data-fam="autres"] .gc-dot { background: var(--ink-3); box-shadow: none; }
-.genre-card[data-fam="autres"] .gc-title { color: var(--ink-2); }
+.genre-card[data-fam='house'] {
+  --th: var(--hue-house);
+}
+.genre-card[data-fam='techno'] {
+  --th: var(--hue-techno);
+}
+.genre-card[data-fam='trance'] {
+  --th: var(--hue-trance);
+}
+.genre-card[data-fam='dnb'] {
+  --th: var(--hue-dnb);
+}
+.genre-card[data-fam='hardcore'] {
+  --th: var(--hue-hardcore);
+}
+.genre-card[data-fam='harddance'] {
+  --th: var(--hue-harddance);
+}
+.genre-card[data-fam='autres'] {
+  --th: 0;
+  --ct-c: 0;
+}
+.genre-card[data-fam='autres'] .gc-tile {
+  --mc: 0;
+}
+.genre-card[data-fam='autres'] .gc-dot {
+  background: var(--ink-3);
+  box-shadow: none;
+}
+.genre-card[data-fam='autres'] .gc-title {
+  color: var(--ink-2);
+}
 
 .genre-card {
   background: var(--surface);
@@ -146,7 +169,10 @@ function onAvatarError(e) {
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    border-color 0.18s ease;
   text-decoration: none;
   color: inherit;
 }
@@ -172,10 +198,22 @@ function onAvatarError(e) {
   min-height: 0;
   background: oklch(var(--ml) var(--mc, 0.15) var(--th));
 }
-.gc-tile:nth-child(1) { --ml: 0.66; --mc: 0.155; }
-.gc-tile:nth-child(2) { --ml: 0.75; --mc: 0.115; }
-.gc-tile:nth-child(3) { --ml: 0.56; --mc: 0.165; }
-.gc-tile:nth-child(4) { --ml: 0.70; --mc: 0.095; }
+.gc-tile:nth-child(1) {
+  --ml: 0.66;
+  --mc: 0.155;
+}
+.gc-tile:nth-child(2) {
+  --ml: 0.75;
+  --mc: 0.115;
+}
+.gc-tile:nth-child(3) {
+  --ml: 0.56;
+  --mc: 0.165;
+}
+.gc-tile:nth-child(4) {
+  --ml: 0.7;
+  --mc: 0.095;
+}
 
 /* Cover image fills its tile cell — crop, never stretch */
 .gc-cover {
@@ -192,7 +230,7 @@ function onAvatarError(e) {
 .gc-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, oklch(0.20 0.02 70 / .42) 0%, transparent 46%);
+  background: linear-gradient(to top, oklch(0.2 0.02 70 / 0.42) 0%, transparent 46%);
   pointer-events: none;
 }
 
@@ -239,13 +277,17 @@ function onAvatarError(e) {
   box-shadow: var(--shadow-sm);
   background-color: oklch(var(--art-l) calc(var(--art-c) + 0.02) var(--th));
 }
-.av:first-child { margin-left: 0; }
-[data-theme="dark"] .av { border-color: oklch(0.28 0.012 262); }
+.av:first-child {
+  margin-left: 0;
+}
+[data-theme='dark'] .av {
+  border-color: oklch(0.28 0.012 262);
+}
 .more {
   margin-left: 7px;
   font: 600 11px/1 var(--font-mono);
   color: oklch(0.99 0.004 92);
-  text-shadow: 0 1px 3px oklch(0.20 0.02 70 / .6);
+  text-shadow: 0 1px 3px oklch(0.2 0.02 70 / 0.6);
 }
 
 /* Play button */
@@ -264,13 +306,28 @@ function onAvatarError(e) {
   cursor: pointer;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity .18s ease, transform .18s ease, background .15s;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    background 0.15s;
   box-shadow: var(--shadow-md);
 }
-.gc-play svg { width: 17px; height: 17px; margin-left: 2px; }
-.genre-card:hover .gc-play { opacity: 1; transform: none; }
-.gc-play--playing { opacity: 1; transform: none; }
-.gc-play:hover { background: var(--accent-hover); }
+.gc-play svg {
+  width: 17px;
+  height: 17px;
+  margin-left: 2px;
+}
+.genre-card:hover .gc-play {
+  opacity: 1;
+  transform: none;
+}
+.gc-play--playing {
+  opacity: 1;
+  transform: none;
+}
+.gc-play:hover {
+  background: var(--accent-hover);
+}
 
 /* Like/Dislike overlay in art zone */
 .gc-acts {
@@ -319,11 +376,11 @@ function onAvatarError(e) {
   flex: none;
   align-self: center;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
-  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / .28);
+  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / 0.28);
 }
 .gc-title {
   font: 600 17px var(--font-ui);
-  letter-spacing: -.2px;
+  letter-spacing: -0.2px;
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
   white-space: nowrap;
   overflow: hidden;
@@ -331,7 +388,7 @@ function onAvatarError(e) {
 }
 .gc-fam {
   font: 500 9.5px/1 var(--font-mono);
-  letter-spacing: .1em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   white-space: nowrap;
@@ -357,7 +414,7 @@ function onAvatarError(e) {
 }
 .gc-stat .k {
   font: 600 9px/1 var(--font-mono);
-  letter-spacing: .1em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   white-space: nowrap;

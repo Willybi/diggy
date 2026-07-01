@@ -26,7 +26,7 @@ import { ref, onMounted } from 'vue'
 import api from '../utils/api.js'
 import StyleTag from '../components/StyleTag.vue'
 
-const genres  = ref([])
+const genres = ref([])
 const loading = ref(false)
 
 async function fetchGenres() {
@@ -76,7 +76,9 @@ onMounted(fetchGenres)
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   text-decoration: none;
-  transition: background 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
 }
 .genre-card:hover {
   background: var(--surface-2);

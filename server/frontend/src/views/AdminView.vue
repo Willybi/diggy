@@ -7,7 +7,9 @@
     <!-- Sync artistes -->
     <section class="admin-section">
       <h2 class="section-title">Sync artistes</h2>
-      <p class="section-sub">Parse les noms d'artistes du catalog et peuple la table artistes. Idempotent.</p>
+      <p class="section-sub">
+        Parse les noms d'artistes du catalog et peuple la table artistes. Idempotent.
+      </p>
       <div class="sync-row">
         <button class="btn-sync" :disabled="syncing" @click="runSync">
           {{ syncing ? 'Sync en cours… (peut prendre ~5-10 min)' : 'Lancer la sync' }}
@@ -24,14 +26,18 @@
     <!-- Fetch artworks -->
     <section class="admin-section">
       <h2 class="section-title">Artworks artistes</h2>
-      <p class="section-sub">Fetche les images Deezer pour tous les artistes avec un deezer_id. Idempotent.</p>
+      <p class="section-sub">
+        Fetche les images Deezer pour tous les artistes avec un deezer_id. Idempotent.
+      </p>
       <div class="sync-row">
         <button class="btn-sync" :disabled="fetchingArtworks" @click="runFetchArtworks">
           {{ fetchingArtworks ? 'Fetch en cours…' : 'Fetch artworks' }}
         </button>
         <div v-if="artworksResult" class="sync-result">
           <span class="result-item ok">✓ {{ artworksResult.fetched }} artworks</span>
-          <span v-if="artworksResult.linked != null" class="result-item ok">🔗 {{ artworksResult.linked }} liés Deezer</span>
+          <span v-if="artworksResult.linked != null" class="result-item ok"
+            >🔗 {{ artworksResult.linked }} liés Deezer</span
+          >
           <span class="result-item muted">↷ {{ artworksResult.skipped }} skippés</span>
         </div>
         <span v-if="artworksError" class="sync-error">{{ artworksError }}</span>
@@ -41,14 +47,18 @@
     <!-- Artworks playlists -->
     <section class="admin-section">
       <h2 class="section-title">Artworks playlists</h2>
-      <p class="section-sub">Fetche les images Deezer pour toutes les playlists sans artwork. Synchrone (~1s/playlist).</p>
+      <p class="section-sub">
+        Fetche les images Deezer pour toutes les playlists sans artwork. Synchrone (~1s/playlist).
+      </p>
       <div class="sync-row">
         <button class="btn-sync" :disabled="fetchingPlArtworks" @click="runFetchPlArtworks">
           {{ fetchingPlArtworks ? 'Fetch en cours…' : 'Fetch artworks playlists' }}
         </button>
         <div v-if="plArtworksResult" class="sync-result">
           <span class="result-item ok">✓ {{ plArtworksResult.fetched }} importés</span>
-          <span v-if="plArtworksResult.failed" class="result-item warn">⚠ {{ plArtworksResult.failed }} échoués</span>
+          <span v-if="plArtworksResult.failed" class="result-item warn"
+            >⚠ {{ plArtworksResult.failed }} échoués</span
+          >
           <span class="result-item muted">/ {{ plArtworksResult.total }} sans artwork</span>
         </div>
         <span v-if="plArtworksError" class="sync-error">{{ plArtworksError }}</span>
@@ -58,7 +68,9 @@
     <!-- Lier artistes aux sets -->
     <section class="admin-section">
       <h2 class="section-title">Artistes des sets</h2>
-      <p class="section-sub">Parse les titres des sets pour trouver les artistes et les lier. Idempotent.</p>
+      <p class="section-sub">
+        Parse les titres des sets pour trouver les artistes et les lier. Idempotent.
+      </p>
       <div class="sync-row">
         <button class="btn-sync" :disabled="linkingSets" @click="runLinkSets">
           {{ linkingSets ? 'Liaison en cours…' : 'Lier artistes aux sets' }}
@@ -74,7 +86,10 @@
     <!-- Enrich set tracks -->
     <section class="admin-section">
       <h2 class="section-title">Enrichir tracks des sets</h2>
-      <p class="section-sub">Enrichit via Deezer + Beatport les tracks des sets sans infos. Ne touche pas aux tracks déjà enrichies.</p>
+      <p class="section-sub">
+        Enrichit via Deezer + Beatport les tracks des sets sans infos. Ne touche pas aux tracks déjà
+        enrichies.
+      </p>
       <div class="sync-row">
         <button class="btn-sync" :disabled="enrichingSets" @click="runEnrichSets">
           {{ enrichingSets ? 'Enrichissement…' : 'Enrichir sets' }}
@@ -90,11 +105,21 @@
     <!-- Enrich Beatport -->
     <section class="admin-section">
       <h2 class="section-title">Enrichissement Beatport</h2>
-      <p class="section-sub">Enrichit le catalogue via Beatport : BPM, key (Camelot), label, genre, artwork. ISRC d'abord, fallback titre+artiste.</p>
+      <p class="section-sub">
+        Enrichit le catalogue via Beatport : BPM, key (Camelot), label, genre, artwork. ISRC
+        d'abord, fallback titre+artiste.
+      </p>
       <div class="sync-row">
         <label class="batch-label">
           Batch size
-          <input v-model.number="beatportBatchSize" type="number" min="0" step="50" placeholder="0 = tout" class="batch-input" />
+          <input
+            v-model.number="beatportBatchSize"
+            type="number"
+            min="0"
+            step="50"
+            placeholder="0 = tout"
+            class="batch-input"
+          />
         </label>
         <button class="btn-sync" :disabled="enrichingBeatport" @click="runEnrichBeatport">
           {{ enrichingBeatport ? 'Enrichissement en cours…' : 'Enrich Beatport' }}
@@ -102,7 +127,9 @@
         <div v-if="beatportResult" class="sync-result">
           <span class="result-item ok">✓ {{ beatportResult.enriched }} enrichis</span>
           <span class="result-item muted">↷ {{ beatportResult.not_found }} non trouvés</span>
-          <span v-if="beatportResult.errors" class="result-item warn">⚠ {{ beatportResult.errors }} erreurs</span>
+          <span v-if="beatportResult.errors" class="result-item warn"
+            >⚠ {{ beatportResult.errors }} erreurs</span
+          >
           <span class="result-item muted">/ {{ beatportResult.total }} traités</span>
         </div>
         <span v-if="beatportError" class="sync-error">{{ beatportError }}</span>
@@ -112,34 +139,63 @@
     <!-- Reclassifier genres -->
     <section class="admin-section">
       <h2 class="section-title">Reclassifier tous les genres</h2>
-      <p class="section-sub">Efface tous les genres et re-fetche : Deezer (album) d'abord, fallback Beatport. ~5200 tracks, peut prendre plusieurs heures.</p>
+      <p class="section-sub">
+        Efface tous les genres et re-fetche : Deezer (album) d'abord, fallback Beatport. ~5200
+        tracks, peut prendre plusieurs heures.
+      </p>
       <div class="sync-row">
         <label class="batch-label">
           Planifier à
-          <input v-model="reclassifyEta" type="datetime-local" class="batch-input" style="width:180px" />
+          <input
+            v-model="reclassifyEta"
+            type="datetime-local"
+            class="batch-input"
+            style="width: 180px"
+          />
         </label>
         <button class="btn-sync" :disabled="reclassifying" @click="runReclassify">
           {{ reclassifying ? 'Lancé…' : reclassifyEta ? 'Planifier' : 'Lancer maintenant' }}
         </button>
-        <span v-if="reclassifyResult" class="enrich-result" :class="reclassifyResult.cls">{{ reclassifyResult.text }}</span>
+        <span v-if="reclassifyResult" class="enrich-result" :class="reclassifyResult.cls">{{
+          reclassifyResult.text
+        }}</span>
       </div>
     </section>
 
     <!-- Liaison manuelle artiste ↔ Deezer -->
     <section class="admin-section">
       <h2 class="section-title">Lier un artiste à Deezer</h2>
-      <p class="section-sub">Recherche un artiste dans la DB et l'associe manuellement à un compte Deezer.</p>
+      <p class="section-sub">
+        Recherche un artiste dans la DB et l'associe manuellement à un compte Deezer.
+      </p>
       <div class="link-form">
-        <input v-model="linkArtistQuery" class="form-input" placeholder="Filtrer les artistes sans Deezer…" @input="onLinkSearch" />
-        <input v-model="linkDeezerQuery" class="form-input" placeholder="Recherche sur Deezer…" @input="onDeezerSearch" />
+        <input
+          v-model="linkArtistQuery"
+          class="form-input"
+          placeholder="Filtrer les artistes sans Deezer…"
+          @input="onLinkSearch"
+        />
+        <input
+          v-model="linkDeezerQuery"
+          class="form-input"
+          placeholder="Recherche sur Deezer…"
+          @input="onDeezerSearch"
+        />
       </div>
       <div class="link-results">
         <div class="link-col">
           <p class="col-label">Artistes sans deezer_id ({{ dbArtistResults.length }})</p>
           <div class="link-list">
-            <div v-for="a in dbArtistResults" :key="a.id"
-              class="result-row" :class="{ selected: selectedDbArtist?.id === a.id }"
-              @click="selectedDbArtist = a; linkDeezerQuery = a.name; onDeezerSearch()"
+            <div
+              v-for="a in dbArtistResults"
+              :key="a.id"
+              class="result-row"
+              :class="{ selected: selectedDbArtist?.id === a.id }"
+              @click="
+                selectedDbArtist = a
+                linkDeezerQuery = a.name
+                onDeezerSearch()
+              "
             >
               <div class="cover-thumb-sm">
                 <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
@@ -147,8 +203,17 @@
               </div>
               <span class="ar-name-sm">{{ a.name }}</span>
               <div class="row-actions" @click.stop>
-                <button class="btn-row-action" title="Pas sur Deezer" @click="markNoDeezer(a)">✗ Deezer</button>
-                <button v-if="detectSeparator(a.name)" class="btn-row-action flag" title="Envoyer vers les flags" @click="flagArtist(a)">Flagguer</button>
+                <button class="btn-row-action" title="Pas sur Deezer" @click="markNoDeezer(a)">
+                  ✗ Deezer
+                </button>
+                <button
+                  v-if="detectSeparator(a.name)"
+                  class="btn-row-action flag"
+                  title="Envoyer vers les flags"
+                  @click="flagArtist(a)"
+                >
+                  Flagguer
+                </button>
               </div>
             </div>
           </div>
@@ -156,8 +221,11 @@
         <div class="link-col">
           <p class="col-label">Résultats Deezer</p>
           <div class="link-list">
-            <div v-for="h in deezerHits" :key="h.deezer_id"
-              class="result-row" :class="{ selected: selectedDeezerHit?.deezer_id === h.deezer_id }"
+            <div
+              v-for="h in deezerHits"
+              :key="h.deezer_id"
+              class="result-row"
+              :class="{ selected: selectedDeezerHit?.deezer_id === h.deezer_id }"
               @click="selectedDeezerHit = h"
             >
               <div class="cover-thumb-sm">
@@ -168,17 +236,26 @@
                 <span class="ar-name-sm">{{ h.name }}</span>
                 <span class="ar-meta mono muted">
                   {{ h.nb_fan?.toLocaleString() }} fans ·
-                  <a :href="`https://www.deezer.com/artist/${h.deezer_id}`" target="_blank" class="dz-link" @click.stop>dz:{{ h.deezer_id }}</a>
+                  <a
+                    :href="`https://www.deezer.com/artist/${h.deezer_id}`"
+                    target="_blank"
+                    class="dz-link"
+                    @click.stop
+                    >dz:{{ h.deezer_id }}</a
+                  >
                 </span>
               </div>
             </div>
-            <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">Aucun résultat</p>
+            <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">
+              Aucun résultat
+            </p>
           </div>
         </div>
       </div>
       <div v-if="selectedDbArtist && selectedDeezerHit" class="link-confirm">
         <span class="link-summary">
-          Lier <strong>{{ selectedDbArtist.name }}</strong> → Deezer <strong>{{ selectedDeezerHit.name }}</strong> ({{ selectedDeezerHit.deezer_id }})
+          Lier <strong>{{ selectedDbArtist.name }}</strong> → Deezer
+          <strong>{{ selectedDeezerHit.name }}</strong> ({{ selectedDeezerHit.deezer_id }})
         </span>
         <button class="btn-confirm-link" :disabled="linking" @click="confirmLink">
           {{ linking ? 'Liaison…' : 'Confirmer' }}
@@ -193,14 +270,36 @@
       <div class="section-header">
         <h2 class="section-title">
           Mappings genres
-          <span v-if="mappingStats" class="flag-count">{{ mappingStats.unmapped }} / {{ mappingStats.total }} non mappés</span>
+          <span v-if="mappingStats" class="flag-count"
+            >{{ mappingStats.unmapped }} / {{ mappingStats.total }} non mappés</span
+          >
         </h2>
         <div class="filter-group">
-          <button class="filter-btn" :class="{ active: !mappingShowUnmapped }" @click="mappingShowUnmapped = false; fetchMappings()">Tous</button>
-          <button class="filter-btn" :class="{ active: mappingShowUnmapped }" @click="mappingShowUnmapped = true; fetchMappings()">Non mappés</button>
+          <button
+            class="filter-btn"
+            :class="{ active: !mappingShowUnmapped }"
+            @click="
+              mappingShowUnmapped = false
+              fetchMappings()
+            "
+          >
+            Tous
+          </button>
+          <button
+            class="filter-btn"
+            :class="{ active: mappingShowUnmapped }"
+            @click="
+              mappingShowUnmapped = true
+              fetchMappings()
+            "
+          >
+            Non mappés
+          </button>
         </div>
       </div>
-      <p class="section-sub">Associe les noms de genres bruts (Beatport/Deezer) aux nœuds de la taxonomie Wikidata.</p>
+      <p class="section-sub">
+        Associe les noms de genres bruts (Beatport/Deezer) aux nœuds de la taxonomie Wikidata.
+      </p>
 
       <div v-if="loadingMappings" class="state">Chargement…</div>
       <div v-else-if="mappings.length === 0" class="state">Aucun mapping.</div>
@@ -238,7 +337,11 @@
                       :key="n.id"
                       class="mapping-option"
                       :class="{ selected: mappingSelected[m.id] === n.id }"
-                      @click="mappingSelected[m.id] = n.id; mappingSearch[m.id] = n.label; mappingResults[m.id] = []"
+                      @click="
+                        mappingSelected[m.id] = n.id
+                        mappingSearch[m.id] = n.label
+                        mappingResults[m.id] = []
+                      "
                     >
                       <span class="mapping-option-label">{{ n.label }}</span>
                       <span class="mapping-option-qid mono">{{ n.wikidataId }}</span>
@@ -271,7 +374,11 @@
           <span v-if="crawlTotal" class="flag-count">{{ crawlTotal }}</span>
         </h2>
         <div class="crawl-filters">
-          <select v-model="crawlTaskType" class="crawl-select" @change="setCrawlFilter(crawlFilter)">
+          <select
+            v-model="crawlTaskType"
+            class="crawl-select"
+            @change="setCrawlFilter(crawlFilter)"
+          >
             <option value="">Tous les types</option>
             <option v-for="t in crawlTaskTypes" :key="t" :value="t">{{ t }}</option>
           </select>
@@ -282,7 +389,9 @@
               class="filter-btn"
               :class="{ active: crawlFilter === f.value }"
               @click="setCrawlFilter(f.value)"
-            >{{ f.label }}</button>
+            >
+              {{ f.label }}
+            </button>
           </div>
         </div>
       </div>
@@ -311,7 +420,15 @@
               <td>
                 <span class="token-pill">{{ log.task_type }}</span>
               </td>
-              <td class="raw-string" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+              <td
+                class="raw-string"
+                style="
+                  max-width: 200px;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                "
+              >
                 {{ log.target_label || '-' }}
               </td>
               <td>
@@ -324,13 +441,26 @@
               <td class="mono" style="font-size: 11px">
                 {{ log.duration_ms != null ? formatDuration(log.duration_ms) : '-' }}
               </td>
-              <td style="font-size: 11px; display: flex; flex-wrap: wrap; gap: 3px; align-items: center">
+              <td
+                style="
+                  font-size: 11px;
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 3px;
+                  align-items: center;
+                "
+              >
                 <template v-if="log.stats">
                   <span v-for="(v, k) in log.stats" :key="k" class="stat-chip">
                     {{ k }}: {{ v }}
                   </span>
                 </template>
-                <span v-if="log.error_message" class="sync-error" style="font-size: 10px" :title="log.error_message">
+                <span
+                  v-if="log.error_message"
+                  class="sync-error"
+                  style="font-size: 10px"
+                  :title="log.error_message"
+                >
                   {{ log.error_message.slice(0, 60) }}
                 </span>
               </td>
@@ -340,9 +470,25 @@
       </div>
 
       <div v-if="crawlTotalPages > 1" class="crawl-pagination">
-        <button :disabled="crawlPage <= 1" @click="crawlPage--; fetchCrawlLogs()">Prev</button>
+        <button
+          :disabled="crawlPage <= 1"
+          @click="
+            crawlPage--
+            fetchCrawlLogs()
+          "
+        >
+          Prev
+        </button>
         <span class="mono" style="font-size: 12px">{{ crawlPage }} / {{ crawlTotalPages }}</span>
-        <button :disabled="crawlPage >= crawlTotalPages" @click="crawlPage++; fetchCrawlLogs()">Next</button>
+        <button
+          :disabled="crawlPage >= crawlTotalPages"
+          @click="
+            crawlPage++
+            fetchCrawlLogs()
+          "
+        >
+          Next
+        </button>
       </div>
     </section>
 
@@ -360,7 +506,9 @@
             class="filter-btn"
             :class="{ active: filterStatus === s }"
             @click="setFilter(s)"
-          >{{ s }}</button>
+          >
+            {{ s }}
+          </button>
         </div>
       </div>
 
@@ -379,7 +527,11 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="flag in flags" :key="flag.id" :class="{ resolved: flag.status !== 'pending' }">
+            <tr
+              v-for="flag in flags"
+              :key="flag.id"
+              :class="{ resolved: flag.status !== 'pending' }"
+            >
               <td class="col-raw">
                 <span class="raw-string">{{ flag.raw_artist_string }}</span>
               </td>
@@ -400,7 +552,13 @@
                     :class="{ found: !!did, missing: !did }"
                   >
                     <span class="deezer-name">{{ name }}</span>
-                    <a v-if="did" :href="`https://www.deezer.com/artist/${did}`" target="_blank" class="deezer-id mono dz-link">{{ did }}</a>
+                    <a
+                      v-if="did"
+                      :href="`https://www.deezer.com/artist/${did}`"
+                      target="_blank"
+                      class="deezer-id mono dz-link"
+                      >{{ did }}</a
+                    >
                     <span v-else class="deezer-id mono">✗</span>
                   </span>
                 </div>
@@ -413,18 +571,24 @@
                       :disabled="resolving[flag.id]"
                       :title="`Créer: ${flag.tokens.join(', ')}`"
                       @click="resolve(flag.id, 'split')"
-                    >Splitter</button>
+                    >
+                      Splitter
+                    </button>
                     <button
                       class="btn-keep"
                       :disabled="resolving[flag.id]"
                       :title="`Créer: ${flag.raw_artist_string}`"
                       @click="resolve(flag.id, 'keep')"
-                    >Garder</button>
+                    >
+                      Garder
+                    </button>
                     <button
                       class="btn-skip"
                       :disabled="resolving[flag.id]"
                       @click="resolve(flag.id, 'skip')"
-                    >Ignorer</button>
+                    >
+                      Ignorer
+                    </button>
                   </div>
                 </template>
                 <template v-else>
@@ -524,7 +688,10 @@ function onMappingSearch(mappingId) {
   clearTimeout(mappingTimers[mappingId])
   mappingSelected[mappingId] = null
   const q = (mappingSearch[mappingId] || '').trim()
-  if (!q) { mappingResults[mappingId] = []; return }
+  if (!q) {
+    mappingResults[mappingId] = []
+    return
+  }
   mappingTimers[mappingId] = setTimeout(async () => {
     const { data } = await api.get('/api/taxonomy/nodes', { params: { q, limit: 8 } })
     mappingResults[mappingId] = data.items
@@ -540,7 +707,7 @@ async function saveMapping(m) {
       params: { node_id: nodeId },
     })
     // Update in-place
-    const node = mappingResults[m.id]?.find(n => n.id === nodeId)
+    const node = mappingResults[m.id]?.find((n) => n.id === nodeId)
     m.nodeId = nodeId
     m.nodeLabel = node?.label || mappingSearch[m.id]
     m.nodeWikidataId = node?.wikidataId
@@ -550,7 +717,7 @@ async function saveMapping(m) {
     mappingSelected[m.id] = null
     // If showing unmapped, remove it from list
     if (mappingShowUnmapped.value) {
-      mappings.value = mappings.value.filter(x => x.id !== m.id)
+      mappings.value = mappings.value.filter((x) => x.id !== m.id)
     }
     await fetchMappingStats()
   } finally {
@@ -573,8 +740,15 @@ const crawlFilters = [
   { label: 'Running', value: 'running' },
 ]
 const crawlTaskTypes = [
-  'crawl_radar', 'crawl_playlist', 'enrich_catalog', 'enrich_beatport',
-  'reclassify_genres', 'sync_artists', 'fetch_artworks', 'resolve_set_tracks', 'enrich_set_tracks',
+  'crawl_radar',
+  'crawl_playlist',
+  'enrich_catalog',
+  'enrich_beatport',
+  'reclassify_genres',
+  'sync_artists',
+  'fetch_artworks',
+  'resolve_set_tracks',
+  'enrich_set_tracks',
 ]
 
 async function runSync() {
@@ -637,16 +811,13 @@ async function setFilter(s) {
 async function resolve(flagId, action) {
   resolving[flagId] = true
   try {
-    const { data } = await api.post(
-      `/api/admin/artists/flags/${flagId}/resolve`,
-      { action },
-    )
+    const { data } = await api.post(`/api/admin/artists/flags/${flagId}/resolve`, { action })
     // Update in-place
-    const idx = flags.value.findIndex(f => f.id === flagId)
+    const idx = flags.value.findIndex((f) => f.id === flagId)
     if (idx !== -1) flags.value[idx] = data
     // If viewing pending, remove resolved ones
     if (filterStatus.value === 'pending') {
-      flags.value = flags.value.filter(f => f.status === 'pending')
+      flags.value = flags.value.filter((f) => f.status === 'pending')
     }
   } finally {
     resolving[flagId] = false
@@ -670,7 +841,11 @@ function pollArtworksStatus(taskId) {
   let attempts = 0
   const timer = setInterval(async () => {
     attempts++
-    if (attempts >= 150) { clearInterval(timer); fetchingArtworks.value = false; return }
+    if (attempts >= 150) {
+      clearInterval(timer)
+      fetchingArtworks.value = false
+      return
+    }
     try {
       const { data } = await api.get(`/api/admin/artists/sync/status/${taskId}`)
       if (data.status === 'done') {
@@ -683,7 +858,9 @@ function pollArtworksStatus(taskId) {
         fetchingArtworks.value = false
       }
     } catch (err) {
-      clearInterval(timer); artworksError.value = 'Erreur polling: ' + (err.message || 'inconnue'); fetchingArtworks.value = false
+      clearInterval(timer)
+      artworksError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+      fetchingArtworks.value = false
     }
   }, 2000)
 }
@@ -711,13 +888,27 @@ async function runLinkSets() {
     let attempts = 0
     const timer = setInterval(async () => {
       attempts++
-      if (attempts > 150) { clearInterval(timer); linkSetsError.value = 'Timeout'; linkingSets.value = false; return }
+      if (attempts > 150) {
+        clearInterval(timer)
+        linkSetsError.value = 'Timeout'
+        linkingSets.value = false
+        return
+      }
       try {
         const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
-        if (st.status === 'done') { clearInterval(timer); linkSetsResult.value = st.result; linkingSets.value = false }
-        else if (st.status === 'error') { clearInterval(timer); linkSetsError.value = st.error || 'Erreur'; linkingSets.value = false }
+        if (st.status === 'done') {
+          clearInterval(timer)
+          linkSetsResult.value = st.result
+          linkingSets.value = false
+        } else if (st.status === 'error') {
+          clearInterval(timer)
+          linkSetsError.value = st.error || 'Erreur'
+          linkingSets.value = false
+        }
       } catch (err) {
-        clearInterval(timer); linkSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue'); linkingSets.value = false
+        clearInterval(timer)
+        linkSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+        linkingSets.value = false
       }
     }, 2000)
   } catch (e) {
@@ -735,13 +926,27 @@ async function runEnrichSets() {
     let attempts = 0
     const timer = setInterval(async () => {
       attempts++
-      if (attempts > 300) { clearInterval(timer); enrichSetsError.value = 'Timeout'; enrichingSets.value = false; return }
+      if (attempts > 300) {
+        clearInterval(timer)
+        enrichSetsError.value = 'Timeout'
+        enrichingSets.value = false
+        return
+      }
       try {
         const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
-        if (st.status === 'done') { clearInterval(timer); enrichSetsResult.value = st.result; enrichingSets.value = false }
-        else if (st.status === 'error') { clearInterval(timer); enrichSetsError.value = st.error || 'Erreur'; enrichingSets.value = false }
+        if (st.status === 'done') {
+          clearInterval(timer)
+          enrichSetsResult.value = st.result
+          enrichingSets.value = false
+        } else if (st.status === 'error') {
+          clearInterval(timer)
+          enrichSetsError.value = st.error || 'Erreur'
+          enrichingSets.value = false
+        }
       } catch (err) {
-        clearInterval(timer); enrichSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue'); enrichingSets.value = false
+        clearInterval(timer)
+        enrichSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+        enrichingSets.value = false
       }
     }, 3000)
   } catch (e) {
@@ -760,13 +965,27 @@ async function runEnrichBeatport() {
     let attempts = 0
     const timer = setInterval(async () => {
       attempts++
-      if (attempts > 300) { clearInterval(timer); beatportError.value = 'Timeout'; enrichingBeatport.value = false; return }
+      if (attempts > 300) {
+        clearInterval(timer)
+        beatportError.value = 'Timeout'
+        enrichingBeatport.value = false
+        return
+      }
       try {
         const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
-        if (st.status === 'done') { clearInterval(timer); beatportResult.value = st.result; enrichingBeatport.value = false }
-        else if (st.status === 'error') { clearInterval(timer); beatportError.value = st.error || 'Erreur'; enrichingBeatport.value = false }
+        if (st.status === 'done') {
+          clearInterval(timer)
+          beatportResult.value = st.result
+          enrichingBeatport.value = false
+        } else if (st.status === 'error') {
+          clearInterval(timer)
+          beatportError.value = st.error || 'Erreur'
+          enrichingBeatport.value = false
+        }
       } catch (err) {
-        clearInterval(timer); beatportError.value = 'Erreur polling: ' + (err.message || 'inconnue'); enrichingBeatport.value = false
+        clearInterval(timer)
+        beatportError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+        enrichingBeatport.value = false
       }
     }, 5000)
   } catch (e) {
@@ -782,7 +1001,10 @@ async function runReclassify() {
     const params = reclassifyEta.value ? `?eta=${new Date(reclassifyEta.value).toISOString()}` : ''
     const { data } = await api.post(`/api/admin/genres/reclassify${params}`)
     const when = reclassifyEta.value ? ` pour ${reclassifyEta.value}` : ''
-    reclassifyResult.value = { text: `Task planifiée${when} (${data.task_id.slice(0, 8)}…)`, cls: 'ok' }
+    reclassifyResult.value = {
+      text: `Task planifiée${when} (${data.task_id.slice(0, 8)}…)`,
+      cls: 'ok',
+    }
   } catch (e) {
     reclassifyResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
   } finally {
@@ -806,7 +1028,10 @@ function onLinkSearch() {
 function onDeezerSearch() {
   clearTimeout(linkDeezerTimer)
   selectedDeezerHit.value = null
-  if (!linkDeezerQuery.value.trim()) { deezerHits.value = []; return }
+  if (!linkDeezerQuery.value.trim()) {
+    deezerHits.value = []
+    return
+  }
   linkDeezerTimer = setTimeout(async () => {
     const { data } = await api.get('/api/admin/artists/search-deezer', {
       params: { q: linkDeezerQuery.value.trim() },
@@ -821,10 +1046,9 @@ async function confirmLink() {
   linkSuccess.value = false
   linkError.value = ''
   try {
-    await api.patch(
-      `/api/admin/artists/${selectedDbArtist.value.id}/deezer`,
-      { deezer_id: selectedDeezerHit.value.deezer_id },
-    )
+    await api.patch(`/api/admin/artists/${selectedDbArtist.value.id}/deezer`, {
+      deezer_id: selectedDeezerHit.value.deezer_id,
+    })
     linkSuccess.value = true
     // Reset selections but keep query to refresh list
     const q = linkArtistQuery.value.trim()
@@ -843,27 +1067,31 @@ async function confirmLink() {
 async function markNoDeezer(artist) {
   try {
     await api.patch(`/api/admin/artists/${artist.id}/no-deezer`)
-    dbArtistResults.value = dbArtistResults.value.filter(a => a.id !== artist.id)
+    dbArtistResults.value = dbArtistResults.value.filter((a) => a.id !== artist.id)
   } catch {}
 }
 
 const SEPARATORS = ['/', ' & ', ', ', ' feat. ', ' feat ', ' ft. ', ' ft ']
 
 function detectSeparator(name) {
-  return SEPARATORS.find(sep => name.includes(sep)) || null
+  return SEPARATORS.find((sep) => name.includes(sep)) || null
 }
 
 async function flagArtist(artist) {
   const sep = detectSeparator(artist.name)
   if (!sep) return
-  const tokens = artist.name.split(sep).map(t => t.trim()).filter(Boolean)
+  const tokens = artist.name
+    .split(sep)
+    .map((t) => t.trim())
+    .filter(Boolean)
   try {
-    await api.post(
-      '/api/admin/artists/flags/manual',
-      { raw_artist_string: artist.name, tokens, reason: 'manual' },
-    )
+    await api.post('/api/admin/artists/flags/manual', {
+      raw_artist_string: artist.name,
+      tokens,
+      reason: 'manual',
+    })
     // Remove from no-deezer list and refresh flags
-    dbArtistResults.value = dbArtistResults.value.filter(a => a.id !== artist.id)
+    dbArtistResults.value = dbArtistResults.value.filter((a) => a.id !== artist.id)
     if (filterStatus.value === 'pending') await fetchFlags()
   } catch {}
 }
@@ -893,7 +1121,7 @@ function setCrawlFilter(val) {
 function formatDate(iso) {
   if (!iso) return '-'
   const d = new Date(iso)
-  const pad = n => String(n).padStart(2, '0')
+  const pad = (n) => String(n).padStart(2, '0')
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
@@ -920,7 +1148,9 @@ onMounted(() => {
   max-width: 1100px;
   margin: 0 auto;
 }
-.view-header { margin-bottom: 24px; }
+.view-header {
+  margin-bottom: 24px;
+}
 .view-title {
   font: 600 22px/1.1 var(--font-ui);
   letter-spacing: -0.02em;
@@ -948,7 +1178,9 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
 }
-.section-header .section-title { margin-bottom: 0; }
+.section-header .section-title {
+  margin-bottom: 0;
+}
 .section-sub {
   font: 400 12px/1.4 var(--font-ui);
   color: var(--ink-3);
@@ -979,7 +1211,10 @@ onMounted(() => {
   cursor: pointer;
   transition: opacity 0.12s;
 }
-.btn-sync:disabled { opacity: 0.5; cursor: default; }
+.btn-sync:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .batch-label {
   display: flex;
   align-items: center;
@@ -1001,10 +1236,19 @@ onMounted(() => {
   gap: 14px;
   font: 400 13px/1 var(--font-mono);
 }
-.result-item.ok { color: var(--pos-ink); }
-.result-item.warn { color: var(--warn-ink); }
-.result-item.muted { color: var(--ink-3); }
-.sync-error { font-size: 13px; color: var(--neg-ink); }
+.result-item.ok {
+  color: var(--pos-ink);
+}
+.result-item.warn {
+  color: var(--warn-ink);
+}
+.result-item.muted {
+  color: var(--ink-3);
+}
+.sync-error {
+  font-size: 13px;
+  color: var(--neg-ink);
+}
 
 /* Filter */
 .filter-group {
@@ -1020,13 +1264,22 @@ onMounted(() => {
   color: var(--ink-3);
   font: 500 11px/1 var(--font-ui);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
-.filter-btn:not(:last-child) { border-right: 1px solid var(--line-2); }
-.filter-btn.active { background: var(--accent-soft); color: var(--accent-ink); }
+.filter-btn:not(:last-child) {
+  border-right: 1px solid var(--line-2);
+}
+.filter-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
 
 /* Table */
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+  overflow-x: auto;
+}
 .flag-table {
   width: 100%;
   border-collapse: collapse;
@@ -1047,14 +1300,29 @@ onMounted(() => {
   vertical-align: top;
   border-bottom: 1px solid var(--line);
 }
-.flag-table tbody tr:last-child td { border-bottom: none; }
-.flag-table tbody tr.resolved td { opacity: 0.5; }
+.flag-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.flag-table tbody tr.resolved td {
+  opacity: 0.5;
+}
 
-.col-raw    { min-width: 180px; }
-.col-reason { width: 160px; }
-.col-tokens { width: 200px; }
-.col-deezer { width: 220px; }
-.col-action { width: 200px; text-align: right; }
+.col-raw {
+  min-width: 180px;
+}
+.col-reason {
+  width: 160px;
+}
+.col-tokens {
+  width: 200px;
+}
+.col-deezer {
+  width: 220px;
+}
+.col-action {
+  width: 200px;
+  text-align: right;
+}
 
 .raw-string {
   font: 500 13px/1.3 var(--font-ui);
@@ -1067,11 +1335,24 @@ onMounted(() => {
   border-radius: 4px;
   white-space: nowrap;
 }
-.reason-badge.comma_unresolved { background: var(--warn-soft); color: var(--warn-ink); }
-.reason-badge.ampersand_ambiguous { background: var(--neg-soft); color: var(--neg-ink); }
-.reason-badge.ampersand_unknown { background: var(--surface-2); color: var(--ink-3); }
+.reason-badge.comma_unresolved {
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+}
+.reason-badge.ampersand_ambiguous {
+  background: var(--neg-soft);
+  color: var(--neg-ink);
+}
+.reason-badge.ampersand_unknown {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
 
-.token-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
 .token-pill {
   font: 400 11px/1 var(--font-mono);
   background: var(--surface-2);
@@ -1081,15 +1362,43 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.deezer-list { display: flex; flex-direction: column; gap: 3px; }
-.deezer-entry { display: flex; gap: 6px; align-items: baseline; }
-.deezer-name { font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
-.deezer-id { font-size: 10px; }
-.deezer-entry.found .deezer-id { color: var(--pos-ink); }
-.deezer-entry.missing .deezer-id { color: var(--neg-ink); }
+.deezer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.deezer-entry {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.deezer-name {
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+.deezer-id {
+  font-size: 10px;
+}
+.deezer-entry.found .deezer-id {
+  color: var(--pos-ink);
+}
+.deezer-entry.missing .deezer-id {
+  color: var(--neg-ink);
+}
 
-.action-btns { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; }
-.btn-split, .btn-keep, .btn-skip {
+.action-btns {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.btn-split,
+.btn-keep,
+.btn-skip {
   padding: 5px 10px;
   border-radius: var(--r-sm);
   font: 500 11px/1 var(--font-ui);
@@ -1097,24 +1406,62 @@ onMounted(() => {
   white-space: nowrap;
   transition: opacity 0.12s;
 }
-.btn-split:disabled, .btn-keep:disabled, .btn-skip:disabled { opacity: 0.4; cursor: default; }
-.btn-split { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
-.btn-split:hover:not(:disabled) { background: var(--accent); color: var(--on-accent); }
-.btn-keep { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); }
-.btn-keep:hover:not(:disabled) { background: var(--surface-2); }
-.btn-skip { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-3); }
-.btn-skip:hover:not(:disabled) { color: var(--neg-ink); border-color: var(--neg-ink); }
+.btn-split:disabled,
+.btn-keep:disabled,
+.btn-skip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn-split {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.btn-split:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.btn-keep {
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.btn-keep:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.btn-skip {
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-3);
+}
+.btn-skip:hover:not(:disabled) {
+  color: var(--neg-ink);
+  border-color: var(--neg-ink);
+}
 
 .status-badge {
   font: 500 11px/1 var(--font-mono);
   padding: 3px 8px;
   border-radius: 4px;
 }
-.status-badge.validated { background: var(--pos-soft); color: var(--pos-ink); }
-.status-badge.skipped { background: var(--surface-2); color: var(--ink-3); }
+.status-badge.validated {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.status-badge.skipped {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
 
-.state { font-size: 13px; color: var(--ink-3); font-style: italic; padding: 12px 0; }
-.mono { font-family: var(--font-mono); }
+.state {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+  padding: 12px 0;
+}
+.mono {
+  font-family: var(--font-mono);
+}
 
 /* Manual link */
 .link-form {
@@ -1149,22 +1496,50 @@ onMounted(() => {
   border: 1px solid transparent;
   transition: background 0.1s;
 }
-.result-row:hover { background: var(--surface-2); }
-.result-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+.result-row:hover {
+  background: var(--surface-2);
+}
+.result-row.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 .cover-thumb-sm {
-  width: 32px; height: 32px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--surface-2);
   border: 1px solid var(--line);
   overflow: hidden;
   flex: none;
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.cover-thumb-sm img { width: 100%; height: 100%; object-fit: cover; }
-.fallback-sm { font: 600 13px/1 var(--font-ui); color: var(--ink-3); }
-.ar-name-sm { display: block; font: 500 13px/1 var(--font-ui); color: var(--ink); }
-.ar-meta { display: block; font-size: 11px; margin-top: 2px; }
-.empty-hint { font-size: 12px; color: var(--ink-3); font-style: italic; padding: 8px 10px; }
+.cover-thumb-sm img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.fallback-sm {
+  font: 600 13px/1 var(--font-ui);
+  color: var(--ink-3);
+}
+.ar-name-sm {
+  display: block;
+  font: 500 13px/1 var(--font-ui);
+  color: var(--ink);
+}
+.ar-meta {
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.empty-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+  padding: 8px 10px;
+}
 .link-list {
   max-height: 320px;
   overflow-y: auto;
@@ -1175,7 +1550,9 @@ onMounted(() => {
   font-family: var(--font-mono);
   font-size: 11px;
 }
-.dz-link:hover { text-decoration: underline; }
+.dz-link:hover {
+  text-decoration: underline;
+}
 .row-actions {
   margin-left: auto;
   display: flex;
@@ -1183,7 +1560,9 @@ onMounted(() => {
   opacity: 0;
   transition: opacity 0.1s;
 }
-.result-row:hover .row-actions { opacity: 1; }
+.result-row:hover .row-actions {
+  opacity: 1;
+}
 .btn-row-action {
   padding: 3px 7px;
   border-radius: 4px;
@@ -1194,8 +1573,14 @@ onMounted(() => {
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-row-action:hover { color: var(--neg-ink); border-color: var(--neg-ink); }
-.btn-row-action.flag:hover { color: var(--warn-ink); border-color: var(--warn-ink); }
+.btn-row-action:hover {
+  color: var(--neg-ink);
+  border-color: var(--neg-ink);
+}
+.btn-row-action.flag:hover {
+  color: var(--warn-ink);
+  border-color: var(--warn-ink);
+}
 .link-confirm {
   display: flex;
   align-items: center;
@@ -1206,7 +1591,10 @@ onMounted(() => {
   border: 1px solid var(--line);
   flex-wrap: wrap;
 }
-.link-summary { font: 400 13px/1.4 var(--font-ui); color: var(--ink-2); }
+.link-summary {
+  font: 400 13px/1.4 var(--font-ui);
+  color: var(--ink-2);
+}
 .btn-confirm-link {
   padding: 7px 16px;
   border-radius: var(--r-sm);
@@ -1216,7 +1604,10 @@ onMounted(() => {
   font: 500 13px/1 var(--font-ui);
   cursor: pointer;
 }
-.btn-confirm-link:disabled { opacity: 0.5; cursor: default; }
+.btn-confirm-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 /* Crawl logs */
 .crawl-filters {
@@ -1249,7 +1640,10 @@ onMounted(() => {
   font: 500 12px/1 var(--font-ui);
   cursor: pointer;
 }
-.crawl-pagination button:disabled { opacity: 0.4; cursor: default; }
+.crawl-pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .stat-chip {
   display: inline-block;
   font: 400 10px/1 var(--font-mono);
@@ -1260,12 +1654,23 @@ onMounted(() => {
   margin: 1px 2px;
   white-space: nowrap;
 }
-.status-badge.running { background: var(--accent-soft); color: var(--accent-ink); }
-.status-badge.success { background: var(--pos-soft); color: var(--pos-ink); }
-.status-badge.error { background: var(--neg-soft); color: var(--neg-ink); }
+.status-badge.running {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.status-badge.success {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.status-badge.error {
+  background: var(--neg-soft);
+  color: var(--neg-ink);
+}
 
 /* Genre mappings */
-.mapping-search-wrap { position: relative; }
+.mapping-search-wrap {
+  position: relative;
+}
 .mapping-search-input {
   width: 100%;
   padding: 5px 8px;
@@ -1298,9 +1703,21 @@ onMounted(() => {
   cursor: pointer;
   transition: background 0.1s;
 }
-.mapping-option:hover { background: var(--surface-2); }
-.mapping-option.selected { background: var(--accent-soft); }
-.mapping-option-label { font: 400 12px/1.3 var(--font-ui); color: var(--ink); }
-.mapping-option-qid { font-size: 10px; color: var(--ink-3); }
-.muted { color: var(--ink-3); }
+.mapping-option:hover {
+  background: var(--surface-2);
+}
+.mapping-option.selected {
+  background: var(--accent-soft);
+}
+.mapping-option-label {
+  font: 400 12px/1.3 var(--font-ui);
+  color: var(--ink);
+}
+.mapping-option-qid {
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.muted {
+  color: var(--ink-3);
+}
 </style>

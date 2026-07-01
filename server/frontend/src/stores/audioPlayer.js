@@ -6,7 +6,7 @@ const VOLUME_KEY = 'diggy:volume'
 
 export const useAudioPlayer = defineStore('audioPlayer', () => {
   // --- reactive state ---
-  const track = ref(null)       // { id, catalog_id, title, artist, bpm, key } | null
+  const track = ref(null) // { id, catalog_id, title, artist, bpm, key } | null
   const playing = ref(false)
   const currentTime = ref(0)
   const duration = ref(30)
@@ -23,7 +23,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
 
   // --- getters ---
   const visible = computed(() => track.value !== null)
-  const progress = computed(() => duration.value > 0 ? currentTime.value / duration.value : 0)
+  const progress = computed(() => (duration.value > 0 ? currentTime.value / duration.value : 0))
 
   // --- helpers ---
   function isCurrent(catalogId) {
@@ -35,11 +35,21 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     audio = new Audio()
     audio.volume = volume.value
     audio.muted = muted.value
-    audio.addEventListener('timeupdate', () => { currentTime.value = audio.currentTime })
-    audio.addEventListener('loadedmetadata', () => { duration.value = audio.duration })
-    audio.addEventListener('ended', () => { playing.value = false })
-    audio.addEventListener('play', () => { playing.value = true })
-    audio.addEventListener('pause', () => { playing.value = false })
+    audio.addEventListener('timeupdate', () => {
+      currentTime.value = audio.currentTime
+    })
+    audio.addEventListener('loadedmetadata', () => {
+      duration.value = audio.duration
+    })
+    audio.addEventListener('ended', () => {
+      playing.value = false
+    })
+    audio.addEventListener('play', () => {
+      playing.value = true
+    })
+    audio.addEventListener('pause', () => {
+      playing.value = false
+    })
     return audio
   }
 
@@ -181,10 +191,27 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
 
   return {
     // state
-    track, playing, currentTime, duration, volume, muted, loading, genrePlaying, artistPlaying,
+    track,
+    playing,
+    currentTime,
+    duration,
+    volume,
+    muted,
+    loading,
+    genrePlaying,
+    artistPlaying,
     // getters
-    visible, progress,
+    visible,
+    progress,
     // actions
-    play, toggle, seek, setVolume, toggleMute, close, playRandom, playRandomArtist, isCurrent,
+    play,
+    toggle,
+    seek,
+    setVolume,
+    toggleMute,
+    close,
+    playRandom,
+    playRandomArtist,
+    isCurrent,
   }
 })

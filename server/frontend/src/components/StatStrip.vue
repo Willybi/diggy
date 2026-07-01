@@ -31,7 +31,9 @@ defineProps({
   padding: 12px 16px;
   border-right: 1px solid var(--line);
 }
-.stat-cell:last-child { border-right: none; }
+.stat-cell:last-child {
+  border-right: none;
+}
 .stat-value {
   font: 600 15px/1 var(--font-mono);
   color: var(--ink);

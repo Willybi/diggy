@@ -47,7 +47,7 @@ export const useOpinionsStore = defineStore('opinions', () => {
   }
 
   function reset() {
-    Object.keys(data).forEach(k => delete data[k])
+    Object.keys(data).forEach((k) => delete data[k])
     loaded = false
   }
 

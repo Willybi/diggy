@@ -5,8 +5,10 @@
     :disabled="disabled"
     @click="!disabled && onPlay()"
   >
-    <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
-    <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+    <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5.5v13l11-6.5z" />
+    </svg>
+    <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg>
     <span class="hero-play-label">{{ isPlaying ? 'Pause' : 'Preview' }}</span>
   </button>
 </template>
@@ -17,11 +19,11 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 
 const props = defineProps({
   catalogId: { type: Number, required: true },
-  disabled:  { type: Boolean, default: false },
-  title:     { type: String, default: '' },
-  artist:    { type: String, default: '' },
-  bpm:       { type: Number, default: null },
-  trackKey:  { type: String, default: '' },
+  disabled: { type: Boolean, default: false },
+  title: { type: String, default: '' },
+  artist: { type: String, default: '' },
+  bpm: { type: Number, default: null },
+  trackKey: { type: String, default: '' },
 })
 
 const player = useAudioPlayer()
@@ -52,9 +54,14 @@ function onPlay() {
   color: var(--ink-2);
   font: 500 13px/1 var(--font-ui);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
-.hero-play svg { width: 16px; height: 16px; }
+.hero-play svg {
+  width: 16px;
+  height: 16px;
+}
 .hero-play:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--ink);

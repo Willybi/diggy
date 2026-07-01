@@ -178,7 +178,7 @@ Ces lacunes empechent de refactorer en confiance.
 
 #### Critique
 
-- [ ] **Linting Python avec ruff** :
+- [x] **Linting Python avec ruff** :
   - Ajouter la config dans `pyproject.toml` :
     ```toml
     [tool.ruff]
@@ -196,7 +196,7 @@ Ces lacunes empechent de refactorer en confiance.
     ```
   - Corriger les erreurs existantes (batch initial)
 
-- [ ] **Tracking de couverture avec pytest-cov** :
+- [x] **Tracking de couverture avec pytest-cov** :
   - Ajouter `pytest-cov` dans les dev dependencies
   - Modifier le job test CI :
     ```yaml
@@ -204,7 +204,7 @@ Ces lacunes empechent de refactorer en confiance.
     ```
   - Seuil initial : 55% (a augmenter progressivement)
 
-- [ ] **Reactiver PostgreSQL dans CI** :
+- [x] **Reactiver PostgreSQL dans CI** :
   - Decommenter le bloc `services: postgres:` dans `deploy.yml`
   - Ajouter `DATABASE_URL` en env du job test
   - Accepter le surcout (~3min vs ~1min)

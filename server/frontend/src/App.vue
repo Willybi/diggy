@@ -26,8 +26,17 @@ opinions.load()
 </script>
 
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html,
+body {
+  height: 100%;
+}
 body {
   font-family: var(--font-ui);
   background: var(--bg);
@@ -37,14 +46,18 @@ body {
 
 /* Player bar transitions (must be unscoped for <Transition>) */
 .player-enter-active {
-  transition: transform .34s cubic-bezier(.22, 1, .36, 1), opacity .34s ease;
+  transition:
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.34s ease;
 }
 .player-enter-from {
   transform: translateY(100%);
   opacity: 0;
 }
 .player-leave-active {
-  transition: transform .24s ease-in, opacity .24s ease-in;
+  transition:
+    transform 0.24s ease-in,
+    opacity 0.24s ease-in;
 }
 .player-leave-to {
   transform: translateY(100%);
@@ -54,7 +67,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .player-enter-active,
   .player-leave-active {
-    transition: opacity .2s ease;
+    transition: opacity 0.2s ease;
   }
   .player-enter-from,
   .player-leave-to {
@@ -88,6 +101,8 @@ body {
 }
 
 @container (max-width: 900px) {
-  .app-container { --sidebar-w: 66px; }
+  .app-container {
+    --sidebar-w: 66px;
+  }
 }
 </style>

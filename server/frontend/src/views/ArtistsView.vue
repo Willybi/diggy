@@ -5,20 +5,33 @@
       <div class="titles">
         <h1>Artistes</h1>
         <div class="sub">
-          <template v-if="isFiltered">{{ fmtNum(total) }} / {{ fmtNum(totalUnfiltered) }} artistes</template>
+          <template v-if="isFiltered"
+            >{{ fmtNum(total) }} / {{ fmtNum(totalUnfiltered) }} artistes</template
+          >
           <template v-else>{{ fmtNum(totalUnfiltered) }} artistes</template>
         </div>
       </div>
       <div class="head-tools">
         <label class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.2-3.2" stroke-linecap="round" />
+          </svg>
           <input v-model="searchQuery" type="text" placeholder="Rechercher un artiste…" />
         </label>
         <div class="filterseg">
           <button :class="{ on: sortBy === 'catalog' }" @click="sortBy = 'catalog'">Catalog</button>
           <button :class="{ on: sortBy === 'lib' }" @click="sortBy = 'lib'">In Bib</button>
-          <button class="liked" :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">Liked</button>
-          <button class="disliked" :class="{ on: sortBy === 'disliked' }" @click="sortBy = 'disliked'">Disliked</button>
+          <button class="liked" :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">
+            Liked
+          </button>
+          <button
+            class="disliked"
+            :class="{ on: sortBy === 'disliked' }"
+            @click="sortBy = 'disliked'"
+          >
+            Disliked
+          </button>
           <button :class="{ on: sortBy === 'rating' }" @click="sortBy = 'rating'">Rating</button>
           <button :class="{ on: sortBy === 'alpha' }" @click="sortBy = 'alpha'">A–Z</button>
         </div>
@@ -53,9 +66,7 @@
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="!items.length && !loading" class="empty">
-      Aucun artiste ne correspond.
-    </div>
+    <div v-else-if="!items.length && !loading" class="empty">Aucun artiste ne correspond.</div>
 
     <!-- Card grid -->
     <div v-else class="artist-grid">
@@ -98,7 +109,13 @@ const totalUnfiltered = computed(() => {
   return Object.values(fc).reduce((s, v) => s + v, 0)
 })
 
-const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all' || sortBy.value === 'liked' || sortBy.value === 'disliked')
+const isFiltered = computed(
+  () =>
+    searchQuery.value.trim() ||
+    familyFilter.value !== 'all' ||
+    sortBy.value === 'liked' ||
+    sortBy.value === 'disliked',
+)
 
 const displayItems = computed(() => items.value)
 
@@ -107,8 +124,11 @@ const pillarChips = computed(() => {
   const allCount = Object.values(pc).reduce((s, v) => s + v, 0)
   return [
     { key: 'all', label: 'Tous', fam: null, count: allCount },
-    ...PILLAR_ORDER.map(k => ({
-      key: k, label: PILLAR_LABELS[k], fam: k, count: pc[k] || 0,
+    ...PILLAR_ORDER.map((k) => ({
+      key: k,
+      label: PILLAR_LABELS[k],
+      fam: k,
+      count: pc[k] || 0,
     })),
   ]
 })
@@ -216,7 +236,7 @@ onMounted(() => {
         (entries) => {
           if (entries[0].isIntersecting) loadMore()
         },
-        { rootMargin: '0px 0px 360px 0px' }
+        { rootMargin: '0px 0px 360px 0px' },
       )
       observer.observe(sentinelRef.value)
     }
@@ -227,7 +247,6 @@ onUnmounted(() => {
   observer?.disconnect()
   clearTimeout(debounceTimer)
 })
-
 </script>
 
 <style scoped>
@@ -251,7 +270,7 @@ onUnmounted(() => {
 .titles h1 {
   margin: 0;
   font: 600 28px/1.1 var(--font-ui);
-  letter-spacing: -.3px;
+  letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
@@ -291,7 +310,9 @@ onUnmounted(() => {
   font: 400 14px var(--font-ui);
   color: var(--ink);
 }
-.search input::placeholder { color: var(--ink-3); }
+.search input::placeholder {
+  color: var(--ink-3);
+}
 .filterseg {
   display: flex;
   gap: 2px;
@@ -308,7 +329,9 @@ onUnmounted(() => {
   border-radius: var(--r-xs);
   cursor: pointer;
 }
-.filterseg button:hover { color: var(--ink); }
+.filterseg button:hover {
+  color: var(--ink);
+}
 .filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
@@ -324,13 +347,28 @@ onUnmounted(() => {
 
 /* -- Family chips -- */
 /* ── Pillar chip hue mapping ── */
-.fam-chip[data-fam="house"]     { --th: var(--hue-house); }
-.fam-chip[data-fam="techno"]    { --th: var(--hue-techno); }
-.fam-chip[data-fam="trance"]    { --th: var(--hue-trance); }
-.fam-chip[data-fam="dnb"]       { --th: var(--hue-dnb); }
-.fam-chip[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
-.fam-chip[data-fam="harddance"] { --th: var(--hue-harddance); }
-.fam-chip[data-fam="autres"] .fc-dot { background: var(--ink-3); box-shadow: 0 0 0 1px oklch(0 0 0 / .08); }
+.fam-chip[data-fam='house'] {
+  --th: var(--hue-house);
+}
+.fam-chip[data-fam='techno'] {
+  --th: var(--hue-techno);
+}
+.fam-chip[data-fam='trance'] {
+  --th: var(--hue-trance);
+}
+.fam-chip[data-fam='dnb'] {
+  --th: var(--hue-dnb);
+}
+.fam-chip[data-fam='hardcore'] {
+  --th: var(--hue-hardcore);
+}
+.fam-chip[data-fam='harddance'] {
+  --th: var(--hue-harddance);
+}
+.fam-chip[data-fam='autres'] .fc-dot {
+  background: var(--ink-3);
+  box-shadow: 0 0 0 1px oklch(0 0 0 / 0.08);
+}
 
 .fam-chips {
   display: flex;
@@ -352,16 +390,22 @@ onUnmounted(() => {
   font: 500 13px/1 var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
-  transition: background .14s, border-color .14s, color .14s;
+  transition:
+    background 0.14s,
+    border-color 0.14s,
+    color 0.14s;
 }
-.fam-chip:hover { background: var(--surface-2); color: var(--ink); }
+.fam-chip:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
 .fc-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex: none;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
-  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / .28);
+  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / 0.28);
 }
 .fc-n {
   font: 600 11px/1 var(--font-mono);
@@ -372,7 +416,9 @@ onUnmounted(() => {
   border-color: transparent;
   color: var(--accent-ink);
 }
-.fam-chip.on .fc-n { color: var(--accent-ink); }
+.fam-chip.on .fc-n {
+  color: var(--accent-ink);
+}
 
 /* -- Grid -- */
 .artist-grid {
@@ -402,15 +448,24 @@ onUnmounted(() => {
   background: var(--surface-2);
   animation: shimmer 1.2s ease-in-out infinite alternate;
 }
-.sk-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.sk-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .sk-line {
   height: 14px;
   border-radius: 4px;
   background: var(--surface-2);
   animation: shimmer 1.2s ease-in-out infinite alternate;
 }
-.sk-line.w60 { width: 60%; }
-.sk-line.w40 { width: 40%; }
+.sk-line.w60 {
+  width: 60%;
+}
+.sk-line.w40 {
+  width: 40%;
+}
 .sk-stats {
   height: 36px;
   border-radius: 4px;
@@ -419,11 +474,19 @@ onUnmounted(() => {
   animation: shimmer 1.2s ease-in-out infinite alternate;
 }
 @keyframes shimmer {
-  from { opacity: .6; }
-  to { opacity: 1; }
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk-art, .sk-line, .sk-stats { animation: none; }
+  .sk-art,
+  .sk-line,
+  .sk-stats {
+    animation: none;
+  }
 }
 
 /* -- Sentinel -- */
@@ -436,33 +499,56 @@ onUnmounted(() => {
   color: var(--ink-3);
   font: 500 12px/1 var(--font-mono);
 }
-.sentinel.on { display: flex; }
+.sentinel.on {
+  display: flex;
+}
 .spin {
   width: 14px;
   height: 14px;
   border-radius: 50%;
   border: 2px solid var(--line-2);
   border-top-color: var(--accent);
-  animation: spin .7s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
 
 /* -- Responsive (container queries) -- */
 @container (max-width: 820px) {
-  .head-tools { width: 100%; margin-left: 0; }
-  .search { flex: 1; min-width: 0; }
+  .head-tools {
+    width: 100%;
+    margin-left: 0;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+  }
 }
 @container (max-width: 680px) {
-  .page-head, .artist-grid, .fam-chips, .sentinel {
+  .page-head,
+  .artist-grid,
+  .fam-chips,
+  .sentinel {
     padding-left: 18px;
     padding-right: 18px;
   }
 }
 @container (max-width: 560px) {
-  .artist-grid { grid-template-columns: repeat(2, 1fr); }
+  .artist-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 @container (max-width: 380px) {
-  .artist-grid { grid-template-columns: 1fr; }
+  .artist-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

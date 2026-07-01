@@ -5,7 +5,7 @@ import router from '../router'
 const api = axios.create()
 
 // Inject auth token on every request
-api.interceptors.request.use(config => {
+api.interceptors.request.use((config) => {
   const auth = useAuthStore()
   if (auth.token) {
     config.headers.Authorization = `Bearer ${auth.token}`
@@ -14,7 +14,7 @@ api.interceptors.request.use(config => {
 })
 
 // Auto-logout on 401
-api.interceptors.response.use(undefined, error => {
+api.interceptors.response.use(undefined, (error) => {
   if (error.response?.status === 401) {
     const auth = useAuthStore()
     if (auth.token) {

@@ -19,10 +19,10 @@
 
 <script setup>
 defineProps({
-  variant:        { type: String, default: 'square' },   // square | round | wide
-  imageSrc:       { type: String, default: null },
-  title:          { type: String, required: true },
-  subtitle:       { type: String, default: null },
+  variant: { type: String, default: 'square' }, // square | round | wide
+  imageSrc: { type: String, default: null },
+  title: { type: String, required: true },
+  subtitle: { type: String, default: null },
   fallbackLetter: { type: String, default: '?' },
 })
 </script>

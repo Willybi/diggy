@@ -1,5 +1,9 @@
 <template>
-  <span class="libdot" :class="inLib ? 'in' : 'out'" :title="inLib ? 'Dans ma lib' : 'Pas dans la lib'">
+  <span
+    class="libdot"
+    :class="inLib ? 'in' : 'out'"
+    :title="inLib ? 'Dans ma lib' : 'Pas dans la lib'"
+  >
     <span class="d"></span>
   </span>
 </template>
@@ -29,6 +33,6 @@ defineProps({
 .libdot.out .d {
   background: transparent;
   border: 1.5px dashed var(--ink-3);
-  opacity: .6;
+  opacity: 0.6;
 }
 </style>

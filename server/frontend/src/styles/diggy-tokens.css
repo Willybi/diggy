@@ -16,63 +16,74 @@
 
 :root {
   /* ---- type ---- */
-  --font-ui:   'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-ui: 'Space Grotesk', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
 
   /* ---- neutrals (warm ivory + warm greys) — INVARIANT across palettes ---- */
-  --bg:        oklch(0.974 0.008 92);
-  --surface:   oklch(0.995 0.004 92);
+  --bg: oklch(0.974 0.008 92);
+  --surface: oklch(0.995 0.004 92);
   --surface-2: oklch(0.955 0.009 92);
-  --surface-3: oklch(0.935 0.010 92);
-  --ink:       oklch(0.255 0.012 70);
-  --ink-2:     oklch(0.455 0.012 70);
-  --ink-3:     oklch(0.615 0.010 70);
-  --line:      oklch(0.905 0.008 88);
-  --line-2:    oklch(0.875 0.009 88);
+  --surface-3: oklch(0.935 0.01 92);
+  --ink: oklch(0.255 0.012 70);
+  --ink-2: oklch(0.455 0.012 70);
+  --ink-3: oklch(0.615 0.01 70);
+  --line: oklch(0.905 0.008 88);
+  --line-2: oklch(0.875 0.009 88);
 
   /* ---- accent (Wildflower mauve) — hue-driven ---- */
-  --accent-h:  328;
-  --accent-l:  0.615;  --accent-c: 0.132;
-  --accent:        oklch(var(--accent-l) var(--accent-c) var(--accent-h));
-  --accent-hover:  oklch(0.565 0.138 var(--accent-h));
-  --accent-soft:   oklch(0.940 0.046 var(--accent-h));
-  --accent-soft-2: oklch(0.900 0.062 var(--accent-h));
-  --accent-ink:    oklch(0.470 0.122 var(--accent-h));
-  --on-accent:     oklch(0.987 0.010 var(--accent-h));
-  --accent-wash:   oklch(0.962 0.022 var(--accent-h)); /* row tint is-playing, plus discret que hover */
+  --accent-h: 328;
+  --accent-l: 0.615;
+  --accent-c: 0.132;
+  --accent: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+  --accent-hover: oklch(0.565 0.138 var(--accent-h));
+  --accent-soft: oklch(0.94 0.046 var(--accent-h));
+  --accent-soft-2: oklch(0.9 0.062 var(--accent-h));
+  --accent-ink: oklch(0.47 0.122 var(--accent-h));
+  --on-accent: oklch(0.987 0.01 var(--accent-h));
+  --accent-wash: oklch(
+    0.962 0.022 var(--accent-h)
+  ); /* row tint is-playing, plus discret que hover */
 
   /* ---- in-lib / positive (Wildflower prairie) — duo partner of accent ---- */
   --pos-h: 138;
-  --pos-l: 0.580;  --pos-c: 0.098;
-  --pos:      oklch(var(--pos-l) var(--pos-c) var(--pos-h));
-  --pos-soft: oklch(0.940 0.046 var(--pos-h));
-  --pos-ink:  oklch(0.460 0.098 var(--pos-h));
+  --pos-l: 0.58;
+  --pos-c: 0.098;
+  --pos: oklch(var(--pos-l) var(--pos-c) var(--pos-h));
+  --pos-soft: oklch(0.94 0.046 var(--pos-h));
+  --pos-ink: oklch(0.46 0.098 var(--pos-h));
 
   /* ---- negative / dislike (Wildflower terracotta, hue 28) ---- */
   --neg-h: 28;
-  --neg:      oklch(0.585 0.132 var(--neg-h));
-  --neg-soft: oklch(0.942 0.040 var(--neg-h));
-  --neg-ink:  oklch(0.490 0.130 var(--neg-h));
+  --neg: oklch(0.585 0.132 var(--neg-h));
+  --neg-soft: oklch(0.942 0.04 var(--neg-h));
+  --neg-ink: oklch(0.49 0.13 var(--neg-h));
 
   /* ---- warning (ambre) ---- */
-  --warn:      oklch(0.700 0.130 70);
-  --warn-soft: oklch(0.940 0.052 70);
-  --warn-ink:  oklch(0.520 0.110 70);
+  --warn: oklch(0.7 0.13 70);
+  --warn-soft: oklch(0.94 0.052 70);
+  --warn-ink: oklch(0.52 0.11 70);
 
   /* ---- error ---- */
   --error: oklch(0.55 0.18 25);
 
   /* ---- style-tag chip lightness/chroma (hue+shade set per chip) ---- */
-  --tag-bg-l: 0.940;  --tag-bg-c: 0.060;
-  --tag-fg-l: 0.460;  --tag-fg-c: 0.130;
-  --tag-dot-l: 0.650; --tag-dot-c: 0.152;
+  --tag-bg-l: 0.94;
+  --tag-bg-c: 0.06;
+  --tag-fg-l: 0.46;
+  --tag-fg-c: 0.13;
+  --tag-dot-l: 0.65;
+  --tag-dot-c: 0.152;
 
   /* ---- card body tint (Genre + Artist cards) — hue set per card via --th ---- */
-  --ct-l: 0.965;  --ct-c: 0.030;
-  --ct-line: oklch(0.30 0.02 70 / 0.10);
+  --ct-l: 0.965;
+  --ct-c: 0.03;
+  --ct-line: oklch(0.3 0.02 70 / 0.1);
 
   /* ---- artist card fallback gradient (no track covers) ---- */
-  --fb-l1: 0.92;  --fb-c1: 0.07;  --fb-l2: 0.97;  --fb-c2: 0.03;
+  --fb-l1: 0.92;
+  --fb-c1: 0.07;
+  --fb-l2: 0.97;
+  --fb-c2: 0.03;
 
   /* ============================================================
      GENRE PILLARS  ·  v2 "taxonomy" — 6 piliers + Autres (gris)
@@ -85,77 +96,96 @@
      Roue retenue : "Évocateur" (couleur = vibe).
      Logique : diggy-style-map.js
      ============================================================ */
-  --hue-house:     72;   /* groovy · club · disco roots          */
-  --hue-techno:    242;  /* brut · industriel · hypnotique       */
-  --hue-trance:    292;  /* euphorique · psyché · éthéré         */
-  --hue-dnb:       162;  /* rapide · jungle · liquide (+Dubstep, Breakbeat) */
-  --hue-hardcore:  28;   /* dur · gabber · distorsion            */
-  --hue-harddance: 338;  /* hardstyle · jumpstyle · rave         */
+  --hue-house: 72; /* groovy · club · disco roots          */
+  --hue-techno: 242; /* brut · industriel · hypnotique       */
+  --hue-trance: 292; /* euphorique · psyché · éthéré         */
+  --hue-dnb: 162; /* rapide · jungle · liquide (+Dubstep, Breakbeat) */
+  --hue-hardcore: 28; /* dur · gabber · distorsion            */
+  --hue-harddance: 338; /* hardstyle · jumpstyle · rave         */
   /* Autres = chroma 0 (gris) — appliqué via [data-fam="autres"] */
 
   /* ---- shape ---- */
-  --r-xs: 6px;  --r-sm: 9px;  --r-md: 13px;  --r-lg: 18px;  --r-xl: 24px;
+  --r-xs: 6px;
+  --r-sm: 9px;
+  --r-md: 13px;
+  --r-lg: 18px;
+  --r-xl: 24px;
 
   /* ---- depth ---- */
-  --shadow-sm: 0 1px 2px oklch(0.40 0.02 70 / 0.06), 0 1px 1px oklch(0.40 0.02 70 / 0.04);
-  --shadow-md: 0 4px 14px oklch(0.40 0.02 70 / 0.07), 0 2px 5px oklch(0.40 0.02 70 / 0.05);
-  --shadow-lg: 0 18px 48px oklch(0.40 0.02 70 / 0.12), 0 6px 16px oklch(0.40 0.02 70 / 0.07);
+  --shadow-sm: 0 1px 2px oklch(0.4 0.02 70 / 0.06), 0 1px 1px oklch(0.4 0.02 70 / 0.04);
+  --shadow-md: 0 4px 14px oklch(0.4 0.02 70 / 0.07), 0 2px 5px oklch(0.4 0.02 70 / 0.05);
+  --shadow-lg: 0 18px 48px oklch(0.4 0.02 70 / 0.12), 0 6px 16px oklch(0.4 0.02 70 / 0.07);
 
   /* ---- density (table row height + base padding) ---- */
   --row-h: 56px;
   --pad: 16px;
 
   /* ---- layout constraints ---- */
-  --page-max-w:   1400px;
+  --page-max-w: 1400px;
   --detail-max-w: 1080px;
 }
 
-[data-theme="dark"] {
-  --bg:        oklch(0.198 0.012 262);
-  --surface:   oklch(0.238 0.014 262);
+[data-theme='dark'] {
+  --bg: oklch(0.198 0.012 262);
+  --surface: oklch(0.238 0.014 262);
   --surface-2: oklch(0.278 0.014 262);
   --surface-3: oklch(0.312 0.014 262);
-  --ink:       oklch(0.945 0.006 92);
-  --ink-2:     oklch(0.745 0.010 92);
-  --ink-3:     oklch(0.595 0.012 92);
-  --line:      oklch(0.330 0.014 262);
-  --line-2:    oklch(0.388 0.015 262);
+  --ink: oklch(0.945 0.006 92);
+  --ink-2: oklch(0.745 0.01 92);
+  --ink-3: oklch(0.595 0.012 92);
+  --line: oklch(0.33 0.014 262);
+  --line-2: oklch(0.388 0.015 262);
 
-  --accent-l: 0.760;  --accent-c: 0.128;
-  --accent-hover:  oklch(0.810 0.122 var(--accent-h));
-  --accent-soft:   oklch(0.338 0.066 var(--accent-h));
+  --accent-l: 0.76;
+  --accent-c: 0.128;
+  --accent-hover: oklch(0.81 0.122 var(--accent-h));
+  --accent-soft: oklch(0.338 0.066 var(--accent-h));
   --accent-soft-2: oklch(0.388 0.078 var(--accent-h));
-  --accent-ink:    oklch(0.832 0.108 var(--accent-h));
-  --on-accent:     oklch(0.182 0.030 var(--accent-h));
-  --accent-wash:   oklch(0.272 0.038 var(--accent-h));
+  --accent-ink: oklch(0.832 0.108 var(--accent-h));
+  --on-accent: oklch(0.182 0.03 var(--accent-h));
+  --accent-wash: oklch(0.272 0.038 var(--accent-h));
 
-  --pos-l: 0.778;  --pos-c: 0.104;
+  --pos-l: 0.778;
+  --pos-c: 0.104;
   --pos-soft: oklch(0.338 0.062 var(--pos-h));
-  --pos-ink:  oklch(0.832 0.094 var(--pos-h));
+  --pos-ink: oklch(0.832 0.094 var(--pos-h));
 
-  --neg:      oklch(0.705 0.130 var(--neg-h));
-  --neg-soft: oklch(0.340 0.072 var(--neg-h));
-  --neg-ink:  oklch(0.818 0.108 var(--neg-h));
+  --neg: oklch(0.705 0.13 var(--neg-h));
+  --neg-soft: oklch(0.34 0.072 var(--neg-h));
+  --neg-ink: oklch(0.818 0.108 var(--neg-h));
 
-  --warn:      oklch(0.780 0.120 70);
-  --warn-soft: oklch(0.345 0.060 70);
-  --warn-ink:  oklch(0.830 0.105 70);
+  --warn: oklch(0.78 0.12 70);
+  --warn-soft: oklch(0.345 0.06 70);
+  --warn-ink: oklch(0.83 0.105 70);
 
   --error: oklch(0.65 0.18 25);
 
-  --tag-bg-l: 0.336;  --tag-bg-c: 0.064;
-  --tag-fg-l: 0.836;  --tag-fg-c: 0.106;
-  --tag-dot-l: 0.730; --tag-dot-c: 0.138;
+  --tag-bg-l: 0.336;
+  --tag-bg-c: 0.064;
+  --tag-fg-l: 0.836;
+  --tag-fg-c: 0.106;
+  --tag-dot-l: 0.73;
+  --tag-dot-c: 0.138;
 
-  --ct-l: 0.268;  --ct-c: 0.044;
+  --ct-l: 0.268;
+  --ct-c: 0.044;
   --ct-line: oklch(1 0 0 / 0.07);
 
-  --fb-l1: 0.36;  --fb-c1: 0.085;  --fb-l2: 0.24;  --fb-c2: 0.05;
+  --fb-l1: 0.36;
+  --fb-c1: 0.085;
+  --fb-l2: 0.24;
+  --fb-c2: 0.05;
 
-  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.30);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3);
   --shadow-md: 0 4px 14px oklch(0 0 0 / 0.34), 0 2px 5px oklch(0 0 0 / 0.28);
   --shadow-lg: 0 18px 48px oklch(0 0 0 / 0.48), 0 6px 16px oklch(0 0 0 / 0.34);
 }
 
-[data-density="compact"] { --row-h: 46px; --pad: 12px; }
-[data-density="comfy"]   { --row-h: 68px; --pad: 22px; }
+[data-density='compact'] {
+  --row-h: 46px;
+  --pad: 12px;
+}
+[data-density='comfy'] {
+  --row-h: 68px;
+  --pad: 22px;
+}

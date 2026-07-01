@@ -11,24 +11,27 @@
 export const DEPTH_MAX = 3
 
 export const PILLARS = {
-  house:     { hue: 72,   label: 'House',       vibe: 'Groovy · club · disco roots' },
-  techno:    { hue: 242,  label: 'Techno',      vibe: 'Brut · industriel · hypnotique' },
-  trance:    { hue: 292,  label: 'Trance',      vibe: 'Euphorique · psyché · éthéré' },
-  dnb:       { hue: 162,  label: 'Drum & Bass', vibe: 'Rapide · jungle · liquide' },
-  hardcore:  { hue: 28,   label: 'Hardcore',    vibe: 'Dur · gabber · distorsion' },
-  harddance: { hue: 338,  label: 'Hard Dance',  vibe: 'Hardstyle · jumpstyle · rave' },
-  autres:    { hue: null, label: 'Autres',      vibe: 'Inclassable' },
+  house: { hue: 72, label: 'House', vibe: 'Groovy · club · disco roots' },
+  techno: { hue: 242, label: 'Techno', vibe: 'Brut · industriel · hypnotique' },
+  trance: { hue: 292, label: 'Trance', vibe: 'Euphorique · psyché · éthéré' },
+  dnb: { hue: 162, label: 'Drum & Bass', vibe: 'Rapide · jungle · liquide' },
+  hardcore: { hue: 28, label: 'Hardcore', vibe: 'Dur · gabber · distorsion' },
+  harddance: { hue: 338, label: 'Hard Dance', vibe: 'Hardstyle · jumpstyle · rave' },
+  autres: { hue: null, label: 'Autres', vibe: 'Inclassable' },
 }
 
 export const PILLAR_ORDER = ['house', 'techno', 'trance', 'dnb', 'hardcore', 'harddance', 'autres']
 
 export const PILLAR_LABELS = Object.fromEntries(
-  Object.entries(PILLARS).map(([k, v]) => [k, v.label])
+  Object.entries(PILLARS).map(([k, v]) => [k, v.label]),
 )
 
 /* CSS-safe slug: 'Classic/Min. Techno' -> 'classic-min-techno' */
 export const slug = (name) =>
-  String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 
 /**
  * Tonalité d'un genre.

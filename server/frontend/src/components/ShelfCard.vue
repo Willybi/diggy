@@ -1,7 +1,13 @@
 <template>
   <RouterLink v-if="to" :to="to" class="shelf-card" :class="variant">
     <div class="sc-img" :class="variant">
-      <img v-if="imageSrc" :src="imageSrc" alt="" loading="lazy" @error="e => e.target.style.display = 'none'" />
+      <img
+        v-if="imageSrc"
+        :src="imageSrc"
+        alt=""
+        loading="lazy"
+        @error="(e) => (e.target.style.display = 'none')"
+      />
       <span v-else class="sc-fb">{{ fallbackLetter }}</span>
       <slot name="overlay" />
     </div>
@@ -11,7 +17,13 @@
   </RouterLink>
   <div v-else class="shelf-card" :class="variant">
     <div class="sc-img" :class="variant">
-      <img v-if="imageSrc" :src="imageSrc" alt="" loading="lazy" @error="e => e.target.style.display = 'none'" />
+      <img
+        v-if="imageSrc"
+        :src="imageSrc"
+        alt=""
+        loading="lazy"
+        @error="(e) => (e.target.style.display = 'none')"
+      />
       <span v-else class="sc-fb">{{ fallbackLetter }}</span>
       <slot name="overlay" />
     </div>
@@ -23,7 +35,7 @@
 
 <script setup>
 defineProps({
-  variant: { type: String, default: 'square' },   // 'square' | 'round'
+  variant: { type: String, default: 'square' }, // 'square' | 'round'
   imageSrc: { type: String, default: null },
   title: { type: String, required: true },
   subtitle: { type: String, default: null },
@@ -46,7 +58,9 @@ defineProps({
   cursor: pointer;
   transition: transform 0.15s;
 }
-.shelf-card:hover { transform: translateY(-2px); }
+.shelf-card:hover {
+  transform: translateY(-2px);
+}
 
 /* Image */
 .sc-img {
@@ -62,8 +76,14 @@ defineProps({
   flex: none;
   position: relative;
 }
-.sc-img.round { border-radius: 50%; }
-.sc-img img { width: 100%; height: 100%; object-fit: cover; }
+.sc-img.round {
+  border-radius: 50%;
+}
+.sc-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 .sc-fb {
   font: 600 22px/1 var(--font-ui);
   color: var(--ink-3);

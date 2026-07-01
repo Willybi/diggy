@@ -12,7 +12,12 @@
       >
         <template #badges />
         <template #actions>
-          <a v-if="sourceLabel && djSet.source_url" class="btn-ghost" :href="djSet.source_url" target="_blank">
+          <a
+            v-if="sourceLabel && djSet.source_url"
+            class="btn-ghost"
+            :href="djSet.source_url"
+            target="_blank"
+          >
             Voir sur {{ sourceLabel }}
           </a>
         </template>
@@ -27,14 +32,21 @@
         </div>
         <div v-if="djSet.artists.length" class="set-artists-list">
           <div v-for="a in djSet.artists" :key="a.artist_id" class="set-artist-row">
-            <RouterLink :to="`/artist/${a.artist_id}`" class="sa-name">{{ a.artist_name }}</RouterLink>
+            <RouterLink :to="`/artist/${a.artist_id}`" class="sa-name">{{
+              a.artist_name
+            }}</RouterLink>
             <span class="sa-role mono">{{ a.role }}</span>
             <button class="btn-row-action" @click="removeSetArtist(a.artist_id)">Retirer</button>
           </div>
         </div>
         <p v-else class="empty-hint">Aucun artiste lié.</p>
         <div class="sa-add-row">
-          <input v-model="saQuery" class="admin-input" placeholder="Rechercher un artiste…" @input="onSaSearch" />
+          <input
+            v-model="saQuery"
+            class="admin-input"
+            placeholder="Rechercher un artiste…"
+            @input="onSaSearch"
+          />
         </div>
         <div v-if="saResults.length" class="sa-results">
           <div v-for="a in saResults" :key="a.id" class="sa-hit" @click="addSetArtist(a.id)">
@@ -68,11 +80,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="t in djSet.tracklist"
-                :key="t.id"
-                :class="trackRowClass(t)"
-              >
+              <tr v-for="t in djSet.tracklist" :key="t.id" :class="trackRowClass(t)">
                 <td class="tl-pos mono">{{ t.position }}</td>
                 <td class="tl-time mono">
                   <a
@@ -80,7 +88,8 @@
                     :href="makeTimestampUrl(djSet.source_url, t.timecode_ms)"
                     target="_blank"
                     class="tl-time-link"
-                  >{{ fmtCue(t.timecode_ms) }}</a>
+                    >{{ fmtCue(t.timecode_ms) }}</a
+                  >
                   <span v-else>{{ fmtCue(t.timecode_ms) }}</span>
                 </td>
                 <td class="tl-cover">
@@ -93,16 +102,26 @@
                   <span v-else class="tl-thumb tl-thumb--empty"></span>
                 </td>
                 <td class="tl-track">
-                  <RouterLink v-if="t.catalog_id && !t.is_id" :to="`/catalog/${t.catalog_id}`" class="tl-link">
+                  <RouterLink
+                    v-if="t.catalog_id && !t.is_id"
+                    :to="`/catalog/${t.catalog_id}`"
+                    class="tl-link"
+                  >
                     <span class="tl-title">{{ t.catalog_title || t.raw_title }}</span>
                     <span class="tl-artist">
-                      <ArtistLinks v-if="t.catalog_artists?.length" :artists="t.catalog_artists" :fallback="t.catalog_artist || t.raw_artist" />
+                      <ArtistLinks
+                        v-if="t.catalog_artists?.length"
+                        :artists="t.catalog_artists"
+                        :fallback="t.catalog_artist || t.raw_artist"
+                      />
                       <template v-else>{{ t.catalog_artist || t.raw_artist }}</template>
                     </span>
                   </RouterLink>
                   <div v-else>
-                    <span class="tl-title">{{ t.is_id ? 'ID' : (t.raw_title || '?') }}</span>
-                    <span class="tl-artist">{{ t.is_id ? 'non identifié' : (t.raw_artist || '') }}</span>
+                    <span class="tl-title">{{ t.is_id ? 'ID' : t.raw_title || '?' }}</span>
+                    <span class="tl-artist">{{
+                      t.is_id ? 'non identifié' : t.raw_artist || ''
+                    }}</span>
                   </div>
                 </td>
                 <td class="tl-lib">
@@ -141,9 +160,14 @@ let saTimer = null
 
 function onSaSearch() {
   clearTimeout(saTimer)
-  if (!saQuery.value.trim()) { saResults.value = []; return }
+  if (!saQuery.value.trim()) {
+    saResults.value = []
+    return
+  }
   saTimer = setTimeout(async () => {
-    const { data } = await api.get('/api/artists/', { params: { q: saQuery.value.trim(), limit: 10 } })
+    const { data } = await api.get('/api/artists/', {
+      params: { q: saQuery.value.trim(), limit: 10 },
+    })
     saResults.value = data
   }, 300)
 }
@@ -164,15 +188,15 @@ async function removeSetArtist(artistId) {
   if (!djSet.value) return
   try {
     await api.delete(`/api/admin/sets/${djSet.value.id}/artists/${artistId}`)
-    djSet.value.artists = djSet.value.artists.filter(a => a.artist_id !== artistId)
+    djSet.value.artists = djSet.value.artists.filter((a) => a.artist_id !== artistId)
   } catch {}
 }
 
 const SOURCE_META = {
-  youtube:         { label: 'YouTube' },
+  youtube: { label: 'YouTube' },
   '1001tracklists': { label: '1001Tracklists' },
-  trackid:         { label: 'TrackID.net' },
-  soundcloud:      { label: 'SoundCloud' },
+  trackid: { label: 'TrackID.net' },
+  soundcloud: { label: 'SoundCloud' },
 }
 
 function detectSourceLabel(url) {
@@ -215,9 +239,7 @@ const heroSub = computed(() => {
 const sourceLabel = computed(() => {
   if (!djSet.value) return null
   // Prefer detecting from actual URL, fallback to source field
-  return detectSourceLabel(djSet.value.source_url)
-    || SOURCE_META[djSet.value.source]?.label
-    || null
+  return detectSourceLabel(djSet.value.source_url) || SOURCE_META[djSet.value.source]?.label || null
 })
 
 const stats = computed(() => {
@@ -257,7 +279,9 @@ onMounted(async () => {
 }
 
 /* Tracklist */
-.tracklist-wrap { overflow-x: auto; }
+.tracklist-wrap {
+  overflow-x: auto;
+}
 .tracklist {
   width: 100%;
   border-collapse: collapse;
@@ -277,14 +301,31 @@ onMounted(async () => {
   vertical-align: middle;
   border-bottom: 1px solid var(--line);
 }
-.tracklist tbody tr:last-child td { border-bottom: none; }
-.tracklist tbody tr:hover td { background: var(--surface-2); }
+.tracklist tbody tr:last-child td {
+  border-bottom: none;
+}
+.tracklist tbody tr:hover td {
+  background: var(--surface-2);
+}
 
-.tl-pos  { width: 36px; text-align: center; }
-.tl-time { width: 72px; }
-.tl-cover { width: 40px; padding: 4px 8px !important; }
-.tl-track { min-width: 180px; }
-.tl-lib { width: 44px; text-align: center; }
+.tl-pos {
+  width: 36px;
+  text-align: center;
+}
+.tl-time {
+  width: 72px;
+}
+.tl-cover {
+  width: 40px;
+  padding: 4px 8px !important;
+}
+.tl-track {
+  min-width: 180px;
+}
+.tl-lib {
+  width: 44px;
+  text-align: center;
+}
 
 .tl-thumb {
   display: block;
@@ -308,13 +349,18 @@ onMounted(async () => {
   text-decoration: underline;
 }
 
-.mono { font-family: var(--font-mono); color: var(--ink-2); }
+.mono {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
 
 .tl-link {
   text-decoration: none;
   color: inherit;
 }
-.tl-link:hover .tl-title { color: var(--accent-ink); }
+.tl-link:hover .tl-title {
+  color: var(--accent-ink);
+}
 
 .tl-title {
   display: block;
@@ -331,10 +377,22 @@ onMounted(async () => {
 }
 
 /* Row states */
-.row--unknown .tl-title { color: var(--ink-3); font-style: italic; }
-.row--unknown .tl-artist { color: var(--ink-3); }
-.row--id .tl-title { color: var(--ink-3); font-style: italic; opacity: 0.6; }
-.row--id .tl-artist { color: var(--ink-3); opacity: 0.6; }
+.row--unknown .tl-title {
+  color: var(--ink-3);
+  font-style: italic;
+}
+.row--unknown .tl-artist {
+  color: var(--ink-3);
+}
+.row--id .tl-title {
+  color: var(--ink-3);
+  font-style: italic;
+  opacity: 0.6;
+}
+.row--id .tl-artist {
+  color: var(--ink-3);
+  opacity: 0.6;
+}
 
 /* ID label */
 .id-label {
@@ -352,9 +410,14 @@ onMounted(async () => {
   color: var(--ink-2);
   font: 500 13px/1 var(--font-ui);
   text-decoration: none;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
-.btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
+.btn-ghost:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
 
 .state {
   color: var(--ink-3);
@@ -371,14 +434,18 @@ onMounted(async () => {
   border: 1px solid var(--warn-ink);
   border-radius: var(--r-sm);
 }
-.admin-header { margin-bottom: 10px; }
+.admin-header {
+  margin-bottom: 10px;
+}
 .admin-label {
   font: 600 11px/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--warn-ink);
 }
-.set-artists-list { margin-bottom: 10px; }
+.set-artists-list {
+  margin-bottom: 10px;
+}
 .set-artist-row {
   display: flex;
   align-items: center;
@@ -386,11 +453,25 @@ onMounted(async () => {
   padding: 5px 8px;
   border-radius: var(--r-sm);
 }
-.set-artist-row:hover { background: var(--surface-2); }
-.sa-name { font: 500 13px/1 var(--font-ui); color: var(--ink); text-decoration: none; }
-.sa-name:hover { color: var(--accent-ink); }
-.sa-role { font-size: 11px; color: var(--ink-3); }
-.sa-add-row { display: flex; gap: 8px; }
+.set-artist-row:hover {
+  background: var(--surface-2);
+}
+.sa-name {
+  font: 500 13px/1 var(--font-ui);
+  color: var(--ink);
+  text-decoration: none;
+}
+.sa-name:hover {
+  color: var(--accent-ink);
+}
+.sa-role {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.sa-add-row {
+  display: flex;
+  gap: 8px;
+}
 .admin-input {
   flex: 1;
   padding: 7px 12px;
@@ -401,8 +482,14 @@ onMounted(async () => {
   font: 400 13px/1 var(--font-ui);
   outline: none;
 }
-.admin-input:focus { border-color: var(--accent); }
-.sa-results { max-height: 160px; overflow-y: auto; margin-top: 6px; }
+.admin-input:focus {
+  border-color: var(--accent);
+}
+.sa-results {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
 .sa-hit {
   padding: 6px 10px;
   cursor: pointer;
@@ -410,8 +497,16 @@ onMounted(async () => {
   font: 400 13px/1 var(--font-ui);
   color: var(--ink);
 }
-.sa-hit:hover { background: var(--accent-soft); color: var(--accent-ink); }
-.empty-hint { font-size: 12px; color: var(--ink-3); font-style: italic; margin-bottom: 10px; }
+.sa-hit:hover {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.empty-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+  margin-bottom: 10px;
+}
 .btn-row-action {
   margin-left: auto;
   padding: 3px 7px;
@@ -422,5 +517,8 @@ onMounted(async () => {
   font: 500 10px/1 var(--font-ui);
   cursor: pointer;
 }
-.btn-row-action:hover { color: var(--neg-ink); border-color: var(--neg-ink); }
+.btn-row-action:hover {
+  color: var(--neg-ink);
+  border-color: var(--neg-ink);
+}
 </style>

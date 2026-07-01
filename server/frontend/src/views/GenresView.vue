@@ -5,20 +5,33 @@
       <div class="titles">
         <h1>Genres</h1>
         <div class="sub">
-          <template v-if="isFiltered">{{ fmtNum(total) }} / {{ fmtNum(totalUnfiltered) }} genres</template>
+          <template v-if="isFiltered"
+            >{{ fmtNum(total) }} / {{ fmtNum(totalUnfiltered) }} genres</template
+          >
           <template v-else>{{ fmtNum(totalUnfiltered) }} genres</template>
         </div>
       </div>
       <div class="head-tools">
         <label class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.2-3.2" stroke-linecap="round" />
+          </svg>
           <input v-model="searchQuery" type="text" placeholder="Rechercher un genre…" />
         </label>
         <div class="filterseg">
           <button :class="{ on: sortBy === 'tracks' }" @click="sortBy = 'tracks'">Tracks</button>
           <button :class="{ on: sortBy === 'alpha' }" @click="sortBy = 'alpha'">A–Z</button>
-          <button class="liked" :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">Liked</button>
-          <button class="disliked" :class="{ on: sortBy === 'disliked' }" @click="sortBy = 'disliked'">Disliked</button>
+          <button class="liked" :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">
+            Liked
+          </button>
+          <button
+            class="disliked"
+            :class="{ on: sortBy === 'disliked' }"
+            @click="sortBy = 'disliked'"
+          >
+            Disliked
+          </button>
         </div>
       </div>
     </div>
@@ -28,7 +41,8 @@
       <div class="admin-block">
         <span class="admin-label">Admin</span>
         <span class="admin-txt">
-          <b>{{ fmtNum(unclassifiedCount) }}</b> {{ pl(unclassifiedCount, 'track', 'tracks') }} sans genre attribué — à classer
+          <b>{{ fmtNum(unclassifiedCount) }}</b> {{ pl(unclassifiedCount, 'track', 'tracks') }} sans
+          genre attribué — à classer
         </span>
         <button class="btn-admin" :disabled="classifying" @click="launchClassify">
           {{ classifying ? 'En cours…' : 'Lancer le classement auto' }}
@@ -62,16 +76,18 @@
       </div>
     </div>
 
-    <div v-else-if="!displayItems.length && !loading" class="empty">
-      Aucun genre ne correspond.
-    </div>
+    <div v-else-if="!displayItems.length && !loading" class="empty">Aucun genre ne correspond.</div>
 
     <div v-else class="genre-grid">
       <GenreCard v-for="g in displayItems" :key="g.name" :genre="g" />
     </div>
 
     <!-- Sentinel (infinite scroll) -->
-    <div ref="sentinelRef" class="sentinel" :class="{ on: hasMore && sortBy !== 'liked' && sortBy !== 'disliked' }">
+    <div
+      ref="sentinelRef"
+      class="sentinel"
+      :class="{ on: hasMore && sortBy !== 'liked' && sortBy !== 'disliked' }"
+    >
       <span class="spin"></span>Chargement…
     </div>
   </div>
@@ -111,14 +127,20 @@ const totalUnfiltered = computed(() => {
   return Object.values(fc).reduce((s, v) => s + v, 0)
 })
 
-const isFiltered = computed(() => searchQuery.value.trim() || familyFilter.value !== 'all' || sortBy.value === 'liked' || sortBy.value === 'disliked')
+const isFiltered = computed(
+  () =>
+    searchQuery.value.trim() ||
+    familyFilter.value !== 'all' ||
+    sortBy.value === 'liked' ||
+    sortBy.value === 'disliked',
+)
 
 const displayItems = computed(() => {
   if (sortBy.value === 'liked') {
-    return items.value.filter(g => opinions.get('genre', g.name) === 'liked')
+    return items.value.filter((g) => opinions.get('genre', g.name) === 'liked')
   }
   if (sortBy.value === 'disliked') {
-    return items.value.filter(g => opinions.get('genre', g.name) === 'disliked')
+    return items.value.filter((g) => opinions.get('genre', g.name) === 'disliked')
   }
   return items.value
 })
@@ -129,8 +151,11 @@ const pillarChips = computed(() => {
   const allCount = Object.values(pc).reduce((s, v) => s + v, 0)
   return [
     { key: 'all', label: 'Tous', fam: null, count: allCount },
-    ...PILLAR_ORDER.map(k => ({
-      key: k, label: PILLAR_LABELS[k], fam: k, count: pc[k] || 0,
+    ...PILLAR_ORDER.map((k) => ({
+      key: k,
+      label: PILLAR_LABELS[k],
+      fam: k,
+      count: pc[k] || 0,
     })),
   ]
 })
@@ -144,7 +169,7 @@ async function fetchGenres(reset = true) {
   loading.value = true
   try {
     const params = {
-      sort: (sortBy.value === 'liked' || sortBy.value === 'disliked') ? 'tracks' : sortBy.value,
+      sort: sortBy.value === 'liked' || sortBy.value === 'disliked' ? 'tracks' : sortBy.value,
       limit: PAGE_SIZE,
       offset: offset.value,
     }
@@ -213,7 +238,7 @@ onMounted(() => {
         (entries) => {
           if (entries[0].isIntersecting) loadMore()
         },
-        { rootMargin: '0px 0px 360px 0px' }
+        { rootMargin: '0px 0px 360px 0px' },
       )
       observer.observe(sentinelRef.value)
     }
@@ -224,7 +249,6 @@ onUnmounted(() => {
   observer?.disconnect()
   clearTimeout(debounceTimer)
 })
-
 </script>
 
 <style scoped>
@@ -248,7 +272,7 @@ onUnmounted(() => {
 .titles h1 {
   margin: 0;
   font: 600 28px/1.1 var(--font-ui);
-  letter-spacing: -.3px;
+  letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
@@ -288,7 +312,9 @@ onUnmounted(() => {
   font: 400 14px var(--font-ui);
   color: var(--ink);
 }
-.search input::placeholder { color: var(--ink-3); }
+.search input::placeholder {
+  color: var(--ink-3);
+}
 .filterseg {
   display: flex;
   gap: 2px;
@@ -305,7 +331,9 @@ onUnmounted(() => {
   border-radius: var(--r-xs);
   cursor: pointer;
 }
-.filterseg button:hover { color: var(--ink); }
+.filterseg button:hover {
+  color: var(--ink);
+}
 .filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
@@ -336,7 +364,7 @@ onUnmounted(() => {
 }
 .admin-label {
   font: 600 9.5px/1 var(--font-mono);
-  letter-spacing: .12em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);
   border: 1px solid var(--line-2);
@@ -364,17 +392,38 @@ onUnmounted(() => {
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-admin:hover { border-color: var(--accent); color: var(--accent-ink); }
-.btn-admin:disabled { opacity: .5; cursor: default; }
+.btn-admin:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn-admin:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 /* ── Pillar chips ── */
-.fam-chip[data-fam="house"]     { --th: var(--hue-house); }
-.fam-chip[data-fam="techno"]    { --th: var(--hue-techno); }
-.fam-chip[data-fam="trance"]    { --th: var(--hue-trance); }
-.fam-chip[data-fam="dnb"]       { --th: var(--hue-dnb); }
-.fam-chip[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
-.fam-chip[data-fam="harddance"] { --th: var(--hue-harddance); }
-.fam-chip[data-fam="autres"] .fc-dot { background: var(--ink-3); box-shadow: 0 0 0 1px oklch(0 0 0 / .08); }
+.fam-chip[data-fam='house'] {
+  --th: var(--hue-house);
+}
+.fam-chip[data-fam='techno'] {
+  --th: var(--hue-techno);
+}
+.fam-chip[data-fam='trance'] {
+  --th: var(--hue-trance);
+}
+.fam-chip[data-fam='dnb'] {
+  --th: var(--hue-dnb);
+}
+.fam-chip[data-fam='hardcore'] {
+  --th: var(--hue-hardcore);
+}
+.fam-chip[data-fam='harddance'] {
+  --th: var(--hue-harddance);
+}
+.fam-chip[data-fam='autres'] .fc-dot {
+  background: var(--ink-3);
+  box-shadow: 0 0 0 1px oklch(0 0 0 / 0.08);
+}
 
 .fam-chips {
   display: flex;
@@ -396,16 +445,22 @@ onUnmounted(() => {
   font: 500 13px/1 var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
-  transition: background .14s, border-color .14s, color .14s;
+  transition:
+    background 0.14s,
+    border-color 0.14s,
+    color 0.14s;
 }
-.fam-chip:hover { background: var(--surface-2); color: var(--ink); }
+.fam-chip:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
 .fc-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex: none;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
-  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / .28);
+  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / 0.28);
 }
 .fc-n {
   font: 600 11px/1 var(--font-mono);
@@ -416,7 +471,9 @@ onUnmounted(() => {
   border-color: transparent;
   color: var(--accent-ink);
 }
-.fam-chip.on .fc-n { color: var(--accent-ink); }
+.fam-chip.on .fc-n {
+  color: var(--accent-ink);
+}
 
 /* ── Grid ── */
 .genre-grid {
@@ -446,21 +503,37 @@ onUnmounted(() => {
   background: var(--surface-2);
   animation: shimmer 1.2s ease-in-out infinite alternate;
 }
-.sk-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.sk-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .sk-line {
   height: 14px;
   border-radius: 4px;
   background: var(--surface-2);
   animation: shimmer 1.2s ease-in-out infinite alternate;
 }
-.sk-line.w60 { width: 60%; }
-.sk-line.w40 { width: 40%; }
+.sk-line.w60 {
+  width: 60%;
+}
+.sk-line.w40 {
+  width: 40%;
+}
 @keyframes shimmer {
-  from { opacity: .6; }
-  to { opacity: 1; }
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk-art, .sk-line { animation: none; }
+  .sk-art,
+  .sk-line {
+    animation: none;
+  }
 }
 
 /* ── Sentinel ── */
@@ -473,34 +546,63 @@ onUnmounted(() => {
   color: var(--ink-3);
   font: 500 12px/1 var(--font-mono);
 }
-.sentinel.on { display: flex; }
+.sentinel.on {
+  display: flex;
+}
 .spin {
   width: 14px;
   height: 14px;
   border-radius: 50%;
   border: 2px solid var(--line-2);
   border-top-color: var(--accent);
-  animation: spin .7s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
 
 /* ── Responsive (container queries on .app) ── */
 @container (max-width: 820px) {
-  .head-tools { width: 100%; margin-left: 0; }
-  .search { flex: 1; min-width: 0; }
+  .head-tools {
+    width: 100%;
+    margin-left: 0;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+  }
 }
 @container (max-width: 720px) {
-  .genre-grid { grid-template-columns: 1fr 1fr; }
+  .genre-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 @container (max-width: 640px) {
-  .page-head, .genre-grid, .admin-strip, .fam-chips, .sentinel {
+  .page-head,
+  .genre-grid,
+  .admin-strip,
+  .fam-chips,
+  .sentinel {
     padding-left: 18px;
     padding-right: 18px;
   }
-  .admin-strip { margin-left: 0; margin-right: 0; padding-left: 18px; padding-right: 18px; }
+  .admin-strip {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
 }
 @container (max-width: 520px) {
-  .genre-grid { grid-template-columns: 1fr; }
+  .genre-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

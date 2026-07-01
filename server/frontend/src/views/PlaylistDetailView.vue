@@ -11,22 +11,28 @@
         :fallback-letter="(playlist.title || 'P')[0]"
       >
         <template #actions>
-          <a class="btn-ghost" :href="`https://deezer.com/playlist/${playlist.external_id}`" target="_blank">Deezer</a>
+          <a
+            class="btn-ghost"
+            :href="`https://deezer.com/playlist/${playlist.external_id}`"
+            target="_blank"
+            >Deezer</a
+          >
           <button
             v-if="playlist.followed"
             class="btn-ghost btn-ghost--danger"
             @click="toggleFollow"
-          >Ne plus suivre</button>
-          <button
-            v-else
-            class="btn-ghost btn-ghost--accent"
-            @click="toggleFollow"
-          >Suivre</button>
+          >
+            Ne plus suivre
+          </button>
+          <button v-else class="btn-ghost btn-ghost--accent" @click="toggleFollow">Suivre</button>
         </template>
       </PageHero>
 
       <!-- Admin: fetch artwork -->
-      <div v-if="auth.user?.is_admin && !playlist.has_artwork && playlist.source === 'deezer'" class="admin-card">
+      <div
+        v-if="auth.user?.is_admin && !playlist.has_artwork && playlist.source === 'deezer'"
+        class="admin-card"
+      >
         <button class="btn-ghost btn-ghost--accent" :disabled="fetchingArt" @click="fetchArtwork">
           {{ fetchingArt ? 'Fetch en cours…' : 'Fetch artwork Deezer' }}
         </button>
@@ -36,7 +42,7 @@
       <!-- Crawl status banner -->
       <div v-if="crawlState" class="crawl-banner" :class="crawlState">
         <span class="crawl-dot" />
-        {{ crawlState === 'running' ? 'Crawl en cours…' : 'Crawl en file d\'attente' }}
+        {{ crawlState === 'running' ? 'Crawl en cours…' : "Crawl en file d'attente" }}
       </div>
 
       <StatStrip :stats="stats" />
@@ -62,13 +68,19 @@
               <tr v-for="t in playlist.tracks" :key="t.catalog_id">
                 <td class="mt-cover">
                   <div class="cover-mini">
-                    <img v-if="t.has_artwork" :src="`/storage/catalog-artworks/${t.catalog_id}.jpg`" :alt="t.title" />
+                    <img
+                      v-if="t.has_artwork"
+                      :src="`/storage/catalog-artworks/${t.catalog_id}.jpg`"
+                      :alt="t.title"
+                    />
                   </div>
                 </td>
                 <td class="mt-track">
                   <RouterLink :to="`/catalog/${t.catalog_id}`" class="mt-link">
                     <span class="mt-title">{{ t.title }}</span>
-                    <span class="mt-artist"><ArtistLinks :artists="t.artists" :fallback="t.artist || '—'" /></span>
+                    <span class="mt-artist"
+                      ><ArtistLinks :artists="t.artists" :fallback="t.artist || '—'"
+                    /></span>
                   </RouterLink>
                 </td>
                 <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
@@ -79,10 +91,27 @@
                     v-if="t.has_preview"
                     class="play-btn"
                     :class="{ 'play-btn--playing': player.isCurrent(t.catalog_id) }"
-                    @click="player.play({ id: t.catalog_id, catalog_id: t.catalog_id, title: t.title, artist: t.artist, bpm: t.bpm, key: t.key })"
+                    @click="
+                      player.play({
+                        id: t.catalog_id,
+                        catalog_id: t.catalog_id,
+                        title: t.title,
+                        artist: t.artist,
+                        bpm: t.bpm,
+                        key: t.key,
+                      })
+                    "
                   >
-                    <svg v-if="!(player.isCurrent(t.catalog_id) && player.playing)" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
-                    <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+                    <svg
+                      v-if="!(player.isCurrent(t.catalog_id) && player.playing)"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M8 5.5v13l11-6.5z" />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M6 5h4v14H6zm8 0h4v14h-4z" />
+                    </svg>
                   </span>
                 </td>
               </tr>
@@ -114,7 +143,7 @@ const loading = ref(true)
 const fetchingArt = ref(false)
 const artMsg = ref('')
 const artMsgType = ref('')
-const crawlState = ref(null)  // 'queued' | 'running' | null
+const crawlState = ref(null) // 'queued' | 'running' | null
 let crawlPollTimer = null
 
 const heroSub = computed(() => {
@@ -229,7 +258,9 @@ onUnmounted(stopCrawlPoll)
   font: 500 13px/1 var(--font-ui);
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 .btn-ghost:hover {
   background: var(--surface-2);
@@ -248,7 +279,9 @@ onUnmounted(stopCrawlPoll)
 }
 
 /* Mini track table */
-.mini-table-wrap { overflow-x: auto; }
+.mini-table-wrap {
+  overflow-x: auto;
+}
 .mini-table {
   width: 100%;
   border-collapse: collapse;
@@ -268,27 +301,59 @@ onUnmounted(stopCrawlPoll)
   vertical-align: middle;
   border-bottom: 1px solid var(--line);
 }
-.mini-table tbody tr:last-child td { border-bottom: none; }
-.mini-table tbody tr:hover td { background: var(--surface-2); }
+.mini-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.mini-table tbody tr:hover td {
+  background: var(--surface-2);
+}
 
-.mt-cover { width: 40px; padding: 4px 8px !important; }
-.mt-track { min-width: 180px; }
-.mt-num { width: 56px; text-align: center; }
-.mt-dur { width: 56px; text-align: center; }
-.mt-preview { width: 40px; text-align: center; }
-.mono { font-family: var(--font-mono); color: var(--ink-2); }
+.mt-cover {
+  width: 40px;
+  padding: 4px 8px !important;
+}
+.mt-track {
+  min-width: 180px;
+}
+.mt-num {
+  width: 56px;
+  text-align: center;
+}
+.mt-dur {
+  width: 56px;
+  text-align: center;
+}
+.mt-preview {
+  width: 40px;
+  text-align: center;
+}
+.mono {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
 
 .cover-mini {
-  width: 32px; height: 32px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--r-xs);
   border: 1px solid var(--line);
   overflow: hidden;
   background: var(--surface-2);
 }
-.cover-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-mini img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
-.mt-link { text-decoration: none; color: inherit; }
-.mt-link:hover .mt-title { color: var(--accent-ink); }
+.mt-link {
+  text-decoration: none;
+  color: inherit;
+}
+.mt-link:hover .mt-title {
+  color: var(--accent-ink);
+}
 .mt-title {
   display: block;
   font-weight: 500;
@@ -306,15 +371,26 @@ onUnmounted(stopCrawlPoll)
 .play-btn {
   display: inline-grid;
   place-items: center;
-  width: 28px; height: 28px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   cursor: pointer;
   color: var(--ink-3);
-  transition: color 0.12s, background 0.12s;
+  transition:
+    color 0.12s,
+    background 0.12s;
 }
-.play-btn:hover { color: var(--ink); background: var(--surface-2); }
-.play-btn--playing { color: var(--accent-ink); }
-.play-btn svg { width: 16px; height: 16px; }
+.play-btn:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.play-btn--playing {
+  color: var(--accent-ink);
+}
+.play-btn svg {
+  width: 16px;
+  height: 16px;
+}
 
 .state {
   color: var(--ink-3);
@@ -355,8 +431,13 @@ onUnmounted(stopCrawlPoll)
   background: var(--ink-3);
 }
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .admin-card {
@@ -372,6 +453,10 @@ onUnmounted(stopCrawlPoll)
 .admin-msg {
   font: 400 13px/1 var(--font-ui);
 }
-.admin-msg.success { color: var(--pos-ink); }
-.admin-msg.error { color: var(--neg-ink); }
+.admin-msg.success {
+  color: var(--pos-ink);
+}
+.admin-msg.error {
+  color: var(--neg-ink);
+}
 </style>

@@ -26,7 +26,7 @@
       <div class="hero" :data-fam="tone.pillar">
         <div class="hero-mosaic">
           <div v-for="(slot, i) in sixSlots" :key="i" class="hero-tile">
-            <img v-if="slot" :src="slot" alt="" loading="lazy" @error="e => e.target.remove()" />
+            <img v-if="slot" :src="slot" alt="" loading="lazy" @error="(e) => e.target.remove()" />
           </div>
           <div class="hero-scrim"></div>
 
@@ -39,15 +39,26 @@
               :src="a.image"
               :alt="a.name"
               loading="lazy"
-              @error="e => e.target.style.display = 'none'"
+              @error="(e) => (e.target.style.display = 'none')"
             />
-            <span v-if="genre.artistCount > 3" class="more">+{{ fmtNum(genre.artistCount - 3) }}</span>
+            <span v-if="genre.artistCount > 3" class="more"
+              >+{{ fmtNum(genre.artistCount - 3) }}</span
+            >
           </div>
 
           <!-- Play button -->
-          <button class="hero-play" :class="{ 'hero-play--playing': isPlaying }" aria-label="Lecture" @click="onHeroPlay">
-            <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+          <button
+            class="hero-play"
+            :class="{ 'hero-play--playing': isPlaying }"
+            aria-label="Lecture"
+            @click="onHeroPlay"
+          >
+            <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 5h4v14H6zm8 0h4v14h-4z" />
+            </svg>
           </button>
         </div>
 
@@ -68,10 +79,21 @@
         <span class="admin-label">Admin</span>
         <div class="admin-row">
           <input v-model="renameVal" class="admin-input" placeholder="Nouveau nom…" />
-          <button class="btn-ghost-sm" :disabled="!renameVal.trim() || renameVal.trim() === genre.name" @click="doRename">Renommer</button>
+          <button
+            class="btn-ghost-sm"
+            :disabled="!renameVal.trim() || renameVal.trim() === genre.name"
+            @click="doRename"
+          >
+            Renommer
+          </button>
         </div>
         <div class="admin-row">
-          <input v-model="mergeQuery" class="admin-input" placeholder="Fusionner dans…" @input="onMergeSearch" />
+          <input
+            v-model="mergeQuery"
+            class="admin-input"
+            placeholder="Fusionner dans…"
+            @input="onMergeSearch"
+          />
           <button class="btn-ghost-sm" :disabled="!mergeTarget" @click="doMerge">Fusionner</button>
         </div>
         <div v-if="mergeSuggestions.length" class="merge-list">
@@ -80,8 +102,14 @@
             :key="s.name"
             class="merge-item"
             :class="{ selected: mergeTarget === s.name }"
-            @click="mergeTarget = s.name; mergeQuery = s.name; mergeSuggestions = []"
-          >{{ s.name }} <span class="mono muted">({{ s.trackCount }})</span></div>
+            @click="
+              mergeTarget = s.name
+              mergeQuery = s.name
+              mergeSuggestions = []
+            "
+          >
+            {{ s.name }} <span class="mono muted">({{ s.trackCount }})</span>
+          </div>
         </div>
         <div v-if="adminMsg" class="admin-msg" :class="adminMsgType">{{ adminMsg }}</div>
       </div>
@@ -115,7 +143,9 @@
             :fallback-letter="(s.title || '?')[0]"
           >
             <template #overlay>
-              <span class="ring" :class="ringClass(s)">{{ Math.round(s.genreTrackCount / s.totalTracks * 100) }}%</span>
+              <span class="ring" :class="ringClass(s)"
+                >{{ Math.round((s.genreTrackCount / s.totalTracks) * 100) }}%</span
+              >
             </template>
           </ShelfCard>
         </div>
@@ -143,7 +173,9 @@
       <!-- Tracks section -->
       <section class="tracks-section">
         <header class="tracks-head">
-          <h2 class="section-title">Tracks <span class="section-count mono">{{ trackTotal }}</span></h2>
+          <h2 class="section-title">
+            Tracks <span class="section-count mono">{{ trackTotal }}</span>
+          </h2>
           <div class="tracks-tools">
             <input
               v-model="trackSearch"
@@ -152,7 +184,15 @@
               @input="onTrackSearch"
             />
             <div class="filterseg">
-              <button v-for="opt in sortOptions" :key="opt.value" class="seg" :class="{ active: trackSort === opt.value }" @click="setSort(opt.value)">{{ opt.label }}</button>
+              <button
+                v-for="opt in sortOptions"
+                :key="opt.value"
+                class="seg"
+                :class="{ active: trackSort === opt.value }"
+                @click="setSort(opt.value)"
+              >
+                {{ opt.label }}
+              </button>
             </div>
             <button class="seg lib-toggle" :class="{ active: trackInLib === 1 }" @click="toggleLib">
               <span class="libdot-mini" :class="{ active: trackInLib === 1 }"></span>
@@ -161,7 +201,9 @@
           </div>
         </header>
 
-        <div v-if="!tracks.length && !tracksLoading" class="state-empty">Aucune track ne correspond.</div>
+        <div v-if="!tracks.length && !tracksLoading" class="state-empty">
+          Aucune track ne correspond.
+        </div>
         <div v-else class="track-list">
           <GenreTrackRow v-for="t in tracks" :key="t.id" :track="t" />
         </div>
@@ -312,26 +354,38 @@ async function fetchGenre() {
 
 async function fetchArtists() {
   try {
-    const { data } = await api.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
+    const { data } = await api.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, {
+      params: { limit: 12 },
+    })
     artists.value = data.items
     artistsTotal.value = data.total
-  } catch { artists.value = [] }
+  } catch {
+    artists.value = []
+  }
 }
 
 async function fetchSets() {
   try {
-    const { data } = await api.get(`/api/genres/sets/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
+    const { data } = await api.get(`/api/genres/sets/${encodeURIComponent(genreName.value)}`, {
+      params: { limit: 12 },
+    })
     sets.value = data.items
     setsTotal.value = data.total
-  } catch { sets.value = [] }
+  } catch {
+    sets.value = []
+  }
 }
 
 async function fetchPlaylists() {
   try {
-    const { data } = await api.get(`/api/genres/playlists/${encodeURIComponent(genreName.value)}`, { params: { limit: 12 } })
+    const { data } = await api.get(`/api/genres/playlists/${encodeURIComponent(genreName.value)}`, {
+      params: { limit: 12 },
+    })
     playlists.value = data.items
     playlistsTotal.value = data.total
-  } catch { playlists.value = [] }
+  } catch {
+    playlists.value = []
+  }
 }
 
 async function fetchTracks(reset = false) {
@@ -349,7 +403,9 @@ async function fetchTracks(reset = false) {
     }
     if (trackSearch.value.trim()) params.q = trackSearch.value.trim()
     if (trackInLib.value != null) params.inLib = trackInLib.value
-    const { data } = await api.get(`/api/genres/tracks/${encodeURIComponent(genreName.value)}`, { params })
+    const { data } = await api.get(`/api/genres/tracks/${encodeURIComponent(genreName.value)}`, {
+      params,
+    })
     if (reset) {
       tracks.value = data.items
     } else {
@@ -367,7 +423,9 @@ async function fetchNeighbors() {
   try {
     const { data } = await api.get(`/api/genres/neighbors/${encodeURIComponent(genreName.value)}`)
     neighbors.value = data.items
-  } catch { neighbors.value = [] }
+  } catch {
+    neighbors.value = []
+  }
 }
 
 // -- Track controls --
@@ -390,12 +448,15 @@ function toggleLib() {
 function setupObserver() {
   if (observer) observer.disconnect()
   if (!sentinel.value) return
-  observer = new IntersectionObserver(([entry]) => {
-    if (entry.isIntersecting && !tracksLoading.value && tracks.value.length < trackTotal.value) {
-      trackOffset.value = tracks.value.length
-      fetchTracks(false)
-    }
-  }, { rootMargin: '0px 0px 360px 0px' })
+  observer = new IntersectionObserver(
+    ([entry]) => {
+      if (entry.isIntersecting && !tracksLoading.value && tracks.value.length < trackTotal.value) {
+        trackOffset.value = tracks.value.length
+        fetchTracks(false)
+      }
+    },
+    { rootMargin: '0px 0px 360px 0px' },
+  )
   observer.observe(sentinel.value)
 }
 
@@ -404,7 +465,9 @@ async function doRename() {
   const newName = renameVal.value.trim()
   if (!newName || newName === genre.value.name) return
   try {
-    const { data } = await api.patch(`/api/genres/rename/${encodeURIComponent(genre.value.name)}`, { new_name: newName })
+    const { data } = await api.patch(`/api/genres/rename/${encodeURIComponent(genre.value.name)}`, {
+      new_name: newName,
+    })
     adminMsg.value = `Renommé → ${data.to} (${data.affected} tracks)`
     adminMsgType.value = 'ok'
     router.replace(`/style/${encodeURIComponent(data.to)}`)
@@ -417,12 +480,19 @@ async function doRename() {
 function onMergeSearch() {
   mergeTarget.value = null
   clearTimeout(mergeTimer)
-  if (!mergeQuery.value.trim()) { mergeSuggestions.value = []; return }
+  if (!mergeQuery.value.trim()) {
+    mergeSuggestions.value = []
+    return
+  }
   mergeTimer = setTimeout(async () => {
     try {
-      const { data } = await api.get('/api/genres', { params: { q: mergeQuery.value.trim(), limit: 5 } })
-      mergeSuggestions.value = data.items.filter(g => g.name !== genre.value?.name)
-    } catch { mergeSuggestions.value = [] }
+      const { data } = await api.get('/api/genres', {
+        params: { q: mergeQuery.value.trim(), limit: 5 },
+      })
+      mergeSuggestions.value = data.items.filter((g) => g.name !== genre.value?.name)
+    } catch {
+      mergeSuggestions.value = []
+    }
   }, 250)
 }
 
@@ -430,7 +500,10 @@ async function doMerge() {
   if (!mergeTarget.value) return
   if (!confirm(`Fusionner "${genre.value.name}" dans "${mergeTarget.value}" ?`)) return
   try {
-    const { data } = await api.post('/api/genres/merge', { source: genre.value.name, target: mergeTarget.value })
+    const { data } = await api.post('/api/genres/merge', {
+      source: genre.value.name,
+      target: mergeTarget.value,
+    })
     adminMsg.value = `Fusionné ${data.affected} tracks → ${data.target}`
     adminMsgType.value = 'ok'
     router.replace(`/style/${encodeURIComponent(data.target)}`)
@@ -441,19 +514,24 @@ async function doMerge() {
 }
 
 // -- Lifecycle --
-watch(() => route.params.genre, () => {
-  trackSearch.value = ''
-  trackSort.value = 'recent'
-  trackInLib.value = null
-  mergeQuery.value = ''
-  mergeTarget.value = null
-  mergeSuggestions.value = []
-  adminMsg.value = ''
-  fetchGenre()
-})
+watch(
+  () => route.params.genre,
+  () => {
+    trackSearch.value = ''
+    trackSort.value = 'recent'
+    trackInLib.value = null
+    mergeQuery.value = ''
+    mergeTarget.value = null
+    mergeSuggestions.value = []
+    adminMsg.value = ''
+    fetchGenre()
+  },
+)
 
 onMounted(fetchGenre)
-onUnmounted(() => { if (observer) observer.disconnect() })
+onUnmounted(() => {
+  if (observer) observer.disconnect()
+})
 </script>
 
 <style scoped>
@@ -471,19 +549,42 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   display: inline-block;
   margin-bottom: 14px;
 }
-.back-link:hover { color: var(--ink); }
+.back-link:hover {
+  color: var(--ink);
+}
 
 /* ── Pillar hue mapping ── */
-.hero[data-fam="house"]     { --th: var(--hue-house); }
-.hero[data-fam="techno"]    { --th: var(--hue-techno); }
-.hero[data-fam="trance"]    { --th: var(--hue-trance); }
-.hero[data-fam="dnb"]       { --th: var(--hue-dnb); }
-.hero[data-fam="hardcore"]  { --th: var(--hue-hardcore); }
-.hero[data-fam="harddance"] { --th: var(--hue-harddance); }
-.hero[data-fam="autres"]    { --th: 0; }
-.hero[data-fam="autres"] .hero-tile { --mc: 0; }
-.hero[data-fam="autres"] .hero-dot { background: var(--ink-3); box-shadow: none; }
-.hero[data-fam="autres"] .hero-title { color: var(--ink); }
+.hero[data-fam='house'] {
+  --th: var(--hue-house);
+}
+.hero[data-fam='techno'] {
+  --th: var(--hue-techno);
+}
+.hero[data-fam='trance'] {
+  --th: var(--hue-trance);
+}
+.hero[data-fam='dnb'] {
+  --th: var(--hue-dnb);
+}
+.hero[data-fam='hardcore'] {
+  --th: var(--hue-hardcore);
+}
+.hero[data-fam='harddance'] {
+  --th: var(--hue-harddance);
+}
+.hero[data-fam='autres'] {
+  --th: 0;
+}
+.hero[data-fam='autres'] .hero-tile {
+  --mc: 0;
+}
+.hero[data-fam='autres'] .hero-dot {
+  background: var(--ink-3);
+  box-shadow: none;
+}
+.hero[data-fam='autres'] .hero-title {
+  color: var(--ink);
+}
 
 /* ── Hero ── */
 .hero {
@@ -505,12 +606,30 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   overflow: hidden;
   background: oklch(var(--ml) var(--mc, 0.15) var(--th, 0));
 }
-.hero-tile:nth-child(1) { --ml: 0.66; --mc: 0.155; }
-.hero-tile:nth-child(2) { --ml: 0.75; --mc: 0.115; }
-.hero-tile:nth-child(3) { --ml: 0.56; --mc: 0.165; }
-.hero-tile:nth-child(4) { --ml: 0.70; --mc: 0.095; }
-.hero-tile:nth-child(5) { --ml: 0.60; --mc: 0.140; }
-.hero-tile:nth-child(6) { --ml: 0.72; --mc: 0.110; }
+.hero-tile:nth-child(1) {
+  --ml: 0.66;
+  --mc: 0.155;
+}
+.hero-tile:nth-child(2) {
+  --ml: 0.75;
+  --mc: 0.115;
+}
+.hero-tile:nth-child(3) {
+  --ml: 0.56;
+  --mc: 0.165;
+}
+.hero-tile:nth-child(4) {
+  --ml: 0.7;
+  --mc: 0.095;
+}
+.hero-tile:nth-child(5) {
+  --ml: 0.6;
+  --mc: 0.14;
+}
+.hero-tile:nth-child(6) {
+  --ml: 0.72;
+  --mc: 0.11;
+}
 .hero-tile img {
   position: absolute;
   inset: 0;
@@ -522,7 +641,7 @@ onUnmounted(() => { if (observer) observer.disconnect() })
 .hero-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, oklch(0.20 0.02 70 / .42) 0%, transparent 46%);
+  background: linear-gradient(to top, oklch(0.2 0.02 70 / 0.42) 0%, transparent 46%);
   pointer-events: none;
 }
 
@@ -544,13 +663,17 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   object-fit: cover;
   box-shadow: var(--shadow-sm);
 }
-.av:first-child { margin-left: 0; }
-[data-theme="dark"] .av { border-color: oklch(0.28 0.012 262); }
+.av:first-child {
+  margin-left: 0;
+}
+[data-theme='dark'] .av {
+  border-color: oklch(0.28 0.012 262);
+}
 .more {
   margin-left: 8px;
   font: 600 12px/1 var(--font-mono);
   color: oklch(0.99 0.004 92);
-  text-shadow: 0 1px 3px oklch(0.20 0.02 70 / .6);
+  text-shadow: 0 1px 3px oklch(0.2 0.02 70 / 0.6);
 }
 
 /* Play */
@@ -569,13 +692,28 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   cursor: pointer;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity .18s ease, transform .18s ease, background .15s;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    background 0.15s;
   box-shadow: var(--shadow-md);
 }
-.hero-play svg { width: 20px; height: 20px; margin-left: 2px; }
-.hero:hover .hero-play { opacity: 1; transform: none; }
-.hero-play--playing { opacity: 1; transform: none; }
-.hero-play:hover { background: var(--accent-hover); }
+.hero-play svg {
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+}
+.hero:hover .hero-play {
+  opacity: 1;
+  transform: none;
+}
+.hero-play--playing {
+  opacity: 1;
+  transform: none;
+}
+.hero-play:hover {
+  background: var(--accent-hover);
+}
 
 /* Hero body */
 .hero-body {
@@ -596,7 +734,7 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   border-radius: 50%;
   flex: none;
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0));
-  box-shadow: 0 0 0 2px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0) / .28);
+  box-shadow: 0 0 0 2px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0) / 0.28);
 }
 .hero-title {
   font: 700 26px/1.1 var(--font-ui);
@@ -609,7 +747,7 @@ onUnmounted(() => { if (observer) observer.disconnect() })
 }
 .hero-fam {
   font: 500 10px/1 var(--font-mono);
-  letter-spacing: .1em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   white-space: nowrap;
@@ -647,7 +785,10 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   color: var(--ink);
   font: 400 13px/1.4 var(--font-ui);
 }
-.admin-input:focus { outline: none; border-color: var(--accent); }
+.admin-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .btn-ghost-sm {
   padding: 6px 14px;
   border-radius: var(--r-sm);
@@ -658,8 +799,14 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-ghost-sm:hover { border-color: var(--accent); color: var(--ink); }
-.btn-ghost-sm:disabled { opacity: 0.4; cursor: default; }
+.btn-ghost-sm:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.btn-ghost-sm:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .merge-list {
   display: flex;
   flex-direction: column;
@@ -672,17 +819,31 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   color: var(--ink);
   cursor: pointer;
 }
-.merge-item:hover { background: var(--surface); }
-.merge-item.selected { background: var(--accent-wash); }
+.merge-item:hover {
+  background: var(--surface);
+}
+.merge-item.selected {
+  background: var(--accent-wash);
+}
 .admin-msg {
   font: 400 12px/1.3 var(--font-mono);
   padding: 6px 10px;
   border-radius: var(--r-xs);
 }
-.admin-msg.ok { color: var(--pos-ink); background: var(--pos-soft); }
-.admin-msg.err { color: var(--accent-ink); background: var(--accent-soft); }
-.muted { color: var(--ink-3); }
-.mono { font-family: var(--font-mono); }
+.admin-msg.ok {
+  color: var(--pos-ink);
+  background: var(--pos-soft);
+}
+.admin-msg.err {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+.muted {
+  color: var(--ink-3);
+}
+.mono {
+  font-family: var(--font-mono);
+}
 
 /* ── Shelves ── */
 .shelf {
@@ -693,7 +854,9 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
 }
-.shelf::-webkit-scrollbar { display: none; }
+.shelf::-webkit-scrollbar {
+  display: none;
+}
 
 /* Ring on set cards */
 .ring {
@@ -705,9 +868,21 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   border-radius: 999px;
   border: 1.5px solid;
 }
-.ring-full { color: var(--pos-ink); border-color: var(--pos); background: var(--pos-soft); }
-.ring-mid { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
-.ring-low { color: var(--ink-2); border-color: var(--line-2); background: var(--surface); }
+.ring-full {
+  color: var(--pos-ink);
+  border-color: var(--pos);
+  background: var(--pos-soft);
+}
+.ring-mid {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.ring-low {
+  color: var(--ink-2);
+  border-color: var(--line-2);
+  background: var(--surface);
+}
 
 /* Source badges */
 .source-badge {
@@ -717,9 +892,19 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   padding: 3px 7px;
   border-radius: 999px;
 }
-.source-badge.deezer { background: var(--accent-soft); color: var(--accent-ink); }
-.source-badge.spotify { background: var(--pos-soft); color: var(--pos-ink); }
-.source-badge.tidal { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--line); }
+.source-badge.deezer {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.source-badge.spotify {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.source-badge.tidal {
+  background: var(--surface-3);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+}
 
 /* ── Tracks section ── */
 .tracks-section {
@@ -763,7 +948,10 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   color: var(--ink);
   font: 400 12px/1.4 var(--font-ui);
 }
-.search-input:focus { outline: none; border-color: var(--accent); }
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
 /* Segmented control */
 .filterseg {
@@ -779,12 +967,21 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   color: var(--ink-3);
   font: 500 11px/1 var(--font-ui);
   cursor: pointer;
-  transition: background .12s, color .12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
   white-space: nowrap;
 }
-.seg + .seg { border-left: 1px solid var(--line); }
-.seg.active { background: var(--accent-soft); color: var(--accent-ink); }
-.seg:hover:not(.active) { background: var(--surface-2); }
+.seg + .seg {
+  border-left: 1px solid var(--line);
+}
+.seg.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.seg:hover:not(.active) {
+  background: var(--surface-2);
+}
 
 /* Lib toggle */
 .lib-toggle {
@@ -805,7 +1002,9 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   border-radius: 50%;
   background: var(--ink-3);
 }
-.libdot-mini.active { background: var(--pos); }
+.libdot-mini.active {
+  background: var(--pos);
+}
 
 .track-list {
   display: flex;
@@ -833,11 +1032,18 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   border: 2px solid var(--line);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin .6s linear infinite;
+  animation: spin 0.6s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .sentinel-spinner { animation: none; opacity: 0.5; }
+  .sentinel-spinner {
+    animation: none;
+    opacity: 0.5;
+  }
 }
 
 /* ── Neighbors ── */
@@ -859,9 +1065,14 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--surface);
-  transition: border-color .15s, box-shadow .15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
-.neighbor-chip:hover { border-color: var(--line-2); box-shadow: var(--shadow-sm); }
+.neighbor-chip:hover {
+  border-color: var(--line-2);
+  box-shadow: var(--shadow-sm);
+}
 .neighbor-meta {
   font: 400 10px/1 var(--font-mono);
   color: var(--ink-3);
@@ -873,12 +1084,37 @@ onUnmounted(() => { if (observer) observer.disconnect() })
   flex-direction: column;
   gap: 16px;
 }
-.sk-back { width: 60px; height: 12px; border-radius: var(--r-xs); background: var(--surface-2); }
-.sk-hero { height: 180px; border-radius: var(--r-md); background: var(--surface-2); }
-.sk-strip { height: 52px; border-radius: var(--r-md); background: var(--surface-2); }
-.sk-shelf { height: 130px; border-radius: var(--r-md); background: var(--surface-2); }
-.sk-rows { display: flex; flex-direction: column; gap: 4px; }
-.sk-row { height: 48px; border-radius: var(--r-sm); background: var(--surface-2); }
+.sk-back {
+  width: 60px;
+  height: 12px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+}
+.sk-hero {
+  height: 180px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.sk-strip {
+  height: 52px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.sk-shelf {
+  height: 130px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.sk-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sk-row {
+  height: 48px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
 
 /* ── 404 ── */
 .state-404 {
@@ -895,13 +1131,25 @@ onUnmounted(() => { if (observer) observer.disconnect() })
 
 /* ── Responsive ── */
 @container app (max-width: 820px) {
-  .tracks-tools { margin-left: 0; width: 100%; }
-  .search-input { width: 100%; order: 1; }
+  .tracks-tools {
+    margin-left: 0;
+    width: 100%;
+  }
+  .search-input {
+    width: 100%;
+    order: 1;
+  }
 }
 @container app (max-width: 640px) {
-  .detail-view { padding: 18px; }
+  .detail-view {
+    padding: 18px;
+  }
 }
 @container app (max-width: 560px) {
-  .hero-mosaic { height: 140px; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); }
+  .hero-mosaic {
+    height: 140px;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+  }
 }
 </style>

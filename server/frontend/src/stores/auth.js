@@ -7,7 +7,9 @@ function isTokenExpired(t) {
   try {
     const payload = JSON.parse(atob(t.split('.')[1]))
     return payload.exp * 1000 < Date.now()
-  } catch { return true }
+  } catch {
+    return true
+  }
 }
 
 export const useAuthStore = defineStore('auth', () => {

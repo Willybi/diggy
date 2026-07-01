@@ -10,9 +10,9 @@
 
 <script setup>
 defineProps({
-  title:    { type: String, required: true },
+  title: { type: String, required: true },
   subtitle: { type: String, default: null },
-  to:       { type: String, default: null },
+  to: { type: String, default: null },
 })
 </script>
 
@@ -27,9 +27,16 @@ defineProps({
   color: inherit;
   transition: background 0.1s;
 }
-.appear-row:last-child { border-bottom: none; }
-.appear-row:hover { background: var(--surface-2); }
-.appear-info { min-width: 0; flex: 1; }
+.appear-row:last-child {
+  border-bottom: none;
+}
+.appear-row:hover {
+  background: var(--surface-2);
+}
+.appear-info {
+  min-width: 0;
+  flex: 1;
+}
 .appear-title {
   display: block;
   font: 500 13.5px/1.3 var(--font-ui);

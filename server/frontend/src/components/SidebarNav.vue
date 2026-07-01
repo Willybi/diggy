@@ -7,8 +7,12 @@
 
     <nav class="nav-section">
       <p class="nav-label"><span>Library</span></p>
-      <RouterLink v-for="item in libraryItems" :key="item.to"
-        :to="item.to" custom v-slot="{ isActive, navigate }"
+      <RouterLink
+        v-for="item in libraryItems"
+        :key="item.to"
+        :to="item.to"
+        custom
+        v-slot="{ isActive, navigate }"
       >
         <span class="nav-item" :class="{ 'is-active': isActive }" @click="navigate">
           <span class="nav-icon" v-html="item.icon" />
@@ -78,11 +82,11 @@ const iconMoon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const iconUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`
 const iconLogout = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M17 16l4-4-4-4M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>`
 const libraryItems = [
-  { to: '/catalog',   label: 'Catalog',    icon: iconGrid,     count: null },
-  { to: '/artists',   label: 'Artistes',   icon: iconArtist,   count: null },
-  { to: '/sets',      label: 'Sets',       icon: iconSet,      count: null },
-  { to: '/playlists', label: 'Playlists',  icon: iconPlaylist, count: null },
-  { to: '/genres',    label: 'Genres',     icon: iconTag,      count: null },
+  { to: '/catalog', label: 'Catalog', icon: iconGrid, count: null },
+  { to: '/artists', label: 'Artistes', icon: iconArtist, count: null },
+  { to: '/sets', label: 'Sets', icon: iconSet, count: null },
+  { to: '/playlists', label: 'Playlists', icon: iconPlaylist, count: null },
+  { to: '/genres', label: 'Genres', icon: iconTag, count: null },
 ]
 </script>
 
@@ -117,7 +121,7 @@ const libraryItems = [
 }
 .brand-name {
   font: 600 19px/1 var(--font-ui);
-  letter-spacing: .2px;
+  letter-spacing: 0.2px;
   color: var(--ink);
 }
 .nav-section {
@@ -125,7 +129,7 @@ const libraryItems = [
 }
 .nav-label {
   font: 500 10px/1 var(--font-mono);
-  letter-spacing: .12em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);
   padding: 16px 10px 8px;
@@ -140,7 +144,9 @@ const libraryItems = [
   color: var(--ink-2);
   cursor: pointer;
   font: 500 14.5px/1 var(--font-ui);
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
   user-select: none;
   text-decoration: none;
   line-height: 1;
@@ -197,7 +203,7 @@ const libraryItems = [
 .util-key {
   margin-left: auto;
   font: 600 9px/1 var(--font-mono);
-  letter-spacing: .1em;
+  letter-spacing: 0.1em;
   color: var(--ink-3);
   border: 1px solid var(--line-2);
   border-radius: 4px;
@@ -241,7 +247,9 @@ const libraryItems = [
   display: grid;
   place-items: center;
   border-radius: 4px;
-  transition: color 0.12s, background 0.12s;
+  transition:
+    color 0.12s,
+    background 0.12s;
   margin-left: auto;
 }
 .logout-btn:hover {
@@ -266,7 +274,7 @@ const libraryItems = [
     padding: 14px 0 8px;
   }
   .nav-label::after {
-    content: "\b7";
+    content: '\b7';
   }
   .nav-item {
     justify-content: center;

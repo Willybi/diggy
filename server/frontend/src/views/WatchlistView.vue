@@ -5,23 +5,30 @@
         <h1>Playlists</h1>
         <div class="sub">
           {{ browsePlaylists.length }} playlist{{ browsePlaylists.length !== 1 ? 's' : '' }}
-          <span v-if="mode !== 'all'" class="muted">· {{ filteredList.length }} {{ mode === 'liked' ? 'likées' : mode === 'disliked' ? 'dislikées' : 'à explorer' }}</span>
+          <span v-if="mode !== 'all'" class="muted"
+            >· {{ filteredList.length }}
+            {{
+              mode === 'liked' ? 'likées' : mode === 'disliked' ? 'dislikées' : 'à explorer'
+            }}</span
+          >
         </div>
       </div>
       <div class="head-tools">
         <div class="filterseg">
           <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Toutes</button>
-          <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">Liked</button>
-          <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">Disliked</button>
+          <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">
+            Liked
+          </button>
+          <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">
+            Disliked
+          </button>
           <button :class="{ on: mode === 'unrated' }" @click="mode = 'unrated'">À explorer</button>
         </div>
-        <button
-          class="btn-add"
-          :class="{ cancel: showForm }"
-          @click="toggleForm"
-        >
+        <button class="btn-add" :class="{ cancel: showForm }" @click="toggleForm">
           <span v-if="!showForm" class="plus">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M12 5v14M5 12h14" stroke-linecap="round" />
+            </svg>
           </span>
           <span class="addlbl">{{ showForm ? 'Annuler' : 'Ajouter' }}</span>
         </button>
@@ -56,32 +63,68 @@
     <div v-else-if="displayList.length > 0" class="table-wrap">
       <table class="tt">
         <colgroup>
-          <col class="w-pl">
-          <col class="w-creator col-creator">
-          <col class="w-tracks col-tracks">
-          <col class="w-crawl col-crawl">
-          <col class="w-avis">
+          <col class="w-pl" />
+          <col class="w-creator col-creator" />
+          <col class="w-tracks col-tracks" />
+          <col class="w-crawl col-crawl" />
+          <col class="w-avis" />
         </colgroup>
         <thead>
           <tr>
-            <th class="sortable" @click="toggleSort('title')">Playlist <span v-if="sortKey === 'title'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
-            <th class="col-creator sortable" @click="toggleSort('creator')">Créateur <span v-if="sortKey === 'creator'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
-            <th class="num col-tracks sortable" @click="toggleSort('tracks')">Tracks <span v-if="sortKey === 'tracks'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
-            <th class="col-crawl sortable" @click="toggleSort('crawl')">Dernier crawl <span v-if="sortKey === 'crawl'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
-            <th class="end sortable" @click="toggleSort('avis')">Avis <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+            <th class="sortable" @click="toggleSort('title')">
+              Playlist
+              <span v-if="sortKey === 'title'" class="arr">{{
+                sortDir === 'asc' ? '↑' : '↓'
+              }}</span>
+            </th>
+            <th class="col-creator sortable" @click="toggleSort('creator')">
+              Créateur
+              <span v-if="sortKey === 'creator'" class="arr">{{
+                sortDir === 'asc' ? '↑' : '↓'
+              }}</span>
+            </th>
+            <th class="num col-tracks sortable" @click="toggleSort('tracks')">
+              Tracks
+              <span v-if="sortKey === 'tracks'" class="arr">{{
+                sortDir === 'asc' ? '↑' : '↓'
+              }}</span>
+            </th>
+            <th class="col-crawl sortable" @click="toggleSort('crawl')">
+              Dernier crawl
+              <span v-if="sortKey === 'crawl'" class="arr">{{
+                sortDir === 'asc' ? '↑' : '↓'
+              }}</span>
+            </th>
+            <th class="end sortable" @click="toggleSort('avis')">
+              Avis
+              <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="pl in displayList" :key="pl.id" :class="{ liked: opinions.get('playlist', pl.id) === 'liked', disliked: opinions.get('playlist', pl.id) === 'disliked' }">
+          <tr
+            v-for="pl in displayList"
+            :key="pl.id"
+            :class="{
+              liked: opinions.get('playlist', pl.id) === 'liked',
+              disliked: opinions.get('playlist', pl.id) === 'disliked',
+            }"
+          >
             <td>
               <RouterLink :to="`/playlists/${pl.id}`" class="pl-cell">
                 <span class="aw">
-                  <img v-if="pl.has_artwork" :src="`/storage/playlist-artworks/${pl.id}.jpg`" :alt="pl.title" />
+                  <img
+                    v-if="pl.has_artwork"
+                    :src="`/storage/playlist-artworks/${pl.id}.jpg`"
+                    :alt="pl.title"
+                  />
                 </span>
                 <div class="pl-meta">
                   <div class="pl-top">
                     <span class="pl-name">{{ pl.title || pl.external_id }}</span>
-                    <span class="src-badge" :class="srcClass(pl.source)">{{ (pl.source || '').toUpperCase() }}</span>
+                    <span class="src-badge" :class="srcClass(pl.source)">{{
+                      (pl.source || '').toUpperCase()
+                    }}</span>
                   </div>
                   <span class="pl-id">{{ pl.external_id }}</span>
                 </div>
@@ -96,22 +139,26 @@
               <span v-else class="td-empty">—</span>
             </td>
             <td class="col-crawl" @click.stop>
-              <span v-if="crawlStatus[pl.id] === 'running'" class="crawl running"><span class="cdot"></span><span class="clbl">En cours</span></span>
-              <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl queued"><span class="cdot"></span><span class="clbl">En attente</span></span>
-              <span v-else-if="crawlStatus[pl.id] === 'done'" class="crawl done"><span class="cdot"></span><span class="clbl">Crawlé</span></span>
+              <span v-if="crawlStatus[pl.id] === 'running'" class="crawl running"
+                ><span class="cdot"></span><span class="clbl">En cours</span></span
+              >
+              <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl queued"
+                ><span class="cdot"></span><span class="clbl">En attente</span></span
+              >
+              <span v-else-if="crawlStatus[pl.id] === 'done'" class="crawl done"
+                ><span class="cdot"></span><span class="clbl">Crawlé</span></span
+              >
               <template v-else>
                 <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
-                <button
-                  v-if="!isCooldown(pl)"
-                  class="btn-crawl"
-                  @click="triggerCrawl(pl)"
-                >Crawl</button>
+                <button v-if="!isCooldown(pl)" class="btn-crawl" @click="triggerCrawl(pl)">
+                  Crawl
+                </button>
               </template>
             </td>
             <td class="end td-avis" @click.stop>
               <LikeDislike
                 :model-value="opinions.get('playlist', pl.id)"
-                @update:model-value="v => setOpinion(pl.id, v)"
+                @update:model-value="(v) => setOpinion(pl.id, v)"
               />
             </td>
           </tr>
@@ -143,7 +190,7 @@ const inputValue = ref('')
 const formError = ref('')
 const adding = ref(false)
 const mode = ref('all')
-const crawlStatus = reactive({})  // pl.id → 'queued' | 'running' | null
+const crawlStatus = reactive({}) // pl.id → 'queued' | 'running' | null
 const page = ref(1)
 const perPage = 25
 
@@ -151,7 +198,9 @@ const perPage = 25
 const sortKey = ref('title')
 const sortDir = ref('asc')
 
-watch([mode, sortKey, sortDir], () => { page.value = 1 })
+watch([mode, sortKey, sortDir], () => {
+  page.value = 1
+})
 
 function toggleSort(key) {
   if (sortKey.value === key) {
@@ -180,11 +229,11 @@ const pollTimers = {}
 const filteredList = computed(() => {
   let list
   if (mode.value === 'liked') {
-    list = browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'liked')
+    list = browsePlaylists.value.filter((p) => opinions.get('playlist', p.id) === 'liked')
   } else if (mode.value === 'disliked') {
-    list = browsePlaylists.value.filter(p => opinions.get('playlist', p.id) === 'disliked')
+    list = browsePlaylists.value.filter((p) => opinions.get('playlist', p.id) === 'disliked')
   } else if (mode.value === 'unrated') {
-    list = browsePlaylists.value.filter(p => !opinions.get('playlist', p.id))
+    list = browsePlaylists.value.filter((p) => !opinions.get('playlist', p.id))
   } else {
     list = [...browsePlaylists.value]
   }
@@ -283,7 +332,7 @@ async function addPlaylist() {
     if (e.response?.status === 409) {
       formError.value = 'Playlist déjà suivie'
     } else {
-      formError.value = 'Erreur lors de l\'ajout'
+      formError.value = "Erreur lors de l'ajout"
     }
   } finally {
     adding.value = false
@@ -300,7 +349,9 @@ function startPolling(playlistId) {
         stopPolling(playlistId)
         crawlStatus[playlistId] = 'done'
         await fetchPlaylists()
-        setTimeout(() => { delete crawlStatus[playlistId] }, 3000)
+        setTimeout(() => {
+          delete crawlStatus[playlistId]
+        }, 3000)
       } else if (!data.status) {
         stopPolling(playlistId)
         delete crawlStatus[playlistId]
@@ -379,7 +430,9 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   font: 500 13px/1 var(--font-mono);
   color: var(--ink-2);
 }
-.sub .muted { color: var(--ink-3); }
+.sub .muted {
+  color: var(--ink-3);
+}
 .head-tools {
   margin-left: auto;
   display: flex;
@@ -405,7 +458,9 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   border-radius: var(--r-xs);
   cursor: pointer;
 }
-.filterseg button:hover { color: var(--ink); }
+.filterseg button:hover {
+  color: var(--ink);
+}
 .filterseg button.on {
   background: var(--accent-soft);
   color: var(--accent-ink);
@@ -434,14 +489,21 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-add:hover { background: var(--accent-hover); }
-.btn-add svg { width: 15px; height: 15px; }
+.btn-add:hover {
+  background: var(--accent-hover);
+}
+.btn-add svg {
+  width: 15px;
+  height: 15px;
+}
 .btn-add.cancel {
   background: var(--surface);
   color: var(--ink-2);
   border-color: var(--line-2);
 }
-.btn-add.cancel .plus { display: none; }
+.btn-add.cancel .plus {
+  display: none;
+}
 
 /* formulaire d'ajout */
 .addform {
@@ -471,7 +533,9 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   color: var(--ink);
   outline: none;
 }
-.addrow input::placeholder { color: var(--ink-3); }
+.addrow input::placeholder {
+  color: var(--ink-3);
+}
 .addrow input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
@@ -487,8 +551,13 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-go:hover { background: var(--accent-hover); }
-.btn-go:disabled { opacity: 0.5; cursor: default; }
+.btn-go:hover {
+  background: var(--accent-hover);
+}
+.btn-go:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .form-error {
   display: block;
   margin-top: 10px;
@@ -507,11 +576,21 @@ table.tt {
   table-layout: fixed;
   min-width: 440px;
 }
-table.tt col.w-pl      { width: auto; }
-table.tt col.w-creator { width: 180px; }
-table.tt col.w-tracks  { width: 84px; }
-table.tt col.w-crawl   { width: 140px; }
-table.tt col.w-avis    { width: 100px; }
+table.tt col.w-pl {
+  width: auto;
+}
+table.tt col.w-creator {
+  width: 180px;
+}
+table.tt col.w-tracks {
+  width: 84px;
+}
+table.tt col.w-crawl {
+  width: 140px;
+}
+table.tt col.w-avis {
+  width: 100px;
+}
 
 table.tt thead th {
   position: sticky;
@@ -526,17 +605,35 @@ table.tt thead th {
   white-space: nowrap;
   user-select: none;
 }
-table.tt th.sortable { cursor: pointer; }
-table.tt th.sortable:hover { color: var(--ink-2); }
-table.tt th .arr { color: var(--accent-ink); margin-left: 4px; }
-table.tt th.num, table.tt td.num { text-align: center; }
-table.tt th.end, table.tt td.end { text-align: right; }
+table.tt th.sortable {
+  cursor: pointer;
+}
+table.tt th.sortable:hover {
+  color: var(--ink-2);
+}
+table.tt th .arr {
+  color: var(--accent-ink);
+  margin-left: 4px;
+}
+table.tt th.num,
+table.tt td.num {
+  text-align: center;
+}
+table.tt th.end,
+table.tt td.end {
+  text-align: right;
+}
 table.tt tbody tr {
   border-bottom: 1px solid var(--line);
   height: var(--row-h);
 }
-table.tt tbody tr:hover { background: var(--surface-2); }
-table.tt td { padding: 0 14px; vertical-align: middle; }
+table.tt tbody tr:hover {
+  background: var(--surface-2);
+}
+table.tt td {
+  padding: 0 14px;
+  vertical-align: middle;
+}
 
 /* cellule playlist */
 .pl-cell {
@@ -580,7 +677,9 @@ table.tt td { padding: 0 14px; vertical-align: middle; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pl-cell:hover .pl-name { color: var(--accent-ink); }
+.pl-cell:hover .pl-name {
+  color: var(--accent-ink);
+}
 .pl-id {
   font: 500 11px var(--font-mono);
   color: var(--ink-3);
@@ -598,29 +697,67 @@ table.tt td { padding: 0 14px; vertical-align: middle; }
   white-space: nowrap;
   flex: none;
 }
-.src-badge.deezer  { background: var(--accent-soft); color: var(--accent-ink); }
-.src-badge.tidal   { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--line-2); }
-.src-badge.spotify { background: var(--pos-soft); color: var(--pos-ink); }
+.src-badge.deezer {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.src-badge.tidal {
+  background: var(--surface-3);
+  color: var(--ink-2);
+  border: 1px solid var(--line-2);
+}
+.src-badge.spotify {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
 
 /* créateur */
-.td-creator { font: 400 13px var(--font-ui); color: var(--ink-2); }
+.td-creator {
+  font: 400 13px var(--font-ui);
+  color: var(--ink-2);
+}
 
 /* numbers + dates */
-.td-num { font: 600 13px var(--font-mono); color: var(--ink); }
-.td-date { font: 500 12.5px var(--font-mono); color: var(--ink-2); white-space: nowrap; }
-.td-empty { font: 500 13px var(--font-mono); color: var(--ink-3); }
+.td-num {
+  font: 600 13px var(--font-mono);
+  color: var(--ink);
+}
+.td-date {
+  font: 500 12.5px var(--font-mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.td-empty {
+  font: 500 13px var(--font-mono);
+  color: var(--ink-3);
+}
 
 /* ── avis: hover-reveal LikeDislike ── */
-.td-avis :deep(.ld-btn) { opacity: 0; transition: opacity .14s; }
-table.tt tbody tr:hover .td-avis :deep(.ld-btn) { opacity: 1; }
-.td-avis :deep(.ld[data-state="liked"] .ld-btn.like),
-.td-avis :deep(.ld[data-state="disliked"] .ld-btn.dislike) { opacity: 1; }
+.td-avis :deep(.ld-btn) {
+  opacity: 0;
+  transition: opacity 0.14s;
+}
+table.tt tbody tr:hover .td-avis :deep(.ld-btn) {
+  opacity: 1;
+}
+.td-avis :deep(.ld[data-state='liked'] .ld-btn.like),
+.td-avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
+  opacity: 1;
+}
 
 /* ── row avis states ── */
-table.tt tbody tr.liked { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .06); }
-table.tt tbody tr.liked:hover { background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / .10); }
-table.tt tbody tr.disliked td:not(.td-avis) { opacity: 0.42; }
-table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
+table.tt tbody tr.liked {
+  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.06);
+}
+table.tt tbody tr.liked:hover {
+  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+}
+table.tt tbody tr.disliked td:not(.td-avis) {
+  opacity: 0.42;
+}
+table.tt tbody tr.disliked:hover td:not(.td-avis) {
+  opacity: 0.7;
+}
 
 /* crawl button */
 .btn-crawl {
@@ -641,22 +778,55 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
 }
 
 /* crawl status chips (inline dot + label) */
-.crawl { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.crawl .cdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-.crawl .clbl { font: 600 12.5px/1 var(--font-ui); }
-.crawl.running .cdot { background: var(--accent); }
-.crawl.running .clbl { color: var(--ink); }
-.crawl.queued  .cdot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
-.crawl.queued  .clbl { color: var(--ink-3); }
-.crawl.done    .cdot { background: var(--pos); }
-.crawl.done    .clbl { color: var(--pos-ink); }
+.crawl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.crawl .cdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.crawl .clbl {
+  font: 600 12.5px/1 var(--font-ui);
+}
+.crawl.running .cdot {
+  background: var(--accent);
+}
+.crawl.running .clbl {
+  color: var(--ink);
+}
+.crawl.queued .cdot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
+}
+.crawl.queued .clbl {
+  color: var(--ink-3);
+}
+.crawl.done .cdot {
+  background: var(--pos);
+}
+.crawl.done .clbl {
+  color: var(--pos-ink);
+}
 @keyframes crawlring {
-  0%   { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 60%, transparent); }
-  70%  { box-shadow: 0 0 0 6px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 60%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .crawl.running .cdot { animation: crawlring 1.5s ease-out infinite; }
+  .crawl.running .cdot {
+    animation: crawlring 1.5s ease-out infinite;
+  }
 }
 
 /* pagination */
@@ -700,13 +870,29 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) { opacity: 0.7; }
 }
 
 /* ── responsive (container queries) ── */
-@container (max-width: 1040px) { .col-crawl { display: none; } }
+@container (max-width: 1040px) {
+  .col-crawl {
+    display: none;
+  }
+}
 @container (max-width: 820px) {
-  .col-creator { display: none; }
-  .head-tools { width: 100%; margin-left: 0; }
+  .col-creator {
+    display: none;
+  }
+  .head-tools {
+    width: 100%;
+    margin-left: 0;
+  }
 }
 @container (max-width: 640px) {
-  .col-tracks { display: none; }
-  .page-head, .addform, .table-wrap { padding-left: 18px; padding-right: 18px; }
+  .col-tracks {
+    display: none;
+  }
+  .page-head,
+  .addform,
+  .table-wrap {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
 }
 </style>

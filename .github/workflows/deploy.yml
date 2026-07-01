@@ -54,16 +54,31 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install pyrekordbox mutagen pytest pytest-mock pytest-cov requests pytest-asyncio httpx aiosqlite anyio fastapi sqlalchemy[asyncio] boto3 "python-jose[cryptography]" bcrypt python-multipart "pydantic[email]" slowapi asyncpg
+        run: pip install pyrekordbox mutagen pytest pytest-mock pytest-cov requests pytest-asyncio httpx aiosqlite anyio fastapi sqlalchemy[asyncio] boto3 "python-jose[cryptography]" bcrypt python-multipart "pydantic[email]" slowapi asyncpg python-json-logger
 
       - name: Run tests
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/diggy_test
         run: pytest tests/ -v --cov=server --cov-report=term-missing --cov-fail-under=55
 
+      - name: Audit Python dependencies
+        run: pip install pip-audit && pip-audit --desc || true
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: cd server/frontend && npm ci
+      - name: Run tests
+        run: cd server/frontend && npx vitest run
+
   deploy:
     runs-on: ubuntu-latest
-    needs: [lint-frontend, lint-python, test]
+    needs: [lint-frontend, lint-python, test, test-frontend]
     steps:
       - name: Setup SSH
         env:

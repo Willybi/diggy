@@ -13,14 +13,26 @@
         <template #badges>
           <InLibBadge :in-lib="track.in_lib" />
           <template v-if="track.genres?.length">
-            <RouterLink v-for="g in track.genres" :key="g.name" :to="`/style/${encodeURIComponent(g.name)}`" style="text-decoration:none">
+            <RouterLink
+              v-for="g in track.genres"
+              :key="g.name"
+              :to="`/style/${encodeURIComponent(g.name)}`"
+              style="text-decoration: none"
+            >
               <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
             </RouterLink>
           </template>
           <StyleTag v-else-if="track.style" :name="track.style" />
         </template>
         <template #actions>
-          <HeroPlayer v-if="track.has_preview" :catalog-id="track.id" :title="track.title" :artist="track.artist" :bpm="track.bpm" :track-key="track.key" />
+          <HeroPlayer
+            v-if="track.has_preview"
+            :catalog-id="track.id"
+            :title="track.title"
+            :artist="track.artist"
+            :bpm="track.bpm"
+            :track-key="track.key"
+          />
         </template>
       </PageHero>
 
@@ -34,28 +46,44 @@
           target="_blank"
           rel="noopener"
           class="meta-link beatport-link"
-        >Beatport ↗</a>
+          >Beatport ↗</a
+        >
       </div>
 
       <!-- Admin: enrichment actions -->
       <div v-if="auth.user?.is_admin" class="admin-card">
         <div class="admin-header">
           <span class="admin-label">Admin</span>
-          <span class="mono muted">beatport_id: {{ track.beatport_id || '—' }} · deezer_id: {{ track.deezer_id || '—' }}</span>
+          <span class="mono muted"
+            >beatport_id: {{ track.beatport_id || '—' }} · deezer_id:
+            {{ track.deezer_id || '—' }}</span
+          >
         </div>
 
         <div class="admin-row">
           <button class="btn-sync" :disabled="enriching" @click="enrichBeatport(false)">
-            {{ enriching ? 'Recherche…' : track.beatport_id ? 'Re-enrichir Beatport' : 'Enrichir via Beatport' }}
+            {{
+              enriching
+                ? 'Recherche…'
+                : track.beatport_id
+                  ? 'Re-enrichir Beatport'
+                  : 'Enrichir via Beatport'
+            }}
           </button>
           <button class="btn-sync" :disabled="enriching" @click="enrichBeatport(true)">
             {{ enriching ? '…' : 'Forcer genre Beatport' }}
           </button>
-          <span v-if="enrichResult" class="enrich-result" :class="enrichResult.cls">{{ enrichResult.text }}</span>
+          <span v-if="enrichResult" class="enrich-result" :class="enrichResult.cls">{{
+            enrichResult.text
+          }}</span>
         </div>
 
-        <div class="admin-row" style="margin-top:8px">
-          <button class="btn-sync" :disabled="!track.deezer_id || fetchingDzGenre" @click="fetchDeezerGenre(false)">
+        <div class="admin-row" style="margin-top: 8px">
+          <button
+            class="btn-sync"
+            :disabled="!track.deezer_id || fetchingDzGenre"
+            @click="fetchDeezerGenre(false)"
+          >
             {{ fetchingDzGenre ? 'Recherche…' : 'Genre Deezer' }}
           </button>
           <template v-if="dzGenreResult">
@@ -65,12 +93,18 @@
               class="btn-sync"
               :disabled="fetchingDzGenre"
               @click="applyDeezerGenres()"
-            >Appliquer {{ dzGenreResult.genres.join(', ') }}</button>
+            >
+              Appliquer {{ dzGenreResult.genres.join(', ') }}
+            </button>
           </template>
         </div>
       </div>
 
-      <RelBlock v-if="track.radar_appearances.length" title="Détecté dans" :count="track.radar_appearances.length">
+      <RelBlock
+        v-if="track.radar_appearances.length"
+        title="Détecté dans"
+        :count="track.radar_appearances.length"
+      >
         <AppearRow
           v-for="r in track.radar_appearances"
           :key="r.playlist_id"
@@ -79,7 +113,11 @@
         />
       </RelBlock>
 
-      <RelBlock v-if="track.set_appearances.length" title="Apparaît dans" :count="track.set_appearances.length">
+      <RelBlock
+        v-if="track.set_appearances.length"
+        title="Apparaît dans"
+        :count="track.set_appearances.length"
+      >
         <AppearRow
           v-for="s in track.set_appearances"
           :key="s.set_id"
@@ -89,7 +127,11 @@
         />
       </RelBlock>
 
-      <RelBlock v-if="track.same_artist_tracks.length" :title="`Du même artiste`" :count="track.same_artist_tracks.length">
+      <RelBlock
+        v-if="track.same_artist_tracks.length"
+        :title="`Du même artiste`"
+        :count="track.same_artist_tracks.length"
+      >
         <AppearRow
           v-for="t in track.same_artist_tracks"
           :key="t.id"
@@ -151,15 +193,14 @@ async function enrichBeatport(forceGenre = false) {
   enrichResult.value = null
   try {
     const params = forceGenre ? '?force_genre=true' : ''
-    const { data } = await api.post(
-      `/api/admin/enrich-beatport/${track.value.id}${params}`,
-      {},
-    )
+    const { data } = await api.post(`/api/admin/enrich-beatport/${track.value.id}${params}`, {})
     if (data.status === 'enriched') {
       track.value.bpm = data.bpm
       track.value.key = data.key
       track.value.label = data.label
-      track.value.genres = (data.genres || []).map(g => typeof g === 'string' ? { name: g, pillar: 'autres', depth: 0 } : g)
+      track.value.genres = (data.genres || []).map((g) =>
+        typeof g === 'string' ? { name: g, pillar: 'autres', depth: 0 } : g,
+      )
       track.value.beatport_id = data.beatport_id
       track.value.bpm_source = 'beatport'
       track.value.key_source = 'beatport'
@@ -171,7 +212,10 @@ async function enrichBeatport(forceGenre = false) {
       enrichResult.value = { text: 'Déjà à jour', cls: 'muted' }
     } else {
       if (forceGenre) track.value.genres = []
-      enrichResult.value = { text: 'Non trouvé sur Beatport' + (forceGenre ? ' — genre effacé' : ''), cls: 'warn' }
+      enrichResult.value = {
+        text: 'Non trouvé sur Beatport' + (forceGenre ? ' — genre effacé' : ''),
+        cls: 'warn',
+      }
     }
   } catch (e) {
     enrichResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
@@ -202,7 +246,9 @@ async function applyDeezerGenres() {
   try {
     const { data } = await api.get(`/api/admin/deezer-genre/${track.value.id}?apply=true`)
     const rawGenres = data.genres || dzGenreResult.value.genres
-    track.value.genres = rawGenres.map(g => typeof g === 'string' ? { name: g, pillar: 'autres', depth: 0 } : g)
+    track.value.genres = rawGenres.map((g) =>
+      typeof g === 'string' ? { name: g, pillar: 'autres', depth: 0 } : g,
+    )
     dzGenreResult.value = { text: `Appliqué : ${rawGenres.join(', ')}`, cls: 'ok' }
   } catch (e) {
     dzGenreResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
@@ -276,8 +322,13 @@ onMounted(async () => {
   text-transform: uppercase;
   color: var(--warn-ink);
 }
-.mono { font-family: var(--font-mono); font-size: 12px; }
-.muted { color: var(--ink-3); }
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.muted {
+  color: var(--ink-3);
+}
 .admin-row {
   display: flex;
   align-items: center;
@@ -294,12 +345,23 @@ onMounted(async () => {
   cursor: pointer;
   transition: opacity 0.12s;
 }
-.btn-sync:disabled { opacity: 0.5; cursor: default; }
+.btn-sync:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .enrich-result {
   font: 400 13px/1.4 var(--font-ui);
 }
-.enrich-result.ok { color: var(--pos-ink); }
-.enrich-result.warn { color: var(--warn-ink); }
-.enrich-result.err { color: var(--neg-ink); }
-.enrich-result.muted { color: var(--ink-3); }
+.enrich-result.ok {
+  color: var(--pos-ink);
+}
+.enrich-result.warn {
+  color: var(--warn-ink);
+}
+.enrich-result.err {
+  color: var(--neg-ink);
+}
+.enrich-result.muted {
+  color: var(--ink-3);
+}
 </style>
