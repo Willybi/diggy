@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 # --------------------------------------------------------------------------
 # Diggy — Daily backup: PostgreSQL (pg_dump) + MinIO (mc mirror)
