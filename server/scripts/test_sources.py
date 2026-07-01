@@ -3,9 +3,8 @@ Feasibility test script for TIDAL and Spotify playlist sources.
 Run locally: python server/scripts/test_sources.py
 """
 
-import sys
 import json
-import time
+import sys
 from pathlib import Path
 
 SEPARATOR = "=" * 60
@@ -14,6 +13,7 @@ SEPARATOR = "=" * 60
 # ──────────────────────────────────────────────────────────────
 # SPOTIFY (spotifyscraper)
 # ──────────────────────────────────────────────────────────────
+
 
 def test_spotify():
     print(f"\n{SEPARATOR}")
@@ -62,14 +62,18 @@ def test_spotify():
             has_preview += 1
         title_short = t.name[:38] if len(t.name) > 38 else t.name
         artist_short = artist_name[:23] if len(artist_name) > 23 else artist_name
-        print(f"{i+1:<4} {title_short:<40} {artist_short:<25} {t.duration_ms:<10} {has_prev}")
+        print(
+            f"{i + 1:<4} {title_short:<40} {artist_short:<25} {t.duration_ms:<10} {has_prev}"
+        )
 
     total = len(playlist.tracks)
-    print(f"\n--- Spotify Report ---")
+    print("\n--- Spotify Report ---")
     print(f"  Tracks fetched    : {total}")
-    print(f"  ISRC available    : NO (not in spotifyscraper Track model)")
-    print(f"  Preview URL       : {has_preview}/{total} ({100*has_preview//total if total else 0}%)")
-    print(f"  Matching strategy : title + artist -> Deezer cross-search")
+    print("  ISRC available    : NO (not in spotifyscraper Track model)")
+    print(
+        f"  Preview URL       : {has_preview}/{total} ({100 * has_preview // total if total else 0}%)"
+    )
+    print("  Matching strategy : title + artist -> Deezer cross-search")
     print(f"  Status            : {'OK' if total > 0 else 'FAIL'}")
 
     client.close()
@@ -129,11 +133,12 @@ def test_tidal():
 
     # Fetch a public/editorial playlist
     # TIDAL Top 50 Global: a]uuid — try a well-known one
-    test_playlist_id = "4cff00d7-e205-46de-8f9e-57e tried"
     # Use search instead to find a playlist
     print("\nSearching for 'Top 50 Global' playlists...")
     try:
-        results = session.search("Top 50 Global", models=[tidalapi.playlist.Playlist], limit=3)
+        results = session.search(
+            "Top 50 Global", models=[tidalapi.playlist.Playlist], limit=3
+        )
         playlists = results.get("playlists", []) if isinstance(results, dict) else []
         if not playlists:
             # Try fetching user favorites or any editorial playlist
@@ -172,7 +177,9 @@ def test_tidal():
         print(f"[FAIL] Could not fetch tracks: {e}")
         return False
 
-    print(f"\n{'#':<4} {'Title':<35} {'Artist':<25} {'ISRC':<16} {'Dur(s)':<8} {'Quality'}")
+    print(
+        f"\n{'#':<4} {'Title':<35} {'Artist':<25} {'ISRC':<16} {'Dur(s)':<8} {'Quality'}"
+    )
     print("-" * 100)
 
     has_isrc = 0
@@ -184,14 +191,20 @@ def test_tidal():
         quality = getattr(t, "audio_quality", "?")
         title_short = t.name[:33] if len(t.name) > 33 else t.name
         artist_short = artist_name[:23] if len(artist_name) > 23 else artist_name
-        print(f"{i+1:<4} {title_short:<35} {artist_short:<25} {isrc:<16} {t.duration:<8} {quality}")
+        print(
+            f"{i + 1:<4} {title_short:<35} {artist_short:<25} {isrc:<16} {t.duration:<8} {quality}"
+        )
 
     total = len(tracks)
-    print(f"\n--- TIDAL Report ---")
+    print("\n--- TIDAL Report ---")
     print(f"  Tracks fetched    : {total}")
-    print(f"  ISRC available    : {has_isrc}/{total} ({100*has_isrc//total if total else 0}%)")
-    print(f"  Matching strategy : ISRC (primary) + title+artist fallback via Deezer")
-    print(f"  Auth type         : OAuth device flow (tokens saved to {TIDAL_TOKEN_FILE})")
+    print(
+        f"  ISRC available    : {has_isrc}/{total} ({100 * has_isrc // total if total else 0}%)"
+    )
+    print("  Matching strategy : ISRC (primary) + title+artist fallback via Deezer")
+    print(
+        f"  Auth type         : OAuth device flow (tokens saved to {TIDAL_TOKEN_FILE})"
+    )
     print(f"  Status            : {'OK' if total > 0 else 'FAIL'}")
 
     return total > 0
@@ -204,7 +217,7 @@ def _tidal_oauth(session):
 
     login, future = session.login_oauth()
     print(f"  1. Open this URL: {login.verification_uri_complete}")
-    print(f"  2. Log in with your TIDAL account")
+    print("  2. Log in with your TIDAL account")
     print(f"  3. Waiting for authorization (expires in {login.expires_in}s)...\n")
 
     try:

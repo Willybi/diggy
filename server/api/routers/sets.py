@@ -1,28 +1,39 @@
 import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy import select, func, case, and_
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-
 from celery_client import celery
 from database import get_db
-from dependencies import get_current_user, get_current_user_optional, uid as _uid
+from dependencies import get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Query
 from models import (
-    DJSet, SetTrack, SetArtist, Artist, CatalogEntry, CatalogArtist, UserTrack,
-    UserSetFollow, UserOpinion, User,
+    Artist,
+    CatalogArtist,
+    DJSet,
+    SetArtist,
+    SetTrack,
+    User,
+    UserOpinion,
+    UserSetFollow,
+    UserTrack,
 )
+from pydantic import BaseModel
 from schemas import (
-    DJSetDetailOut, SetTrackDetailOut, SetArtistDetailOut,
-    SetListItemOut, SetListResponse, ArtistRef,
+    ArtistRef,
+    DJSetDetailOut,
+    SetArtistDetailOut,
+    SetListItemOut,
+    SetListResponse,
+    SetTrackDetailOut,
 )
+from sqlalchemy import and_, case, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/sets", tags=["sets"])
 
 
 # ---------- Schemas ----------
+
 
 class SetImportIn(BaseModel):
     url: str | None = None
@@ -30,6 +41,7 @@ class SetImportIn(BaseModel):
 
 
 # ---------- Search TrackID ----------
+
 
 class TrackIDSearchResult(BaseModel):
     trackid_id: int
@@ -84,6 +96,7 @@ async def search_trackid_sets(
 
 # ---------- List ----------
 
+
 @router.get("/", response_model=SetListResponse)
 async def list_sets(
     q: str | None = None,
@@ -97,7 +110,12 @@ async def list_sets(
             func.count(SetTrack.id).label("total_tracks"),
             func.count(
                 case(
-                    (and_(SetTrack.is_id.is_(False), SetTrack.catalog_id.isnot(None)), SetTrack.id),
+                    (
+                        and_(
+                            SetTrack.is_id.is_(False), SetTrack.catalog_id.isnot(None)
+                        ),
+                        SetTrack.id,
+                    ),
                 )
             ).label("identified_tracks"),
         )
@@ -148,6 +166,7 @@ async def list_sets(
 
 # ---------- Import ----------
 
+
 @router.post("/import")
 async def import_set_url(
     body: SetImportIn,
@@ -157,11 +176,11 @@ async def import_set_url(
     """Import a set from a TrackID URL or slug, and auto-follow it."""
     slug = None
     if body.slug:
-        slug = body.slug.strip().rstrip('/')
+        slug = body.slug.strip().rstrip("/")
     elif body.url:
-        match = re.search(r'trackid\.net/audiostream/(.+?)(?:\?|$)', body.url.strip())
+        match = re.search(r"trackid\.net/audiostream/(.+?)(?:\?|$)", body.url.strip())
         if match:
-            slug = match.group(1).rstrip('/')
+            slug = match.group(1).rstrip("/")
     if not slug:
         raise HTTPException(status_code=422, detail="URL TrackID ou slug requis")
 
@@ -199,18 +218,22 @@ async def import_set_url(
             )
         )
         if not eo.scalar_one_or_none():
-            db.add(UserOpinion(
-                user_id=user.id,
-                entity_type="set",
-                entity_key=str(dj_set.id),
-                opinion="liked",
-                created_at=datetime.now(timezone.utc),
-            ))
-            db.add(UserSetFollow(
-                user_id=user.id,
-                set_id=dj_set.id,
-                followed_at=datetime.now(timezone.utc),
-            ))
+            db.add(
+                UserOpinion(
+                    user_id=user.id,
+                    entity_type="set",
+                    entity_key=str(dj_set.id),
+                    opinion="liked",
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            db.add(
+                UserSetFollow(
+                    user_id=user.id,
+                    set_id=dj_set.id,
+                    followed_at=datetime.now(timezone.utc),
+                )
+            )
 
         await db.commit()
         await db.refresh(dj_set)
@@ -222,6 +245,7 @@ async def import_set_url(
 
 
 # ---------- Detail ----------
+
 
 @router.get("/{set_id}", response_model=DJSetDetailOut)
 async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
@@ -261,12 +285,16 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
 
     # Batch-fetch linked artists for tracklist
     from collections import defaultdict
+
     track_artists_map: dict[int, list[ArtistRef]] = defaultdict(list)
     if catalog_ids:
         ca_result = await db.execute(
             select(
-                CatalogArtist.catalog_id, Artist.id, Artist.name,
-                CatalogArtist.role, Artist.has_artwork,
+                CatalogArtist.catalog_id,
+                Artist.id,
+                Artist.name,
+                CatalogArtist.role,
+                Artist.has_artwork,
             )
             .join(Artist, Artist.id == CatalogArtist.artist_id)
             .where(CatalogArtist.catalog_id.in_(catalog_ids))
@@ -288,22 +316,26 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
         if is_identified:
             identified += 1
 
-        tracklist.append(SetTrackDetailOut(
-            id=t.id,
-            set_id=t.set_id,
-            catalog_id=t.catalog_id,
-            position=t.position,
-            timecode_ms=t.timecode_ms,
-            raw_title=t.raw_title,
-            raw_artist=t.raw_artist,
-            is_id=t.is_id,
-            catalog_title=cat.title if cat else None,
-            catalog_artist=cat.artist if cat else None,
-            catalog_artists=track_artists_map.get(t.catalog_id, []) if t.catalog_id else [],
-            has_artwork=cat.has_artwork if cat else False,
-            in_lib=t.catalog_id in lib_set if t.catalog_id else False,
-            has_preview=cat.has_preview if cat else False,
-        ))
+        tracklist.append(
+            SetTrackDetailOut(
+                id=t.id,
+                set_id=t.set_id,
+                catalog_id=t.catalog_id,
+                position=t.position,
+                timecode_ms=t.timecode_ms,
+                raw_title=t.raw_title,
+                raw_artist=t.raw_artist,
+                is_id=t.is_id,
+                catalog_title=cat.title if cat else None,
+                catalog_artist=cat.artist if cat else None,
+                catalog_artists=track_artists_map.get(t.catalog_id, [])
+                if t.catalog_id
+                else [],
+                has_artwork=cat.has_artwork if cat else False,
+                in_lib=t.catalog_id in lib_set if t.catalog_id else False,
+                has_preview=cat.has_preview if cat else False,
+            )
+        )
 
     return DJSetDetailOut(
         id=dj_set.id,

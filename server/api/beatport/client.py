@@ -4,6 +4,7 @@ Beatport's API v4 requires auth that isn't available to server-side scrapers.
 Instead, we scrape the Next.js SSR pages which embed full track data in
 __NEXT_DATA__ → dehydratedState.
 """
+
 import json
 import logging
 import re
@@ -22,18 +23,45 @@ RATE_LIMIT = 1.5  # seconds between page scrapes (conservative)
 
 # Beatport key_name → Camelot notation
 _KEY_TO_CAMELOT = {
-    "Ab Minor": "1A", "G# Minor": "1A", "B Major": "1B", "Cb Major": "1B",
-    "Eb Minor": "2A", "D# Minor": "2A", "F# Major": "2B", "Gb Major": "2B",
-    "Bb Minor": "3A", "A# Minor": "3A", "Db Major": "3B", "C# Major": "3B",
-    "F Minor": "4A", "Ab Major": "4B", "G# Major": "4B",
-    "C Minor": "5A", "Eb Major": "5B", "D# Major": "5B",
-    "G Minor": "6A", "Bb Major": "6B", "A# Major": "6B",
-    "D Minor": "7A", "F Major": "7B", "E# Major": "7B",
-    "A Minor": "8A", "C Major": "8B",
-    "E Minor": "9A", "Fb Minor": "9A", "G Major": "9B",
-    "B Minor": "10A", "Cb Minor": "10A", "D Major": "10B",
-    "F# Minor": "11A", "Gb Minor": "11A", "A Major": "11B",
-    "C# Minor": "12A", "Db Minor": "12A", "E Major": "12B", "Fb Major": "12B",
+    "Ab Minor": "1A",
+    "G# Minor": "1A",
+    "B Major": "1B",
+    "Cb Major": "1B",
+    "Eb Minor": "2A",
+    "D# Minor": "2A",
+    "F# Major": "2B",
+    "Gb Major": "2B",
+    "Bb Minor": "3A",
+    "A# Minor": "3A",
+    "Db Major": "3B",
+    "C# Major": "3B",
+    "F Minor": "4A",
+    "Ab Major": "4B",
+    "G# Major": "4B",
+    "C Minor": "5A",
+    "Eb Major": "5B",
+    "D# Major": "5B",
+    "G Minor": "6A",
+    "Bb Major": "6B",
+    "A# Major": "6B",
+    "D Minor": "7A",
+    "F Major": "7B",
+    "E# Major": "7B",
+    "A Minor": "8A",
+    "C Major": "8B",
+    "E Minor": "9A",
+    "Fb Minor": "9A",
+    "G Major": "9B",
+    "B Minor": "10A",
+    "Cb Minor": "10A",
+    "D Major": "10B",
+    "F# Minor": "11A",
+    "Gb Minor": "11A",
+    "A Major": "11B",
+    "C# Minor": "12A",
+    "Db Minor": "12A",
+    "E Major": "12B",
+    "Fb Major": "12B",
 }
 
 
@@ -62,11 +90,15 @@ def _normalize_track(raw: dict) -> dict:
         "bpm": raw.get("bpm"),
         "key": _key_to_camelot(raw.get("key_name")),
         "isrc": raw.get("isrc"),
-        "label": {"name": label_obj.get("label_name")} if label_obj.get("label_name") else None,
+        "label": {"name": label_obj.get("label_name")}
+        if label_obj.get("label_name")
+        else None,
         "genre": {"name": genre_list[0]["genre_name"]} if genre_list else None,
         "release": {
             "name": release.get("release_name"),
-            "label": {"name": label_obj.get("label_name")} if label_obj.get("label_name") else None,
+            "label": {"name": label_obj.get("label_name")}
+            if label_obj.get("label_name")
+            else None,
             "image": {
                 "dynamic_uri": release.get("release_image_dynamic_uri"),
             },
@@ -101,11 +133,15 @@ def _normalize_release_page_track(raw: dict) -> dict:
         "bpm": raw.get("bpm"),
         "key": camelot,
         "isrc": raw.get("isrc"),
-        "label": {"name": release_label.get("name")} if release_label.get("name") else None,
+        "label": {"name": release_label.get("name")}
+        if release_label.get("name")
+        else None,
         "genre": {"name": genre_obj.get("name")} if genre_obj.get("name") else None,
         "release": {
             "name": release.get("name"),
-            "label": {"name": release_label.get("name")} if release_label.get("name") else None,
+            "label": {"name": release_label.get("name")}
+            if release_label.get("name")
+            else None,
             "image": {
                 "dynamic_uri": release_image.get("dynamic_uri"),
             },
@@ -115,7 +151,9 @@ def _normalize_release_page_track(raw: dict) -> dict:
     }
 
 
-_ARTIST_SEPARATORS = re.compile(r"\s*(?:,\s*|\s+&\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+x\s+|\s+vs\.?\s+)", re.IGNORECASE)
+_ARTIST_SEPARATORS = re.compile(
+    r"\s*(?:,\s*|\s+&\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+x\s+|\s+vs\.?\s+)", re.IGNORECASE
+)
 
 
 def _artist_matches(bp_artists: list[dict], catalog_artist: str | None) -> bool:
@@ -124,7 +162,9 @@ def _artist_matches(bp_artists: list[dict], catalog_artist: str | None) -> bool:
         return True
     if not bp_artists:
         return False
-    catalog_names = [n.strip().lower() for n in _ARTIST_SEPARATORS.split(catalog_artist) if n.strip()]
+    catalog_names = [
+        n.strip().lower() for n in _ARTIST_SEPARATORS.split(catalog_artist) if n.strip()
+    ]
     bp_names = [a["name"].lower() for a in bp_artists if a.get("name")]
     for cat in catalog_names:
         for bp in bp_names:
@@ -142,7 +182,9 @@ def _title_matches(bp_name: str | None, catalog_title: str | None) -> bool:
     return cat in bp or bp in cat
 
 
-def _pick_best_track(results: list[dict], catalog_artist: str | None, catalog_title: str | None = None) -> dict | None:
+def _pick_best_track(
+    results: list[dict], catalog_artist: str | None, catalog_title: str | None = None
+) -> dict | None:
     """Return the first result matching both artist and title."""
     for t in results:
         if not _artist_matches(t.get("artists", []), catalog_artist):
@@ -197,7 +239,9 @@ class BeatportClient:
             state = query.get("state", {}).get("data", {})
             if isinstance(state, dict) and "tracks" in state:
                 tracks_data = state["tracks"]
-                raw_list = tracks_data.get("data", []) if isinstance(tracks_data, dict) else []
+                raw_list = (
+                    tracks_data.get("data", []) if isinstance(tracks_data, dict) else []
+                )
                 return [_normalize_track(t) for t in raw_list[:10]]
         return []
 
@@ -218,12 +262,18 @@ class BeatportClient:
             state = query.get("state", {}).get("data", {})
             if isinstance(state, dict) and "releases" in state:
                 releases_data = state["releases"]
-                raw_list = releases_data.get("data", []) if isinstance(releases_data, dict) else []
+                raw_list = (
+                    releases_data.get("data", [])
+                    if isinstance(releases_data, dict)
+                    else []
+                )
                 return [
                     {
                         "id": r.get("release_id"),
                         "name": r.get("release_name"),
-                        "slug": re.sub(r"[^a-z0-9]+", "-", (r.get("release_name") or "").lower()).strip("-"),
+                        "slug": re.sub(
+                            r"[^a-z0-9]+", "-", (r.get("release_name") or "").lower()
+                        ).strip("-"),
                         "artists": [
                             {"id": a.get("artist_id"), "name": a.get("artist_name")}
                             for a in (r.get("artists") or [])
@@ -248,7 +298,9 @@ class BeatportClient:
                 return [_normalize_release_page_track(t) for t in state["results"]]
         return []
 
-    def search_release_fallback(self, title: str, artist: str | None = None) -> dict | None:
+    def search_release_fallback(
+        self, title: str, artist: str | None = None
+    ) -> dict | None:
         """Search releases, filter by artist, scrape release page for full track data."""
         releases = self.search_releases(title, artist)
         for rel in releases:
@@ -268,7 +320,9 @@ class BeatportClient:
                 return tracks[0]
         return None
 
-    def search_track_validated(self, title: str, artist: str | None = None) -> dict | None:
+    def search_track_validated(
+        self, title: str, artist: str | None = None
+    ) -> dict | None:
         """Search tracks with artist validation, falling back to releases."""
         # Strategy 1: track search with artist + title matching
         results = self.search_track(title, artist)

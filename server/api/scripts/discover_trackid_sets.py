@@ -6,6 +6,7 @@ Usage (from VPS):
     docker compose exec api python scripts/discover_trackid_sets.py --catalog-id 42
     docker compose exec api python scripts/discover_trackid_sets.py --catalog-id 42 --max-sets 20
 """
+
 import argparse
 import asyncio
 import os
@@ -13,18 +14,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-
 from models import CatalogEntry
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 from trackid.client import TrackIDClient
 from trackid.importer import import_audiostream
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 
-async def main(artist: str | None, title: str | None, catalog_id: int | None, max_sets: int):
+async def main(
+    artist: str | None, title: str | None, catalog_id: int | None, max_sets: int
+):
     engine = create_async_engine(DATABASE_URL, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -60,7 +61,9 @@ async def main(artist: str | None, title: str | None, catalog_id: int | None, ma
         # Pick first match
         music_track = tracks[0]
         mtid = music_track["id"]
-        print(f"Found: {music_track.get('artist', '?')} - {music_track.get('title', '?')} (musicTrackId={mtid})")
+        print(
+            f"Found: {music_track.get('artist', '?')} - {music_track.get('title', '?')} (musicTrackId={mtid})"
+        )
 
         # Find all sets containing this track
         page = 0
@@ -69,7 +72,9 @@ async def main(artist: str | None, title: str | None, catalog_id: int | None, ma
         while True:
             async with async_session() as db:
                 sets, row_count = await client.search_sets(
-                    music_track_id=mtid, page_size=page_size, current_page=page,
+                    music_track_id=mtid,
+                    page_size=page_size,
+                    current_page=page,
                 )
 
                 if not sets:
@@ -100,17 +105,28 @@ async def main(artist: str | None, title: str | None, catalog_id: int | None, ma
             if page * page_size >= row_count:
                 break
 
-    print(f"\nDone. Sets imported: {total_sets}, tracks: {total_tracks}, skipped: {skipped}")
+    print(
+        f"\nDone. Sets imported: {total_sets}, tracks: {total_tracks}, skipped: {skipped}"
+    )
     print(f"Total sets on TrackID containing this track: {row_count}")
 
     await engine.dispose()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Discover TrackID sets containing a known track")
+    parser = argparse.ArgumentParser(
+        description="Discover TrackID sets containing a known track"
+    )
     parser.add_argument("--artist", default=None, help="Artist name")
     parser.add_argument("--title", default=None, help="Track title")
-    parser.add_argument("--catalog-id", type=int, default=None, help="Catalog entry ID (overrides artist/title)")
-    parser.add_argument("--max-sets", type=int, default=50, help="Max sets to import (default 50)")
+    parser.add_argument(
+        "--catalog-id",
+        type=int,
+        default=None,
+        help="Catalog entry ID (overrides artist/title)",
+    )
+    parser.add_argument(
+        "--max-sets", type=int, default=50, help="Max sets to import (default 50)"
+    )
     args = parser.parse_args()
     asyncio.run(main(args.artist, args.title, args.catalog_id, args.max_sets))

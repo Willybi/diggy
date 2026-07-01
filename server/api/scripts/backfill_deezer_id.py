@@ -5,6 +5,7 @@ mais ont has_preview=true et pas de radar_track lié.
 Usage :
     docker compose exec api python scripts/backfill_deezer_id.py
 """
+
 import asyncio
 import os
 import sys
@@ -14,11 +15,10 @@ import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-
 from models import CatalogEntry, RadarTrack
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 DEEZER_SEARCH = "https://api.deezer.com/search"
@@ -57,7 +57,10 @@ async def main():
                 try:
                     resp = await client.get(
                         DEEZER_SEARCH,
-                        params={"q": f'artist:"{entry.artist}" track:"{entry.title}"', "limit": 1},
+                        params={
+                            "q": f'artist:"{entry.artist}" track:"{entry.title}"',
+                            "limit": 1,
+                        },
                     )
                     data = resp.json()
                     hits = data.get("data", [])
@@ -87,7 +90,9 @@ async def main():
                     await db.commit()
 
         await db.commit()
-        print(f"\nTerminé : {filled} deezer_id remplis, {not_found} non trouvés (has_preview mis à false)")
+        print(
+            f"\nTerminé : {filled} deezer_id remplis, {not_found} non trouvés (has_preview mis à false)"
+        )
 
     await engine.dispose()
 

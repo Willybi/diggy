@@ -1,19 +1,18 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from database import get_db
 from dependencies import get_current_user
-from models import UserCollection, CollectionItem, CatalogEntry, User
+from fastapi import APIRouter, Depends, HTTPException
+from models import CatalogEntry, CollectionItem, User, UserCollection
 from schemas import (
-    CollectionOut,
-    CollectionDetailOut,
-    CollectionItemOut,
     CollectionCreateIn,
+    CollectionDetailOut,
     CollectionItemAddIn,
+    CollectionItemOut,
+    CollectionOut,
 )
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 
@@ -102,17 +101,21 @@ async def get_collection(
     )
 
 
-@router.post("/{collection_id}/items", response_model=CollectionItemOut, status_code=201)
+@router.post(
+    "/{collection_id}/items", response_model=CollectionItemOut, status_code=201
+)
 async def add_item(
     collection_id: int,
     body: CollectionItemAddIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    coll = await _get_user_collection(db, collection_id, user.id)
+    await _get_user_collection(db, collection_id, user.id)
 
     # Check catalog entry exists
-    cat = await db.execute(select(CatalogEntry).where(CatalogEntry.id == body.catalog_id))
+    cat = await db.execute(
+        select(CatalogEntry).where(CatalogEntry.id == body.catalog_id)
+    )
     if not cat.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Catalog entry not found")
 
@@ -128,8 +131,9 @@ async def add_item(
 
     # Next position
     max_pos = await db.execute(
-        select(func.coalesce(func.max(CollectionItem.position), 0))
-        .where(CollectionItem.collection_id == collection_id)
+        select(func.coalesce(func.max(CollectionItem.position), 0)).where(
+            CollectionItem.collection_id == collection_id
+        )
     )
     next_pos = (max_pos.scalar() or 0) + 1
 
@@ -143,7 +147,9 @@ async def add_item(
     await db.commit()
 
     # Fetch catalog info for response
-    cat_q = await db.execute(select(CatalogEntry).where(CatalogEntry.id == body.catalog_id))
+    cat_q = await db.execute(
+        select(CatalogEntry).where(CatalogEntry.id == body.catalog_id)
+    )
     cat_entry = cat_q.scalar_one()
 
     return CollectionItemOut(
@@ -194,7 +200,9 @@ async def delete_collection(
     await db.commit()
 
 
-async def _get_user_collection(db: AsyncSession, collection_id: int, user_id: int) -> UserCollection:
+async def _get_user_collection(
+    db: AsyncSession, collection_id: int, user_id: int
+) -> UserCollection:
     result = await db.execute(
         select(UserCollection).where(
             UserCollection.id == collection_id,

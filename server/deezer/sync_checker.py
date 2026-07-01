@@ -1,17 +1,21 @@
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 
 from dataclasses import dataclass, field
 from enum import Enum
+
 from utils import normalize as _normalize
 
 
 class FlagType(str, Enum):
-    DOWNLOAD_NEEDED = "DOWNLOAD_NEEDED"  # Sur Deezer, absent de RB → télécharger via Deemix
-    ANOMALY         = "ANOMALY"          # Dans RB, absent de Deezer → à investiguer
-    MISPLACED       = "MISPLACED"        # Présent des deux côtés mais mauvaise catégorie
-    INFO            = "INFO"             # Potentiellement indispo sur Deezer
+    DOWNLOAD_NEEDED = (
+        "DOWNLOAD_NEEDED"  # Sur Deezer, absent de RB → télécharger via Deemix
+    )
+    ANOMALY = "ANOMALY"  # Dans RB, absent de Deezer → à investiguer
+    MISPLACED = "MISPLACED"  # Présent des deux côtés mais mauvaise catégorie
+    INFO = "INFO"  # Potentiellement indispo sur Deezer
 
 
 @dataclass
@@ -22,7 +26,7 @@ class SyncFlag:
     deezer_playlist: str | None = None
     rb_tag: str | None = None
     expected_deezer_playlist: str | None = None  # pour MISPLACED
-    expected_rb_tag: str | None = None            # pour MISPLACED
+    expected_rb_tag: str | None = None  # pour MISPLACED
 
 
 @dataclass
@@ -50,11 +54,12 @@ class SyncReport:
                         f"    Deezer: '{f.deezer_playlist}'  RB: '{f.rb_tag}'"
                     )
                 elif flag_type == FlagType.DOWNLOAD_NEEDED:
-                    lines.append(f"  - {f.artist} — {f.title}  (playlist: {f.deezer_playlist})")
+                    lines.append(
+                        f"  - {f.artist} — {f.title}  (playlist: {f.deezer_playlist})"
+                    )
                 else:
                     lines.append(f"  - {f.artist} — {f.title}")
         return "\n".join(lines)
-
 
 
 def _normalize_tag(s: str) -> str:
@@ -68,12 +73,15 @@ def _is_soundcloud(track: dict) -> bool:
 def _match_rb_tag(deezer_playlist: str, rb_tag_names: list[str]) -> str | None:
     """Trouve le tag RB correspondant à une playlist Deezer (strip préfixe + fuzzy)."""
     from difflib import get_close_matches
+
     candidate = deezer_playlist.removeprefix("W - ")
     norm = _normalize_tag(candidate)
     for tag in rb_tag_names:
         if _normalize_tag(tag) == norm:
             return tag
-    matches = get_close_matches(norm, [_normalize_tag(t) for t in rb_tag_names], n=1, cutoff=0.85)
+    matches = get_close_matches(
+        norm, [_normalize_tag(t) for t in rb_tag_names], n=1, cutoff=0.85
+    )
     if matches:
         for tag in rb_tag_names:
             if _normalize_tag(tag) == matches[0]:
@@ -135,7 +143,7 @@ def check_sync(
         dz_keys = {_normalize(t["title"]): t for t in dz_tracks}
 
         only_deezer = set(dz_keys) - set(rb_keys)
-        only_rb     = set(rb_keys) - set(dz_keys)
+        only_rb = set(rb_keys) - set(dz_keys)
 
         for key in only_deezer:
             if key in already_misplaced:
@@ -144,22 +152,26 @@ def check_sync(
             artist = t["artist"]["name"]
             if key in rb_global:
                 wrong_rb_tags = list(rb_global[key].keys())
-                report.add(SyncFlag(
-                    flag=FlagType.MISPLACED,
-                    title=t["title"],
-                    artist=artist,
-                    deezer_playlist=pl_name,
-                    rb_tag=wrong_rb_tags[0],
-                    expected_rb_tag=rb_tag,
-                ))
+                report.add(
+                    SyncFlag(
+                        flag=FlagType.MISPLACED,
+                        title=t["title"],
+                        artist=artist,
+                        deezer_playlist=pl_name,
+                        rb_tag=wrong_rb_tags[0],
+                        expected_rb_tag=rb_tag,
+                    )
+                )
                 already_misplaced.add(key)
             else:
-                report.add(SyncFlag(
-                    flag=FlagType.DOWNLOAD_NEEDED,
-                    title=t["title"],
-                    artist=artist,
-                    deezer_playlist=pl_name,
-                ))
+                report.add(
+                    SyncFlag(
+                        flag=FlagType.DOWNLOAD_NEEDED,
+                        title=t["title"],
+                        artist=artist,
+                        deezer_playlist=pl_name,
+                    )
+                )
 
         for key in only_rb:
             if key in already_misplaced:
@@ -168,21 +180,25 @@ def check_sync(
             artist = t["artist"] or "?"
             if key in dz_global:
                 wrong_dz_playlists = list(dz_global[key].keys())
-                report.add(SyncFlag(
-                    flag=FlagType.MISPLACED,
-                    title=t["title"],
-                    artist=artist,
-                    deezer_playlist=wrong_dz_playlists[0],
-                    rb_tag=rb_tag,
-                    expected_deezer_playlist=pl_name,
-                ))
+                report.add(
+                    SyncFlag(
+                        flag=FlagType.MISPLACED,
+                        title=t["title"],
+                        artist=artist,
+                        deezer_playlist=wrong_dz_playlists[0],
+                        rb_tag=rb_tag,
+                        expected_deezer_playlist=pl_name,
+                    )
+                )
                 already_misplaced.add(key)
             else:
-                report.add(SyncFlag(
-                    flag=FlagType.ANOMALY,
-                    title=t["title"],
-                    artist=artist,
-                    rb_tag=rb_tag,
-                ))
+                report.add(
+                    SyncFlag(
+                        flag=FlagType.ANOMALY,
+                        title=t["title"],
+                        artist=artist,
+                        rb_tag=rb_tag,
+                    )
+                )
 
     return report

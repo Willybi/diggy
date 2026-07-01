@@ -8,13 +8,14 @@ Usage:
     # Auto-commits with duration_ms and status="success"
     # On exception: status="error", error_message=str(e)
 """
+
 import logging
+import sys
 import time
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-import sys
 sys.path.insert(0, "/app")
 from models import CrawlLog
 
@@ -65,8 +66,13 @@ class CrawlLogger:
         if exc_type is not None:
             self._log.status = "error"
             self._log.error_message = str(exc_val)[:2000]
-            logger.error("CrawlLog[%s] %s failed after %dms: %s",
-                         self._log.task_type, self._log.target_label, elapsed_ms, exc_val)
+            logger.error(
+                "CrawlLog[%s] %s failed after %dms: %s",
+                self._log.task_type,
+                self._log.target_label,
+                elapsed_ms,
+                exc_val,
+            )
         else:
             self._log.status = "success"
 

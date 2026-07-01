@@ -3,10 +3,9 @@ JWT authentication middleware.
 Rejects unauthenticated requests on non-public endpoints.
 """
 
+from auth import decode_token
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-
-from auth import decode_token
 
 # Public path prefixes (GET only) — browsing without auth
 _PUBLIC_GET_PREFIXES = (

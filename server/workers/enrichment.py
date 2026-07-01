@@ -8,6 +8,7 @@ Usage:
         stats = await enrich_deezer_batch(session, entries, pool, s3, known_isrcs)
         stats = await enrich_beatport_batch(session, entries, pool, s3)
 """
+
 import asyncio
 import hashlib
 import json
@@ -41,24 +42,35 @@ def _cache_key(prefix: str, query: str) -> str:
 
 # ── Deezer enrichment (async) ──
 
-async def _search_deezer_async(pool, artist: str | None, title: str | None) -> dict | None:
+
+async def _search_deezer_async(
+    pool, artist: str | None, title: str | None
+) -> dict | None:
     """Async version of deezer_enrich.search_deezer — cascading search strategy."""
     if not title:
         return None
 
     # Import the title-cleaning helpers from deezer_enrich
     import sys
+
     sys.path.insert(0, "/app")
-    from deezer_enrich import _strip_safe_suffixes, _strip_non_remix_parens, _first_artist
+    from deezer_enrich import (
+        _first_artist,
+        _strip_non_remix_parens,
+        _strip_safe_suffixes,
+    )
 
     def _clean(s):
-        return s.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+        return s.replace("(", "").replace(")", "").replace("[", "").replace("]", "")
 
     async def _search(t, a=artist):
         clean_t = _clean(t)
         clean_a = _clean(a) if a else a
         if clean_a:
-            data = await pool.deezer_get("/search", params={"q": f'artist:"{clean_a}" track:"{clean_t}"', "limit": 1})
+            data = await pool.deezer_get(
+                "/search",
+                params={"q": f'artist:"{clean_a}" track:"{clean_t}"', "limit": 1},
+            )
             hits = data.get("data", [])
             if hits:
                 return hits[0]
@@ -98,7 +110,9 @@ async def _search_deezer_async(pool, artist: str | None, title: str | None) -> d
     return None
 
 
-async def _enrich_entry_async(entry, hit: dict, pool, s3, known_isrcs: set, session=None) -> bool:
+async def _enrich_entry_async(
+    entry, hit: dict, pool, s3, known_isrcs: set, session=None
+) -> bool:
     """Async version of enrich_entry — applies Deezer data to a CatalogEntry."""
     changed = False
 
@@ -140,12 +154,17 @@ async def _enrich_entry_async(entry, hit: dict, pool, s3, known_isrcs: set, sess
 
     # Upload cover if missing
     if s3 and not entry.has_artwork:
-        cover_url = (hit.get("album") or {}).get("cover_medium") or (hit.get("album") or {}).get("cover_big")
+        cover_url = (hit.get("album") or {}).get("cover_medium") or (
+            hit.get("album") or {}
+        ).get("cover_big")
         if cover_url:
             img_data = await pool.download_image(cover_url)
             if img_data:
                 from deezer_enrich import upload_image_bytes_to_bucket
-                if upload_image_bytes_to_bucket(s3, img_data, f"{entry.id}.jpg", "catalog-artworks"):
+
+                if upload_image_bytes_to_bucket(
+                    s3, img_data, f"{entry.id}.jpg", "catalog-artworks"
+                ):
                     entry.has_artwork = True
                     changed = True
 
@@ -193,11 +212,14 @@ async def enrich_deezer_batch(
                     entry.deezer_searched_at = now
                     return
 
-            if await _enrich_entry_async(entry, hit, pool, s3, known_isrcs, session=session):
+            if await _enrich_entry_async(
+                entry, hit, pool, s3, known_isrcs, session=session
+            ):
                 enriched += 1
                 # Link artist from Deezer hit to catalog_artists
                 try:
                     from deezer_enrich import link_catalog_artist_from_hit
+
                     link_catalog_artist_from_hit(session, entry.id, hit)
                 except Exception:
                     pass  # non-critical, sync_artists will catch up
@@ -214,21 +236,28 @@ async def enrich_deezer_batch(
 
 # ── Beatport enrichment (async) ──
 
-async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str | None, rcache=None) -> dict | None:
+
+async def _search_beatport_async(
+    pool, title: str, artist: str | None, isrc: str | None, rcache=None
+) -> dict | None:
     """Async Beatport search with ISRC-first strategy, artist validation, and release fallback."""
     import sys
     import urllib.parse
+
     sys.path.insert(0, "/app")
 
     from beatport.client import (
-        _normalize_track, _normalize_release_page_track,
-        _artist_matches, _pick_best_track, _title_matches,
+        _artist_matches,
+        _normalize_release_page_track,
+        _normalize_track,
+        _pick_best_track,
     )
 
     def _extract_next_data(html: str) -> dict:
         match = re.search(
             r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-            html, re.DOTALL,
+            html,
+            re.DOTALL,
         )
         if not match:
             return {}
@@ -247,7 +276,9 @@ async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str
             state = query.get("state", {}).get("data", {})
             if isinstance(state, dict) and "tracks" in state:
                 tracks_data = state["tracks"]
-                raw_list = tracks_data.get("data", []) if isinstance(tracks_data, dict) else []
+                raw_list = (
+                    tracks_data.get("data", []) if isinstance(tracks_data, dict) else []
+                )
                 return raw_list[:10]
         return []
 
@@ -298,16 +329,22 @@ async def _search_beatport_async(pool, title: str, artist: str | None, isrc: str
             state = query.get("state", {}).get("data", {})
             if isinstance(state, dict) and "releases" in state:
                 releases_data = state["releases"]
-                raw_list = releases_data.get("data", []) if isinstance(releases_data, dict) else []
+                raw_list = (
+                    releases_data.get("data", [])
+                    if isinstance(releases_data, dict)
+                    else []
+                )
                 for r in raw_list[:10]:
-                    releases.append({
-                        "id": r.get("release_id"),
-                        "name": r.get("release_name"),
-                        "artists": [
-                            {"id": a.get("artist_id"), "name": a.get("artist_name")}
-                            for a in (r.get("artists") or [])
-                        ],
-                    })
+                    releases.append(
+                        {
+                            "id": r.get("release_id"),
+                            "name": r.get("release_name"),
+                            "artists": [
+                                {"id": a.get("artist_id"), "name": a.get("artist_name")}
+                                for a in (r.get("artists") or [])
+                            ],
+                        }
+                    )
                 break
 
         if rcache and releases:
@@ -397,6 +434,7 @@ async def enrich_beatport_batch(
         s3: boto3 S3 client
     """
     import sys
+
     sys.path.insert(0, "/app")
     from beatport.enrich import enrich_from_beatport
 
@@ -408,7 +446,9 @@ async def enrich_beatport_batch(
     async def _enrich_one(entry):
         nonlocal enriched, not_found, errors
         try:
-            bp_track = await _search_beatport_async(pool, entry.title, entry.artist, entry.isrc, rcache=rcache)
+            bp_track = await _search_beatport_async(
+                pool, entry.title, entry.artist, entry.isrc, rcache=rcache
+            )
             if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
                 enriched += 1
             else:

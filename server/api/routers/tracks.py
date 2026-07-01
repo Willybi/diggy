@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
-from database import get_db
-from models import UserTrack, CatalogEntry, User
-from schemas import TrackOut, TrackList, TrackExisting, TrackImport, BulkImportResult
-from dependencies import get_current_user
 import base64
-import tempfile
 import os
+import tempfile
+
+from database import get_db
+from dependencies import get_current_user
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from models import CatalogEntry, User, UserTrack
+from schemas import BulkImportResult, TrackExisting, TrackImport, TrackList, TrackOut
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 MAX_BULK_IMPORT_SIZE = 5000
 
@@ -25,7 +26,9 @@ async def get_existing_ids(
         .where(UserTrack.user_id == user.id)
         .where(UserTrack.rekordbox_id.isnot(None))
     )
-    return [{"id": row.rekordbox_id, "has_artwork": row.has_artwork} for row in result.all()]
+    return [
+        {"id": row.rekordbox_id, "has_artwork": row.has_artwork} for row in result.all()
+    ]
 
 
 @router.post("/bulk", response_model=BulkImportResult)
@@ -39,8 +42,9 @@ async def bulk_import(
     - Match catalog via normalized_key.
     - Upload l'artwork dans MinIO si image_base64 fourni et has_artwork False.
     """
-    from storage import upload_artwork, ensure_bucket
+    from storage import ensure_bucket, upload_artwork
     from utils import make_normalized_key
+
     ensure_bucket()
 
     uid = user.id
@@ -81,7 +85,10 @@ async def bulk_import(
                     artworks_uploaded += 1
                 except Exception as e:
                     import logging
-                    logging.getLogger("diggy").error(f"Artwork upload failed for track {rb_id}: {e}")
+
+                    logging.getLogger("diggy").error(
+                        f"Artwork upload failed for track {rb_id}: {e}"
+                    )
                 finally:
                     if tmp_path and os.path.exists(tmp_path):
                         os.unlink(tmp_path)
@@ -148,7 +155,10 @@ async def bulk_import(
                     artworks_uploaded += 1
                 except Exception as e:
                     import logging
-                    logging.getLogger("diggy").error(f"Artwork upload failed for track {rb_id}: {e}")
+
+                    logging.getLogger("diggy").error(
+                        f"Artwork upload failed for track {rb_id}: {e}"
+                    )
                 finally:
                     if tmp_path and os.path.exists(tmp_path):
                         os.unlink(tmp_path)
@@ -170,7 +180,9 @@ async def bulk_import(
             inserted += 1
 
     await db.commit()
-    return BulkImportResult(inserted=inserted, updated=updated, artworks_uploaded=artworks_uploaded)
+    return BulkImportResult(
+        inserted=inserted, updated=updated, artworks_uploaded=artworks_uploaded
+    )
 
 
 @router.get("/tags", response_model=list[str])
@@ -231,12 +243,28 @@ async def list_tracks(
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
 
-    result = await db.execute(query.order_by(UserTrack.date_added.desc()).offset(skip).limit(limit))
+    result = await db.execute(
+        query.order_by(UserTrack.date_added.desc()).offset(skip).limit(limit)
+    )
     rows = result.all()
 
     items = []
     for row in rows:
-        rb_id, cat_id, rb_bpm, rb_key, rb_mytags, rating, file_path, date_added, has_artwork, title, artist_name, duration_ms, has_preview = row
+        (
+            rb_id,
+            cat_id,
+            rb_bpm,
+            rb_key,
+            rb_mytags,
+            rating,
+            file_path,
+            date_added,
+            has_artwork,
+            title,
+            artist_name,
+            duration_ms,
+            has_preview,
+        ) = row
 
         out = TrackOut(
             id=rb_id or cat_id,
@@ -290,7 +318,21 @@ async def get_track(
     if not row:
         raise HTTPException(status_code=404, detail="Track not found")
 
-    rb_id, cat_id, rb_bpm, rb_key, rb_mytags, rating, file_path, date_added, has_artwork, title, artist_name, duration_ms, has_preview = row
+    (
+        rb_id,
+        cat_id,
+        rb_bpm,
+        rb_key,
+        rb_mytags,
+        rating,
+        file_path,
+        date_added,
+        has_artwork,
+        title,
+        artist_name,
+        duration_ms,
+        has_preview,
+    ) = row
     return TrackOut(
         id=rb_id or cat_id,
         title=title,

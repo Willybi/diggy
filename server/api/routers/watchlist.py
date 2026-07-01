@@ -1,21 +1,30 @@
-import requests
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, delete, exists, case, literal
-from sqlalchemy.ext.asyncio import AsyncSession
-
+import requests
 from celery_client import celery
 from database import get_db
-from dependencies import get_current_user, get_current_user_optional, require_admin, uid as _uid
-from sqlalchemy import func
-
-from models import WatchedEntity, UserFollow, UserOpinion, User, RadarTrack, CatalogEntry
-from schemas import (
-    WatchedEntityIn, WatchedEntityOut, WatchedEntityBrowseOut,
-    WatchedEntityDetailOut, PlaylistTrackOut,
-    WatchlistListResponse, WatchlistBrowseResponse,
+from dependencies import get_current_user, get_current_user_optional, require_admin
+from dependencies import uid as _uid
+from fastapi import APIRouter, Depends, HTTPException, Query
+from models import (
+    CatalogEntry,
+    RadarTrack,
+    User,
+    UserFollow,
+    UserOpinion,
+    WatchedEntity,
 )
+from schemas import (
+    PlaylistTrackOut,
+    WatchedEntityBrowseOut,
+    WatchedEntityDetailOut,
+    WatchedEntityIn,
+    WatchedEntityOut,
+    WatchlistBrowseResponse,
+    WatchlistListResponse,
+)
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -31,8 +40,12 @@ def _fetch_deezer_playlist(external_id: str) -> dict:
         return {
             "title": data.get("title"),
             "track_count": data.get("nb_tracks"),
-            "owner": data.get("creator", {}).get("name") if isinstance(data.get("creator"), dict) else None,
-            "picture": data.get("picture_xl") or data.get("picture_big") or data.get("picture_medium"),
+            "owner": data.get("creator", {}).get("name")
+            if isinstance(data.get("creator"), dict)
+            else None,
+            "picture": data.get("picture_xl")
+            or data.get("picture_big")
+            or data.get("picture_medium"),
         }
     except Exception:
         return {}
@@ -43,20 +56,23 @@ def _upload_playlist_artwork(entity_id: int, picture_url: str) -> bool:
     if not picture_url:
         return False
     try:
-        from deezer_enrich import _get_s3, upload_image_to_bucket, _ensure_bucket
+        from deezer_enrich import _ensure_bucket, _get_s3, upload_image_to_bucket
+
         s3 = _get_s3()
         _ensure_bucket(s3, PLAYLIST_ARTWORK_BUCKET)
-        return upload_image_to_bucket(s3, picture_url, f"{entity_id}.jpg", PLAYLIST_ARTWORK_BUCKET)
+        return upload_image_to_bucket(
+            s3, picture_url, f"{entity_id}.jpg", PLAYLIST_ARTWORK_BUCKET
+        )
     except Exception:
         return False
-
-
 
 
 async def _trigger_crawl(playlist_id: int, db: AsyncSession):
     """Launch Celery crawl task and store task_id on the entity."""
     result = celery.send_task("workers.tasks.crawl_single_playlist", args=[playlist_id])
-    entity_result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == playlist_id))
+    entity_result = await db.execute(
+        select(WatchedEntity).where(WatchedEntity.id == playlist_id)
+    )
     entity = entity_result.scalar_one_or_none()
     if entity:
         entity.current_task_id = result.id
@@ -114,20 +130,17 @@ async def browse_playlists(
         .correlate(WatchedEntity)
         .exists()
     )
-    base = (
-        select(WatchedEntity, follow_exists.label("followed"))
-        .order_by(WatchedEntity.title)
+    base = select(WatchedEntity, follow_exists.label("followed")).order_by(
+        WatchedEntity.title
     )
-    count_result = await db.execute(select(func.count()).select_from(
-        select(WatchedEntity.id).subquery()
-    ))
+    count_result = await db.execute(
+        select(func.count()).select_from(select(WatchedEntity.id).subquery())
+    )
     total = count_result.scalar()
     result = await db.execute(base.offset(offset).limit(limit))
     rows = result.all()
     items = [
-        WatchedEntityBrowseOut.model_validate(
-            {**entity.__dict__, "followed": followed}
-        )
+        WatchedEntityBrowseOut.model_validate({**entity.__dict__, "followed": followed})
         for entity, followed in rows
     ]
     return WatchlistBrowseResponse(total=total, items=items)
@@ -148,7 +161,9 @@ async def get_playlist_detail(
 
     # Check if user follows this playlist
     follow_result = await db.execute(
-        select(UserFollow).where(UserFollow.user_id == uid, UserFollow.entity_id == entry_id)
+        select(UserFollow).where(
+            UserFollow.user_id == uid, UserFollow.entity_id == entry_id
+        )
     )
     followed = follow_result.scalar_one_or_none() is not None
 
@@ -168,7 +183,9 @@ async def get_playlist_detail(
         )
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
-        .where(RadarTrack.watched_entity_id == entry_id, RadarTrack.catalog_id.isnot(None))
+        .where(
+            RadarTrack.watched_entity_id == entry_id, RadarTrack.catalog_id.isnot(None)
+        )
         .group_by(CatalogEntry.id)
         .order_by(func.max(RadarTrack.detected_at).desc())
     )
@@ -203,7 +220,9 @@ async def add_watched(
             raise HTTPException(status_code=409, detail="Playlist already watched")
     else:
         # Fetch metadata inline for Deezer; for other sources the crawl task fills it
-        meta = _fetch_deezer_playlist(body.external_id) if body.source == "deezer" else {}
+        meta = (
+            _fetch_deezer_playlist(body.external_id) if body.source == "deezer" else {}
+        )
         entity = WatchedEntity(
             external_id=body.external_id,
             source=body.source,
@@ -248,12 +267,16 @@ async def follow_playlist(
         raise HTTPException(status_code=404, detail="Playlist not found")
 
     follow_result = await db.execute(
-        select(UserFollow).where(UserFollow.user_id == uid, UserFollow.entity_id == entry_id)
+        select(UserFollow).where(
+            UserFollow.user_id == uid, UserFollow.entity_id == entry_id
+        )
     )
     if follow_result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Already following")
 
-    follow = UserFollow(user_id=uid, entity_id=entry_id, followed_at=datetime.now(timezone.utc))
+    follow = UserFollow(
+        user_id=uid, entity_id=entry_id, followed_at=datetime.now(timezone.utc)
+    )
     db.add(follow)
     await db.commit()
     await db.refresh(entity)
@@ -275,7 +298,9 @@ async def crawl_playlist(
         raise HTTPException(status_code=404, detail="Playlist not found")
 
     if entity.last_crawled_at:
-        elapsed = datetime.now(timezone.utc) - entity.last_crawled_at.replace(tzinfo=timezone.utc)
+        elapsed = datetime.now(timezone.utc) - entity.last_crawled_at.replace(
+            tzinfo=timezone.utc
+        )
         if elapsed.total_seconds() < 12 * 3600:
             remaining_h = int((12 * 3600 - elapsed.total_seconds()) / 3600)
             remaining_m = int(((12 * 3600 - elapsed.total_seconds()) % 3600) / 60)
@@ -289,7 +314,11 @@ async def crawl_playlist(
 
 
 @router.patch("/{entry_id}/crawled", response_model=WatchedEntityOut)
-async def mark_crawled(entry_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def mark_crawled(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
     entry = result.scalar_one_or_none()
     if not entry:
@@ -317,6 +346,7 @@ async def crawl_status(
         return {"status": None}
 
     from celery.result import AsyncResult
+
     task = AsyncResult(entity.current_task_id, app=celery)
     state = task.state  # PENDING, STARTED, SUCCESS, FAILURE, etc.
 
@@ -330,7 +360,10 @@ async def crawl_status(
         # PENDING means "queued" OR "unknown/expired task_id".
         # Safety: if task has been PENDING for >15 min, assume it's stale.
         if entity.crawl_started_at:
-            elapsed = (datetime.now(timezone.utc) - entity.crawl_started_at.replace(tzinfo=timezone.utc)).total_seconds()
+            elapsed = (
+                datetime.now(timezone.utc)
+                - entity.crawl_started_at.replace(tzinfo=timezone.utc)
+            ).total_seconds()
             if elapsed > 900:  # 15 min
                 entity.current_task_id = None
                 entity.crawl_started_at = None
@@ -354,7 +387,9 @@ async def fetch_playlist_artwork(
         raise HTTPException(status_code=404, detail="Playlist not found")
 
     if entity.source != "deezer":
-        raise HTTPException(status_code=400, detail="Only Deezer playlists supported for artwork fetch")
+        raise HTTPException(
+            status_code=400, detail="Only Deezer playlists supported for artwork fetch"
+        )
 
     meta = _fetch_deezer_playlist(entity.external_id)
     pic_url = meta.get("picture")

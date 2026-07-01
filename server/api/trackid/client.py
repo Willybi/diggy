@@ -1,4 +1,5 @@
 """Async client for TrackID.net public API."""
+
 import asyncio
 import time
 
@@ -25,9 +26,7 @@ class TrackIDClient:
 
     async def __aenter__(self):
         if self._owns_client:
-            self._client = httpx.AsyncClient(
-                headers=self.HEADERS, timeout=self.TIMEOUT
-            )
+            self._client = httpx.AsyncClient(headers=self.HEADERS, timeout=self.TIMEOUT)
         return self
 
     async def __aexit__(self, *args):
@@ -115,7 +114,9 @@ class TrackIDClient:
                     # Keep the one with earliest startTime
                     existing_ms = parse_timespan_to_ms(seen[mtid].get("startTime"))
                     new_ms = parse_timespan_to_ms(track.get("startTime"))
-                    if new_ms is not None and (existing_ms is None or new_ms < existing_ms):
+                    if new_ms is not None and (
+                        existing_ms is None or new_ms < existing_ms
+                    ):
                         seen[mtid] = track
 
         tracks = list(seen.values())

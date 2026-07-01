@@ -8,19 +8,18 @@ Usage (from VPS):
     docker compose exec api python scripts/fix_artist_names.py
     docker compose exec api python scripts/fix_artist_names.py --dry-run
 """
+
 import argparse
 import asyncio
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-
 from models import Artist, CatalogEntry
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -44,7 +43,7 @@ async def main(dry_run: bool):
                 continue
 
             # Try to find a proper name in catalog.artist
-            catalog_norm = func.replace(func.lower(CatalogEntry.artist), ' ', '')
+            catalog_norm = func.replace(func.lower(CatalogEntry.artist), " ", "")
             cat_result = await db.execute(
                 select(CatalogEntry.artist)
                 .where(catalog_norm == artist.normalized_name)
@@ -69,6 +68,8 @@ async def main(dry_run: bool):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fix artist names stored as slugs")
-    parser.add_argument("--dry-run", action="store_true", help="Show changes without applying")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show changes without applying"
+    )
     args = parser.parse_args()
     asyncio.run(main(args.dry_run))

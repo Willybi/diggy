@@ -1,11 +1,10 @@
+from auth import decode_token
+from database import get_db
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
-from database import get_db
-from auth import decode_token
 from models import User
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -15,16 +14,24 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     if not credentials:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
 
     user_id = decode_token(credentials.credentials)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
-    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.is_active.is_(True))
+    )
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     return user
 
@@ -39,13 +46,17 @@ async def get_current_user_optional(
     user_id = decode_token(credentials.credentials)
     if not user_id:
         return None
-    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.is_active.is_(True))
+    )
     return result.scalar_one_or_none()
 
 
 async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin required"
+        )
     return user
 
 

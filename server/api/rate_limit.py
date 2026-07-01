@@ -9,7 +9,6 @@ import os
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 # path prefix -> (max_requests, window_seconds)
@@ -26,6 +25,7 @@ def _get_redis():
     global _redis
     if _redis is None:
         import redis
+
         _redis = redis.from_url(REDIS_URL, decode_responses=True)
     return _redis
 

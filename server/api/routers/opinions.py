@@ -1,12 +1,11 @@
+from database import get_db
+from dependencies import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
+from models import User, UserOpinion
+from opinion_sync import sync_playlist_opinion, sync_set_opinion, sync_track_opinion
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from database import get_db
-from dependencies import get_current_user
-from models import UserOpinion, User
-from opinion_sync import sync_track_opinion, sync_set_opinion, sync_playlist_opinion
 
 router = APIRouter(prefix="/opinions", tags=["opinions"])
 
@@ -26,9 +25,7 @@ async def get_opinions(
 ):
     """Return all opinions for current user, grouped by entity_type."""
     uid = user.id
-    result = await db.execute(
-        select(UserOpinion).where(UserOpinion.user_id == uid)
-    )
+    result = await db.execute(select(UserOpinion).where(UserOpinion.user_id == uid))
     rows = result.scalars().all()
 
     out: dict[str, dict[str, str]] = {}
@@ -68,13 +65,16 @@ async def set_opinion(
         existing.opinion = body.opinion
     else:
         from datetime import datetime, timezone
-        db.add(UserOpinion(
-            user_id=uid,
-            entity_type=body.entity_type,
-            entity_key=body.entity_key,
-            opinion=body.opinion,
-            created_at=datetime.now(timezone.utc),
-        ))
+
+        db.add(
+            UserOpinion(
+                user_id=uid,
+                entity_type=body.entity_type,
+                entity_key=body.entity_key,
+                opinion=body.opinion,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
 
     # Sync follow/avis state
     if body.entity_type == "set":
@@ -85,4 +85,8 @@ async def set_opinion(
         await sync_track_opinion(db, uid, int(body.entity_key), body.opinion)
 
     await db.commit()
-    return {"entity_type": body.entity_type, "entity_key": body.entity_key, "opinion": body.opinion}
+    return {
+        "entity_type": body.entity_type,
+        "entity_key": body.entity_key,
+        "opinion": body.opinion,
+    }

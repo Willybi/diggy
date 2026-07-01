@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
-from sqlalchemy import func, select, text, case, literal
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from database import get_db
-from dependencies import get_current_user_optional, uid as _uid
+from dependencies import get_current_user_optional
+from dependencies import uid as _uid
+from fastapi import APIRouter, Depends, Query
 from models import (
     Artist,
-    CatalogEntry,
     CatalogArtist,
+    CatalogEntry,
     DJSet,
     SetTrack,
+    User,
     UserTrack,
     WatchedEntity,
-    User,
 )
-from routers.genres import genre_pillar, _ensure_pillar_cache
+from pydantic import BaseModel
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from routers.genres import _ensure_pillar_cache, genre_pillar
 
 router = APIRouter(tags=["search"])
 
@@ -25,6 +26,7 @@ GUEST_CAP = 6
 
 
 # ── Response schemas ──────────────────────────────────────────────
+
 
 class SearchItem(BaseModel):
     type: str
@@ -70,6 +72,7 @@ class SearchResponse(BaseModel):
 
 # ── Relevance scoring ────────────────────────────────────────────
 
+
 def _relevance(value: str, q: str) -> int:
     v = value.lower()
     if v == q:
@@ -81,16 +84,17 @@ def _relevance(value: str, q: str) -> int:
 
 # ── Per-type search helpers ──────────────────────────────────────
 
+
 async def _search_tracks(
-    db: AsyncSession, q: str, user_id: int, is_guest: bool, limit: int,
+    db: AsyncSession,
+    q: str,
+    user_id: int,
+    is_guest: bool,
+    limit: int,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
-    ut_sub = (
-        select(UserTrack.catalog_id)
-        .where(UserTrack.user_id == user_id)
-        .subquery()
-    )
+    ut_sub = select(UserTrack.catalog_id).where(UserTrack.user_id == user_id).subquery()
 
     base = (
         select(
@@ -105,10 +109,7 @@ async def _search_tracks(
             ut_sub.c.catalog_id.label("ut_cid"),
         )
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
-        .where(
-            CatalogEntry.title.ilike(pattern)
-            | CatalogEntry.artist.ilike(pattern)
-        )
+        .where(CatalogEntry.title.ilike(pattern) | CatalogEntry.artist.ilike(pattern))
     )
 
     total_r = await db.execute(select(func.count()).select_from(base.subquery()))
@@ -118,29 +119,34 @@ async def _search_tracks(
 
     items: list[SearchItem] = []
     for r in rows:
-        items.append(SearchItem(
-            type="track",
-            id=r.id,
-            title=r.title,
-            artist=r.artist,
-            bpm=r.bpm,
-            key=r.key,
-            duration_ms=r.duration_ms,
-            has_artwork=r.has_artwork,
-            has_preview=r.has_preview,
-            in_lib=False if is_guest else (r.ut_cid is not None),
-        ))
+        items.append(
+            SearchItem(
+                type="track",
+                id=r.id,
+                title=r.title,
+                artist=r.artist,
+                bpm=r.bpm,
+                key=r.key,
+                duration_ms=r.duration_ms,
+                has_artwork=r.has_artwork,
+                has_preview=r.has_preview,
+                in_lib=False if is_guest else (r.ut_cid is not None),
+            )
+        )
     return items, total
 
 
 async def _search_artists(
-    db: AsyncSession, q: str, user_id: int, is_guest: bool, limit: int,
+    db: AsyncSession,
+    q: str,
+    user_id: int,
+    is_guest: bool,
+    limit: int,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
-    base = (
-        select(Artist.id, Artist.name, Artist.has_artwork)
-        .where(Artist.name.ilike(pattern))
+    base = select(Artist.id, Artist.name, Artist.has_artwork).where(
+        Artist.name.ilike(pattern)
     )
 
     total_r = await db.execute(select(func.count()).select_from(base.subquery()))
@@ -172,7 +178,11 @@ async def _search_artists(
                 CatalogArtist.artist_id,
                 func.count().label("cnt"),
             )
-            .join(UserTrack, (UserTrack.catalog_id == CatalogArtist.catalog_id) & (UserTrack.user_id == user_id))
+            .join(
+                UserTrack,
+                (UserTrack.catalog_id == CatalogArtist.catalog_id)
+                & (UserTrack.user_id == user_id),
+            )
             .where(CatalogArtist.artist_id.in_(artist_ids))
             .group_by(CatalogArtist.artist_id)
         )
@@ -181,19 +191,23 @@ async def _search_artists(
 
     items: list[SearchItem] = []
     for r in rows:
-        items.append(SearchItem(
-            type="artist",
-            id=r.id,
-            name=r.name,
-            has_artwork=r.has_artwork,
-            track_count=tc_map.get(r.id, 0),
-            in_lib_count=0 if is_guest else lib_map.get(r.id, 0),
-        ))
+        items.append(
+            SearchItem(
+                type="artist",
+                id=r.id,
+                name=r.name,
+                has_artwork=r.has_artwork,
+                track_count=tc_map.get(r.id, 0),
+                in_lib_count=0 if is_guest else lib_map.get(r.id, 0),
+            )
+        )
     return items, total
 
 
 async def _search_sets(
-    db: AsyncSession, q: str, limit: int,
+    db: AsyncSession,
+    q: str,
+    limit: int,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
@@ -220,32 +234,33 @@ async def _search_sets(
 
     items: list[SearchItem] = []
     for r in rows:
-        items.append(SearchItem(
-            type="set",
-            id=r.id,
-            title=r.title,
-            played_date=r.played_date.isoformat() if r.played_date else None,
-            track_count=r.track_count,
-            has_artwork=r.has_artwork,
-        ))
+        items.append(
+            SearchItem(
+                type="set",
+                id=r.id,
+                title=r.title,
+                played_date=r.played_date.isoformat() if r.played_date else None,
+                track_count=r.track_count,
+                has_artwork=r.has_artwork,
+            )
+        )
     return items, total
 
 
 async def _search_playlists(
-    db: AsyncSession, q: str, limit: int,
+    db: AsyncSession,
+    q: str,
+    limit: int,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
-    base = (
-        select(
-            WatchedEntity.id,
-            WatchedEntity.title,
-            WatchedEntity.source,
-            WatchedEntity.track_count,
-            WatchedEntity.has_artwork,
-        )
-        .where(WatchedEntity.title.ilike(pattern))
-    )
+    base = select(
+        WatchedEntity.id,
+        WatchedEntity.title,
+        WatchedEntity.source,
+        WatchedEntity.track_count,
+        WatchedEntity.has_artwork,
+    ).where(WatchedEntity.title.ilike(pattern))
 
     total_r = await db.execute(select(func.count()).select_from(base.subquery()))
     total = total_r.scalar() or 0
@@ -254,23 +269,30 @@ async def _search_playlists(
 
     items: list[SearchItem] = []
     for r in rows:
-        items.append(SearchItem(
-            type="playlist",
-            id=r.id,
-            title=r.title,
-            source=r.source,
-            track_count=r.track_count,
-            has_artwork=r.has_artwork,
-        ))
+        items.append(
+            SearchItem(
+                type="playlist",
+                id=r.id,
+                title=r.title,
+                source=r.source,
+                track_count=r.track_count,
+                has_artwork=r.has_artwork,
+            )
+        )
     return items, total
 
 
 async def _search_genres(
-    db: AsyncSession, q: str, user_id: int, is_guest: bool, limit: int,
+    db: AsyncSession,
+    q: str,
+    user_id: int,
+    is_guest: bool,
+    limit: int,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         SELECT
             g AS name,
             COUNT(*)::int AS track_count,
@@ -282,34 +304,42 @@ async def _search_genres(
         GROUP BY g
         ORDER BY COUNT(*) DESC
         LIMIT :lim
-    """), {"pattern": pattern, "lim": limit})
+    """),
+        {"pattern": pattern, "lim": limit},
+    )
     rows = result.all()
 
     # total distinct genres matching
-    total_r = await db.execute(text("""
+    total_r = await db.execute(
+        text("""
         SELECT COUNT(DISTINCT g)::int
         FROM catalog c, unnest(c.genres) AS g
         WHERE LOWER(g) LIKE LOWER(:pattern)
-    """), {"pattern": pattern})
+    """),
+        {"pattern": pattern},
+    )
     total = total_r.scalar() or 0
 
     items: list[SearchItem] = []
     for r in rows:
         p, d = genre_pillar(r.name)
-        items.append(SearchItem(
-            type="genre",
-            name=r.name,
-            pillar=p,
-            depth=d,
-            track_count=r.track_count,
-            artist_count=r.artist_count,
-            bpm_lo=r.bpm_lo,
-            bpm_hi=r.bpm_hi,
-        ))
+        items.append(
+            SearchItem(
+                type="genre",
+                name=r.name,
+                pillar=p,
+                depth=d,
+                track_count=r.track_count,
+                artist_count=r.artist_count,
+                bpm_lo=r.bpm_lo,
+                bpm_hi=r.bpm_hi,
+            )
+        )
     return items, total
 
 
 # ── Main endpoint ─────────────────────────────────────────────────
+
 
 @router.get("/search", response_model=SearchResponse)
 async def search(
@@ -375,5 +405,5 @@ async def search(
         return SearchResponse(items=capped, total=total, totals=totals)
 
     # Paginate
-    page = all_items[offset:offset + limit]
+    page = all_items[offset : offset + limit]
     return SearchResponse(items=page, total=total, totals=totals)

@@ -1,14 +1,14 @@
+from database import get_db
+from dependencies import require_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from database import get_db
-from dependencies import require_admin
 
 router = APIRouter(tags=["taxonomy"])
 
 
 # ── Nodes ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/nodes")
 async def list_nodes(
@@ -20,21 +20,27 @@ async def list_nodes(
     has_q = bool(q.strip())
     pattern = f"%{q.strip().lower()}%"
 
-    total = (await db.execute(
-        text("SELECT COUNT(*) FROM genre_nodes WHERE (:no_q OR LOWER(label) LIKE :p)"),
-        {"no_q": not has_q, "p": pattern},
-    )).scalar()
+    total = (
+        await db.execute(
+            text(
+                "SELECT COUNT(*) FROM genre_nodes WHERE (:no_q OR LOWER(label) LIKE :p)"
+            ),
+            {"no_q": not has_q, "p": pattern},
+        )
+    ).scalar()
 
-    rows = (await db.execute(
-        text("""
+    rows = (
+        await db.execute(
+            text("""
             SELECT id, wikidata_id, label
             FROM genre_nodes
             WHERE (:no_q OR LOWER(label) LIKE :p)
             ORDER BY label
             LIMIT :lim OFFSET :off
         """),
-        {"no_q": not has_q, "p": pattern, "lim": limit, "off": offset},
-    )).fetchall()
+            {"no_q": not has_q, "p": pattern, "lim": limit, "off": offset},
+        )
+    ).fetchall()
 
     return {
         "items": [{"id": r[0], "wikidataId": r[1], "label": r[2]} for r in rows],
@@ -44,10 +50,12 @@ async def list_nodes(
 
 @router.get("/nodes/{node_id}")
 async def get_node(node_id: int, db: AsyncSession = Depends(get_db)):
-    row = (await db.execute(
-        text("SELECT id, wikidata_id, label FROM genre_nodes WHERE id = :id"),
-        {"id": node_id},
-    )).fetchone()
+    row = (
+        await db.execute(
+            text("SELECT id, wikidata_id, label FROM genre_nodes WHERE id = :id"),
+            {"id": node_id},
+        )
+    ).fetchone()
     if not row:
         raise HTTPException(404, "Node not found")
     return {"id": row[0], "wikidataId": row[1], "label": row[2]}
@@ -60,49 +68,74 @@ async def get_children(
     db: AsyncSession = Depends(get_db),
 ):
     """Subgenres: edges where to_node_id = node_id (from is child of to)."""
-    type_filter = "ge.type IN ('parent', 'influence')" if include_influence else "ge.type = 'parent'"
-    rows = (await db.execute(
-        text(f"""
+    type_filter = (
+        "ge.type IN ('parent', 'influence')"
+        if include_influence
+        else "ge.type = 'parent'"
+    )
+    rows = (
+        await db.execute(
+            text(f"""
             SELECT gn.id, gn.wikidata_id, gn.label, ge.type, ge.source
             FROM genre_edges ge
             JOIN genre_nodes gn ON gn.id = ge.from_node_id
             WHERE ge.to_node_id = :id AND {type_filter}
             ORDER BY gn.label
         """),
-        {"id": node_id},
-    )).fetchall()
+            {"id": node_id},
+        )
+    ).fetchall()
 
-    return {"items": [
-        {"id": r[0], "wikidataId": r[1], "label": r[2], "edgeType": r[3], "edgeSource": r[4]}
-        for r in rows
-    ]}
+    return {
+        "items": [
+            {
+                "id": r[0],
+                "wikidataId": r[1],
+                "label": r[2],
+                "edgeType": r[3],
+                "edgeSource": r[4],
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.get("/nodes/{node_id}/parents")
 async def get_parents(node_id: int, db: AsyncSession = Depends(get_db)):
     """Parent genres: edges where from_node_id = node_id and type = parent."""
-    rows = (await db.execute(
-        text("""
+    rows = (
+        await db.execute(
+            text("""
             SELECT gn.id, gn.wikidata_id, gn.label, ge.type, ge.source
             FROM genre_edges ge
             JOIN genre_nodes gn ON gn.id = ge.to_node_id
             WHERE ge.from_node_id = :id AND ge.type = 'parent'
             ORDER BY gn.label
         """),
-        {"id": node_id},
-    )).fetchall()
+            {"id": node_id},
+        )
+    ).fetchall()
 
-    return {"items": [
-        {"id": r[0], "wikidataId": r[1], "label": r[2], "edgeType": r[3], "edgeSource": r[4]}
-        for r in rows
-    ]}
+    return {
+        "items": [
+            {
+                "id": r[0],
+                "wikidataId": r[1],
+                "label": r[2],
+                "edgeType": r[3],
+                "edgeSource": r[4],
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.get("/nodes/{node_id}/ancestors")
 async def get_ancestors(node_id: int, db: AsyncSession = Depends(get_db)):
     """All ancestors via recursive CTE on parent edges (depth max 20)."""
-    rows = (await db.execute(
-        text("""
+    rows = (
+        await db.execute(
+            text("""
             WITH RECURSIVE ancestors AS (
                 SELECT ge.to_node_id AS id, 1 AS depth
                 FROM genre_edges ge
@@ -119,20 +152,23 @@ async def get_ancestors(node_id: int, db: AsyncSession = Depends(get_db)):
             GROUP BY gn.id, gn.wikidata_id, gn.label
             ORDER BY depth
         """),
-        {"id": node_id},
-    )).fetchall()
+            {"id": node_id},
+        )
+    ).fetchall()
 
-    return {"items": [
-        {"id": r[0], "wikidataId": r[1], "label": r[2], "depth": r[3]}
-        for r in rows
-    ]}
+    return {
+        "items": [
+            {"id": r[0], "wikidataId": r[1], "label": r[2], "depth": r[3]} for r in rows
+        ]
+    }
 
 
 @router.get("/nodes/{node_id}/descendants")
 async def get_descendants(node_id: int, db: AsyncSession = Depends(get_db)):
     """All descendants via recursive CTE on parent edges (depth max 20)."""
-    rows = (await db.execute(
-        text("""
+    rows = (
+        await db.execute(
+            text("""
             WITH RECURSIVE descendants AS (
                 SELECT ge.from_node_id AS id, 1 AS depth
                 FROM genre_edges ge
@@ -149,20 +185,23 @@ async def get_descendants(node_id: int, db: AsyncSession = Depends(get_db)):
             GROUP BY gn.id, gn.wikidata_id, gn.label
             ORDER BY depth, gn.label
         """),
-        {"id": node_id},
-    )).fetchall()
+            {"id": node_id},
+        )
+    ).fetchall()
 
-    return {"items": [
-        {"id": r[0], "wikidataId": r[1], "label": r[2], "depth": r[3]}
-        for r in rows
-    ]}
+    return {
+        "items": [
+            {"id": r[0], "wikidataId": r[1], "label": r[2], "depth": r[3]} for r in rows
+        ]
+    }
 
 
 @router.get("/nodes/{node_id}/neighbors")
 async def get_neighbors(node_id: int, db: AsyncSession = Depends(get_db)):
     """Genres connected via influence edges (both directions)."""
-    rows = (await db.execute(
-        text("""
+    rows = (
+        await db.execute(
+            text("""
             SELECT gn.id, gn.wikidata_id, gn.label, 'influences' AS direction, ge.source
             FROM genre_edges ge
             JOIN genre_nodes gn ON gn.id = ge.to_node_id
@@ -174,22 +213,33 @@ async def get_neighbors(node_id: int, db: AsyncSession = Depends(get_db)):
             WHERE ge.to_node_id = :id AND ge.type = 'influence'
             ORDER BY 2
         """),
-        {"id": node_id},
-    )).fetchall()
+            {"id": node_id},
+        )
+    ).fetchall()
 
-    return {"items": [
-        {"id": r[0], "wikidataId": r[1], "label": r[2], "direction": r[3], "edgeSource": r[4]}
-        for r in rows
-    ]}
+    return {
+        "items": [
+            {
+                "id": r[0],
+                "wikidataId": r[1],
+                "label": r[2],
+                "direction": r[3],
+                "edgeSource": r[4],
+            }
+            for r in rows
+        ]
+    }
 
 
 # ── Roots & Stats ────────────────────────────────────────────────────────
 
+
 @router.get("/roots")
 async def get_roots(db: AsyncSession = Depends(get_db)):
     """Nodes with no outgoing parent edges (top-level genres)."""
-    rows = (await db.execute(
-        text("""
+    rows = (
+        await db.execute(
+            text("""
             SELECT gn.id, gn.wikidata_id, gn.label
             FROM genre_nodes gn
             WHERE NOT EXISTS (
@@ -198,7 +248,8 @@ async def get_roots(db: AsyncSession = Depends(get_db)):
             )
             ORDER BY gn.label
         """),
-    )).fetchall()
+        )
+    ).fetchall()
 
     return {"items": [{"id": r[0], "wikidataId": r[1], "label": r[2]} for r in rows]}
 
@@ -207,12 +258,22 @@ async def get_roots(db: AsyncSession = Depends(get_db)):
 async def get_stats(db: AsyncSession = Depends(get_db)):
     node_count = (await db.execute(text("SELECT COUNT(*) FROM genre_nodes"))).scalar()
     edge_count = (await db.execute(text("SELECT COUNT(*) FROM genre_edges"))).scalar()
-    parent_count = (await db.execute(text("SELECT COUNT(*) FROM genre_edges WHERE type = 'parent'"))).scalar()
-    influence_count = (await db.execute(text("SELECT COUNT(*) FROM genre_edges WHERE type = 'influence'"))).scalar()
-    root_count = (await db.execute(text("""
+    parent_count = (
+        await db.execute(text("SELECT COUNT(*) FROM genre_edges WHERE type = 'parent'"))
+    ).scalar()
+    influence_count = (
+        await db.execute(
+            text("SELECT COUNT(*) FROM genre_edges WHERE type = 'influence'")
+        )
+    ).scalar()
+    root_count = (
+        await db.execute(
+            text("""
         SELECT COUNT(*) FROM genre_nodes gn
         WHERE NOT EXISTS (SELECT 1 FROM genre_edges ge WHERE ge.from_node_id = gn.id AND ge.type = 'parent')
-    """))).scalar()
+    """)
+        )
+    ).scalar()
 
     return {
         "nodeCount": node_count,
@@ -225,6 +286,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 
 # ── Mappings ─────────────────────────────────────────────────────────────
 
+
 @router.get("/mappings")
 async def list_mappings(
     unmapped: bool = Query(False),
@@ -233,8 +295,9 @@ async def list_mappings(
     db: AsyncSession = Depends(get_db),
 ):
     where = "WHERE gm.node_id IS NULL" if unmapped else ""
-    rows = (await db.execute(
-        text(f"""
+    rows = (
+        await db.execute(
+            text(f"""
             SELECT gm.id, gm.raw_name, gm.node_id, gn.wikidata_id, gn.label
             FROM genre_mappings gm
             LEFT JOIN genre_nodes gn ON gn.id = gm.node_id
@@ -242,12 +305,15 @@ async def list_mappings(
             ORDER BY gm.raw_name
             LIMIT :lim OFFSET :off
         """),
-        {"lim": limit, "off": offset},
-    )).fetchall()
+            {"lim": limit, "off": offset},
+        )
+    ).fetchall()
 
-    total = (await db.execute(
-        text(f"SELECT COUNT(*) FROM genre_mappings gm {where}"),
-    )).scalar()
+    total = (
+        await db.execute(
+            text(f"SELECT COUNT(*) FROM genre_mappings gm {where}"),
+        )
+    ).scalar()
 
     return {
         "items": [
@@ -273,9 +339,12 @@ async def update_mapping(
 ):
     """Admin: set or update the taxonomy node for a raw genre name."""
     # Verify node exists
-    node = (await db.execute(
-        text("SELECT id FROM genre_nodes WHERE id = :id"), {"id": node_id},
-    )).fetchone()
+    node = (
+        await db.execute(
+            text("SELECT id FROM genre_nodes WHERE id = :id"),
+            {"id": node_id},
+        )
+    ).fetchone()
     if not node:
         raise HTTPException(404, "Node not found")
 

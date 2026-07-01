@@ -5,18 +5,18 @@ Provides:
   - bulk_get_or_create_catalog: batch catalog dedup + insert
   - bulk_insert_radar_tracks: batch radar track insertion with dedup
 """
+
 import os
+import sys
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-import sys
 sys.path.insert(0, "/app")
 from models import CatalogEntry, RadarTrack
 from utils import make_normalized_key
-
 
 _engine = None
 
@@ -55,16 +55,22 @@ def bulk_get_or_create_catalog(
     # Batch lookup by ISRC
     isrc_map: dict[str, CatalogEntry] = {}
     if isrcs:
-        existing = session.execute(
-            select(CatalogEntry).where(CatalogEntry.isrc.in_(isrcs))
-        ).scalars().all()
+        existing = (
+            session.execute(select(CatalogEntry).where(CatalogEntry.isrc.in_(isrcs)))
+            .scalars()
+            .all()
+        )
         isrc_map = {e.isrc: e for e in existing}
 
     # Batch lookup by normalized_key
     norm_map: dict[str, CatalogEntry] = {}
-    existing = session.execute(
-        select(CatalogEntry).where(CatalogEntry.normalized_key.in_(norm_keys))
-    ).scalars().all()
+    existing = (
+        session.execute(
+            select(CatalogEntry).where(CatalogEntry.normalized_key.in_(norm_keys))
+        )
+        .scalars()
+        .all()
+    )
     norm_map = {e.normalized_key: e for e in existing}
 
     # Resolve each track: ISRC first, then norm_key, then create
@@ -97,31 +103,39 @@ def bulk_get_or_create_catalog(
             continue
 
         # 4. Queue for insert
-        to_insert.append({
-            "title": t["title"],
-            "artist": t.get("artist"),
-            "normalized_key": nk,
-            "isrc": isrc if (isrc and isrc not in seen_isrcs) else None,
-            "duration_ms": t.get("duration_ms"),
-            "created_at": datetime.now(timezone.utc),
-        })
+        to_insert.append(
+            {
+                "title": t["title"],
+                "artist": t.get("artist"),
+                "normalized_key": nk,
+                "isrc": isrc if (isrc and isrc not in seen_isrcs) else None,
+                "duration_ms": t.get("duration_ms"),
+                "created_at": datetime.now(timezone.utc),
+            }
+        )
         if isrc:
             seen_isrcs.add(isrc)
         seen_norms.add(nk)
 
     # Bulk insert with ON CONFLICT DO NOTHING — safe against concurrent workers
     if to_insert:
-        stmt = pg_insert(CatalogEntry).values(to_insert).on_conflict_do_nothing(
-            index_elements=["normalized_key"]
+        stmt = (
+            pg_insert(CatalogEntry)
+            .values(to_insert)
+            .on_conflict_do_nothing(index_elements=["normalized_key"])
         )
         session.execute(stmt)
         session.flush()
 
         # Re-fetch all newly inserted + conflict-skipped rows
         new_nks = [row["normalized_key"] for row in to_insert]
-        fetched = session.execute(
-            select(CatalogEntry).where(CatalogEntry.normalized_key.in_(new_nks))
-        ).scalars().all()
+        fetched = (
+            session.execute(
+                select(CatalogEntry).where(CatalogEntry.normalized_key.in_(new_nks))
+            )
+            .scalars()
+            .all()
+        )
         for entry in fetched:
             result[entry.normalized_key] = entry
 
@@ -146,9 +160,11 @@ def bulk_insert_radar_tracks(
 
     # Load existing external_track_ids for this entity
     existing_ext_ids = {
-        r[0] for r in session.execute(
-            select(RadarTrack.external_track_id)
-            .where(RadarTrack.watched_entity_id == entity_id)
+        r[0]
+        for r in session.execute(
+            select(RadarTrack.external_track_id).where(
+                RadarTrack.watched_entity_id == entity_id
+            )
         ).all()
     }
 
@@ -162,21 +178,25 @@ def bulk_insert_radar_tracks(
         nk = make_normalized_key(st.title, st.artist)
         entry = catalog_map.get(nk)
 
-        to_insert.append({
-            "watched_entity_id": entity_id,
-            "external_track_id": st.external_id,
-            "source": source,
-            "title": st.title,
-            "artist": st.artist,
-            "isrc": st.isrc,
-            "detected_at": now,
-            "catalog_id": entry.id if entry else None,
-        })
+        to_insert.append(
+            {
+                "watched_entity_id": entity_id,
+                "external_track_id": st.external_id,
+                "source": source,
+                "title": st.title,
+                "artist": st.artist,
+                "isrc": st.isrc,
+                "detected_at": now,
+                "catalog_id": entry.id if entry else None,
+            }
+        )
         existing_ext_ids.add(st.external_id)
 
     if to_insert:
-        stmt = pg_insert(RadarTrack).values(to_insert).on_conflict_do_nothing(
-            constraint="uq_radar_playlist_track"
+        stmt = (
+            pg_insert(RadarTrack)
+            .values(to_insert)
+            .on_conflict_do_nothing(constraint="uq_radar_playlist_track")
         )
         result = session.execute(stmt)
         session.flush()

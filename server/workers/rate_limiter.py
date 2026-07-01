@@ -11,17 +11,18 @@ Usage (sync):
     with limiter.acquire_sync("tidal"):
         resp = requests.get(...)
 """
+
 import asyncio
 import threading
 import time
 
 # Per-source configuration: (max_concurrent, requests_per_second)
 _SOURCE_CONFIG = {
-    "deezer": (5, 10.0),      # 50 per 5s window
-    "beatport": (2, 0.66),    # ~1 per 1.5s
+    "deezer": (5, 10.0),  # 50 per 5s window
+    "beatport": (2, 0.66),  # ~1 per 1.5s
     "tidal": (2, 2.0),
-    "minio": (10, 0.0),       # local bucket, no rate limit
-    "trackid": (1, 0.66),     # ~1 per 1.5s (sequential crawl)
+    "minio": (10, 0.0),  # local bucket, no rate limit
+    "trackid": (1, 0.66),  # ~1 per 1.5s (sequential crawl)
 }
 
 
@@ -94,7 +95,9 @@ class RateLimiter:
 
     def acquire_sync(self, source: str) -> "_SyncRateLimitContext":
         self._ensure_sync_source(source)
-        return _SyncRateLimitContext(self._sync_semaphores[source], self._buckets[source])
+        return _SyncRateLimitContext(
+            self._sync_semaphores[source], self._buckets[source]
+        )
 
 
 class _RateLimitContext:

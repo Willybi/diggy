@@ -15,28 +15,29 @@ Options :
     --limit N    Traite au maximum N entrées (utile pour tester)
     --force      Re-télécharge même si has_artwork=True
 """
-import asyncio
+
 import argparse
+import asyncio
 import os
 import sys
 import tempfile
 
-import requests
 import boto3
+import requests
 from botocore.client import Config
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from models import CatalogEntry, RadarTrack
 
-MINIO_URL      = os.environ.get("MINIO_URL", "http://minio:9000")
-MINIO_USER     = os.environ["MINIO_USER"]
+MINIO_URL = os.environ.get("MINIO_URL", "http://minio:9000")
+MINIO_USER = os.environ["MINIO_USER"]
 MINIO_PASSWORD = os.environ["MINIO_PASSWORD"]
-BUCKET         = "catalog-artworks"
-DEEZER_API     = "https://api.deezer.com"
-COVER_FIELD    = "cover_medium"
+BUCKET = "catalog-artworks"
+DEEZER_API = "https://api.deezer.com"
+COVER_FIELD = "cover_medium"
 
 s3 = boto3.client(
     "s3",
@@ -78,7 +79,9 @@ def upload_cover(img_bytes: bytes, catalog_id: int) -> None:
         f.write(img_bytes)
         tmp = f.name
     try:
-        s3.upload_file(tmp, BUCKET, f"{catalog_id}.jpg", ExtraArgs={"ContentType": "image/jpeg"})
+        s3.upload_file(
+            tmp, BUCKET, f"{catalog_id}.jpg", ExtraArgs={"ContentType": "image/jpeg"}
+        )
     finally:
         os.unlink(tmp)
 
@@ -93,7 +96,7 @@ async def run(limit: int | None, force: bool):
     async with async_session() as db:
         q = select(CatalogEntry)
         if not force:
-            q = q.where(CatalogEntry.has_artwork == False)
+            q = q.where(CatalogEntry.has_artwork.is_(False))
         if limit:
             q = q.limit(limit)
         result = await db.execute(q)

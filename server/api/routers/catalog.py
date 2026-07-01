@@ -1,29 +1,50 @@
+import json as _json
+from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+import httpx
+from database import get_db
+from dependencies import get_current_user, get_current_user_optional
+from dependencies import uid as _uid
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
-import json as _json
-
-from database import get_db
-from dependencies import get_current_user, get_current_user_optional, uid as _uid
-from datetime import datetime, timezone
 
 CatalogSortField = Literal[
-    "title", "nb_radar_playlists", "detected_at", "rating",
-    "bpm", "duration_ms", "key", "style", "in_lib", "avis",
+    "title",
+    "nb_radar_playlists",
+    "detected_at",
+    "rating",
+    "bpm",
+    "duration_ms",
+    "key",
+    "style",
+    "in_lib",
+    "avis",
 ]
 
-from models import (
-    CatalogEntry, UserTrack, UserRadarState, RadarTrack, SetTrack,
-    DJSet, SetArtist, Artist, CatalogArtist, WatchedEntity, User,
+from models import (  # noqa: E402
+    Artist,
+    CatalogArtist,
+    CatalogEntry,
+    DJSet,
+    RadarTrack,
+    SetTrack,
+    User,
+    UserTrack,
+    WatchedEntity,
 )
-from opinion_sync import sync_track_opinion
-from schemas import (
-    CatalogEntryOut, CatalogList, CatalogDetailOut, CatalogAvisUpdate,
-    RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut, GenreRef,
+from opinion_sync import sync_track_opinion  # noqa: E402
+from schemas import (  # noqa: E402
     ArtistRef,
+    CatalogAvisUpdate,
+    CatalogDetailOut,
+    CatalogEntryOut,
+    CatalogList,
+    GenreRef,
+    RadarAppearanceOut,
+    SameArtistTrackOut,
+    SetAppearanceOut,
 )
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -37,7 +58,8 @@ SORTABLE_COLS = {
 @router.get("/genres")
 async def list_genres(db: AsyncSession = Depends(get_db)):
     """Return all distinct genres with track counts (unnested from arrays)."""
-    from routers.genres import genre_pillar, _ensure_pillar_cache
+    from routers.genres import _ensure_pillar_cache, genre_pillar
+
     await _ensure_pillar_cache(db)
     genre_col = func.unnest(CatalogEntry.genres).label("genre")
     result = await db.execute(
@@ -76,7 +98,9 @@ async def list_catalog(
     radar_count = (
         select(
             RadarTrack.catalog_id,
-            func.count(func.distinct(RadarTrack.watched_entity_id)).label("nb_playlists"),
+            func.count(func.distinct(RadarTrack.watched_entity_id)).label(
+                "nb_playlists"
+            ),
         )
         .where(RadarTrack.catalog_id.isnot(None))
         .group_by(RadarTrack.catalog_id)
@@ -151,26 +175,25 @@ async def list_catalog(
     ]
 
     if is_radar:
-        select_cols.extend([
-            radar_src.c.max_detected_at.label("detected_at"),
-            latest_radar.c.src_name.label("source_name"),
-            latest_radar.c.src_kind.label("source_kind"),
-        ])
+        select_cols.extend(
+            [
+                radar_src.c.max_detected_at.label("detected_at"),
+                latest_radar.c.src_name.label("source_name"),
+                latest_radar.c.src_kind.label("source_kind"),
+            ]
+        )
 
-    query = select(*select_cols).outerjoin(
-        radar_count, CatalogEntry.id == radar_count.c.catalog_id
-    ).outerjoin(
-        set_count, CatalogEntry.id == set_count.c.catalog_id
-    ).outerjoin(
-        ut_sub, CatalogEntry.id == ut_sub.c.catalog_id
+    query = (
+        select(*select_cols)
+        .outerjoin(radar_count, CatalogEntry.id == radar_count.c.catalog_id)
+        .outerjoin(set_count, CatalogEntry.id == set_count.c.catalog_id)
+        .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
     )
 
     if is_radar:
         query = query.outerjoin(
             radar_src, CatalogEntry.id == radar_src.c.catalog_id
-        ).outerjoin(
-            latest_radar, CatalogEntry.id == latest_radar.c.catalog_id
-        )
+        ).outerjoin(latest_radar, CatalogEntry.id == latest_radar.c.catalog_id)
         # Only tracks with radar appearances
         query = query.where(radar_count.c.nb_playlists.isnot(None))
         if detected_after:
@@ -199,7 +222,8 @@ async def list_catalog(
         query = query.where(ut_sub.c.ut_avis == avis)
 
     # Ensure genre pillar cache is loaded (needed for style sort + genre enrichment)
-    from routers.genres import genre_pillar, _ensure_pillar_cache
+    from routers.genres import _ensure_pillar_cache, genre_pillar
+
     await _ensure_pillar_cache(db)
 
     # Tri
@@ -218,15 +242,31 @@ async def list_catalog(
         sort_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key, "")
     elif sort == "style":
         # Sort by pillar order (house=0..autres=6), then alphabetical genre name
-        from routers.genres import _PILLAR_CACHE
         from sqlalchemy import literal_column
+
+        from routers.genres import _PILLAR_CACHE
+
         first_genre = func.coalesce(literal_column("genres[1]"), "")
-        pillar_rank = {'house': 0, 'techno': 1, 'trance': 2, 'dnb': 3, 'hardcore': 4, 'harddance': 5, 'autres': 6}
+        pillar_rank = {
+            "house": 0,
+            "techno": 1,
+            "trance": 2,
+            "dnb": 3,
+            "hardcore": 4,
+            "harddance": 5,
+            "autres": 6,
+        }
         pillar_case = case(
-            *[(first_genre == g, pillar_rank.get(p, 6)) for g, (p, _d) in _PILLAR_CACHE.items()],
+            *[
+                (first_genre == g, pillar_rank.get(p, 6))
+                for g, (p, _d) in _PILLAR_CACHE.items()
+            ],
             else_=6,
         )
-        dir_fn = lambda c: c.desc() if order != "asc" else c.asc()
+
+        def dir_fn(c):
+            return c.desc() if order != "asc" else c.asc()
+
         query = query.order_by(dir_fn(pillar_case), dir_fn(first_genre))
         sort_col = None  # already handled
     elif sort == "in_lib":
@@ -252,13 +292,17 @@ async def list_catalog(
 
     # Batch-fetch linked artists for the page's entries via catalog_artists
     from collections import defaultdict
+
     page_ids = [row[0].id for row in rows]
     artists_by_catalog: dict[int, list[ArtistRef]] = defaultdict(list)
     if page_ids:
         ca_result = await db.execute(
             select(
-                CatalogArtist.catalog_id, Artist.id, Artist.name,
-                CatalogArtist.role, Artist.has_artwork,
+                CatalogArtist.catalog_id,
+                Artist.id,
+                Artist.name,
+                CatalogArtist.role,
+                Artist.has_artwork,
             )
             .join(Artist, Artist.id == CatalogArtist.artist_id)
             .where(CatalogArtist.catalog_id.in_(page_ids))
@@ -303,7 +347,7 @@ async def list_catalog(
 
         # Build GenreRef list with pillar/depth
         genre_refs = []
-        for g in (entry.genres or []):
+        for g in entry.genres or []:
             p, d = genre_pillar(g)
             genre_refs.append(GenreRef(name=g, pillar=p, depth=d))
 
@@ -346,10 +390,7 @@ async def get_catalog_detail(
     uid = _uid(user)
 
     # 1. Main entry
-    result = await db.execute(
-        select(CatalogEntry)
-        .where(CatalogEntry.id == catalog_id)
-    )
+    result = await db.execute(select(CatalogEntry).where(CatalogEntry.id == catalog_id))
     entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
@@ -368,7 +409,11 @@ async def get_catalog_detail(
     lib_style = None
     if ut and ut.rb_mytags:
         try:
-            ut_tags = ut.rb_mytags if isinstance(ut.rb_mytags, list) else _json.loads(ut.rb_mytags)
+            ut_tags = (
+                ut.rb_mytags
+                if isinstance(ut.rb_mytags, list)
+                else _json.loads(ut.rb_mytags)
+            )
             lib_style = ut_tags[0] if ut_tags else None
         except Exception:
             pass
@@ -388,8 +433,10 @@ async def get_catalog_detail(
     )
     radar_appearances = [
         RadarAppearanceOut(
-            playlist_id=r[0], playlist_title=r[1],
-            playlist_source=r[2], detected_at=r[3],
+            playlist_id=r[0],
+            playlist_title=r[1],
+            playlist_source=r[2],
+            detected_at=r[3],
         )
         for r in radar_result.all()
     ]
@@ -397,7 +444,9 @@ async def get_catalog_detail(
     # 4. Set appearances
     set_result = await db.execute(
         select(
-            DJSet.id, DJSet.title, DJSet.played_date,
+            DJSet.id,
+            DJSet.title,
+            DJSet.played_date,
             SetTrack.timecode_ms,
         )
         .join(DJSet, DJSet.id == SetTrack.set_id)
@@ -407,14 +456,17 @@ async def get_catalog_detail(
     )
     set_appearances = [
         SetAppearanceOut(
-            set_id=r[0], set_title=r[1],
-            played_date=r[2], timecode_ms=r[3],
+            set_id=r[0],
+            set_title=r[1],
+            played_date=r[2],
+            timecode_ms=r[3],
         )
         for r in set_result.all()
     ]
 
     # 5. Linked artists for this entry
     from collections import defaultdict
+
     ca_result = await db.execute(
         select(Artist.id, Artist.name, CatalogArtist.role, Artist.has_artwork)
         .join(Artist, Artist.id == CatalogArtist.artist_id)
@@ -446,8 +498,12 @@ async def get_catalog_detail(
         )
         sa_result = await db.execute(
             select(
-                CatalogEntry.id, CatalogEntry.title, CatalogEntry.artist,
-                CatalogEntry.bpm, CatalogEntry.key, CatalogEntry.duration_ms,
+                CatalogEntry.id,
+                CatalogEntry.title,
+                CatalogEntry.artist,
+                CatalogEntry.bpm,
+                CatalogEntry.key,
+                CatalogEntry.duration_ms,
                 CatalogEntry.has_artwork,
                 sa_ut_sub.c.catalog_id.label("sa_ut_cid"),
                 sa_ut_sub.c.rating,
@@ -464,8 +520,11 @@ async def get_catalog_detail(
         if sa_ids:
             sa_ca = await db.execute(
                 select(
-                    CatalogArtist.catalog_id, Artist.id, Artist.name,
-                    CatalogArtist.role, Artist.has_artwork,
+                    CatalogArtist.catalog_id,
+                    Artist.id,
+                    Artist.name,
+                    CatalogArtist.role,
+                    Artist.has_artwork,
                 )
                 .join(Artist, Artist.id == CatalogArtist.artist_id)
                 .where(CatalogArtist.catalog_id.in_(sa_ids))
@@ -477,9 +536,15 @@ async def get_catalog_detail(
                 )
         same_artist = [
             SameArtistTrackOut(
-                id=r[0], title=r[1], artist=r[2], bpm=r[3], key=r[4],
-                duration_ms=r[5], has_artwork=r[6],
-                in_lib=r[7] is not None, rating=r[8],
+                id=r[0],
+                title=r[1],
+                artist=r[2],
+                bpm=r[3],
+                key=r[4],
+                duration_ms=r[5],
+                has_artwork=r[6],
+                in_lib=r[7] is not None,
+                rating=r[8],
                 artists=sa_artists_map.get(r[0], []),
             )
             for r in sa_rows
@@ -490,7 +555,12 @@ async def get_catalog_detail(
 
     # Build GenreRef list with pillar/depth (genre_pillar defaults to 'autres' if cache empty)
     from routers.genres import genre_pillar
-    genre_refs = [GenreRef(name=g, pillar=p, depth=d) for g in (entry.genres or []) for p, d in [genre_pillar(g)]]
+
+    genre_refs = [
+        GenreRef(name=g, pillar=p, depth=d)
+        for g in (entry.genres or [])
+        for p, d in [genre_pillar(g)]
+    ]
 
     return CatalogDetailOut(
         id=entry.id,
@@ -570,7 +640,9 @@ async def update_avis(
     uid = user.id
 
     result = await db.execute(
-        select(UserTrack).where(UserTrack.user_id == uid, UserTrack.catalog_id == catalog_id)
+        select(UserTrack).where(
+            UserTrack.user_id == uid, UserTrack.catalog_id == catalog_id
+        )
     )
     ut = result.scalar_one_or_none()
 
@@ -578,10 +650,14 @@ async def update_avis(
         ut.avis = body.avis
     else:
         # Verify catalog entry exists
-        cat = await db.execute(select(CatalogEntry.id).where(CatalogEntry.id == catalog_id))
+        cat = await db.execute(
+            select(CatalogEntry.id).where(CatalogEntry.id == catalog_id)
+        )
         if not cat.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Catalog entry not found")
-        ut = UserTrack(user_id=uid, catalog_id=catalog_id, avis=body.avis, source="catalog_avis")
+        ut = UserTrack(
+            user_id=uid, catalog_id=catalog_id, avis=body.avis, source="catalog_avis"
+        )
         db.add(ut)
 
     # Sync → user_opinions + user_radar_state

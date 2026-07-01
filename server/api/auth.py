@@ -17,7 +17,9 @@ GOOGLE_REDIRECT_URI = os.environ.get(
 
 def create_token(user_id: int) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(
+        {"sub": str(user_id), "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM
+    )
 
 
 def decode_token(token: str) -> int | None:

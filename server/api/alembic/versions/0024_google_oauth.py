@@ -3,8 +3,8 @@
 Drop hashed_password, add google_id + picture_url.
 Purge existing users (cascade deletes dependents).
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0024"
 down_revision = "0023"

@@ -1,14 +1,13 @@
 import logging
-import re
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from database import get_db
+from dependencies import get_current_user_optional, require_admin
+from dependencies import uid as _uid
+from fastapi import APIRouter, Depends, HTTPException, Query
+from models import User
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from database import get_db
-from dependencies import get_current_user_optional, require_admin, uid as _uid
-from models import User
 
 router = APIRouter(tags=["genres"])
 log = logging.getLogger(__name__)
@@ -17,20 +16,20 @@ log = logging.getLogger(__name__)
 #    Resolved dynamically from genre_mappings + genre_nodes + genre_edges.
 #    Cached after first load; admin can POST /genres/refresh-pillars.
 
-_ALL_PILLARS = ('house', 'techno', 'trance', 'dnb', 'hardcore', 'harddance', 'autres')
+_ALL_PILLARS = ("house", "techno", "trance", "dnb", "hardcore", "harddance", "autres")
 
 # Taxonomy root labels -> pillar key (mirrors frontend ROOT_TO_PILLAR)
 _ROOT_TO_PILLAR = {
-    'house music':   'house',
-    'disco':         'house',
-    'UK garage':     'house',
-    'techno':        'techno',
-    'trance':        'trance',
-    'drum and bass': 'dnb',
-    'dubstep':       'dnb',
-    'breakbeat':     'dnb',
-    'hardcore':      'hardcore',
-    'hard dance':    'harddance',
+    "house music": "house",
+    "disco": "house",
+    "UK garage": "house",
+    "techno": "techno",
+    "trance": "trance",
+    "drum and bass": "dnb",
+    "dubstep": "dnb",
+    "breakbeat": "dnb",
+    "hardcore": "hardcore",
+    "hard dance": "harddance",
 }
 
 # Cache: raw_name -> (pillar, depth)
@@ -39,7 +38,7 @@ _PILLAR_CACHE: dict[str, tuple[str, int]] = {}
 
 def genre_pillar(genre_name: str) -> tuple[str, int]:
     """Return (pillar, depth) for a genre. Fallback: ('autres', 0)."""
-    return _PILLAR_CACHE.get(genre_name, ('autres', 0))
+    return _PILLAR_CACHE.get(genre_name, ("autres", 0))
 
 
 async def _load_pillar_cache(db: AsyncSession) -> None:
@@ -48,7 +47,9 @@ async def _load_pillar_cache(db: AsyncSession) -> None:
 
     root_labels = list(_ROOT_TO_PILLAR.keys())
 
-    rows = (await db.execute(text("""
+    rows = (
+        await db.execute(
+            text("""
         WITH RECURSIVE mapped AS (
             SELECT gm.raw_name, gm.node_id, gn.label AS node_label
             FROM genre_mappings gm
@@ -80,7 +81,10 @@ async def _load_pillar_cache(db: AsyncSession) -> None:
                b.ancestor_label, b.depth AS ancestor_depth
         FROM mapped m
         LEFT JOIN best b ON b.raw_name = m.raw_name
-    """), {"root_labels": root_labels})).fetchall()
+    """),
+            {"root_labels": root_labels},
+        )
+    ).fetchall()
 
     cache: dict[str, tuple[str, int]] = {}
     for r in rows:
@@ -91,13 +95,14 @@ async def _load_pillar_cache(db: AsyncSession) -> None:
             depth = min(r.ancestor_depth, 3)
             cache[r.raw_name] = (_ROOT_TO_PILLAR[r.ancestor_label], depth)
         else:
-            cache[r.raw_name] = ('autres', 0)
+            cache[r.raw_name] = ("autres", 0)
 
     _PILLAR_CACHE.update(cache)
     log.info("Pillar cache loaded: %d genres", len(cache))
 
 
 _pillar_cache_attempted = False
+
 
 async def _ensure_pillar_cache(db: AsyncSession) -> None:
     global _pillar_cache_attempted
@@ -121,6 +126,7 @@ def _pillar_genre_names(pillar: str) -> list[str]:
 
 # ── Endpoints ────────────────────────────────────────────────────────────
 
+
 @router.get("/random-track")
 async def random_genre_track(
     genre: str = Query(..., max_length=100),
@@ -128,14 +134,21 @@ async def random_genre_track(
     db: AsyncSession = Depends(get_db),
 ):
     """Return a random previewable catalog entry for the given genre."""
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         SELECT id, title, artist, bpm, key FROM catalog
         WHERE :genre = ANY(genres)
           AND has_preview = true
           AND (:has_exclude = false OR id != :exclude_id)
         ORDER BY random()
         LIMIT 1
-    """), {"genre": genre, "has_exclude": exclude is not None, "exclude_id": exclude or 0})
+    """),
+        {
+            "genre": genre,
+            "has_exclude": exclude is not None,
+            "exclude_id": exclude or 0,
+        },
+    )
     row = result.fetchone()
     if not row:
         raise HTTPException(404, "No previewable track for this genre")
@@ -167,12 +180,17 @@ async def list_genres(
     if family and family in _ALL_PILLARS:
         family_genres = _pillar_genre_names(family)
         if not family_genres:
-            return {"items": [], "total": 0, "pillarCounts": {p: 0 for p in _ALL_PILLARS}}
+            return {
+                "items": [],
+                "total": 0,
+                "pillarCounts": {p: 0 for p in _ALL_PILLARS},
+            }
 
     q_pattern = f"%{q.lower()}%" if q else ""
 
     # ── Stats per genre (unnested) ──
-    stats_result = await db.execute(text("""
+    stats_result = await db.execute(
+        text("""
         SELECT
             g AS genre,
             COUNT(*)::int                                                    AS track_count,
@@ -186,13 +204,15 @@ async def list_genres(
         WHERE (:family_filter = false OR g = ANY(:family_genres))
           AND (:q_filter = false OR LOWER(g) LIKE :q_pattern)
         GROUP BY g
-    """), {
-        "user_id": user_id,
-        "family_filter": family_genres is not None,
-        "family_genres": family_genres or [],
-        "q_filter": bool(q),
-        "q_pattern": q_pattern,
-    })
+    """),
+        {
+            "user_id": user_id,
+            "family_filter": family_genres is not None,
+            "family_genres": family_genres or [],
+            "q_filter": bool(q),
+            "q_pattern": q_pattern,
+        },
+    )
     all_genres = stats_result.fetchall()
 
     # Sort
@@ -202,7 +222,7 @@ async def list_genres(
         all_genres = sorted(all_genres, key=lambda r: -r.track_count)
 
     total = len(all_genres)
-    page_genres = all_genres[offset:offset + limit]
+    page_genres = all_genres[offset : offset + limit]
 
     # ── Artworks + artists per genre (batched) ──
     genre_names = [r.genre for r in page_genres]
@@ -210,21 +230,25 @@ async def list_genres(
     # Top 4 artworks per genre
     artworks_map: dict[str, list[str]] = {g: [] for g in genre_names}
     if genre_names:
-        aw_result = await db.execute(text("""
+        aw_result = await db.execute(
+            text("""
             SELECT genre, id FROM (
                 SELECT g AS genre, c.id,
                        ROW_NUMBER() OVER (PARTITION BY g ORDER BY c.id DESC) AS rn
                 FROM catalog c CROSS JOIN LATERAL unnest(c.genres) AS g
                 WHERE g = ANY(:genres) AND c.has_artwork = true
             ) sub WHERE rn <= 4
-        """), {"genres": genre_names})
+        """),
+            {"genres": genre_names},
+        )
         for row in aw_result.fetchall():
             artworks_map[row.genre].append(f"/storage/catalog-artworks/{row.id}.jpg")
 
     # Top 3 artists with photos per genre
     artists_map: dict[str, list[dict]] = {g: [] for g in genre_names}
     if genre_names:
-        ar_result = await db.execute(text("""
+        ar_result = await db.execute(
+            text("""
             SELECT genre, artist_id, artist_name FROM (
                 SELECT g AS genre, a.id AS artist_id, a.name AS artist_name,
                        COUNT(*) AS track_cnt,
@@ -238,38 +262,47 @@ async def list_genres(
                 WHERE g = ANY(:genres) AND c.artist IS NOT NULL
                 GROUP BY g, a.id, a.name
             ) ranked WHERE rn <= 3
-        """), {"genres": genre_names})
+        """),
+            {"genres": genre_names},
+        )
         for row in ar_result.fetchall():
-            artists_map[row.genre].append({
-                "id": row.artist_id,
-                "name": row.artist_name,
-                "image": f"/storage/artist-artworks/{row.artist_id}.jpg",
-            })
+            artists_map[row.genre].append(
+                {
+                    "id": row.artist_id,
+                    "name": row.artist_name,
+                    "image": f"/storage/artist-artworks/{row.artist_id}.jpg",
+                }
+            )
 
     # ── Build items ──
     items = []
     for row in page_genres:
         pillar, depth = genre_pillar(row.genre)
-        items.append({
-            "name": row.genre,
-            "pillar": pillar,
-            "depth": depth,
-            "trackCount": row.track_count,
-            "artistCount": row.artist_count,
-            "bpmLo": row.bpm_lo,
-            "bpmHi": row.bpm_hi,
-            "inLibCount": row.in_lib_count,
-            "artworks": artworks_map.get(row.genre, []),
-            "artists": artists_map.get(row.genre, []),
-        })
+        items.append(
+            {
+                "name": row.genre,
+                "pillar": pillar,
+                "depth": depth,
+                "trackCount": row.track_count,
+                "artistCount": row.artist_count,
+                "bpmLo": row.bpm_lo,
+                "bpmHi": row.bpm_hi,
+                "inLibCount": row.in_lib_count,
+                "artworks": artworks_map.get(row.genre, []),
+                "artists": artists_map.get(row.genre, []),
+            }
+        )
 
     # ── Pillar counts (independent of pillar filter, respects search) ──
-    fc_result = await db.execute(text("""
+    fc_result = await db.execute(
+        text("""
         SELECT g AS genre, COUNT(*)::int AS cnt
         FROM catalog c CROSS JOIN LATERAL unnest(c.genres) AS g
         WHERE (:q_filter = false OR LOWER(g) LIKE :q_pattern)
         GROUP BY g
-    """), {"q_filter": bool(q), "q_pattern": q_pattern})
+    """),
+        {"q_filter": bool(q), "q_pattern": q_pattern},
+    )
 
     pillar_counts: dict[str, int] = {p: 0 for p in _ALL_PILLARS}
     for fc_row in fc_result.fetchall():
@@ -285,8 +318,10 @@ async def list_genres(
 
 # ── Schemas ───────────────────────────────────────────────────────────────
 
+
 class GenreRenameIn(BaseModel):
     new_name: str
+
 
 class GenreMergeIn(BaseModel):
     source: str
@@ -295,13 +330,17 @@ class GenreMergeIn(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
+
 async def _resolve_genre(db: AsyncSession, name: str) -> str:
     """Return the canonical genre name (exact casing from DB). Raise 404 if not found."""
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         SELECT g FROM catalog, unnest(genres) AS g
         WHERE LOWER(g) = LOWER(:name)
         LIMIT 1
-    """), {"name": name})
+    """),
+        {"name": name},
+    )
     row = result.fetchone()
     if not row:
         raise HTTPException(404, "Genre not found")
@@ -309,6 +348,7 @@ async def _resolve_genre(db: AsyncSession, name: str) -> str:
 
 
 # ── Admin (must be declared BEFORE /{name} routes) ───────────────────────
+
 
 @router.post("/merge")
 async def merge_genres(
@@ -321,16 +361,25 @@ async def merge_genres(
     target = await _resolve_genre(db, body.target)
     if source == target:
         raise HTTPException(400, "Source and target are the same genre")
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         UPDATE catalog
         SET genres = (SELECT ARRAY(SELECT DISTINCT unnest(array_replace(genres, :source, :target))))
         WHERE :source = ANY(genres)
-    """), {"source": source, "target": target})
+    """),
+        {"source": source, "target": target},
+    )
     await db.commit()
-    return {"merged": True, "source": source, "target": target, "affected": result.rowcount}
+    return {
+        "merged": True,
+        "source": source,
+        "target": target,
+        "affected": result.rowcount,
+    }
 
 
 # ── Genre detail endpoints ────────────────────────────────────────────────
+
 
 @router.get("/detail/{name:path}")
 async def get_genre_detail(
@@ -344,7 +393,8 @@ async def get_genre_detail(
     await _ensure_pillar_cache(db)
 
     # Stats
-    stats = await db.execute(text("""
+    stats = await db.execute(
+        text("""
         SELECT
             COUNT(*)::int                                                        AS track_count,
             COUNT(DISTINCT LOWER(c.artist))::int                                 AS artist_count,
@@ -354,40 +404,52 @@ async def get_genre_detail(
         FROM catalog c
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
         WHERE :genre = ANY(c.genres)
-    """), {"genre": genre, "user_id": user_id})
+    """),
+        {"genre": genre, "user_id": user_id},
+    )
     s = stats.fetchone()
 
     # Set count
-    set_result = await db.execute(text("""
+    set_result = await db.execute(
+        text("""
         SELECT COUNT(DISTINCT st.set_id)::int AS cnt
         FROM set_tracks st
         JOIN catalog c ON c.id = st.catalog_id
         WHERE :genre = ANY(c.genres)
-    """), {"genre": genre})
+    """),
+        {"genre": genre},
+    )
     set_count = set_result.scalar()
 
     # Playlist count
-    pl_result = await db.execute(text("""
+    pl_result = await db.execute(
+        text("""
         SELECT COUNT(DISTINCT rt.watched_entity_id)::int AS cnt
         FROM radar_tracks rt
         JOIN catalog c ON c.id = rt.catalog_id
         WHERE :genre = ANY(c.genres)
-    """), {"genre": genre})
+    """),
+        {"genre": genre},
+    )
     playlist_count = pl_result.scalar()
 
     # Top 6 artworks
-    aw_result = await db.execute(text("""
+    aw_result = await db.execute(
+        text("""
         SELECT id FROM (
             SELECT c.id,
                    ROW_NUMBER() OVER (ORDER BY c.id DESC) AS rn
             FROM catalog c
             WHERE :genre = ANY(c.genres) AND c.has_artwork = true
         ) sub WHERE rn <= 6
-    """), {"genre": genre})
+    """),
+        {"genre": genre},
+    )
     artworks = [f"/storage/catalog-artworks/{r.id}.jpg" for r in aw_result.fetchall()]
 
     # Top 3 artists with photos
-    ar_result = await db.execute(text("""
+    ar_result = await db.execute(
+        text("""
         SELECT artist_id, artist_name FROM (
             SELECT a.id AS artist_id, a.name AS artist_name,
                    COUNT(*) AS track_cnt,
@@ -397,9 +459,15 @@ async def get_genre_detail(
             WHERE :genre = ANY(c.genres) AND c.artist IS NOT NULL
             GROUP BY a.id, a.name
         ) ranked WHERE rn <= 3
-    """), {"genre": genre})
+    """),
+        {"genre": genre},
+    )
     artists = [
-        {"id": r.artist_id, "name": r.artist_name, "image": f"/storage/artist-artworks/{r.artist_id}.jpg"}
+        {
+            "id": r.artist_id,
+            "name": r.artist_name,
+            "image": f"/storage/artist-artworks/{r.artist_id}.jpg",
+        }
         for r in ar_result.fetchall()
     ]
 
@@ -432,7 +500,8 @@ async def get_genre_artists(
     genre = await _resolve_genre(db, name)
     user_id = _uid(user)
 
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         SELECT a.id, a.name, a.has_artwork,
                COUNT(*)::int AS track_count,
                COUNT(DISTINCT ut.catalog_id)::int AS in_lib_count,
@@ -444,7 +513,9 @@ async def get_genre_artists(
         GROUP BY a.id, a.name, a.has_artwork
         ORDER BY track_count DESC, a.name
         LIMIT :limit OFFSET :offset
-    """), {"genre": genre, "user_id": user_id, "limit": limit, "offset": offset})
+    """),
+        {"genre": genre, "user_id": user_id, "limit": limit, "offset": offset},
+    )
     rows = result.fetchall()
 
     total = rows[0].total if rows else 0
@@ -473,7 +544,8 @@ async def get_genre_sets(
     """Sets containing tracks of this genre."""
     genre = await _resolve_genre(db, name)
 
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         SELECT s.id, s.title, s.played_date, s.has_artwork,
                COUNT(DISTINCT st.id)::int AS genre_track_count,
                total_sub.total_tracks,
@@ -487,7 +559,9 @@ async def get_genre_sets(
         GROUP BY s.id, s.title, s.played_date, s.has_artwork, total_sub.total_tracks
         ORDER BY genre_track_count DESC, s.played_date DESC NULLS LAST
         LIMIT :limit OFFSET :offset
-    """), {"genre": genre, "limit": limit, "offset": offset})
+    """),
+        {"genre": genre, "limit": limit, "offset": offset},
+    )
     rows = result.fetchall()
 
     total = rows[0].total if rows else 0
@@ -517,7 +591,8 @@ async def get_genre_playlists(
     """Watched playlists containing tracks of this genre."""
     genre = await _resolve_genre(db, name)
 
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         SELECT we.id, we.title, we.source, we.has_artwork, we.owner,
                COUNT(DISTINCT rt.catalog_id)::int AS genre_track_count,
                COUNT(*) OVER()::int AS total
@@ -527,7 +602,9 @@ async def get_genre_playlists(
         GROUP BY we.id, we.title, we.source, we.has_artwork, we.owner
         ORDER BY genre_track_count DESC
         LIMIT :limit OFFSET :offset
-    """), {"genre": genre, "limit": limit, "offset": offset})
+    """),
+        {"genre": genre, "limit": limit, "offset": offset},
+    )
     rows = result.fetchall()
 
     total = rows[0].total if rows else 0
@@ -574,7 +651,8 @@ async def get_genre_tracks(
 
     q_pattern = f"%{q.lower()}%" if q else ""
 
-    result = await db.execute(text(f"""
+    result = await db.execute(
+        text(f"""
         SELECT c.id, c.title, c.artist, c.bpm, c.key, c.duration_ms,
                c.has_artwork, c.has_preview,
                CASE WHEN ut.catalog_id IS NOT NULL THEN true ELSE false END AS in_lib,
@@ -588,16 +666,18 @@ async def get_genre_tracks(
                (:in_lib = 0 AND ut.catalog_id IS NULL))
         ORDER BY {order_sql}
         LIMIT :limit OFFSET :offset
-    """), {
-        "genre": genre,
-        "user_id": user_id,
-        "q_filter": bool(q),
-        "q_pattern": q_pattern,
-        "lib_filter": in_lib is not None,
-        "in_lib": in_lib if in_lib is not None else -1,
-        "limit": limit,
-        "offset": offset,
-    })
+    """),
+        {
+            "genre": genre,
+            "user_id": user_id,
+            "q_filter": bool(q),
+            "q_pattern": q_pattern,
+            "lib_filter": in_lib is not None,
+            "in_lib": in_lib if in_lib is not None else -1,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
     rows = result.fetchall()
 
     total = rows[0].total if rows else 0
@@ -630,7 +710,8 @@ async def get_genre_neighbors(
     genre = await _resolve_genre(db, name)
     await _ensure_pillar_cache(db)
 
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         WITH genre_artists AS (
             SELECT DISTINCT LOWER(artist) AS artist_name
             FROM catalog
@@ -646,18 +727,22 @@ async def get_genre_neighbors(
         GROUP BY g
         ORDER BY common_artists DESC
         LIMIT :limit
-    """), {"genre": genre, "limit": limit})
+    """),
+        {"genre": genre, "limit": limit},
+    )
 
     neighbor_items = []
     for r in result.fetchall():
         p, d = genre_pillar(r.genre)
-        neighbor_items.append({
-            "name": r.genre,
-            "pillar": p,
-            "depth": d,
-            "commonArtists": r.common_artists,
-            "trackCount": r.track_count,
-        })
+        neighbor_items.append(
+            {
+                "name": r.genre,
+                "pillar": p,
+                "depth": d,
+                "commonArtists": r.common_artists,
+                "trackCount": r.track_count,
+            }
+        )
     return {"items": neighbor_items}
 
 
@@ -688,16 +773,24 @@ async def rename_genre(
         raise HTTPException(400, "New name is the same as current")
 
     # Check if target already exists
-    existing = await db.execute(text("""
+    existing = await db.execute(
+        text("""
         SELECT 1 FROM catalog WHERE :new_name = ANY(genres) LIMIT 1
-    """), {"new_name": new_name})
+    """),
+        {"new_name": new_name},
+    )
     if existing.fetchone():
-        raise HTTPException(409, f"Genre '{new_name}' already exists — use merge instead")
+        raise HTTPException(
+            409, f"Genre '{new_name}' already exists — use merge instead"
+        )
 
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         UPDATE catalog
         SET genres = array_replace(genres, :old_name, :new_name)
         WHERE :old_name = ANY(genres)
-    """), {"old_name": genre, "new_name": new_name})
+    """),
+        {"old_name": genre, "new_name": new_name},
+    )
     await db.commit()
     return {"renamed": True, "from": genre, "to": new_name, "affected": result.rowcount}

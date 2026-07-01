@@ -16,6 +16,7 @@ if config.config_file_name is not None:
 db_url = os.environ["DATABASE_URL"].replace("+asyncpg", "")
 
 import models  # noqa: E402 — registers all tables on Base.metadata
+
 target_metadata = models.Base.metadata
 
 

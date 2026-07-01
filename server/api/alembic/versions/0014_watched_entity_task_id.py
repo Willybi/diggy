@@ -1,6 +1,6 @@
 """Add current_task_id and crawl_started_at to watched_entities for crawl status tracking."""
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0014"
 down_revision = "0013"

@@ -12,6 +12,7 @@ Usage:
             data = await pool.deezer_get("/track/123")
             page = await pool.beatport_get("/search?q=test")
 """
+
 import asyncio
 import logging
 import os
@@ -19,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 from curl_cffi import requests as curl_requests
-
 from workers.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,9 @@ class HttpPool:
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(HTTP_TIMEOUT, connect=HTTP_CONNECT_TIMEOUT),
             follow_redirects=False,
-            limits=httpx.Limits(max_connections=HTTP_MAX_CONNECTIONS, max_keepalive_connections=10),
+            limits=httpx.Limits(
+                max_connections=HTTP_MAX_CONNECTIONS, max_keepalive_connections=10
+            ),
         )
         self._bp_session = curl_requests.Session(impersonate="chrome124")
         self._bp_executor = ThreadPoolExecutor(max_workers=2)
@@ -58,9 +60,9 @@ class HttpPool:
         if self._client:
             await self._client.aclose()
             self._client = None
-        if hasattr(self, '_bp_session'):
+        if hasattr(self, "_bp_session"):
             self._bp_session.close()
-        if hasattr(self, '_bp_executor'):
+        if hasattr(self, "_bp_executor"):
             self._bp_executor.shutdown(wait=False)
         return False
 
@@ -79,19 +81,35 @@ class HttpPool:
         for attempt in range(max_retries):
             async with self.limiter.acquire(source):
                 try:
-                    resp = await self._client.request(method, url, headers=headers, params=params)
+                    resp = await self._client.request(
+                        method, url, headers=headers, params=params
+                    )
                     if resp.status_code == 429:
                         wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]
-                        logger.warning("Rate limited by %s (429), retrying in %.1fs", source, wait)
+                        logger.warning(
+                            "Rate limited by %s (429), retrying in %.1fs", source, wait
+                        )
                         await asyncio.sleep(wait)
-                        last_exc = httpx.HTTPStatusError("429", request=resp.request, response=resp)
+                        last_exc = httpx.HTTPStatusError(
+                            "429", request=resp.request, response=resp
+                        )
                         continue
                     return resp
-                except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                except (
+                    httpx.ConnectError,
+                    httpx.ReadTimeout,
+                    httpx.ConnectTimeout,
+                ) as e:
                     last_exc = e
                     if attempt < max_retries - 1:
                         wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]
-                        logger.warning("%s request failed (%s), retry %d in %.1fs", source, e, attempt + 1, wait)
+                        logger.warning(
+                            "%s request failed (%s), retry %d in %.1fs",
+                            source,
+                            e,
+                            attempt + 1,
+                            wait,
+                        )
                         await asyncio.sleep(wait)
         raise last_exc
 
@@ -99,7 +117,9 @@ class HttpPool:
 
     async def deezer_get(self, path: str, params: dict | None = None) -> dict:
         """GET request to Deezer API, rate-limited + retrying. Returns parsed JSON."""
-        resp = await self._request_with_retry("deezer", "GET", f"{DEEZER_API}{path}", params=params)
+        resp = await self._request_with_retry(
+            "deezer", "GET", f"{DEEZER_API}{path}", params=params
+        )
         if resp.status_code != 200:
             return {}
         return resp.json()
@@ -113,6 +133,7 @@ class HttpPool:
         loop = asyncio.get_event_loop()
 
         async with self.limiter.acquire("beatport"):
+
             def _sync_get():
                 return self._bp_session.get(url, timeout=15)
 
@@ -123,6 +144,7 @@ class HttpPool:
                 self.status_code = r.status_code
                 self.text = r.text
                 self.content = r.content
+
         return _Resp(resp)
 
     # ── Generic ──

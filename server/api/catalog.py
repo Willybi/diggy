@@ -1,9 +1,8 @@
 from datetime import datetime, timezone
 
+from models import CatalogEntry
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from models import CatalogEntry
 from utils import make_normalized_key
 
 

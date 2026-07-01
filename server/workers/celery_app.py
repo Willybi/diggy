@@ -1,8 +1,9 @@
+import logging
+import os
+
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_failure, setup_logging, celeryd_init
-import os
-import logging
+from celery.signals import celeryd_init, setup_logging, task_failure
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 def init_sentry(**kwargs):
     if SENTRY_DSN:
         import sentry_sdk
+
         sentry_sdk.init(
             dsn=SENTRY_DSN,
             traces_sample_rate=0.2,
@@ -25,6 +27,7 @@ class CeleryTaskFilter(logging.Filter):
 
     def filter(self, record):
         from celery._state import get_current_task
+
         task = get_current_task()
         if task and task.request:
             record.task_id = task.request.id or "-"
@@ -51,6 +54,7 @@ def configure_worker_logging(**kwargs):
     root.addHandler(handler)
     root.setLevel(logging.INFO)
 
+
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 # Configurable via env vars with sensible defaults
@@ -76,8 +80,8 @@ celery_app.conf.update(
     worker_concurrency=WORKER_CONCURRENCY,
     task_soft_time_limit=TASK_SOFT_TIME_LIMIT,
     task_time_limit=TASK_TIME_LIMIT,
-    task_acks_late=True,            # re-deliver on crash
-    worker_prefetch_multiplier=1,   # don't hoard tasks
+    task_acks_late=True,  # re-deliver on crash
+    worker_prefetch_multiplier=1,  # don't hoard tasks
     task_reject_on_worker_lost=True,  # requeue if worker crashes mid-task
     # Task routing
     task_routes={
@@ -114,31 +118,46 @@ celery_app.conf.update(
 
 # DLQ: on final failure (after all retries exhausted), push task info to dead_letter queue
 @task_failure.connect
-def on_task_failure(sender=None, task_id=None, exception=None,
-                    args=None, kwargs=None, traceback=None, einfo=None, **kw):
+def on_task_failure(
+    sender=None,
+    task_id=None,
+    exception=None,
+    args=None,
+    kwargs=None,
+    traceback=None,
+    einfo=None,
+    **kw,
+):
     """Route permanently failed tasks to the dead_letter Redis queue."""
     task = sender
     # Only route to DLQ after all retries are exhausted
-    if hasattr(task, 'request') and task.request.retries < task.max_retries:
+    if hasattr(task, "request") and task.request.retries < task.max_retries:
         return
 
     import json
-    import redis as redis_lib
     from datetime import datetime, timezone
+
+    import redis as redis_lib
 
     try:
         r = redis_lib.from_url(REDIS_URL, decode_responses=True)
-        entry = json.dumps({
-            "task_id": task_id,
-            "task_name": sender.name if sender else "unknown",
-            "args": list(args) if args else [],
-            "kwargs": kwargs or {},
-            "exception": str(exception),
-            "failed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        entry = json.dumps(
+            {
+                "task_id": task_id,
+                "task_name": sender.name if sender else "unknown",
+                "args": list(args) if args else [],
+                "kwargs": kwargs or {},
+                "exception": str(exception),
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         r.lpush("dead_letter", entry)
         r.ltrim("dead_letter", 0, 999)  # keep last 1000 entries
-        logger.error("Task %s [%s] moved to DLQ after final failure: %s",
-                     sender.name if sender else "unknown", task_id, exception)
+        logger.error(
+            "Task %s [%s] moved to DLQ after final failure: %s",
+            sender.name if sender else "unknown",
+            task_id,
+            exception,
+        )
     except Exception as dlq_err:
         logger.error("Failed to push task %s to DLQ: %s", task_id, dlq_err)

@@ -9,9 +9,10 @@ Used by:
   - enrich_catalog Celery task (weekly backfill)
   - enrich_catalog_deezer.py one-shot script
 """
+
 import os
+import re as _re
 import tempfile
-import time
 
 import boto3
 import httpx
@@ -53,20 +54,18 @@ def _ensure_bucket(s3, bucket: str | None = None):
         )
 
 
-import re as _re
-
 # Non-significant suffixes — safe to strip, they don't change the track identity
 _SAFE_STRIP = _re.compile(
-    r'\s*[\(\[]'
-    r'\s*(?:'
-    r'(?:Extended|Original|Radio|Club|Dub|Instrumental|Short|Long)(?:\s+(?:Mix|Edit|Version))?'
-    r'|Album Version'
-    r'|Main Mix'
-    r'|Remastered(?:\s+\d{4})?'
-    r'|feat\.?\s+[^)\]]*'
-    r'|ft\.?\s+[^)\]]*'
-    r')'
-    r'\s*[\)\]]',
+    r"\s*[\(\[]"
+    r"\s*(?:"
+    r"(?:Extended|Original|Radio|Club|Dub|Instrumental|Short|Long)(?:\s+(?:Mix|Edit|Version))?"
+    r"|Album Version"
+    r"|Main Mix"
+    r"|Remastered(?:\s+\d{4})?"
+    r"|feat\.?\s+[^)\]]*"
+    r"|ft\.?\s+[^)\]]*"
+    r")"
+    r"\s*[\)\]]",
     _re.IGNORECASE,
 )
 
@@ -74,42 +73,60 @@ _SAFE_STRIP = _re.compile(
 # e.g. "(Adam Port Edit)", "(Ferry Corsten Radio Edit)", "(CLIPZ ROLLER MIX)"
 # Detection: contains a proper name (capitalized word that isn't a generic term)
 _GENERIC_TERMS = {
-    'mix', 'edit', 'remix', 'version', 'dub', 'rework', 'bootleg',
-    'radio', 'extended', 'original', 'club', 'instrumental', 'vocal',
-    'short', 'long', 'main', 'album', 'remastered', 'remaster',
+    "mix",
+    "edit",
+    "remix",
+    "version",
+    "dub",
+    "rework",
+    "bootleg",
+    "radio",
+    "extended",
+    "original",
+    "club",
+    "instrumental",
+    "vocal",
+    "short",
+    "long",
+    "main",
+    "album",
+    "remastered",
+    "remaster",
 }
 
 
 def _is_remix_paren(content: str) -> bool:
     """True if parenthesized content names a specific remixer (significant)."""
-    words = _re.findall(r'[A-Za-z]+', content.lower())
+    words = _re.findall(r"[A-Za-z]+", content.lower())
     # If it contains any word that isn't a generic mixing term, it's a named remix
     return any(w not in _GENERIC_TERMS for w in words)
 
 
 def _strip_safe_suffixes(title: str) -> str | None:
     """Remove non-significant suffixes (feat, Extended Mix, Remastered, etc.)."""
-    cleaned = _SAFE_STRIP.sub('', title).strip()
+    cleaned = _SAFE_STRIP.sub("", title).strip()
     # Also strip nested parens left over, e.g. outer parens wrapping a remastered tag
-    cleaned = _re.sub(r'\(\s*\)', '', cleaned).strip()
+    cleaned = _re.sub(r"\(\s*\)", "", cleaned).strip()
     return cleaned if cleaned and cleaned != title else None
 
 
 def _strip_non_remix_parens(title: str) -> str | None:
     """Remove parenthesized content ONLY if it's not a named remix/edit."""
+
     def _replace(m):
         content = m.group(1)
         if _is_remix_paren(content):
             return m.group(0)  # keep it
-        return ''  # strip it
-    cleaned = _re.sub(r'\(([^)]*)\)', _replace, title).strip()
-    cleaned = _re.sub(r'\[([^\]]*)\]', _replace, cleaned).strip()
+        return ""  # strip it
+
+    cleaned = _re.sub(r"\(([^)]*)\)", _replace, title).strip()
+    cleaned = _re.sub(r"\[([^\]]*)\]", _replace, cleaned).strip()
     return cleaned if cleaned and cleaned != title else None
 
 
 def _first_artist(artist: str) -> str | None:
     """Extract first artist from multi-artist string."""
-    for sep in [', ', ' & ', ' feat. ', ' feat ', ' ft. ', ' ft ', ' x ', ' X ']:
+    for sep in [", ", " & ", " feat. ", " feat ", " ft. ", " ft ", " x ", " X "]:
         if sep in artist:
             first = artist.split(sep)[0].strip()
             if first != artist:
@@ -117,7 +134,9 @@ def _first_artist(artist: str) -> str | None:
     return None
 
 
-def search_deezer(artist: str | None, title: str | None, client: httpx.Client | None = None) -> dict | None:
+def search_deezer(
+    artist: str | None, title: str | None, client: httpx.Client | None = None
+) -> dict | None:
     """Search Deezer for a track. Returns the best match or None."""
     if not title:
         return None
@@ -133,7 +152,7 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
 
     def _clean(s):
         """Strip parentheses/brackets that trigger Deezer 403."""
-        return s.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+        return s.replace("(", "").replace(")", "").replace("[", "").replace("]", "")
 
     def _search(t, a=artist):
         clean_t = _clean(t)
@@ -188,8 +207,8 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
     Uses synchronous session (for Celery tasks).
     Creates the Artist if it doesn't exist, then inserts CatalogArtist link.
     """
-    from sqlalchemy import select as sa_select
     from models import Artist, CatalogArtist
+    from sqlalchemy import select as sa_select
     from utils import normalize
 
     dz_artist = hit.get("artist") or {}
@@ -206,6 +225,7 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
     if not artist:
         # Check aliases
         from models import ArtistAlias
+
         alias = session.execute(
             sa_select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
         ).scalar_one_or_none()
@@ -214,7 +234,12 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
 
     if not artist:
         from datetime import datetime, timezone
-        artist = Artist(name=artist_name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+
+        artist = Artist(
+            name=artist_name,
+            normalized_name=norm,
+            created_at=datetime.now(timezone.utc),
+        )
         if dz_artist_id:
             artist.deezer_id = dz_artist_id
         session.add(artist)
@@ -222,15 +247,20 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
 
     # Check if link already exists
     existing = session.execute(
-        sa_select(CatalogArtist)
-        .where(CatalogArtist.catalog_id == catalog_id, CatalogArtist.artist_id == artist.id)
+        sa_select(CatalogArtist).where(
+            CatalogArtist.catalog_id == catalog_id, CatalogArtist.artist_id == artist.id
+        )
     ).scalar_one_or_none()
 
     if not existing:
-        session.add(CatalogArtist(
-            catalog_id=catalog_id, artist_id=artist.id,
-            role="primary", position=0,
-        ))
+        session.add(
+            CatalogArtist(
+                catalog_id=catalog_id,
+                artist_id=artist.id,
+                role="primary",
+                position=0,
+            )
+        )
 
 
 def upload_image_bytes_to_bucket(s3, img_data: bytes, key: str, bucket: str) -> bool:
@@ -267,7 +297,9 @@ def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
     return upload_image_to_bucket(s3, cover_url, f"{catalog_id}.jpg", BUCKET)
 
 
-def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None, session=None) -> bool:
+def enrich_entry(
+    entry, hit: dict, s3=None, _known_isrcs: set | None = None, session=None
+) -> bool:
     """Apply Deezer data to a CatalogEntry. Returns True if anything changed.
 
     Pass _known_isrcs (set of ISRCs already in DB) to avoid unique constraint violations.
@@ -286,6 +318,7 @@ def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None, ses
         if _known_isrcs is None or isrc not in _known_isrcs:
             if session is not None:
                 from sqlalchemy import text
+
                 result = session.execute(
                     text(
                         "UPDATE catalog SET isrc = :isrc "
@@ -315,7 +348,9 @@ def enrich_entry(entry, hit: dict, s3=None, _known_isrcs: set | None = None, ses
 
     # Upload cover if missing — use cover from search hit directly (no extra API call)
     if s3 and not entry.has_artwork:
-        cover_url = (hit.get("album") or {}).get("cover_medium") or (hit.get("album") or {}).get("cover_big")
+        cover_url = (hit.get("album") or {}).get("cover_medium") or (
+            hit.get("album") or {}
+        ).get("cover_big")
         if upload_cover_from_url(s3, cover_url, entry.id):
             entry.has_artwork = True
             changed = True

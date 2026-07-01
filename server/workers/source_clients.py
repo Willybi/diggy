@@ -4,13 +4,13 @@ Used by crawl tasks to fetch playlist metadata and tracks.
 """
 
 import json
-import os
 import logging
+import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import requests
-
 from workers.rate_limiter import RateLimiter
 
 _limiter = RateLimiter()
@@ -42,10 +42,13 @@ class SourceTrack:
 # Deezer
 # ──────────────────────────────────────────────────────────────
 
+
 def fetch_deezer_meta(external_id: str) -> PlaylistMeta:
     resp = requests.get(f"{DEEZER_API}/playlist/{external_id}", timeout=10).json()
     creator = resp.get("creator")
-    owner = creator["name"] if isinstance(creator, dict) and creator.get("name") else None
+    owner = (
+        creator["name"] if isinstance(creator, dict) and creator.get("name") else None
+    )
     return PlaylistMeta(
         title=resp.get("title"),
         track_count=resp.get("nb_tracks"),
@@ -61,14 +64,20 @@ def fetch_deezer_tracks(external_id: str) -> list[SourceTrack]:
     while url:
         resp = requests.get(url, timeout=10).json()
         for t in resp.get("data", []):
-            artist = t.get("artist", {}).get("name") if isinstance(t.get("artist"), dict) else None
-            tracks.append(SourceTrack(
-                external_id=str(t["id"]),
-                title=t.get("title", ""),
-                artist=artist,
-                isrc=t.get("isrc") or None,
-                duration_ms=(t.get("duration") or 0) * 1000 or None,
-            ))
+            artist = (
+                t.get("artist", {}).get("name")
+                if isinstance(t.get("artist"), dict)
+                else None
+            )
+            tracks.append(
+                SourceTrack(
+                    external_id=str(t["id"]),
+                    title=t.get("title", ""),
+                    artist=artist,
+                    isrc=t.get("isrc") or None,
+                    duration_ms=(t.get("duration") or 0) * 1000 or None,
+                )
+            )
         url = resp.get("next")
     return tracks
 
@@ -83,11 +92,15 @@ def deezer_has_changed(external_id: str, last_crawled_at) -> bool:
     if not dz_modification_date or not last_crawled_at:
         return True
 
-    last_crawled = datetime.fromisoformat(str(last_crawled_at)).replace(tzinfo=timezone.utc)
+    last_crawled = datetime.fromisoformat(str(last_crawled_at)).replace(
+        tzinfo=timezone.utc
+    )
     try:
         dz_mod = datetime.fromtimestamp(int(dz_modification_date), tz=timezone.utc)
     except (ValueError, TypeError):
-        dz_mod = datetime.fromisoformat(str(dz_modification_date)).replace(tzinfo=timezone.utc)
+        dz_mod = datetime.fromisoformat(str(dz_modification_date)).replace(
+            tzinfo=timezone.utc
+        )
 
     return dz_mod > last_crawled
 
@@ -96,9 +109,11 @@ def deezer_has_changed(external_id: str, last_crawled_at) -> bool:
 # TIDAL
 # ──────────────────────────────────────────────────────────────
 
+
 def _parse_expiry(value) -> "datetime | None":
     """Parse expiry_time from env var or JSON (datetime string or timestamp)."""
     from datetime import datetime, timezone
+
     if not value:
         return None
     try:
@@ -120,8 +135,9 @@ def _save_tidal_tokens_to_redis(session):
     Tokens are stored as a JSON hash at key 'tidal:tokens'. This avoids
     relying on .env (read-only in Docker) or ephemeral env vars.
     """
-    import redis as redis_lib
     from datetime import timezone
+
+    import redis as redis_lib
 
     try:
         r = redis_lib.from_url(
@@ -135,12 +151,15 @@ def _save_tidal_tokens_to_redis(session):
                 ts = ts.replace(tzinfo=timezone.utc)
             expiry_ts = str(ts.timestamp())
 
-        r.hset("tidal:tokens", mapping={
-            "token_type": session.token_type or "Bearer",
-            "access_token": session.access_token,
-            "refresh_token": session.refresh_token or "",
-            "expiry_time": expiry_ts,
-        })
+        r.hset(
+            "tidal:tokens",
+            mapping={
+                "token_type": session.token_type or "Bearer",
+                "access_token": session.access_token,
+                "refresh_token": session.refresh_token or "",
+                "expiry_time": expiry_ts,
+            },
+        )
         logger.info("TIDAL tokens saved to Redis after refresh")
     except Exception as e:
         logger.warning("Failed to save TIDAL tokens to Redis: %s", e)
@@ -240,7 +259,9 @@ def _get_tidal_session():
         if _try_refresh_tidal(session):
             return session
 
-    raise RuntimeError("TIDAL: no valid session. Re-run test_sources.py tidal or set TIDAL env vars.")
+    raise RuntimeError(
+        "TIDAL: no valid session. Re-run test_sources.py tidal or set TIDAL env vars."
+    )
 
 
 def fetch_tidal_meta(external_id: str) -> PlaylistMeta:
@@ -264,13 +285,15 @@ def fetch_tidal_tracks(external_id: str) -> list[SourceTrack]:
     for t in tidal_tracks:
         with _limiter.acquire_sync("tidal"):
             artist_name = t.artist.name if t.artist else None
-            tracks.append(SourceTrack(
-                external_id=str(t.id),
-                title=t.name,
-                artist=artist_name,
-                isrc=getattr(t, "isrc", None),
-                duration_ms=(t.duration or 0) * 1000 or None,
-            ))
+            tracks.append(
+                SourceTrack(
+                    external_id=str(t.id),
+                    title=t.name,
+                    artist=artist_name,
+                    isrc=getattr(t, "isrc", None),
+                    duration_ms=(t.duration or 0) * 1000 or None,
+                )
+            )
     return tracks
 
 
@@ -287,7 +310,9 @@ def tidal_has_changed(external_id: str, last_crawled_at) -> bool:
     if not last_updated:
         return True
 
-    last_crawled = datetime.fromisoformat(str(last_crawled_at)).replace(tzinfo=timezone.utc)
+    last_crawled = datetime.fromisoformat(str(last_crawled_at)).replace(
+        tzinfo=timezone.utc
+    )
     if isinstance(last_updated, str):
         last_updated = datetime.fromisoformat(last_updated).replace(tzinfo=timezone.utc)
     elif last_updated.tzinfo is None:
@@ -299,6 +324,7 @@ def tidal_has_changed(external_id: str, last_crawled_at) -> bool:
 # ──────────────────────────────────────────────────────────────
 # Spotify
 # ──────────────────────────────────────────────────────────────
+
 
 def fetch_spotify_meta(external_id: str) -> PlaylistMeta:
     from spotify_scraper import SpotifyClient
@@ -327,13 +353,15 @@ def fetch_spotify_tracks(external_id: str) -> list[SourceTrack]:
         for pt in playlist.tracks:
             t = pt.track
             artist_name = t.artists[0].name if t.artists else None
-            tracks.append(SourceTrack(
-                external_id=t.id,
-                title=t.name,
-                artist=artist_name,
-                isrc=None,  # not available via spotifyscraper
-                duration_ms=t.duration_ms,
-            ))
+            tracks.append(
+                SourceTrack(
+                    external_id=t.id,
+                    title=t.name,
+                    artist=artist_name,
+                    isrc=None,  # not available via spotifyscraper
+                    duration_ms=t.duration_ms,
+                )
+            )
         return tracks
     finally:
         client.close()

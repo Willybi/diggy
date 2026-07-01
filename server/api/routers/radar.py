@@ -1,25 +1,35 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select, func, case, literal, and_, desc as sa_desc
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
-
 from catalog import get_or_create_catalog
 from database import get_db
 from dependencies import get_current_user
-from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, CatalogArtist, Artist, User, RadarTrend
-from opinion_sync import sync_track_opinion, RADAR_TO_OPINION
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from models import (
+    Artist,
+    CatalogArtist,
+    CatalogEntry,
+    RadarTrack,
+    RadarTrend,
+    User,
+    UserRadarState,
+    UserTrack,
+    WatchedEntity,
+)
+from opinion_sync import RADAR_TO_OPINION, sync_track_opinion
 from schemas import (
+    ArtistRef,
+    RadarBatchItem,
+    RadarFullList,
+    RadarFullOut,
+    RadarStateUpdate,
     RadarTrackIn,
     RadarTrackOut,
-    RadarFullOut,
-    RadarFullList,
-    RadarStateUpdate,
-    RadarBatchItem,
-    ArtistRef,
 )
+from sqlalchemy import and_, func, literal, select
+from sqlalchemy import desc as sa_desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 router = APIRouter(prefix="/radar", tags=["radar"])
 
@@ -32,11 +42,21 @@ _STATUS_ALIAS = {"liked": "added", "disliked": "ignored"}
 
 @router.get("/full", response_model=RadarFullList)
 async def list_radar_full(
-    status: Literal["new", "seen", "added", "ignored", "liked", "disliked"] | None = Query(None),
+    status: Literal["new", "seen", "added", "ignored", "liked", "disliked"]
+    | None = Query(None),
     playlist_id: int | None = Query(None),
     search: str | None = Query(None, max_length=200),
     detected_after: datetime | None = Query(None),
-    sort: Literal["detected_at", "title", "artist", "bpm", "key", "genre", "playlist_title", "trend_score"] = Query("detected_at"),
+    sort: Literal[
+        "detected_at",
+        "title",
+        "artist",
+        "bpm",
+        "key",
+        "genre",
+        "playlist_title",
+        "trend_score",
+    ] = Query("detected_at"),
     order: Literal["asc", "desc"] = Query("desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -61,9 +81,7 @@ async def list_radar_full(
     _lw = WatchedEntity.__table__.alias("lw")
     latest_playlist_title = (
         select(_lw.c.title)
-        .select_from(
-            _lr.join(_lw, _lr.c.watched_entity_id == _lw.c.id)
-        )
+        .select_from(_lr.join(_lw, _lr.c.watched_entity_id == _lw.c.id))
         .where(_lr.c.catalog_id == CatalogEntry.id)
         .order_by(sa_desc(_lr.c.detected_at))
         .limit(1)
@@ -113,7 +131,9 @@ async def list_radar_full(
     resolved_status = _STATUS_ALIAS.get(status, status) if status else None
     if resolved_status:
         if resolved_status == "new":
-            base = base.having(func.coalesce(func.min(urs.status), literal("new")) == "new")
+            base = base.having(
+                func.coalesce(func.min(urs.status), literal("new")) == "new"
+            )
         else:
             base = base.having(func.min(urs.status) == resolved_status)
     if detected_after:
@@ -168,12 +188,16 @@ async def list_radar_full(
 
     # Batch-fetch linked artists for the page's entries
     from collections import defaultdict
+
     page_cat_ids = [item.catalog_id for item in items]
     if page_cat_ids:
         ca_result = await db.execute(
             select(
-                CatalogArtist.catalog_id, Artist.id, Artist.name,
-                CatalogArtist.role, Artist.has_artwork,
+                CatalogArtist.catalog_id,
+                Artist.id,
+                Artist.name,
+                CatalogArtist.role,
+                Artist.has_artwork,
             )
             .join(Artist, Artist.id == CatalogArtist.artist_id)
             .where(CatalogArtist.catalog_id.in_(page_cat_ids))
@@ -205,7 +229,9 @@ async def radar_new_count(
         select(func.count(func.distinct(RadarTrack.catalog_id)))
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
-        .outerjoin(urs, and_(urs.user_id == uid, urs.catalog_id == RadarTrack.catalog_id))
+        .outerjoin(
+            urs, and_(urs.user_id == uid, urs.catalog_id == RadarTrack.catalog_id)
+        )
         .where(
             RadarTrack.catalog_id.isnot(None),
             func.coalesce(urs.status, literal("new")) == "new",
@@ -269,7 +295,9 @@ async def batch_update_radar_state(
     uid = user.id
     now = datetime.now(timezone.utc)
 
-    valid_items = [(item.catalog_id, _STATUS_ALIAS.get(item.status, item.status)) for item in body]
+    valid_items = [
+        (item.catalog_id, _STATUS_ALIAS.get(item.status, item.status)) for item in body
+    ]
 
     if not valid_items:
         return {"updated": 0}
@@ -291,10 +319,14 @@ async def batch_update_radar_state(
             existing_map[cid].status = resolved
             existing_map[cid].updated_at = now
         else:
-            db.add(UserRadarState(
-                user_id=uid, catalog_id=cid, status=resolved,
-                updated_at=now,
-            ))
+            db.add(
+                UserRadarState(
+                    user_id=uid,
+                    catalog_id=cid,
+                    status=resolved,
+                    updated_at=now,
+                )
+            )
 
         # Sync → user_opinions + user_tracks.avis
         opinion_val = RADAR_TO_OPINION.get(resolved)
@@ -323,7 +355,12 @@ async def list_radar_tracks(
 
 
 @router.post("/", response_model=RadarTrackOut, status_code=201)
-async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def add_radar_track(
+    body: RadarTrackIn,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     entity = await db.execute(
         select(WatchedEntity).where(WatchedEntity.id == body.watched_playlist_id)
     )
@@ -365,7 +402,11 @@ async def add_radar_track(body: RadarTrackIn, response: Response, db: AsyncSessi
 
 
 @router.delete("/{entry_id}", status_code=204)
-async def delete_radar_track(entry_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_radar_track(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = await db.execute(select(RadarTrack).where(RadarTrack.id == entry_id))
     entry = result.scalar_one_or_none()
     if not entry:

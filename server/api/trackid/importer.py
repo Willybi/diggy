@@ -1,13 +1,14 @@
 """Shared import logic for TrackID.net audiostreams into Diggy DB."""
+
 from datetime import datetime, timezone
 
+from models import Artist, ArtistAlias, DJSet, SetArtist, SetTrack
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from utils import normalize
 
-from models import Artist, ArtistAlias, CatalogEntry, DJSet, SetArtist, SetTrack
 from trackid.client import TrackIDClient
 from trackid.parsing import is_id_track, parse_timespan_to_ms, parse_trackid_date
-from utils import normalize
 
 SET_ARTWORK_BUCKET = "set-artworks"
 
@@ -19,9 +20,7 @@ async def get_or_create_artist(
     norm = normalize(name)
 
     # Check main name
-    result = await db.execute(
-        select(Artist).where(Artist.normalized_name == norm)
-    )
+    result = await db.execute(select(Artist).where(Artist.normalized_name == norm))
     artist = result.scalar_one_or_none()
     if artist:
         if trackid_id and not artist.trackid_id:
@@ -46,7 +45,6 @@ async def get_or_create_artist(
     db.add(artist)
     await db.flush()
     return artist
-
 
 
 async def import_audiostream(
@@ -74,7 +72,9 @@ async def import_audiostream(
 
     # Skip if recently crawled
     if existing and existing.last_crawled_at:
-        age_hours = (datetime.now(timezone.utc) - existing.last_crawled_at).total_seconds() / 3600
+        age_hours = (
+            datetime.now(timezone.utc) - existing.last_crawled_at
+        ).total_seconds() / 3600
         if age_hours < min_age_hours:
             return existing, 0
 
@@ -116,10 +116,13 @@ async def import_audiostream(
     artwork_url = detail.get("artworkUrl")
     if artwork_url and not dj_set.has_artwork:
         try:
-            from deezer_enrich import _get_s3, upload_image_to_bucket, _ensure_bucket
+            from deezer_enrich import _ensure_bucket, _get_s3, upload_image_to_bucket
+
             s3 = _get_s3()
             _ensure_bucket(s3, SET_ARTWORK_BUCKET)
-            if upload_image_to_bucket(s3, artwork_url, f"{dj_set.id}.jpg", SET_ARTWORK_BUCKET):
+            if upload_image_to_bucket(
+                s3, artwork_url, f"{dj_set.id}.jpg", SET_ARTWORK_BUCKET
+            ):
                 dj_set.has_artwork = True
         except Exception:
             pass
@@ -132,7 +135,9 @@ async def import_audiostream(
             )
         )
         if not result.scalar_one_or_none():
-            db.add(SetArtist(set_id=dj_set.id, artist_id=artist_id, role="dj", position=0))
+            db.add(
+                SetArtist(set_id=dj_set.id, artist_id=artist_id, role="dj", position=0)
+            )
 
     # Import tracklist — delete existing and re-insert
     await db.execute(delete(SetTrack).where(SetTrack.set_id == dj_set.id))

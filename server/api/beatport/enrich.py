@@ -5,6 +5,7 @@ Fills: bpm, key, bpm_source, key_source, beatport_id, label, genre, release_date
 Used by:
   - enrich_catalog_beatport Celery task (weekly backfill)
 """
+
 import logging
 from datetime import date
 
@@ -41,7 +42,9 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
     release = bp_track.get("release") or {}
     label_obj = bp_track.get("label") or release.get("label")
     if label_obj and not entry.label:
-        label_name = label_obj.get("name") if isinstance(label_obj, dict) else str(label_obj)
+        label_name = (
+            label_obj.get("name") if isinstance(label_obj, dict) else str(label_obj)
+        )
         if label_name:
             entry.label = label_name[:255]
             changed = True
@@ -49,7 +52,9 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
     # Genre — fill only if missing
     genre_obj = bp_track.get("genre")
     if genre_obj and not entry.genres:
-        genre_name = genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj)
+        genre_name = (
+            genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj)
+        )
         if genre_name:
             entry.genres = [genre_name[:100]]
             changed = True

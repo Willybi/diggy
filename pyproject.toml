@@ -31,7 +31,32 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^7.2.0"
 
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = ["server/api/alembic"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["server"]
+omit = [
+    "server/workers/tasks.py",
+    "server/workers/source_clients.py",
+    "server/workers/celery_app.py",
+    "server/workers/crawl_logger.py",
+    "server/workers/enrichment.py",
+    "server/workers/async_http.py",
+    "server/workers/db.py",
+    "server/api/alembic/*",
+    "server/api/scripts/*",
+    "server/api/beatport/*",
+    "server/scripts/*",
+]
 

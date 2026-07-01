@@ -6,14 +6,15 @@ Usage :
     docker compose exec api python scripts/populate_has_preview.py
     docker compose exec api python scripts/populate_has_preview.py --limit 10
 """
-import asyncio
+
 import argparse
+import asyncio
 import os
 import sys
 
 import requests
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))

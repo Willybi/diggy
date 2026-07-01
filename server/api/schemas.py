@@ -1,12 +1,13 @@
-from pydantic import BaseModel, Field, field_validator
+import json
 from datetime import date, datetime
 from typing import Literal, Optional
-import json
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class GenreRef(BaseModel):
     name: str
-    pillar: str = 'autres'
+    pillar: str = "autres"
     depth: int = 0
 
 
@@ -118,6 +119,7 @@ class RadarTrackOut(BaseModel):
 
 class RadarFullOut(BaseModel):
     """Enriched radar track for the RadarView: catalog info + user state + playlist source."""
+
     catalog_id: int
     title: str
     artist: Optional[str] = None

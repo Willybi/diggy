@@ -3,12 +3,6 @@ import secrets
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
 from auth import (
     GOOGLE_CLIENT_ID,
     GOOGLE_REDIRECT_URI,
@@ -17,7 +11,12 @@ from auth import (
 )
 from database import get_db
 from dependencies import get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from models import User
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -97,9 +96,7 @@ async def google_callback(
         username = base_username
         suffix = 1
         while True:
-            existing = await db.execute(
-                select(User).where(User.username == username)
-            )
+            existing = await db.execute(select(User).where(User.username == username))
             if not existing.scalar_one_or_none():
                 break
             username = f"{base_username}{suffix}"

@@ -5,22 +5,28 @@ Centralises the bidirectional sync between UserOpinion, UserTrack.avis,
 UserRadarState, UserFollow, and UserSetFollow so that every router
 (opinions, catalog, radar) uses the same code path.
 """
+
 from datetime import datetime, timezone
 
+from models import (
+    UserFollow,
+    UserOpinion,
+    UserRadarState,
+    UserSetFollow,
+    UserTrack,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from models import (
-    UserOpinion, UserTrack, UserRadarState,
-    UserFollow, UserSetFollow,
-)
 
 OPINION_TO_RADAR = {"liked": "added", "disliked": "ignored"}
 RADAR_TO_OPINION = {"added": "liked", "ignored": "disliked"}
 
 
 async def sync_track_opinion(
-    db: AsyncSession, user_id: int, catalog_id: int, opinion: str | None,
+    db: AsyncSession,
+    user_id: int,
+    catalog_id: int,
+    opinion: str | None,
 ):
     """Sync a track opinion across UserOpinion, UserTrack.avis, UserRadarState.
 
@@ -42,11 +48,15 @@ async def sync_track_opinion(
     elif op:
         op.opinion = opinion
     else:
-        db.add(UserOpinion(
-            user_id=user_id, entity_type="track",
-            entity_key=str(catalog_id), opinion=opinion,
-            created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            UserOpinion(
+                user_id=user_id,
+                entity_type="track",
+                entity_key=str(catalog_id),
+                opinion=opinion,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
 
     # 2. UserTrack.avis (update only if the row exists)
     result = await db.execute(
@@ -72,14 +82,21 @@ async def sync_track_opinion(
         urs.status = new_status
         urs.updated_at = datetime.now(timezone.utc)
     else:
-        db.add(UserRadarState(
-            user_id=user_id, catalog_id=catalog_id,
-            status=new_status, updated_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            UserRadarState(
+                user_id=user_id,
+                catalog_id=catalog_id,
+                status=new_status,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
 
 
 async def sync_set_opinion(
-    db: AsyncSession, user_id: int, set_id: int, opinion: str | None,
+    db: AsyncSession,
+    user_id: int,
+    set_id: int,
+    opinion: str | None,
 ):
     """Like = follow (UserSetFollow), anything else = unfollow."""
     result = await db.execute(
@@ -92,17 +109,23 @@ async def sync_set_opinion(
 
     if opinion == "liked":
         if not follow:
-            db.add(UserSetFollow(
-                user_id=user_id, set_id=set_id,
-                followed_at=datetime.now(timezone.utc),
-            ))
+            db.add(
+                UserSetFollow(
+                    user_id=user_id,
+                    set_id=set_id,
+                    followed_at=datetime.now(timezone.utc),
+                )
+            )
     else:
         if follow:
             await db.delete(follow)
 
 
 async def sync_playlist_opinion(
-    db: AsyncSession, user_id: int, entity_id: int, opinion: str | None,
+    db: AsyncSession,
+    user_id: int,
+    entity_id: int,
+    opinion: str | None,
 ):
     """Like = follow (UserFollow), anything else = unfollow."""
     result = await db.execute(
@@ -115,10 +138,13 @@ async def sync_playlist_opinion(
 
     if opinion == "liked":
         if not follow:
-            db.add(UserFollow(
-                user_id=user_id, entity_id=entity_id,
-                followed_at=datetime.now(timezone.utc),
-            ))
+            db.add(
+                UserFollow(
+                    user_id=user_id,
+                    entity_id=entity_id,
+                    followed_at=datetime.now(timezone.utc),
+                )
+            )
     else:
         if follow:
             await db.delete(follow)

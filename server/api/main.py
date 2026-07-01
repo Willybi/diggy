@@ -2,17 +2,33 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+
+from auth_middleware import JWTAuthMiddleware
+from database import Base, engine
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from rate_limit import RateLimitMiddleware
-from auth_middleware import JWTAuthMiddleware
-from database import engine, Base
-from routers import catalog, tracks, watchlist, radar, artists, sets, auth, admin, genres, opinions, search, taxonomy, collections
+from routers import (
+    admin,
+    artists,
+    auth,
+    catalog,
+    collections,
+    genres,
+    opinions,
+    radar,
+    search,
+    sets,
+    taxonomy,
+    tracks,
+    watchlist,
+)
 
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
     import sentry_sdk
+
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         traces_sample_rate=0.2,
@@ -28,6 +44,7 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     from storage import ensure_bucket
+
     ensure_bucket()
     yield
 
@@ -87,6 +104,7 @@ async def health():
 
     try:
         import redis.asyncio as aioredis
+
         redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
         r = aioredis.from_url(redis_url)
         await r.ping()

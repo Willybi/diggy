@@ -1,30 +1,48 @@
 from datetime import datetime, timezone
-
 from typing import Literal
 
+from celery_client import celery
+from database import get_db
+from dependencies import require_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from models import (
+    AdminAuditLog,
+    Artist,
+    ArtistAlias,
+    ArtistFlag,
+    CatalogArtist,
+    CatalogEntry,
+    CrawlLog,
+    SetArtist,
+    User,
+    WatchedEntity,
+)
+from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from database import get_db
-from celery_client import celery
-from dependencies import require_admin
-from models import AdminAuditLog, Artist, ArtistAlias, ArtistFlag, CatalogEntry, CatalogArtist, CrawlLog, SetArtist, User, WatchedEntity
 from utils import normalize
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-async def _audit(db: AsyncSession, user: User, action: str, target_type: str = None, target_id: int = None, details: dict = None):
-    db.add(AdminAuditLog(
-        user_id=user.id,
-        action=action,
-        target_type=target_type,
-        target_id=target_id,
-        details=details,
-        created_at=datetime.now(timezone.utc),
-    ))
+async def _audit(
+    db: AsyncSession,
+    user: User,
+    action: str,
+    target_type: str = None,
+    target_id: int = None,
+    details: dict = None,
+):
+    db.add(
+        AdminAuditLog(
+            user_id=user.id,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            details=details,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
 
 
 async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str):
@@ -41,6 +59,7 @@ async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str):
 
 
 # ---------- Schemas ----------
+
 
 class ArtistFlagOut(BaseModel):
     id: int
@@ -94,6 +113,7 @@ class DeezerArtistHit(BaseModel):
 
 # ---------- Endpoints ----------
 
+
 def _send_sync_task() -> str:
     result = celery.send_task("workers.tasks.sync_artists")
     return result.id
@@ -115,6 +135,7 @@ async def sync_status(
 ):
     """Poll Celery task result."""
     from celery.result import AsyncResult
+
     res = AsyncResult(task_id, app=celery)
     if res.state == "PENDING" or res.state == "STARTED":
         return SyncStatus(status="running")
@@ -141,16 +162,23 @@ async def search_deezer_artist(
 ):
     """Search Deezer for an artist by name."""
     import requests as req
+
     try:
-        resp = req.get("https://api.deezer.com/search/artist", params={"q": q, "limit": 10}, timeout=5)
+        resp = req.get(
+            "https://api.deezer.com/search/artist",
+            params={"q": q, "limit": 10},
+            timeout=5,
+        )
         hits = []
         for h in resp.json().get("data", []):
-            hits.append(DeezerArtistHit(
-                deezer_id=str(h["id"]),
-                name=h.get("name", ""),
-                picture=h.get("picture_medium"),
-                nb_fan=h.get("nb_fan"),
-            ))
+            hits.append(
+                DeezerArtistHit(
+                    deezer_id=str(h["id"]),
+                    name=h.get("name", ""),
+                    picture=h.get("picture_medium"),
+                    nb_fan=h.get("nb_fan"),
+                )
+            )
         return hits
     except Exception:
         return []
@@ -171,8 +199,8 @@ async def link_artist_deezer(
       set_artists to the canonical artist, deletes the duplicate)
     """
     import requests as req
-    from sqlalchemy import update as sa_update
     from deezer_enrich import _get_s3, upload_image_to_bucket
+    from sqlalchemy import update as sa_update
 
     result = await db.execute(select(Artist).where(Artist.id == artist_id))
     artist = result.scalar_one_or_none()
@@ -184,7 +212,13 @@ async def link_artist_deezer(
         artist.deezer_id = None
         await db.commit()
         await db.refresh(artist)
-        return {"id": artist.id, "name": artist.name, "deezer_id": None, "has_artwork": artist.has_artwork, "merged": False}
+        return {
+            "id": artist.id,
+            "name": artist.name,
+            "deezer_id": None,
+            "has_artwork": artist.has_artwork,
+            "merged": False,
+        }
 
     # Fetch Deezer data first
     deezer_name = None
@@ -193,7 +227,9 @@ async def link_artist_deezer(
         resp = req.get(f"https://api.deezer.com/artist/{body.deezer_id}", timeout=5)
         data = resp.json()
         deezer_name = data.get("name")
-        pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
+        pic_url = (
+            data.get("picture_xl") or data.get("picture_big") or data.get("picture")
+        )
     except Exception:
         pass
 
@@ -205,6 +241,7 @@ async def link_artist_deezer(
 
     if canonical:
         from sqlalchemy import delete as sa_delete
+
         # Save the duplicate's name as alias on canonical before deleting
         old_name = artist.name
         if normalize(old_name) != normalize(canonical.name):
@@ -235,14 +272,32 @@ async def link_artist_deezer(
         # Ensure canonical has artwork
         if pic_url and not canonical.has_artwork:
             s3 = _get_s3()
-            if upload_image_to_bucket(s3, pic_url, f"{canonical.id}.jpg", "artist-artworks"):
+            if upload_image_to_bucket(
+                s3, pic_url, f"{canonical.id}.jpg", "artist-artworks"
+            ):
                 canonical.has_artwork = True
-        await _audit(db, admin, "merge_artist", "artist", canonical.id, {
-            "merged_id": artist_id, "merged_name": old_name, "into_id": canonical.id, "into_name": canonical.name,
-        })
+        await _audit(
+            db,
+            admin,
+            "merge_artist",
+            "artist",
+            canonical.id,
+            {
+                "merged_id": artist_id,
+                "merged_name": old_name,
+                "into_id": canonical.id,
+                "into_name": canonical.name,
+            },
+        )
         await db.commit()
         await db.refresh(canonical)
-        return {"id": canonical.id, "name": canonical.name, "deezer_id": canonical.deezer_id, "has_artwork": canonical.has_artwork, "merged": True}
+        return {
+            "id": canonical.id,
+            "name": canonical.name,
+            "deezer_id": canonical.deezer_id,
+            "has_artwork": canonical.has_artwork,
+            "merged": True,
+        }
 
     # No duplicate — just update this artist
     old_name = artist.name
@@ -255,17 +310,34 @@ async def link_artist_deezer(
     if pic_url:
         try:
             s3 = _get_s3()
-            if upload_image_to_bucket(s3, pic_url, f"{artist.id}.jpg", "artist-artworks"):
+            if upload_image_to_bucket(
+                s3, pic_url, f"{artist.id}.jpg", "artist-artworks"
+            ):
                 artist.has_artwork = True
         except Exception:
             pass
 
-    await _audit(db, admin, "link_deezer", "artist", artist.id, {
-        "deezer_id": body.deezer_id, "old_name": old_name, "new_name": artist.name,
-    })
+    await _audit(
+        db,
+        admin,
+        "link_deezer",
+        "artist",
+        artist.id,
+        {
+            "deezer_id": body.deezer_id,
+            "old_name": old_name,
+            "new_name": artist.name,
+        },
+    )
     await db.commit()
     await db.refresh(artist)
-    return {"id": artist.id, "name": artist.name, "deezer_id": artist.deezer_id, "has_artwork": artist.has_artwork, "merged": False}
+    return {
+        "id": artist.id,
+        "name": artist.name,
+        "deezer_id": artist.deezer_id,
+        "has_artwork": artist.has_artwork,
+        "merged": False,
+    }
 
 
 @router.patch("/artists/{artist_id}/no-deezer")
@@ -353,7 +425,9 @@ async def resolve_flag(
 
     from trackid.importer import get_or_create_artist
 
-    names_to_create = flag.tokens if body.action == "split" else [flag.raw_artist_string]
+    names_to_create = (
+        flag.tokens if body.action == "split" else [flag.raw_artist_string]
+    )
     deezer_map = flag.deezer_ids or {}
 
     created_ids = []
@@ -369,20 +443,25 @@ async def resolve_flag(
 
     # Link resolved artists to all catalog entries with this raw artist string
     cat_entries = await db.execute(
-        select(CatalogEntry.id)
-        .where(CatalogEntry.artist == flag.raw_artist_string)
+        select(CatalogEntry.id).where(CatalogEntry.artist == flag.raw_artist_string)
     )
     for (cat_id,) in cat_entries.all():
         for pos, artist_id in enumerate(created_ids):
             existing_link = await db.execute(
-                select(CatalogArtist)
-                .where(CatalogArtist.catalog_id == cat_id, CatalogArtist.artist_id == artist_id)
+                select(CatalogArtist).where(
+                    CatalogArtist.catalog_id == cat_id,
+                    CatalogArtist.artist_id == artist_id,
+                )
             )
             if not existing_link.scalar_one_or_none():
-                db.add(CatalogArtist(
-                    catalog_id=cat_id, artist_id=artist_id,
-                    role="primary", position=pos,
-                ))
+                db.add(
+                    CatalogArtist(
+                        catalog_id=cat_id,
+                        artist_id=artist_id,
+                        role="primary",
+                        position=pos,
+                    )
+                )
 
     await db.commit()
     await db.refresh(flag)
@@ -390,6 +469,7 @@ async def resolve_flag(
 
 
 # ---------- Set Artists ----------
+
 
 @router.post("/sets/link-artists", response_model=SyncQueued)
 async def link_set_artists_task(
@@ -417,7 +497,9 @@ async def trigger_enrich_beatport(
     """Fire-and-forget: enrich catalog entries via Beatport (BPM, key, label).
     batch_size: max entries to process (0 = all).
     """
-    result = celery.send_task("workers.tasks.enrich_catalog_beatport", args=[batch_size])
+    result = celery.send_task(
+        "workers.tasks.enrich_catalog_beatport", args=[batch_size]
+    )
     return SyncQueued(status="queued", task_id=result.id)
 
 
@@ -445,9 +527,18 @@ async def reset_beatport(
         .where(CatalogEntry.key_source == "beatport")
         .values(key=None, key_source=None)
     )
-    await _audit(db, admin, "reset_beatport", None, None, {
-        "cleared": r1.rowcount, "bpm_reverted": r2.rowcount, "key_reverted": r3.rowcount,
-    })
+    await _audit(
+        db,
+        admin,
+        "reset_beatport",
+        None,
+        None,
+        {
+            "cleared": r1.rowcount,
+            "bpm_reverted": r2.rowcount,
+            "key_reverted": r3.rowcount,
+        },
+    )
     await db.commit()
     return {
         "status": "reset",
@@ -465,13 +556,13 @@ async def enrich_single_beatport(
     _: User = Depends(require_admin),
 ):
     """Enrich a single catalog entry via Beatport (sync, ~3s)."""
-    from models import CatalogEntry
     from beatport.client import BeatportClient
     from beatport.enrich import enrich_from_beatport
+    from models import CatalogEntry
 
-    entry = (await db.execute(
-        select(CatalogEntry).where(CatalogEntry.id == catalog_id)
-    )).scalar_one_or_none()
+    entry = (
+        await db.execute(select(CatalogEntry).where(CatalogEntry.id == catalog_id))
+    ).scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Track not found")
 
@@ -518,9 +609,9 @@ async def deezer_genre_lookup(
     import httpx
     from models import CatalogEntry
 
-    entry = (await db.execute(
-        select(CatalogEntry).where(CatalogEntry.id == catalog_id)
-    )).scalar_one_or_none()
+    entry = (
+        await db.execute(select(CatalogEntry).where(CatalogEntry.id == catalog_id))
+    ).scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Track not found")
     if not entry.deezer_id:
@@ -560,8 +651,11 @@ async def add_set_artist(
 ):
     """Manually link an artist to a set."""
     from models import DJSet
+
     existing = await db.execute(
-        select(SetArtist).where(SetArtist.set_id == set_id, SetArtist.artist_id == body.artist_id)
+        select(SetArtist).where(
+            SetArtist.set_id == set_id, SetArtist.artist_id == body.artist_id
+        )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Already linked")
@@ -571,7 +665,9 @@ async def add_set_artist(
     a = await db.execute(select(Artist).where(Artist.id == body.artist_id))
     if not a.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Artist not found")
-    db.add(SetArtist(set_id=set_id, artist_id=body.artist_id, role=body.role, position=0))
+    db.add(
+        SetArtist(set_id=set_id, artist_id=body.artist_id, role=body.role, position=0)
+    )
     await db.commit()
     return {"set_id": set_id, "artist_id": body.artist_id, "role": body.role}
 
@@ -585,17 +681,23 @@ async def remove_set_artist(
 ):
     """Remove an artist from a set."""
     from sqlalchemy import delete as sa_delete
+
     result = await db.execute(
-        sa_delete(SetArtist).where(SetArtist.set_id == set_id, SetArtist.artist_id == artist_id)
+        sa_delete(SetArtist).where(
+            SetArtist.set_id == set_id, SetArtist.artist_id == artist_id
+        )
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Link not found")
-    await _audit(db, admin, "remove_set_artist", "set", set_id, {"artist_id": artist_id})
+    await _audit(
+        db, admin, "remove_set_artist", "set", set_id, {"artist_id": artist_id}
+    )
     await db.commit()
     return {"ok": True}
 
 
 # ---------- Genres ----------
+
 
 @router.get("/genres/unclassified-count")
 async def genres_unclassified_count(
@@ -604,8 +706,9 @@ async def genres_unclassified_count(
 ):
     """Count catalog entries with no genre assigned."""
     result = await db.execute(
-        select(func.count(CatalogEntry.id))
-        .where(func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0)
+        select(func.count(CatalogEntry.id)).where(
+            func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0
+        )
     )
     return {"count": result.scalar_one()}
 
@@ -616,12 +719,14 @@ async def genres_auto_classify(
     _: User = Depends(require_admin),
 ):
     """Launch Beatport enrichment targeting only tracks without a genre."""
-    count_result = await db.execute(
-        select(func.count(CatalogEntry.id))
-        .where(func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0)
+    await db.execute(
+        select(func.count(CatalogEntry.id)).where(
+            func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0
+        )
     )
-    target_count = count_result.scalar_one()
-    result = celery.send_task("workers.tasks.enrich_catalog_beatport", kwargs={"genre_only": True})
+    result = celery.send_task(
+        "workers.tasks.enrich_catalog_beatport", kwargs={"genre_only": True}
+    )
     return SyncQueued(status="queued", task_id=result.id)
 
 
@@ -635,17 +740,21 @@ async def genres_reclassify(
     """
     kwargs = {}
     if eta:
-        from datetime import datetime as dt, timezone as tz
+        from datetime import datetime as dt
+
         try:
             scheduled_at = dt.fromisoformat(eta.replace("Z", "+00:00"))
         except ValueError:
-            raise HTTPException(status_code=400, detail="Format eta invalide (ISO 8601 attendu)")
+            raise HTTPException(
+                status_code=400, detail="Format eta invalide (ISO 8601 attendu)"
+            )
         kwargs["eta"] = scheduled_at
     result = celery.send_task("workers.tasks.reclassify_all_genres", **kwargs)
     return SyncQueued(status="queued", task_id=result.id)
 
 
 # ---------- Playlist Artworks ----------
+
 
 @router.post("/playlists/fetch-artworks")
 async def fetch_all_playlist_artworks(
@@ -654,7 +763,7 @@ async def fetch_all_playlist_artworks(
 ):
     """Fetch Deezer artworks for all playlists missing artwork. Synchronous."""
     import requests as req
-    from deezer_enrich import _get_s3, upload_image_to_bucket, _ensure_bucket
+    from deezer_enrich import _ensure_bucket, _get_s3, upload_image_to_bucket
 
     result = await db.execute(
         select(WatchedEntity).where(
@@ -674,10 +783,18 @@ async def fetch_all_playlist_artworks(
     failed = 0
     for pl in playlists:
         try:
-            resp = req.get(f"https://api.deezer.com/playlist/{pl.external_id}", timeout=5)
+            resp = req.get(
+                f"https://api.deezer.com/playlist/{pl.external_id}", timeout=5
+            )
             data = resp.json()
-            pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture_medium")
-            if pic_url and upload_image_to_bucket(s3, pic_url, f"{pl.id}.jpg", "playlist-artworks"):
+            pic_url = (
+                data.get("picture_xl")
+                or data.get("picture_big")
+                or data.get("picture_medium")
+            )
+            if pic_url and upload_image_to_bucket(
+                s3, pic_url, f"{pl.id}.jpg", "playlist-artworks"
+            ):
                 pl.has_artwork = True
                 fetched += 1
             else:

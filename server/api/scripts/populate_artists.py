@@ -20,14 +20,14 @@ Classification rules (in priority order):
   4. no separator → create as-is
 """
 
+import asyncio
 import re
 import sys
 import time
-import asyncio
 from datetime import datetime, timezone
 
 import requests
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 # Allow running as a script inside the api container
 sys.path.insert(0, "/app")
@@ -95,7 +95,9 @@ async def run_sync(db) -> dict:
     # 2. Load known normalized names (artists + aliases) into memory
     art_rows = await db.execute(select(Artist.normalized_name))
     alias_rows = await db.execute(select(ArtistAlias.normalized_alias))
-    known_norms: set[str] = set(r[0] for r in art_rows.all()) | set(r[0] for r in alias_rows.all())
+    known_norms: set[str] = set(r[0] for r in art_rows.all()) | set(
+        r[0] for r in alias_rows.all()
+    )
 
     # 3. Load already-flagged strings to skip re-processing
     flag_rows = await db.execute(select(ArtistFlag.raw_artist_string))
@@ -214,7 +216,11 @@ async def run_sync(db) -> dict:
                     created += 1
                 await db.commit()
             else:
-                reason = "ampersand_ambiguous" if (full_found and tokens_found) else "ampersand_unknown"
+                reason = (
+                    "ampersand_ambiguous"
+                    if (full_found and tokens_found)
+                    else "ampersand_unknown"
+                )
                 flag = ArtistFlag(
                     raw_artist_string=raw,
                     reason=reason,
@@ -240,6 +246,7 @@ async def run_sync(db) -> dict:
 
 
 # ---------- CLI entry point ----------
+
 
 async def _main():
     async with SessionLocal() as db:

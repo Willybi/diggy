@@ -1,16 +1,14 @@
 from database import Base
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     Date,
     DateTime,
     Float,
     ForeignKey,
-    Index,
     Integer,
-    JSON,
     String,
-    Table,
     Text,
     UniqueConstraint,
 )
@@ -21,6 +19,7 @@ from sqlalchemy.types import TypeDecorator
 
 class StringArray(TypeDecorator):
     """ARRAY(Text) on PostgreSQL, JSON on other dialects (e.g. SQLite for tests)."""
+
     impl = Text
     cache_ok = True
 
@@ -74,7 +73,9 @@ class Artist(Base):
     has_artwork = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
 
-    aliases = relationship("ArtistAlias", back_populates="artist", cascade="all, delete-orphan")
+    aliases = relationship(
+        "ArtistAlias", back_populates="artist", cascade="all, delete-orphan"
+    )
     set_links = relationship("SetArtist", back_populates="artist")
     catalog_links = relationship("CatalogArtist", back_populates="artist")
 
@@ -83,7 +84,12 @@ class ArtistAlias(Base):
     __tablename__ = "artist_aliases"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    artist_id = Column(Integer, ForeignKey("artists.id", ondelete="CASCADE"), nullable=False, index=True)
+    artist_id = Column(
+        Integer,
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     alias = Column(String(500), nullable=False)
     normalized_alias = Column(String(500), unique=True, nullable=False)
 
@@ -110,10 +116,18 @@ class CatalogEntry(Base):
     has_preview = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
     # Phase 2 — multi-user fields
-    scope = Column(String(10), nullable=False, server_default="shared", default="shared")
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    origin = Column(String(50), nullable=False, server_default="deezer", default="deezer")
-    status = Column(String(20), nullable=False, server_default="official", default="official")
+    scope = Column(
+        String(10), nullable=False, server_default="shared", default="shared"
+    )
+    owner_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    origin = Column(
+        String(50), nullable=False, server_default="deezer", default="deezer"
+    )
+    status = Column(
+        String(20), nullable=False, server_default="official", default="official"
+    )
     bpm_source = Column(String(20), nullable=True)
     key_source = Column(String(20), nullable=True)
     label = Column(String(255), nullable=True)
@@ -123,7 +137,8 @@ class CatalogEntry(Base):
     beatport_searched_at = Column(DateTime(timezone=True), nullable=True)
 
     artist_links = relationship(
-        "CatalogArtist", back_populates="catalog",
+        "CatalogArtist",
+        back_populates="catalog",
         cascade="all, delete-orphan",
     )
 
@@ -131,11 +146,26 @@ class CatalogEntry(Base):
 class UserTrack(Base):
     __tablename__ = "user_tracks"
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="RESTRICT"), primary_key=True, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    catalog_id = Column(
+        Integer,
+        ForeignKey("catalog.id", ondelete="RESTRICT"),
+        primary_key=True,
+        nullable=False,
+    )
     rekordbox_id = Column(Integer, nullable=True)
     date_added = Column(DateTime(timezone=True), nullable=True)
-    source = Column(String(50), server_default="rekordbox_import", default="rekordbox_import", nullable=True)
+    source = Column(
+        String(50),
+        server_default="rekordbox_import",
+        default="rekordbox_import",
+        nullable=True,
+    )
     file_path = Column(Text, nullable=True)
     rb_bpm = Column(Float, nullable=True)
     rb_key = Column(String(10), nullable=True)
@@ -155,7 +185,9 @@ class WatchedEntity(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     external_id = Column(String(64), unique=True, nullable=False)
     source = Column(String(64), nullable=False)
-    type = Column(String(20), nullable=False, server_default="playlist", default="playlist")
+    type = Column(
+        String(20), nullable=False, server_default="playlist", default="playlist"
+    )
     title = Column(String(255))
     description = Column(Text)
     created_at = Column(DateTime(timezone=True))
@@ -167,12 +199,21 @@ class WatchedEntity(Base):
     crawl_started_at = Column(DateTime(timezone=True), nullable=True)
 
 
-
 class UserFollow(Base):
     __tablename__ = "user_follows"
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    entity_id = Column(Integer, ForeignKey("watched_entities.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    entity_id = Column(
+        Integer,
+        ForeignKey("watched_entities.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
     followed_at = Column(DateTime(timezone=True))
 
     user = relationship("User")
@@ -182,16 +223,36 @@ class UserFollow(Base):
 class UserSetFollow(Base):
     __tablename__ = "user_set_follows"
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    set_id = Column(Integer, ForeignKey("sets.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    set_id = Column(
+        Integer,
+        ForeignKey("sets.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
     followed_at = Column(DateTime(timezone=True))
 
 
 class UserRadarState(Base):
     __tablename__ = "user_radar_state"
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    catalog_id = Column(
+        Integer,
+        ForeignKey("catalog.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
     status = Column(String(20), nullable=False, server_default="new", default="new")
     updated_at = Column(DateTime(timezone=True))
 
@@ -212,7 +273,9 @@ class RadarTrack(Base):
     artist = Column(String(500))
     isrc = Column(String(20))
     detected_at = Column(DateTime(timezone=True))
-    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True)
+    catalog_id = Column(
+        Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -244,11 +307,14 @@ class DJSet(Base):
     )
 
     tracks = relationship(
-        "SetTrack", back_populates="dj_set",
-        cascade="all, delete-orphan", order_by="SetTrack.position",
+        "SetTrack",
+        back_populates="dj_set",
+        cascade="all, delete-orphan",
+        order_by="SetTrack.position",
     )
     artist_links = relationship(
-        "SetArtist", back_populates="dj_set",
+        "SetArtist",
+        back_populates="dj_set",
         cascade="all, delete-orphan",
     )
 
@@ -256,8 +322,15 @@ class DJSet(Base):
 class SetArtist(Base):
     __tablename__ = "set_artists"
 
-    set_id = Column(Integer, ForeignKey("sets.id", ondelete="CASCADE"), primary_key=True)
-    artist_id = Column(Integer, ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True, index=True)
+    set_id = Column(
+        Integer, ForeignKey("sets.id", ondelete="CASCADE"), primary_key=True
+    )
+    artist_id = Column(
+        Integer,
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
     role = Column(String(32), nullable=True)
     position = Column(Integer, nullable=True)
 
@@ -268,8 +341,15 @@ class SetArtist(Base):
 class CatalogArtist(Base):
     __tablename__ = "catalog_artists"
 
-    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True)
-    artist_id = Column(Integer, ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True, index=True)
+    catalog_id = Column(
+        Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True
+    )
+    artist_id = Column(
+        Integer,
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
     role = Column(String(32), nullable=True)
     position = Column(Integer, nullable=True)
 
@@ -281,8 +361,15 @@ class SetTrack(Base):
     __tablename__ = "set_tracks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    set_id = Column(Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True)
-    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True, index=True)
+    set_id = Column(
+        Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    catalog_id = Column(
+        Integer,
+        ForeignKey("catalog.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     position = Column(Integer, nullable=False)
     timecode_ms = Column(Integer, nullable=True)
     raw_title = Column(String(500), nullable=True)
@@ -303,10 +390,14 @@ class ArtistFlag(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     raw_artist_string = Column(String(500), nullable=False, unique=True)
-    reason = Column(String(64), nullable=False)  # comma_unresolved | ampersand_ambiguous | ampersand_unknown
-    tokens = Column(JSON, nullable=False)          # ["Romy", "Fred again.."]
-    deezer_ids = Column(JSON, nullable=False)      # {"Romy": null, "Fred again..": "123"}
-    status = Column(String(32), nullable=False, default="pending", server_default="pending")  # pending | validated | skipped
+    reason = Column(
+        String(64), nullable=False
+    )  # comma_unresolved | ampersand_ambiguous | ampersand_unknown
+    tokens = Column(JSON, nullable=False)  # ["Romy", "Fred again.."]
+    deezer_ids = Column(JSON, nullable=False)  # {"Romy": null, "Fred again..": "123"}
+    status = Column(
+        String(32), nullable=False, default="pending", server_default="pending"
+    )  # pending | validated | skipped
     resolved_artist_ids = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True))
@@ -315,9 +406,18 @@ class ArtistFlag(Base):
 class UserOpinion(Base):
     __tablename__ = "user_opinions"
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    entity_type = Column(String(20), primary_key=True, nullable=False)  # artist, set, playlist, genre
-    entity_key = Column(String(255), primary_key=True, nullable=False)  # id as string, or genre name
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    entity_type = Column(
+        String(20), primary_key=True, nullable=False
+    )  # artist, set, playlist, genre
+    entity_key = Column(
+        String(255), primary_key=True, nullable=False
+    )  # id as string, or genre name
     opinion = Column(String(20), nullable=False)  # liked | disliked
     created_at = Column(DateTime(timezone=True))
 
@@ -330,16 +430,36 @@ class GenreNode(Base):
     label = Column(String(255), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True))
 
-    outgoing_edges = relationship("GenreEdge", foreign_keys="GenreEdge.from_node_id", back_populates="from_node", cascade="all, delete-orphan")
-    incoming_edges = relationship("GenreEdge", foreign_keys="GenreEdge.to_node_id", back_populates="to_node", cascade="all, delete-orphan")
+    outgoing_edges = relationship(
+        "GenreEdge",
+        foreign_keys="GenreEdge.from_node_id",
+        back_populates="from_node",
+        cascade="all, delete-orphan",
+    )
+    incoming_edges = relationship(
+        "GenreEdge",
+        foreign_keys="GenreEdge.to_node_id",
+        back_populates="to_node",
+        cascade="all, delete-orphan",
+    )
 
 
 class GenreEdge(Base):
     __tablename__ = "genre_edges"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    from_node_id = Column(Integer, ForeignKey("genre_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
-    to_node_id = Column(Integer, ForeignKey("genre_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_node_id = Column(
+        Integer,
+        ForeignKey("genre_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    to_node_id = Column(
+        Integer,
+        ForeignKey("genre_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     type = Column(String(20), nullable=False)
     source = Column(String(50), nullable=False)
 
@@ -347,8 +467,12 @@ class GenreEdge(Base):
         UniqueConstraint("from_node_id", "to_node_id", "type", name="uq_genre_edge"),
     )
 
-    from_node = relationship("GenreNode", foreign_keys=[from_node_id], back_populates="outgoing_edges")
-    to_node = relationship("GenreNode", foreign_keys=[to_node_id], back_populates="incoming_edges")
+    from_node = relationship(
+        "GenreNode", foreign_keys=[from_node_id], back_populates="outgoing_edges"
+    )
+    to_node = relationship(
+        "GenreNode", foreign_keys=[to_node_id], back_populates="incoming_edges"
+    )
 
 
 class GenreMapping(Base):
@@ -356,7 +480,12 @@ class GenreMapping(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     raw_name = Column(String(255), unique=True, nullable=False)
-    node_id = Column(Integer, ForeignKey("genre_nodes.id", ondelete="SET NULL"), nullable=True, index=True)
+    node_id = Column(
+        Integer,
+        ForeignKey("genre_nodes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     node = relationship("GenreNode")
 
@@ -364,7 +493,9 @@ class GenreMapping(Base):
 class RadarTrend(Base):
     __tablename__ = "radar_trends"
 
-    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True)
+    catalog_id = Column(
+        Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True
+    )
     trend_score = Column(Float, nullable=False, server_default="0", default=0)
     window_days = Column(Integer, server_default="30", default=30)
     detection_count = Column(Integer, server_default="0", default=0)
@@ -377,20 +508,31 @@ class UserCollection(Base):
     __tablename__ = "user_collections"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name = Column(String(255), nullable=False)
     type = Column(String(20), server_default="playlist", default="playlist")
     created_at = Column(DateTime(timezone=True))
 
     user = relationship("User")
-    items = relationship("CollectionItem", back_populates="collection", cascade="all, delete-orphan", order_by="CollectionItem.position")
+    items = relationship(
+        "CollectionItem",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+        order_by="CollectionItem.position",
+    )
 
 
 class CollectionItem(Base):
     __tablename__ = "collection_items"
 
-    collection_id = Column(Integer, ForeignKey("user_collections.id", ondelete="CASCADE"), primary_key=True)
-    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True)
+    collection_id = Column(
+        Integer, ForeignKey("user_collections.id", ondelete="CASCADE"), primary_key=True
+    )
+    catalog_id = Column(
+        Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True
+    )
     position = Column(Integer, server_default="0", default=0)
     added_at = Column(DateTime(timezone=True))
 
@@ -402,7 +544,9 @@ class AdminAuditLog(Base):
     __tablename__ = "admin_audit_log"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     action = Column(String(64), nullable=False, index=True)
     target_type = Column(String(64), nullable=True)
     target_id = Column(Integer, nullable=True)
@@ -420,7 +564,9 @@ class CrawlLog(Base):
     target_id = Column(Integer, nullable=True)
     target_label = Column(String(500), nullable=True)
     source = Column(String(64), nullable=True)
-    status = Column(String(20), nullable=False, server_default="running", default="running")
+    status = Column(
+        String(20), nullable=False, server_default="running", default="running"
+    )
     started_at = Column(DateTime(timezone=True), nullable=False)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     duration_ms = Column(Integer, nullable=True)

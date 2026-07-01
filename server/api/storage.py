@@ -1,6 +1,7 @@
+import os
+
 import boto3
 from botocore.client import Config
-import os
 
 MINIO_URL = os.environ.get("MINIO_URL", "http://minio:9000")
 MINIO_USER = os.environ["MINIO_USER"]

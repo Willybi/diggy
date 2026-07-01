@@ -1,6 +1,6 @@
 """Convert catalog.genre (String) to catalog.genres (TEXT[] array)."""
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import ARRAY
 
 revision = "0018"

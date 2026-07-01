@@ -1,15 +1,16 @@
 """One-shot: fetch artworks for existing sets from TrackID artworkUrl."""
+
 import asyncio
 import sys
+
 sys.path.insert(0, "/app")
 
 import httpx
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-
+from deezer_enrich import _ensure_bucket, _get_s3, upload_image_to_bucket
 from models import DJSet
-from deezer_enrich import _get_s3, upload_image_to_bucket, _ensure_bucket
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 SET_ARTWORK_BUCKET = "set-artworks"
 TRACKID_API = "https://trackid.net/api/public/audiostreams"
@@ -23,6 +24,7 @@ HEADERS = {
 
 async def main():
     import os
+
     engine = create_async_engine(os.environ["DATABASE_URL"])
     Session = sessionmaker(engine, class_=AsyncSession)
 
@@ -46,7 +48,6 @@ async def main():
                 # Try to find artwork via search by external ID
                 try:
                     # Use the set's source_url slug
-                    slug = None
                     if s.source_url:
                         # Build slug from title or search
                         pass
@@ -59,7 +60,10 @@ async def main():
                     data = r.json().get("result", {}).get("audiostreams", [])
                     artwork_url = None
                     for item in data:
-                        if str(item.get("id")) == s.external_id or str(item.get("externalId")) == s.external_id:
+                        if (
+                            str(item.get("id")) == s.external_id
+                            or str(item.get("externalId")) == s.external_id
+                        ):
                             artwork_url = item.get("artworkUrl")
                             break
 
@@ -71,7 +75,9 @@ async def main():
                                 break
 
                     if artwork_url:
-                        if upload_image_to_bucket(s3, artwork_url, f"{s.id}.jpg", SET_ARTWORK_BUCKET):
+                        if upload_image_to_bucket(
+                            s3, artwork_url, f"{s.id}.jpg", SET_ARTWORK_BUCKET
+                        ):
                             s.has_artwork = True
                             fetched += 1
                             print(f"  OK: {s.title[:60]}")
@@ -88,5 +94,6 @@ async def main():
         print(f"\nDone: {fetched}/{len(sets)} artworks fetched")
 
     await engine.dispose()
+
 
 asyncio.run(main())

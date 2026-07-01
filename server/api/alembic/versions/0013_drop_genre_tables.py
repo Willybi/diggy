@@ -1,6 +1,6 @@
 """Drop genre tables (genres, catalog_genres, artist_genres, set_genres) and add index on catalog.genre."""
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0013"
 down_revision = "0012"

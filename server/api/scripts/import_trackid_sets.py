@@ -6,6 +6,7 @@ Usage (from VPS):
     docker compose exec api python scripts/import_trackid_sets.py --keywords "fred again" --resolve
     docker compose exec api python scripts/import_trackid_sets.py --channel adambeyer --limit 5 --resolve
 """
+
 import argparse
 import asyncio
 import os
@@ -14,9 +15,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-
 from trackid.client import TrackIDClient
 from trackid.importer import get_or_create_artist, import_audiostream
 
@@ -42,12 +42,14 @@ def _extract_artist_name(detail: dict, channel: str) -> str | None:
         for part in parts:
             candidate = part.strip()
             # Check if removing spaces/lowering matches the channel
-            if re.sub(r'\s+', '', candidate.lower()) == channel.lower():
+            if re.sub(r"\s+", "", candidate.lower()) == channel.lower():
                 return candidate
     return None
 
 
-async def main(channel: str | None, keywords: str | None, limit: int | None, resolve: bool):
+async def main(
+    channel: str | None, keywords: str | None, limit: int | None, resolve: bool
+):
     engine = create_async_engine(DATABASE_URL, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -61,7 +63,9 @@ async def main(channel: str | None, keywords: str | None, limit: int | None, res
         if channel:
             # Fetch one set to extract a proper display name from tracklist artist credits
             display_name = _humanize_slug(channel)
-            probe_sets, _ = await client.search_sets(channel=channel, page_size=1, current_page=0)
+            probe_sets, _ = await client.search_sets(
+                channel=channel, page_size=1, current_page=0
+            )
             if probe_sets:
                 detail = await client.get_set_detail(probe_sets[0].get("slug", ""))
                 if detail:
@@ -70,7 +74,9 @@ async def main(channel: str | None, keywords: str | None, limit: int | None, res
                         display_name = extracted
 
             async with async_session() as db:
-                artist = await get_or_create_artist(db, display_name, trackid_id=channel)
+                artist = await get_or_create_artist(
+                    db, display_name, trackid_id=channel
+                )
                 await db.commit()
                 artist_id = artist.id
 
@@ -120,7 +126,9 @@ async def main(channel: str | None, keywords: str | None, limit: int | None, res
             if page * page_size >= row_count:
                 break
 
-    print(f"\nDone. Sets imported: {total_sets}, tracks: {total_tracks}, skipped: {skipped}")
+    print(
+        f"\nDone. Sets imported: {total_sets}, tracks: {total_tracks}, skipped: {skipped}"
+    )
 
     if resolve:
         print("\nResolving set_tracks -> catalog...")
@@ -133,10 +141,11 @@ async def main(channel: str | None, keywords: str | None, limit: int | None, res
 async def _resolve_set_tracks(engine):
     """Inline async version of resolve_set_tracks Celery task with Deezer enrichment."""
     from datetime import datetime, timezone
+
+    from deezer_enrich import _ensure_bucket, _get_s3, enrich_entry, search_deezer
+    from models import CatalogEntry, SetTrack
     from sqlalchemy import select
-    from models import SetTrack, CatalogEntry
     from utils import make_normalized_key
-    from deezer_enrich import search_deezer, enrich_entry, _get_s3, _ensure_bucket
 
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     s3 = _get_s3()
@@ -165,9 +174,11 @@ async def _resolve_set_tracks(engine):
         for st in tracks:
             norm_key = make_normalized_key(st.raw_title, st.raw_artist)
 
-            entry = (await db.execute(
-                select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
-            )).scalar_one_or_none()
+            entry = (
+                await db.execute(
+                    select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+                )
+            ).scalar_one_or_none()
 
             is_new = False
             if not entry:
@@ -199,11 +210,19 @@ async def _resolve_set_tracks(engine):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Import TrackID.net sets by channel or keywords")
+    parser = argparse.ArgumentParser(
+        description="Import TrackID.net sets by channel or keywords"
+    )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--channel", help="TrackID channel name (e.g. adambeyer)")
     group.add_argument("--keywords", help="Search by keywords (e.g. 'fred again')")
-    parser.add_argument("--limit", type=int, default=None, help="Max number of sets to import")
-    parser.add_argument("--resolve", action="store_true", help="Resolve set_tracks to catalog after import")
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Max number of sets to import"
+    )
+    parser.add_argument(
+        "--resolve",
+        action="store_true",
+        help="Resolve set_tracks to catalog after import",
+    )
     args = parser.parse_args()
     asyncio.run(main(args.channel, args.keywords, args.limit, args.resolve))

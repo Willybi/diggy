@@ -1,21 +1,32 @@
 from collections import defaultdict
 
+from database import get_db
+from dependencies import get_current_user_optional
+from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
+from models import (
+    Artist,
+    CatalogArtist,
+    CatalogEntry,
+    DJSet,
+    SetArtist,
+    SetTrack,
+    User,
+    UserRadarState,
+    UserTrack,
+)
+from schemas import (
+    ArtistAliasOut,
+    ArtistDetailOut,
+    ArtistSetOut,
+    CatalogEntryOut,
+    GenreRef,
+)
 from sqlalchemy import Float, Numeric, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database import get_db
-from dependencies import get_current_user_optional, uid as _uid
-from models import (
-    Artist, CatalogEntry, CatalogArtist, UserTrack,
-    DJSet, SetArtist, SetTrack, User, UserRadarState,
-)
-from routers.genres import genre_pillar, _ALL_PILLARS, _ensure_pillar_cache
-from schemas import (
-    ArtistDetailOut, ArtistAliasOut, ArtistListOut,
-    CatalogEntryOut, ArtistSetOut, GenreRef,
-)
+from routers.genres import _ALL_PILLARS, _ensure_pillar_cache, genre_pillar
 
 router = APIRouter(prefix="/artists", tags=["artists"])
 
@@ -174,12 +185,16 @@ async def list_artists(
     elif sort == "disliked":
         base_query = base_query.order_by(func.lower(Artist.name))
     elif sort == "rating":
-        base_query = base_query.order_by(func.coalesce(stats_sub.c.avg_rating, -1).desc())
+        base_query = base_query.order_by(
+            func.coalesce(stats_sub.c.avg_rating, -1).desc()
+        )
     elif sort == "alpha":
         base_query = base_query.order_by(func.lower(Artist.name))
 
     # -- count + paginate --
-    count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
+    count_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
     total = count_result.scalar()
 
     result = await db.execute(base_query.offset(offset).limit(limit))
@@ -191,7 +206,8 @@ async def list_artists(
     artwork_count_map: dict[int, int] = {aid: 0 for aid in page_ids}
     if page_ids:
         try:
-            aw_result = await db.execute(text("""
+            aw_result = await db.execute(
+                text("""
                 WITH matched AS (
                     SELECT ca.artist_id, c.id AS catalog_id,
                            ROW_NUMBER() OVER (PARTITION BY ca.artist_id ORDER BY c.id DESC) AS rn
@@ -205,7 +221,9 @@ async def list_artists(
                        ARRAY_AGG(catalog_id ORDER BY rn) FILTER (WHERE rn <= 4) AS top_ids
                 FROM matched
                 GROUP BY artist_id
-            """), {"ids": page_ids})
+            """),
+                {"ids": page_ids},
+            )
             for r in aw_result.fetchall():
                 artwork_count_map[r.artist_id] = r.total_with_artwork
                 artworks_map[r.artist_id] = [
@@ -216,23 +234,31 @@ async def list_artists(
 
     items = []
     for row in rows:
-        items.append({
-            "id": row.id,
-            "name": row.name,
-            "real_name": row.real_name,
-            "country": row.country,
-            "has_artwork": row.has_artwork,
-            "nb_catalog": row.nb_catalog,
-            "nb_lib": row.nb_lib,
-            "nb_liked": row.nb_liked,
-            "avg_rating": float(row.avg_rating) if row.avg_rating is not None else None,
-            "genres": [
-                {"name": g, "pillar": genre_pillar(g)[0], "depth": genre_pillar(g)[1]}
-                for g in _artist_genres(row.id)
-            ],
-            "top_track_artworks": artworks_map.get(row.id, []),
-            "tracks_with_artwork": artwork_count_map.get(row.id, 0),
-        })
+        items.append(
+            {
+                "id": row.id,
+                "name": row.name,
+                "real_name": row.real_name,
+                "country": row.country,
+                "has_artwork": row.has_artwork,
+                "nb_catalog": row.nb_catalog,
+                "nb_lib": row.nb_lib,
+                "nb_liked": row.nb_liked,
+                "avg_rating": float(row.avg_rating)
+                if row.avg_rating is not None
+                else None,
+                "genres": [
+                    {
+                        "name": g,
+                        "pillar": genre_pillar(g)[0],
+                        "depth": genre_pillar(g)[1],
+                    }
+                    for g in _artist_genres(row.id)
+                ],
+                "top_track_artworks": artworks_map.get(row.id, []),
+                "tracks_with_artwork": artwork_count_map.get(row.id, 0),
+            }
+        )
 
     return {"items": items, "total": total, "pillarCounts": pillar_counts}
 
@@ -244,7 +270,8 @@ async def random_artist_track(
     db: AsyncSession = Depends(get_db),
 ):
     """Return a random previewable catalog entry for the given artist."""
-    result = await db.execute(text("""
+    result = await db.execute(
+        text("""
         SELECT c.id, c.title, c.artist, c.bpm, c.key FROM catalog c
         JOIN catalog_artists ca ON ca.catalog_id = c.id
         WHERE ca.artist_id = :artist_id
@@ -252,11 +279,13 @@ async def random_artist_track(
           AND (:has_exclude = false OR c.id != :exclude_id)
         ORDER BY random()
         LIMIT 1
-    """), {
-        "artist_id": artist_id,
-        "has_exclude": exclude is not None,
-        "exclude_id": exclude or 0,
-    })
+    """),
+        {
+            "artist_id": artist_id,
+            "has_exclude": exclude is not None,
+            "exclude_id": exclude or 0,
+        },
+    )
     row = result.fetchone()
     if not row:
         raise HTTPException(404, "No previewable track for this artist")
@@ -283,16 +312,13 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Artist not found")
 
     # 2. Catalog tracks linked via catalog_artists
-    lib_sub = (
-        select(
-            UserTrack.catalog_id,
-            UserTrack.rating,
-            UserTrack.rb_mytags.label("tags"),
-            UserTrack.rb_bpm.label("bpm"),
-            UserTrack.rb_key.label("key"),
-        )
-        .subquery()
-    )
+    lib_sub = select(
+        UserTrack.catalog_id,
+        UserTrack.rating,
+        UserTrack.rb_mytags.label("tags"),
+        UserTrack.rb_bpm.label("bpm"),
+        UserTrack.rb_key.label("key"),
+    ).subquery()
 
     cat_result = await db.execute(
         select(
@@ -312,6 +338,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     cat_rows = cat_result.all()
 
     import json
+
     catalog_tracks = []
     nb_lib = 0
     ratings = []
@@ -336,43 +363,62 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
             except Exception:
                 pass
 
-        catalog_tracks.append(CatalogEntryOut(
-            id=entry.id,
-            title=entry.title,
-            artist=entry.artist,
-            isrc=entry.isrc,
-            bpm=lib_bpm if lib_bpm else entry.bpm,
-            key=lib_key if lib_key else entry.key,
-            duration_ms=entry.duration_ms,
-            genres=[GenreRef(name=g, pillar=genre_pillar(g)[0], depth=genre_pillar(g)[1]) for g in (entry.genres or [])],
-            release_date=entry.release_date,
-            preview_url=entry.preview_url,
-            has_artwork=entry.has_artwork,
-            has_preview=entry.has_preview,
-            created_at=entry.created_at,
-            in_lib=is_in_lib,
-            style=lib_style,
-            rating=rating,
-        ))
+        catalog_tracks.append(
+            CatalogEntryOut(
+                id=entry.id,
+                title=entry.title,
+                artist=entry.artist,
+                isrc=entry.isrc,
+                bpm=lib_bpm if lib_bpm else entry.bpm,
+                key=lib_key if lib_key else entry.key,
+                duration_ms=entry.duration_ms,
+                genres=[
+                    GenreRef(
+                        name=g, pillar=genre_pillar(g)[0], depth=genre_pillar(g)[1]
+                    )
+                    for g in (entry.genres or [])
+                ],
+                release_date=entry.release_date,
+                preview_url=entry.preview_url,
+                has_artwork=entry.has_artwork,
+                has_preview=entry.has_preview,
+                created_at=entry.created_at,
+                in_lib=is_in_lib,
+                style=lib_style,
+                rating=rating,
+            )
+        )
 
     # 3. Sets via set_artists
     sets_result = await db.execute(
         select(
-            DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork,
+            DJSet.id,
+            DJSet.title,
+            DJSet.played_date,
+            DJSet.has_artwork,
             SetArtist.role,
             func.count(SetTrack.id).label("total_tracks"),
-            func.count(SetTrack.catalog_id).filter(SetTrack.is_id == False).label("identified_tracks"),
+            func.count(SetTrack.catalog_id)
+            .filter(SetTrack.is_id.is_(False))
+            .label("identified_tracks"),
         )
         .join(DJSet, DJSet.id == SetArtist.set_id)
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
         .where(SetArtist.artist_id == artist_id)
-        .group_by(DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork, SetArtist.role)
+        .group_by(
+            DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork, SetArtist.role
+        )
         .order_by(DJSet.played_date.desc().nulls_last())
     )
     sets = [
         ArtistSetOut(
-            set_id=r[0], title=r[1], played_date=r[2], has_artwork=r[3],
-            role=r[4], total_tracks=r[5], identified_tracks=r[6],
+            set_id=r[0],
+            title=r[1],
+            played_date=r[2],
+            has_artwork=r[3],
+            role=r[4],
+            total_tracks=r[5],
+            identified_tracks=r[6],
         )
         for r in sets_result.all()
     ]
@@ -381,7 +427,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
     genre_counts: dict[str, int] = {}
     for row in cat_rows:
-        for g in (row[0].genres or []):
+        for g in row[0].genres or []:
             genre_counts[g] = genre_counts.get(g, 0) + 1
     total = len(cat_rows)
     threshold = max(1, int(total * 0.2))
@@ -400,7 +446,10 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
         has_artwork=artist.has_artwork,
         created_at=artist.created_at,
         aliases=[ArtistAliasOut.model_validate(a) for a in artist.aliases],
-        genres=[GenreRef(name=g, pillar=genre_pillar(g)[0], depth=genre_pillar(g)[1]) for g in computed_genres],
+        genres=[
+            GenreRef(name=g, pillar=genre_pillar(g)[0], depth=genre_pillar(g)[1])
+            for g in computed_genres
+        ],
         catalog_tracks=catalog_tracks,
         sets=sets,
         stats={
