@@ -144,22 +144,42 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                             session.add(cat_entry)
                             session.flush()
 
-                        ut = UserTrack(
-                            user_id=user_id,
-                            catalog_id=cat_entry.id,
-                            rekordbox_id=rb_id,
-                            date_added=t.date_added,
-                            source="rekordbox_import",
-                            file_path=t.file_path,
-                            rb_bpm=t.bpm,
-                            rb_key=t.key,
-                            rb_mytags=tags,
-                            rating=t.rating,
-                            has_artwork=False,
-                        )
-                        session.add(ut)
-                        existing[rb_id] = (cat_entry.id, False)
-                        inserted += 1
+                        # Check if UserTrack already exists without rekordbox_id
+                        # (e.g. created from radar tracking)
+                        ut = session.execute(
+                            select(UserTrack).where(
+                                UserTrack.user_id == user_id,
+                                UserTrack.catalog_id == cat_entry.id,
+                            )
+                        ).scalar_one_or_none()
+
+                        if ut:
+                            ut.rekordbox_id = rb_id
+                            ut.date_added = t.date_added
+                            ut.file_path = t.file_path
+                            ut.rb_bpm = t.bpm
+                            ut.rb_key = t.key
+                            ut.rb_mytags = tags
+                            ut.rating = t.rating
+                            existing[rb_id] = (cat_entry.id, ut.has_artwork)
+                            updated += 1
+                        else:
+                            ut = UserTrack(
+                                user_id=user_id,
+                                catalog_id=cat_entry.id,
+                                rekordbox_id=rb_id,
+                                date_added=t.date_added,
+                                source="rekordbox_import",
+                                file_path=t.file_path,
+                                rb_bpm=t.bpm,
+                                rb_key=t.key,
+                                rb_mytags=tags,
+                                rating=t.rating,
+                                has_artwork=False,
+                            )
+                            session.add(ut)
+                            existing[rb_id] = (cat_entry.id, False)
+                            inserted += 1
 
                 session.commit()
 
