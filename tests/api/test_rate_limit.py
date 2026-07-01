@@ -1,11 +1,14 @@
 """Tests for server/api/rate_limit.py — Redis-based rate limiting middleware."""
 from unittest.mock import MagicMock, patch
+import asyncio
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("JWT_SECRET", "test-secret")
 
+import pytest
+import rate_limit
 from rate_limit import _get_real_ip, RATE_LIMITS, RateLimitMiddleware
 
 
@@ -32,7 +35,7 @@ class TestGetRealIp:
         assert _get_real_ip(request) == "1.2.3.4"
 
 
-class TestRateLimits:
+class TestRateLimitConfig:
     def test_login_rate_limit_defined(self):
         assert "/api/auth/login" in RATE_LIMITS
         max_req, window = RATE_LIMITS["/api/auth/login"]
@@ -45,36 +48,27 @@ class TestRateLimits:
         assert max_req == 3
         assert window == 60
 
+    def test_google_callback_rate_limit_defined(self):
+        assert "/api/auth/google/callback" in RATE_LIMITS
+        max_req, window = RATE_LIMITS["/api/auth/google/callback"]
+        assert max_req == 5
+        assert window == 60
+
+    def test_all_limits_are_valid_tuples(self):
+        for path, config in RATE_LIMITS.items():
+            assert isinstance(config, tuple) and len(config) == 2
+            max_req, window = config
+            assert max_req > 0 and window > 0
+
 
 class TestRateLimitMiddleware:
-    def test_get_requests_pass_through(self):
-        """GET requests should not be rate limited."""
+    def test_non_rate_limited_route_passes_through(self):
+        """Request to a path not in RATE_LIMITS should pass through."""
         middleware = RateLimitMiddleware(app=MagicMock())
-
-        import asyncio
 
         request = MagicMock()
         request.method = "GET"
-        request.url.path = "/api/auth/login"
-
-        next_called = False
-        async def mock_next(req):
-            nonlocal next_called
-            next_called = True
-            return MagicMock()
-
-        asyncio.run(middleware.dispatch(request, mock_next))
-        assert next_called
-
-    def test_non_rate_limited_post_passes_through(self):
-        """POST to non-rate-limited paths should pass through."""
-        middleware = RateLimitMiddleware(app=MagicMock())
-
-        import asyncio
-
-        request = MagicMock()
-        request.method = "POST"
-        request.url.path = "/api/tracks/bulk"
+        request.url.path = "/api/health"
 
         next_called = False
         async def mock_next(req):
@@ -86,11 +80,9 @@ class TestRateLimitMiddleware:
         assert next_called
 
     @patch("rate_limit._get_redis")
-    def test_post_to_login_checks_redis(self, mock_redis_fn):
-        """POST to /api/auth/login should check Redis."""
+    def test_get_to_callback_checks_redis(self, mock_redis_fn):
+        """GET to /api/auth/google/callback should be rate-limited."""
         middleware = RateLimitMiddleware(app=MagicMock())
-
-        import asyncio
 
         mock_r = MagicMock()
         mock_r.incr.return_value = 1
@@ -98,8 +90,8 @@ class TestRateLimitMiddleware:
         mock_redis_fn.return_value = mock_r
 
         request = MagicMock()
-        request.method = "POST"
-        request.url.path = "/api/auth/login"
+        request.method = "GET"
+        request.url.path = "/api/auth/google/callback"
         request.headers = {}
         request.client.host = "127.0.0.1"
 
@@ -114,16 +106,14 @@ class TestRateLimitMiddleware:
         """Should return 429 when request count exceeds limit."""
         middleware = RateLimitMiddleware(app=MagicMock())
 
-        import asyncio
-
         mock_r = MagicMock()
         mock_r.incr.return_value = 10  # Exceeds limit of 5
         mock_r.ttl.return_value = 45
         mock_redis_fn.return_value = mock_r
 
         request = MagicMock()
-        request.method = "POST"
-        request.url.path = "/api/auth/login"
+        request.method = "GET"
+        request.url.path = "/api/auth/google/callback"
         request.headers = {}
         request.client.host = "127.0.0.1"
 
@@ -132,19 +122,18 @@ class TestRateLimitMiddleware:
 
         response = asyncio.run(middleware.dispatch(request, mock_next))
         assert response.status_code == 429
+        assert "Retry-After" in response.headers
 
     @patch("rate_limit._get_redis")
     def test_redis_failure_passes_through(self, mock_redis_fn):
         """If Redis is unavailable, request should still pass through."""
         middleware = RateLimitMiddleware(app=MagicMock())
 
-        import asyncio
-
         mock_redis_fn.side_effect = Exception("Redis down")
 
         request = MagicMock()
-        request.method = "POST"
-        request.url.path = "/api/auth/login"
+        request.method = "GET"
+        request.url.path = "/api/auth/google/callback"
         request.headers = {}
         request.client.host = "127.0.0.1"
 
@@ -156,3 +145,50 @@ class TestRateLimitMiddleware:
 
         asyncio.run(middleware.dispatch(request, mock_next))
         assert next_called
+
+
+class TestRateLimitIntegration:
+    """Integration test: hit the real ASGI app with a mock Redis."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_redis(self):
+        counters = {}
+
+        class FakeRedis:
+            def incr(self, key):
+                counters[key] = counters.get(key, 0) + 1
+                return counters[key]
+
+            def expire(self, key, ttl):
+                pass
+
+            def ttl(self, key):
+                return 60
+
+        with patch.object(rate_limit, "_redis", FakeRedis()):
+            yield counters
+
+    @pytest.mark.asyncio
+    async def test_callback_429_after_limit(self, client):
+        """Hit /api/auth/google/callback beyond 5 → 429 + Retry-After."""
+        limit = RATE_LIMITS["/api/auth/google/callback"][0]
+        for i in range(limit):
+            resp = await client.get(
+                "/api/auth/google/callback",
+                params={"code": "x", "state": "x"},
+            )
+            assert resp.status_code != 429, f"Got 429 on request {i+1}"
+
+        resp = await client.get(
+            "/api/auth/google/callback",
+            params={"code": "x", "state": "x"},
+        )
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
+
+    @pytest.mark.asyncio
+    async def test_unlimited_route_never_429(self, client):
+        """A route not in RATE_LIMITS should never get 429."""
+        for _ in range(20):
+            resp = await client.get("/api/health")
+            assert resp.status_code != 429
