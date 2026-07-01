@@ -102,11 +102,7 @@
             :key="s.name"
             class="merge-item"
             :class="{ selected: mergeTarget === s.name }"
-            @click="
-              mergeTarget = s.name
-              mergeQuery = s.name
-              mergeSuggestions = []
-            "
+            @click="mergeTarget = s.name; mergeQuery = s.name; mergeSuggestions = []"
           >
             {{ s.name }} <span class="mono muted">({{ s.trackCount }})</span>
           </div>

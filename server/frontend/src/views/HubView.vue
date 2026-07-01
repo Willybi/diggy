@@ -52,11 +52,7 @@
               v-for="s in scopes"
               :key="s.value"
               :class="{ on: scope === s.value }"
-              @click="
-                scope = s.value
-                scopeOpen = false
-                focusInput()
-              "
+              @click="scope = s.value; scopeOpen = false; focusInput()"
             >
               <span class="ic" v-html="s.icon"></span>{{ s.label }}
             </button>
