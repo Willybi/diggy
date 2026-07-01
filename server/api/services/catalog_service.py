@@ -71,6 +71,7 @@ async def list_catalog(
             UserTrack.rb_mytags,
             UserTrack.has_artwork.label("ut_has_artwork"),
             UserTrack.avis.label("ut_avis"),
+            UserTrack.date_added.label("ut_date_added"),
         )
         .where(UserTrack.user_id == user_id)
         .subquery()
@@ -188,7 +189,9 @@ async def list_catalog(
 
         query = query.order_by(dir_fn(pillar_case), dir_fn(first_genre))
     elif sort == "in_lib":
-        sort_col = case((ut_sub.c.catalog_id.isnot(None), 1), else_=0)
+        # Sort by rekordbox date_added: most recent first, non-lib tracks last
+        dir_fn = (lambda c: c.desc().nulls_last()) if order != "asc" else (lambda c: c.asc().nulls_last())
+        query = query.order_by(dir_fn(ut_sub.c.ut_date_added))
     elif sort == "avis":
         sort_col = func.coalesce(ut_sub.c.ut_avis, "")
     elif sort == "title":
