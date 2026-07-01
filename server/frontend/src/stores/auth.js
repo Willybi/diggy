@@ -35,39 +35,16 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function login(email, password) {
-    const res = await fetch(`${API}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || 'Login failed')
-    }
-    const data = await res.json()
-    _persist(data.token, { id: data.user_id, username: data.username, is_admin: data.is_admin ?? false })
-    return data
-  }
-
-  async function register(email, username, password) {
-    const res = await fetch(`${API}/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, username, password }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || 'Registration failed')
-    }
-    const data = await res.json()
-    _persist(data.token, { id: data.user_id, username: data.username, is_admin: data.is_admin ?? false })
-    return data
+  async function loginWithGoogle() {
+    const res = await fetch(`${API}/google/login`)
+    if (!res.ok) throw new Error('Impossible de lancer la connexion Google')
+    const { url } = await res.json()
+    window.location.href = url
   }
 
   function logout() {
     _persist(null, null)
   }
 
-  return { token, user, isAuthenticated, login, register, logout }
+  return { token, user, isAuthenticated, loginWithGoogle, logout }
 })

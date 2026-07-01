@@ -17,10 +17,15 @@
 - [ ] UptimeRobot (check HTTP `/api/health`)
 - [ ] pg_stat_statements (slow queries)
 
-### L2 — Multi-artiste par track
+### L2 — Multi-artiste par track ✅
 
-Table `catalog_artists(catalog_id, artist_id, role)` pour les feats.
-136 artistes orphelins issus de splits feat attendent cette feature.
+- [x] Table `catalog_artists(catalog_id, artist_id, role, position)` — 7173 liens
+- [x] Modele `CatalogArtist` + relationships
+- [x] Tous les routers refactores : JOINs via `catalog_artists` au lieu de string matching
+- [x] sync_artists Phase C : linking automatique des nouvelles entries
+- [x] Flag resolution + enrichissement Deezer → creation de liens
+- [x] Frontend : composant `ArtistLinks.vue` — artistes cliquables partout
+- [x] Schema `ArtistRef` + champ `artists` sur tous les outputs track
 
 ### L3 — Graphe artistes
 

@@ -14,7 +14,6 @@ from sqlalchemy import select
 from main import app
 from dependencies import get_current_user
 from models import User, CatalogEntry, UserTrack
-from auth import hash_password
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -25,7 +24,7 @@ async def user2(db):
     user = User(
         email="user2@test.com",
         username="user2",
-        hashed_password=hash_password("testpass2"),
+        google_id="google-test-user2",
         is_active=True,
         is_admin=False,
     )

@@ -30,6 +30,8 @@ sys.modules["storage"] = mock_storage
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("JWT_SECRET", "test-secret")
+os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")
+os.environ.setdefault("GOOGLE_CLIENT_SECRET", "test-client-secret")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 import json
@@ -40,7 +42,6 @@ from sqlalchemy.pool import NullPool
 from database import Base, get_db
 from dependencies import get_current_user, get_current_user_optional, require_admin
 from models import User
-from auth import hash_password
 import auth_middleware
 auth_middleware.enabled = False  # Tests use dependency overrides, not real JWTs
 from main import app
@@ -123,7 +124,7 @@ async def auth_user(db):
     user = User(
         email="test@test.com",
         username="testuser",
-        hashed_password=hash_password("testpass"),
+        google_id="google-test-user",
         is_active=True,
         is_admin=False,
     )
@@ -138,7 +139,7 @@ async def admin_user(db):
     user = User(
         email="admin@test.com",
         username="admin",
-        hashed_password=hash_password("adminpass"),
+        google_id="google-admin-user",
         is_active=True,
         is_admin=True,
     )

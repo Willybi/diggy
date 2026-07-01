@@ -44,21 +44,17 @@ class TestPublicEndpoints:
         r = await client.get("/api/health")
         assert r.status_code == 200
 
-    async def test_auth_login_no_token_needed(self, mw_client):
+    async def test_auth_google_login_no_token_needed(self, mw_client):
         client, _ = mw_client
-        r = await client.post("/api/auth/login", json={
-            "email": "nobody@test.com", "password": "wrong",
-        })
-        # 401 from login logic, NOT from middleware
-        assert r.status_code == 401
-        assert "Invalid" in r.json()["detail"] or "credentials" in r.json()["detail"].lower()
+        r = await client.get("/api/auth/google/login")
+        assert r.status_code == 200
+        assert "url" in r.json()
 
-    async def test_auth_register_no_token_needed(self, mw_client):
+    async def test_auth_google_callback_no_token_needed(self, mw_client):
         client, _ = mw_client
-        r = await client.post("/api/auth/register", json={
-            "email": "mw@test.com", "username": "mwuser", "password": "secret123",
-        })
-        assert r.status_code == 201
+        # Will fail at app level (invalid code/state), but middleware should not block it
+        r = await client.get("/api/auth/google/callback?code=x&state=y")
+        assert r.status_code != 401 or "state" in r.text.lower()
 
     async def test_catalog_get_public(self, mw_client):
         client, _ = mw_client
