@@ -4,7 +4,13 @@ import os
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_size=10,
+    max_overflow=5,
+    pool_pre_ping=True,
+)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
