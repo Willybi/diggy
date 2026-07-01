@@ -22,15 +22,16 @@
  S2   Qualite & CI Pipeline             CRITIQUE    2-3 jours    TERMINE
  A1   Service Layer Backend             HAUT        5-7 jours    TERMINE
  A2   Refactor Workers                  HAUT        3-5 jours    TERMINE
- A3   Frontend Perf & Accessibilite     MOYEN       2-3 jours    A FAIRE
+ A3   Frontend Perf & Accessibilite     MOYEN       2-3 jours    TERMINE
  D1   FIX Design immediats             HAUT        1-2 jours    TERMINE
- D2   Genres — Refonte complete         HAUT        5-7 jours    A FAIRE
- D3   Hub / Search                      MOYEN       3-5 jours    BLOQUE (decision)
+ D2   Genres — Refonte complete         HAUT        5-7 jours    TERMINE
+ D3   Hub / Search                      MOYEN       3-5 jours    TERMINE
  D4   Pages Detail (Vague 3)            MOYEN       5-7 jours    BLOQUE (briefs)
  D5   Refactor Composants partages      MOYEN       3-4 jours    TERMINE
- F1   Monitoring & Observabilite        BAS         2-3 jours    A FAIRE
+ F1   Monitoring & Observabilite        BAS         2-3 jours    REPORTE (long terme)
  F2   Multi-User Phases 5-7             BAS         7-10 jours   A FAIRE
  F3   Graphe artistes                   BAS         5-7 jours    A FAIRE
+ F4   Import Rekordbox Web              MOYEN       3-4 jours    A FAIRE
 ```
 
 ### Dependances
@@ -49,11 +50,11 @@ D5 (kit) ───────> D2, D3, D4 (composants reutilisables) ✅ TERMIN
 
 | #  | Question | Impacte | Options |
 |----|----------|---------|---------|
-| Q1 | Sets : anneau 100% | D1 | Calme neutre (check + "100%") **ou** vert plein |
-| Q2 | Radar : wording FR | D1 | "Aimes / Rejetes" **ou** "Liked / Disliked" |
-| Q3 | Hub : direction | D3 | A (Spotlight) / B (Command palette) / C (Vitrine) |
-| Q4 | Hub : GUEST_CAP | D3 | Nombre de resultats visiteurs non connectes (maquette = 6) |
-| Q5 | TypeScript frontend | Long terme | Migrer progressivement **ou** rester JS |
+| Q1 | Sets : anneau 100% | D1 | **TRANCHE** : calme neutre (check + "100%") |
+| Q2 | Radar : wording FR | D1 | **TRANCHE** : francais |
+| Q3 | Hub : direction | D3 | **TRANCHE** : C (Vitrine) |
+| Q4 | Hub : GUEST_CAP | D3 | **TRANCHE** : 6 resultats |
+| Q5 | TypeScript frontend | Long terme | **TRANCHE** : rester JS — migration TS tres basse priorite |
 
 ---
 
@@ -424,11 +425,12 @@ pytest tests/worker/ → 70+ tests (vs 54 actuels)
 
 ---
 
-## A3 — Frontend Perf & Accessibilite
+## A3 — Frontend Perf & Accessibilite ✅
 
 **Equipe : Frontend**
 **Priorite : MOYEN — Sprint 3**
 **Estimation : 2-3 jours**
+**Statut : TERMINE**
 **Depend de : rien**
 
 ### Contexte
@@ -567,11 +569,12 @@ grep -c "neg-ink\|warn-ink" server/frontend/src/styles/diggy-tokens.css → 4+
 
 ---
 
-## D2 — Genres : Refonte Complete
+## D2 — Genres : Refonte Complete ✅
 
 **Equipe : Fullstack (Backend + Frontend)**
 **Priorite : HAUT — Sprint 3**
 **Estimation : 5-7 jours**
+**Statut : TERMINE**
 **Depend de : A1 (GenreService), D1 (tokens), D5 (composants)**
 **Ref design : `_design/design_handoff_diggy_da/realign/BRIEF-genres.md`, `BRIEF-genre-detail.md`**
 
@@ -642,12 +645,13 @@ curl /api/genres/House/neighbors → [{name: "Tech House", score: 0.73}, ...]
 
 ---
 
-## D3 — Hub / Search
+## D3 — Hub / Search ✅
 
 **Equipe : Fullstack**
 **Priorite : MOYEN — Sprint 4**
 **Estimation : 3-5 jours**
 **Depend de : A1 (SearchService), decision Q3/Q4**
+**Statut : TERMINE** (Q3 = Vitrine, Q4 = GUEST_CAP 6)
 **Statut : BLOQUE — en attente decision direction (Q3)**
 **Ref design : `_design/handoff-hub/BRIEF-hub.md`**
 
@@ -761,11 +765,12 @@ grep -rn "class=\"page-title\"" src/views/ → tous utilisent <PageHeader>
 
 ---
 
-## F1 — Monitoring & Observabilite
+## F1 — Monitoring & Observabilite (REPORTE)
 
 **Equipe : Platform**
-**Priorite : BAS — Sprint 5+**
+**Priorite : BAS — Long terme**
 **Estimation : 2-3 jours**
+**Statut : REPORTE** — Sentry DSN configure, code integre. Activer Flower/pg_stat/UptimeRobot quand le projet grandira.
 
 ### Contexte
 
@@ -852,6 +857,165 @@ deja en place), et playlists partagees. Feature exploratoire.
 - [ ] **Endpoint `/api/artists/:id/connections`** : artistes connectes + poids de connexion
 - [ ] **Composant GraphView** : D3.js force-directed graph ou vue-flow
 - [ ] **Integration** : accessible depuis la page Artist Detail
+
+---
+
+## F4 — Import Rekordbox Web
+
+**Equipe : Fullstack (Backend + Frontend)**
+**Priorite : MOYEN**
+**Estimation : 3-4 jours**
+**Depend de : rien (infrastructure deja en place)**
+**Statut : A FAIRE**
+
+### Contexte
+
+Le process d'import Rekordbox existe depuis l'origine du projet sous forme d'un script
+CLI local (`main.py` + `worker/rekordbox/extractor.py`). Ce script lit la base SQLite
+propriétaire de Rekordbox (via `pyrekordbox`) et pousse les tracks vers l'API.
+
+Ce process est desormais depasse :
+- La DB Rekordbox 6 est chiffree (cle derivee du hardware, non portable)
+- L'auth email+password utilisee par le script est cassee (modele User = Google OAuth uniquement)
+- Le script est incompatible multi-user par design
+
+La cible : **drag-and-drop d'un export XML Rekordbox** depuis l'interface web,
+import asynchrone, progression visible, multi-user natif.
+
+### Perimetre et decisions
+
+| Decision | Choix retenu |
+|----------|-------------|
+| Format fichier | XML export Rekordbox (officiel Pioneer, non chiffre) |
+| Artworks | Hors scope — enrichissement Deezer existant suffit |
+| MyTags | Hors scope — non filtres, importes tels quels dans `rb_mytags` |
+| Processing | Asynchrone via Celery (pas de blocage HTTP) |
+| Stockage temp | MinIO bucket `import-jobs` (supprime apres traitement) |
+| Anti-doublon | Redis lock `import:lock:{user_id}` pendant le traitement |
+| Script CLI | Depreciee et supprimee dans cette meme iteration |
+
+### Architecture cible
+
+```
+[Browser]
+    │  drag-and-drop XML
+    ▼
+POST /api/import/rekordbox-xml   (multipart, auth required)
+    │  1. valide format XML (noeud racine <DJ_PLAYLISTS>)
+    │  2. upload vers MinIO bucket "import-jobs/{user_id}/{task_id}.xml"
+    │  3. pose Redis lock import:lock:{user_id}
+    │  4. enqueue Celery task import_rekordbox_xml(task_id, user_id)
+    │  5. retourne {"task_id": "..."}
+    ▼
+Celery worker
+    │  1. telecharge XML depuis MinIO
+    │  2. parse XML → liste TrackImport
+    │  3. appelle logique bulk_import par batch de 50
+    │  4. met a jour Redis : import:{task_id} → {status, inserted, updated, total}
+    │  5. supprime le fichier MinIO
+    │  6. libere Redis lock
+    ▼
+GET /api/import/status/{task_id}   (poll toutes les 2s)
+    │  retourne {status, inserted, updated, total, errors[]}
+    ▼
+Frontend : barre de progression → redirect /tracks a la fin
+```
+
+### Taches Backend
+
+#### Parser XML (nouveau fichier `server/api/services/rekordbox_xml.py`)
+
+- [ ] Parser le XML avec `xml.etree.ElementTree` (stdlib, safe XXE par defaut)
+- [ ] Extraire les noeuds `<TRACK>` de la collection (ignorer les playlists)
+- [ ] Mapping champs XML → `TrackImport` :
+  - `TrackID` → `id` (rekordbox_id)
+  - `Name` → `title`
+  - `Artist` → `artist`
+  - `AverageBpm` → `bpm`
+  - `Tonality` → `key`
+  - `TotalTime` (secondes) → `duration` (ms, x1000)
+  - `Rating` → `rating` (Rekordbox : 0/51/102/153/204/255 → 0-5)
+  - `DateAdded` → `date_added`
+  - `Location` → `file_path` (stocke tel quel, jamais utilise cote serveur)
+- [ ] `image_base64 = None` systematiquement (artworks hors scope)
+- [ ] Valider : fichier XML avec noeud racine `<DJ_PLAYLISTS Version="1.0.0">`, taille max 10MB
+
+#### Endpoint upload (`POST /api/import/rekordbox-xml`)
+
+- [ ] Accepte `multipart/form-data` avec champ `file`
+- [ ] Verifie Redis lock — si `import:lock:{user_id}` existe : retourne 409 "Import deja en cours"
+- [ ] Valide format XML (noeud racine) avant upload
+- [ ] Upload vers MinIO `import-jobs/{user_id}/{task_id}.xml`
+- [ ] Pose Redis lock `import:lock:{user_id}` TTL 10 minutes
+- [ ] Enqueue Celery task `import_rekordbox_xml`
+- [ ] Retourne `{"task_id": "...", "status": "queued"}`
+
+#### Celery task `import_rekordbox_xml`
+
+- [ ] Telecharge XML depuis MinIO
+- [ ] Appelle le parser XML → liste de `TrackImport`
+- [ ] Traite par batch de 50 via la logique existante de `bulk_import`
+- [ ] Ecrit progression dans Redis : `import:{task_id}` (JSON, TTL 1h)
+  ```json
+  {"status": "running", "total": 600, "inserted": 120, "updated": 30, "errors": []}
+  ```
+- [ ] Supprime le fichier MinIO apres traitement (succes ou echec)
+- [ ] Libere Redis lock dans tous les cas (try/finally)
+- [ ] En cas d'erreur : status → "error", message stocke dans Redis
+
+#### Endpoint status (`GET /api/import/status/{task_id}`)
+
+- [ ] Lit Redis `import:{task_id}`, retourne le JSON
+- [ ] Si cle absente : 404 "Import inconnu ou expire"
+
+### Taches Frontend
+
+#### `ImportRekordboxModal.vue`
+
+- [ ] Zone drag-and-drop + click (accepte `.xml` uniquement)
+- [ ] Validation cote client : extension `.xml`, taille < 10MB
+- [ ] Instructions inline :
+  > "Dans Rekordbox : Fichier > Exporter la collection dans la liste des pistes > XML"
+- [ ] Etats : idle → uploading → processing (barre de progression) → done / error
+- [ ] Poll `GET /api/import/status/{task_id}` toutes les 2s pendant processing
+- [ ] Affichage final : `{inserted} nouveaux · {updated} mis a jour`
+- [ ] Bouton "Voir ma bibliotheque" → redirect `/tracks` a la fin
+
+#### Point d'entree UI
+
+- [ ] Bouton "Importer depuis Rekordbox" dans la vue `/tracks` (visible si bibliotheque vide ou en header)
+- [ ] Ouvre `ImportRekordboxModal`
+
+### Suppression du code local (dead features)
+
+- [ ] Supprimer `main.py` (script CLI)
+- [ ] Supprimer `worker/rekordbox/` (extractor + `__init__`)
+- [ ] Verifier qu'aucun import ne reference ces modules (`grep -r "from worker.rekordbox"`)
+- [ ] Mettre a jour `CLAUDE.md` : retirer les refs au script CLI et au process local
+- [ ] Mettre a jour `README` si existant
+
+### Definition of Done
+
+```bash
+# Upload XML → import asynchrone
+curl -X POST /api/import/rekordbox-xml \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@export.xml" \
+  → {"task_id": "abc123", "status": "queued"}
+
+# Progression
+curl /api/import/status/abc123 \
+  → {"status": "done", "total": 600, "inserted": 580, "updated": 20, "errors": []}
+
+# Anti-doublon
+# Second upload pendant traitement → 409
+
+# Dead features absentes
+ls main.py worker/rekordbox/ → No such file or directory
+
+# CI verte
+pytest tests/ → all passed
+```
 
 ---
 

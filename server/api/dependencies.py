@@ -1,3 +1,5 @@
+import os
+
 from auth import decode_token
 from database import get_db
 from fastapi import Depends, HTTPException, status
@@ -5,6 +7,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from models import User
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+_REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -68,3 +72,14 @@ _DEFAULT_USER_ID = 1
 def uid(user: User | None) -> int:
     """Return user.id if authenticated, else fallback to default."""
     return user.id if user else _DEFAULT_USER_ID
+
+
+async def get_redis():
+    """Yield an async Redis connection (decoded responses)."""
+    import redis.asyncio as aioredis
+
+    r = aioredis.from_url(_REDIS_URL, decode_responses=True)
+    try:
+        yield r
+    finally:
+        await r.aclose()

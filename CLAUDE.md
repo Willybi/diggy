@@ -26,7 +26,7 @@ diggy/
 │   │       ├── admin.py     # Admin-only: sync artists, Deezer linking, flags
 │   │       └── auth.py      # JWT auth (email/password)
 │   ├── workers/
-│   │   ├── tasks.py         # Celery tasks: crawl_radar, sync_artists, fetch_artist_artworks, link_set_artists, populate_artist_genres
+│   │   ├── tasks/           # Celery tasks: crawl_radar, sync_artists, import_rekordbox_xml, ...
 │   │   └── source_clients.py # Multi-source abstraction (Deezer/TIDAL/Spotify)
 │   ├── frontend/            # Vue.js 3 SPA
 │   │   └── src/
@@ -36,8 +36,6 @@ diggy/
 │   │       └── styles/
 │   │           └── diggy-tokens.css  # Design tokens (ALL colors/spacing here)
 │   └── nginx/               # Reverse proxy config
-├── worker/rekordbox/        # Rekordbox extractor (local PC)
-├── main.py                  # Import script: Rekordbox -> API
 ├── docker-compose.yml
 └── .github/workflows/       # CI/CD: test + deploy
 ```

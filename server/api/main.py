@@ -17,6 +17,7 @@ from routers import (
     catalog,
     collections,
     genres,
+    import_rb,
     opinions,
     radar,
     search,
@@ -97,6 +98,7 @@ app.include_router(opinions.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(taxonomy.router, prefix="/api/taxonomy")
 app.include_router(collections.router, prefix="/api")
+app.include_router(import_rb.router, prefix="/api/import")
 
 
 @app.get("/api/health")
