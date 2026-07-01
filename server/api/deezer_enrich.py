@@ -10,48 +10,14 @@ Used by:
   - enrich_catalog_deezer.py one-shot script
 """
 
-import os
 import re as _re
-import tempfile
 
-import boto3
 import httpx
 import requests
-from botocore.client import Config
+from services.image_service import BUCKET_CATALOG, ImageService
 
 DEEZER_API = "https://api.deezer.com"
 RATE_LIMIT = 0.12  # seconds between requests
-
-MINIO_URL = os.environ.get("MINIO_URL", "http://minio:9000")
-MINIO_USER = os.environ.get("MINIO_USER", "")
-MINIO_PASSWORD = os.environ.get("MINIO_PASSWORD", "")
-BUCKET = "catalog-artworks"
-
-
-def _get_s3():
-    return boto3.client(
-        "s3",
-        endpoint_url=MINIO_URL,
-        aws_access_key_id=MINIO_USER,
-        aws_secret_access_key=MINIO_PASSWORD,
-        config=Config(signature_version="s3v4"),
-        region_name="us-east-1",
-    )
-
-
-def _ensure_bucket(s3, bucket: str | None = None):
-    bucket = bucket or BUCKET
-    existing = [b["Name"] for b in s3.list_buckets()["Buckets"]]
-    if bucket not in existing:
-        s3.create_bucket(Bucket=bucket)
-        s3.put_bucket_policy(
-            Bucket=bucket,
-            Policy=(
-                f'{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow",'
-                f'"Principal":"*","Action":"s3:GetObject",'
-                f'"Resource":"arn:aws:s3:::{bucket}/*"}}]}}'
-            ),
-        )
 
 
 # Non-significant suffixes — safe to strip, they don't change the track identity
@@ -263,42 +229,9 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
         )
 
 
-def upload_image_bytes_to_bucket(s3, img_data: bytes, key: str, bucket: str) -> bool:
-    """Upload raw image bytes to a MinIO bucket. Returns True on success."""
-    if not img_data or len(img_data) < 1000:  # skip placeholder images
-        return False
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-            f.write(img_data)
-            tmp = f.name
-        try:
-            s3.upload_file(tmp, bucket, key, ExtraArgs={"ContentType": "image/jpeg"})
-        finally:
-            os.unlink(tmp)
-        return True
-    except Exception:
-        return False
-
-
-def upload_image_to_bucket(s3, image_url: str, key: str, bucket: str) -> bool:
-    """Download image from URL and upload to any MinIO bucket. Returns True on success."""
-    if not image_url:
-        return False
-    try:
-        img_resp = requests.get(image_url, timeout=15)
-        img_resp.raise_for_status()
-        return upload_image_bytes_to_bucket(s3, img_resp.content, key, bucket)
-    except Exception:
-        return False
-
-
-def upload_cover_from_url(s3, cover_url: str, catalog_id: int) -> bool:
-    """Download cover image and upload to MinIO. Returns True on success."""
-    return upload_image_to_bucket(s3, cover_url, f"{catalog_id}.jpg", BUCKET)
-
 
 def enrich_entry(
-    entry, hit: dict, s3=None, _known_isrcs: set | None = None, session=None
+    entry, hit: dict, s3=None, _known_isrcs: set | None = None, session=None  # s3 ignored, kept for compat
 ) -> bool:
     """Apply Deezer data to a CatalogEntry. Returns True if anything changed.
 
@@ -347,11 +280,13 @@ def enrich_entry(
         changed = True
 
     # Upload cover if missing — use cover from search hit directly (no extra API call)
-    if s3 and not entry.has_artwork:
+    if not entry.has_artwork:
         cover_url = (hit.get("album") or {}).get("cover_medium") or (
             hit.get("album") or {}
         ).get("cover_big")
-        if upload_cover_from_url(s3, cover_url, entry.id):
+        if cover_url and ImageService.upload_from_url(
+            cover_url, BUCKET_CATALOG, f"{entry.id}.jpg"
+        ):
             entry.has_artwork = True
             changed = True
 

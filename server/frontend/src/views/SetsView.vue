@@ -918,7 +918,7 @@ table.tt td {
   stroke: var(--accent);
 }
 .ring.low .fg {
-  stroke: oklch(0.74 0.13 60);
+  stroke: var(--warn);
 }
 .ring .pct {
   font: 600 12.5px var(--font-mono);
@@ -951,7 +951,7 @@ table.tt td {
   color: var(--accent-ink);
 }
 .ring.low .pct {
-  color: oklch(0.52 0.13 60);
+  color: var(--warn-ink);
 }
 
 /* ============ AVIS: hover-reveal LikeDislike ============ */

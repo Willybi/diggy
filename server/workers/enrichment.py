@@ -153,18 +153,16 @@ async def _enrich_entry_async(
         changed = True
 
     # Upload cover if missing
-    if s3 and not entry.has_artwork:
+    if not entry.has_artwork:
         cover_url = (hit.get("album") or {}).get("cover_medium") or (
             hit.get("album") or {}
         ).get("cover_big")
         if cover_url:
             img_data = await pool.download_image(cover_url)
             if img_data:
-                from deezer_enrich import upload_image_bytes_to_bucket
+                from services.image_service import ImageService
 
-                if upload_image_bytes_to_bucket(
-                    s3, img_data, f"{entry.id}.jpg", "catalog-artworks"
-                ):
+                if ImageService.upload_bytes(img_data, "catalog-artworks", f"{entry.id}.jpg"):
                     entry.has_artwork = True
                     changed = True
 

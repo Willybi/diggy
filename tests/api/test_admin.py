@@ -38,8 +38,7 @@ class TestLinkDeezer:
         mocker.patch("requests.get", return_value=type("R", (), {
             "json": lambda self: {"name": "Official Name", "picture_xl": None}
         })())
-        mocker.patch("deezer_enrich._get_s3", return_value=None)
-        mocker.patch("deezer_enrich.upload_image_to_bucket", return_value=False)
+        mocker.patch("services.image_service.ImageService.upload_from_url", return_value=False)
 
         r = await admin_client.patch(f"/api/admin/artists/{a.id}/deezer", json={"deezer_id": "12345"})
         assert r.status_code == 200

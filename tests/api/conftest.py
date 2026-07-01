@@ -22,12 +22,6 @@ mock_celery_mod.Celery.return_value.send_task.return_value = _mock_task_result
 sys.modules.setdefault("celery", mock_celery_mod)
 sys.modules.setdefault("celery.result", MagicMock())
 
-# storage.py lit des vars d'env a l'import — on le remplace entierement
-mock_storage = MagicMock()
-mock_storage.ensure_bucket = MagicMock()
-mock_storage.upload_artwork = MagicMock()
-sys.modules["storage"] = mock_storage
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")

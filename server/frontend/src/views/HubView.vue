@@ -1091,8 +1091,8 @@ const vClickOutside = {
   inset: 0;
   display: grid;
   place-items: center;
-  background: oklch(0.2 0.02 70 / 0.42);
-  color: #fff;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
   opacity: 0;
   transition: opacity 0.12s;
 }

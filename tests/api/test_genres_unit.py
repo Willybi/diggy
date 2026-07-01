@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
-from routers.genres import genre_pillar, _ALL_PILLARS, _pillar_genre_names, _PILLAR_CACHE
+from services.genre_service import _ALL_PILLARS, _PILLAR_CACHE, _pillar_genre_names, genre_pillar
 
 
 class TestAllPillars:

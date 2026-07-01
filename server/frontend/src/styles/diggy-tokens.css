@@ -123,6 +123,12 @@
   /* ---- layout constraints ---- */
   --page-max-w: 1400px;
   --detail-max-w: 1080px;
+  --sidebar-w: 232px;
+
+  /* ---- invariant overlays (always dark, theme-independent) ---- */
+  --overlay-modal: oklch(0.2 0.02 262 / 0.72);
+  --overlay-soft: oklch(0.2 0.02 70 / 0.42);
+  --overlay-text: oklch(0.96 0.01 92);
 }
 
 [data-theme='dark'] {

@@ -329,9 +329,9 @@ function onCoverError(e) {
   height: 23px;
   padding: 0 9px;
   border-radius: 999px;
-  background: oklch(0.2 0.02 262 / 0.72);
+  background: var(--overlay-modal);
   backdrop-filter: blur(6px);
-  color: oklch(0.96 0.01 92);
+  color: var(--overlay-text);
   font: 600 11px/1 var(--font-mono);
   pointer-events: none;
 }
@@ -354,9 +354,9 @@ function onCoverError(e) {
   height: 22px;
   padding: 0 9px;
   border-radius: 999px;
-  background: oklch(0.2 0.02 262 / 0.72);
+  background: var(--overlay-modal);
   backdrop-filter: blur(6px);
-  color: oklch(0.96 0.01 92);
+  color: var(--overlay-text);
   font: 600 10px/1 var(--font-mono);
   pointer-events: none;
 }

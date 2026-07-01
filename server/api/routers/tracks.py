@@ -42,10 +42,10 @@ async def bulk_import(
     - Match catalog via normalized_key.
     - Upload l'artwork dans MinIO si image_base64 fourni et has_artwork False.
     """
-    from storage import ensure_bucket, upload_artwork
+    from services.image_service import BUCKET_ARTWORKS, ImageService
     from utils import make_normalized_key
 
-    ensure_bucket()
+    ImageService.ensure_bucket(BUCKET_ARTWORKS)
 
     uid = user.id
 
@@ -80,7 +80,7 @@ async def bulk_import(
                     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
                         f.write(img_bytes)
                         tmp_path = f.name
-                    upload_artwork(tmp_path, f"{rb_id}.jpg")
+                    ImageService.upload_file(tmp_path, BUCKET_ARTWORKS, f"{rb_id}.jpg")
                     has_artwork = True
                     artworks_uploaded += 1
                 except Exception as e:
@@ -150,7 +150,7 @@ async def bulk_import(
                     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
                         f.write(img_bytes)
                         tmp_path = f.name
-                    upload_artwork(tmp_path, f"{rb_id}.jpg")
+                    ImageService.upload_file(tmp_path, BUCKET_ARTWORKS, f"{rb_id}.jpg")
                     has_artwork = True
                     artworks_uploaded += 1
                 except Exception as e:

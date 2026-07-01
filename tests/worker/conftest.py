@@ -15,9 +15,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 sys.modules.setdefault("boto3", MagicMock())
 sys.modules.setdefault("botocore", MagicMock())
 sys.modules.setdefault("botocore.client", MagicMock())
-mock_storage = MagicMock()
-sys.modules.setdefault("storage", mock_storage)
-
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 from sqlalchemy import create_engine

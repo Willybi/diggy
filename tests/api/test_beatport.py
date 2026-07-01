@@ -112,7 +112,7 @@ SAMPLE_BP_TRACK = _normalize_track(SAMPLE_RAW_TRACK)
 
 
 class TestEnrichFromBeatport:
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_fills_all_fields(self, mock_upload):
         entry = _make_entry()
         changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
@@ -127,32 +127,32 @@ class TestEnrichFromBeatport:
         assert entry.genres == ["Melodic House & Techno"]
         assert entry.release_date == date(2024, 9, 13)
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_does_not_overwrite_beatport_bpm(self, mock_upload):
         entry = _make_entry(bpm=140.0, bpm_source="beatport")
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
         assert entry.bpm == 140.0
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_overwrites_deezer_bpm(self, mock_upload):
         entry = _make_entry(bpm=137.0, bpm_source="deezer")
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
         assert entry.bpm == 128.0
         assert entry.bpm_source == "beatport"
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_does_not_overwrite_existing_label(self, mock_upload):
         entry = _make_entry(label="Existing Label")
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
         assert entry.label == "Existing Label"
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_does_not_overwrite_existing_genre(self, mock_upload):
         entry = _make_entry(genres=["Techno"])
         enrich_from_beatport(entry, SAMPLE_BP_TRACK)
         assert entry.genres == ["Techno"]
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=True)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=True)
     def test_uploads_artwork_when_missing(self, mock_upload):
         entry = _make_entry(has_artwork=False)
         s3 = MagicMock()
@@ -160,14 +160,14 @@ class TestEnrichFromBeatport:
         assert entry.has_artwork is True
         mock_upload.assert_called_once()
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_skips_artwork_when_already_present(self, mock_upload):
         entry = _make_entry(has_artwork=True)
         s3 = MagicMock()
         enrich_from_beatport(entry, SAMPLE_BP_TRACK, s3=s3)
         mock_upload.assert_not_called()
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_no_change_returns_false(self, mock_upload):
         entry = _make_entry(
             beatport_id="19431036",
@@ -181,7 +181,7 @@ class TestEnrichFromBeatport:
         changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
         assert changed is False
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_handles_missing_key(self, mock_upload):
         track = {**SAMPLE_BP_TRACK, "key": None}
         entry = _make_entry()
@@ -189,14 +189,14 @@ class TestEnrichFromBeatport:
         assert entry.key is None
         assert entry.key_source is None
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_handles_missing_label(self, mock_upload):
         track = {**SAMPLE_BP_TRACK, "label": None, "release": {"name": "EP", "image": {}}}
         entry = _make_entry()
         enrich_from_beatport(entry, track)
         assert entry.label is None
 
-    @patch("deezer_enrich.upload_cover_from_url", return_value=False)
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
     def test_handles_invalid_date(self, mock_upload):
         track = {**SAMPLE_BP_TRACK, "publish_date": "not-a-date"}
         entry = _make_entry()

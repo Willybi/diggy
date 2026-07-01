@@ -19,8 +19,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from deezer_enrich import _ensure_bucket, _get_s3, enrich_entry, search_deezer
+from deezer_enrich import enrich_entry, search_deezer
 from models import CatalogEntry
+from services.image_service import ImageService
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -36,8 +37,7 @@ async def main(
 
     s3 = None
     if not dry_run:
-        s3 = _get_s3()
-        _ensure_bucket(s3)
+        ImageService.ensure_bucket("catalog-artworks")
 
     async with async_session() as db:
         q = select(CatalogEntry)

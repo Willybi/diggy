@@ -6,8 +6,8 @@ import sys
 sys.path.insert(0, "/app")
 
 import httpx
-from deezer_enrich import _ensure_bucket, _get_s3, upload_image_to_bucket
 from models import DJSet
+from services.image_service import ImageService
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -28,8 +28,7 @@ async def main():
     engine = create_async_engine(os.environ["DATABASE_URL"])
     Session = sessionmaker(engine, class_=AsyncSession)
 
-    s3 = _get_s3()
-    _ensure_bucket(s3, SET_ARTWORK_BUCKET)
+    ImageService.ensure_bucket(SET_ARTWORK_BUCKET)
 
     async with Session() as db:
         result = await db.execute(
@@ -75,8 +74,8 @@ async def main():
                                 break
 
                     if artwork_url:
-                        if upload_image_to_bucket(
-                            s3, artwork_url, f"{s.id}.jpg", SET_ARTWORK_BUCKET
+                        if ImageService.upload_from_url(
+                            artwork_url, SET_ARTWORK_BUCKET, f"{s.id}.jpg"
                         ):
                             s.has_artwork = True
                             fetched += 1

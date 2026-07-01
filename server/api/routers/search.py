@@ -15,10 +15,9 @@ from models import (
     WatchedEntity,
 )
 from pydantic import BaseModel
+from services.genre_service import _ensure_pillar_cache, genre_pillar
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from routers.genres import _ensure_pillar_cache, genre_pillar
 
 router = APIRouter(tags=["search"])
 

@@ -52,9 +52,9 @@ _start_time = time.time()
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    from storage import ensure_bucket
+    from services.image_service import BUCKET_ARTWORKS, ImageService
 
-    ensure_bucket()
+    ImageService.ensure_bucket(BUCKET_ARTWORKS)
     yield
 
 

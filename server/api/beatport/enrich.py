@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
     """Apply Beatport data to a CatalogEntry. Returns True if anything changed."""
-    from deezer_enrich import upload_cover_from_url
+    from services.image_service import BUCKET_CATALOG, ImageService
 
     changed = False
 
@@ -69,12 +69,12 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
             pass
 
     # Artwork — only if missing
-    if s3 and not entry.has_artwork:
+    if not entry.has_artwork:
         image = release.get("image") or {}
         image_uri = image.get("dynamic_uri")
         if image_uri:
             cover_url = image_uri.replace("{w}", "500").replace("{h}", "500")
-            if upload_cover_from_url(s3, cover_url, entry.id):
+            if ImageService.upload_from_url(cover_url, BUCKET_CATALOG, f"{entry.id}.jpg"):
                 entry.has_artwork = True
                 changed = True
 

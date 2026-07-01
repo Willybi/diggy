@@ -116,13 +116,10 @@ async def import_audiostream(
     artwork_url = detail.get("artworkUrl")
     if artwork_url and not dj_set.has_artwork:
         try:
-            from deezer_enrich import _ensure_bucket, _get_s3, upload_image_to_bucket
+            from services.image_service import ImageService
 
-            s3 = _get_s3()
-            _ensure_bucket(s3, SET_ARTWORK_BUCKET)
-            if upload_image_to_bucket(
-                s3, artwork_url, f"{dj_set.id}.jpg", SET_ARTWORK_BUCKET
-            ):
+            ImageService.ensure_bucket(SET_ARTWORK_BUCKET)
+            if ImageService.upload_from_url(artwork_url, SET_ARTWORK_BUCKET, f"{dj_set.id}.jpg"):
                 dj_set.has_artwork = True
         except Exception:
             pass

@@ -51,8 +51,8 @@ class TestGetExistingIds:
         assert r.json() == []
 
     async def test_returns_ids_after_insert(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
         await client.post("/api/tracks/bulk", json=[track_payload()])
 
         r = await client.get("/api/tracks/existing-ids")
@@ -67,8 +67,8 @@ class TestGetExistingIds:
 
 class TestBulkImport:
     async def test_insert_new_track(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         r = await client.post("/api/tracks/bulk", json=[track_payload()])
         assert r.status_code == 200
@@ -78,8 +78,8 @@ class TestBulkImport:
         assert result["artworks_uploaded"] == 0
 
     async def test_update_existing_track(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         await client.post("/api/tracks/bulk", json=[track_payload()])
         r = await client.post("/api/tracks/bulk", json=[track_payload(title="Wannabe V2")])
@@ -89,8 +89,8 @@ class TestBulkImport:
         assert result["updated"] == 1
 
     async def test_updated_title_is_persisted(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         await client.post("/api/tracks/bulk", json=[track_payload()])
         await client.post("/api/tracks/bulk", json=[track_payload(title="Wannabe V2")])
@@ -99,16 +99,16 @@ class TestBulkImport:
         assert r.json()["title"] == "Wannabe V2"
 
     async def test_insert_multiple_tracks(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         tracks = [track_payload(id=i, title=f"Track {i}") for i in range(1, 4)]
         r = await client.post("/api/tracks/bulk", json=tracks)
         assert r.json()["inserted"] == 3
 
     async def test_artwork_uploaded_when_base64_provided(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mock_upload = mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mock_upload = mocker.patch("services.image_service.ImageService.upload_file")
 
         fake_image = base64.b64encode(b"FAKEIMAGE").decode()
         r = await client.post("/api/tracks/bulk", json=[track_payload(image_base64=fake_image)])
@@ -116,8 +116,8 @@ class TestBulkImport:
         mock_upload.assert_called_once()
 
     async def test_artwork_not_uploaded_twice(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mock_upload = mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mock_upload = mocker.patch("services.image_service.ImageService.upload_file")
 
         fake_image = base64.b64encode(b"FAKEIMAGE").decode()
         await client.post("/api/tracks/bulk", json=[track_payload(image_base64=fake_image)])
@@ -127,8 +127,8 @@ class TestBulkImport:
         assert mock_upload.call_count == 1
 
     async def test_no_artwork_when_base64_absent(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         r = await client.post("/api/tracks/bulk", json=[track_payload(image_base64=None)])
         assert r.json()["artworks_uploaded"] == 0
@@ -138,8 +138,8 @@ class TestBulkImport:
 
 class TestListTracks:
     async def _insert(self, client, mocker, tracks=None):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
         if tracks is None:
             tracks = [track_payload()]
         await client.post("/api/tracks/bulk", json=tracks)
@@ -203,8 +203,8 @@ class TestListTracks:
 
 class TestGetTrack:
     async def test_returns_track(self, client, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
         await client.post("/api/tracks/bulk", json=[track_payload()])
 
         r = await client.get("/api/tracks/1")

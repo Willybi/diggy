@@ -142,14 +142,14 @@ async def _resolve_set_tracks(engine):
     """Inline async version of resolve_set_tracks Celery task with Deezer enrichment."""
     from datetime import datetime, timezone
 
-    from deezer_enrich import _ensure_bucket, _get_s3, enrich_entry, search_deezer
+    from deezer_enrich import enrich_entry, search_deezer
     from models import CatalogEntry, SetTrack
+    from services.image_service import ImageService
     from sqlalchemy import select
     from utils import make_normalized_key
 
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    s3 = _get_s3()
-    _ensure_bucket(s3)
+    ImageService.ensure_bucket("catalog-artworks")
 
     resolved = 0
     created = 0
@@ -199,7 +199,7 @@ async def _resolve_set_tracks(engine):
             # Enrich new entries or entries missing deezer_id
             if is_new or not entry.deezer_id:
                 hit = search_deezer(st.raw_artist, st.raw_title)
-                if hit and enrich_entry(entry, hit, s3=s3, _known_isrcs=known_isrcs):
+                if hit and enrich_entry(entry, hit, s3=None, _known_isrcs=known_isrcs):
                     enriched += 1
                     print(f"    enriched: {st.raw_artist} — {st.raw_title}")
                 await asyncio.sleep(0.12)

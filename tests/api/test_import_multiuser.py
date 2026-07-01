@@ -73,8 +73,8 @@ def track_payload(**overrides):
 
 class TestPrivateCatalogOwnership:
     async def test_private_entry_gets_owner_id(self, client1, auth_user, db, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         r = await client1.post("/api/tracks/bulk", json=[track_payload()])
         assert r.status_code == 200
@@ -89,8 +89,8 @@ class TestPrivateCatalogOwnership:
 
     async def test_shared_entry_reused_no_owner(self, client1, db, mocker):
         """When a catalog entry already exists (shared), it should be reused without setting owner_id."""
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         # Pre-create a shared catalog entry
         from utils import make_normalized_key
@@ -123,8 +123,8 @@ class TestPrivateCatalogOwnership:
 
 class TestMultiUserIsolation:
     async def test_users_see_only_their_tracks(self, client1, auth_user, user2, db, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         # User 1 imports track 1
         _swap_user(auth_user)
@@ -149,8 +149,8 @@ class TestMultiUserIsolation:
         assert r.json()["items"][0]["title"] == "Track B"
 
     async def test_existing_ids_scoped_to_user(self, client1, auth_user, user2, mocker):
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         _swap_user(auth_user)
         await client1.post("/api/tracks/bulk", json=[track_payload(id=10)])
@@ -166,8 +166,8 @@ class TestMultiUserIsolation:
 
     async def test_two_users_same_track_share_catalog(self, client1, auth_user, user2, db, mocker):
         """Two users importing the same track should share the same catalog entry."""
-        mocker.patch("storage.ensure_bucket")
-        mocker.patch("storage.upload_artwork")
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
 
         _swap_user(auth_user)
         payload = track_payload(id=1, title="Shared Track", artist="ArtistX")

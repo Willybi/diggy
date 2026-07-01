@@ -56,13 +56,10 @@ def _upload_playlist_artwork(entity_id: int, picture_url: str) -> bool:
     if not picture_url:
         return False
     try:
-        from deezer_enrich import _ensure_bucket, _get_s3, upload_image_to_bucket
+        from services.image_service import ImageService
 
-        s3 = _get_s3()
-        _ensure_bucket(s3, PLAYLIST_ARTWORK_BUCKET)
-        return upload_image_to_bucket(
-            s3, picture_url, f"{entity_id}.jpg", PLAYLIST_ARTWORK_BUCKET
-        )
+        ImageService.ensure_bucket(PLAYLIST_ARTWORK_BUCKET)
+        return ImageService.upload_from_url(picture_url, PLAYLIST_ARTWORK_BUCKET, f"{entity_id}.jpg")
     except Exception:
         return False
 

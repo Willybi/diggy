@@ -2,13 +2,13 @@
 from unittest.mock import MagicMock, patch
 
 from deezer_enrich import (
-    _strip_safe_suffixes,
-    _strip_non_remix_parens,
     _first_artist,
     _is_remix_paren,
+    _strip_non_remix_parens,
+    _strip_safe_suffixes,
     enrich_entry,
-    upload_image_to_bucket,
 )
+from services.image_service import ImageService
 
 
 class TestStripSafeSuffixes:
@@ -129,32 +129,31 @@ class TestEnrichEntry:
         assert result is False
 
 
-class TestUploadImageToBucket:
+class TestImageServiceUploadFromUrl:
     def test_returns_false_for_empty_url(self):
-        assert upload_image_to_bucket(MagicMock(), "", "key.jpg", "bucket") is False
+        assert ImageService.upload_from_url("", "bucket", "key.jpg") is False
 
     def test_returns_false_for_none_url(self):
-        assert upload_image_to_bucket(MagicMock(), None, "key.jpg", "bucket") is False
+        assert ImageService.upload_from_url(None, "bucket", "key.jpg") is False
 
-    @patch("deezer_enrich.requests.get")
+    @patch("services.image_service.requests.get")
     def test_returns_false_for_small_image(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.content = b"tiny"
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        result = upload_image_to_bucket(MagicMock(), "http://img.jpg", "key.jpg", "bucket")
+        result = ImageService.upload_from_url("http://img.jpg", "bucket", "key.jpg")
         assert result is False
 
-    @patch("deezer_enrich.os.unlink")
-    @patch("deezer_enrich.requests.get")
-    def test_returns_true_for_valid_image(self, mock_get, mock_unlink):
+    @patch.object(ImageService, "upload_bytes", return_value=True)
+    @patch("services.image_service.requests.get")
+    def test_returns_true_for_valid_image(self, mock_get, mock_upload):
         mock_resp = MagicMock()
         mock_resp.content = b"x" * 2000
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        mock_s3 = MagicMock()
-        result = upload_image_to_bucket(mock_s3, "http://img.jpg", "key.jpg", "bucket")
+        result = ImageService.upload_from_url("http://img.jpg", "bucket", "key.jpg")
         assert result is True
-        mock_s3.upload_file.assert_called_once()
+        mock_upload.assert_called_once_with(b"x" * 2000, "bucket", "key.jpg")
