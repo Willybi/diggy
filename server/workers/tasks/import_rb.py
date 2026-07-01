@@ -73,65 +73,36 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
         # Import tracks via sync SQLAlchemy
         from models import CatalogEntry, UserTrack
         from sqlalchemy import select
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
         from sqlalchemy.orm import Session
         from utils import make_normalized_key
         from workers.db import get_engine
 
         engine = get_engine()
 
-        # Load existing user_tracks (rekordbox_id → catalog_id)
+        # Snapshot of known rekordbox_ids before import (for inserted vs updated count)
         with Session(engine) as session:
             rows = session.execute(
-                select(UserTrack.rekordbox_id, UserTrack.catalog_id, UserTrack.has_artwork)
+                select(UserTrack.rekordbox_id)
                 .where(UserTrack.user_id == user_id)
                 .where(UserTrack.rekordbox_id.isnot(None))
             ).all()
-        existing: dict[int, tuple[int, bool]] = {
-            row.rekordbox_id: (row.catalog_id, row.has_artwork) for row in rows
-        }
+        known_rb_ids: set[int] = {row.rekordbox_id for row in rows}
 
         inserted = 0
         updated = 0
 
         for batch in _batches(tracks, 50):
             with Session(engine) as session:
-                for t in batch:
-                    rb_id = t.id
-                    tags = t.tags or []
+                # Disable autoflush for the entire batch to prevent ORM
+                # from flushing pending CatalogEntry objects mid-loop and
+                # interfering with Core pg_insert statements on user_tracks.
+                with session.no_autoflush:
+                    for t in batch:
+                        rb_id = t.id
+                        tags = t.tags or []
 
-                    if rb_id in existing:
-                        # UPDATE: track déjà connu
-                        existing_catalog_id, _ = existing[rb_id]
-                        ut = session.execute(
-                            select(UserTrack).where(
-                                UserTrack.user_id == user_id,
-                                UserTrack.catalog_id == existing_catalog_id,
-                            )
-                        ).scalar_one_or_none()
-                        if ut:
-                            ut.date_added = t.date_added
-                            ut.file_path = t.file_path
-                            ut.rb_bpm = t.bpm
-                            ut.rb_key = t.key
-                            ut.rb_mytags = tags
-                            ut.rating = t.rating
-                            # Mettre à jour catalog private si titre/artiste changent
-                            cat_entry = session.execute(
-                                select(CatalogEntry).where(CatalogEntry.id == existing_catalog_id)
-                            ).scalar_one_or_none()
-                            if cat_entry and cat_entry.scope == "private":
-                                new_norm_key = make_normalized_key(t.title or "", t.artist or "")
-                                cat_entry.normalized_key = new_norm_key
-                                cat_entry.title = t.title or cat_entry.title
-                                cat_entry.artist = t.artist or cat_entry.artist
-                            updated += 1
-                    else:
-                        # INSERT or UPDATE via atomic upsert.
-                        # Handles rows already existing without rekordbox_id (radar)
-                        # and multiple tracks in the same batch resolving to the same
-                        # catalog_id (avoids autoflush UniqueViolation).
-                        from sqlalchemy.dialects.postgresql import insert as pg_insert
-
+                        # Step 1: find or create CatalogEntry
                         norm_key = make_normalized_key(t.title or "", t.artist or "")
                         cat_entry = session.execute(
                             select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
@@ -147,8 +118,16 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                                 origin="rekordbox",
                             )
                             session.add(cat_entry)
+                            # Explicit flush to get the catalog_id before the upsert
                             session.flush()
+                        elif cat_entry.scope == "private":
+                            # Update title/artist if catalog entry is private
+                            cat_entry.normalized_key = norm_key
+                            cat_entry.title = t.title or cat_entry.title
+                            cat_entry.artist = t.artist or cat_entry.artist
 
+                        # Step 2: upsert UserTrack — single atomic operation,
+                        # no ORM UserTrack object ever created or modified.
                         stmt = pg_insert(UserTrack).values(
                             user_id=user_id,
                             catalog_id=cat_entry.id,
@@ -171,12 +150,16 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                                 "rb_key": t.key,
                                 "rb_mytags": tags,
                                 "rating": t.rating,
-                                # has_artwork intentionally excluded: preserve existing value
+                                # has_artwork excluded: preserve existing value
                             },
                         )
                         session.execute(stmt)
-                        existing[rb_id] = (cat_entry.id, False)
-                        inserted += 1
+
+                        if rb_id in known_rb_ids:
+                            updated += 1
+                        else:
+                            inserted += 1
+                            known_rb_ids.add(rb_id)
 
                 session.commit()
 
