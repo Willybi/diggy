@@ -91,7 +91,16 @@
                     v-if="t.has_preview"
                     class="play-btn"
                     :class="{ 'play-btn--playing': player.isCurrent(t.catalog_id) }"
-                    @click="player.play({ id: t.catalog_id, catalog_id: t.catalog_id, title: t.title, artist: t.artist, bpm: t.bpm, key: t.key })"
+                    @click="
+                      player.play({
+                        id: t.catalog_id,
+                        catalog_id: t.catalog_id,
+                        title: t.title,
+                        artist: t.artist,
+                        bpm: t.bpm,
+                        key: t.key,
+                      })
+                    "
                   >
                     <svg
                       v-if="!(player.isCurrent(t.catalog_id) && player.playing)"

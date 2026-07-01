@@ -52,7 +52,7 @@
               v-for="s in scopes"
               :key="s.value"
               :class="{ on: scope === s.value }"
-              @click="scope = s.value; scopeOpen = false; focusInput()"
+              @click="selectScope(s.value)"
             >
               <span class="ic" v-html="s.icon"></span>{{ s.label }}
             </button>
@@ -362,6 +362,11 @@ function clearSearch() {
 }
 function focusInput() {
   nextTick(() => inputEl.value?.focus())
+}
+function selectScope(value) {
+  scope.value = value
+  scopeOpen.value = false
+  focusInput()
 }
 function searchGenre(name) {
   scope.value = 'genre'

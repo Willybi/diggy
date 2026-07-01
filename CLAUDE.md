@@ -136,6 +136,7 @@ All sources go through `crawl_single_playlist` -> `get_fetchers()` -> RadarTrack
 - **Admin**: `is_admin` flag on User model, `require_admin` dependency, admin routes in `admin.py`
 - **Deezer sentinel**: `deezer_id = "NOT_FOUND"` marks artists confirmed absent from Deezer
 - **Artist linking**: Rename uses official Deezer name + creates alias for old name + merges duplicates
+- **Vue handlers**: No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`) — extract to a method. Prettier reformats them on multiple lines which breaks the Vue compiler.
 
 ## Deploy
 

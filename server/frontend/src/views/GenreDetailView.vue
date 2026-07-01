@@ -102,7 +102,7 @@
             :key="s.name"
             class="merge-item"
             :class="{ selected: mergeTarget === s.name }"
-            @click="mergeTarget = s.name; mergeQuery = s.name; mergeSuggestions = []"
+            @click="selectMergeSuggestion(s)"
           >
             {{ s.name }} <span class="mono muted">({{ s.trackCount }})</span>
           </div>
@@ -276,6 +276,12 @@ const mergeSuggestions = ref([])
 const adminMsg = ref('')
 const adminMsgType = ref('')
 let mergeTimer = null
+
+function selectMergeSuggestion(s) {
+  mergeTarget.value = s.name
+  mergeQuery.value = s.name
+  mergeSuggestions.value = []
+}
 
 // -- Computed --
 const genreName = computed(() => decodeURIComponent(route.params.genre || ''))

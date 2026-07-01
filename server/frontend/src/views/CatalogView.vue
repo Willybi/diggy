@@ -204,7 +204,17 @@
                     'pbtn--disabled': !e.has_preview,
                     'pbtn--playing': player.isCurrent(e.id),
                   }"
-                  @click="e.has_preview && player.play({ id: e.id, catalog_id: e.id, title: e.title, artist: e.artist, bpm: e.bpm, key: e.key })"
+                  @click="
+                    e.has_preview &&
+                    player.play({
+                      id: e.id,
+                      catalog_id: e.id,
+                      title: e.title,
+                      artist: e.artist,
+                      bpm: e.bpm,
+                      key: e.key,
+                    })
+                  "
                 >
                   <svg
                     v-if="!(player.isCurrent(e.id) && player.playing)"

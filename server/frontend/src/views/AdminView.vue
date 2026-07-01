@@ -191,7 +191,7 @@
               :key="a.id"
               class="result-row"
               :class="{ selected: selectedDbArtist?.id === a.id }"
-              @click="selectedDbArtist = a; linkDeezerQuery = a.name; onDeezerSearch()"
+              @click="selectArtistAndSearch(a)"
             >
               <div class="cover-thumb-sm">
                 <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
@@ -274,14 +274,14 @@
           <button
             class="filter-btn"
             :class="{ active: !mappingShowUnmapped }"
-            @click="mappingShowUnmapped = false; fetchMappings()"
+            @click="showAllMappings()"
           >
             Tous
           </button>
           <button
             class="filter-btn"
             :class="{ active: mappingShowUnmapped }"
-            @click="mappingShowUnmapped = true; fetchMappings()"
+            @click="showUnmappedOnly()"
           >
             Non mappés
           </button>
@@ -327,7 +327,7 @@
                       :key="n.id"
                       class="mapping-option"
                       :class="{ selected: mappingSelected[m.id] === n.id }"
-                      @click="mappingSelected[m.id] = n.id; mappingSearch[m.id] = n.label; mappingResults[m.id] = []"
+                      @click="selectMappingOption(m, n)"
                     >
                       <span class="mapping-option-label">{{ n.label }}</span>
                       <span class="mapping-option-qid mono">{{ n.wikidataId }}</span>
@@ -456,19 +456,9 @@
       </div>
 
       <div v-if="crawlTotalPages > 1" class="crawl-pagination">
-        <button
-          :disabled="crawlPage <= 1"
-          @click="crawlPage--; fetchCrawlLogs()"
-        >
-          Prev
-        </button>
+        <button :disabled="crawlPage <= 1" @click="prevCrawlPage()">Prev</button>
         <span class="mono" style="font-size: 12px">{{ crawlPage }} / {{ crawlTotalPages }}</span>
-        <button
-          :disabled="crawlPage >= crawlTotalPages"
-          @click="crawlPage++; fetchCrawlLogs()"
-        >
-          Next
-        </button>
+        <button :disabled="crawlPage >= crawlTotalPages" @click="nextCrawlPage()">Next</button>
       </div>
     </section>
 
@@ -627,6 +617,12 @@ const linkError = ref('')
 let linkDbTimer = null
 let linkDeezerTimer = null
 
+function selectArtistAndSearch(a) {
+  selectedDbArtist.value = a
+  linkDeezerQuery.value = a.name
+  onDeezerSearch()
+}
+
 // Genre mappings
 const mappings = ref([])
 const loadingMappings = ref(false)
@@ -637,6 +633,22 @@ const mappingResults = reactive({})
 const mappingSelected = reactive({})
 const savingMapping = reactive({})
 let mappingTimers = {}
+
+function showAllMappings() {
+  mappingShowUnmapped.value = false
+  fetchMappings()
+}
+
+function showUnmappedOnly() {
+  mappingShowUnmapped.value = true
+  fetchMappings()
+}
+
+function selectMappingOption(m, n) {
+  mappingSelected[m.id] = n.id
+  mappingSearch[m.id] = n.label
+  mappingResults[m.id] = []
+}
 
 async function fetchMappings() {
   loadingMappings.value = true
@@ -1077,6 +1089,16 @@ async function flagArtist(artist) {
 }
 
 // Crawl logs functions
+function prevCrawlPage() {
+  crawlPage.value--
+  fetchCrawlLogs()
+}
+
+function nextCrawlPage() {
+  crawlPage.value++
+  fetchCrawlLogs()
+}
+
 async function fetchCrawlLogs() {
   loadingCrawlLogs.value = true
   try {
