@@ -10,6 +10,8 @@ services:
       - certbot_www:/var/www/certbot:ro
     environment:
       DOMAIN: ${DOMAIN}
+    # Reload config every 6h to pick up renewed certs
+    command: /bin/sh -c 'nginx -g "daemon off;" & while :; do sleep 6h; nginx -s reload; done'
 
   certbot:
     image: certbot/certbot
