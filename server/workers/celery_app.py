@@ -4,8 +4,6 @@ from celery.signals import task_failure, setup_logging, celeryd_init
 import os
 import logging
 
-import sentry_sdk
-
 logger = logging.getLogger(__name__)
 
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
@@ -14,6 +12,7 @@ SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 @celeryd_init.connect
 def init_sentry(**kwargs):
     if SENTRY_DSN:
+        import sentry_sdk
         sentry_sdk.init(
             dsn=SENTRY_DSN,
             traces_sample_rate=0.2,

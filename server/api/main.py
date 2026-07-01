@@ -10,10 +10,9 @@ from auth_middleware import JWTAuthMiddleware
 from database import engine, Base
 from routers import catalog, tracks, watchlist, radar, artists, sets, auth, admin, genres, opinions, search, taxonomy, collections
 
-import sentry_sdk
-
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
+    import sentry_sdk
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         traces_sample_rate=0.2,
