@@ -136,6 +136,21 @@ All sources go through `crawl_single_playlist` -> `get_fetchers()` -> RadarTrack
 - **Artist linking**: Rename uses official Deezer name + creates alias for old name + merges duplicates
 - **Vue handlers**: No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`) — extract to a method. Prettier reformats them on multiple lines which breaks the Vue compiler.
 
+## Workflow — Avant chaque commit
+
+Toujours vérifier le linting avant de proposer un nom de commit ou de valider une implémentation.
+Un push sur master déclenche le déploiement — un lint qui échoue en CI bloque tout.
+
+```bash
+# Backend
+pip install ruff --quiet && ruff check server/
+
+# Frontend
+cd server/frontend && npm run lint
+```
+
+Les deux doivent passer avant de committer.
+
 ## Deploy
 
 - Domain: `diggy-music.fr` (HTTPS, Let's Encrypt, certbot auto-renew)

@@ -25,6 +25,7 @@ export default [
         navigator: 'readonly',
         IntersectionObserver: 'readonly',
         sessionStorage: 'readonly',
+        FormData: 'readonly',
       }
     },
     rules: {

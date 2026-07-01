@@ -13,6 +13,13 @@
         <button class="chip" :class="{ on: notInLib }" @click="toggleNotInLib">
           <span class="sw"></span>Pas dans RB
         </button>
+        <button v-if="mode === 'catalog'" class="chip chip--import" @click="showImportModal = true">
+          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chip-icon">
+            <path d="M9 2v10M5 8l4 4 4-4" />
+            <path d="M3 14h12" />
+          </svg>
+          Importer XML
+        </button>
         <button class="chip" :class="{ on: radarMin2 }" @click="toggleRadarMin2">
           <span class="sw"></span>Radar ≥ 2
         </button>
@@ -323,6 +330,12 @@
       </div>
     </template>
   </div>
+
+  <ImportRekordboxModal
+    v-if="showImportModal"
+    @close="showImportModal = false"
+    @done="onImportDone"
+  />
 </template>
 
 <script setup>
@@ -330,6 +343,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import api from '../utils/api.js'
 import SearchBox from '../components/SearchBox.vue'
+import ImportRekordboxModal from '../components/ImportRekordboxModal.vue'
 import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
 import LikeDislike from '../components/LikeDislike.vue'
@@ -343,6 +357,8 @@ const PAGE_SIZE = 50
 const route = useRoute()
 const router = useRouter()
 const player = useAudioPlayer()
+
+const showImportModal = ref(false)
 
 const items = ref([])
 const total = ref(0)
@@ -511,6 +527,12 @@ async function setAvis(entry, avis) {
   } catch {
     entry.avis = prev
   }
+}
+
+function onImportDone() {
+  showImportModal.value = false
+  fetchPage()
+  fetchNLib()
 }
 
 onMounted(() => {
@@ -1064,6 +1086,21 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
   color: var(--ink-3);
   min-width: 60px;
   text-align: center;
+}
+
+/* ============ IMPORT CHIP ============ */
+.chip--import {
+  border-color: var(--accent-soft-2);
+  color: var(--accent-ink);
+}
+.chip--import:hover {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.chip-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 /* ============ STATES ============ */

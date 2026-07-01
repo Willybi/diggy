@@ -32,6 +32,7 @@
  F2   Multi-User Phases 5-7             BAS         7-10 jours   A FAIRE
  F3   Graphe artistes                   BAS         5-7 jours    A FAIRE
  F4   Import Rekordbox Web              MOYEN       3-4 jours    A FAIRE
+ R1   Responsive / Support Mobile       HAUT        3-4 jours    A FAIRE
 ```
 
 ### Dependances
@@ -1015,6 +1016,111 @@ ls main.py worker/rekordbox/ → No such file or directory
 
 # CI verte
 pytest tests/ → all passed
+```
+
+---
+
+## R1 — Responsive / Support Mobile
+
+**Equipe : Frontend**
+**Priorite : HAUT**
+**Estimation : 3-4 jours**
+**Depend de : D5 (composants partages), D1 (tokens)**
+**Statut : A FAIRE**
+
+### Contexte
+
+Diggy est actuellement concu pour desktop (sidebar fixe, tables denses, modales larges).
+Sur telephone vertical, la sidebar deborde, les tables sont illisibles, et les
+interactions tactiles ne sont pas pensees. L'objectif : rendre l'app utilisable
+confortablement sur mobile sans refonte de l'architecture — responsive progressif,
+pas de version separee.
+
+Breakpoints cibles :
+- `< 640px` : telephone vertical (priorite principale)
+- `640px–1024px` : tablette / telephone paysage (amelioration secondaire)
+- `> 1024px` : desktop (comportement actuel preserve)
+
+### Taches
+
+#### Navigation (critique)
+
+- [ ] **Sidebar → bottom nav sur mobile** : en dessous de 640px, masquer la sidebar et
+  afficher une barre de navigation basse avec les 5-6 destinations principales
+  (Hub, Catalog, Artistes, Sets, Genres, + Admin si admin)
+  ```css
+  @media (max-width: 640px) {
+    .sidebar { display: none; }
+    .bottom-nav { display: flex; }
+  }
+  ```
+- [ ] **`BottomNav.vue`** : composant barre bas (icones + label court, highlight route active)
+- [ ] **Token `--bottom-nav-h`** dans `diggy-tokens.css` (hauteur ~56px) pour que le
+  contenu principal ne soit pas cache derriere la barre
+
+#### Layout global
+
+- [ ] **Meta viewport** : verifier que `index.html` a `<meta name="viewport" content="width=device-width, initial-scale=1">`
+- [ ] **Padding lateral mobile** : token `--page-px-mobile` (16px) applique sur toutes
+  les vues via une classe `.page-container` ou le layout principal
+- [ ] **Supprimer les `min-width` fixes** : reperer et corriger les conteneurs avec
+  `min-width` hardcode qui cassent le layout mobile
+
+#### Tables (TrackTable, MiniTrackTable)
+
+- [ ] **Colonnes masquees sur mobile** : `BPM`, `Key`, `Duree`, `Rating` masques sous 640px
+  — seuls `Cover`, `Titre + Artiste`, `Actions` restent visibles
+  ```css
+  @media (max-width: 640px) {
+    .col-bpm, .col-key, .col-duration, .col-rating { display: none; }
+  }
+  ```
+- [ ] **Scroll horizontal en fallback** : si une table doit rester complete, wrapper
+  avec `overflow-x: auto` pour eviter le debordement
+
+#### Composants
+
+- [ ] **Modales** : `max-width: 100%; border-radius: 0` sur mobile (full-screen sheet
+  du bas) — appliquer sur toutes les modales (`ImportRekordboxModal`, modales admin, etc.)
+- [ ] **Filtres / chips** : scroll horizontal (`overflow-x: auto; white-space: nowrap`)
+  sur les barres de filtres (`FamilyChips`, `SegFilter`) plutot que retour a la ligne
+- [ ] **Player** : verifier que le mini-player ne cache pas le contenu ni la bottom nav ;
+  ajuster `bottom` en fonction de `--bottom-nav-h`
+- [ ] **Boutons d'action** : `min-height: 44px` sur tous les elements interactifs
+  (cibles tactiles, recommandation Apple/Google)
+
+#### Vues prioritaires a verifier
+
+| Vue | Probleme attendu | Fix |
+|-----|-----------------|-----|
+| `CatalogView` | Table trop large, filtres debordent | Colonnes masquees + filtres scroll |
+| `ArtistDetailView` | Hero image + grille tracks | Grille 1 col, hero full-width |
+| `SetDetailView` | Anneau + table tracks | Anneau centré, table allégée |
+| `GenresView` | Grille cartes | `minmax(150px, 1fr)` déjà OK si pas de min-width fixe |
+| `HubView` | Search bar + resultats | A verifier |
+| `SetsView` | Grille anneaux | Verifier wrapping |
+
+#### Tokens a ajouter dans `diggy-tokens.css`
+
+```css
+:root {
+  --bottom-nav-h: 56px;
+  --page-px-mobile: 16px;
+}
+```
+
+### Definition of Done
+
+```bash
+# Visual check sur Chrome DevTools → iPhone SE (375px)
+# - Navigation bas visible et fonctionnelle
+# - Aucune scrollbar horizontale sur le body
+# - CatalogView lisible (titre + artiste visible)
+# - Modales full-screen
+# - Boutons >= 44px de hauteur
+
+# Zero overflow horizontal
+# Ouvrir chaque vue en 375px → pas de debordement body
 ```
 
 ---
