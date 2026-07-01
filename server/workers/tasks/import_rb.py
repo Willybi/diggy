@@ -126,7 +126,12 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                                 cat_entry.artist = t.artist or cat_entry.artist
                             updated += 1
                     else:
-                        # INSERT: nouveau track
+                        # INSERT or UPDATE via atomic upsert.
+                        # Handles rows already existing without rekordbox_id (radar)
+                        # and multiple tracks in the same batch resolving to the same
+                        # catalog_id (avoids autoflush UniqueViolation).
+                        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
                         norm_key = make_normalized_key(t.title or "", t.artist or "")
                         cat_entry = session.execute(
                             select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
@@ -144,42 +149,34 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                             session.add(cat_entry)
                             session.flush()
 
-                        # Check if UserTrack already exists without rekordbox_id
-                        # (e.g. created from radar tracking)
-                        ut = session.execute(
-                            select(UserTrack).where(
-                                UserTrack.user_id == user_id,
-                                UserTrack.catalog_id == cat_entry.id,
-                            )
-                        ).scalar_one_or_none()
-
-                        if ut:
-                            ut.rekordbox_id = rb_id
-                            ut.date_added = t.date_added
-                            ut.file_path = t.file_path
-                            ut.rb_bpm = t.bpm
-                            ut.rb_key = t.key
-                            ut.rb_mytags = tags
-                            ut.rating = t.rating
-                            existing[rb_id] = (cat_entry.id, ut.has_artwork)
-                            updated += 1
-                        else:
-                            ut = UserTrack(
-                                user_id=user_id,
-                                catalog_id=cat_entry.id,
-                                rekordbox_id=rb_id,
-                                date_added=t.date_added,
-                                source="rekordbox_import",
-                                file_path=t.file_path,
-                                rb_bpm=t.bpm,
-                                rb_key=t.key,
-                                rb_mytags=tags,
-                                rating=t.rating,
-                                has_artwork=False,
-                            )
-                            session.add(ut)
-                            existing[rb_id] = (cat_entry.id, False)
-                            inserted += 1
+                        stmt = pg_insert(UserTrack).values(
+                            user_id=user_id,
+                            catalog_id=cat_entry.id,
+                            rekordbox_id=rb_id,
+                            date_added=t.date_added,
+                            source="rekordbox_import",
+                            file_path=t.file_path,
+                            rb_bpm=t.bpm,
+                            rb_key=t.key,
+                            rb_mytags=tags,
+                            rating=t.rating,
+                            has_artwork=False,
+                        ).on_conflict_do_update(
+                            index_elements=["user_id", "catalog_id"],
+                            set_={
+                                "rekordbox_id": rb_id,
+                                "date_added": t.date_added,
+                                "file_path": t.file_path,
+                                "rb_bpm": t.bpm,
+                                "rb_key": t.key,
+                                "rb_mytags": tags,
+                                "rating": t.rating,
+                                # has_artwork intentionally excluded: preserve existing value
+                            },
+                        )
+                        session.execute(stmt)
+                        existing[rb_id] = (cat_entry.id, False)
+                        inserted += 1
 
                 session.commit()
 
