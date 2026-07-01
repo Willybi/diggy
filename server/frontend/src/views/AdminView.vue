@@ -191,11 +191,7 @@
               :key="a.id"
               class="result-row"
               :class="{ selected: selectedDbArtist?.id === a.id }"
-              @click="
-                selectedDbArtist = a
-                linkDeezerQuery = a.name
-                onDeezerSearch()
-              "
+              @click="selectedDbArtist = a; linkDeezerQuery = a.name; onDeezerSearch()"
             >
               <div class="cover-thumb-sm">
                 <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />

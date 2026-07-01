@@ -19,7 +19,7 @@
  #    Chantier                           Priorite    Estimation   Statut
 ────  ─────────────────────────────────  ──────────  ──────────   ──────
  S1   Securite & Hardening              CRITIQUE    1-2 jours    TERMINE
- S2   Qualite & CI Pipeline             CRITIQUE    2-3 jours    A FAIRE
+ S2   Qualite & CI Pipeline             CRITIQUE    2-3 jours    TERMINE
  A1   Service Layer Backend             HAUT        5-7 jours    A FAIRE
  A2   Refactor Workers                  HAUT        3-5 jours    A FAIRE
  A3   Frontend Perf & Accessibilite     MOYEN       2-3 jours    A FAIRE
@@ -37,7 +37,7 @@
 
 ```
 S1 ──────────────> Tout (prerequis securite) ✅ TERMINE
-S2 ──────────────> A1, A2 (refactors securises par CI)
+S2 ──────────────> A1, A2 (refactors securises par CI) ✅ TERMINE
 A1 (services) ──> D2, D3 (endpoints genres/search)
 D1 (FIX) ───────> D2, D4, D5 (base propre)
 D5 (kit) ───────> D2, D3, D4 (composants reutilisables)
@@ -161,12 +161,13 @@ for i in {1..10}; do curl -s /api/auth/google/callback; done → 429 apres 5
 
 ---
 
-## S2 — Qualite & CI Pipeline
+## S2 — Qualite & CI Pipeline ✅
 
 **Equipe : Platform / QA**
 **Priorite : CRITIQUE — Semaine 1-2**
 **Estimation : 2-3 jours**
 **Depend de : rien**
+**Statut : TERMINE**
 
 ### Contexte
 
@@ -211,12 +212,12 @@ Ces lacunes empechent de refactorer en confiance.
 
 #### Haut
 
-- [ ] **Scan vulnerabilites deps** : ajouter `pip-audit` dans CI (warning, pas bloquant)
+- [x] **Scan vulnerabilites deps** : ajouter `pip-audit` dans CI (warning, pas bloquant)
   ```yaml
   - run: pip install pip-audit && pip-audit --desc || true
   ```
 
-- [ ] **Tests frontend basiques** : installer vitest + @vue/test-utils
+- [x] **Tests frontend basiques** : installer vitest + @vue/test-utils
   - Tester les 3 stores Pinia : `auth.js`, `audioPlayer.js`, `opinions.js`
   - Tester `utils/api.js` (intercepteur 401, injection token)
   - Objectif : 10-15 tests unitaires minimum
@@ -231,8 +232,8 @@ Ces lacunes empechent de refactorer en confiance.
 
 #### Moyen
 
-- [ ] **Prettier frontend** : `.prettierrc` + integration ESLint
-- [ ] **Structured logging** : `structlog` ou `python-json-logger` pour logs JSON
+- [x] **Prettier frontend** : `.prettierrc` + integration ESLint
+- [x] **Structured logging** : `structlog` ou `python-json-logger` pour logs JSON
 
 ### Fichiers a modifier
 
