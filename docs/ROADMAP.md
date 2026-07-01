@@ -27,7 +27,7 @@
  D2   Genres — Refonte complete         HAUT        5-7 jours    A FAIRE
  D3   Hub / Search                      MOYEN       3-5 jours    BLOQUE (decision)
  D4   Pages Detail (Vague 3)            MOYEN       5-7 jours    BLOQUE (briefs)
- D5   Refactor Composants partages      MOYEN       3-4 jours    A FAIRE
+ D5   Refactor Composants partages      MOYEN       3-4 jours    TERMINE
  F1   Monitoring & Observabilite        BAS         2-3 jours    A FAIRE
  F2   Multi-User Phases 5-7             BAS         7-10 jours   A FAIRE
  F3   Graphe artistes                   BAS         5-7 jours    A FAIRE
@@ -40,7 +40,7 @@ S1 ──────────────> Tout (prerequis securite) ✅ TER
 S2 ──────────────> A1, A2 (refactors securises par CI) ✅ TERMINE
 A1 (services) ──> D2, D3 (endpoints genres/search) ✅ TERMINE
 D1 (FIX) ───────> D2, D4, D5 (base propre) ✅ TERMINE
-D5 (kit) ───────> D2, D3, D4 (composants reutilisables)
+D5 (kit) ───────> D2, D3, D4 (composants reutilisables) ✅ TERMINE
 ```
 
 ### Decisions a trancher (willi)
@@ -709,12 +709,13 @@ Les FIX rounds 3-4 sont partiellement appliques sur Artist/Set Detail.
 
 ---
 
-## D5 — Refactor Composants Partages
+## D5 — Refactor Composants Partages ✅
 
 **Equipe : Frontend**
 **Priorite : MOYEN — Sprint 3**
 **Estimation : 3-4 jours**
 **Depend de : D1 (tokens corriges)**
+**Statut : TERMINE**
 **Ref design : `_design/handoff-refactor/REFACTOR-audit.md`**
 
 ### Contexte
