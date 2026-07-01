@@ -16,6 +16,7 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 RATE_LIMITS = {
     "/api/auth/login": (5, 60),
     "/api/auth/register": (3, 60),
+    "/api/auth/google/callback": (5, 60),
 }
 
 _redis = None
@@ -38,9 +39,6 @@ def _get_real_ip(request) -> str:
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if request.method != "POST":
-            return await call_next(request)
-
         path = request.url.path
         limit_config = None
         for prefix, config in RATE_LIMITS.items():
