@@ -91,80 +91,81 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
 
         inserted = 0
         updated = 0
+        ut_table = UserTrack.__table__
 
         for batch in _batches(tracks, 50):
+            # Phase 1 — ORM: find or create CatalogEntry for each track.
+            # Committed and closed before any UserTrack write so there is
+            # zero chance of ORM autoflush interfering with the upsert below.
+            catalog_ids: dict[str, int] = {}
             with Session(engine) as session:
-                # Get the raw DBAPI connection within the same transaction.
-                # UserTrack upserts go through conn.execute() (Core path) to
-                # completely bypass orm_pre_session_exec and its autoflush call,
-                # which cannot be suppressed when passing an ORM-mapped class
-                # to pg_insert via session.execute().
-                conn = session.connection()
-                ut_table = UserTrack.__table__
+                for t in batch:
+                    norm_key = make_normalized_key(t.title or "", t.artist or "")
+                    cat_entry = session.execute(
+                        select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+                    ).scalar_one_or_none()
 
-                with session.no_autoflush:
-                    for t in batch:
-                        rb_id = t.id
-                        tags = t.tags or []
-
-                        # Step 1: find or create CatalogEntry (ORM, no UserTrack involved)
-                        norm_key = make_normalized_key(t.title or "", t.artist or "")
-                        cat_entry = session.execute(
-                            select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
-                        ).scalar_one_or_none()
-
-                        if cat_entry is None:
-                            cat_entry = CatalogEntry(
-                                title=t.title or "",
-                                artist=t.artist,
-                                normalized_key=norm_key,
-                                scope="private",
-                                owner_id=user_id,
-                                origin="rekordbox",
-                            )
-                            session.add(cat_entry)
-                            session.flush()
-                        elif cat_entry.scope == "private":
-                            cat_entry.normalized_key = norm_key
-                            cat_entry.title = t.title or cat_entry.title
-                            cat_entry.artist = t.artist or cat_entry.artist
-
-                        # Step 2: upsert UserTrack via raw Core connection.
-                        # Using ut_table (Table object) + conn.execute() bypasses
-                        # ORM execution path entirely — no autoflush triggered.
-                        stmt = pg_insert(ut_table).values(
-                            user_id=user_id,
-                            catalog_id=cat_entry.id,
-                            rekordbox_id=rb_id,
-                            date_added=t.date_added,
-                            source="rekordbox_import",
-                            file_path=t.file_path,
-                            rb_bpm=t.bpm,
-                            rb_key=t.key,
-                            rb_mytags=json.dumps(tags),
-                            rating=t.rating,
-                            has_artwork=False,
-                        ).on_conflict_do_update(
-                            index_elements=["user_id", "catalog_id"],
-                            set_={
-                                "rekordbox_id": rb_id,
-                                "date_added": t.date_added,
-                                "file_path": t.file_path,
-                                "rb_bpm": t.bpm,
-                                "rb_key": t.key,
-                                "rb_mytags": json.dumps(tags),
-                                "rating": t.rating,
-                            },
+                    if cat_entry is None:
+                        cat_entry = CatalogEntry(
+                            title=t.title or "",
+                            artist=t.artist,
+                            normalized_key=norm_key,
+                            scope="private",
+                            owner_id=user_id,
+                            origin="rekordbox",
                         )
-                        conn.execute(stmt)
+                        session.add(cat_entry)
+                        session.flush()
+                    elif cat_entry.scope == "private":
+                        cat_entry.title = t.title or cat_entry.title
+                        cat_entry.artist = t.artist or cat_entry.artist
 
-                        if rb_id in known_rb_ids:
-                            updated += 1
-                        else:
-                            inserted += 1
-                            known_rb_ids.add(rb_id)
+                    catalog_ids[norm_key] = cat_entry.id
 
                 session.commit()
+
+            # Phase 2 — Core only: upsert UserTracks via engine.connect()
+            # completely outside any ORM Session — no autoflush, no identity map.
+            with engine.connect() as conn:
+                for t in batch:
+                    norm_key = make_normalized_key(t.title or "", t.artist or "")
+                    catalog_id = catalog_ids[norm_key]
+                    rb_id = t.id
+                    tags = t.tags or []
+
+                    stmt = pg_insert(ut_table).values(
+                        user_id=user_id,
+                        catalog_id=catalog_id,
+                        rekordbox_id=rb_id,
+                        date_added=t.date_added,
+                        source="rekordbox_import",
+                        file_path=t.file_path,
+                        rb_bpm=t.bpm,
+                        rb_key=t.key,
+                        rb_mytags=json.dumps(tags),
+                        rating=t.rating,
+                        has_artwork=False,
+                    ).on_conflict_do_update(
+                        index_elements=["user_id", "catalog_id"],
+                        set_={
+                            "rekordbox_id": rb_id,
+                            "date_added": t.date_added,
+                            "file_path": t.file_path,
+                            "rb_bpm": t.bpm,
+                            "rb_key": t.key,
+                            "rb_mytags": json.dumps(tags),
+                            "rating": t.rating,
+                        },
+                    )
+                    conn.execute(stmt)
+
+                    if rb_id in known_rb_ids:
+                        updated += 1
+                    else:
+                        inserted += 1
+                        known_rb_ids.add(rb_id)
+
+                conn.commit()
 
             _set_progress(r, task_id, {
                 "status": "running",

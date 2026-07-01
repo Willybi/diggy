@@ -222,7 +222,7 @@ function startPoll() {
   pollTimer = setInterval(async () => {
     try {
       const { data } = await api.get(`/api/import/status/${taskId.value}`)
-      if (data.total) stats.value.total = data.total
+      if (data.total != null) stats.value.total = data.total
       if (data.inserted != null) stats.value.inserted = data.inserted
       if (data.updated != null) stats.value.updated = data.updated
 
