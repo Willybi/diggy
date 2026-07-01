@@ -26,6 +26,10 @@ server {
     ssl_prefer_server_ciphers off;
 
     add_header Strict-Transport-Security "max-age=15768000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:;" always;
 
     # Frontend Vue.js
     location / {
@@ -46,13 +50,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # MinIO console (admin)
+    # MinIO console — blocked (access via SSH tunnel only)
     location /minio/ {
-        proxy_pass http://minio:9001/;
-        proxy_set_header Host $host;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        return 403;
     }
 
     # MinIO fichiers (artworks publics)
