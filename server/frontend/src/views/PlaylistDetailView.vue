@@ -29,15 +29,12 @@
       </PageHero>
 
       <!-- Admin: fetch artwork -->
-      <div
-        v-if="auth.user?.is_admin && !playlist.has_artwork && playlist.source === 'deezer'"
-        class="admin-card"
-      >
+      <AdminCard v-if="!playlist.has_artwork && playlist.source === 'deezer'" variant="warn">
         <button class="btn-ghost btn-ghost--accent" :disabled="fetchingArt" @click="fetchArtwork">
           {{ fetchingArt ? 'Fetch en cours…' : 'Fetch artwork Deezer' }}
         </button>
         <span v-if="artMsg" class="admin-msg" :class="artMsgType">{{ artMsg }}</span>
-      </div>
+      </AdminCard>
 
       <!-- Crawl status banner -->
       <div v-if="crawlState" class="crawl-banner" :class="crawlState">
@@ -132,11 +129,10 @@ import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import { useAuthStore } from '../stores/auth.js'
 import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
+import AdminCard from '../components/AdminCard.vue'
 
 const route = useRoute()
-const auth = useAuthStore()
 const player = useAudioPlayer()
 const playlist = ref(null)
 const loading = ref(true)
@@ -440,16 +436,6 @@ onUnmounted(stopCrawlPoll)
   }
 }
 
-.admin-card {
-  margin: 12px 0;
-  padding: 12px 16px;
-  border: 1px solid var(--warn-ink);
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--warn-ink) 6%, var(--surface));
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 .admin-msg {
   font: 400 13px/1 var(--font-ui);
 }

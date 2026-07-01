@@ -20,10 +20,10 @@
 ────  ─────────────────────────────────  ──────────  ──────────   ──────
  S1   Securite & Hardening              CRITIQUE    1-2 jours    TERMINE
  S2   Qualite & CI Pipeline             CRITIQUE    2-3 jours    TERMINE
- A1   Service Layer Backend             HAUT        5-7 jours    A FAIRE
- A2   Refactor Workers                  HAUT        3-5 jours    A FAIRE
+ A1   Service Layer Backend             HAUT        5-7 jours    TERMINE
+ A2   Refactor Workers                  HAUT        3-5 jours    TERMINE
  A3   Frontend Perf & Accessibilite     MOYEN       2-3 jours    A FAIRE
- D1   FIX Design immediats             HAUT        1-2 jours    A FAIRE
+ D1   FIX Design immediats             HAUT        1-2 jours    TERMINE
  D2   Genres — Refonte complete         HAUT        5-7 jours    A FAIRE
  D3   Hub / Search                      MOYEN       3-5 jours    BLOQUE (decision)
  D4   Pages Detail (Vague 3)            MOYEN       5-7 jours    BLOQUE (briefs)
@@ -38,8 +38,8 @@
 ```
 S1 ──────────────> Tout (prerequis securite) ✅ TERMINE
 S2 ──────────────> A1, A2 (refactors securises par CI) ✅ TERMINE
-A1 (services) ──> D2, D3 (endpoints genres/search)
-D1 (FIX) ───────> D2, D4, D5 (base propre)
+A1 (services) ──> D2, D3 (endpoints genres/search) ✅ TERMINE
+D1 (FIX) ───────> D2, D4, D5 (base propre) ✅ TERMINE
 D5 (kit) ───────> D2, D3, D4 (composants reutilisables)
 ```
 
@@ -262,12 +262,13 @@ cd server/frontend && npx vitest run → 10+ tests passed
 
 ---
 
-## A1 — Service Layer Backend
+## A1 — Service Layer Backend ✅
 
 **Equipe : Backend**
 **Priorite : HAUT — Sprint 2**
 **Estimation : 5-7 jours**
 **Depend de : S2 (CI solide avant refactor)**
+**Statut : TERMINE**
 
 ### Contexte
 
@@ -371,12 +372,13 @@ pytest tests/ → 430+ tests passed
 
 ---
 
-## A2 — Refactor Workers
+## A2 — Refactor Workers ✅
 
 **Equipe : Backend / Data Pipeline**
 **Priorite : HAUT — Sprint 2-3**
 **Estimation : 3-5 jours**
 **Depend de : S2 (CI solide avant refactor)**
+**Statut : TERMINE**
 
 ### Contexte
 
@@ -501,12 +503,13 @@ grep -r "<button" src/ --include="*.vue" | grep -v "aria-label" → vide (sauf s
 
 ---
 
-## D1 — FIX Design Immediats
+## D1 — FIX Design Immediats ✅
 
 **Equipe : Frontend**
 **Priorite : HAUT — Sprint 2**
 **Estimation : 1-2 jours**
 **Depend de : rien**
+**Statut : TERMINE**
 **Ref design : `_design/handoff-sets-fix/BRIEF-sets-fix.md`, `_design/design_handoff_diggy_da/realign/PROMPT-claude-code-player-round2.md`**
 
 ### Contexte

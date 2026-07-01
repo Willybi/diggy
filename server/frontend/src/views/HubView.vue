@@ -115,11 +115,14 @@
             ><b>{{ total }}</b> résultat{{ total > 1 ? 's' : '' }} pour « {{ query }} »</span
           >
           <div v-if="auth.isAuthenticated" class="results-tools">
-            <div class="filterseg">
-              <button :class="{ on: sort === 'rel' }" @click="sort = 'rel'">Pertinence</button>
-              <button :class="{ on: sort === 'bpm' }" @click="sort = 'bpm'">BPM</button>
-              <button :class="{ on: sort === 'az' }" @click="sort = 'az'">A–Z</button>
-            </div>
+            <SegFilter
+              v-model="sort"
+              :options="[
+                { value: 'rel', label: 'Pertinence' },
+                { value: 'bpm', label: 'BPM' },
+                { value: 'az', label: 'A–Z' },
+              ]"
+            />
           </div>
           <div v-else class="results-tools">
             <span class="tools-locked">
@@ -173,12 +176,7 @@
                 <span class="m-dur">{{ fmtMs(item.duration_ms) }}</span>
               </div>
               <!-- source badge (playlist) -->
-              <span
-                v-if="item.type === 'playlist' && item.source"
-                class="src-badge"
-                :class="item.source.toLowerCase()"
-                >{{ item.source.toUpperCase() }}</span
-              >
+              <SourceBadge v-if="item.type === 'playlist' && item.source" :source="item.source" />
               <!-- lib zone (logged in only) -->
               <div v-if="auth.isAuthenticated && item.type === 'track'" class="rlib">
                 <span v-if="item.in_lib" class="enbib"><span class="d"></span>EN BIB</span>
@@ -232,6 +230,8 @@ import { useAuthStore } from '../stores/auth'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { styleTone } from '../composables/useStyleMap.js'
 import { fmtMs, fmtBpm } from '../utils/format.js'
+import SegFilter from '../components/SegFilter.vue'
+import SourceBadge from '../components/SourceBadge.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -974,30 +974,6 @@ const vClickOutside = {
   gap: 8px;
 }
 
-.filterseg {
-  display: flex;
-  gap: 2px;
-  background: var(--surface-2);
-  padding: 3px;
-  border-radius: var(--r-sm);
-}
-.filterseg button {
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  font: 500 12.5px/1 var(--font-ui);
-  padding: 7px 11px;
-  border-radius: var(--r-xs);
-  cursor: pointer;
-}
-.filterseg button:hover {
-  color: var(--ink);
-}
-.filterseg button.on {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-
 .tools-locked {
   display: inline-flex;
   align-items: center;
@@ -1193,31 +1169,6 @@ const vClickOutside = {
 .rmeta .m-dur {
   font: 500 12.5px var(--font-mono);
   color: var(--ink-3);
-}
-
-/* source badge */
-.src-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 7px;
-  border-radius: 4px;
-  font: 600 9.5px/1 var(--font-mono);
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  flex: none;
-}
-.src-badge.deezer {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.src-badge.tidal {
-  background: var(--surface-3);
-  color: var(--ink-2);
-  border: 1px solid var(--line-2);
-}
-.src-badge.spotify {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
 }
 
 /* lib zone */

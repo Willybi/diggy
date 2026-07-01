@@ -12,57 +12,31 @@
         </div>
       </div>
       <div class="head-tools">
-        <label class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.2-3.2" stroke-linecap="round" />
-          </svg>
-          <input v-model="searchQuery" type="text" placeholder="Rechercher un artiste…" />
-        </label>
-        <div class="filterseg">
-          <button :class="{ on: sortBy === 'catalog' }" @click="sortBy = 'catalog'">Catalog</button>
-          <button :class="{ on: sortBy === 'lib' }" @click="sortBy = 'lib'">In Bib</button>
-          <button class="liked" :class="{ on: sortBy === 'liked' }" @click="sortBy = 'liked'">
-            Liked
-          </button>
-          <button
-            class="disliked"
-            :class="{ on: sortBy === 'disliked' }"
-            @click="sortBy = 'disliked'"
-          >
-            Disliked
-          </button>
-          <button :class="{ on: sortBy === 'rating' }" @click="sortBy = 'rating'">Rating</button>
-          <button :class="{ on: sortBy === 'alpha' }" @click="sortBy = 'alpha'">A–Z</button>
-        </div>
+        <SearchBox
+          v-model="searchQuery"
+          placeholder="Rechercher un artiste…"
+          @update:modelValue="fetchArtists(true)"
+        />
+        <SegFilter
+          v-model="sortBy"
+          :options="[
+            { value: 'catalog', label: 'Catalog' },
+            { value: 'lib', label: 'In Bib' },
+            { value: 'liked', label: 'Liked', cls: 'liked' },
+            { value: 'disliked', label: 'Disliked', cls: 'disliked' },
+            { value: 'rating', label: 'Rating' },
+            { value: 'alpha', label: 'A–Z' },
+          ]"
+        />
       </div>
     </div>
 
     <!-- Pillar chips -->
-    <div class="fam-chips">
-      <button
-        v-for="chip in pillarChips"
-        :key="chip.key"
-        class="fam-chip"
-        :class="{ on: familyFilter === chip.key }"
-        :data-fam="chip.fam"
-        @click="familyFilter = chip.key"
-      >
-        <span v-if="chip.fam" class="fc-dot"></span>
-        {{ chip.label }}<span class="fc-n">{{ fmtNum(chip.count) }}</span>
-      </button>
-    </div>
+    <FamilyChips v-model="familyFilter" :counts="familyCounts" />
 
     <!-- Skeleton loading -->
     <div v-if="loading && !items.length" class="artist-grid">
-      <div v-for="i in 12" :key="i" class="skeleton-card">
-        <div class="sk-art"></div>
-        <div class="sk-body">
-          <div class="sk-line w60"></div>
-          <div class="sk-line w40"></div>
-          <div class="sk-stats"></div>
-        </div>
-      </div>
+      <SkeletonGrid />
     </div>
 
     <!-- Empty state -->
@@ -74,18 +48,22 @@
     </div>
 
     <!-- Sentinel (infinite scroll) -->
-    <div ref="sentinelRef" class="sentinel" :class="{ on: hasMore }">
+    <div ref="sentinel" class="sentinel" :class="{ on: hasMore }">
       <span class="spin"></span>Chargement…
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
-import { PILLAR_ORDER, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import ArtistCard from '../components/ArtistCard.vue'
+import SearchBox from '../components/SearchBox.vue'
+import SegFilter from '../components/SegFilter.vue'
+import FamilyChips from '../components/FamilyChips.vue'
+import SkeletonGrid from '../components/SkeletonGrid.vue'
+import { useInfiniteScroll } from '../composables/useInfiniteScroll.js'
 import { fmtNum } from '../utils/format'
 
 const opinions = useOpinionsStore()
@@ -102,7 +80,6 @@ const sortBy = ref('catalog')
 const familyFilter = ref('all')
 const offset = ref(0)
 const hasMore = ref(false)
-const sentinelRef = ref(null)
 
 const totalUnfiltered = computed(() => {
   const fc = familyCounts.value
@@ -118,20 +95,6 @@ const isFiltered = computed(
 )
 
 const displayItems = computed(() => items.value)
-
-const pillarChips = computed(() => {
-  const pc = familyCounts.value
-  const allCount = Object.values(pc).reduce((s, v) => s + v, 0)
-  return [
-    { key: 'all', label: 'Tous', fam: null, count: allCount },
-    ...PILLAR_ORDER.map((k) => ({
-      key: k,
-      label: PILLAR_LABELS[k],
-      fam: k,
-      count: pc[k] || 0,
-    })),
-  ]
-})
 
 // -- Fetch --
 async function fetchArtists(reset = true) {
@@ -214,38 +177,14 @@ function loadMore() {
   fetchArtists(false)
 }
 
-// -- Search debounce --
-let debounceTimer = null
-watch(searchQuery, () => {
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => fetchArtists(true), 250)
-})
-
 // -- Sort & family: immediate reload --
 watch(sortBy, () => fetchArtists(true))
 watch(familyFilter, () => fetchArtists(true))
 
-// -- IntersectionObserver --
-let observer = null
+const { sentinel } = useInfiniteScroll(loadMore)
+
 onMounted(() => {
   fetchArtists()
-
-  nextTick(() => {
-    if (sentinelRef.value) {
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (entries[0].isIntersecting) loadMore()
-        },
-        { rootMargin: '0px 0px 360px 0px' },
-      )
-      observer.observe(sentinelRef.value)
-    }
-  })
-})
-
-onUnmounted(() => {
-  observer?.disconnect()
-  clearTimeout(debounceTimer)
 })
 </script>
 
@@ -285,141 +224,6 @@ onUnmounted(() => {
   gap: 9px;
   flex-wrap: wrap;
 }
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  padding: 0 12px;
-  height: 38px;
-  min-width: 220px;
-}
-.search svg {
-  width: 16px;
-  height: 16px;
-  color: var(--ink-3);
-  flex: none;
-}
-.search input {
-  border: 0;
-  background: transparent;
-  outline: none;
-  width: 100%;
-  font: 400 14px var(--font-ui);
-  color: var(--ink);
-}
-.search input::placeholder {
-  color: var(--ink-3);
-}
-.filterseg {
-  display: flex;
-  gap: 2px;
-  background: var(--surface-2);
-  padding: 3px;
-  border-radius: var(--r-sm);
-}
-.filterseg button {
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
-  padding: 8px 13px;
-  border-radius: var(--r-xs);
-  cursor: pointer;
-}
-.filterseg button:hover {
-  color: var(--ink);
-}
-.filterseg button.on {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.filterseg button.liked.on {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
-}
-.filterseg button.disliked.on {
-  background: var(--neg-soft);
-  color: var(--neg-ink);
-}
-
-/* -- Family chips -- */
-/* ── Pillar chip hue mapping ── */
-.fam-chip[data-fam='house'] {
-  --th: var(--hue-house);
-}
-.fam-chip[data-fam='techno'] {
-  --th: var(--hue-techno);
-}
-.fam-chip[data-fam='trance'] {
-  --th: var(--hue-trance);
-}
-.fam-chip[data-fam='dnb'] {
-  --th: var(--hue-dnb);
-}
-.fam-chip[data-fam='hardcore'] {
-  --th: var(--hue-hardcore);
-}
-.fam-chip[data-fam='harddance'] {
-  --th: var(--hue-harddance);
-}
-.fam-chip[data-fam='autres'] .fc-dot {
-  background: var(--ink-3);
-  box-shadow: 0 0 0 1px oklch(0 0 0 / 0.08);
-}
-
-.fam-chips {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 0 30px 16px;
-}
-.fam-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background 0.14s,
-    border-color 0.14s,
-    color 0.14s;
-}
-.fam-chip:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-.fc-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-  background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
-  box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / 0.28);
-}
-.fc-n {
-  font: 600 11px/1 var(--font-mono);
-  color: var(--ink-3);
-}
-.fam-chip.on {
-  background: var(--accent-soft);
-  border-color: transparent;
-  color: var(--accent-ink);
-}
-.fam-chip.on .fc-n {
-  color: var(--accent-ink);
-}
-
 /* -- Grid -- */
 .artist-grid {
   padding: 2px 30px 36px;
@@ -434,59 +238,6 @@ onUnmounted(() => {
   text-align: center;
   color: var(--ink-3);
   font: 500 14px var(--font-mono);
-}
-
-/* -- Skeleton -- */
-.skeleton-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  overflow: hidden;
-}
-.sk-art {
-  height: 132px;
-  background: var(--surface-2);
-  animation: shimmer 1.2s ease-in-out infinite alternate;
-}
-.sk-body {
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.sk-line {
-  height: 14px;
-  border-radius: 4px;
-  background: var(--surface-2);
-  animation: shimmer 1.2s ease-in-out infinite alternate;
-}
-.sk-line.w60 {
-  width: 60%;
-}
-.sk-line.w40 {
-  width: 40%;
-}
-.sk-stats {
-  height: 36px;
-  border-radius: 4px;
-  background: var(--surface-2);
-  margin-top: auto;
-  animation: shimmer 1.2s ease-in-out infinite alternate;
-}
-@keyframes shimmer {
-  from {
-    opacity: 0.6;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sk-art,
-  .sk-line,
-  .sk-stats {
-    animation: none;
-  }
 }
 
 /* -- Sentinel -- */
@@ -527,7 +278,7 @@ onUnmounted(() => {
     width: 100%;
     margin-left: 0;
   }
-  .search {
+  :deep(.search) {
     flex: 1;
     min-width: 0;
   }
@@ -535,8 +286,11 @@ onUnmounted(() => {
 @container (max-width: 680px) {
   .page-head,
   .artist-grid,
-  .fam-chips,
   .sentinel {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  :deep(.fam-chips) {
     padding-left: 18px;
     padding-right: 18px;
   }

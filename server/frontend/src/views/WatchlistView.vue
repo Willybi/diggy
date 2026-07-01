@@ -14,16 +14,15 @@
         </div>
       </div>
       <div class="head-tools">
-        <div class="filterseg">
-          <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Toutes</button>
-          <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">
-            Liked
-          </button>
-          <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">
-            Disliked
-          </button>
-          <button :class="{ on: mode === 'unrated' }" @click="mode = 'unrated'">À explorer</button>
-        </div>
+        <SegFilter
+          v-model="mode"
+          :options="[
+            { value: 'all', label: 'Toutes' },
+            { value: 'liked', label: 'Liked', cls: 'liked' },
+            { value: 'disliked', label: 'Disliked', cls: 'disliked' },
+            { value: 'unrated', label: 'À explorer' },
+          ]"
+        />
         <button class="btn-add" :class="{ cancel: showForm }" @click="toggleForm">
           <span v-if="!showForm" class="plus">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -122,9 +121,7 @@
                 <div class="pl-meta">
                   <div class="pl-top">
                     <span class="pl-name">{{ pl.title || pl.external_id }}</span>
-                    <span class="src-badge" :class="srcClass(pl.source)">{{
-                      (pl.source || '').toUpperCase()
-                    }}</span>
+                    <SourceBadge :source="pl.source || 'deezer'" />
                   </div>
                   <span class="pl-id">{{ pl.external_id }}</span>
                 </div>
@@ -179,6 +176,8 @@ import { ref, computed, watch, onMounted, onUnmounted, reactive } from 'vue'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from '../components/LikeDislike.vue'
+import SourceBadge from '../components/SourceBadge.vue'
+import SegFilter from '../components/SegFilter.vue'
 
 const opinions = useOpinionsStore()
 const COOLDOWN_MS = 12 * 3600 * 1000
@@ -255,14 +254,6 @@ const displayList = computed(() => {
   const start = (page.value - 1) * perPage
   return filteredList.value.slice(start, start + perPage)
 })
-
-function srcClass(source) {
-  const s = (source || '').toLowerCase()
-  if (s === 'deezer') return 'deezer'
-  if (s === 'tidal') return 'tidal'
-  if (s === 'spotify') return 'spotify'
-  return 'tidal'
-}
 
 function isCooldown(pl) {
   if (!pl.last_crawled_at) return false
@@ -439,39 +430,6 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   align-items: center;
   gap: 9px;
   flex-wrap: wrap;
-}
-
-/* filtre segmenté */
-.filterseg {
-  display: flex;
-  gap: 2px;
-  background: var(--surface-2);
-  padding: 3px;
-  border-radius: var(--r-sm);
-}
-.filterseg button {
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
-  padding: 8px 14px;
-  border-radius: var(--r-xs);
-  cursor: pointer;
-}
-.filterseg button:hover {
-  color: var(--ink);
-}
-.filterseg button.on {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.filterseg button.liked.on {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
-}
-.filterseg button.disliked.on {
-  background: var(--neg-soft);
-  color: var(--neg-ink);
 }
 
 /* bouton ajouter */
@@ -684,31 +642,6 @@ table.tt td {
   font: 500 11px var(--font-mono);
   color: var(--ink-3);
   white-space: nowrap;
-}
-
-/* badge source */
-.src-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 7px;
-  border-radius: 4px;
-  font: 600 10px/1 var(--font-mono);
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  flex: none;
-}
-.src-badge.deezer {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.src-badge.tidal {
-  background: var(--surface-3);
-  color: var(--ink-2);
-  border: 1px solid var(--line-2);
-}
-.src-badge.spotify {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
 }
 
 /* créateur */

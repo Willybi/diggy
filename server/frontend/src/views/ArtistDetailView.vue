@@ -46,9 +46,8 @@
       </PageHero>
 
       <!-- Admin panel -->
-      <div v-if="auth.user?.is_admin" class="admin-card">
+      <AdminCard>
         <div class="admin-header">
-          <span class="admin-label">Admin</span>
           <span class="mono muted">deezer_id: {{ artist.deezer_id || '—' }}</span>
         </div>
         <div class="admin-link-row">
@@ -104,7 +103,7 @@
           </button>
         </div>
         <div v-if="adminMsg" class="admin-msg" :class="adminMsgType">{{ adminMsg }}</div>
-      </div>
+      </AdminCard>
 
       <StatStrip :stats="stats" />
 
@@ -192,12 +191,11 @@ import RelBlock from '../components/RelBlock.vue'
 import AppearRow from '../components/AppearRow.vue'
 import StyleTag from '../components/StyleTag.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
-import { useAuthStore } from '../stores/auth.js'
+import AdminCard from '../components/AdminCard.vue'
 import { fmtBpm, fmtDate } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
 const artist = ref(null)
 const loading = ref(true)
 
@@ -424,24 +422,11 @@ onMounted(async () => {
 }
 
 /* Admin card */
-.admin-card {
-  margin: 16px 0;
-  padding: 14px 18px;
-  background: var(--surface-2);
-  border: 1px dashed var(--line-2);
-  border-radius: var(--r-md);
-}
 .admin-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-}
-.admin-label {
-  font: 600 11px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-3);
 }
 .admin-link-row {
   display: flex;

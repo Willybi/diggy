@@ -26,10 +26,7 @@
       <StatStrip :stats="stats" />
 
       <!-- Admin: manage set artists -->
-      <div v-if="auth.user?.is_admin" class="admin-card">
-        <div class="admin-header">
-          <span class="admin-label">Admin — Artistes du set</span>
-        </div>
+      <AdminCard label="Admin — Artistes du set" variant="warn">
         <div v-if="djSet.artists.length" class="set-artists-list">
           <div v-for="a in djSet.artists" :key="a.artist_id" class="set-artist-row">
             <RouterLink :to="`/artist/${a.artist_id}`" class="sa-name">{{
@@ -53,7 +50,7 @@
             <span class="sa-name">{{ a.name }}</span>
           </div>
         </div>
-      </div>
+      </AdminCard>
 
       <!-- Artists -->
       <RelBlock v-if="djSet.artists.length > 1" title="Artistes">
@@ -148,10 +145,8 @@ import AppearRow from '../components/AppearRow.vue'
 
 import LibDot from '../components/LibDot.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
-import { useAuthStore } from '../stores/auth.js'
+import AdminCard from '../components/AdminCard.vue'
 import { fmtMs, fmtDate, fmtCue } from '../utils/format'
-
-const auth = useAuthStore()
 
 // Admin: set artists
 const saQuery = ref('')
@@ -427,22 +422,6 @@ onMounted(async () => {
 }
 
 /* Admin card */
-.admin-card {
-  margin: 16px 0;
-  padding: 14px 18px;
-  background: var(--surface);
-  border: 1px solid var(--warn-ink);
-  border-radius: var(--r-sm);
-}
-.admin-header {
-  margin-bottom: 10px;
-}
-.admin-label {
-  font: 600 11px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--warn-ink);
-}
 .set-artists-list {
   margin-bottom: 10px;
 }

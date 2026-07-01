@@ -75,8 +75,7 @@
       <StatStrip :stats="stats" />
 
       <!-- Admin -->
-      <div v-if="auth.user?.is_admin" class="admin-card">
-        <span class="admin-label">Admin</span>
+      <AdminCard>
         <div class="admin-row">
           <input v-model="renameVal" class="admin-input" placeholder="Nouveau nom…" />
           <button
@@ -108,7 +107,7 @@
           </div>
         </div>
         <div v-if="adminMsg" class="admin-msg" :class="adminMsgType">{{ adminMsg }}</div>
-      </div>
+      </AdminCard>
 
       <!-- Shelf: Artistes -->
       <RelBlock v-if="artists.length" title="Artistes" :count="artistsTotal">
@@ -173,11 +172,10 @@
             Tracks <span class="section-count mono">{{ trackTotal }}</span>
           </h2>
           <div class="tracks-tools">
-            <input
+            <SearchBox
               v-model="trackSearch"
-              class="search-input"
               placeholder="Rechercher…"
-              @input="onTrackSearch"
+              @update:modelValue="fetchTracks(true)"
             />
             <div class="filterseg">
               <button
@@ -232,7 +230,6 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
-import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { styleTone, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import { fmtDate, fmtNum } from '../utils/format'
@@ -241,10 +238,11 @@ import RelBlock from '../components/RelBlock.vue'
 import StyleTag from '../components/StyleTag.vue'
 import GenreTrackRow from '../components/GenreTrackRow.vue'
 import ShelfCard from '../components/ShelfCard.vue'
+import AdminCard from '../components/AdminCard.vue'
+import SearchBox from '../components/SearchBox.vue'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
 const player = useAudioPlayer()
 
 // -- State --
@@ -265,7 +263,6 @@ const trackSort = ref('recent')
 const trackInLib = ref(null)
 const neighbors = ref([])
 const sentinel = ref(null)
-let searchTimer = null
 let observer = null
 
 // Admin
@@ -431,11 +428,6 @@ async function fetchNeighbors() {
 }
 
 // -- Track controls --
-function onTrackSearch() {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => fetchTracks(true), 250)
-}
-
 function setSort(val) {
   trackSort.value = val
   fetchTracks(true)
@@ -758,22 +750,6 @@ onUnmounted(() => {
 }
 
 /* ── Admin card ── */
-.admin-card {
-  margin: 16px 0;
-  padding: 14px 18px;
-  background: var(--surface-2);
-  border: 1px dashed var(--line-2);
-  border-radius: var(--r-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.admin-label {
-  font: 600 11px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-3);
-}
 .admin-row {
   display: flex;
   gap: 8px;
@@ -941,20 +917,6 @@ onUnmounted(() => {
   margin-left: auto;
   flex-wrap: wrap;
 }
-.search-input {
-  width: 180px;
-  padding: 6px 12px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--ink);
-  font: 400 12px/1.4 var(--font-ui);
-}
-.search-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
 /* Segmented control */
 .filterseg {
   display: inline-flex;
@@ -1137,7 +1099,7 @@ onUnmounted(() => {
     margin-left: 0;
     width: 100%;
   }
-  .search-input {
+  :deep(.search) {
     width: 100%;
     order: 1;
   }

@@ -51,9 +51,8 @@
       </div>
 
       <!-- Admin: enrichment actions -->
-      <div v-if="auth.user?.is_admin" class="admin-card">
+      <AdminCard variant="warn">
         <div class="admin-header">
-          <span class="admin-label">Admin</span>
           <span class="mono muted"
             >beatport_id: {{ track.beatport_id || '—' }} · deezer_id:
             {{ track.deezer_id || '—' }}</span
@@ -98,7 +97,7 @@
             </button>
           </template>
         </div>
-      </div>
+      </AdminCard>
 
       <RelBlock
         v-if="track.radar_appearances.length"
@@ -155,11 +154,10 @@ import AppearRow from '../components/AppearRow.vue'
 import InLibBadge from '../components/InLibBadge.vue'
 import StyleTag from '../components/StyleTag.vue'
 import HeroPlayer from '../components/HeroPlayer.vue'
-import { useAuthStore } from '../stores/auth.js'
+import AdminCard from '../components/AdminCard.vue'
 import { fmtMs, fmtBpm, fmtDate } from '../utils/format'
 
 const route = useRoute()
-const auth = useAuthStore()
 const track = ref(null)
 const loading = ref(true)
 const enriching = ref(false)
@@ -304,23 +302,11 @@ onMounted(async () => {
 }
 
 /* Admin card */
-.admin-card {
-  margin: 16px 0;
-  padding: 14px 18px;
-  background: var(--surface);
-  border: 1px solid var(--warn-ink);
-  border-radius: var(--r-sm);
-}
 .admin-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-}
-.admin-label {
-  font: 600 11px/1 var(--font-mono);
-  text-transform: uppercase;
-  color: var(--warn-ink);
 }
 .mono {
   font-family: var(--font-mono);

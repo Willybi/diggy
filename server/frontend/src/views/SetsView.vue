@@ -12,23 +12,16 @@
         </div>
       </div>
       <div class="head-tools">
-        <label class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.2-3.2" stroke-linecap="round" />
-          </svg>
-          <input v-model="search" type="text" placeholder="Rechercher…" @input="onSearch" />
-        </label>
-        <div class="filterseg">
-          <button :class="{ on: mode === 'all' }" @click="mode = 'all'">Tous</button>
-          <button class="liked" :class="{ on: mode === 'liked' }" @click="mode = 'liked'">
-            Liked
-          </button>
-          <button class="disliked" :class="{ on: mode === 'disliked' }" @click="mode = 'disliked'">
-            Disliked
-          </button>
-          <button :class="{ on: mode === 'unrated' }" @click="mode = 'unrated'">À explorer</button>
-        </div>
+        <SearchBox v-model="search" placeholder="Rechercher…" @update:modelValue="fetchSets" />
+        <SegFilter
+          v-model="mode"
+          :options="[
+            { value: 'all', label: 'Tous' },
+            { value: 'liked', label: 'Liked', cls: 'liked' },
+            { value: 'disliked', label: 'Disliked', cls: 'disliked' },
+            { value: 'unrated', label: 'À explorer' },
+          ]"
+        />
         <button class="btn-add" :class="{ cancel: showForm }" @click="toggleForm">
           <span v-if="!showForm" class="plus">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -207,29 +200,7 @@
               <span class="detect">{{ fmtDate(s.played_date) }}</span>
             </td>
             <td class="num">
-              <span
-                class="ring"
-                :class="ringClass(s.identified_tracks, s.total_tracks)"
-                :title="`${s.identified_tracks} / ${s.total_tracks} tracks identifiées`"
-              >
-                <template v-if="ringPct(s.identified_tracks, s.total_tracks) >= 100">
-                  <span class="chk"
-                    ><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg
-                  ></span>
-                </template>
-                <svg v-else viewBox="0 0 30 30">
-                  <circle class="bg" cx="15" cy="15" :r="R" />
-                  <circle
-                    class="fg"
-                    cx="15"
-                    cy="15"
-                    :r="R"
-                    :stroke-dasharray="C.toFixed(1)"
-                    :stroke-dashoffset="ringOffset(s.identified_tracks, s.total_tracks)"
-                  />
-                </svg>
-                <span class="pct">{{ ringPct(s.identified_tracks, s.total_tracks) }}%</span>
-              </span>
+              <RingPct :value="s.identified_tracks" :total="s.total_tracks" />
             </td>
             <td class="num col-dur">
               <span class="td-dur">{{ fmtMs(s.duration_ms) }}</span>
@@ -254,6 +225,9 @@ import { useRouter } from 'vue-router'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { fmtMs, fmtDate } from '../utils/format'
 import LikeDislike from '../components/LikeDislike.vue'
+import SearchBox from '../components/SearchBox.vue'
+import SegFilter from '../components/SegFilter.vue'
+import RingPct from '../components/RingPct.vue'
 
 const router = useRouter()
 const opinions = useOpinionsStore()
@@ -267,8 +241,6 @@ const addMode = ref('search')
 const importUrl = ref('')
 const formError = ref('')
 const importing = ref(false)
-let debounceTimer = null
-
 // TrackID search
 const tdQuery = ref('')
 const tdResults = ref([])
@@ -277,26 +249,6 @@ const tdSearching = ref(false)
 // Sort
 const sortKey = ref('date')
 const sortDir = ref('desc')
-
-// Ring constants
-const R = 13
-const C = 2 * Math.PI * R
-
-function ringPct(ident, total) {
-  return total ? Math.round((ident / total) * 100) : 0
-}
-
-function ringOffset(ident, total) {
-  const p = ringPct(ident, total)
-  return (C * (1 - p / 100)).toFixed(1)
-}
-
-function ringClass(ident, total) {
-  const p = ringPct(ident, total)
-  if (p >= 100) return 'done'
-  if (p >= 60) return 'mid'
-  return 'low'
-}
 
 function toggleSort(key) {
   if (sortKey.value === key) {
@@ -361,11 +313,6 @@ async function fetchSets() {
   } finally {
     loading.value = false
   }
-}
-
-function onSearch() {
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(fetchSets, 300)
 }
 
 async function doTrackIDSearch() {
@@ -464,69 +411,6 @@ onMounted(fetchSets)
   align-items: center;
   gap: 9px;
   flex-wrap: wrap;
-}
-
-/* ============ SEARCH ============ */
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  padding: 0 12px;
-  height: 38px;
-  min-width: 230px;
-}
-.search svg {
-  width: 16px;
-  height: 16px;
-  color: var(--ink-3);
-  flex: none;
-}
-.search input {
-  border: 0;
-  background: transparent;
-  outline: none;
-  width: 100%;
-  font: 400 14px var(--font-ui);
-  color: var(--ink);
-}
-.search input::placeholder {
-  color: var(--ink-3);
-}
-
-/* ============ FILTER SEG ============ */
-.filterseg {
-  display: flex;
-  gap: 2px;
-  background: var(--surface-2);
-  padding: 3px;
-  border-radius: var(--r-sm);
-}
-.filterseg button {
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
-  padding: 8px 14px;
-  border-radius: var(--r-xs);
-  cursor: pointer;
-}
-.filterseg button:hover {
-  color: var(--ink);
-}
-.filterseg button.on {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.filterseg button.liked.on {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
-}
-.filterseg button.disliked.on {
-  background: var(--neg-soft);
-  color: var(--neg-ink);
 }
 
 /* ============ BTN ADD ============ */
@@ -891,69 +775,6 @@ table.tt td {
   color: var(--ink-2);
 }
 
-/* ============ RING (tracks identifiées donut) ============ */
-.ring {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-}
-.ring svg {
-  width: 30px;
-  height: 30px;
-  transform: rotate(-90deg);
-  flex: none;
-}
-.ring .bg {
-  fill: none;
-  stroke: var(--surface-3);
-  stroke-width: 3.4;
-}
-.ring .fg {
-  fill: none;
-  stroke-width: 3.4;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 0.4s ease;
-}
-.ring.mid .fg {
-  stroke: var(--accent);
-}
-.ring.low .fg {
-  stroke: var(--warn);
-}
-.ring .pct {
-  font: 600 12.5px var(--font-mono);
-  color: var(--ink-2);
-  min-width: 34px;
-}
-.ring.done .chk {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--surface-2);
-  color: var(--ink-3);
-}
-.ring.done .chk svg {
-  width: 13px;
-  height: 13px;
-  transform: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.ring.done .pct {
-  color: var(--ink-3);
-}
-.ring.mid .pct {
-  color: var(--accent-ink);
-}
-.ring.low .pct {
-  color: var(--warn-ink);
-}
-
 /* ============ AVIS: hover-reveal LikeDislike ============ */
 .td-avis :deep(.ld-btn) {
   opacity: 0;
@@ -1010,7 +831,7 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
   }
 }
 @container (max-width: 600px) {
-  .ring .pct {
+  :deep(.ring) .pct {
     display: none;
   }
   .page-head,

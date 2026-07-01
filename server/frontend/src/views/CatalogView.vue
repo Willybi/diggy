@@ -9,13 +9,7 @@
         <div class="sub" v-else>{{ total }} détectées</div>
       </div>
       <div class="head-tools">
-        <label class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.2-3.2" stroke-linecap="round" />
-          </svg>
-          <input v-model="search" type="text" placeholder="Artiste ou titre…" @input="onSearch" />
-        </label>
+        <SearchBox v-model="search" placeholder="Artiste ou titre…" @update:modelValue="onSearch" />
         <button class="chip" :class="{ on: notInLib }" @click="toggleNotInLib">
           <span class="sw"></span>Pas dans RB
         </button>
@@ -335,6 +329,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import api from '../utils/api.js'
+import SearchBox from '../components/SearchBox.vue'
 import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
 import LikeDislike from '../components/LikeDislike.vue'
@@ -384,7 +379,6 @@ function setInLib(val) {
   sessionStorage.setItem('catalog_inlib', String(val))
 }
 
-let searchTimer = null
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
 function fmtRelative(iso) {
@@ -474,11 +468,8 @@ function toggleRadarMin2() {
 }
 
 function onSearch() {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => {
-    page.value = 1
-    fetchPage()
-  }, 250)
+  page.value = 1
+  fetchPage()
 }
 
 function doSort(key) {
@@ -578,36 +569,6 @@ watch(
   gap: 9px;
   flex-wrap: wrap;
   justify-content: flex-end;
-}
-
-/* ============ SEARCH ============ */
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  padding: 0 12px;
-  height: 38px;
-  min-width: 230px;
-}
-.search svg {
-  width: 16px;
-  height: 16px;
-  color: var(--ink-3);
-  flex: none;
-}
-.search input {
-  border: 0;
-  background: transparent;
-  outline: none;
-  width: 100%;
-  font: 400 14px var(--font-ui);
-  color: var(--ink);
-}
-.search input::placeholder {
-  color: var(--ink-3);
 }
 
 /* ============ CHIPS ============ */
@@ -1123,7 +1084,7 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
     margin-left: 0;
     justify-content: flex-start;
   }
-  .search {
+  :deep(.search) {
     flex: 1;
     min-width: 0;
   }
