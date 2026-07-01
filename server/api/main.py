@@ -75,7 +75,6 @@ app.include_router(collections.router, prefix="/api")
 
 @app.get("/api/health")
 async def health():
-    import redis.asyncio as aioredis
     from sqlalchemy import text
 
     checks = {"db": "ok", "redis": "ok"}
@@ -87,10 +86,13 @@ async def health():
         checks["db"] = "error"
 
     try:
+        import redis.asyncio as aioredis
         redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
         r = aioredis.from_url(redis_url)
         await r.ping()
         await r.aclose()
+    except ImportError:
+        checks["redis"] = "skip"
     except Exception:
         checks["redis"] = "error"
 
