@@ -4,6 +4,7 @@
 > - `ROADMAP_2026-06.md` — audit technique T1-T6, chantiers C1-C13 (100% fait)
 > - `ROADMAP_MULTIUSER.md` — phases 0-7 multi-user (100% fait)
 > - F2 HTTPS — domaine `diggy-music.fr`, Let's Encrypt, certbot auto-renew (100% fait)
+> - F3 Google OAuth — remplacement email/password par Google OAuth unique (100% fait)
 
 ---
 
@@ -32,13 +33,16 @@
 Visualisation des connexions entre artistes (sets, feats, playlists).
 Necessite L2. Stack envisagee : D3.js ou vue-flow.
 
-### F3 — Google OAuth
+### F3 — Google OAuth ✅
 
-Connexion via compte Google en alternative au login email/password.
-- Google Cloud Console : projet + ecran de consentement OAuth
-- Redirect URI : `https://diggy-music.fr/api/auth/google/callback`
-- Backend : endpoint callback, creation/liaison de compte, JWT
-- Frontend : bouton "Se connecter avec Google" sur LoginView
+- [x] Remplacement complet email/password par Google OAuth (seule methode)
+- [x] Google Cloud Console : projet + ecran de consentement OAuth
+- [x] Backend : `GET /google/login` + `GET /google/callback` avec CSRF cookie httponly
+- [x] Page HTML intermediaire (token jamais dans l'URL)
+- [x] Migration 0024 : drop `hashed_password`, add `google_id` + `picture_url`, purge users
+- [x] Frontend : bouton unique "Se connecter avec Google" sur LoginView
+- [x] bcrypt supprime, `google-auth` ajoute
+- [x] Tests adaptes (378 passed)
 
 ### F4 — Design Realignment (vagues 3-5)
 
