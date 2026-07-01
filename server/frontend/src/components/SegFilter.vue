@@ -51,4 +51,8 @@ const emit = defineEmits(['update:modelValue'])
   background: var(--neg-soft);
   color: var(--neg-ink);
 }
+.filterseg button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 </style>

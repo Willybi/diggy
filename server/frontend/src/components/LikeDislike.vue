@@ -3,6 +3,7 @@
     <button
       class="ld-btn like"
       title="J'aime"
+      aria-label="Aimer"
       :aria-pressed="state === 'liked'"
       @click.stop.prevent="toggle('liked')"
     >
@@ -15,6 +16,7 @@
     <button
       class="ld-btn dislike"
       title="Je n'aime pas"
+      aria-label="Ne pas aimer"
       :aria-pressed="state === 'disliked'"
       @click.stop.prevent="toggle('disliked')"
     >

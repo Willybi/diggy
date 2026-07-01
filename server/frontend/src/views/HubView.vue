@@ -72,7 +72,12 @@
             @focus="inputFocused = true"
             @blur="inputFocused = false"
           />
-          <button v-if="query" class="clear-q" @click="clearSearch">
+          <button
+            v-if="query"
+            class="clear-q"
+            aria-label="Effacer la recherche"
+            @click="clearSearch"
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
             </svg>
@@ -109,7 +114,7 @@
       </div>
 
       <!-- results -->
-      <div v-if="!isEmpty" class="results">
+      <div v-if="!isEmpty" class="results" aria-live="polite">
         <div class="results-head">
           <span class="rc"
             ><b>{{ total }}</b> résultat{{ total > 1 ? 's' : '' }} pour « {{ query }} »</span
@@ -180,7 +185,12 @@
               <!-- lib zone (logged in only) -->
               <div v-if="auth.isAuthenticated && item.type === 'track'" class="rlib">
                 <span v-if="item.in_lib" class="enbib"><span class="d"></span>EN BIB</span>
-                <button v-else class="r-add" title="Ajouter à la bib">
+                <button
+                  v-else
+                  class="r-add"
+                  title="Ajouter à la bib"
+                  aria-label="Ajouter à la bibliothèque"
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 5v14M5 12h14" stroke-linecap="round" />
                   </svg>

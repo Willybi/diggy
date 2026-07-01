@@ -1,18 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import HubView from './views/HubView.vue'
-import GenresView from './views/GenresView.vue'
-import GenreDetailView from './views/GenreDetailView.vue'
-import CatalogView from './views/CatalogView.vue'
-import WatchlistView from './views/WatchlistView.vue'
-import TrackDetailView from './views/TrackDetailView.vue'
-import ArtistDetailView from './views/ArtistDetailView.vue'
-import SetDetailView from './views/SetDetailView.vue'
-import PlaylistDetailView from './views/PlaylistDetailView.vue'
-import ArtistsView from './views/ArtistsView.vue'
-import SetsView from './views/SetsView.vue'
-import AdminView from './views/AdminView.vue'
-import LoginView from './views/LoginView.vue'
+
+const GenresView = () => import('./views/GenresView.vue')
+const GenreDetailView = () => import('./views/GenreDetailView.vue')
+const CatalogView = () => import('./views/CatalogView.vue')
+const WatchlistView = () => import('./views/WatchlistView.vue')
+const TrackDetailView = () => import('./views/TrackDetailView.vue')
+const ArtistDetailView = () => import('./views/ArtistDetailView.vue')
+const SetDetailView = () => import('./views/SetDetailView.vue')
+const PlaylistDetailView = () => import('./views/PlaylistDetailView.vue')
+const ArtistsView = () => import('./views/ArtistsView.vue')
+const SetsView = () => import('./views/SetsView.vue')
+const AdminView = () => import('./views/AdminView.vue')
+const LoginView = () => import('./views/LoginView.vue')
 
 const routes = [
   { path: '/', component: HubView, meta: { public: true } },

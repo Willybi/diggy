@@ -1,8 +1,9 @@
 <template>
   <div class="app-container">
+    <a href="#main-content" class="skip-link">Aller au contenu</a>
     <div class="app-shell" :class="{ 'no-sidebar': !auth.isAuthenticated }">
       <SidebarNav v-if="auth.isAuthenticated" class="app-sidebar" />
-      <main class="app-main" :class="{ 'has-player': player.visible }">
+      <main id="main-content" class="app-main" :class="{ 'has-player': player.visible }">
         <RouterView />
       </main>
     </div>
@@ -73,6 +74,24 @@ body {
   .player-leave-to {
     transform: none;
   }
+}
+</style>
+
+<style>
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: var(--r-sm);
+  font: 500 14px var(--font-ui);
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 8px;
 }
 </style>
 

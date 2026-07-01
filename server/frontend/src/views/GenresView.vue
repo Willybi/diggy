@@ -47,13 +47,13 @@
     <FamilyChips v-model="familyFilter" :counts="familyCounts" />
 
     <!-- Genre grid -->
-    <div v-if="loading && !items.length" class="genre-grid">
+    <div v-if="loading && !items.length" class="genre-grid" aria-live="polite">
       <SkeletonGrid />
     </div>
 
     <div v-else-if="!displayItems.length && !loading" class="empty">Aucun genre ne correspond.</div>
 
-    <div v-else class="genre-grid">
+    <div v-else class="genre-grid" aria-live="polite">
       <GenreCard v-for="g in displayItems" :key="g.name" :genre="g" />
     </div>
 

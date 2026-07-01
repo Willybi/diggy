@@ -112,4 +112,8 @@ const chips = computed(() => {
   background: var(--ink-3);
   box-shadow: 0 0 0 1px oklch(0 0 0 / 0.08);
 }
+.fam-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 </style>
