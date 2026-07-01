@@ -18,7 +18,7 @@
 ```
  #    Chantier                           Priorite    Estimation   Statut
 ────  ─────────────────────────────────  ──────────  ──────────   ──────
- S1   Securite & Hardening              CRITIQUE    1-2 jours    A FAIRE
+ S1   Securite & Hardening              CRITIQUE    1-2 jours    TERMINE
  S2   Qualite & CI Pipeline             CRITIQUE    2-3 jours    A FAIRE
  A1   Service Layer Backend             HAUT        5-7 jours    A FAIRE
  A2   Refactor Workers                  HAUT        3-5 jours    A FAIRE
@@ -36,7 +36,7 @@
 ### Dependances
 
 ```
-S1 ──────────────> Tout (prerequis securite)
+S1 ──────────────> Tout (prerequis securite) ✅ TERMINE
 S2 ──────────────> A1, A2 (refactors securises par CI)
 A1 (services) ──> D2, D3 (endpoints genres/search)
 D1 (FIX) ───────> D2, D4, D5 (base propre)
@@ -57,12 +57,13 @@ D5 (kit) ───────> D2, D3, D4 (composants reutilisables)
 
 ---
 
-## S1 — Securite & Hardening
+## S1 — Securite & Hardening ✅
 
 **Equipe : Platform / DevOps**
 **Priorite : CRITIQUE — Semaine 1**
 **Estimation : 1-2 jours**
 **Depend de : rien**
+**Statut : TERMINE**
 
 ### Contexte
 
@@ -74,7 +75,7 @@ les anciens secrets en clair. Plusieurs autres points de hardening sont necessai
 
 #### Critique
 
-- [ ] **Scrub git history** : supprimer `.env` de tout l'historique
+- [x] **Scrub git history** : supprimer `.env` de tout l'historique
   ```bash
   pip install git-filter-repo
   git filter-repo --path .env --invert-paths
@@ -83,14 +84,14 @@ les anciens secrets en clair. Plusieurs autres points de hardening sont necessai
   - Apres : tous les contributeurs doivent re-cloner le repo
   - Verifier : `git log --all --full-history -- ".env"` → vide
 
-- [ ] **Chiffrer les backups** : ajouter `gpg -c` dans `server/scripts/backup.sh`
+- [x] **Chiffrer les backups** : ajouter `gpg -c` dans `server/scripts/backup.sh`
   - Ajouter `BACKUP_ENCRYPTION_KEY` dans `.env` VPS
   - Chiffrer le dump : `pg_dump ... | gzip | gpg --batch --passphrase "$BACKUP_ENCRYPTION_KEY" -c > backup.sql.gz.gpg`
   - Verifier le restore : `gpg --batch --passphrase "$KEY" -d backup.sql.gz.gpg | gunzip | psql`
 
 #### Haut
 
-- [ ] **Rate limiting OAuth callback** : ajouter `/api/auth/google/callback` dans `rate_limit.py`
+- [x] **Rate limiting OAuth callback** : ajouter `/api/auth/google/callback` dans `rate_limit.py`
   ```python
   RATE_LIMITS = {
       ...
@@ -98,14 +99,14 @@ les anciens secrets en clair. Plusieurs autres points de hardening sont necessai
   }
   ```
 
-- [ ] **Restreindre MinIO console** : bloquer `/minio/` dans Nginx
+- [x] **Restreindre MinIO console** : bloquer `/minio/` dans Nginx
   ```nginx
   location /minio/ {
       return 403;
   }
   ```
 
-- [ ] **Automatiser certbot renewal** : hook post-renewal dans `docker-compose.ssl.yml`
+- [x] **Automatiser certbot renewal** : hook post-renewal dans `docker-compose.ssl.yml`
   ```yaml
   certbot:
     entrypoint: >
@@ -113,14 +114,14 @@ les anciens secrets en clair. Plusieurs autres points de hardening sont necessai
       while :; do certbot renew --deploy-hook "nginx -s reload" && sleep 12h; done'
   ```
 
-- [ ] **Ajouter CSP header Nginx** :
+- [x] **Ajouter CSP header Nginx** :
   ```nginx
   add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:;" always;
   ```
 
 #### Moyen
 
-- [ ] **Beat schedule persistant** : ajouter volume Docker pour le fichier schedule Celery Beat
+- [x] **Beat schedule persistant** : ajouter volume Docker pour le fichier schedule Celery Beat
   ```yaml
   beat:
     volumes:
@@ -130,7 +131,7 @@ les anciens secrets en clair. Plusieurs autres points de hardening sont necessai
     beat_schedule:
   ```
 
-- [ ] **Connection pool SQLAlchemy** : configurer dans `database.py`
+- [x] **Connection pool SQLAlchemy** : configurer dans `database.py`
   ```python
   engine = create_async_engine(
       DATABASE_URL,
@@ -140,7 +141,7 @@ les anciens secrets en clair. Plusieurs autres points de hardening sont necessai
   )
   ```
 
-- [ ] **Audit logging admin** : table `admin_audit_log(id, user_id, action, target_type, target_id, details, created_at)` pour tracer les actions destructrices (merge artistes, delete set, rename genre, etc.)
+- [x] **Audit logging admin** : table `admin_audit_log(id, user_id, action, target_type, target_id, details, created_at)` pour tracer les actions destructrices (merge artistes, delete set, rename genre, etc.)
 
 ### Definition of Done
 
