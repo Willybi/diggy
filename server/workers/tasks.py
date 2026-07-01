@@ -579,6 +579,7 @@ def sync_artists(self):
     created = 0
     flagged = 0
     skipped = 0
+    linked = 0
 
     # Collect names needing Deezer disambiguation
     needs_deezer = []  # list of (raw_string, tokens, rule_type)
@@ -775,11 +776,74 @@ def sync_artists(self):
                 logger.exception("Deezer artist disambiguation failed")
                 raise
 
+        # Phase C: link catalog entries to artists via catalog_artists
+        from models import CatalogArtist
+        linked = 0
+        with Session(engine) as session:
+            # Reload known artists + aliases
+            known_artists = {r[0]: r[1] for r in session.execute(
+                select(Artist.normalized_name, Artist.id)
+            ).all()}
+            alias_map = {r[0]: r[1] for r in session.execute(
+                select(ArtistAlias.normalized_alias, ArtistAlias.artist_id)
+            ).all()}
+            # Merge: alias -> artist_id (artists take priority)
+            lookup = {**alias_map, **{n: aid for n, aid in known_artists.items()}}
+
+            # Find catalog entries without any catalog_artists link
+            from sqlalchemy import exists as sa_exists
+            unlinked = session.execute(
+                select(CatalogEntry.id, CatalogEntry.artist)
+                .where(CatalogEntry.artist.isnot(None))
+                .where(~sa_exists(
+                    select(CatalogArtist.catalog_id)
+                    .where(CatalogArtist.catalog_id == CatalogEntry.id)
+                ))
+            ).all()
+
+            seen = set()
+            batch = 0
+            for cat_id, raw in unlinked:
+                if not raw or not raw.strip():
+                    continue
+                raw = raw.strip()
+                parts = []
+                if FEAT_RE.search(raw):
+                    tokens = [p.strip() for p in FEAT_RE.split(raw) if p.strip()]
+                    for i, token in enumerate(tokens):
+                        parts.append((token, "primary" if i == 0 else "featured", i))
+                elif "," in raw:
+                    tokens = [p.strip() for p in raw.split(",") if p.strip()]
+                    for i, token in enumerate(tokens):
+                        parts.append((token, "primary", i))
+                elif " & " in raw:
+                    tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
+                    for i, token in enumerate(tokens):
+                        parts.append((token, "primary", i))
+                else:
+                    parts.append((raw, "primary", 0))
+
+                for name, role, position in parts:
+                    artist_id = lookup.get(normalize(name))
+                    if artist_id and (cat_id, artist_id) not in seen:
+                        session.add(CatalogArtist(
+                            catalog_id=cat_id, artist_id=artist_id,
+                            role=role, position=position,
+                        ))
+                        seen.add((cat_id, artist_id))
+                        linked += 1
+                        batch += 1
+                        if batch % 100 == 0:
+                            session.commit()
+
+            session.commit()
+        logger.info("Phase C: linked %d catalog-artist pairs", linked)
+
     except Exception as exc:
         _clog_exc = exc
         raise
     finally:
-        result = {"created": created, "flagged": flagged, "skipped": skipped}
+        result = {"created": created, "flagged": flagged, "skipped": skipped, "linked": linked}
         _clog.set_stats(result)
         if _clog_exc:
             _clog.__exit__(type(_clog_exc), _clog_exc, _clog_exc.__traceback__)

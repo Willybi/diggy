@@ -68,7 +68,7 @@
                 <td class="mt-track">
                   <RouterLink :to="`/catalog/${t.catalog_id}`" class="mt-link">
                     <span class="mt-title">{{ t.title }}</span>
-                    <span class="mt-artist">{{ t.artist || '—' }}</span>
+                    <span class="mt-artist"><ArtistLinks :artists="t.artists" :fallback="t.artist || '—'" /></span>
                   </RouterLink>
                 </td>
                 <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
@@ -101,6 +101,7 @@ import api from '../utils/api.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
+import ArtistLinks from '../components/ArtistLinks.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useAuthStore } from '../stores/auth.js'
 import { fmtBpm, fmtMs, fmtDate } from '../utils/format'

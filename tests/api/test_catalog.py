@@ -1,7 +1,7 @@
 """Tests for /api/catalog endpoints."""
 from datetime import datetime, timezone
 
-from models import CatalogEntry, UserTrack, Artist, RadarTrack, WatchedEntity, SetTrack, DJSet
+from models import CatalogEntry, CatalogArtist, UserTrack, Artist, RadarTrack, WatchedEntity, SetTrack, DJSet
 
 
 class TestListCatalog:
@@ -141,11 +141,19 @@ class TestCatalogSearchByArtist:
 
 class TestCatalogDetailEnriched:
     async def test_detail_includes_same_artist_tracks(self, client, db):
+        a = Artist(name="CamelPhat", normalized_name="camelphat")
         cat1 = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")
         cat2 = CatalogEntry(title="Breathe", artist="CamelPhat", normalized_key="breathe - camelphat")
-        db.add_all([cat1, cat2])
+        db.add_all([a, cat1, cat2])
         await db.commit()
+        await db.refresh(a)
         await db.refresh(cat1)
+        await db.refresh(cat2)
+        db.add_all([
+            CatalogArtist(catalog_id=cat1.id, artist_id=a.id, role="primary", position=0),
+            CatalogArtist(catalog_id=cat2.id, artist_id=a.id, role="primary", position=0),
+        ])
+        await db.commit()
 
         r = await client.get(f"/api/catalog/{cat1.id}")
         data = r.json()
@@ -188,16 +196,21 @@ class TestCatalogDetailEnriched:
         assert data["set_appearances"][0]["set_title"] == "My Set"
 
     async def test_list_includes_artist_id(self, client, db):
-        """The list endpoint should resolve artist_id via batch lookup."""
+        """The list endpoint should resolve artist_id via catalog_artists."""
         a = Artist(name="CamelPhat", normalized_name="camelphat")
         cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")
         db.add_all([a, cat])
         await db.commit()
         await db.refresh(a)
+        await db.refresh(cat)
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        await db.commit()
 
         r = await client.get("/api/catalog/")
         data = r.json()
         assert data["items"][0].get("artist_id") == a.id
+        assert len(data["items"][0].get("artists", [])) == 1
+        assert data["items"][0]["artists"][0]["name"] == "CamelPhat"
 
 
 class TestCatalogAvis:

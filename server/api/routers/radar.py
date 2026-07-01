@@ -9,7 +9,7 @@ from sqlalchemy.orm import aliased
 from catalog import get_or_create_catalog
 from database import get_db
 from dependencies import get_current_user
-from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, User, RadarTrend
+from models import RadarTrack, WatchedEntity, UserTrack, UserRadarState, CatalogEntry, CatalogArtist, Artist, User, RadarTrend
 from opinion_sync import sync_track_opinion, RADAR_TO_OPINION
 from schemas import (
     RadarTrackIn,
@@ -18,6 +18,7 @@ from schemas import (
     RadarFullList,
     RadarStateUpdate,
     RadarBatchItem,
+    ArtistRef,
 )
 
 router = APIRouter(prefix="/radar", tags=["radar"])
@@ -164,6 +165,27 @@ async def list_radar_full(
     base = base.offset(skip).limit(limit)
     result = await db.execute(base)
     items = [RadarFullOut.model_validate(row._mapping) for row in result]
+
+    # Batch-fetch linked artists for the page's entries
+    from collections import defaultdict
+    page_cat_ids = [item.catalog_id for item in items]
+    if page_cat_ids:
+        ca_result = await db.execute(
+            select(
+                CatalogArtist.catalog_id, Artist.id, Artist.name,
+                CatalogArtist.role, Artist.has_artwork,
+            )
+            .join(Artist, Artist.id == CatalogArtist.artist_id)
+            .where(CatalogArtist.catalog_id.in_(page_cat_ids))
+            .order_by(CatalogArtist.catalog_id, CatalogArtist.position)
+        )
+        artists_by_catalog: dict[int, list[ArtistRef]] = defaultdict(list)
+        for ca_cid, a_id, a_name, a_role, a_art in ca_result.all():
+            artists_by_catalog[ca_cid].append(
+                ArtistRef(id=a_id, name=a_name, role=a_role, has_artwork=a_art)
+            )
+        for item in items:
+            item.artists = artists_by_catalog.get(item.catalog_id, [])
 
     return RadarFullList(total=total, items=items, counts=counts)
 

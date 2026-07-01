@@ -182,6 +182,57 @@ def search_deezer(artist: str | None, title: str | None, client: httpx.Client | 
     return None
 
 
+def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
+    """Link a Deezer artist from a search hit to a catalog entry via catalog_artists.
+
+    Uses synchronous session (for Celery tasks).
+    Creates the Artist if it doesn't exist, then inserts CatalogArtist link.
+    """
+    from sqlalchemy import select as sa_select
+    from models import Artist, CatalogArtist
+    from utils import normalize
+
+    dz_artist = hit.get("artist") or {}
+    artist_name = dz_artist.get("name")
+    dz_artist_id = str(dz_artist.get("id", "")) if dz_artist.get("id") else None
+    if not artist_name:
+        return
+
+    norm = normalize(artist_name)
+    artist = session.execute(
+        sa_select(Artist).where(Artist.normalized_name == norm)
+    ).scalar_one_or_none()
+
+    if not artist:
+        # Check aliases
+        from models import ArtistAlias
+        alias = session.execute(
+            sa_select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
+        ).scalar_one_or_none()
+        if alias:
+            artist = session.get(Artist, alias.artist_id)
+
+    if not artist:
+        from datetime import datetime, timezone
+        artist = Artist(name=artist_name, normalized_name=norm, created_at=datetime.now(timezone.utc))
+        if dz_artist_id:
+            artist.deezer_id = dz_artist_id
+        session.add(artist)
+        session.flush()
+
+    # Check if link already exists
+    existing = session.execute(
+        sa_select(CatalogArtist)
+        .where(CatalogArtist.catalog_id == catalog_id, CatalogArtist.artist_id == artist.id)
+    ).scalar_one_or_none()
+
+    if not existing:
+        session.add(CatalogArtist(
+            catalog_id=catalog_id, artist_id=artist.id,
+            role="primary", position=0,
+        ))
+
+
 def upload_image_bytes_to_bucket(s3, img_data: bytes, key: str, bucket: str) -> bool:
     """Upload raw image bytes to a MinIO bucket. Returns True on success."""
     if not img_data or len(img_data) < 1000:  # skip placeholder images

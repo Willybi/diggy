@@ -1,14 +1,14 @@
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Float, Numeric, func, select, text, union_all
+from sqlalchemy import Float, Numeric, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
 from dependencies import get_current_user_optional, uid as _uid
 from models import (
-    Artist, ArtistAlias, CatalogEntry, UserTrack,
+    Artist, CatalogEntry, CatalogArtist, UserTrack,
     DJSet, SetArtist, SetTrack, User, UserRadarState,
 )
 from routers.genres import genre_pillar, _ALL_PILLARS, _ensure_pillar_cache
@@ -36,13 +36,7 @@ async def list_artists(
     await _ensure_pillar_cache(db)
     empty = {"items": [], "total": 0, "pillarCounts": {p: 0 for p in _ALL_PILLARS}}
 
-    # -- name_map: artist_id -> all lowercase name variants --
-    name_map = union_all(
-        select(Artist.id.label("artist_id"), func.lower(Artist.name).label("artist_lower")),
-        select(ArtistAlias.artist_id.label("artist_id"), func.lower(ArtistAlias.alias).label("artist_lower")),
-    ).subquery("name_map")
-
-    # -- stats per artist_id via SQL --
+    # -- stats per artist_id via catalog_artists --
     lib_sub = (
         select(UserTrack.catalog_id, UserTrack.rating)
         .where(UserTrack.user_id == user_id)
@@ -51,26 +45,24 @@ async def list_artists(
 
     stats_sub = (
         select(
-            name_map.c.artist_id,
-            func.count(func.distinct(CatalogEntry.id)).label("nb_catalog"),
+            CatalogArtist.artist_id,
+            func.count(func.distinct(CatalogArtist.catalog_id)).label("nb_catalog"),
             func.count(func.distinct(lib_sub.c.catalog_id)).label("nb_lib"),
             func.avg(lib_sub.c.rating.cast(Float)).label("avg_rating"),
         )
-        .join(CatalogEntry, func.lower(CatalogEntry.artist) == name_map.c.artist_lower)
-        .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
-        .group_by(name_map.c.artist_id)
+        .outerjoin(lib_sub, CatalogArtist.catalog_id == lib_sub.c.catalog_id)
+        .group_by(CatalogArtist.artist_id)
         .subquery()
     )
 
     liked_sub = (
         select(
-            name_map.c.artist_id,
+            CatalogArtist.artist_id,
             func.count(func.distinct(UserRadarState.catalog_id)).label("nb_liked"),
         )
-        .join(CatalogEntry, func.lower(CatalogEntry.artist) == name_map.c.artist_lower)
-        .join(UserRadarState, UserRadarState.catalog_id == CatalogEntry.id)
+        .join(UserRadarState, UserRadarState.catalog_id == CatalogArtist.catalog_id)
         .where(UserRadarState.status == "added", UserRadarState.user_id == user_id)
-        .group_by(name_map.c.artist_id)
+        .group_by(CatalogArtist.artist_id)
         .subquery()
     )
 
@@ -125,20 +117,20 @@ async def list_artists(
     if not all_artist_ids:
         return empty
 
-    # Fetch genres for all matching artists via name_map
+    # Fetch genres for all matching artists via catalog_artists
     genre_col = func.unnest(CatalogEntry.genres).label("genre")
     genre_result = await db.execute(
         select(
-            name_map.c.artist_id,
+            CatalogArtist.artist_id,
             genre_col,
             func.count().label("cnt"),
         )
-        .join(CatalogEntry, func.lower(CatalogEntry.artist) == name_map.c.artist_lower)
+        .join(CatalogEntry, CatalogEntry.id == CatalogArtist.catalog_id)
         .where(
             func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) > 0,
-            name_map.c.artist_id.in_(all_artist_ids),
+            CatalogArtist.artist_id.in_(all_artist_ids),
         )
-        .group_by(name_map.c.artist_id, genre_col)
+        .group_by(CatalogArtist.artist_id, genre_col)
     )
     genre_by_artist: dict[int, dict[str, int]] = defaultdict(dict)
     total_genre_by_artist: dict[int, int] = defaultdict(int)
@@ -200,17 +192,13 @@ async def list_artists(
     if page_ids:
         try:
             aw_result = await db.execute(text("""
-                WITH artist_names AS (
-                    SELECT id AS artist_id, LOWER(name) AS artist_lower FROM artists WHERE id = ANY(:ids)
-                    UNION
-                    SELECT artist_id, LOWER(alias) AS artist_lower FROM artist_aliases WHERE artist_id = ANY(:ids)
-                ),
-                matched AS (
-                    SELECT an.artist_id, c.id AS catalog_id,
-                           ROW_NUMBER() OVER (PARTITION BY an.artist_id ORDER BY c.id DESC) AS rn
-                    FROM artist_names an
-                    JOIN catalog c ON LOWER(c.artist) = an.artist_lower
-                    WHERE c.has_artwork = true
+                WITH matched AS (
+                    SELECT ca.artist_id, c.id AS catalog_id,
+                           ROW_NUMBER() OVER (PARTITION BY ca.artist_id ORDER BY c.id DESC) AS rn
+                    FROM catalog_artists ca
+                    JOIN catalog c ON c.id = ca.catalog_id
+                    WHERE ca.artist_id = ANY(:ids)
+                      AND c.has_artwork = true
                 )
                 SELECT artist_id,
                        COUNT(*)::int AS total_with_artwork,
@@ -256,27 +244,16 @@ async def random_artist_track(
     db: AsyncSession = Depends(get_db),
 ):
     """Return a random previewable catalog entry for the given artist."""
-    # Collect artist name + aliases
-    result = await db.execute(
-        select(Artist).options(selectinload(Artist.aliases)).where(Artist.id == artist_id)
-    )
-    artist = result.scalar_one_or_none()
-    if not artist:
-        raise HTTPException(404, "Artist not found")
-
-    names = [artist.name]
-    for a in artist.aliases:
-        names.append(a.alias)
-
     result = await db.execute(text("""
-        SELECT id, title, artist, bpm, key FROM catalog
-        WHERE LOWER(artist) = ANY(:names)
-          AND has_preview = true
-          AND (:has_exclude = false OR id != :exclude_id)
+        SELECT c.id, c.title, c.artist, c.bpm, c.key FROM catalog c
+        JOIN catalog_artists ca ON ca.catalog_id = c.id
+        WHERE ca.artist_id = :artist_id
+          AND c.has_preview = true
+          AND (:has_exclude = false OR c.id != :exclude_id)
         ORDER BY random()
         LIMIT 1
     """), {
-        "names": [n.lower() for n in names],
+        "artist_id": artist_id,
         "has_exclude": exclude is not None,
         "exclude_id": exclude or 0,
     })
@@ -305,26 +282,7 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
 
-    # Build name match list
-    from sqlalchemy import or_
-
-    # Exact lower-case matches (display names)
-    lower_names = {artist.name.lower()}
-    # Normalized matches (no spaces, no punctuation quirks)
-    norm_names = {artist.normalized_name}
-    for a in artist.aliases:
-        lower_names.add(a.alias.lower())
-        norm_names.add(a.normalized_alias)
-
-    # 2. Catalog tracks matching artist name or aliases
-    # Compare both LOWER(catalog.artist) and stripped version
-    catalog_lower = func.lower(CatalogEntry.artist)
-    catalog_norm = func.replace(catalog_lower, ' ', '')
-    name_filters = (
-        [catalog_lower == n for n in lower_names]
-        + [catalog_norm == n for n in norm_names]
-    )
-
+    # 2. Catalog tracks linked via catalog_artists
     lib_sub = (
         select(
             UserTrack.catalog_id,
@@ -345,8 +303,9 @@ async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
             lib_sub.c.bpm.label("lib_bpm"),
             lib_sub.c.key.label("lib_key"),
         )
+        .join(CatalogArtist, CatalogArtist.catalog_id == CatalogEntry.id)
         .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
-        .where(or_(*name_filters))
+        .where(CatalogArtist.artist_id == artist_id)
         .order_by(lib_sub.c.rating.desc().nulls_last(), CatalogEntry.title)
         .limit(50)
     )

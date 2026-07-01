@@ -17,12 +17,13 @@ CatalogSortField = Literal[
 
 from models import (
     CatalogEntry, UserTrack, UserRadarState, RadarTrack, SetTrack,
-    DJSet, SetArtist, Artist, WatchedEntity, User,
+    DJSet, SetArtist, Artist, CatalogArtist, WatchedEntity, User,
 )
 from opinion_sync import sync_track_opinion
 from schemas import (
     CatalogEntryOut, CatalogList, CatalogDetailOut, CatalogAvisUpdate,
     RadarAppearanceOut, SetAppearanceOut, SameArtistTrackOut, GenreRef,
+    ArtistRef,
 )
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -249,16 +250,24 @@ async def list_catalog(
     result = await db.execute(query.offset(skip).limit(limit))
     rows = result.all()
 
-    # Batch-fetch artist_ids for the page's entries (separate query, avoids cartesian product)
-    page_artists_lower = {row[0].artist.lower() for row in rows if row[0].artist}
-    artist_id_map: dict[str, int] = {}
-    if page_artists_lower:
-        artist_result = await db.execute(
-            select(Artist.id, Artist.normalized_name)
-            .where(Artist.normalized_name.in_(page_artists_lower))
+    # Batch-fetch linked artists for the page's entries via catalog_artists
+    from collections import defaultdict
+    page_ids = [row[0].id for row in rows]
+    artists_by_catalog: dict[int, list[ArtistRef]] = defaultdict(list)
+    if page_ids:
+        ca_result = await db.execute(
+            select(
+                CatalogArtist.catalog_id, Artist.id, Artist.name,
+                CatalogArtist.role, Artist.has_artwork,
+            )
+            .join(Artist, Artist.id == CatalogArtist.artist_id)
+            .where(CatalogArtist.catalog_id.in_(page_ids))
+            .order_by(CatalogArtist.catalog_id, CatalogArtist.position)
         )
-        for aid, aname in artist_result.all():
-            artist_id_map[aname] = aid
+        for ca_cid, a_id, a_name, a_role, a_art in ca_result.all():
+            artists_by_catalog[ca_cid].append(
+                ArtistRef(id=a_id, name=a_name, role=a_role, has_artwork=a_art)
+            )
 
     entries = []
     for row in rows:
@@ -272,7 +281,8 @@ async def list_catalog(
         ut_tags = row[7]
         ut_has_artwork = row[8]
         ut_avis = row[9]
-        art_id = artist_id_map.get(entry.artist.lower()) if entry.artist else None
+        entry_artists = artists_by_catalog.get(entry.id, [])
+        art_id = entry_artists[0].id if entry_artists else None
 
         radar_fields = {}
         if is_radar:
@@ -319,6 +329,7 @@ async def list_catalog(
             rating=ut_rating,
             avis=ut_avis,
             artist_id=art_id,
+            artists=entry_artists,
             **radar_fields,
         )
         entries.append(out)
@@ -402,9 +413,32 @@ async def get_catalog_detail(
         for r in set_result.all()
     ]
 
-    # 5. Same artist tracks
+    # 5. Linked artists for this entry
+    from collections import defaultdict
+    ca_result = await db.execute(
+        select(Artist.id, Artist.name, CatalogArtist.role, Artist.has_artwork)
+        .join(Artist, Artist.id == CatalogArtist.artist_id)
+        .where(CatalogArtist.catalog_id == catalog_id)
+        .order_by(CatalogArtist.position)
+    )
+    entry_artists = [
+        ArtistRef(id=a_id, name=a_name, role=a_role, has_artwork=a_art)
+        for a_id, a_name, a_role, a_art in ca_result.all()
+    ]
+    entry_artist_id = entry_artists[0].id if entry_artists else None
+
+    # 6. Same artist tracks (via catalog_artists: tracks sharing any artist)
     same_artist = []
-    if entry.artist:
+    entry_artist_ids = [a.id for a in entry_artists]
+    if entry_artist_ids:
+        # Find catalog IDs that share at least one artist
+        shared_catalog_ids = (
+            select(CatalogArtist.catalog_id)
+            .where(CatalogArtist.artist_id.in_(entry_artist_ids))
+            .where(CatalogArtist.catalog_id != catalog_id)
+            .distinct()
+            .subquery()
+        )
         sa_ut_sub = (
             select(UserTrack.catalog_id, UserTrack.rating)
             .where(UserTrack.user_id == uid)
@@ -419,18 +453,36 @@ async def get_catalog_detail(
                 sa_ut_sub.c.rating,
             )
             .outerjoin(sa_ut_sub, CatalogEntry.id == sa_ut_sub.c.catalog_id)
-            .where(CatalogEntry.artist.ilike(entry.artist))
-            .where(CatalogEntry.id != catalog_id)
+            .where(CatalogEntry.id.in_(select(shared_catalog_ids.c.catalog_id)))
             .order_by(sa_ut_sub.c.rating.desc().nulls_last())
             .limit(10)
         )
+        # Batch-fetch artists for same-artist tracks
+        sa_rows = sa_result.all()
+        sa_ids = [r[0] for r in sa_rows]
+        sa_artists_map: dict[int, list[ArtistRef]] = defaultdict(list)
+        if sa_ids:
+            sa_ca = await db.execute(
+                select(
+                    CatalogArtist.catalog_id, Artist.id, Artist.name,
+                    CatalogArtist.role, Artist.has_artwork,
+                )
+                .join(Artist, Artist.id == CatalogArtist.artist_id)
+                .where(CatalogArtist.catalog_id.in_(sa_ids))
+                .order_by(CatalogArtist.catalog_id, CatalogArtist.position)
+            )
+            for ca_cid, a_id, a_name, a_role, a_art in sa_ca.all():
+                sa_artists_map[ca_cid].append(
+                    ArtistRef(id=a_id, name=a_name, role=a_role, has_artwork=a_art)
+                )
         same_artist = [
             SameArtistTrackOut(
                 id=r[0], title=r[1], artist=r[2], bpm=r[3], key=r[4],
                 duration_ms=r[5], has_artwork=r[6],
                 in_lib=r[7] is not None, rating=r[8],
+                artists=sa_artists_map.get(r[0], []),
             )
-            for r in sa_result.all()
+            for r in sa_rows
         ]
 
     nb_radar = len(radar_appearances)
@@ -462,6 +514,8 @@ async def get_catalog_detail(
         nb_radar_sets=nb_sets,
         style=lib_style,
         rating=ut_rating,
+        artist_id=entry_artist_id,
+        artists=entry_artists,
         lib_track_id=ut.rekordbox_id if ut else None,
         radar_appearances=radar_appearances,
         set_appearances=set_appearances,

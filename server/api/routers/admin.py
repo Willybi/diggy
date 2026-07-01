@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from celery_client import celery
 from dependencies import require_admin
-from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, CrawlLog, SetArtist, User, WatchedEntity
+from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, CatalogArtist, CrawlLog, SetArtist, User, WatchedEntity
 from utils import normalize
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -349,6 +349,24 @@ async def resolve_flag(
     flag.status = "validated"
     flag.resolved_artist_ids = created_ids
     flag.updated_at = datetime.now(timezone.utc)
+
+    # Link resolved artists to all catalog entries with this raw artist string
+    cat_entries = await db.execute(
+        select(CatalogEntry.id)
+        .where(CatalogEntry.artist == flag.raw_artist_string)
+    )
+    for (cat_id,) in cat_entries.all():
+        for pos, artist_id in enumerate(created_ids):
+            existing_link = await db.execute(
+                select(CatalogArtist)
+                .where(CatalogArtist.catalog_id == cat_id, CatalogArtist.artist_id == artist_id)
+            )
+            if not existing_link.scalar_one_or_none():
+                db.add(CatalogArtist(
+                    catalog_id=cat_id, artist_id=artist_id,
+                    role="primary", position=pos,
+                ))
+
     await db.commit()
     await db.refresh(flag)
     return flag

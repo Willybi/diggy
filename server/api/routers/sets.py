@@ -11,12 +11,12 @@ from celery_client import celery
 from database import get_db
 from dependencies import get_current_user, get_current_user_optional, uid as _uid
 from models import (
-    DJSet, SetTrack, SetArtist, Artist, CatalogEntry, UserTrack,
+    DJSet, SetTrack, SetArtist, Artist, CatalogEntry, CatalogArtist, UserTrack,
     UserSetFollow, UserOpinion, User,
 )
 from schemas import (
     DJSetDetailOut, SetTrackDetailOut, SetArtistDetailOut,
-    SetListItemOut, SetListResponse,
+    SetListItemOut, SetListResponse, ArtistRef,
 )
 
 router = APIRouter(prefix="/sets", tags=["sets"])
@@ -250,7 +250,7 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
         for sa in sorted(dj_set.artist_links, key=lambda x: x.position or 99)
     ]
 
-    # 3. Collect catalog_ids to batch-check lib status
+    # 3. Collect catalog_ids to batch-check lib status + artists
     catalog_ids = [t.catalog_id for t in dj_set.tracks if t.catalog_id]
     lib_set = set()
     if catalog_ids:
@@ -258,6 +258,24 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
             select(UserTrack.catalog_id).where(UserTrack.catalog_id.in_(catalog_ids))
         )
         lib_set = {r[0] for r in lib_result.all()}
+
+    # Batch-fetch linked artists for tracklist
+    from collections import defaultdict
+    track_artists_map: dict[int, list[ArtistRef]] = defaultdict(list)
+    if catalog_ids:
+        ca_result = await db.execute(
+            select(
+                CatalogArtist.catalog_id, Artist.id, Artist.name,
+                CatalogArtist.role, Artist.has_artwork,
+            )
+            .join(Artist, Artist.id == CatalogArtist.artist_id)
+            .where(CatalogArtist.catalog_id.in_(catalog_ids))
+            .order_by(CatalogArtist.catalog_id, CatalogArtist.position)
+        )
+        for ca_cid, a_id, a_name, a_role, a_art in ca_result.all():
+            track_artists_map[ca_cid].append(
+                ArtistRef(id=a_id, name=a_name, role=a_role, has_artwork=a_art)
+            )
 
     # 4. Tracklist
     tracklist = []
@@ -281,6 +299,7 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
             is_id=t.is_id,
             catalog_title=cat.title if cat else None,
             catalog_artist=cat.artist if cat else None,
+            catalog_artists=track_artists_map.get(t.catalog_id, []) if t.catalog_id else [],
             has_artwork=cat.has_artwork if cat else False,
             in_lib=t.catalog_id in lib_set if t.catalog_id else False,
             has_preview=cat.has_preview if cat else False,

@@ -95,7 +95,10 @@
                 <td class="tl-track">
                   <RouterLink v-if="t.catalog_id && !t.is_id" :to="`/catalog/${t.catalog_id}`" class="tl-link">
                     <span class="tl-title">{{ t.catalog_title || t.raw_title }}</span>
-                    <span class="tl-artist">{{ t.catalog_artist || t.raw_artist }}</span>
+                    <span class="tl-artist">
+                      <ArtistLinks v-if="t.catalog_artists?.length" :artists="t.catalog_artists" :fallback="t.catalog_artist || t.raw_artist" />
+                      <template v-else>{{ t.catalog_artist || t.raw_artist }}</template>
+                    </span>
                   </RouterLink>
                   <div v-else>
                     <span class="tl-title">{{ t.is_id ? 'ID' : (t.raw_title || '?') }}</span>
@@ -125,6 +128,7 @@ import RelBlock from '../components/RelBlock.vue'
 import AppearRow from '../components/AppearRow.vue'
 
 import LibDot from '../components/LibDot.vue'
+import ArtistLinks from '../components/ArtistLinks.vue'
 import { useAuthStore } from '../stores/auth.js'
 import { fmtMs, fmtDate, fmtCue } from '../utils/format'
 

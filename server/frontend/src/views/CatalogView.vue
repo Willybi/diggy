@@ -118,10 +118,9 @@
                     <RouterLink :to="`/catalog/${e.id}`" class="tt-title-link">
                       <div class="tt-title">{{ e.title }}</div>
                     </RouterLink>
-                    <RouterLink v-if="e.artist_id" :to="`/artist/${e.artist_id}`" class="tt-art-link">
-                      <div class="tt-art">{{ e.artist }}</div>
-                    </RouterLink>
-                    <div v-else class="tt-art">{{ e.artist }}</div>
+                    <div class="tt-art">
+                      <ArtistLinks :artists="e.artists" :fallback="e.artist" />
+                    </div>
                   </span>
                 </div>
               </td>
@@ -188,6 +187,7 @@ import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import StyleTag from '../components/StyleTag.vue'
+import ArtistLinks from '../components/ArtistLinks.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs } from '../utils/format'
 

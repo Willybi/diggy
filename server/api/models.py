@@ -75,6 +75,7 @@ class Artist(Base):
 
     aliases = relationship("ArtistAlias", back_populates="artist", cascade="all, delete-orphan")
     set_links = relationship("SetArtist", back_populates="artist")
+    catalog_links = relationship("CatalogArtist", back_populates="artist")
 
 
 class ArtistAlias(Base):
@@ -119,6 +120,11 @@ class CatalogEntry(Base):
     needs_reconciliation = Column(Boolean, server_default="false", nullable=True)
     deezer_searched_at = Column(DateTime(timezone=True), nullable=True)
     beatport_searched_at = Column(DateTime(timezone=True), nullable=True)
+
+    artist_links = relationship(
+        "CatalogArtist", back_populates="catalog",
+        cascade="all, delete-orphan",
+    )
 
 
 class UserTrack(Base):
@@ -256,6 +262,18 @@ class SetArtist(Base):
 
     dj_set = relationship("DJSet", back_populates="artist_links")
     artist = relationship("Artist", back_populates="set_links")
+
+
+class CatalogArtist(Base):
+    __tablename__ = "catalog_artists"
+
+    catalog_id = Column(Integer, ForeignKey("catalog.id", ondelete="CASCADE"), primary_key=True)
+    artist_id = Column(Integer, ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True, index=True)
+    role = Column(String(32), nullable=True)
+    position = Column(Integer, nullable=True)
+
+    catalog = relationship("CatalogEntry", back_populates="artist_links")
+    artist = relationship("Artist", back_populates="catalog_links")
 
 
 class SetTrack(Base):

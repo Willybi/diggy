@@ -1,5 +1,5 @@
 """Tests for /api/artists endpoints."""
-from models import Artist, ArtistAlias, CatalogEntry, DJSet, SetArtist
+from models import Artist, ArtistAlias, CatalogEntry, CatalogArtist, DJSet, SetArtist
 
 
 class TestListArtists:
@@ -61,11 +61,13 @@ class TestArtistDetail:
 
     async def test_includes_catalog_tracks(self, client, db):
         a = Artist(name="CamelPhat", normalized_name="camelphat")
-        db.add(a)
         cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")
-        db.add(cat)
+        db.add_all([a, cat])
         await db.commit()
         await db.refresh(a)
+        await db.refresh(cat)
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        await db.commit()
         r = await client.get(f"/api/artists/{a.id}")
         data = r.json()
         assert len(data["catalog_tracks"]) == 1
@@ -102,11 +104,13 @@ class TestArtistDetail:
 
     async def test_detail_stats(self, client, db):
         a = Artist(name="CamelPhat", normalized_name="camelphat")
-        db.add(a)
         cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")
-        db.add(cat)
+        db.add_all([a, cat])
         await db.commit()
         await db.refresh(a)
+        await db.refresh(cat)
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        await db.commit()
 
         r = await client.get(f"/api/artists/{a.id}")
         data = r.json()
@@ -115,14 +119,17 @@ class TestArtistDetail:
         assert data["stats"]["nb_lib"] == 0
 
     async def test_detail_alias_resolves_catalog_tracks(self, client, db):
-        """Artist aliases should also match catalog tracks."""
+        """Tracks linked via catalog_artists show up regardless of alias naming."""
         a = Artist(name="CamelPhat", normalized_name="camelphat")
         db.add(a)
         await db.commit()
         await db.refresh(a)
-        db.add(ArtistAlias(artist_id=a.id, alias="Camel Phat", normalized_alias="camelphat"))
+        db.add(ArtistAlias(artist_id=a.id, alias="Camel Phat", normalized_alias="camel phat"))
         cat = CatalogEntry(title="Track", artist="Camel Phat", normalized_key="track - camel phat")
         db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
         await db.commit()
 
         r = await client.get(f"/api/artists/{a.id}")

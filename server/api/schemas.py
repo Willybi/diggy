@@ -10,6 +10,15 @@ class GenreRef(BaseModel):
     depth: int = 0
 
 
+class ArtistRef(BaseModel):
+    id: int
+    name: str
+    role: Optional[str] = None
+    has_artwork: bool = False
+
+    model_config = {"from_attributes": True}
+
+
 class TrackOut(BaseModel):
     id: int
     title: Optional[str]
@@ -112,6 +121,7 @@ class RadarFullOut(BaseModel):
     catalog_id: int
     title: str
     artist: Optional[str] = None
+    artists: list[ArtistRef] = []
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration_ms: Optional[int] = None
@@ -175,6 +185,7 @@ class CatalogEntryOut(BaseModel):
     nb_radar_sets: int = 0
     avis: Optional[str] = None
     artist_id: Optional[int] = None
+    artists: list[ArtistRef] = []
     # Radar enrichment (view=radar only)
     detected_at: Optional[datetime] = None
     source_name: Optional[str] = None
@@ -222,6 +233,7 @@ class PlaylistTrackOut(BaseModel):
     catalog_id: int
     title: str
     artist: Optional[str] = None
+    artists: list[ArtistRef] = []
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration_ms: Optional[int] = None
@@ -381,6 +393,7 @@ class SameArtistTrackOut(BaseModel):
     id: int
     title: str
     artist: Optional[str] = None
+    artists: list[ArtistRef] = []
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration_ms: Optional[int] = None
@@ -421,6 +434,7 @@ class ArtistDetailOut(ArtistOut):
 class SetTrackDetailOut(SetTrackOut):
     catalog_title: Optional[str] = None
     catalog_artist: Optional[str] = None
+    catalog_artists: list[ArtistRef] = []
     has_artwork: bool = False
     in_lib: bool = False
     has_preview: bool = False
@@ -469,6 +483,7 @@ class CollectionItemOut(BaseModel):
     added_at: Optional[datetime] = None
     title: Optional[str] = None
     artist: Optional[str] = None
+    artists: list[ArtistRef] = []
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration_ms: Optional[int] = None

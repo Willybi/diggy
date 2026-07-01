@@ -195,6 +195,12 @@ async def enrich_deezer_batch(
 
             if await _enrich_entry_async(entry, hit, pool, s3, known_isrcs, session=session):
                 enriched += 1
+                # Link artist from Deezer hit to catalog_artists
+                try:
+                    from deezer_enrich import link_catalog_artist_from_hit
+                    link_catalog_artist_from_hit(session, entry.id, hit)
+                except Exception:
+                    pass  # non-critical, sync_artists will catch up
             entry.deezer_searched_at = now
         except Exception as e:
             logger.warning("Deezer enrich failed for catalog %s: %s", entry.id, e)

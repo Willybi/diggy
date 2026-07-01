@@ -15,7 +15,7 @@
     <!-- Title + Artist -->
     <div class="info">
       <span class="title">{{ track.title }}</span>
-      <span class="artist">{{ track.artist }}</span>
+      <span class="artist"><ArtistLinks :artists="track.artists" :fallback="track.artist" /></span>
     </div>
 
     <!-- BPM -->
@@ -37,6 +37,7 @@ import { computed } from 'vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs } from '../utils/format'
 import LibDot from './LibDot.vue'
+import ArtistLinks from './ArtistLinks.vue'
 
 const props = defineProps({
   track: { type: Object, required: true },

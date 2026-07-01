@@ -10,6 +10,7 @@ from dependencies import get_current_user_optional, uid as _uid
 from models import (
     Artist,
     CatalogEntry,
+    CatalogArtist,
     DJSet,
     SetTrack,
     UserTrack,
@@ -150,45 +151,43 @@ async def _search_artists(
         return [], total
 
     artist_ids = [r.id for r in rows]
-    artist_names = [r.name.lower() for r in rows]
 
-    # batch track counts
+    # batch track counts via catalog_artists
     tc_q = (
         select(
-            func.lower(CatalogEntry.artist).label("aname"),
+            CatalogArtist.artist_id,
             func.count().label("cnt"),
         )
-        .where(func.lower(CatalogEntry.artist).in_(artist_names))
-        .group_by(func.lower(CatalogEntry.artist))
+        .where(CatalogArtist.artist_id.in_(artist_ids))
+        .group_by(CatalogArtist.artist_id)
     )
     tc_rows = (await db.execute(tc_q)).all()
-    tc_map = {r.aname: r.cnt for r in tc_rows}
+    tc_map = {r.artist_id: r.cnt for r in tc_rows}
 
-    # batch in_lib counts
-    lib_map: dict[str, int] = {}
+    # batch in_lib counts via catalog_artists
+    lib_map: dict[int, int] = {}
     if not is_guest:
         lib_q = (
             select(
-                func.lower(CatalogEntry.artist).label("aname"),
+                CatalogArtist.artist_id,
                 func.count().label("cnt"),
             )
-            .join(UserTrack, (UserTrack.catalog_id == CatalogEntry.id) & (UserTrack.user_id == user_id))
-            .where(func.lower(CatalogEntry.artist).in_(artist_names))
-            .group_by(func.lower(CatalogEntry.artist))
+            .join(UserTrack, (UserTrack.catalog_id == CatalogArtist.catalog_id) & (UserTrack.user_id == user_id))
+            .where(CatalogArtist.artist_id.in_(artist_ids))
+            .group_by(CatalogArtist.artist_id)
         )
         lib_rows = (await db.execute(lib_q)).all()
-        lib_map = {r.aname: r.cnt for r in lib_rows}
+        lib_map = {r.artist_id: r.cnt for r in lib_rows}
 
     items: list[SearchItem] = []
     for r in rows:
-        aname = r.name.lower()
         items.append(SearchItem(
             type="artist",
             id=r.id,
             name=r.name,
             has_artwork=r.has_artwork,
-            track_count=tc_map.get(aname, 0),
-            in_lib_count=0 if is_guest else lib_map.get(aname, 0),
+            track_count=tc_map.get(r.id, 0),
+            in_lib_count=0 if is_guest else lib_map.get(r.id, 0),
         ))
     return items, total
 

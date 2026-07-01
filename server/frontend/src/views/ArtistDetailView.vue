@@ -88,7 +88,7 @@
                 <td class="mt-track">
                   <RouterLink :to="`/catalog/${t.id}`" class="mt-link">
                     <span class="mt-title">{{ t.title }}</span>
-                    <span class="mt-artist">{{ t.artist }}</span>
+                    <span class="mt-artist"><ArtistLinks :artists="t.artists" :fallback="t.artist" /></span>
                   </RouterLink>
                 </td>
                 <td class="mt-style">
@@ -135,6 +135,7 @@ import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
 import AppearRow from '../components/AppearRow.vue'
 import StyleTag from '../components/StyleTag.vue'
+import ArtistLinks from '../components/ArtistLinks.vue'
 import { useAuthStore } from '../stores/auth.js'
 import { fmtBpm, fmtDate } from '../utils/format'
 
