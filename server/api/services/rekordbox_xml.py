@@ -62,7 +62,8 @@ def parse_rekordbox_xml(content: bytes) -> list:
         rating_str = elem.get("Rating")
         if rating_str:
             try:
-                rating = int(rating_str)
+                # Rekordbox stores ratings as 0/51/102/153/204/255, convert to 0-5
+                rating = round(int(rating_str) / 51)
             except ValueError:
                 pass
 
