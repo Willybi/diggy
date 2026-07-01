@@ -398,6 +398,20 @@ class CollectionItem(Base):
     catalog = relationship("CatalogEntry")
 
 
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action = Column(String(64), nullable=False, index=True)
+    target_type = Column(String(64), nullable=True)
+    target_id = Column(Integer, nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    user = relationship("User")
+
+
 class CrawlLog(Base):
     __tablename__ = "crawl_logs"
 

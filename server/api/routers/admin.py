@@ -10,10 +10,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from celery_client import celery
 from dependencies import require_admin
-from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry, CatalogArtist, CrawlLog, SetArtist, User, WatchedEntity
+from models import AdminAuditLog, Artist, ArtistAlias, ArtistFlag, CatalogEntry, CatalogArtist, CrawlLog, SetArtist, User, WatchedEntity
 from utils import normalize
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+async def _audit(db: AsyncSession, user: User, action: str, target_type: str = None, target_id: int = None, details: dict = None):
+    db.add(AdminAuditLog(
+        user_id=user.id,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        details=details,
+        created_at=datetime.now(timezone.utc),
+    ))
 
 
 async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str):
@@ -150,7 +161,7 @@ async def link_artist_deezer(
     artist_id: int,
     body: ArtistDeezerIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Manually link a deezer_id to an artist.
 
@@ -226,6 +237,9 @@ async def link_artist_deezer(
             s3 = _get_s3()
             if upload_image_to_bucket(s3, pic_url, f"{canonical.id}.jpg", "artist-artworks"):
                 canonical.has_artwork = True
+        await _audit(db, admin, "merge_artist", "artist", canonical.id, {
+            "merged_id": artist_id, "merged_name": old_name, "into_id": canonical.id, "into_name": canonical.name,
+        })
         await db.commit()
         await db.refresh(canonical)
         return {"id": canonical.id, "name": canonical.name, "deezer_id": canonical.deezer_id, "has_artwork": canonical.has_artwork, "merged": True}
@@ -246,6 +260,9 @@ async def link_artist_deezer(
         except Exception:
             pass
 
+    await _audit(db, admin, "link_deezer", "artist", artist.id, {
+        "deezer_id": body.deezer_id, "old_name": old_name, "new_name": artist.name,
+    })
     await db.commit()
     await db.refresh(artist)
     return {"id": artist.id, "name": artist.name, "deezer_id": artist.deezer_id, "has_artwork": artist.has_artwork, "merged": False}
@@ -407,7 +424,7 @@ async def trigger_enrich_beatport(
 @router.post("/reset-beatport")
 async def reset_beatport(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Reset all Beatport-sourced data so a fresh crawl can re-enrich everything."""
     from models import CatalogEntry
@@ -428,6 +445,9 @@ async def reset_beatport(
         .where(CatalogEntry.key_source == "beatport")
         .values(key=None, key_source=None)
     )
+    await _audit(db, admin, "reset_beatport", None, None, {
+        "cleared": r1.rowcount, "bpm_reverted": r2.rowcount, "key_reverted": r3.rowcount,
+    })
     await db.commit()
     return {
         "status": "reset",
@@ -561,7 +581,7 @@ async def remove_set_artist(
     set_id: int,
     artist_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Remove an artist from a set."""
     from sqlalchemy import delete as sa_delete
@@ -570,6 +590,7 @@ async def remove_set_artist(
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Link not found")
+    await _audit(db, admin, "remove_set_artist", "set", set_id, {"artist_id": artist_id})
     await db.commit()
     return {"ok": True}
 
