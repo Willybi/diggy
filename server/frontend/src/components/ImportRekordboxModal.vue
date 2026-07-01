@@ -55,6 +55,14 @@
       </template>
 
       <!-- processing -->
+      <template v-else-if="phase === 'processing' && stats.total === 0">
+        <div class="state-body">
+          <div class="spinner"></div>
+          <p class="state-label">Import en cours…</p>
+        </div>
+      </template>
+
+      <!-- processing with known total -->
       <template v-else-if="phase === 'processing'">
         <div class="state-body">
           <div class="progress-wrap">
