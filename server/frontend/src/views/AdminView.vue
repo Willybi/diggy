@@ -274,20 +274,14 @@
           <button
             class="filter-btn"
             :class="{ active: !mappingShowUnmapped }"
-            @click="
-              mappingShowUnmapped = false
-              fetchMappings()
-            "
+            @click="mappingShowUnmapped = false; fetchMappings()"
           >
             Tous
           </button>
           <button
             class="filter-btn"
             :class="{ active: mappingShowUnmapped }"
-            @click="
-              mappingShowUnmapped = true
-              fetchMappings()
-            "
+            @click="mappingShowUnmapped = true; fetchMappings()"
           >
             Non mappés
           </button>
@@ -333,11 +327,7 @@
                       :key="n.id"
                       class="mapping-option"
                       :class="{ selected: mappingSelected[m.id] === n.id }"
-                      @click="
-                        mappingSelected[m.id] = n.id
-                        mappingSearch[m.id] = n.label
-                        mappingResults[m.id] = []
-                      "
+                      @click="mappingSelected[m.id] = n.id; mappingSearch[m.id] = n.label; mappingResults[m.id] = []"
                     >
                       <span class="mapping-option-label">{{ n.label }}</span>
                       <span class="mapping-option-qid mono">{{ n.wikidataId }}</span>
@@ -468,20 +458,14 @@
       <div v-if="crawlTotalPages > 1" class="crawl-pagination">
         <button
           :disabled="crawlPage <= 1"
-          @click="
-            crawlPage--
-            fetchCrawlLogs()
-          "
+          @click="crawlPage--; fetchCrawlLogs()"
         >
           Prev
         </button>
         <span class="mono" style="font-size: 12px">{{ crawlPage }} / {{ crawlTotalPages }}</span>
         <button
           :disabled="crawlPage >= crawlTotalPages"
-          @click="
-            crawlPage++
-            fetchCrawlLogs()
-          "
+          @click="crawlPage++; fetchCrawlLogs()"
         >
           Next
         </button>
