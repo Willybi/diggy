@@ -47,7 +47,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 source = ["server"]
 omit = [
-    "server/workers/tasks.py",
+    "server/workers/tasks/*",
     "server/workers/source_clients.py",
     "server/workers/celery_app.py",
     "server/workers/crawl_logger.py",
