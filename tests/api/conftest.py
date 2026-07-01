@@ -105,8 +105,13 @@ async def setup_db():
 async def clean_db(setup_db):
     yield
     async with test_engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(table.delete())
+        if _is_postgres:
+            table_names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+            from sqlalchemy import text
+            await conn.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
+        else:
+            for table in reversed(Base.metadata.sorted_tables):
+                await conn.execute(table.delete())
 
 
 @pytest_asyncio.fixture
