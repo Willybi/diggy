@@ -110,7 +110,7 @@ jobs:
             cd /root/diggy &&
             git fetch origin &&
             git reset --hard origin/master &&
-            docker compose up -d --build &&
+            docker compose up -d --build --force-recreate &&
             docker compose exec -T nginx nginx -s reload 2>/dev/null || true
           '
 

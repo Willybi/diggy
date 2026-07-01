@@ -31,7 +31,7 @@
  F1   Monitoring & Observabilite        BAS         2-3 jours    REPORTE (long terme)
  F2   Multi-User Phases 5-7             BAS         7-10 jours   A FAIRE
  F3   Graphe artistes                   BAS         5-7 jours    A FAIRE
- F4   Import Rekordbox Web              MOYEN       3-4 jours    A FAIRE
+ F4   Import Rekordbox Web              MOYEN       3-4 jours    TERMINE
  R1   Responsive / Support Mobile       HAUT        3-4 jours    A FAIRE
 ```
 
