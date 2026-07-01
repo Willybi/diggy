@@ -3,21 +3,12 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from pythonjsonlogger.json import JsonFormatter
-
-handler = logging.StreamHandler()
-handler.setFormatter(JsonFormatter(
-    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
-    rename_fields={"asctime": "timestamp", "levelname": "level"},
-))
-logging.root.handlers = [handler]
-logging.root.setLevel(logging.INFO)
-
 from auth_middleware import JWTAuthMiddleware
 from database import Base, engine
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pythonjsonlogger.json import JsonFormatter
 from rate_limit import RateLimitMiddleware
 from routers import (
     admin,
@@ -34,6 +25,14 @@ from routers import (
     tracks,
     watchlist,
 )
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(JsonFormatter(
+    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+    rename_fields={"asctime": "timestamp", "levelname": "level"},
+))
+logging.root.handlers = [_handler]
+logging.root.setLevel(logging.INFO)
 
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:

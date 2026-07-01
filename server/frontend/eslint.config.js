@@ -17,6 +17,7 @@ export default [
         clearInterval: 'readonly',
         Audio: 'readonly',
         atob: 'readonly',
+        btoa: 'readonly',
         fetch: 'readonly',
         alert: 'readonly',
         confirm: 'readonly',
