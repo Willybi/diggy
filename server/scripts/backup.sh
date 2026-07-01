@@ -24,18 +24,37 @@ mkdir -p "$PG_DIR" "$MINIO_DIR"
 # ----------------------------- PostgreSQL ---------------------------------
 echo "[$(date -Iseconds)] Starting PostgreSQL backup..."
 
-PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
-  -h postgres \
-  -U "$POSTGRES_USER" \
-  -d "$POSTGRES_DB" \
-  --no-owner \
-  --no-acl \
-  | gzip > "$PG_DIR/diggy_${DATE}.sql.gz"
+if [ -n "${BACKUP_ENCRYPTION_KEY:-}" ]; then
+  PG_FILE="diggy_${DATE}.sql.gz.gpg"
+  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
+    -h postgres \
+    -U "$POSTGRES_USER" \
+    -d "$POSTGRES_DB" \
+    --no-owner \
+    --no-acl \
+    | gzip \
+    | gpg --batch --passphrase "$BACKUP_ENCRYPTION_KEY" --symmetric --cipher-algo AES256 \
+    > "$PG_DIR/$PG_FILE"
+  echo "[$(date -Iseconds)] PostgreSQL backup done (encrypted): $PG_FILE"
+else
+  PG_FILE="diggy_${DATE}.sql.gz"
+  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
+    -h postgres \
+    -U "$POSTGRES_USER" \
+    -d "$POSTGRES_DB" \
+    --no-owner \
+    --no-acl \
+    | gzip > "$PG_DIR/$PG_FILE"
+  echo "[$(date -Iseconds)] PostgreSQL backup done (unencrypted): $PG_FILE"
+  echo "[$(date -Iseconds)] WARNING: BACKUP_ENCRYPTION_KEY not set, backup is NOT encrypted!"
+fi
 
-echo "[$(date -Iseconds)] PostgreSQL backup done: diggy_${DATE}.sql.gz"
+# Symlink latest backup for easy verification
+EXT="${PG_FILE#diggy_*_*}"
+ln -sf "$PG_DIR/$PG_FILE" "$PG_DIR/latest.$EXT"
 
 # Retention: remove dumps older than $RETENTION_DAYS days
-find "$PG_DIR" -name "diggy_*.sql.gz" -mtime +$RETENTION_DAYS -delete
+find "$PG_DIR" -name "diggy_*.sql.gz*" -mtime +$RETENTION_DAYS -delete
 echo "[$(date -Iseconds)] Cleaned up PostgreSQL dumps older than ${RETENTION_DAYS} days."
 
 # ------------------------------- MinIO ------------------------------------
