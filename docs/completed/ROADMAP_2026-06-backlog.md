@@ -1,0 +1,68 @@
+# Diggy — Roadmap
+
+> Roadmaps completees : voir `docs/completed/`
+> - `ROADMAP_2026-06.md` — audit technique T1-T6, chantiers C1-C13 (100% fait)
+> - `ROADMAP_MULTIUSER.md` — phases 0-7 multi-user (100% fait)
+> - F2 HTTPS — domaine `diggy-music.fr`, Let's Encrypt, certbot auto-renew (100% fait)
+> - F3 Google OAuth — remplacement email/password par Google OAuth unique (100% fait)
+
+---
+
+## Backlog
+
+### L1 — Monitoring & Observabilite
+
+- [x] Sentry (FastAPI + Celery workers)
+- [x] Endpoint `/api/health` enrichi (version, uptime, status DB/Redis)
+- [ ] Celery Flower ou equivalent
+- [ ] UptimeRobot (check HTTP `/api/health`)
+- [ ] pg_stat_statements (slow queries)
+
+### L2 — Multi-artiste par track ✅
+
+- [x] Table `catalog_artists(catalog_id, artist_id, role, position)` — 7173 liens
+- [x] Modele `CatalogArtist` + relationships
+- [x] Tous les routers refactores : JOINs via `catalog_artists` au lieu de string matching
+- [x] sync_artists Phase C : linking automatique des nouvelles entries
+- [x] Flag resolution + enrichissement Deezer → creation de liens
+- [x] Frontend : composant `ArtistLinks.vue` — artistes cliquables partout
+- [x] Schema `ArtistRef` + champ `artists` sur tous les outputs track
+
+### L3 — Graphe artistes
+
+Visualisation des connexions entre artistes (sets, feats, playlists).
+Necessite L2. Stack envisagee : D3.js ou vue-flow.
+
+### F3 — Google OAuth ✅
+
+- [x] Remplacement complet email/password par Google OAuth (seule methode)
+- [x] Google Cloud Console : projet + ecran de consentement OAuth
+- [x] Backend : `GET /google/login` + `GET /google/callback` avec CSRF cookie httponly
+- [x] Page HTML intermediaire (token jamais dans l'URL)
+- [x] Migration 0024 : drop `hashed_password`, add `google_id` + `picture_url`, purge users
+- [x] Frontend : bouton unique "Se connecter avec Google" sur LoginView
+- [x] bcrypt supprime, `google-auth` ajoute
+- [x] Tests adaptes (378 passed)
+
+### F4 — Design Realignment (vagues 3-5)
+
+- Vague 3 : Pages detail (Track, Artist, Set, Playlist)
+- Vague 4 : Genres + Login redesign
+- Vague 5 : Admin panel
+
+---
+
+## Opportunites techniques
+
+- [~] **Tests CI avec PostgreSQL** — PRET mais INHIBE temporairement (CI trop lente en dev intensif).
+  Conftest dual SQLite/PG pret, asyncpg + service PG commentes dans `deploy.yml`.
+  A reactiver quand le rythme de dev se calme (decommenter le bloc services + DATABASE_URL).
+- [x] **Lint frontend dans CI/CD** — ESLint + eslint-plugin-vue, job `lint-frontend`
+  dans le workflow deploy. Zero erreurs/warnings au depart.
+
+---
+
+## Methode de travail
+
+Voir `docs/completed/ROADMAP_2026-06.md` section "Methode de travail" pour le process
+complet (prompts agent, review, deploy, smoke tests, commit naming, rapports).
