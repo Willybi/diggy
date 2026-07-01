@@ -94,15 +94,20 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
 
         for batch in _batches(tracks, 50):
             with Session(engine) as session:
-                # Disable autoflush for the entire batch to prevent ORM
-                # from flushing pending CatalogEntry objects mid-loop and
-                # interfering with Core pg_insert statements on user_tracks.
+                # Get the raw DBAPI connection within the same transaction.
+                # UserTrack upserts go through conn.execute() (Core path) to
+                # completely bypass orm_pre_session_exec and its autoflush call,
+                # which cannot be suppressed when passing an ORM-mapped class
+                # to pg_insert via session.execute().
+                conn = session.connection()
+                ut_table = UserTrack.__table__
+
                 with session.no_autoflush:
                     for t in batch:
                         rb_id = t.id
                         tags = t.tags or []
 
-                        # Step 1: find or create CatalogEntry
+                        # Step 1: find or create CatalogEntry (ORM, no UserTrack involved)
                         norm_key = make_normalized_key(t.title or "", t.artist or "")
                         cat_entry = session.execute(
                             select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
@@ -118,17 +123,16 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                                 origin="rekordbox",
                             )
                             session.add(cat_entry)
-                            # Explicit flush to get the catalog_id before the upsert
                             session.flush()
                         elif cat_entry.scope == "private":
-                            # Update title/artist if catalog entry is private
                             cat_entry.normalized_key = norm_key
                             cat_entry.title = t.title or cat_entry.title
                             cat_entry.artist = t.artist or cat_entry.artist
 
-                        # Step 2: upsert UserTrack — single atomic operation,
-                        # no ORM UserTrack object ever created or modified.
-                        stmt = pg_insert(UserTrack).values(
+                        # Step 2: upsert UserTrack via raw Core connection.
+                        # Using ut_table (Table object) + conn.execute() bypasses
+                        # ORM execution path entirely — no autoflush triggered.
+                        stmt = pg_insert(ut_table).values(
                             user_id=user_id,
                             catalog_id=cat_entry.id,
                             rekordbox_id=rb_id,
@@ -137,7 +141,7 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                             file_path=t.file_path,
                             rb_bpm=t.bpm,
                             rb_key=t.key,
-                            rb_mytags=tags,
+                            rb_mytags=json.dumps(tags),
                             rating=t.rating,
                             has_artwork=False,
                         ).on_conflict_do_update(
@@ -148,12 +152,11 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                                 "file_path": t.file_path,
                                 "rb_bpm": t.bpm,
                                 "rb_key": t.key,
-                                "rb_mytags": tags,
+                                "rb_mytags": json.dumps(tags),
                                 "rating": t.rating,
-                                # has_artwork excluded: preserve existing value
                             },
                         )
-                        session.execute(stmt)
+                        conn.execute(stmt)
 
                         if rb_id in known_rb_ids:
                             updated += 1
