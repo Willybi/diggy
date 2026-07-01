@@ -1,10 +1,24 @@
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_failure, setup_logging
+from celery.signals import task_failure, setup_logging, celeryd_init
 import os
 import logging
 
+import sentry_sdk
+
 logger = logging.getLogger(__name__)
+
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+
+
+@celeryd_init.connect
+def init_sentry(**kwargs):
+    if SENTRY_DSN:
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            traces_sample_rate=0.2,
+            environment=os.environ.get("SENTRY_ENV", "production"),
+        )
 
 
 class CeleryTaskFilter(logging.Filter):

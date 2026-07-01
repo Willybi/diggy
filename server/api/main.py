@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,19 @@ from rate_limit import RateLimitMiddleware
 from auth_middleware import JWTAuthMiddleware
 from database import engine, Base
 from routers import catalog, tracks, watchlist, radar, artists, sets, auth, admin, genres, opinions, search, taxonomy, collections
+
+import sentry_sdk
+
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=0.2,
+        environment=os.environ.get("SENTRY_ENV", "production"),
+    )
+
+APP_VERSION = "1.0.0"
+_start_time = time.time()
 
 
 @asynccontextmanager
@@ -21,7 +35,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Diggy API",
-    version="0.1.0",
+    version=APP_VERSION,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
     lifespan=lifespan,
@@ -62,4 +76,31 @@ app.include_router(collections.router, prefix="/api")
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    import redis.asyncio as aioredis
+    from sqlalchemy import text
+
+    checks = {"db": "ok", "redis": "ok"}
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        checks["db"] = "error"
+
+    try:
+        redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+        r = aioredis.from_url(redis_url)
+        await r.ping()
+        await r.aclose()
+    except Exception:
+        checks["redis"] = "error"
+
+    overall = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
+    uptime_s = int(time.time() - _start_time)
+
+    return {
+        "status": overall,
+        "version": APP_VERSION,
+        "uptime_seconds": uptime_s,
+        "checks": checks,
+    }

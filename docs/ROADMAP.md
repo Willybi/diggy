@@ -11,8 +11,8 @@
 
 ### L1 — Monitoring & Observabilite
 
-- [ ] Sentry (FastAPI + Celery workers)
-- [ ] Endpoint `/api/health` enrichi (version, uptime, status DB/Redis)
+- [x] Sentry (FastAPI + Celery workers)
+- [x] Endpoint `/api/health` enrichi (version, uptime, status DB/Redis)
 - [ ] Celery Flower ou equivalent
 - [ ] UptimeRobot (check HTTP `/api/health`)
 - [ ] pg_stat_statements (slow queries)

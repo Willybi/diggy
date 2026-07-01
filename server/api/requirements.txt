@@ -17,3 +17,4 @@ bcrypt==4.2.1
 python-multipart==0.0.9
 tidalapi==0.8.11
 spotifyscraper==3.7.0
+sentry-sdk[fastapi,celery]==2.29.1
