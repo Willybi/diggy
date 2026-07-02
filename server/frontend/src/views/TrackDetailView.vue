@@ -510,6 +510,11 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   gap: 2px;
 }
+/* grid items must shrink below min-content for equal 1fr columns */
+.mini-grid > .mini-row {
+  min-width: 0;
+  overflow: hidden;
+}
 @container (max-width: 720px) {
   .mini-grid {
     grid-template-columns: 1fr;

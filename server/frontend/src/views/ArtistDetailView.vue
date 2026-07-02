@@ -567,6 +567,11 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   gap: 2px 30px;
 }
+/* grid items must shrink below min-content for equal 1fr columns */
+.trk-grid > .mini-row {
+  min-width: 0;
+  overflow: hidden;
+}
 @container (max-width: 1000px) {
   .trk-grid {
     grid-template-columns: 1fr;
