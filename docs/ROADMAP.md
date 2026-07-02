@@ -34,7 +34,7 @@ Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
 ----  ------------------------------------  ----------  ----------   ------
  C0   Correctifs critiques + fondations     CRITIQUE    1-2 jours    TERMINE
  R1   Responsive / Support Mobile           HAUT        3-4 jours    TERMINE
- C1   Trend v2 + Decouvrir + Collections    HAUT        5-7 jours    A FAIRE
+ C1   Trend v2 + Decouvrir + Collections    HAUT        5-7 jours    TERMINE
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
@@ -58,6 +58,7 @@ Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
  F4   Import Rekordbox Web              TERMINE
  C0   Correctifs critiques + fondations TERMINE
  R1   Responsive / Support Mobile     TERMINE
+ C1   Trend v2 + Decouvrir + Collections TERMINE
 ```
 
 ### Dependances
@@ -200,7 +201,7 @@ Breakpoints cibles :
 **Priorite : HAUT**
 **Estimation : 5-7 jours**
 **Depend de : R1 (TERMINE)**
-**Statut : A FAIRE — prochain chantier**
+**Statut : TERMINE (2026-07-02)**
 
 ### Objectif
 
@@ -210,34 +211,34 @@ Transformer `compute_trends` (formule actuelle : `SUM(0.5^(age/14)) x COUNT(DIST
 
 Calculable des maintenant sur `radar_tracks` :
 
-- [ ] Ponderation par **type de source** : detection set DJ (`community_tracklist` / `audio_recognition`) > detection playlist
-- [ ] Ponderation par **taille de playlist** : inverse de `track_count` (une detection dans une playlist pointue vaut plus)
-- [ ] Bonus de **convergence multi-sources** : detectee sur plusieurs plateformes distinctes
-- [ ] **Decay temporel** conserve (half-life a calibrer, 14 jours comme point de depart)
-- [ ] Calcul et exposition **par famille de genre** (corrige le biais de surveillance, colle a l'UI FamilyChips)
-- [ ] Sortie en **rang**, pas en score affiche
+- [x] Ponderation par **type de source** : set DJ = 3x, playlist = 1x
+- [x] Ponderation par **taille de playlist** : `1/sqrt(track_count)`
+- [x] Bonus de **convergence multi-sources** : +30% par plateforme supplementaire
+- [x] **Decay temporel** : half-life 14 jours conserve
+- [x] Calcul et exposition **par famille de genre** : mapping via genre_nodes/edges/mappings, rang par famille
+- [x] Sortie en **rang** : `rank_global` + `rank_in_family` stockes dans `radar_trends`
 
 Methode : prototype notebook sur les donnees reelles (~5000 radar_tracks), calibration subjective : le top 20 par famille doit correspondre a l'intuition DJ. Puis portage dans `compute_trends`.
 
 ### C1.b — Velocite (calculable des maintenant sur les ajouts)
 
-- [ ] Ratio fenetre recente / fenetre precedente sur les nouvelles paires track x playlist (`radar_tracks.detected_at`), ex. 7j vs 7j precedents
-- [ ] Bonus multiplicateur sur le score C1.a
-- [ ] Exclure les detections issues du premier crawl d'une playlist (biais de premiere surveillance, voir C0.1)
+- [x] Ratio fenetre recente / fenetre precedente : 7j vs 7j precedents, clampe 0-5
+- [x] Bonus multiplicateur sur le score C1.a : `* (1 + 0.5 * velocity)`
+- [x] Exclure les detections `is_initial_detection` du calcul de velocite
 - [ ] Le signal de retrait (fading) s'ajoutera quand `removed_at` aura de la profondeur
-- [ ] Signal revival : track ancienne (release_date lointaine) qui re-accelere, badge distinct dans l'UI ("revient"), pas melange a la fraicheur
+- [ ] Signal revival : badge distinct "revient" — reporte (donnees insuffisantes)
 
 ### C1.c — Surface produit "Decouvrir"
 
-- [ ] Vue ou section dediee : "Ca sort en ce moment", filtrable par famille
-- [ ] Shelves trend sur le Hub
-- [ ] Badge trend sur les cartes tracks (catalog / radar)
+- [x] Section "Ca sort en ce moment" sur le Hub, filtrable par famille (FamilyChips)
+- [x] Shelves trend en grille responsive sur le Hub
+- [x] Badge trend `#N` sur les tracks top 50 dans CatalogView
 
 ### C1.d — Vue Collections (reliquat Phase 5)
 
-- [ ] `CollectionsView.vue` : CRUD sur l'API existante (6 endpoints deja live)
-- [ ] Ajout/retrait depuis les pages track
-- [ ] Strictement prive par user (backend deja conforme, audit OK)
+- [x] `CollectionsView.vue` + `CollectionDetailView.vue` : CRUD complet, routes `/collections` et `/collections/:id`
+- [x] Ajout depuis TrackDetailView (dropdown), retrait depuis CollectionDetailView
+- [x] Lien "Collections" dans la sidebar, strictement prive par user
 
 ### Definition of Done
 
@@ -260,8 +261,8 @@ Methode : prototype notebook sur les donnees reelles (~5000 radar_tracks), calib
 
 **Priorite : MOYEN**
 **Estimation : 7-10 jours**
-**Depend de : C1 (ou en parallele partiel)**
-**Statut : A FAIRE**
+**Depend de : C1 (TERMINE)**
+**Statut : A FAIRE — prochain chantier**
 
 ### Objectif
 
@@ -408,8 +409,9 @@ Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des
 | Tests composants frontend | Au fil de l'eau |
 | ~~Auto-migration au deploy~~ | FAIT — `alembic upgrade head` dans deploy.yml |
 | ~~`/api/radar/full` crash genres sort~~ | FAIT — `literal_column` au lieu de `StringArray[1]` |
-| ~~CSP bloque requetes API sur mobile~~ | FAIT — `connect-src 'self' ws: wss:` + `hmr: false` dans vite.config.js |
-| Frontend build statique (sortir du Vite dev server) | A faire avant ouverture (C3) — supprime container frontend, CSP propre, perf mobile |
+| ~~CSP bloque requetes API~~ | FAIT — `upgrade-insecure-requests` + location priority `^~` sur `/api/` et `/storage/` |
+| ~~Frontend build statique~~ | FAIT — Vite dev server → Nginx static build. Container 5 MB au lieu de 512 MB. CSP propre. |
+| ~~Nginx location priority~~ | FAIT — regex `\.(jpg)$` captait `/storage/` → fix avec `^~` prefix priority |
 
 ---
 

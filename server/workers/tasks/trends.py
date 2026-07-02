@@ -133,9 +133,10 @@ def compute_trends(self, window_days=30):
             rows = session.execute(
                 text("""
                 WITH detections AS (
+                    -- Radar tracks (playlists surveillées)
                     SELECT
                         rt.catalog_id,
-                        rt.watched_entity_id,
+                        'radar:' || rt.watched_entity_id::text AS entity_key,
                         rt.source,
                         rt.detected_at,
                         rt.is_initial_detection,
@@ -148,6 +149,25 @@ def compute_trends(self, window_days=30):
                     WHERE rt.catalog_id IS NOT NULL
                       AND rt.detected_at >= NOW() - MAKE_INTERVAL(days => :window)
                       AND rt.removed_at IS NULL
+
+                    UNION ALL
+
+                    -- Set tracks (tracklists DJ — poids 3x)
+                    SELECT
+                        st.catalog_id,
+                        'set:' || st.set_id::text AS entity_key,
+                        'set' AS source,
+                        COALESCE(s.played_date::timestamptz, s.created_at) AS detected_at,
+                        false AS is_initial_detection,
+                        'set' AS entity_type,
+                        (SELECT COUNT(*) FROM set_tracks st2 WHERE st2.set_id = s.id) AS track_count,
+                        c.genres
+                    FROM set_tracks st
+                    JOIN sets s ON s.id = st.set_id
+                    JOIN catalog c ON c.id = st.catalog_id
+                    WHERE st.catalog_id IS NOT NULL
+                      AND COALESCE(s.played_date::timestamptz, s.created_at)
+                          >= NOW() - MAKE_INTERVAL(days => :window)
                 ),
                 scores AS (
                     SELECT
@@ -160,7 +180,7 @@ def compute_trends(self, window_days=30):
                             * CASE WHEN entity_type = 'set' THEN 3.0 ELSE 1.0 END
                             * (1.0 / SQRT(GREATEST(track_count, 1)))
                         ) AS base_score,
-                        COUNT(DISTINCT watched_entity_id) AS detection_count
+                        COUNT(DISTINCT entity_key) AS detection_count
                     FROM detections
                     GROUP BY catalog_id, genres
                 ),
