@@ -23,21 +23,19 @@ FAKE_GOOGLE_INFO = {
 
 
 class TestGoogleLogin:
-    async def test_returns_url_and_sets_cookie(self, client):
+    async def test_returns_url_and_state(self, client):
         r = await client.get("/api/auth/google/login")
         assert r.status_code == 200
         data = r.json()
         assert "url" in data
         assert "accounts.google.com" in data["url"]
-        assert "oauth_state" in r.cookies
+        assert "state" in data
 
 
 class TestGoogleCallback:
-    async def _callback(self, client, code="test-code", state="test-state", cookie_state="test-state"):
-        cookies = {"oauth_state": cookie_state} if cookie_state else {}
+    async def _callback(self, client, code="test-code", state="test-state"):
         return await client.get(
             f"/api/auth/google/callback?code={code}&state={state}",
-            cookies=cookies,
             follow_redirects=False,
         )
 
@@ -57,13 +55,13 @@ class TestGoogleCallback:
         assert r.status_code == 200
         # Still works — same user, no duplicate error
 
-    async def test_state_mismatch_returns_400(self, client):
-        r = await self._callback(client, state="a", cookie_state="b")
-        assert r.status_code == 400
-
-    async def test_no_cookie_returns_400(self, client):
-        r = await self._callback(client, cookie_state=None)
-        assert r.status_code == 400
+    @patch("routers.auth.verify_google_token", new_callable=AsyncMock, return_value=FAKE_GOOGLE_INFO)
+    async def test_html_contains_state_check(self, mock_verify, client):
+        r = await self._callback(client, state="mystate123")
+        assert r.status_code == 200
+        assert "sessionStorage.getItem" in r.text
+        assert "oauth_state" in r.text
+        assert "mystate123" in r.text
 
 
 class TestMe:

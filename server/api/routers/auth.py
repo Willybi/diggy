@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -11,7 +12,7 @@ from auth import (
 )
 from database import get_db
 from dependencies import get_current_user
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from models import User
 from pydantic import BaseModel
@@ -65,7 +66,11 @@ async def google_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Exchange Google code, create/find user, return HTML that stores JWT."""
-    google_info = await verify_google_token(code)
+    try:
+        google_info = await verify_google_token(code)
+    except Exception:
+        logging.getLogger("auth").warning("Google token exchange failed")
+        raise HTTPException(status_code=400, detail="Google authentication failed")
 
     # Lookup by google_id
     result = await db.execute(
