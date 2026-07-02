@@ -295,6 +295,11 @@ onMounted(() => {
     padding-right: var(--page-px-mobile);
   }
 }
+@container (max-width: 640px) {
+  :deep(.search) {
+    flex: 1 1 100%;
+  }
+}
 @container (max-width: 560px) {
   .artist-grid {
     grid-template-columns: repeat(2, 1fr);

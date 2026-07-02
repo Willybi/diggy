@@ -26,6 +26,12 @@ const emit = defineEmits(['update:modelValue'])
   background: var(--surface-2);
   padding: 3px;
   border-radius: var(--r-sm);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.filterseg::-webkit-scrollbar {
+  display: none;
 }
 .filterseg button {
   border: 0;
@@ -35,6 +41,8 @@ const emit = defineEmits(['update:modelValue'])
   padding: 8px 14px;
   border-radius: var(--r-xs);
   cursor: pointer;
+  white-space: nowrap;
+  flex: none;
 }
 .filterseg button:hover {
   color: var(--ink);

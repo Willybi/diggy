@@ -849,6 +849,15 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
   .td-avis :deep(.ld-btn) {
     opacity: 1;
   }
+  table.tt {
+    min-width: 0;
+  }
+  table.tt col.w-tracks {
+    width: 56px;
+  }
+  table.tt col.w-avis {
+    width: 88px;
+  }
 }
 @container (max-width: 600px) {
   :deep(.ring) .pct {

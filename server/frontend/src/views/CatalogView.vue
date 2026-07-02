@@ -4,7 +4,7 @@
       <div class="titles">
         <h1>{{ mode === 'radar' ? 'Radar' : 'Catalog' }}</h1>
         <div class="sub" v-if="mode === 'catalog'">
-          {{ inLib ? `${total} tracks · in lib` : `${total} tracks · ${nLib} in lib` }}
+          {{ inLib ? `${total} tracks in lib` : `${total} tracks · ${nLib} in lib` }}
         </div>
         <div class="sub" v-else>{{ total }} détectées</div>
       </div>
@@ -1144,13 +1144,13 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
   .head-tools {
     width: 100%;
     margin-left: 0;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    flex-wrap: wrap;
+    row-gap: 9px;
   }
-  .head-tools::-webkit-scrollbar {
-    display: none;
+  :deep(.search) {
+    order: -1;
+    flex: 1 1 100%;
+    min-width: 0;
   }
   .table-wrap {
     padding: 4px var(--page-px-mobile) 22px;
