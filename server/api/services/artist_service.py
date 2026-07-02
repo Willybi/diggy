@@ -282,9 +282,17 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
         .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
         .where(CatalogArtist.artist_id == artist_id)
         .order_by(lib_sub.c.rating.desc().nulls_last(), CatalogEntry.title)
-        .limit(50)
+        .limit(200)
     )
     cat_rows = cat_result.all()
+
+    # True total count (may exceed limit)
+    total_count_result = await db.execute(
+        select(func.count())
+        .select_from(CatalogArtist)
+        .where(CatalogArtist.artist_id == artist_id)
+    )
+    nb_catalog_total = total_count_result.scalar() or len(cat_rows)
 
     catalog_tracks = []
     nb_lib = 0
@@ -396,7 +404,7 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
         catalog_tracks=catalog_tracks,
         sets=sets,
         stats={
-            "nb_catalog": len(catalog_tracks),
+            "nb_catalog": nb_catalog_total,
             "nb_lib": nb_lib,
             "nb_sets": len(sets),
             "avg_rating": avg_rating,
