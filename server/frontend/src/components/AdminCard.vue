@@ -29,7 +29,7 @@ const auth = useAuthStore()
 }
 .admin-card.warn {
   background: var(--surface);
-  border: 1px solid var(--warn-ink);
+  border: 1px dashed var(--warn-ink);
   border-radius: var(--r-sm);
 }
 .admin-label {

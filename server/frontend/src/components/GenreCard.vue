@@ -238,7 +238,7 @@ function onAvatarError(e) {
 .gc-lib {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 10px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -329,7 +329,7 @@ function onAvatarError(e) {
   background: var(--accent-hover);
 }
 
-/* Like/Dislike overlay in art zone */
+/* Like/Dislike overlay in art zone — hover reveal */
 .gc-acts {
   position: absolute;
   top: 10px;
@@ -337,6 +337,11 @@ function onAvatarError(e) {
   z-index: 4;
   display: flex;
   align-items: center;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.genre-card:hover .gc-acts {
+  opacity: 1;
 }
 .gc-acts :deep(.ld-btn) {
   box-shadow: var(--shadow-sm);

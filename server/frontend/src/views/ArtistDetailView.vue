@@ -20,54 +20,57 @@
             ></span>
           </div>
           <div class="hb-scrim"></div>
-        </div>
-        <div class="hero-front">
-          <div class="hero-visual hero-visual--round">
-            <img
-              v-if="artist.has_artwork"
-              :src="`/storage/artist-artworks/${artist.id}.jpg`"
-            />
-            <span v-else class="hero-fallback">{{ artist.name[0] }}</span>
+          <!-- Avatar in absolute position on banner -->
+          <div class="hb-avatar">
+            <div class="hero-visual hero-visual--round">
+              <img
+                v-if="artist.has_artwork"
+                :src="`/storage/artist-artworks/${artist.id}.jpg`"
+              />
+              <span v-else class="hero-fallback">{{ artist.name[0] }}</span>
+            </div>
           </div>
-          <div class="hero-body">
-            <h1 class="hero-title">{{ artist.name }}</h1>
-            <p v-if="heroSub" class="hero-sub">{{ heroSub }}</p>
-            <div v-if="artist.genres.length" class="hero-badges">
-              <RouterLink
-                v-for="g in artist.genres"
-                :key="g.name"
-                :to="`/style/${encodeURIComponent(g.name)}`"
-                style="text-decoration: none"
-              >
-                <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
-              </RouterLink>
-            </div>
-            <div class="hero-actions">
-              <button class="btn-accent" @click="playRandomTrack">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-                Écouter un aperçu
-              </button>
-              <a
-                v-if="artist.deezer_id"
-                class="btn-ghost"
-                :href="`https://deezer.com/artist/${artist.deezer_id}`"
-                target="_blank"
-              >Deezer</a>
-              <a
-                v-if="artist.soundcloud_id"
-                class="btn-ghost"
-                :href="`https://soundcloud.com/${artist.soundcloud_id}`"
-                target="_blank"
-              >SoundCloud</a>
-              <a
-                v-if="artist.trackid_id"
-                class="btn-ghost"
-                :href="`https://trackid.net/artist/${artist.trackid_id}`"
-                target="_blank"
-              >TrackID</a>
-            </div>
+          <!-- Title on the banner, white + text-shadow -->
+          <h1 class="hb-name">{{ artist.name }}</h1>
+        </div>
+        <!-- Body below the banner -->
+        <div class="hero-body-below">
+          <p v-if="heroSub" class="hero-sub">{{ heroSub }}</p>
+          <div v-if="artist.genres.length" class="hero-badges">
+            <RouterLink
+              v-for="g in artist.genres"
+              :key="g.name"
+              :to="`/style/${encodeURIComponent(g.name)}`"
+              style="text-decoration: none"
+            >
+              <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+            </RouterLink>
+          </div>
+          <div class="hero-actions">
+            <button class="btn-accent" @click="playRandomTrack">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              Écouter un aperçu
+            </button>
+            <a
+              v-if="artist.deezer_id"
+              class="btn-ghost"
+              :href="`https://deezer.com/artist/${artist.deezer_id}`"
+              target="_blank"
+            >Deezer</a>
+            <a
+              v-if="artist.soundcloud_id"
+              class="btn-ghost"
+              :href="`https://soundcloud.com/${artist.soundcloud_id}`"
+              target="_blank"
+            >SoundCloud</a>
+            <a
+              v-if="artist.trackid_id"
+              class="btn-ghost"
+              :href="`https://trackid.net/artist/${artist.trackid_id}`"
+              target="_blank"
+            >TrackID</a>
           </div>
         </div>
       </section>
@@ -441,29 +444,30 @@ onMounted(async () => {
   inset: 0;
   background: linear-gradient(
     to top,
-    oklch(from var(--bg) l c h / 0.34) 0%,
-    transparent 46%
+    oklch(0.12 0.01 70 / 0.7) 0%,
+    oklch(0.12 0.01 70 / 0.3) 40%,
+    transparent 70%
   );
   pointer-events: none;
 }
-.hero-front {
-  display: flex;
-  gap: 22px;
-  align-items: flex-end;
-  margin-top: -58px;
-  padding: 0 8px;
-  position: relative;
+/* Avatar absolute on banner */
+.hb-avatar {
+  position: absolute;
+  left: 16px;
+  bottom: -48px;
+  z-index: 2;
 }
 .hero-visual--round {
   flex: none;
-  width: 160px;
-  height: 160px;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
   border: 4px solid var(--bg);
   overflow: hidden;
   background: var(--surface-2);
   display: grid;
   place-items: center;
+  box-shadow: var(--shadow-md);
 }
 .hero-visual--round img {
   width: 100%;
@@ -476,33 +480,40 @@ onMounted(async () => {
   color: var(--ink-3);
   text-transform: uppercase;
 }
-.hero-body {
-  flex: 1;
-  min-width: 0;
-  padding-top: 4px;
-}
-.hero-title {
-  font: 600 clamp(20px, 2.2vw, 34px) / 1.2 var(--font-ui);
+/* Title on the banner — white + shadow */
+.hb-name {
+  position: absolute;
+  left: 152px;
+  bottom: 18px;
+  right: 16px;
+  font: 600 clamp(22px, 2.4vw, 34px)/1.1 var(--font-ui);
   letter-spacing: -0.02em;
-  color: var(--ink);
+  color: oklch(0.99 0 0);
   margin: 0;
+  text-shadow: 0 1px 4px oklch(0.1 0.02 70 / 0.6), 0 0 12px oklch(0.1 0.02 70 / 0.3);
   overflow-wrap: break-word;
+  z-index: 1;
+}
+/* Body below the banner */
+.hero-body-below {
+  padding: 58px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .hero-sub {
   font: 400 14px/1.3 var(--font-ui);
   color: var(--ink-2);
-  margin: 6px 0 0;
+  margin: 0;
 }
 .hero-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
 }
 .hero-actions {
   display: flex;
   gap: 8px;
-  margin-top: 16px;
 }
 
 /* Buttons */

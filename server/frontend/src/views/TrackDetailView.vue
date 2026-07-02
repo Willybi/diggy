@@ -87,10 +87,12 @@
             :key="r.playlist_id"
             class="appear"
           >
-            <span class="appear-title">{{ r.playlist_title || 'Playlist' }}</span>
-            <span class="appear-sub">
-              <SourceBadge :source="r.playlist_source" />
-              détecté le {{ fmtDate(r.detected_at) }}
+            <span class="ap-tx">
+              <span class="appear-title">{{ r.playlist_title || 'Playlist' }}</span>
+              <span class="appear-sub">
+                <SourceBadge :source="r.playlist_source" />
+                <span>détecté le {{ fmtDate(r.detected_at) }}</span>
+              </span>
             </span>
           </div>
         </RelBlock>
@@ -107,73 +109,58 @@
             :to="`/set/${s.set_id}`"
             class="appear appear--link"
           >
-            <span class="appear-title">{{ s.set_title }}</span>
-            <span class="appear-sub">
-              <span v-if="s.timecode_ms != null" class="timecode">▶ {{ fmtCue(s.timecode_ms) }}</span>
-              <template v-if="s.played_date">{{ fmtDate(s.played_date) }}</template>
+            <span class="ap-tx">
+              <span class="appear-title">{{ s.set_title }}</span>
+              <span class="appear-sub">
+                <span v-if="s.timecode_ms != null" class="timecode">▶ {{ fmtCue(s.timecode_ms) }}</span>
+                <template v-if="s.played_date">
+                  <span class="sep">·</span>{{ fmtDate(s.played_date) }}
+                </template>
+              </span>
             </span>
             <span class="appear-arrow">›</span>
           </RouterLink>
         </RelBlock>
       </div>
 
-      <!-- T8: Du même artiste — mini-table -->
+      <!-- T8: Du même artiste — compact 2-col grid -->
       <RelBlock
         v-if="track.same_artist_tracks.length"
         :title="`Du même artiste`"
         :count="track.same_artist_tracks.length"
       >
-        <div class="mini-table-wrap">
-          <table class="mini-table">
-            <thead>
-              <tr>
-                <th class="mt-cover"></th>
-                <th class="mt-track">Track</th>
-                <th class="mt-num">BPM</th>
-                <th class="mt-num">Key</th>
-                <th class="mt-num">Rating</th>
-                <th class="mt-num">Lib</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="t in track.same_artist_tracks" :key="t.id">
-                <td class="mt-cover">
-                  <img
-                    v-if="t.has_artwork"
-                    class="mt-thumb"
-                    :src="`/storage/catalog-artworks/${t.id}.jpg`"
-                    alt=""
-                  />
-                  <span v-else class="mt-thumb mt-thumb--empty"></span>
-                </td>
-                <td class="mt-track">
-                  <RouterLink :to="`/catalog/${t.id}`" class="mt-link">
-                    <span class="mt-title">{{ t.title }}</span>
-                    <span class="mt-artist"
-                      ><ArtistLinks :artists="t.artists" :fallback="t.artist"
-                    /></span>
-                  </RouterLink>
-                </td>
-                <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
-                <td class="mt-num mono key-cell">{{ t.key || '—' }}</td>
-                <td class="mt-num">
-                  <span v-if="t.rating" class="rating">
-                    <span
-                      v-for="n in 5"
-                      :key="n"
-                      class="star"
-                      :class="{ 'is-on': n <= t.rating }"
-                      >★</span
-                    >
-                  </span>
-                  <span v-else class="dash">—</span>
-                </td>
-                <td class="mt-num">
-                  <LibDot :in-lib="!!t.in_lib" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="mini-grid">
+          <RouterLink
+            v-for="t in track.same_artist_tracks"
+            :key="t.id"
+            :to="`/catalog/${t.id}`"
+            class="mini-row"
+          >
+            <img
+              v-if="t.has_artwork"
+              class="mr-cover"
+              :src="`/storage/catalog-artworks/${t.id}.jpg`"
+              alt=""
+            />
+            <span v-else class="mr-cover mr-cover--empty"></span>
+            <span class="mr-info">
+              <span class="mr-title">{{ t.title }}</span>
+              <span class="mr-meta">
+                <span v-if="t.bpm" class="mono">{{ fmtBpm(t.bpm) }}</span>
+                <span v-if="t.key" class="mono key-val">{{ t.key }}</span>
+                <span v-if="t.rating" class="rating">
+                  <span
+                    v-for="n in 5"
+                    :key="n"
+                    class="star"
+                    :class="{ 'is-on': n <= t.rating }"
+                    >★</span
+                  >
+                </span>
+              </span>
+            </span>
+            <LibDot :in-lib="!!t.in_lib" />
+          </RouterLink>
         </div>
       </RelBlock>
 
@@ -243,7 +230,6 @@ import HeroPlayer from '../components/HeroPlayer.vue'
 import AdminCard from '../components/AdminCard.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SourceBadge from '../components/SourceBadge.vue'
-import ArtistLinks from '../components/ArtistLinks.vue'
 import LibDot from '../components/LibDot.vue'
 import { fmtMs, fmtBpm, fmtDate, fmtCue } from '../utils/format'
 
@@ -467,18 +453,26 @@ onMounted(async () => {
 .appear {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
   text-decoration: none;
   color: inherit;
   transition: background 0.1s;
+  min-width: 0;
 }
 .appear:last-child {
   border-bottom: none;
 }
 .appear--link:hover {
   background: var(--surface-2);
+}
+.ap-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .appear-title {
   display: block;
@@ -487,104 +481,91 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
 }
 .appear-sub {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font: 400 12px/1.3 var(--font-mono);
   color: var(--ink-3);
-  margin-top: 2px;
-  flex: none;
+}
+.sep {
+  opacity: 0.5;
 }
 .appear-arrow {
   flex: none;
   font-size: 18px;
   color: var(--ink-3);
-  margin-left: 8px;
 }
 .timecode {
   color: var(--accent-ink);
   font-family: var(--font-mono);
 }
 
-/* T8: Mini track table */
-.mini-table-wrap {
-  overflow-x: auto;
+/* T8: Same artist — compact 2-col grid */
+.mini-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
 }
-.mini-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+@container (max-width: 720px) {
+  .mini-grid {
+    grid-template-columns: 1fr;
+  }
 }
-.mini-table thead th {
-  text-align: left;
-  padding: 8px 12px;
-  font: 500 10.5px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
-}
-.mini-table tbody td {
-  padding: 8px 12px;
-  vertical-align: middle;
-  border-bottom: 1px solid var(--line);
-}
-.mini-table tbody tr:last-child td {
-  border-bottom: none;
-}
-.mini-table tbody tr:hover td {
-  background: var(--surface-2);
-}
-.mt-cover {
-  width: 44px;
-}
-.mt-thumb {
-  display: block;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-sm);
-  object-fit: cover;
-  border: 1px solid var(--line);
-}
-.mt-thumb--empty {
-  background: var(--surface-3);
-}
-.mt-track {
-  min-width: 160px;
-}
-.mt-num {
-  width: 56px;
-  text-align: center;
-}
-.mono {
-  font-family: var(--font-mono);
-  color: var(--ink-2);
-}
-.key-cell {
-  color: var(--accent-ink);
-}
-.mt-link {
+.mini-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   text-decoration: none;
   color: inherit;
+  border-radius: var(--r-sm);
+  transition: background 0.1s;
 }
-.mt-link:hover .mt-title {
-  color: var(--accent-ink);
+.mini-row:hover {
+  background: var(--surface-2);
 }
-.mt-title {
-  display: block;
-  font-weight: 500;
+.mr-cover {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-xs);
+  object-fit: cover;
+  border: 1px solid var(--line);
+  flex: none;
+}
+.mr-cover--empty {
+  background: var(--surface-3);
+}
+.mr-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mr-title {
+  font: 500 13px/1.2 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mt-artist {
-  display: block;
-  font-size: 12px;
+.mini-row:hover .mr-title {
+  color: var(--accent-ink);
+}
+.mr-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 11px/1 var(--font-mono);
+  color: var(--ink-3);
+}
+.key-val {
+  color: var(--accent-ink);
+}
+.mono {
+  font-family: var(--font-mono);
   color: var(--ink-2);
 }
 .rating {
@@ -592,13 +573,10 @@ onMounted(async () => {
 }
 .star {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: 10px;
 }
 .star.is-on {
   color: var(--accent-ink);
-}
-.dash {
-  color: var(--ink-3);
 }
 
 /* Admin card */

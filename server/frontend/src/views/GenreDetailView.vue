@@ -84,6 +84,10 @@
         >
           Tout filtrer dans Catalog
         </RouterLink>
+        <LikeDislike
+          :model-value="genreOpinion"
+          @update:model-value="(v) => opinions.set('genre', genreName, v)"
+        />
       </div>
 
       <!-- StatStrip -->
@@ -256,10 +260,13 @@ import GenreTrackRow from '../components/GenreTrackRow.vue'
 import ShelfCard from '../components/ShelfCard.vue'
 import AdminCard from '../components/AdminCard.vue'
 import SearchBox from '../components/SearchBox.vue'
+import LikeDislike from '../components/LikeDislike.vue'
+import { useOpinionsStore } from '../stores/opinions.js'
 
 const route = useRoute()
 const router = useRouter()
 const player = useAudioPlayer()
+const opinions = useOpinionsStore()
 
 // -- State --
 const loading = ref(true)
@@ -301,6 +308,7 @@ const genreName = computed(() => decodeURIComponent(route.params.genre || ''))
 const tone = computed(() => styleTone({ pillar: genre.value?.pillar, depth: genre.value?.depth }))
 const pillarLabel = computed(() => PILLAR_LABELS[tone.value.pillar] || PILLAR_LABELS.autres)
 const isPlaying = computed(() => player.genrePlaying === genreName.value)
+const genreOpinion = computed(() => opinions.get('genre', genreName.value))
 
 const sixSlots = computed(() => {
   const aw = genre.value?.artworks || []
@@ -769,8 +777,10 @@ onUnmounted(() => {
 }
 .hero-actions {
   display: flex;
+  align-items: center;
   gap: 10px;
   margin-top: 14px;
+  margin-bottom: 16px;
 }
 .hero-actions .btn svg {
   width: 15px;

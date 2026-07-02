@@ -94,18 +94,17 @@
           <table class="mini-table">
             <thead>
               <tr>
-                <th class="mt-lib"></th>
                 <th class="mt-cover" />
                 <th class="mt-track">Track</th>
                 <th class="mt-num">BPM</th>
                 <th class="mt-num">Key</th>
                 <th class="mt-dur">Durée</th>
+                <th class="mt-lib"></th>
                 <th class="mt-preview" />
               </tr>
             </thead>
             <tbody>
               <tr v-for="t in playlist.tracks" :key="t.catalog_id">
-                <td class="mt-lib"><LibDot :in-lib="t.in_lib" /></td>
                 <td class="mt-cover">
                   <div class="cover-mini">
                     <img
@@ -126,6 +125,7 @@
                 <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
                 <td class="mt-num mono">{{ t.key || '—' }}</td>
                 <td class="mt-dur mono">{{ fmtMs(t.duration_ms) }}</td>
+                <td class="mt-lib"><LibDot :in-lib="t.in_lib" /></td>
                 <td class="mt-preview">
                   <span
                     v-if="t.has_preview"
@@ -189,7 +189,11 @@ let crawlPollTimer = null
 
 const heroSub = computed(() => {
   if (!playlist.value) return null
-  return playlist.value.owner || null
+  const owner = playlist.value.owner
+  if (!owner) return null
+  const srcLabel = sourceLabel.value
+  if (srcLabel && owner.toLowerCase() === srcLabel.toLowerCase()) return null
+  return owner
 })
 
 const externalUrl = computed(() => {
