@@ -82,10 +82,11 @@
           title="Détecté dans"
           :count="track.radar_appearances.length"
         >
-          <div
+          <RouterLink
             v-for="r in track.radar_appearances"
             :key="r.playlist_id"
-            class="appear"
+            :to="`/playlists/${r.playlist_id}`"
+            class="appear appear--link"
           >
             <span class="ap-tx">
               <span class="appear-title">{{ r.playlist_title || 'Playlist' }}</span>
@@ -94,7 +95,8 @@
                 <span>détecté le {{ fmtDate(r.detected_at) }}</span>
               </span>
             </span>
-          </div>
+            <span class="appear-arrow">›</span>
+          </RouterLink>
         </RelBlock>
 
         <!-- T7: Apparaît dans — timecode cliquable -->

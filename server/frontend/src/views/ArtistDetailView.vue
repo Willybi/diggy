@@ -88,79 +88,74 @@
       </RelBlock>
 
       <RelBlock v-if="artist.catalog_tracks.length" title="Tracks" :count="artist.stats.nb_catalog">
-        <div class="mini-table-wrap">
-          <table class="mini-table">
-            <thead>
-              <tr>
-                <th class="mt-track">Track</th>
-                <th class="mt-style">Style</th>
-                <th class="mt-num">BPM</th>
-                <th class="mt-num">Key</th>
-                <th class="mt-dur">DUR.</th>
-                <th class="mt-play"></th>
-                <th class="mt-num">Rating</th>
-                <th class="mt-lib"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="t in artist.catalog_tracks"
-                :key="t.id"
-                :class="{ playing: player.isCurrent(t.id) }"
+        <div class="trk-grid">
+          <div
+            v-for="(t, idx) in artist.catalog_tracks"
+            :key="t.id"
+            class="mini-row"
+            :class="{
+              playing: player.isCurrent(t.id),
+              'is-hidden': !showAllTracks && idx >= 10,
+            }"
+            @click="goToTrack(t.id)"
+          >
+            <img
+              v-if="t.has_artwork"
+              class="mr-cover"
+              :src="`/storage/catalog-artworks/${t.id}.jpg`"
+              alt=""
+            />
+            <span v-else class="mr-cover mr-cover--empty"></span>
+            <span class="mini-tx">
+              <span class="mini-title">{{ t.title }}</span>
+              <span class="mini-artist">
+                <ArtistLinks :artists="t.artists" :fallback="t.artist" />
+              </span>
+            </span>
+            <span class="mini-data">
+              <template v-if="t.genres?.length">
+                <RouterLink
+                  v-for="g in t.genres"
+                  :key="g.name"
+                  :to="`/style/${encodeURIComponent(g.name)}`"
+                  style="text-decoration: none"
+                  @click.stop
+                >
+                  <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+                </RouterLink>
+              </template>
+              <span v-if="t.bpm" class="mono">{{ fmtBpm(t.bpm) }}</span>
+              <span v-if="t.key" class="mono key-val">{{ t.key }}</span>
+              <span v-if="t.duration_ms" class="mono">{{ fmtMs(t.duration_ms) }}</span>
+              <span v-if="t.rating" class="rating">
+                <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= t.rating }">★</span>
+              </span>
+              <button
+                v-if="t.has_preview"
+                class="play-btn"
+                :class="{ playing: player.isCurrent(t.id) && player.playing }"
+                @click.stop="playTrack(t)"
               >
-                <td class="mt-track">
-                  <RouterLink :to="`/catalog/${t.id}`" class="mt-link">
-                    <span class="mt-title">{{ t.title }}</span>
-                    <span class="mt-artist">
-                      <ArtistLinks :artists="t.artists" :fallback="t.artist" />
-                    </span>
-                  </RouterLink>
-                </td>
-                <td class="mt-style">
-                  <template v-if="t.genres?.length">
-                    <RouterLink
-                      v-for="g in t.genres"
-                      :key="g.name"
-                      :to="`/style/${encodeURIComponent(g.name)}`"
-                      style="text-decoration: none"
-                    >
-                      <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
-                    </RouterLink>
-                  </template>
-                  <StyleTag v-else-if="t.style" :name="t.style" />
-                </td>
-                <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
-                <td class="mt-num mono">{{ t.key || '—' }}</td>
-                <td class="mt-dur mono">{{ t.duration_ms ? fmtMs(t.duration_ms) : '—' }}</td>
-                <td class="mt-play">
-                  <button
-                    v-if="t.has_preview"
-                    class="play-btn"
-                    :class="{ playing: player.isCurrent(t.id) }"
-                    @click="playTrack(t)"
-                  >
-                    <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
-                      <rect x="6" y="5" width="4" height="14" />
-                      <rect x="14" y="5" width="4" height="14" />
-                    </svg>
-                    <svg v-else viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </button>
-                </td>
-                <td class="mt-num">
-                  <span v-if="t.rating" class="rating">
-                    <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= t.rating }">★</span>
-                  </span>
-                  <span v-else class="dash">—</span>
-                </td>
-                <td class="mt-lib">
-                  <LibDot :in-lib="t.in_lib" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="5" width="4" height="14" />
+                  <rect x="14" y="5" width="4" height="14" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+              <span v-else class="play-ph"></span>
+              <LibDot :in-lib="t.in_lib" />
+            </span>
+          </div>
         </div>
+        <button
+          v-if="artist.catalog_tracks.length > 10"
+          class="show-more"
+          @click="showAllTracks = !showAllTracks"
+        >
+          {{ showAllTracks ? 'Afficher moins' : `Afficher les ${artist.catalog_tracks.length - 10} autres tracks` }}
+        </button>
         <p
           v-if="artist.stats.nb_catalog > artist.catalog_tracks.length"
           class="more-note"
@@ -273,6 +268,7 @@ const router = useRouter()
 const player = useAudioPlayer()
 const artist = ref(null)
 const loading = ref(true)
+const showAllTracks = ref(false)
 
 // Admin Deezer link
 const dzQuery = ref('')
@@ -301,6 +297,10 @@ function playTrack(t) {
     bpm: t.bpm,
     key: t.key,
   })
+}
+
+function goToTrack(id) {
+  router.push(`/catalog/${id}`)
 }
 
 function onDzSearch() {
@@ -564,81 +564,84 @@ onMounted(async () => {
   color: var(--ink-2);
 }
 
-/* Mini track table */
-.mini-table-wrap {
-  overflow-x: auto;
+/* Track grid — 2 columns */
+.trk-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 30px;
 }
-.mini-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+@container (max-width: 1000px) {
+  .trk-grid {
+    grid-template-columns: 1fr;
+  }
 }
-.mini-table thead th {
-  text-align: left;
-  padding: 8px 12px;
-  font: 500 10.5px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
+.mini-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.1s;
+  min-width: 0;
 }
-.mini-table tbody td {
-  padding: 8px 12px;
-  vertical-align: middle;
-  border-bottom: 1px solid var(--line);
-}
-.mini-table tbody tr:last-child td {
-  border-bottom: none;
-}
-.mini-table tbody tr:hover td {
+.mini-row:hover {
   background: var(--surface-2);
 }
-.mt-track {
-  min-width: 160px;
+.mini-row.playing {
+  background: var(--accent-soft);
 }
-.mt-style {
-  width: 90px;
+.mini-row.is-hidden {
+  display: none;
 }
-.mt-num {
-  width: 56px;
-  text-align: center;
+.mr-cover {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-xs);
+  object-fit: cover;
+  border: 1px solid var(--line);
+  flex: none;
 }
-.mt-dur {
-  width: 58px;
-  text-align: right;
-  font-family: var(--font-mono);
-  color: var(--ink-2);
+.mr-cover--empty {
+  background: var(--surface-3);
 }
-.mt-play {
-  width: 42px;
-  text-align: center;
+.mini-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.mt-lib {
-  width: 48px;
-  text-align: center;
-}
-.mono {
-  font-family: var(--font-mono);
-  color: var(--ink-2);
-}
-.mt-link {
-  text-decoration: none;
-  color: inherit;
-}
-.mt-link:hover .mt-title {
-  color: var(--accent-ink);
-}
-.mt-title {
-  display: block;
-  font-weight: 500;
+.mini-title {
+  font: 500 13px/1.2 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mt-artist {
-  display: block;
-  font-size: 12px;
+.mini-row:hover .mini-title {
+  color: var(--accent-ink);
+}
+.mini-artist {
+  font: 400 12px/1.2 var(--font-ui);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-data {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  flex: none;
+  font: 400 11px/1 var(--font-mono);
+  color: var(--ink-3);
+}
+.key-val {
+  color: var(--accent-ink);
+}
+.mono {
+  font-family: var(--font-mono);
   color: var(--ink-2);
 }
 .rating {
@@ -646,19 +649,10 @@ onMounted(async () => {
 }
 .star {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: 10px;
 }
 .star.is-on {
   color: var(--accent-ink);
-}
-.dash {
-  color: var(--ink-3);
-}
-.more-note {
-  font: 400 13px var(--font-ui);
-  color: var(--ink-3);
-  margin-top: 8px;
-  text-align: center;
 }
 
 /* Play button */
@@ -679,7 +673,7 @@ onMounted(async () => {
   width: 14px;
   height: 14px;
 }
-tr:hover .play-btn {
+.mini-row:hover .play-btn {
   opacity: 1;
 }
 .play-btn:hover {
@@ -692,8 +686,36 @@ tr:hover .play-btn {
   background: var(--accent-soft);
   border-color: transparent;
 }
-tr.playing td {
-  background: var(--accent-soft);
+.play-ph {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+/* Show more / less */
+.show-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.12s, color 0.12s;
+}
+.show-more:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.more-note {
+  font: 400 13px var(--font-ui);
+  color: var(--ink-3);
+  margin-top: 8px;
+  text-align: center;
 }
 
 /* Sets appearances */
