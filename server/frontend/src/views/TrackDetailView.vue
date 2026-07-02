@@ -442,8 +442,10 @@ onMounted(async () => {
   gap: 26px 34px;
   align-items: start;
 }
-.rel-cols > :deep(.rel) {
+.rel-cols > :deep(.rel-block) {
   margin-top: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 @container (max-width: 720px) {
   .rel-cols {
