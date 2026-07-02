@@ -10,7 +10,18 @@
         :subtitle="heroSub"
         :fallback-letter="(djSet.title || '?')[0]"
       >
-        <template #badges />
+        <template #badges>
+          <template v-if="djSet.genres?.length">
+            <RouterLink
+              v-for="g in djSet.genres"
+              :key="g.name"
+              :to="`/style/${encodeURIComponent(g.name)}`"
+              style="text-decoration: none"
+            >
+              <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+            </RouterLink>
+          </template>
+        </template>
         <template #actions>
           <a
             v-if="sourceLabel && djSet.source_url"
@@ -25,42 +36,34 @@
 
       <StatStrip :stats="stats" />
 
-      <!-- Admin: manage set artists -->
-      <AdminCard label="Admin — Artistes du set" variant="warn">
-        <div v-if="djSet.artists.length" class="set-artists-list">
-          <div v-for="a in djSet.artists" :key="a.artist_id" class="set-artist-row">
-            <RouterLink :to="`/artist/${a.artist_id}`" class="sa-name">{{
-              a.artist_name
-            }}</RouterLink>
-            <span class="sa-role mono">{{ a.role }}</span>
-            <button class="btn-row-action" @click="removeSetArtist(a.artist_id)">Retirer</button>
-          </div>
-        </div>
-        <p v-else class="empty-hint">Aucun artiste lié.</p>
-        <div class="sa-add-row">
-          <input
-            v-model="saQuery"
-            class="admin-input"
-            placeholder="Rechercher un artiste…"
-            @input="onSaSearch"
-          />
-        </div>
-        <div v-if="saResults.length" class="sa-results">
-          <div v-for="a in saResults" :key="a.id" class="sa-hit" @click="addSetArtist(a.id)">
-            <span class="sa-name">{{ a.name }}</span>
-          </div>
-        </div>
-      </AdminCard>
+      <div v-if="djSet.total_tracks" class="ring-row">
+        <RingPct :value="djSet.identified_tracks" :total="djSet.total_tracks" />
+        <span class="ring-label">identifiées</span>
+      </div>
+
+      <RelBlock v-if="djSet.description" title="Description">
+        <p class="rel-prose">{{ djSet.description }}</p>
+      </RelBlock>
 
       <!-- Artists -->
       <RelBlock v-if="djSet.artists.length > 1" title="Artistes">
-        <AppearRow
+        <RouterLink
           v-for="a in djSet.artists"
           :key="a.artist_id"
-          :title="a.artist_name"
-          :subtitle="a.role === 'b2b' ? 'B2B' : null"
+          class="appear"
           :to="`/artist/${a.artist_id}`"
-        />
+        >
+          <img
+            v-if="a.has_artwork"
+            class="ap-thumb round"
+            :src="`/storage/artist-artworks/${a.artist_id}.jpg`"
+          />
+          <span v-else class="ap-thumb round ap-thumb--empty"></span>
+          <span class="ap-tx">
+            <span class="ap-title">{{ a.artist_name }}</span>
+            <span class="ap-sub">{{ a.role === 'b2b' ? 'B2B' : 'Live' }}</span>
+          </span>
+        </RouterLink>
       </RelBlock>
 
       <!-- Tracklist -->
@@ -70,6 +73,7 @@
             <thead>
               <tr>
                 <th class="tl-pos">#</th>
+                <th class="tl-play"></th>
                 <th class="tl-time">Time</th>
                 <th class="tl-cover"></th>
                 <th class="tl-track">Track</th>
@@ -77,8 +81,33 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="t in djSet.tracklist" :key="t.id" :class="trackRowClass(t)">
+              <tr
+                v-for="t in djSet.tracklist"
+                :key="t.id"
+                :class="[trackRowClass(t), { playing: player.isCurrent(t.catalog_id) }]"
+              >
                 <td class="tl-pos mono">{{ t.position }}</td>
+                <td class="tl-play">
+                  <button
+                    v-if="t.has_preview && !t.is_id"
+                    class="play-btn"
+                    :class="{ playing: player.isCurrent(t.catalog_id) && player.playing }"
+                    @click="playTrack(t)"
+                  >
+                    <svg
+                      v-if="player.isCurrent(t.catalog_id) && player.playing"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                    >
+                      <rect x="6" y="5" width="4" height="14" fill="currentColor" />
+                      <rect x="14" y="5" width="4" height="14" fill="currentColor" />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" width="14" height="14">
+                      <polygon points="7,4 21,12 7,20" fill="currentColor" />
+                    </svg>
+                  </button>
+                </td>
                 <td class="tl-time mono">
                   <a
                     v-if="makeTimestampUrl(djSet.source_url, t.timecode_ms)"
@@ -130,6 +159,33 @@
           </table>
         </div>
       </RelBlock>
+
+      <!-- Admin: manage set artists -->
+      <AdminCard label="Admin — Artistes du set" variant="warn">
+        <div v-if="djSet.artists.length" class="set-artists-list">
+          <div v-for="a in djSet.artists" :key="a.artist_id" class="set-artist-row">
+            <RouterLink :to="`/artist/${a.artist_id}`" class="sa-name">{{
+              a.artist_name
+            }}</RouterLink>
+            <span class="sa-role mono">{{ a.role }}</span>
+            <button class="btn-row-action" @click="removeSetArtist(a.artist_id)">Retirer</button>
+          </div>
+        </div>
+        <p v-else class="empty-hint">Aucun artiste lié.</p>
+        <div class="sa-add-row">
+          <input
+            v-model="saQuery"
+            class="admin-input"
+            placeholder="Rechercher un artiste…"
+            @input="onSaSearch"
+          />
+        </div>
+        <div v-if="saResults.length" class="sa-results">
+          <div v-for="a in saResults" :key="a.id" class="sa-hit" @click="addSetArtist(a.id)">
+            <span class="sa-name">{{ a.name }}</span>
+          </div>
+        </div>
+      </AdminCard>
     </template>
   </div>
 </template>
@@ -141,12 +197,15 @@ import api from '../utils/api.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
-import AppearRow from '../components/AppearRow.vue'
-
+import RingPct from '../components/RingPct.vue'
+import StyleTag from '../components/StyleTag.vue'
 import LibDot from '../components/LibDot.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
 import AdminCard from '../components/AdminCard.vue'
+import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs, fmtDate, fmtCue } from '../utils/format'
+
+const player = useAudioPlayer()
 
 // Admin: set artists
 const saQuery = ref('')
@@ -171,7 +230,6 @@ async function addSetArtist(artistId) {
   if (!djSet.value) return
   try {
     await api.post(`/api/admin/sets/${djSet.value.id}/artists`, { artist_id: artistId, role: 'dj' })
-    // Reload set data
     const { data } = await api.get(`/api/sets/${route.params.id}`)
     djSet.value = data
     saQuery.value = ''
@@ -185,6 +243,19 @@ async function removeSetArtist(artistId) {
     await api.delete(`/api/admin/sets/${djSet.value.id}/artists/${artistId}`)
     djSet.value.artists = djSet.value.artists.filter((a) => a.artist_id !== artistId)
   } catch {}
+}
+
+function playTrack(t) {
+  if (player.isCurrent(t.catalog_id) && player.playing) {
+    player.toggle()
+    return
+  }
+  player.play({
+    id: t.catalog_id,
+    catalog_id: t.catalog_id,
+    title: t.catalog_title || t.raw_title,
+    artist: t.catalog_artist || t.raw_artist,
+  })
 }
 
 const SOURCE_META = {
@@ -225,7 +296,10 @@ const loading = ref(true)
 const heroSub = computed(() => {
   if (!djSet.value) return null
   const parts = []
-  if (djSet.value.artists.length === 1) parts.push(djSet.value.artists[0].artist_name)
+  if (djSet.value.artists.length) {
+    const names = djSet.value.artists.map((a) => a.artist_name)
+    parts.push(names.join(' B2B '))
+  }
   if (djSet.value.event) parts.push(djSet.value.event)
   if (djSet.value.venue) parts.push(djSet.value.venue)
   return parts.join(' · ') || null
@@ -233,7 +307,6 @@ const heroSub = computed(() => {
 
 const sourceLabel = computed(() => {
   if (!djSet.value) return null
-  // Prefer detecting from actual URL, fallback to source field
   return detectSourceLabel(djSet.value.source_url) || SOURCE_META[djSet.value.source]?.label || null
 })
 
@@ -244,7 +317,6 @@ const stats = computed(() => {
     { label: 'Durée', value: fmtMs(s.duration_ms) },
     { label: 'Date', value: fmtDate(s.played_date) },
     { label: 'Tracks', value: s.total_tracks },
-    { label: 'Identifiées', value: s.identified_tracks },
   ]
 })
 
@@ -271,6 +343,72 @@ onMounted(async () => {
   padding: var(--pad) calc(var(--pad) * 1.5);
   max-width: var(--detail-max-w);
   margin-inline: auto;
+}
+
+/* Ring row */
+.ring-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0 4px;
+}
+.ring-label {
+  font: 400 11px/1 var(--font-mono);
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Description */
+.rel-prose {
+  font: 400 14px/1.6 var(--font-ui);
+  color: var(--ink-2);
+  max-width: 78ch;
+  padding: 0 10px;
+}
+
+/* Artist appear rows */
+.appear {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s;
+}
+.appear:hover {
+  background: var(--surface-2);
+}
+.ap-thumb {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--r-xs);
+  flex: none;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+}
+.ap-thumb.round {
+  border-radius: 50%;
+}
+.ap-thumb--empty {
+  background: var(--surface-2);
+}
+.ap-tx {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ap-title {
+  font: 500 14px/1 var(--font-ui);
+  color: var(--ink);
+}
+.ap-sub {
+  font: 400 12px/1 var(--font-ui);
+  color: var(--ink-3);
 }
 
 /* Tracklist */
@@ -306,6 +444,11 @@ onMounted(async () => {
 .tl-pos {
   width: 36px;
   text-align: center;
+}
+.tl-play {
+  width: 44px;
+  text-align: center;
+  padding: 4px !important;
 }
 .tl-time {
   width: 72px;
@@ -371,6 +514,30 @@ onMounted(async () => {
   color: var(--ink-2);
 }
 
+/* Play button */
+.play-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--ink-3);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+tr:hover .play-btn {
+  opacity: 1;
+}
+.play-btn.playing {
+  opacity: 1;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
 /* Row states */
 .row--unknown .tl-title {
   color: var(--ink-3);
@@ -387,6 +554,11 @@ onMounted(async () => {
 .row--id .tl-artist {
   color: var(--ink-3);
   opacity: 0.6;
+}
+
+/* Playing row */
+tr.playing td {
+  background: var(--accent-soft);
 }
 
 /* ID label */

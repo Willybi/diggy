@@ -6,7 +6,10 @@
     </div>
     <div class="hero-body">
       <h1 class="hero-title">{{ title }}</h1>
-      <p v-if="subtitle" class="hero-sub">{{ subtitle }}</p>
+      <div v-if="$slots.subtitle" class="hero-sub">
+        <slot name="subtitle" />
+      </div>
+      <p v-else-if="subtitle" class="hero-sub">{{ subtitle }}</p>
       <div v-if="$slots.badges" class="hero-badges">
         <slot name="badges" />
       </div>
