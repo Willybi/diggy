@@ -609,11 +609,14 @@ onMounted(async () => {
 }
 .mini-tx {
   min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 .mini-title {
+  display: block;
+  max-width: 100%;
   font: 500 13px/1.2 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
