@@ -11,7 +11,7 @@ from auth import (
 )
 from database import get_db
 from dependencies import get_current_user
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from models import User
 from pydantic import BaseModel
