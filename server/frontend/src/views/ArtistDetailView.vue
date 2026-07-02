@@ -20,18 +20,18 @@
             ></span>
           </div>
           <div class="hb-scrim"></div>
-          <!-- Avatar in absolute position on banner -->
-          <div class="hb-avatar">
-            <div class="hero-visual hero-visual--round">
-              <img
-                v-if="artist.has_artwork"
-                :src="`/storage/artist-artworks/${artist.id}.jpg`"
-              />
-              <span v-else class="hero-fallback">{{ artist.name[0] }}</span>
-            </div>
-          </div>
           <!-- Title on the banner, white + text-shadow -->
           <h1 class="hb-name">{{ artist.name }}</h1>
+        </div>
+        <!-- Avatar outside hero-banner to avoid overflow:hidden clipping -->
+        <div class="hb-avatar">
+          <div class="hero-visual hero-visual--round">
+            <img
+              v-if="artist.has_artwork"
+              :src="`/storage/artist-artworks/${artist.id}.jpg`"
+            />
+            <span v-else class="hero-fallback">{{ artist.name[0] }}</span>
+          </div>
         </div>
         <!-- Body below the banner -->
         <div class="hero-body-below">
@@ -417,6 +417,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0;
   padding: 0 0 22px;
+  position: relative;
 }
 .hero-banner {
   position: relative;
@@ -450,11 +451,11 @@ onMounted(async () => {
   );
   pointer-events: none;
 }
-/* Avatar absolute on banner */
+/* Avatar — positioned relative to .hero--banner, outside .hero-banner */
 .hb-avatar {
   position: absolute;
   left: 16px;
-  bottom: -48px;
+  top: 136px;
   z-index: 2;
 }
 .hero-visual--round {

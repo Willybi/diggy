@@ -34,12 +34,14 @@
         </template>
       </PageHero>
 
-      <StatStrip :stats="stats" />
-
-      <div v-if="djSet.total_tracks" class="ring-row">
-        <RingPct :value="djSet.identified_tracks" :total="djSet.total_tracks" />
-        <span class="ring-label">identifiées</span>
-      </div>
+      <StatStrip :stats="stats">
+        <div v-if="djSet.total_tracks" class="stat-cell">
+          <span class="stat-value ring-val">
+            <RingPct :value="djSet.identified_tracks" :total="djSet.total_tracks" />
+          </span>
+          <span class="stat-label">Identifiées</span>
+        </div>
+      </StatStrip>
 
       <RelBlock v-if="djSet.description" title="Description">
         <p class="rel-prose">{{ djSet.description }}</p>
@@ -345,19 +347,32 @@ onMounted(async () => {
   margin-inline: auto;
 }
 
-/* Ring row */
-.ring-row {
+/* Identifiées cell inside StatStrip */
+.stat-cell {
+  flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 0 4px;
+  padding: 12px 16px;
+  border-right: 1px solid var(--line);
 }
-.ring-label {
-  font: 400 11px/1 var(--font-mono);
+.stat-cell:last-child {
+  border-right: none;
+}
+.stat-value {
+  font: 600 15px/1 var(--font-mono);
+  color: var(--ink);
+}
+.stat-label {
+  font: 400 10.5px/1 var(--font-mono);
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  margin-top: 4px;
+}
+.ring-val {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Description */

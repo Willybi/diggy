@@ -4,6 +4,7 @@
       <span class="stat-value">{{ s.value }}</span>
       <span class="stat-label">{{ s.label }}</span>
     </div>
+    <slot />
   </div>
 </template>
 

@@ -145,21 +145,21 @@
             <span v-else class="mr-cover mr-cover--empty"></span>
             <span class="mr-info">
               <span class="mr-title">{{ t.title }}</span>
-              <span class="mr-meta">
-                <span v-if="t.bpm" class="mono">{{ fmtBpm(t.bpm) }}</span>
-                <span v-if="t.key" class="mono key-val">{{ t.key }}</span>
-                <span v-if="t.rating" class="rating">
-                  <span
-                    v-for="n in 5"
-                    :key="n"
-                    class="star"
-                    :class="{ 'is-on': n <= t.rating }"
-                    >★</span
-                  >
-                </span>
-              </span>
             </span>
-            <LibDot :in-lib="!!t.in_lib" />
+            <span class="mini-data">
+              <span v-if="t.bpm" class="mono">{{ fmtBpm(t.bpm) }}</span>
+              <span v-if="t.key" class="mono key-val">{{ t.key }}</span>
+              <span v-if="t.rating" class="rating">
+                <span
+                  v-for="n in 5"
+                  :key="n"
+                  class="star"
+                  :class="{ 'is-on': n <= t.rating }"
+                  >★</span
+                >
+              </span>
+              <LibDot :in-lib="!!t.in_lib" />
+            </span>
           </RouterLink>
         </div>
       </RelBlock>
@@ -522,6 +522,7 @@ onMounted(async () => {
   color: inherit;
   border-radius: var(--r-sm);
   transition: background 0.1s;
+  min-width: 0;
 }
 .mini-row:hover {
   background: var(--surface-2);
@@ -540,9 +541,6 @@ onMounted(async () => {
 .mr-info {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 .mr-title {
   font: 500 13px/1.2 var(--font-ui);
@@ -554,10 +552,11 @@ onMounted(async () => {
 .mini-row:hover .mr-title {
   color: var(--accent-ink);
 }
-.mr-meta {
+.mini-data {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: none;
   font: 400 11px/1 var(--font-mono);
   color: var(--ink-3);
 }
