@@ -68,8 +68,8 @@ async def google_callback(
     """Exchange Google code, create/find user, return HTML that stores JWT."""
     try:
         google_info = await verify_google_token(code)
-    except Exception:
-        logging.getLogger("auth").warning("Google token exchange failed")
+    except Exception as exc:
+        logging.getLogger("auth").warning("Google token exchange failed: %s", exc)
         raise HTTPException(status_code=400, detail="Google authentication failed")
 
     # Lookup by google_id
