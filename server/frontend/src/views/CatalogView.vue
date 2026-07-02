@@ -240,9 +240,14 @@
                     />
                   </span>
                   <span class="tx">
-                    <RouterLink :to="`/catalog/${e.id}`" class="tt-title-link">
-                      <div class="tt-title">{{ e.title }}</div>
-                    </RouterLink>
+                    <span class="tt-title-row">
+                      <RouterLink :to="`/catalog/${e.id}`" class="tt-title-link">
+                        <span class="tt-title">{{ e.title }}</span>
+                      </RouterLink>
+                      <span v-if="e.trend_rank && e.trend_rank <= 50" class="trend-badge">
+                        #{{ e.trend_rank }}
+                      </span>
+                    </span>
                     <div class="tt-art">
                       <ArtistLinks :artists="e.artists" :fallback="e.artist" />
                     </div>
@@ -910,8 +915,8 @@ tr:hover .pbtn {
 .tt-title-link {
   text-decoration: none;
   color: inherit;
-  display: block;
   min-width: 0;
+  overflow: hidden;
 }
 .tt-title {
   font-size: 14.5px;
@@ -936,6 +941,22 @@ tr.playing .tt-title {
 }
 .tt-art-link:hover .tt-art {
   color: var(--accent-ink);
+}
+.tt-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.trend-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 600 10px/1 var(--font-mono);
+  flex: none;
 }
 .tt-art {
   font-size: 12.5px;

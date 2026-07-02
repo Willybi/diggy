@@ -136,6 +136,11 @@ class RadarFullOut(BaseModel):
     status: str = "new"
     in_lib: bool = False
     trend_score: Optional[float] = None
+    trend_rank: Optional[int] = None
+    trend_family: Optional[str] = None
+    trend_rank_family: Optional[int] = None
+    velocity: Optional[float] = None
+    source_count: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -192,6 +197,8 @@ class CatalogEntryOut(BaseModel):
     detected_at: Optional[datetime] = None
     source_name: Optional[str] = None
     source_kind: Optional[str] = None
+    # Trend
+    trend_rank: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -203,6 +210,26 @@ class CatalogAvisUpdate(BaseModel):
 class CatalogList(BaseModel):
     total: int
     items: list[CatalogEntryOut]
+
+
+class TrendItem(BaseModel):
+    catalog_id: int
+    title: str
+    artist: Optional[str] = None
+    has_artwork: bool = False
+    has_preview: bool = False
+    preview_url: Optional[str] = None
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    trend_score: float = 0
+    rank: int = 1
+    family: Optional[str] = None
+    source_count: int = 0
+
+
+class TrendList(BaseModel):
+    items: list[TrendItem]
+    family_counts: dict[str, int] = {}
 
 
 class WatchedEntityIn(BaseModel):

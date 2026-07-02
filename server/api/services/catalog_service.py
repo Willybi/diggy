@@ -35,6 +35,7 @@ async def list_catalog(
         CatalogArtist,
         CatalogEntry,
         RadarTrack,
+        RadarTrend,
         SetTrack,
         UserTrack,
         WatchedEntity,
@@ -101,6 +102,11 @@ async def list_catalog(
         .subquery()
     )
 
+    trend_sub = (
+        select(RadarTrend.catalog_id, RadarTrend.rank_global)
+        .subquery()
+    )
+
     select_cols = [
         CatalogEntry,
         func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
@@ -112,6 +118,7 @@ async def list_catalog(
         ut_sub.c.rb_mytags.label("ut_tags"),
         ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
         ut_sub.c.ut_avis.label("ut_avis"),
+        trend_sub.c.rank_global.label("trend_rank"),
     ]
     if is_radar:
         select_cols.extend(
@@ -127,6 +134,7 @@ async def list_catalog(
         .outerjoin(radar_count, CatalogEntry.id == radar_count.c.catalog_id)
         .outerjoin(set_count, CatalogEntry.id == set_count.c.catalog_id)
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
+        .outerjoin(trend_sub, CatalogEntry.id == trend_sub.c.catalog_id)
     )
 
     if is_radar:
@@ -243,15 +251,16 @@ async def list_catalog(
         ut_tags = row[7]
         ut_has_artwork = row[8]
         ut_avis = row[9]
+        t_rank = row[10]
         entry_artists = artists_by_catalog.get(entry.id, [])
         art_id = entry_artists[0].id if entry_artists else None
 
         radar_fields = {}
         if is_radar:
             radar_fields = {
-                "detected_at": row[10],
-                "source_name": row[11],
-                "source_kind": row[12],
+                "detected_at": row[11],
+                "source_name": row[12],
+                "source_kind": row[13],
             }
 
         lib_style = None
@@ -289,6 +298,7 @@ async def list_catalog(
                 style=lib_style,
                 rating=ut_rating,
                 avis=ut_avis,
+                trend_rank=t_rank,
                 artist_id=art_id,
                 artists=entry_artists,
                 **radar_fields,

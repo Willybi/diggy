@@ -89,13 +89,21 @@ async def list_full(
             func.coalesce(func.min(urs.status), literal("new")).label("status"),
             in_lib_sq.label("in_lib"),
             rt.trend_score.label("trend_score"),
+            rt.rank_global.label("trend_rank"),
+            rt.family.label("trend_family"),
+            rt.rank_in_family.label("trend_rank_family"),
+            rt.velocity.label("velocity"),
+            rt.source_count.label("source_count"),
         )
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
         .outerjoin(urs, and_(urs.user_id == user_id, urs.catalog_id == CatalogEntry.id))
         .outerjoin(rt, rt.catalog_id == CatalogEntry.id)
         .where(RadarTrack.catalog_id.isnot(None))
-        .group_by(CatalogEntry.id, urs.status, rt.trend_score)
+        .group_by(
+            CatalogEntry.id, urs.status, rt.trend_score,
+            rt.rank_global, rt.family, rt.rank_in_family, rt.velocity, rt.source_count,
+        )
     )
 
     resolved_status = _STATUS_ALIAS.get(status, status) if status else None

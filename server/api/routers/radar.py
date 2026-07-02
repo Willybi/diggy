@@ -4,17 +4,80 @@ from typing import Literal
 from database import get_db
 from dependencies import get_current_user, require_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
-from models import RadarTrack, User
+from models import CatalogEntry, RadarTrack, RadarTrend, User
 from schemas import (
     RadarBatchItem,
     RadarFullList,
     RadarStateUpdate,
+    TrendItem,
+    TrendList,
 )
 from services import radar_service
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/radar", tags=["radar"])
+
+
+@router.get("/trends", response_model=TrendList)
+async def list_trends(
+    family: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    # Family counts
+    count_q = (
+        select(RadarTrend.family, func.count())
+        .where(RadarTrend.family.isnot(None))
+        .group_by(RadarTrend.family)
+    )
+    count_rows = (await db.execute(count_q)).all()
+    family_counts = {r[0]: r[1] for r in count_rows}
+
+    # Top tracks
+    q = (
+        select(
+            RadarTrend.catalog_id,
+            RadarTrend.trend_score,
+            RadarTrend.rank_global,
+            RadarTrend.family,
+            RadarTrend.source_count,
+            CatalogEntry.title,
+            CatalogEntry.artist,
+            CatalogEntry.has_artwork,
+            CatalogEntry.has_preview,
+            CatalogEntry.preview_url,
+            CatalogEntry.bpm,
+            CatalogEntry.key,
+        )
+        .join(CatalogEntry, CatalogEntry.id == RadarTrend.catalog_id)
+    )
+    if family:
+        q = q.where(RadarTrend.family == family)
+        q = q.order_by(RadarTrend.rank_in_family.asc().nulls_last())
+    else:
+        q = q.order_by(RadarTrend.rank_global.asc().nulls_last())
+    q = q.limit(limit)
+
+    rows = (await db.execute(q)).all()
+    items = [
+        TrendItem(
+            catalog_id=r.catalog_id,
+            title=r.title,
+            artist=r.artist,
+            has_artwork=r.has_artwork,
+            has_preview=r.has_preview,
+            preview_url=r.preview_url,
+            bpm=r.bpm,
+            key=r.key,
+            trend_score=r.trend_score,
+            rank=idx + 1,
+            family=r.family,
+            source_count=r.source_count or 0,
+        )
+        for idx, r in enumerate(rows)
+    ]
+    return TrendList(items=items, family_counts=family_counts)
 
 
 @router.get("/full", response_model=RadarFullList)

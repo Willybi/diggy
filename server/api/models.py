@@ -501,6 +501,11 @@ class RadarTrend(Base):
     trend_score = Column(Float, nullable=False, server_default="0", default=0)
     window_days = Column(Integer, server_default="30", default=30)
     detection_count = Column(Integer, server_default="0", default=0)
+    family = Column(String(50), nullable=True)
+    rank_in_family = Column(Integer, nullable=True)
+    rank_global = Column(Integer, nullable=True)
+    velocity = Column(Float, nullable=True)
+    source_count = Column(Integer, nullable=True)
     computed_at = Column(DateTime(timezone=True))
 
     catalog = relationship("CatalogEntry")

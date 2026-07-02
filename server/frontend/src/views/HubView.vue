@@ -113,6 +113,38 @@
         </div>
       </div>
 
+      <!-- discover: trend shelves -->
+      <div v-if="auth.isAuthenticated && isEmpty && trendTracks.length" class="discover">
+        <h2 class="discover-title">Ca sort en ce moment</h2>
+        <FamilyChips v-model="trendFamily" :counts="trendFamilyCounts" />
+        <div class="trend-shelf">
+          <div
+            v-for="track in trendTracks"
+            :key="track.catalog_id"
+            class="trend-card"
+            @click="$router.push(`/catalog/${track.catalog_id}`)"
+          >
+            <div class="tc-art">
+              <img
+                v-if="track.has_artwork"
+                :src="`/storage/catalog-artworks/${track.catalog_id}.jpg`"
+                alt=""
+                loading="lazy"
+                @error="(e) => (e.target.style.display = 'none')"
+              />
+              <div v-if="track.has_preview" class="tc-play" @click.stop="playTrend(track)">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              </div>
+            </div>
+            <div class="tc-info">
+              <span class="tc-rank">#{{ track.rank }}</span>
+              <div class="tc-title">{{ track.title }}</div>
+              <div class="tc-artist">{{ track.artist || '—' }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- results -->
       <div v-if="!isEmpty" class="results" aria-live="polite">
         <div class="results-head">
@@ -242,6 +274,7 @@ import { styleTone } from '../composables/useStyleMap.js'
 import { fmtMs, fmtBpm } from '../utils/format.js'
 import SegFilter from '../components/SegFilter.vue'
 import SourceBadge from '../components/SourceBadge.vue'
+import FamilyChips from '../components/FamilyChips.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -329,7 +362,41 @@ async function loadTopGenres() {
   }
 }
 
-onMounted(loadTopGenres)
+// ── trends ──
+const trendFamily = ref('all')
+const trendTracks = ref([])
+const trendFamilyCounts = ref({})
+
+async function loadTrends() {
+  if (!auth.isAuthenticated) return
+  try {
+    const params = { limit: 20 }
+    if (trendFamily.value !== 'all') params.family = trendFamily.value
+    const { data } = await api.get('/api/radar/trends', { params })
+    trendTracks.value = data.items || []
+    trendFamilyCounts.value = data.family_counts || {}
+  } catch {
+    /* silent */
+  }
+}
+
+watch(trendFamily, loadTrends)
+
+function playTrend(track) {
+  player.play({
+    id: track.catalog_id,
+    catalog_id: track.catalog_id,
+    title: track.title,
+    artist: track.artist,
+    bpm: track.bpm,
+    key: track.key,
+  })
+}
+
+onMounted(() => {
+  loadTopGenres()
+  loadTrends()
+})
 
 // ── search ──
 let debounceTimer = null
@@ -1339,6 +1406,110 @@ const vClickOutside = {
   transform: translateY(12px);
 }
 
+/* ── discover ── */
+.discover {
+  width: 100%;
+  max-width: 720px;
+  margin: 8px auto 0;
+}
+.discover-title {
+  font: 600 18px/1 var(--font-ui);
+  color: var(--ink);
+  margin: 0 0 14px;
+}
+.discover :deep(.fam-chips) {
+  padding: 0 0 14px;
+}
+.trend-shelf {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 0 0 16px;
+  -webkit-overflow-scrolling: touch;
+}
+.trend-shelf::-webkit-scrollbar { display: none; }
+.trend-card {
+  min-width: 200px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.13s, border-color 0.13s;
+}
+.trend-card:hover {
+  background: var(--surface-2);
+  border-color: var(--line-2);
+}
+.tc-art {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  flex: none;
+  background: var(--surface-3);
+}
+.tc-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tc-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.tc-play svg {
+  width: 22px;
+  height: 22px;
+}
+.trend-card:hover .tc-play {
+  opacity: 1;
+}
+.tc-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tc-rank {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 600 11px/1 var(--font-mono);
+  align-self: flex-start;
+}
+.tc-title {
+  font: 500 14px var(--font-ui);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-artist {
+  font: 400 12px var(--font-ui);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── responsive ── */
 @container app (max-width: 680px) {
   .hub,
@@ -1371,6 +1542,12 @@ const vClickOutside = {
   }
   .extras {
     max-width: 100%;
+  }
+  .discover {
+    max-width: 100%;
+  }
+  .tc-play {
+    opacity: 1;
   }
   .rart .play {
     opacity: 1;

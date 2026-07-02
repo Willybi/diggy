@@ -33,7 +33,7 @@ Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
  #    Chantier                              Priorite    Estimation   Statut
 ----  ------------------------------------  ----------  ----------   ------
  C0   Correctifs critiques + fondations     CRITIQUE    1-2 jours    TERMINE
- R1   Responsive / Support Mobile           HAUT        3-4 jours    A FAIRE
+ R1   Responsive / Support Mobile           HAUT        3-4 jours    TERMINE
  C1   Trend v2 + Decouvrir + Collections    HAUT        5-7 jours    A FAIRE
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL
@@ -57,6 +57,7 @@ Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
  D5   Refactor Composants partages      TERMINE
  F4   Import Rekordbox Web              TERMINE
  C0   Correctifs critiques + fondations TERMINE
+ R1   Responsive / Support Mobile     TERMINE
 ```
 
 ### Dependances
@@ -129,7 +130,7 @@ Urgence moderee : seul le signal de retrait (fading) s'accumule a partir de sa m
 **Priorite : HAUT**
 **Estimation : 3-4 jours**
 **Depend de : C0 (TERMINE)**
-**Statut : A FAIRE — prochain chantier**
+**Statut : TERMINE (2026-07-02)**
 
 ### Contexte
 
@@ -148,30 +149,27 @@ Breakpoints cibles :
 
 #### Navigation (critique)
 
-- [ ] **Sidebar -> bottom nav sur mobile** : en dessous de 640px, masquer la sidebar et
-  afficher une barre de navigation basse avec les 5-6 destinations principales
-  (Hub, Catalog, Artistes, Sets, Genres, + Admin si admin)
-- [ ] **`BottomNav.vue`** : composant barre bas (icones + label court, highlight route active)
-- [ ] **Token `--bottom-nav-h`** dans `diggy-tokens.css` (hauteur ~56px)
+- [x] **Sidebar -> bottom nav sur mobile** : BottomNav sous 640px, sidebar masquee
+- [x] **`BottomNav.vue`** : 5 items + Admin conditionnel, badge radar new-count, highlight accent + barre
+- [x] **Token `--bottom-nav-h`** dans `diggy-tokens.css` (56px) + `--page-px-mobile` (16px) + `--touch-min` (44px)
 
 #### Layout global
 
-- [ ] **Meta viewport** : verifier que `index.html` a `<meta name="viewport" content="width=device-width, initial-scale=1">`
-- [ ] **Padding lateral mobile** : token `--page-px-mobile` (16px)
-- [ ] **Supprimer les `min-width` fixes** qui cassent le layout mobile
+- [x] **Meta viewport** : deja present dans `index.html`
+- [x] **Padding lateral mobile** : `var(--page-px-mobile)` applique dans 12 vues
+- [x] **min-width fixes** : `min-width: 0` sous 640px sur tables Catalog et Sets
 
 #### Tables (TrackTable, MiniTrackTable)
 
-- [ ] **Colonnes masquees sur mobile** : `BPM`, `Key`, `Duree`, `Rating` masques sous 640px
-  — seuls `Cover`, `Titre + Artiste`, `Actions` restent visibles
-- [ ] **Scroll horizontal en fallback** : wrapper avec `overflow-x: auto`
+- [x] **Colonnes masquees progressivement** : 6 breakpoints (1160→560px). Sur 375px survivent : Play · Track · Key · InLib
+- [x] **Scroll horizontal** : `.dt-wrap` overflow-x deja en place, min-width 0 sous 640px
 
 #### Composants
 
-- [ ] **Modales** : full-screen sheet sur mobile
-- [ ] **Filtres / chips** : scroll horizontal (`overflow-x: auto; white-space: nowrap`)
-- [ ] **Player** : ajuster `bottom` en fonction de `--bottom-nav-h`
-- [ ] **Boutons d'action** : `min-height: 44px` sur tous les elements interactifs
+- [x] **Modales** : plein ecran sous 640px (`@media`)
+- [x] **Filtres / chips** : scroll horizontal (CatalogView head-tools wrap + SegFilter overflow-x)
+- [x] **Player** : repositionne au-dessus de la BottomNav (`@media`, bottom calc)
+- [x] **Cibles tactiles** : hover-only (.pbtn, .act, .ld-btn) → toujours visibles sous 640px
 
 #### Vues prioritaires a verifier
 
@@ -201,8 +199,8 @@ Breakpoints cibles :
 
 **Priorite : HAUT**
 **Estimation : 5-7 jours**
-**Depend de : R1**
-**Statut : A FAIRE**
+**Depend de : R1 (TERMINE)**
+**Statut : A FAIRE — prochain chantier**
 
 ### Objectif
 
@@ -410,6 +408,8 @@ Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des
 | Tests composants frontend | Au fil de l'eau |
 | ~~Auto-migration au deploy~~ | FAIT — `alembic upgrade head` dans deploy.yml |
 | ~~`/api/radar/full` crash genres sort~~ | FAIT — `literal_column` au lieu de `StringArray[1]` |
+| ~~CSP bloque requetes API sur mobile~~ | FAIT — `connect-src 'self' ws: wss:` + `hmr: false` dans vite.config.js |
+| Frontend build statique (sortir du Vite dev server) | A faire avant ouverture (C3) — supprime container frontend, CSP propre, perf mobile |
 
 ---
 

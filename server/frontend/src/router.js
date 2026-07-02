@@ -12,6 +12,8 @@ const SetDetailView = () => import('./views/SetDetailView.vue')
 const PlaylistDetailView = () => import('./views/PlaylistDetailView.vue')
 const ArtistsView = () => import('./views/ArtistsView.vue')
 const SetsView = () => import('./views/SetsView.vue')
+const CollectionsView = () => import('./views/CollectionsView.vue')
+const CollectionDetailView = () => import('./views/CollectionDetailView.vue')
 const AdminView = () => import('./views/AdminView.vue')
 const LoginView = () => import('./views/LoginView.vue')
 
@@ -30,6 +32,8 @@ const routes = [
   { path: '/artists', component: ArtistsView },
   { path: '/admin', component: AdminView },
   { path: '/radar', redirect: '/catalog?view=radar' },
+  { path: '/collections', component: CollectionsView },
+  { path: '/collections/:id', component: CollectionDetailView, props: true },
   { path: '/playlists', component: WatchlistView },
   { path: '/playlists/:id', component: PlaylistDetailView, props: true },
 ]

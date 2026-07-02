@@ -43,7 +43,7 @@
           <span v-for="tag in track.tags" :key="tag" class="rb-tag">{{ tag }}</span>
         </template>
 
-        <!-- T3: LikeDislike + HeroPlayer -->
+        <!-- T3: LikeDislike + HeroPlayer + Add to collection -->
         <template #actions>
           <HeroPlayer
             v-if="track.has_preview"
@@ -54,6 +54,29 @@
             :track-key="track.key"
           />
           <LikeDislike v-model="opinion" />
+          <div class="coll-add-wrap">
+            <button class="btn-coll" @click="toggleCollDropdown">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M12 10v6M9 13h6" />
+              </svg>
+              <span>Collection</span>
+            </button>
+            <div v-if="showCollDropdown" class="coll-dropdown">
+              <div v-if="collLoading" class="coll-dd-state">Chargement…</div>
+              <div v-else-if="!userCollections.length" class="coll-dd-state">Aucune collection</div>
+              <button
+                v-for="c in userCollections"
+                :key="c.id"
+                class="coll-dd-item"
+                :disabled="c._added"
+                @click="addToCollection(c)"
+              >
+                {{ c.name }}
+                <span v-if="c._added" class="coll-dd-check">✓</span>
+              </button>
+            </div>
+          </div>
         </template>
       </PageHero>
 
@@ -243,6 +266,9 @@ const enrichResult = ref(null)
 const fetchingDzGenre = ref(false)
 const dzGenreResult = ref(null)
 const opinion = ref(null)
+const showCollDropdown = ref(false)
+const userCollections = ref([])
+const collLoading = ref(false)
 
 const coverSrc = computed(() => {
   if (!track.value) return null
@@ -275,6 +301,29 @@ watch(opinion, async (val) => {
     // silent
   }
 })
+
+async function toggleCollDropdown() {
+  showCollDropdown.value = !showCollDropdown.value
+  if (showCollDropdown.value && !userCollections.value.length) {
+    collLoading.value = true
+    try {
+      const { data } = await api.get('/api/collections/')
+      userCollections.value = data.map((c) => ({ ...c, _added: false }))
+    } finally {
+      collLoading.value = false
+    }
+  }
+}
+
+async function addToCollection(coll) {
+  if (coll._added) return
+  try {
+    await api.post(`/api/collections/${coll.id}/items`, { catalog_id: track.value.id })
+    coll._added = true
+  } catch (e) {
+    if (e.response?.status === 409) coll._added = true
+  }
+}
 
 async function enrichBeatport(forceGenre = false) {
   enriching.value = true
@@ -412,6 +461,79 @@ onMounted(async () => {
   padding: 5px 9px;
   border-radius: 999px;
   white-space: nowrap;
+}
+
+/* Collection add button */
+.coll-add-wrap {
+  position: relative;
+}
+.btn-coll {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 13px var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
+}
+.btn-coll:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+.btn-coll svg {
+  width: 16px;
+  height: 16px;
+}
+.coll-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+  padding: 4px;
+}
+.coll-dd-state {
+  padding: 10px 12px;
+  font: 400 13px var(--font-ui);
+  color: var(--ink-3);
+}
+.coll-dd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: 500 13.5px var(--font-ui);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background 0.1s;
+}
+.coll-dd-item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.coll-dd-item:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.coll-dd-check {
+  color: var(--pos-ink);
+  font-weight: 600;
 }
 
 /* Track meta (label + external links) */
