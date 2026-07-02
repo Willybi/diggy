@@ -363,18 +363,17 @@ class TestCrawlDiffLifecycle:
         catalog_map = bulk_get_or_create_catalog(session, [{"title": "Track 1", "artist": "Art"}])
         result = bulk_insert_radar_tracks(session, we.id, "deezer", source_tracks, catalog_map)
         session.commit()
+        session.close()
 
         assert result["removed"] == 1
 
-        # Verify t2 has removed_at set
+        # Verify t2 has removed_at set — re-read from async session
         from sqlalchemy import select
-        await db.expire_all()
+        db.expire_all()
         t2 = (await db.execute(
             select(RadarTrack).where(RadarTrack.external_track_id == "t2", RadarTrack.watched_entity_id == we.id)
         )).scalar_one()
         assert t2.removed_at is not None
-
-        session.close()
 
     async def test_crawl_reappearing_track_clears_removed_at(self, db):
         """Tracks that reappear should have removed_at cleared."""
@@ -410,15 +409,14 @@ class TestCrawlDiffLifecycle:
         catalog_map = bulk_get_or_create_catalog(session, [{"title": "Track", "artist": "Art"}])
         bulk_insert_radar_tracks(session, we.id, "deezer", source_tracks, catalog_map)
         session.commit()
+        session.close()
 
         from sqlalchemy import select
-        await db.expire_all()
+        db.expire_all()
         t1 = (await db.execute(
             select(RadarTrack).where(RadarTrack.external_track_id == "t1", RadarTrack.watched_entity_id == we.id)
         )).scalar_one()
         assert t1.removed_at is None
-
-        session.close()
 
     async def test_initial_crawl_flag(self, db):
         """First crawl of a playlist should flag tracks as initial detections."""
@@ -446,16 +444,15 @@ class TestCrawlDiffLifecycle:
             is_initial_crawl=True,
         )
         session.commit()
+        session.close()
         assert result["inserted"] == 1
 
         from sqlalchemy import select
-        await db.expire_all()
+        db.expire_all()
         t1 = (await db.execute(
             select(RadarTrack).where(RadarTrack.external_track_id == "t1", RadarTrack.watched_entity_id == we.id)
         )).scalar_one()
         assert t1.is_initial_detection is True
-
-        session.close()
 
 
 # ── GET /api/radar/full ──────────────────────────────────────────────────────
