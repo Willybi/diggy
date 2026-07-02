@@ -7,7 +7,7 @@ Services raise LookupError (404) or ValueError (400), never HTTPException.
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, func, literal, select
+from sqlalchemy import and_, func, literal, literal_column, select
 from sqlalchemy import desc as sa_desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -139,7 +139,7 @@ async def list_full(
         "artist": CatalogEntry.artist,
         "bpm": CatalogEntry.bpm,
         "key": CatalogEntry.key,
-        "genre": CatalogEntry.genres[1],
+        "genre": literal_column("(catalog.genres)[1]"),
         "playlist_title": latest_playlist_title,
         "trend_score": func.coalesce(rt.trend_score, literal(0)),
     }
