@@ -1409,7 +1409,7 @@ const vClickOutside = {
 /* ── discover ── */
 .discover {
   width: 100%;
-  max-width: 720px;
+  max-width: 960px;
   margin: 8px auto 0;
 }
 .discover-title {
@@ -1421,17 +1421,12 @@ const vClickOutside = {
   padding: 0 0 14px;
 }
 .trend-shelf {
-  display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
   padding: 0 0 16px;
-  -webkit-overflow-scrolling: touch;
 }
-.trend-shelf::-webkit-scrollbar { display: none; }
 .trend-card {
-  min-width: 200px;
-  flex: none;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1545,6 +1540,13 @@ const vClickOutside = {
   }
   .discover {
     max-width: 100%;
+  }
+  .trend-shelf {
+    grid-template-columns: 1fr;
+  }
+  .tc-art {
+    width: 56px;
+    height: 56px;
   }
   .tc-play {
     opacity: 1;
