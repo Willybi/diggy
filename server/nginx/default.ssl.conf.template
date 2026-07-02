@@ -25,28 +25,20 @@ server {
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;
 
+    # Security headers (applied to ALL responses via "always")
     add_header Strict-Transport-Security "max-age=15768000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://i.ytimg.com https://*.sndcdn.com https://*.hearthis.at; media-src 'self' https://*.dzcdn.net;" always;
+    add_header Content-Security-Policy "upgrade-insecure-requests; default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://i.ytimg.com https://*.sndcdn.com https://*.hearthis.at; media-src 'self' https://*.dzcdn.net;" always;
 
-    # Frontend Vue.js (static build served by frontend container)
-    location / {
-        proxy_pass http://frontend:80;
-        proxy_set_header Host $host;
-    }
+    # Gzip
+    gzip on;
+    gzip_types application/json application/javascript text/css text/plain;
+    gzip_min_length 1000;
 
-    # Cache static assets (JS/CSS with content hash)
-    location ~* \.(js|css|png|jpg|svg|woff2)$ {
-        proxy_pass http://frontend:80;
-        proxy_set_header Host $host;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # FastAPI backend
-    location /api/ {
+    # FastAPI backend (prefix ^~ = priority over regex)
+    location ^~ /api/ {
         proxy_pass http://api:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -54,14 +46,34 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # MinIO console — blocked (access via SSH tunnel only)
-    location /minio/ {
+    # MinIO fichiers (prefix ^~ = priority over regex)
+    location ^~ /storage/ {
+        proxy_pass http://minio:9000/;
+        proxy_set_header Host minio:9000;
+    }
+
+    # MinIO console — blocked
+    location ^~ /minio/ {
         return 403;
     }
 
-    # MinIO fichiers (artworks publics)
-    location /storage/ {
-        proxy_pass http://minio:9000/;
-        proxy_set_header Host minio:9000;
+    # Frontend Vue.js (static build — catch-all)
+    location / {
+        proxy_pass http://frontend:80;
+        proxy_set_header Host $host;
+
+        # Cache static assets with content hash in filename
+        location ~* \.(js|css|woff2)$ {
+            proxy_pass http://frontend:80;
+            proxy_set_header Host $host;
+            expires 1y;
+        }
+
+        # Cache images/icons
+        location ~* \.(png|jpg|svg|ico)$ {
+            proxy_pass http://frontend:80;
+            proxy_set_header Host $host;
+            expires 30d;
+        }
     }
 }
