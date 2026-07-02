@@ -145,12 +145,12 @@
               alt=""
             />
             <span v-else class="mr-cover mr-cover--empty"></span>
-            <span class="mr-info">
+            <span class="mini-tx">
               <span class="mr-title">{{ t.title }}</span>
             </span>
-            <span class="mini-data">
-              <span v-if="t.bpm" class="mono">{{ fmtBpm(t.bpm) }}</span>
-              <span v-if="t.key" class="mono key-val">{{ t.key }}</span>
+            <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
+            <span class="m-key mono">{{ t.key || '' }}</span>
+            <span class="m-rating">
               <span v-if="t.rating" class="rating">
                 <span
                   v-for="n in 5"
@@ -160,8 +160,8 @@
                   >★</span
                 >
               </span>
-              <LibDot :in-lib="!!t.in_lib" />
             </span>
+            <span class="m-lib"><LibDot :in-lib="!!t.in_lib" /></span>
           </RouterLink>
         </div>
       </RelBlock>
@@ -504,7 +504,7 @@ onMounted(async () => {
   font-family: var(--font-mono);
 }
 
-/* T8: Same artist — compact 2-col grid */
+/* T8: Same artist — compact 2-col grid with fixed columns */
 .mini-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -516,7 +516,8 @@ onMounted(async () => {
   }
 }
 .mini-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 72px 16px;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
@@ -535,13 +536,11 @@ onMounted(async () => {
   border-radius: var(--r-xs);
   object-fit: cover;
   border: 1px solid var(--line);
-  flex: none;
 }
 .mr-cover--empty {
   background: var(--surface-3);
 }
-.mr-info {
-  flex: 1;
+.mini-tx {
   min-width: 0;
 }
 .mr-title {
@@ -554,16 +553,22 @@ onMounted(async () => {
 .mini-row:hover .mr-title {
   color: var(--accent-ink);
 }
-.mini-data {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  font: 400 11px/1 var(--font-mono);
-  color: var(--ink-3);
+.m-bpm {
+  text-align: right;
+  font: 500 12px/1 var(--font-mono);
+  color: var(--ink-2);
 }
-.key-val {
+.m-key {
+  text-align: center;
+  font: 500 12px/1 var(--font-mono);
   color: var(--accent-ink);
+}
+.m-rating {
+  text-align: center;
+}
+.m-lib {
+  display: flex;
+  justify-content: center;
 }
 .mono {
   font-family: var(--font-mono);

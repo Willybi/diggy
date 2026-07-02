@@ -112,29 +112,27 @@
                 <ArtistLinks :artists="t.artists" :fallback="t.artist" />
               </span>
             </span>
-            <span class="mini-data">
+            <span class="m-style" @click.stop>
               <template v-if="t.genres?.length">
                 <RouterLink
                   v-for="g in t.genres"
                   :key="g.name"
                   :to="`/style/${encodeURIComponent(g.name)}`"
                   style="text-decoration: none"
-                  @click.stop
                 >
                   <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
                 </RouterLink>
               </template>
-              <span v-if="t.bpm" class="mono">{{ fmtBpm(t.bpm) }}</span>
-              <span v-if="t.key" class="mono key-val">{{ t.key }}</span>
-              <span v-if="t.duration_ms" class="mono">{{ fmtMs(t.duration_ms) }}</span>
-              <span v-if="t.rating" class="rating">
-                <span v-for="n in 5" :key="n" class="star" :class="{ 'is-on': n <= t.rating }">★</span>
-              </span>
+            </span>
+            <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
+            <span class="m-key mono">{{ t.key || '' }}</span>
+            <span class="m-dur mono">{{ t.duration_ms ? fmtMs(t.duration_ms) : '' }}</span>
+            <span class="m-play" @click.stop>
               <button
                 v-if="t.has_preview"
                 class="play-btn"
                 :class="{ playing: player.isCurrent(t.id) && player.playing }"
-                @click.stop="playTrack(t)"
+                @click="playTrack(t)"
               >
                 <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="5" width="4" height="14" />
@@ -144,9 +142,8 @@
                   <path d="M8 5v14l11-7z" />
                 </svg>
               </button>
-              <span v-else class="play-ph"></span>
-              <LibDot :in-lib="t.in_lib" />
             </span>
+            <span class="m-lib"><LibDot :in-lib="t.in_lib" /></span>
           </div>
         </div>
         <button
@@ -564,7 +561,7 @@ onMounted(async () => {
   color: var(--ink-2);
 }
 
-/* Track grid — 2 columns */
+/* Track grid — 2 columns with fixed-column rows */
 .trk-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -576,9 +573,10 @@ onMounted(async () => {
   }
 }
 .mini-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 120px 30px 26px 40px 30px 14px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 7px 10px;
   border-radius: var(--r-sm);
   cursor: pointer;
@@ -600,13 +598,11 @@ onMounted(async () => {
   border-radius: var(--r-xs);
   object-fit: cover;
   border: 1px solid var(--line);
-  flex: none;
 }
 .mr-cover--empty {
   background: var(--surface-3);
 }
 .mini-tx {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -629,16 +625,39 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mini-data {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  flex: none;
-  font: 400 11px/1 var(--font-mono);
+.m-style {
+  min-width: 0;
+  overflow: hidden;
+}
+.m-style :deep(.style-tag) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-bpm {
+  text-align: right;
+  font: 500 12px/1 var(--font-mono);
+  color: var(--ink-2);
+}
+.m-key {
+  text-align: center;
+  font: 500 12px/1 var(--font-mono);
+  color: var(--accent-ink);
+}
+.m-dur {
+  text-align: right;
+  font: 500 12px/1 var(--font-mono);
   color: var(--ink-3);
 }
-.key-val {
-  color: var(--accent-ink);
+.m-play {
+  display: flex;
+  justify-content: center;
+  min-height: 30px;
+  align-items: center;
+}
+.m-lib {
+  display: flex;
+  justify-content: center;
 }
 .mono {
   font-family: var(--font-mono);
@@ -685,11 +704,6 @@ onMounted(async () => {
   color: var(--accent-ink);
   background: var(--accent-soft);
   border-color: transparent;
-}
-.play-ph {
-  width: 30px;
-  height: 30px;
-  flex: none;
 }
 
 /* Show more / less */
