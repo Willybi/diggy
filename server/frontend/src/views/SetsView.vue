@@ -830,17 +830,29 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
     order: 3;
   }
 }
+@container (max-width: 640px) {
+  .page-head,
+  .addform {
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
+  }
+  .table-wrap {
+    padding: 4px var(--page-px-mobile) 22px;
+  }
+  .addrow {
+    flex-direction: column;
+  }
+  .btn-go {
+    width: 100%;
+  }
+  /* Touch: always show avis buttons */
+  .td-avis :deep(.ld-btn) {
+    opacity: 1;
+  }
+}
 @container (max-width: 600px) {
   :deep(.ring) .pct {
     display: none;
-  }
-  .page-head,
-  .addform {
-    padding-left: 18px;
-    padding-right: 18px;
-  }
-  .table-wrap {
-    padding: 4px 14px 22px;
   }
 }
 </style>

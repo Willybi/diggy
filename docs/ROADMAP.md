@@ -32,7 +32,7 @@ Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
 ```
  #    Chantier                              Priorite    Estimation   Statut
 ----  ------------------------------------  ----------  ----------   ------
- C0   Correctifs critiques + fondations     CRITIQUE    1-2 jours    A FAIRE
+ C0   Correctifs critiques + fondations     CRITIQUE    1-2 jours    TERMINE
  R1   Responsive / Support Mobile           HAUT        3-4 jours    A FAIRE
  C1   Trend v2 + Decouvrir + Collections    HAUT        5-7 jours    A FAIRE
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   A FAIRE
@@ -56,6 +56,7 @@ Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
  D3   Hub / Search                      TERMINE
  D5   Refactor Composants partages      TERMINE
  F4   Import Rekordbox Web              TERMINE
+ C0   Correctifs critiques + fondations TERMINE
 ```
 
 ### Dependances
@@ -87,7 +88,7 @@ C4 ─────────> C2 + C3 (similarite + likes + users)
 **Priorite : CRITIQUE — avant tout le reste**
 **Estimation : 1-2 jours**
 **Depend de : rien**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-02)**
 
 ### Pourquoi maintenant
 
@@ -97,16 +98,16 @@ Les correctifs critiques de l'audit securite, et le signal de retrait des playli
 
 Precision importante : la velocite sur les ajouts est deja calculable retroactivement depuis `radar_tracks` (chaque paire track x playlist est datee par `detected_at`). Ce qui manque et ne se reconstitue pas : les retraits (track sorti d'une playlist) et les re-apparitions (INSERT or IGNORE, `detected_at` fige).
 
-- [ ] Ajouter `removed_at` sur `radar_tracks` + logique de diff dans le crawl : track present en base mais absent du crawl courant = retire. Pas besoin d'une table de log complete.
-- [ ] Neutraliser le biais de premiere surveillance : quand une nouvelle playlist entre au radar, tout son contenu prend `detected_at = aujourd'hui` et cree un faux pic de velocite. Flagger le premier crawl d'une playlist et l'exclure du calcul.
+- [x] Ajouter `removed_at` sur `radar_tracks` + logique de diff dans le crawl : track present en base mais absent du crawl courant = retire. Re-apparitions = `removed_at` remis a NULL. Migration 0026.
+- [x] Neutraliser le biais de premiere surveillance : `is_initial_detection` sur `RadarTrack`, flag base sur `last_crawled_at IS NULL` de la playlist.
 
 Urgence moderee : seul le signal de retrait (fading) s'accumule a partir de sa mise en place, et c'est un signal secondaire pour la v1 du trend.
 
 ### C0.2 — Correctifs securite critiques (audit)
 
-- [ ] `GET /api/radar/` legacy : supprimer ou proteger + filtrer par user (`radar.py:79-91`)
-- [ ] `DELETE /api/radar/{id}` : verifier l'ownership avant suppression (`radar.py:110-122`)
-- [ ] `uid()` fallback `user_id=1` : supprimer le defaut, un visiteur non-auth ne doit voir aucune donnee contextualisee (`dependencies.py:69-74`)
+- [x] `GET /api/radar/` et `POST /api/radar/` legacy : supprimes (aucun consommateur)
+- [x] `DELETE /api/radar/{id}` : protege par `require_admin`
+- [x] `uid()` fallback `user_id=1` : supprime, retourne `None` pour les guests. Type `int | None` propage dans 5 services + search helpers.
 
 ### Definition of Done
 
@@ -127,8 +128,8 @@ Urgence moderee : seul le signal de retrait (fading) s'accumule a partir de sa m
 
 **Priorite : HAUT**
 **Estimation : 3-4 jours**
-**Depend de : C0**
-**Statut : A FAIRE**
+**Depend de : C0 (TERMINE)**
+**Statut : A FAIRE — prochain chantier**
 
 ### Contexte
 
@@ -407,6 +408,8 @@ Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des
 | Monitoring complet (Flower, UptimeRobot, pg_stat_statements) | Apres ouverture, si le besoin apparait |
 | Websocket progression import | Jamais peut-etre : le polling 2s suffit |
 | Tests composants frontend | Au fil de l'eau |
+| ~~Auto-migration au deploy~~ | FAIT — `alembic upgrade head` dans deploy.yml |
+| ~~`/api/radar/full` crash genres sort~~ | FAIT — `literal_column` au lieu de `StringArray[1]` |
 
 ---
 

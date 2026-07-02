@@ -1343,8 +1343,8 @@ const vClickOutside = {
 @container app (max-width: 680px) {
   .hub,
   .hub-top {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
   }
   .scope-btn .lbl-long {
     display: none;
@@ -1360,6 +1360,23 @@ const vClickOutside = {
   }
   .tbadge .lbl {
     display: none;
+  }
+}
+@container app (max-width: 640px) {
+  .searchwrap {
+    max-width: 100%;
+  }
+  .results {
+    max-width: 100%;
+  }
+  .extras {
+    max-width: 100%;
+  }
+  .rart .play {
+    opacity: 1;
+  }
+  .r-add {
+    opacity: 0.8;
   }
 }
 @container app (max-width: 540px) {

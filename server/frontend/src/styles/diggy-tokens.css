@@ -125,6 +125,12 @@
   --detail-max-w: 1080px;
   --sidebar-w: 232px;
 
+  /* ---- responsive (mobile) ---- */
+  --bottom-nav-h: 56px;
+  --page-px: 30px;
+  --page-px-mobile: 16px;
+  --touch-min: 44px;
+
   /* ---- invariant overlays (always dark, theme-independent) ---- */
   --overlay-modal: oklch(0.2 0.02 262 / 0.72);
   --overlay-soft: oklch(0.2 0.02 70 / 0.42);

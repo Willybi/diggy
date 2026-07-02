@@ -687,4 +687,17 @@ tr.playing td {
   color: var(--neg-ink);
   border-color: var(--neg-ink);
 }
+
+/* ============ RESPONSIVE ============ */
+@container app (max-width: 640px) {
+  .detail-view {
+    padding: var(--page-px-mobile);
+  }
+  .tl-time {
+    display: none;
+  }
+  .play-btn {
+    opacity: 1;
+  }
+}
 </style>

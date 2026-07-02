@@ -1153,7 +1153,11 @@ onUnmounted(() => {
 }
 @container app (max-width: 640px) {
   .detail-view {
-    padding: 18px;
+    padding: var(--page-px-mobile);
+  }
+  .hero-play {
+    opacity: 1;
+    transform: none;
   }
 }
 @container app (max-width: 560px) {

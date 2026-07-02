@@ -613,4 +613,9 @@ onUnmounted(stopCrawlPoll)
     grid-template-columns: 1fr;
   }
 }
+@container (max-width: 640px) {
+  .detail-view {
+    padding: var(--page-px-mobile);
+  }
+}
 </style>

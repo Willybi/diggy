@@ -287,12 +287,12 @@ onMounted(() => {
   .page-head,
   .artist-grid,
   .sentinel {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
   }
   :deep(.fam-chips) {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
   }
 }
 @container (max-width: 560px) {

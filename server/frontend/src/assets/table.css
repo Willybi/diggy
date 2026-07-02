@@ -118,3 +118,14 @@ table.dt tbody tr.disliked td:not(.c-avis) {
   font: 500 13px var(--font-mono);
   color: var(--ink-3);
 }
+
+/* ============ MOBILE ============ */
+@media (max-width: 640px) {
+  table.dt .pbtn,
+  table.dt .act {
+    opacity: 1;
+  }
+  table.dt {
+    min-width: 0;
+  }
+}

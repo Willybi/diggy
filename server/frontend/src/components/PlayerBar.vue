@@ -464,4 +464,13 @@ function onScrubStart(e) {
     animation-play-state: paused !important;
   }
 }
+
+/* ── Mobile: reposition above BottomNav ── */
+@media (max-width: 640px) {
+  .player {
+    left: 8px;
+    right: 8px;
+    bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 8px);
+  }
+}
 </style>

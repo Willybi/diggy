@@ -925,7 +925,10 @@ onMounted(async () => {
 }
 
 /* Responsive: narrow — avatar in flow, body full-width */
-@container (max-width: 560px) {
+@container (max-width: 640px) {
+  .detail-view {
+    padding: var(--page-px-mobile);
+  }
   .hb-avatar {
     position: relative;
     top: -40px;
@@ -934,6 +937,29 @@ onMounted(async () => {
   }
   .hero-body-below {
     padding-left: 0;
+  }
+  .play-btn {
+    opacity: 1;
+  }
+  .m-style {
+    display: none;
+  }
+  .m-dur {
+    display: none;
+  }
+  .mini-row {
+    grid-template-columns: 36px minmax(0, 1fr) 30px 26px 30px 14px;
+  }
+}
+@container (max-width: 500px) {
+  .m-bpm {
+    display: none;
+  }
+  .m-key {
+    display: none;
+  }
+  .mini-row {
+    grid-template-columns: 36px minmax(0, 1fr) 30px 14px;
   }
 }
 </style>

@@ -1112,7 +1112,11 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
 }
 
 /* ============ RESPONSIVE ============ */
-@container (max-width: 880px) {
+/* Column drop — progressive hiding */
+@container app (max-width: 1160px) { .col-dur { display: none; } }
+@container app (max-width: 1010px) { .col-rating { display: none; } }
+@container app (max-width: 900px)  { .col-avis { display: none; } }
+@container app (max-width: 880px) {
   .page-head {
     flex-wrap: wrap;
   }
@@ -1126,21 +1130,46 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
     min-width: 0;
   }
 }
-@container (max-width: 600px) {
+@container app (max-width: 760px) { .col-radar { display: none; } }
+@container app (max-width: 640px) {
+  table.tt {
+    min-width: 0;
+  }
   .page-head {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding: 16px var(--page-px-mobile) 12px;
+  }
+  .titles h1 {
+    font-size: 23px;
+  }
+  .head-tools {
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .head-tools::-webkit-scrollbar {
+    display: none;
   }
   .table-wrap {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding: 4px var(--page-px-mobile) 22px;
   }
   .sub-bar {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
   }
   .pagination {
-    padding: 0 18px 22px;
+    padding: 0 var(--page-px-mobile) 22px;
+  }
+  /* Touch: always show play buttons & avis */
+  .pbtn {
+    opacity: 1;
+  }
+  .c-avis :deep(.ld-btn) {
+    opacity: 1;
   }
 }
+@container app (max-width: 620px) { .col-style { display: none; } }
+@container app (max-width: 560px) { .col-bpm { display: none; } }
 </style>

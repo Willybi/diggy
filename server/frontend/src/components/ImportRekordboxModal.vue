@@ -510,4 +510,17 @@ function reset() {
   color: var(--neg-ink);
   text-align: center;
 }
+
+/* ============ MOBILE ============ */
+@media (max-width: 640px) {
+  .modal-overlay {
+    padding: 0;
+  }
+  .modal-box {
+    max-width: 100%;
+    height: 100%;
+    border-radius: 0;
+    padding: 20px var(--page-px-mobile, 16px);
+  }
+}
 </style>

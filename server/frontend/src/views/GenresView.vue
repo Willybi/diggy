@@ -349,18 +349,21 @@ onMounted(() => {
   .genre-grid,
   .admin-strip,
   .sentinel {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
   }
   :deep(.fam-chips) {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
   }
   .admin-strip {
     margin-left: 0;
     margin-right: 0;
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
+  }
+  .genre-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
 }
 @container (max-width: 520px) {

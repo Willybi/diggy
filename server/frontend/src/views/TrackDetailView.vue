@@ -640,4 +640,11 @@ onMounted(async () => {
 .enrich-result.muted {
   color: var(--ink-3);
 }
+
+/* ============ RESPONSIVE ============ */
+@container (max-width: 640px) {
+  .detail-view {
+    padding: var(--page-px-mobile);
+  }
+}
 </style>

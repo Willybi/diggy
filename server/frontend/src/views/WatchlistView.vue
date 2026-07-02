@@ -824,8 +824,18 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
   .page-head,
   .addform,
   .table-wrap {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: var(--page-px-mobile);
+    padding-right: var(--page-px-mobile);
+  }
+  .addrow {
+    flex-direction: column;
+  }
+  .btn-go {
+    width: 100%;
+  }
+  /* Touch: always show avis buttons */
+  .td-avis :deep(.ld-btn) {
+    opacity: 1;
   }
 }
 </style>

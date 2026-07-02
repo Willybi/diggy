@@ -10,12 +10,14 @@
     <Transition name="player">
       <PlayerBar v-if="player.visible" />
     </Transition>
+    <BottomNav v-if="auth.isAuthenticated" />
   </div>
 </template>
 
 <script setup>
 import SidebarNav from './components/SidebarNav.vue'
 import PlayerBar from './components/PlayerBar.vue'
+import BottomNav from './components/BottomNav.vue'
 import { useAudioPlayer } from './stores/audioPlayer'
 import { useAuthStore } from './stores/auth'
 import { useOpinionsStore } from './stores/opinions.js'
@@ -122,6 +124,24 @@ body {
 @container (max-width: 900px) {
   .app-container {
     --sidebar-w: 66px;
+  }
+}
+
+@container (max-width: 640px) {
+  .app-container {
+    --sidebar-w: 0px;
+  }
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .app-sidebar {
+    display: none;
+  }
+  .app-main {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+  .app-main.has-player {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 90px);
   }
 }
 </style>
