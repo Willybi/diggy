@@ -409,6 +409,7 @@ onMounted(async () => {
   padding: var(--pad) calc(var(--pad) * 1.5);
   max-width: var(--detail-max-w);
   margin-inline: auto;
+  container-type: inline-size;
 }
 
 /* Hero banner */
@@ -455,7 +456,7 @@ onMounted(async () => {
 .hb-avatar {
   position: absolute;
   left: 16px;
-  top: 136px;
+  top: 92px;
   z-index: 2;
 }
 .hero-visual--round {
@@ -495,9 +496,9 @@ onMounted(async () => {
   overflow-wrap: break-word;
   z-index: 1;
 }
-/* Body below the banner */
+/* Body below the banner — offset right of avatar */
 .hero-body-below {
-  padding: 58px 0 0 0;
+  padding: 16px 0 0 156px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -877,5 +878,18 @@ tr.playing td {
 }
 .muted {
   color: var(--ink-3);
+}
+
+/* Responsive: narrow — avatar in flow, body full-width */
+@container (max-width: 560px) {
+  .hb-avatar {
+    position: relative;
+    top: -40px;
+    left: 16px;
+    margin-bottom: -20px;
+  }
+  .hero-body-below {
+    padding-left: 0;
+  }
 }
 </style>
