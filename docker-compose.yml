@@ -162,19 +162,16 @@ services:
   frontend:
     build:
       context: ./server/frontend
-      target: development
+      target: production
     container_name: diggy_frontend
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 512M
+          cpus: '0.5'
+          memory: 128M
     networks:
       - diggy_network
-    volumes:
-      - ./server/frontend:/app
-      - /app/node_modules
     logging:
       driver: json-file
       options:
