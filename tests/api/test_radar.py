@@ -320,16 +320,19 @@ class TestRadarTrackModel:
     reason="bulk_insert_radar_tracks uses PostgreSQL dialect (pg_insert)",
 )
 class TestCrawlDiffLifecycle:
-    def _get_session(self):
-        """Create a sync session for worker DB functions."""
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import Session
-        engine = create_engine(os.environ["DATABASE_URL"].replace("+asyncpg", "").replace("+aiosqlite", ""))
-        return Session(engine)
+    """Tests that run entirely via sync psycopg2 sessions (no async mixing)."""
 
-    async def test_crawl_marks_removed_tracks(self, db):
+    def _make_engine(self):
+        from sqlalchemy import create_engine
+        url = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+        return create_engine(url)
+
+    def test_crawl_marks_removed_tracks(self):
         """Tracks absent from crawl should get removed_at set."""
         from dataclasses import dataclass
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
 
         @dataclass
         class FakeTrack:
@@ -339,61 +342,47 @@ class TestCrawlDiffLifecycle:
             isrc: str | None = None
             duration_ms: int | None = None
 
-        we = WatchedEntity(external_id="diff1", source="deezer", title="PL")
-        db.add(we)
-        await db.commit()
-        await db.refresh(we)
+        engine = self._make_engine()
+        with Session(engine) as s:
+            we = WatchedEntity(external_id="diff1", source="deezer", title="PL")
+            s.add(we)
+            s.flush()
 
-        # Seed two tracks
-        for ext_id, title in [("t1", "Track 1"), ("t2", "Track 2")]:
-            cat = CatalogEntry(title=title, artist="Art", normalized_key=f"{title.lower()} - art")
-            db.add(cat)
-            await db.flush()
-            db.add(RadarTrack(
-                watched_entity_id=we.id, external_track_id=ext_id, source="deezer",
-                title=title, artist="Art", catalog_id=cat.id,
-                detected_at=datetime.now(timezone.utc),
-            ))
-        await db.commit()
+            for ext_id, title in [("t1", "Track 1"), ("t2", "Track 2")]:
+                cat = CatalogEntry(title=title, artist="Art", normalized_key=f"{title.lower()} - art")
+                s.add(cat)
+                s.flush()
+                s.add(RadarTrack(
+                    watched_entity_id=we.id, external_track_id=ext_id, source="deezer",
+                    title=title, artist="Art", catalog_id=cat.id,
+                    detected_at=datetime.now(timezone.utc),
+                ))
+            s.commit()
+            we_id = we.id
 
-        # Crawl with only t1 (t2 disappears)
-        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
-        session = self._get_session()
-        source_tracks = [FakeTrack(external_id="t1", title="Track 1", artist="Art")]
-        catalog_map = bulk_get_or_create_catalog(session, [{"title": "Track 1", "artist": "Art"}])
-        result = bulk_insert_radar_tracks(session, we.id, "deezer", source_tracks, catalog_map)
-        session.commit()
-        session.close()
+        with Session(engine) as s:
+            source_tracks = [FakeTrack(external_id="t1", title="Track 1", artist="Art")]
+            catalog_map = bulk_get_or_create_catalog(s, [{"title": "Track 1", "artist": "Art"}])
+            result = bulk_insert_radar_tracks(s, we_id, "deezer", source_tracks, catalog_map)
+            s.commit()
 
         assert result["removed"] == 1
 
-        # Verify t2 has removed_at set — re-read from async session
-        from sqlalchemy import select
-        db.expire_all()
-        t2 = (await db.execute(
-            select(RadarTrack).where(RadarTrack.external_track_id == "t2", RadarTrack.watched_entity_id == we.id)
-        )).scalar_one()
-        assert t2.removed_at is not None
+        with Session(engine) as s:
+            t2 = s.execute(
+                select(RadarTrack).where(
+                    RadarTrack.external_track_id == "t2",
+                    RadarTrack.watched_entity_id == we_id,
+                )
+            ).scalar_one()
+            assert t2.removed_at is not None
 
-    async def test_crawl_reappearing_track_clears_removed_at(self, db):
+    def test_crawl_reappearing_track_clears_removed_at(self):
         """Tracks that reappear should have removed_at cleared."""
-        we = WatchedEntity(external_id="diff2", source="deezer", title="PL")
-        db.add(we)
-        await db.commit()
-        await db.refresh(we)
-
-        cat = CatalogEntry(title="Track", artist="Art", normalized_key="track - art reappear")
-        db.add(cat)
-        await db.flush()
-        db.add(RadarTrack(
-            watched_entity_id=we.id, external_track_id="t1", source="deezer",
-            title="Track", artist="Art", catalog_id=cat.id,
-            detected_at=datetime.now(timezone.utc),
-            removed_at=datetime.now(timezone.utc),  # previously marked removed
-        ))
-        await db.commit()
-
         from dataclasses import dataclass
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
 
         @dataclass
         class FakeTrack:
@@ -403,24 +392,44 @@ class TestCrawlDiffLifecycle:
             isrc: str | None = None
             duration_ms: int | None = None
 
-        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
-        session = self._get_session()
-        source_tracks = [FakeTrack(external_id="t1", title="Track", artist="Art")]
-        catalog_map = bulk_get_or_create_catalog(session, [{"title": "Track", "artist": "Art"}])
-        bulk_insert_radar_tracks(session, we.id, "deezer", source_tracks, catalog_map)
-        session.commit()
-        session.close()
+        engine = self._make_engine()
+        with Session(engine) as s:
+            we = WatchedEntity(external_id="diff2", source="deezer", title="PL")
+            s.add(we)
+            s.flush()
+            cat = CatalogEntry(title="Track", artist="Art", normalized_key="track - art reappear")
+            s.add(cat)
+            s.flush()
+            s.add(RadarTrack(
+                watched_entity_id=we.id, external_track_id="t1", source="deezer",
+                title="Track", artist="Art", catalog_id=cat.id,
+                detected_at=datetime.now(timezone.utc),
+                removed_at=datetime.now(timezone.utc),
+            ))
+            s.commit()
+            we_id = we.id
 
-        from sqlalchemy import select
-        db.expire_all()
-        t1 = (await db.execute(
-            select(RadarTrack).where(RadarTrack.external_track_id == "t1", RadarTrack.watched_entity_id == we.id)
-        )).scalar_one()
-        assert t1.removed_at is None
+        with Session(engine) as s:
+            source_tracks = [FakeTrack(external_id="t1", title="Track", artist="Art")]
+            catalog_map = bulk_get_or_create_catalog(s, [{"title": "Track", "artist": "Art"}])
+            bulk_insert_radar_tracks(s, we_id, "deezer", source_tracks, catalog_map)
+            s.commit()
 
-    async def test_initial_crawl_flag(self, db):
+        with Session(engine) as s:
+            t1 = s.execute(
+                select(RadarTrack).where(
+                    RadarTrack.external_track_id == "t1",
+                    RadarTrack.watched_entity_id == we_id,
+                )
+            ).scalar_one()
+            assert t1.removed_at is None
+
+    def test_initial_crawl_flag(self):
         """First crawl of a playlist should flag tracks as initial detections."""
         from dataclasses import dataclass
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
 
         @dataclass
         class FakeTrack:
@@ -430,29 +439,32 @@ class TestCrawlDiffLifecycle:
             isrc: str | None = None
             duration_ms: int | None = None
 
-        we = WatchedEntity(external_id="init1", source="deezer", title="PL")
-        db.add(we)
-        await db.commit()
-        await db.refresh(we)
+        engine = self._make_engine()
+        with Session(engine) as s:
+            we = WatchedEntity(external_id="init1", source="deezer", title="PL")
+            s.add(we)
+            s.commit()
+            we_id = we.id
 
-        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
-        session = self._get_session()
-        source_tracks = [FakeTrack(external_id="t1", title="Init Track", artist="Art")]
-        catalog_map = bulk_get_or_create_catalog(session, [{"title": "Init Track", "artist": "Art"}])
-        result = bulk_insert_radar_tracks(
-            session, we.id, "deezer", source_tracks, catalog_map,
-            is_initial_crawl=True,
-        )
-        session.commit()
-        session.close()
+        with Session(engine) as s:
+            source_tracks = [FakeTrack(external_id="t1", title="Init Track", artist="Art")]
+            catalog_map = bulk_get_or_create_catalog(s, [{"title": "Init Track", "artist": "Art"}])
+            result = bulk_insert_radar_tracks(
+                s, we_id, "deezer", source_tracks, catalog_map,
+                is_initial_crawl=True,
+            )
+            s.commit()
+
         assert result["inserted"] == 1
 
-        from sqlalchemy import select
-        db.expire_all()
-        t1 = (await db.execute(
-            select(RadarTrack).where(RadarTrack.external_track_id == "t1", RadarTrack.watched_entity_id == we.id)
-        )).scalar_one()
-        assert t1.is_initial_detection is True
+        with Session(engine) as s:
+            t1 = s.execute(
+                select(RadarTrack).where(
+                    RadarTrack.external_track_id == "t1",
+                    RadarTrack.watched_entity_id == we_id,
+                )
+            ).scalar_one()
+            assert t1.is_initial_detection is True
 
 
 # ── GET /api/radar/full ──────────────────────────────────────────────────────
