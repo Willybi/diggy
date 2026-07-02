@@ -17,4 +17,5 @@ python-multipart
 pydantic[email]
 slowapi
 asyncpg
+psycopg2-binary
 python-json-logger
