@@ -13,7 +13,7 @@ from auth import (
 from database import get_db
 from dependencies import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from models import User
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -110,33 +110,13 @@ async def google_callback(
 
     token = create_token(user.id)
 
-    # Build JS-safe values via json.dumps
-    token_js = json.dumps(token)
     user_data = json.dumps(
         {"id": user.id, "username": user.username, "is_admin": user.is_admin}
     )
-    user_js = json.dumps(user_data)  # double-encode for localStorage string
 
-    state_js = json.dumps(state)
-
-    html = f"""<!DOCTYPE html>
-<html><head><title>Connexion...</title></head>
-<body>
-<script>
-var expected = sessionStorage.getItem('oauth_state');
-sessionStorage.removeItem('oauth_state');
-if (!expected || expected !== {state_js}) {{
-  document.body.textContent = 'Erreur de securite (state mismatch). Veuillez reessayer.';
-}} else {{
-  localStorage.setItem('diggy_token', {token_js});
-  localStorage.setItem('diggy_user', {user_js});
-  window.location.replace('/');
-}}
-</script>
-<noscript>Connexion reussie. <a href="/">Continuer</a></noscript>
-</body></html>"""
-
-    return HTMLResponse(html)
+    # Redirect to frontend with credentials in hash fragment (never sent to server)
+    fragment = urlencode({"token": token, "user": user_data, "state": state})
+    return RedirectResponse(f"/login/callback#{fragment}", status_code=302)
 
 
 @router.get("/me", response_model=UserOut)

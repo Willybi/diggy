@@ -49,5 +49,5 @@ export const useAuthStore = defineStore('auth', () => {
     _persist(null, null)
   }
 
-  return { token, user, isAuthenticated, loginWithGoogle, logout }
+  return { token, user, isAuthenticated, loginWithGoogle, logout, _persist }
 })

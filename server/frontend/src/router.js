@@ -16,10 +16,12 @@ const CollectionsView = () => import('./views/CollectionsView.vue')
 const CollectionDetailView = () => import('./views/CollectionDetailView.vue')
 const AdminView = () => import('./views/AdminView.vue')
 const LoginView = () => import('./views/LoginView.vue')
+const LoginCallbackView = () => import('./views/LoginCallbackView.vue')
 
 const routes = [
   { path: '/', component: HubView, meta: { public: true } },
   { path: '/login', component: LoginView, meta: { public: true } },
+  { path: '/login/callback', component: LoginCallbackView, meta: { public: true } },
   { path: '/tracks', redirect: '/catalog?inlib=true' },
   { path: '/genres', component: GenresView },
   { path: '/tags', redirect: '/genres' },
