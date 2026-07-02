@@ -41,7 +41,7 @@ class UserOut(BaseModel):
 
 @router.get("/google/login")
 async def google_login():
-    """Return Google authorization URL and set CSRF state cookie."""
+    """Return Google authorization URL and state for CSRF check."""
     state = secrets.token_urlsafe(32)
     params = urlencode(
         {
@@ -55,32 +55,16 @@ async def google_login():
         }
     )
     url = f"https://accounts.google.com/o/oauth2/v2/auth?{params}"
-    response = JSONResponse({"url": url})
-    response.set_cookie(
-        "oauth_state",
-        state,
-        httponly=True,
-        samesite="lax",
-        secure=True,
-        max_age=600,
-        path="/api/auth",
-    )
-    return response
+    return JSONResponse({"url": url, "state": state})
 
 
 @router.get("/google/callback")
 async def google_callback(
-    request: Request,
     code: str,
     state: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Exchange Google code, create/find user, return HTML that stores JWT."""
-    # CSRF check
-    cookie_state = request.cookies.get("oauth_state")
-    if not cookie_state or cookie_state != state:
-        raise HTTPException(400, "Invalid state parameter")
-
     google_info = await verify_google_token(code)
 
     # Lookup by google_id
@@ -128,20 +112,26 @@ async def google_callback(
     )
     user_js = json.dumps(user_data)  # double-encode for localStorage string
 
+    state_js = json.dumps(state)
+
     html = f"""<!DOCTYPE html>
 <html><head><title>Connexion...</title></head>
 <body>
 <script>
-localStorage.setItem('diggy_token', {token_js});
-localStorage.setItem('diggy_user', {user_js});
-window.location.replace('/');
+var expected = sessionStorage.getItem('oauth_state');
+sessionStorage.removeItem('oauth_state');
+if (!expected || expected !== {state_js}) {{
+  document.body.textContent = 'Erreur de securite (state mismatch). Veuillez reessayer.';
+}} else {{
+  localStorage.setItem('diggy_token', {token_js});
+  localStorage.setItem('diggy_user', {user_js});
+  window.location.replace('/');
+}}
 </script>
 <noscript>Connexion reussie. <a href="/">Continuer</a></noscript>
 </body></html>"""
 
-    response = HTMLResponse(html)
-    response.delete_cookie("oauth_state", path="/api/auth")
-    return response
+    return HTMLResponse(html)
 
 
 @router.get("/me", response_model=UserOut)

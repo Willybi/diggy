@@ -142,7 +142,8 @@ def compute_trends(self, window_days=30):
                         rt.is_initial_detection,
                         we.type AS entity_type,
                         we.track_count,
-                        c.genres
+                        c.genres,
+                        c.release_date
                     FROM radar_tracks rt
                     JOIN watched_entities we ON we.id = rt.watched_entity_id
                     JOIN catalog c ON c.id = rt.catalog_id
@@ -161,7 +162,8 @@ def compute_trends(self, window_days=30):
                         false AS is_initial_detection,
                         'set' AS entity_type,
                         (SELECT COUNT(*) FROM set_tracks st2 WHERE st2.set_id = s.id) AS track_count,
-                        c.genres
+                        c.genres,
+                        c.release_date
                     FROM set_tracks st
                     JOIN sets s ON s.id = st.set_id
                     JOIN catalog c ON c.id = st.catalog_id
@@ -179,10 +181,21 @@ def compute_trends(self, window_days=30):
                                        / 86400.0 / 14.0)
                             * CASE WHEN entity_type = 'set' THEN 3.0 ELSE 1.0 END
                             * (1.0 / SQRT(GREATEST(track_count, 1)))
-                        ) AS base_score,
+                        )
+                        -- Freshness: non-linear decay by release age
+                        -- 0-5y: 1.0→0.70 | 5-20y: 0.70→0.50 | 20y+: 0.50→0.10 floor
+                        * CASE
+                            WHEN release_date IS NULL THEN 1.0
+                            WHEN EXTRACT(EPOCH FROM (NOW() - release_date::timestamptz)) / 86400.0 / 365.0 <= 5
+                              THEN 1.0 - 0.06 * EXTRACT(EPOCH FROM (NOW() - release_date::timestamptz)) / 86400.0 / 365.0
+                            WHEN EXTRACT(EPOCH FROM (NOW() - release_date::timestamptz)) / 86400.0 / 365.0 <= 20
+                              THEN 0.70 - (0.20 / 15.0) * (EXTRACT(EPOCH FROM (NOW() - release_date::timestamptz)) / 86400.0 / 365.0 - 5)
+                            ELSE GREATEST(0.50 - 0.01 * (EXTRACT(EPOCH FROM (NOW() - release_date::timestamptz)) / 86400.0 / 365.0 - 20), 0.10)
+                          END
+                        AS base_score,
                         COUNT(DISTINCT entity_key) AS detection_count
                     FROM detections
-                    GROUP BY catalog_id, genres
+                    GROUP BY catalog_id, genres, release_date
                 ),
                 velocity AS (
                     SELECT
