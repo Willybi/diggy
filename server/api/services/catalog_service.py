@@ -17,7 +17,7 @@ from services.genre_service import _PILLAR_CACHE, _ensure_pillar_cache, genre_pi
 
 async def list_catalog(
     db: AsyncSession,
-    user_id: int,
+    user_id: int | None,
     skip: int,
     limit: int,
     in_lib: bool | None,
@@ -298,7 +298,7 @@ async def list_catalog(
     return CatalogList(total=total, items=entries)
 
 
-async def get_detail(db: AsyncSession, catalog_id: int, user_id: int):
+async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
     from models import (
         Artist,
         CatalogArtist,

@@ -1,14 +1,16 @@
 """
-Tests des endpoints /api/radar.
+Tests des endpoints /api/radar + C0 security & lifecycle.
 """
+import os
 from datetime import datetime, timezone
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from main import app
 from models import CatalogEntry, RadarTrack, WatchedEntity, UserRadarState
-from dependencies import get_current_user
+from dependencies import get_current_user, uid
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -34,108 +36,91 @@ async def watched_playlist_id(client, mocker):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def radar_payload(watched_playlist_id: int, **overrides) -> dict:
-    base = {
-        "watched_playlist_id": watched_playlist_id,
-        "external_track_id": "123456789",
-        "source": "deezer",
-        "title": "Body Funk",
-        "artist": "Purple Disco Machine",
-        "isrc": "GBUM71029604",
-    }
-    base.update(overrides)
-    return base
+async def _make_radar_track(db, watched_entity_id, external_track_id="123456789",
+                            title="Body Funk", artist="Purple Disco Machine", **kwargs):
+    cat = CatalogEntry(title=title, artist=artist, normalized_key=f"{title.lower()} - {(artist or '').lower()}")
+    db.add(cat)
+    await db.flush()
+    rt = RadarTrack(
+        watched_entity_id=watched_entity_id,
+        external_track_id=external_track_id,
+        source=kwargs.get("source", "deezer"),
+        title=title,
+        artist=artist,
+        catalog_id=cat.id,
+        detected_at=datetime.now(timezone.utc),
+        **{k: v for k, v in kwargs.items() if k not in ("source",)},
+    )
+    db.add(rt)
+    await db.commit()
+    await db.refresh(rt)
+    return rt
 
 
-# ── GET /api/radar/ ───────────────────────────────────────────────────────────
+# ── C0.2 Security Tests ─────────────────────────────────────────────────────
 
-class TestListRadar:
-    async def test_empty_returns_empty_list(self, client):
+
+class TestLegacyEndpointsRemoved:
+    async def test_legacy_get_radar_removed(self, client):
+        """GET /api/radar/ should no longer exist."""
         r = await client.get("/api/radar/")
-        assert r.status_code == 200
-        assert r.json() == []
+        assert r.status_code in (404, 405)
 
-    async def test_returns_entry_after_insert(self, client, watched_playlist_id):
-        await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
-        r = await client.get("/api/radar/")
-        assert r.status_code == 200
-        assert len(r.json()) == 1
-
-    async def test_filter_by_watched_playlist_id(self, client, mocker, watched_playlist_id):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Techno Picks"})
-        r2 = await client.post("/api/watchlist/", json={"external_id": "999", "source": "deezer"})
-        playlist2_id = r2.json()["id"]
-
-        await client.post("/api/radar/", json=radar_payload(watched_playlist_id, title="Track A"))
-        await client.post("/api/radar/", json=radar_payload(playlist2_id, external_track_id="999", title="Track B"))
-
-        r = await client.get(f"/api/radar/?watched_playlist_id={watched_playlist_id}")
-        assert len(r.json()) == 1
-        assert r.json()[0]["title"] == "Track A"
-
-    async def test_filter_by_source(self, client, watched_playlist_id):
-        await client.post("/api/radar/", json=radar_payload(watched_playlist_id, source="deezer", external_track_id="1"))
-        await client.post("/api/radar/", json=radar_payload(watched_playlist_id, source="youtube", external_track_id="2"))
-
-        r = await client.get("/api/radar/?source=youtube")
-        assert len(r.json()) == 1
-        assert r.json()[0]["source"] == "youtube"
+    async def test_legacy_post_radar_removed(self, client):
+        """POST /api/radar/ should no longer exist."""
+        r = await client.post("/api/radar/", json={})
+        assert r.status_code in (404, 405)
 
 
-# ── POST /api/radar/ ──────────────────────────────────────────────────────────
+class TestDeleteRadarRequiresAdmin:
+    async def test_delete_radar_requires_admin(self, client, db, watched_playlist_id):
+        """DELETE /api/radar/{id} by non-admin should return 403."""
+        rt = await _make_radar_track(db, watched_playlist_id)
+        r = await client.delete(f"/api/radar/{rt.id}")
+        assert r.status_code == 403
 
-class TestAddRadar:
-    async def test_creates_entry(self, client, watched_playlist_id):
-        r = await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
-        assert r.status_code == 201
-        data = r.json()
-        assert data["title"] == "Body Funk"
-        assert data["artist"] == "Purple Disco Machine"
-        assert data["isrc"] == "GBUM71029604"
-        assert data["source"] == "deezer"
-        assert data["watched_playlist_id"] == watched_playlist_id
-        assert "detected_at" in data
-
-    async def test_isrc_nullable(self, client, watched_playlist_id):
-        r = await client.post("/api/radar/", json=radar_payload(watched_playlist_id, isrc=None))
-        assert r.status_code == 201
-        assert r.json()["isrc"] is None
-
-    async def test_artist_nullable(self, client, watched_playlist_id):
-        r = await client.post("/api/radar/", json=radar_payload(watched_playlist_id, artist=None))
-        assert r.status_code == 201
-        assert r.json()["artist"] is None
-
-    async def test_invalid_watched_playlist_returns_404(self, client):
-        r = await client.post("/api/radar/", json=radar_payload(9999))
-        assert r.status_code == 404
-
-    async def test_duplicate_track_returns_existing(self, client, watched_playlist_id):
-        r1 = await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
-        r2 = await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
-        assert r2.status_code == 200
-        assert r2.json()["id"] == r1.json()["id"]
-
-        r = await client.get("/api/radar/")
-        assert len(r.json()) == 1
-
-
-# ── DELETE /api/radar/{id} ────────────────────────────────────────────────────
-
-class TestDeleteRadar:
-    async def test_deletes_entry(self, client, watched_playlist_id):
-        post_r = await client.post("/api/radar/", json=radar_payload(watched_playlist_id))
-        entry_id = post_r.json()["id"]
-
-        r = await client.delete(f"/api/radar/{entry_id}")
+    async def test_delete_radar_admin_succeeds(self, admin_client, db, mocker):
+        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "PL"})
+        mocker.patch("routers.watchlist._trigger_crawl")
+        r = await admin_client.post("/api/watchlist/", json={"external_id": "adm1", "source": "deezer"})
+        we_id = r.json()["id"]
+        rt = await _make_radar_track(db, we_id)
+        r = await admin_client.delete(f"/api/radar/{rt.id}")
         assert r.status_code == 204
 
-        r = await client.get("/api/radar/")
-        assert r.json() == []
-
-    async def test_delete_nonexistent_returns_404(self, client):
-        r = await client.delete("/api/radar/9999")
+    async def test_delete_nonexistent_returns_404(self, admin_client):
+        r = await admin_client.delete("/api/radar/9999")
         assert r.status_code == 404
+
+
+class TestUidNoFallback:
+    def test_uid_none_when_no_user(self):
+        """uid(None) should return None, not a fallback user ID."""
+        assert uid(None) is None
+
+    def test_uid_returns_user_id_when_authenticated(self, auth_user):
+        assert uid(auth_user) == auth_user.id
+
+
+class TestCatalogBrowseNoAuthNoUserData:
+    async def test_catalog_browse_no_auth_no_user_data(self, client, db):
+        """Browse catalog without auth should not leak in_lib data."""
+        # Remove auth overrides to simulate unauthenticated access
+        from dependencies import get_current_user_optional
+        app.dependency_overrides[get_current_user_optional] = lambda: None
+
+        cat = CatalogEntry(title="Test Track", artist="Test Artist", normalized_key="test track - test artist")
+        db.add(cat)
+        await db.commit()
+
+        r = await client.get("/api/catalog/")
+        assert r.status_code == 200
+        data = r.json()
+        if data.get("items"):
+            for item in data["items"]:
+                assert item.get("in_lib") is False or item.get("in_lib") is None
+
+        app.dependency_overrides.pop(get_current_user_optional, None)
 
 
 # ── GET /api/radar/new-count ─────────────────────────────────────────────────
@@ -291,6 +276,186 @@ class TestBatchUpdateState:
         )
         state = result.scalar_one()
         assert state.status == "added"
+
+
+# ── C0.1 Lifecycle Tests ────────────────────────────────────────────────────
+
+
+class TestRadarTrackModel:
+    async def test_radar_track_has_removed_at_column(self, db):
+        """RadarTrack model should have removed_at column."""
+        we = WatchedEntity(external_id="lc1", source="deezer", title="PL")
+        db.add(we)
+        await db.commit()
+        await db.refresh(we)
+        rt = RadarTrack(
+            watched_entity_id=we.id, external_track_id="ext1", source="deezer",
+            title="Track", detected_at=datetime.now(timezone.utc),
+            removed_at=None,
+        )
+        db.add(rt)
+        await db.commit()
+        await db.refresh(rt)
+        assert rt.removed_at is None
+
+    async def test_radar_track_has_is_initial_detection(self, db):
+        """RadarTrack model should have is_initial_detection column."""
+        we = WatchedEntity(external_id="lc2", source="deezer", title="PL")
+        db.add(we)
+        await db.commit()
+        await db.refresh(we)
+        rt = RadarTrack(
+            watched_entity_id=we.id, external_track_id="ext1", source="deezer",
+            title="Track", detected_at=datetime.now(timezone.utc),
+            is_initial_detection=True,
+        )
+        db.add(rt)
+        await db.commit()
+        await db.refresh(rt)
+        assert rt.is_initial_detection is True
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="bulk_insert_radar_tracks uses PostgreSQL dialect (pg_insert)",
+)
+class TestCrawlDiffLifecycle:
+    def _get_session(self):
+        """Create a sync session for worker DB functions."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+        engine = create_engine(os.environ["DATABASE_URL"].replace("+asyncpg", "").replace("+aiosqlite", ""))
+        return Session(engine)
+
+    async def test_crawl_marks_removed_tracks(self, db):
+        """Tracks absent from crawl should get removed_at set."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeTrack:
+            external_id: str
+            title: str
+            artist: str
+            isrc: str | None = None
+            duration_ms: int | None = None
+
+        we = WatchedEntity(external_id="diff1", source="deezer", title="PL")
+        db.add(we)
+        await db.commit()
+        await db.refresh(we)
+
+        # Seed two tracks
+        for ext_id, title in [("t1", "Track 1"), ("t2", "Track 2")]:
+            cat = CatalogEntry(title=title, artist="Art", normalized_key=f"{title.lower()} - art")
+            db.add(cat)
+            await db.flush()
+            db.add(RadarTrack(
+                watched_entity_id=we.id, external_track_id=ext_id, source="deezer",
+                title=title, artist="Art", catalog_id=cat.id,
+                detected_at=datetime.now(timezone.utc),
+            ))
+        await db.commit()
+
+        # Crawl with only t1 (t2 disappears)
+        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
+        session = self._get_session()
+        source_tracks = [FakeTrack(external_id="t1", title="Track 1", artist="Art")]
+        catalog_map = bulk_get_or_create_catalog(session, [{"title": "Track 1", "artist": "Art"}])
+        result = bulk_insert_radar_tracks(session, we.id, "deezer", source_tracks, catalog_map)
+        session.commit()
+
+        assert result["removed"] == 1
+
+        # Verify t2 has removed_at set
+        from sqlalchemy import select
+        await db.expire_all()
+        t2 = (await db.execute(
+            select(RadarTrack).where(RadarTrack.external_track_id == "t2", RadarTrack.watched_entity_id == we.id)
+        )).scalar_one()
+        assert t2.removed_at is not None
+
+        session.close()
+
+    async def test_crawl_reappearing_track_clears_removed_at(self, db):
+        """Tracks that reappear should have removed_at cleared."""
+        we = WatchedEntity(external_id="diff2", source="deezer", title="PL")
+        db.add(we)
+        await db.commit()
+        await db.refresh(we)
+
+        cat = CatalogEntry(title="Track", artist="Art", normalized_key="track - art reappear")
+        db.add(cat)
+        await db.flush()
+        db.add(RadarTrack(
+            watched_entity_id=we.id, external_track_id="t1", source="deezer",
+            title="Track", artist="Art", catalog_id=cat.id,
+            detected_at=datetime.now(timezone.utc),
+            removed_at=datetime.now(timezone.utc),  # previously marked removed
+        ))
+        await db.commit()
+
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeTrack:
+            external_id: str
+            title: str
+            artist: str
+            isrc: str | None = None
+            duration_ms: int | None = None
+
+        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
+        session = self._get_session()
+        source_tracks = [FakeTrack(external_id="t1", title="Track", artist="Art")]
+        catalog_map = bulk_get_or_create_catalog(session, [{"title": "Track", "artist": "Art"}])
+        bulk_insert_radar_tracks(session, we.id, "deezer", source_tracks, catalog_map)
+        session.commit()
+
+        from sqlalchemy import select
+        await db.expire_all()
+        t1 = (await db.execute(
+            select(RadarTrack).where(RadarTrack.external_track_id == "t1", RadarTrack.watched_entity_id == we.id)
+        )).scalar_one()
+        assert t1.removed_at is None
+
+        session.close()
+
+    async def test_initial_crawl_flag(self, db):
+        """First crawl of a playlist should flag tracks as initial detections."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeTrack:
+            external_id: str
+            title: str
+            artist: str
+            isrc: str | None = None
+            duration_ms: int | None = None
+
+        we = WatchedEntity(external_id="init1", source="deezer", title="PL")
+        db.add(we)
+        await db.commit()
+        await db.refresh(we)
+
+        from workers.db import bulk_insert_radar_tracks, bulk_get_or_create_catalog
+        session = self._get_session()
+        source_tracks = [FakeTrack(external_id="t1", title="Init Track", artist="Art")]
+        catalog_map = bulk_get_or_create_catalog(session, [{"title": "Init Track", "artist": "Art"}])
+        result = bulk_insert_radar_tracks(
+            session, we.id, "deezer", source_tracks, catalog_map,
+            is_initial_crawl=True,
+        )
+        session.commit()
+        assert result["inserted"] == 1
+
+        from sqlalchemy import select
+        await db.expire_all()
+        t1 = (await db.execute(
+            select(RadarTrack).where(RadarTrack.external_track_id == "t1", RadarTrack.watched_entity_id == we.id)
+        )).scalar_one()
+        assert t1.is_initial_detection is True
+
+        session.close()
 
 
 # ── GET /api/radar/full ──────────────────────────────────────────────────────

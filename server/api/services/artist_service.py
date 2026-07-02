@@ -36,7 +36,7 @@ async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str) -> No
 
 async def list_artists(
     db: AsyncSession,
-    user_id: int,
+    user_id: int | None,
     sort: str,
     family: str | None,
     q: str | None,

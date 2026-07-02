@@ -276,6 +276,8 @@ class RadarTrack(Base):
     catalog_id = Column(
         Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True
     )
+    removed_at = Column(DateTime(timezone=True), nullable=True)
+    is_initial_detection = Column(Boolean, default=False, server_default="false")
 
     __table_args__ = (
         UniqueConstraint(

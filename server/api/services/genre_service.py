@@ -127,7 +127,7 @@ async def resolve_genre(db: AsyncSession, name: str) -> str:
 
 async def list_genres(
     db: AsyncSession,
-    user_id: int,
+    user_id: int | None,
     family: str | None,
     sort: str,
     q: str | None,
@@ -260,7 +260,7 @@ async def list_genres(
     return {"items": items, "total": total, "pillarCounts": pillar_counts}
 
 
-async def get_detail(db: AsyncSession, name: str, user_id: int) -> dict:
+async def get_detail(db: AsyncSession, name: str, user_id: int | None) -> dict:
     genre = await resolve_genre(db, name)
     await _ensure_pillar_cache(db)
 
@@ -359,7 +359,7 @@ async def get_detail(db: AsyncSession, name: str, user_id: int) -> dict:
 
 
 async def list_genre_artists(
-    db: AsyncSession, name: str, user_id: int, limit: int, offset: int
+    db: AsyncSession, name: str, user_id: int | None, limit: int, offset: int
 ) -> dict:
     genre = await resolve_genre(db, name)
     result = await db.execute(
@@ -470,7 +470,7 @@ async def list_genre_playlists(db: AsyncSession, name: str, limit: int, offset: 
 async def list_genre_tracks(
     db: AsyncSession,
     name: str,
-    user_id: int,
+    user_id: int | None,
     sort: str,
     q: str | None,
     in_lib: int | None,

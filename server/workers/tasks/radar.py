@@ -218,6 +218,10 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
 
             # 2. Bulk insert radar tracks (direct DB, replaces per-track HTTP POST)
             with Session(engine) as session:
+                # Detect initial crawl (last_crawled_at is None)
+                entity_for_crawl = session.get(WatchedEntity, playlist_id)
+                is_initial = entity_for_crawl is not None and entity_for_crawl.last_crawled_at is None
+
                 track_dicts = [
                     {
                         "title": st.title,
@@ -228,9 +232,12 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
                     for st in source_tracks
                 ]
                 catalog_map = bulk_get_or_create_catalog(session, track_dicts)
-                inserted = bulk_insert_radar_tracks(
-                    session, playlist_id, source, source_tracks, catalog_map
+                crawl_result = bulk_insert_radar_tracks(
+                    session, playlist_id, source, source_tracks, catalog_map,
+                    is_initial_crawl=is_initial,
                 )
+                inserted = crawl_result["inserted"]
+                removed = crawl_result["removed"]
                 session.commit()
 
             # 3 & 4. Async enrichment (Deezer + Beatport) — concurrent
@@ -343,6 +350,7 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
             clog.set_stats(
                 {
                     "inserted": inserted,
+                    "removed": removed,
                     "enriched": dz_stats.get("enriched", 0),
                     "bp_enriched": bp_stats.get("enriched", 0),
                     "total_tracks": len(source_tracks),
@@ -354,6 +362,7 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
         "source": source,
         "title": entity_title or (meta.title if meta else None),
         "inserted": inserted,
+        "removed": removed,
         "enriched": dz_stats.get("enriched", 0),
         "bp_enriched": bp_stats.get("enriched", 0),
         "total_tracks": len(source_tracks),

@@ -87,7 +87,7 @@ def _relevance(value: str, q: str) -> int:
 async def _search_tracks(
     db: AsyncSession,
     q: str,
-    user_id: int,
+    user_id: int | None,
     is_guest: bool,
     limit: int,
 ) -> tuple[list[SearchItem], int]:
@@ -138,7 +138,7 @@ async def _search_tracks(
 async def _search_artists(
     db: AsyncSession,
     q: str,
-    user_id: int,
+    user_id: int | None,
     is_guest: bool,
     limit: int,
 ) -> tuple[list[SearchItem], int]:
@@ -284,7 +284,7 @@ async def _search_playlists(
 async def _search_genres(
     db: AsyncSession,
     q: str,
-    user_id: int,
+    user_id: int | None,
     is_guest: bool,
     limit: int,
 ) -> tuple[list[SearchItem], int]:

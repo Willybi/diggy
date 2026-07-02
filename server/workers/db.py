@@ -10,7 +10,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -148,15 +148,16 @@ def bulk_insert_radar_tracks(
     source: str,
     source_tracks: list,
     catalog_map: dict[str, CatalogEntry],
-) -> int:
-    """Bulk insert RadarTrack rows with dedup.
+    is_initial_crawl: bool = False,
+) -> dict:
+    """Bulk insert RadarTrack rows with dedup + diff lifecycle.
 
     source_tracks: list of SourceTrack dataclass instances.
     catalog_map: dict from bulk_get_or_create_catalog (norm_key -> entry).
-    Returns count of newly inserted tracks.
+    Returns dict with 'inserted' and 'removed' counts.
     """
     if not source_tracks:
-        return 0
+        return {"inserted": 0, "removed": 0}
 
     # Load existing external_track_ids for this entity
     existing_ext_ids = {
@@ -188,10 +189,12 @@ def bulk_insert_radar_tracks(
                 "isrc": st.isrc,
                 "detected_at": now,
                 "catalog_id": entry.id if entry else None,
+                "is_initial_detection": is_initial_crawl,
             }
         )
         existing_ext_ids.add(st.external_id)
 
+    inserted = 0
     if to_insert:
         stmt = (
             pg_insert(RadarTrack)
@@ -200,6 +203,32 @@ def bulk_insert_radar_tracks(
         )
         result = session.execute(stmt)
         session.flush()
-        return result.rowcount
+        inserted = result.rowcount
 
-    return 0
+    # Diff: mark removed tracks, clear re-appeared tracks
+    crawled_ext_ids = {st.external_id for st in source_tracks}
+
+    # Mark absent tracks as removed (only if not already marked)
+    removed = session.execute(
+        update(RadarTrack)
+        .where(
+            RadarTrack.watched_entity_id == entity_id,
+            RadarTrack.external_track_id.notin_(crawled_ext_ids),
+            RadarTrack.removed_at.is_(None),
+        )
+        .values(removed_at=now)
+    ).rowcount
+
+    # Clear removed_at for re-appeared tracks
+    session.execute(
+        update(RadarTrack)
+        .where(
+            RadarTrack.watched_entity_id == entity_id,
+            RadarTrack.external_track_id.in_(crawled_ext_ids),
+            RadarTrack.removed_at.isnot(None),
+        )
+        .values(removed_at=None)
+    )
+
+    session.flush()
+    return {"inserted": inserted, "removed": removed}

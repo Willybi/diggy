@@ -2,15 +2,13 @@ from datetime import datetime
 from typing import Literal
 
 from database import get_db
-from dependencies import get_current_user
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from dependencies import get_current_user, require_admin
+from fastapi import APIRouter, Depends, HTTPException, Query
 from models import RadarTrack, User
 from schemas import (
     RadarBatchItem,
     RadarFullList,
     RadarStateUpdate,
-    RadarTrackIn,
-    RadarTrackOut,
 )
 from services import radar_service
 from sqlalchemy import select
@@ -73,45 +71,11 @@ async def batch_update_radar_state(
     return await radar_service.batch_update_state(db, user.id, items)
 
 
-# ---------- Legacy endpoints (kept for crawl_radar task compat) ----------
-
-
-@router.get("/", response_model=list[RadarTrackOut])
-async def list_radar_tracks(
-    watched_playlist_id: int | None = Query(None),
-    source: str | None = Query(None, max_length=50),
-    db: AsyncSession = Depends(get_db),
-):
-    query = select(RadarTrack)
-    if watched_playlist_id is not None:
-        query = query.where(RadarTrack.watched_entity_id == watched_playlist_id)
-    if source is not None:
-        query = query.where(RadarTrack.source == source)
-    result = await db.execute(query)
-    return result.scalars().all()
-
-
-@router.post("/", response_model=RadarTrackOut, status_code=201)
-async def add_radar_track(
-    body: RadarTrackIn,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    try:
-        track, existed = await radar_service.add_track(db, user.id, body)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    if existed:
-        response.status_code = 200
-    return track
-
-
 @router.delete("/{entry_id}", status_code=204)
 async def delete_radar_track(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     result = await db.execute(select(RadarTrack).where(RadarTrack.id == entry_id))
     entry = result.scalar_one_or_none()
