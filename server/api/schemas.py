@@ -212,6 +212,24 @@ class CatalogList(BaseModel):
     items: list[CatalogEntryOut]
 
 
+class SimilarityComponents(BaseModel):
+    bpm: Optional[float] = None
+    key: Optional[float] = None
+    genre: Optional[float] = None
+    label: Optional[float] = None
+    era: Optional[float] = None
+
+
+class SimilarityBlock(BaseModel):
+    score: float
+    components: SimilarityComponents
+    available_features: list[str]
+
+
+class SimilarTrackOut(CatalogEntryOut):
+    similarity: SimilarityBlock
+
+
 class TrendItem(BaseModel):
     catalog_id: int
     title: str

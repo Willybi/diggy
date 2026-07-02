@@ -257,3 +257,64 @@ class TestCatalogAvis:
         r = await auth_client.patch(f"/api/catalog/{cat.id}/avis", json={"avis": None})
         assert r.status_code == 200
         assert r.json()["avis"] is None
+
+
+class TestCatalogSimilar:
+    async def test_404_for_missing_id(self, client):
+        r = await client.get("/api/catalog/999999/similar")
+        assert r.status_code == 404
+
+    async def test_returns_list(self, client, db):
+        ref = CatalogEntry(title="Ref", artist="A", normalized_key="a|ref-sim", bpm=128.0, key="8A")
+        close = CatalogEntry(title="Close", artist="A", normalized_key="a|close-sim", bpm=129.0, key="8A")
+        db.add_all([ref, close])
+        await db.commit()
+        await db.refresh(ref)
+
+        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["title"] == "Close"
+
+    async def test_similarity_block_in_response(self, client, db):
+        ref = CatalogEntry(title="Ref", artist="A", normalized_key="a|ref-blk", bpm=128.0, key="8A")
+        other = CatalogEntry(title="Other", artist="A", normalized_key="a|other-blk", bpm=128.0, key="8A")
+        db.add_all([ref, other])
+        await db.commit()
+        await db.refresh(ref)
+
+        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        data = r.json()
+        assert len(data) == 1
+        sim = data[0]["similarity"]
+        assert "score" in sim
+        assert "components" in sim
+        assert "available_features" in sim
+
+    async def test_custom_weights(self, client, db):
+        ref = CatalogEntry(title="Ref", artist="A", normalized_key="a|ref-cw", bpm=128.0, key="8A")
+        other = CatalogEntry(title="Other", artist="A", normalized_key="a|other-cw", bpm=128.0, key="8A")
+        db.add_all([ref, other])
+        await db.commit()
+        await db.refresh(ref)
+
+        r = await client.get(f"/api/catalog/{ref.id}/similar?w_bpm=1&w_key=0&w_genre=0&w_label=0&w_era=0&min_score=0")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data) == 1
+        # With only BPM weight and identical BPM, should score 1.0
+        assert data[0]["similarity"]["score"] == 1.0
+
+    async def test_limit_param(self, client, db):
+        ref = CatalogEntry(title="Ref", artist="A", normalized_key="a|ref-lp", bpm=128.0, key="8A")
+        db.add(ref)
+        for i in range(5):
+            db.add(CatalogEntry(title=f"T{i}", artist="A", normalized_key=f"a|t{i}-lp", bpm=128.0 + i, key="8A"))
+        await db.commit()
+        await db.refresh(ref)
+
+        r = await client.get(f"/api/catalog/{ref.id}/similar?limit=2&min_score=0")
+        assert r.status_code == 200
+        assert len(r.json()) == 2

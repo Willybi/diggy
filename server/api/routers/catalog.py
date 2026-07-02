@@ -7,7 +7,7 @@ from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import User
 from schemas import CatalogAvisUpdate, CatalogDetailOut, CatalogList
-from services import catalog_service
+from services import catalog_service, similarity_service
 from services.genre_service import _ensure_pillar_cache, genre_pillar
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,6 +71,30 @@ async def list_catalog(
         sort=sort, order=order or "desc", view=view,
         detected_after=detected_after, avis=avis,
     )
+
+
+@router.get("/{catalog_id}/similar")
+async def get_similar_tracks(
+    catalog_id: int,
+    limit: int = Query(10, ge=1, le=50),
+    w_bpm: float = Query(0.30, ge=0, le=1),
+    w_key: float = Query(0.25, ge=0, le=1),
+    w_genre: float = Query(0.30, ge=0, le=1),
+    w_label: float = Query(0.10, ge=0, le=1),
+    w_era: float = Query(0.05, ge=0, le=1),
+    min_score: float = Query(0.4, ge=0, le=1),
+    in_lib: bool | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    try:
+        return await similarity_service.get_similar_tracks(
+            db, catalog_id, _uid(user),
+            limit=limit, w_bpm=w_bpm, w_key=w_key, w_genre=w_genre,
+            w_label=w_label, w_era=w_era, min_score=min_score, in_lib=in_lib,
+        )
+    except LookupError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.get("/{catalog_id}", response_model=CatalogDetailOut)
