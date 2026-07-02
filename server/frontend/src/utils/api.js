@@ -2,7 +2,9 @@ import axios from 'axios'
 import { useAuthStore } from '../stores/auth.js'
 import router from '../router'
 
-const api = axios.create()
+const api = axios.create({
+  baseURL: '/',
+})
 
 // Inject auth token on every request
 api.interceptors.request.use((config) => {
