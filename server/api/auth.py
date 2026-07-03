@@ -1,8 +1,11 @@
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
 import httpx
 from jose import JWTError, jwt
+
+logger = logging.getLogger("auth")
 
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
@@ -43,6 +46,10 @@ async def verify_google_token(code: str) -> dict:
                 "grant_type": "authorization_code",
             },
         )
+        if resp.status_code != 200:
+            logger.warning(
+                "Google token endpoint %s — body: %s", resp.status_code, resp.text
+            )
         resp.raise_for_status()
         token_data = resp.json()
 
