@@ -315,8 +315,8 @@
               <!-- Colonnes communes suite -->
               <td class="col-radar">
                 <ScorePill
-                  v-if="e.nb_radar_playlists > 0"
-                  :score="Math.min(e.nb_radar_playlists * 2, 10)"
+                  v-if="e.trend_score_10 != null"
+                  :score="e.trend_score_10"
                 />
                 <span v-else class="td-empty">—</span>
               </td>

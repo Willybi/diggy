@@ -199,6 +199,7 @@ class CatalogEntryOut(BaseModel):
     source_kind: Optional[str] = None
     # Trend
     trend_rank: Optional[int] = None
+    trend_score_10: Optional[float] = None
 
     model_config = {"from_attributes": True}
 

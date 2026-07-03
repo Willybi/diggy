@@ -103,7 +103,15 @@ async def list_catalog(
     )
 
     trend_sub = (
-        select(RadarTrend.catalog_id, RadarTrend.rank_global)
+        select(
+            RadarTrend.catalog_id,
+            RadarTrend.rank_global,
+            (
+                RadarTrend.trend_score
+                / func.nullif(func.max(RadarTrend.trend_score).over(), 0)
+                * 10
+            ).label("trend_score_10"),
+        )
         .subquery()
     )
 
@@ -119,6 +127,7 @@ async def list_catalog(
         ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
         ut_sub.c.ut_avis.label("ut_avis"),
         trend_sub.c.rank_global.label("trend_rank"),
+        trend_sub.c.trend_score_10.label("trend_score_10"),
     ]
     if is_radar:
         select_cols.extend(
@@ -252,15 +261,16 @@ async def list_catalog(
         ut_has_artwork = row[8]
         ut_avis = row[9]
         t_rank = row[10]
+        t_score_10 = row[11]
         entry_artists = artists_by_catalog.get(entry.id, [])
         art_id = entry_artists[0].id if entry_artists else None
 
         radar_fields = {}
         if is_radar:
             radar_fields = {
-                "detected_at": row[11],
-                "source_name": row[12],
-                "source_kind": row[13],
+                "detected_at": row[12],
+                "source_name": row[13],
+                "source_kind": row[14],
             }
 
         lib_style = None
@@ -299,6 +309,7 @@ async def list_catalog(
                 rating=ut_rating,
                 avis=ut_avis,
                 trend_rank=t_rank,
+                trend_score_10=round(t_score_10, 1) if t_score_10 is not None else None,
                 artist_id=art_id,
                 artists=entry_artists,
                 **radar_fields,
