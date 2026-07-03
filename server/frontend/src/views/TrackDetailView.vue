@@ -189,6 +189,39 @@
         </div>
       </RelBlock>
 
+      <!-- T9: Tracks similaires -->
+      <RelBlock
+        v-if="similarLoading || similarTracks.length"
+        title="Tracks similaires"
+        :count="similarTracks.length || undefined"
+      >
+        <div v-if="similarLoading" class="state state--inline">Chargement…</div>
+        <div v-else class="mini-grid">
+          <RouterLink
+            v-for="t in similarTracks"
+            :key="t.id"
+            :to="`/catalog/${t.id}`"
+            class="mini-row mini-row--sim"
+          >
+            <img
+              v-if="t.has_artwork"
+              class="mr-cover"
+              :src="`/storage/catalog-artworks/${t.id}.jpg`"
+              alt=""
+            />
+            <span v-else class="mr-cover mr-cover--empty"></span>
+            <span class="mini-tx">
+              <span class="mr-title">{{ t.title }}</span>
+              <span class="mr-artist">{{ t.artist }}</span>
+            </span>
+            <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
+            <span class="m-key mono">{{ t.key || '' }}</span>
+            <span class="m-sim-score">{{ Math.round(t.similarity.score * 100) }}%</span>
+            <span class="m-lib"><LibDot :in-lib="!!t.in_lib" /></span>
+          </RouterLink>
+        </div>
+      </RelBlock>
+
       <!-- STRUCTURAL: AdminCard moved to bottom -->
       <!-- T5: ISRC added -->
       <AdminCard variant="warn">
@@ -269,6 +302,8 @@ const opinion = ref(null)
 const showCollDropdown = ref(false)
 const userCollections = ref([])
 const collLoading = ref(false)
+const similarTracks = ref([])
+const similarLoading = ref(false)
 
 const coverSrc = computed(() => {
   if (!track.value) return null
@@ -394,11 +429,24 @@ async function applyDeezerGenres() {
   }
 }
 
+async function loadSimilar(catalogId) {
+  similarLoading.value = true
+  try {
+    const { data } = await api.get(`/api/catalog/${catalogId}/similar?limit=8`)
+    similarTracks.value = data
+  } catch {
+    // silencieux
+  } finally {
+    similarLoading.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     const { data } = await api.get(`/api/catalog/${route.params.id}`)
     track.value = data
     opinion.value = data.avis ?? null
+    loadSimilar(route.params.id)
   } catch {
     track.value = null
   } finally {
@@ -761,6 +809,29 @@ onMounted(async () => {
 }
 .enrich-result.muted {
   color: var(--ink-3);
+}
+
+/* T9: Similar tracks */
+.mini-row--sim {
+  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 36px 16px;
+}
+.mr-artist {
+  display: block;
+  font: 400 11px/1.2 var(--font-ui);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-sim-score {
+  text-align: right;
+  font: 600 11px/1 var(--font-mono);
+  color: var(--accent-ink);
+  opacity: 0.75;
+}
+.state--inline {
+  padding: 0 14px 12px;
+  font-size: 13px;
 }
 
 /* ============ RESPONSIVE ============ */
