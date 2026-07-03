@@ -182,6 +182,8 @@ async def list_catalog(
         sort_col = func.coalesce(radar_src.c.max_detected_at, datetime(2000, 1, 1))
     elif sort == "nb_radar_playlists":
         sort_col = nb_radar_col
+    elif sort == "trend_score_10":
+        sort_col = func.coalesce(trend_sub.c.trend_score_10, 0)
     elif sort == "rating":
         sort_col = func.coalesce(ut_sub.c.rating, 0)
     elif sort == "bpm":

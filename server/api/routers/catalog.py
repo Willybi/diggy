@@ -17,6 +17,7 @@ router = APIRouter(prefix="/catalog", tags=["catalog"])
 CatalogSortField = Literal[
     "title",
     "nb_radar_playlists",
+    "trend_score_10",
     "detected_at",
     "rating",
     "bpm",

@@ -168,11 +168,11 @@
               <!-- Colonnes communes suite -->
               <th
                 class="col-radar sortable"
-                :class="{ 'is-sorted': sortKey === 'nb_radar_playlists' }"
-                @click="doSort('nb_radar_playlists')"
+                :class="{ 'is-sorted': sortKey === 'trend_score_10' }"
+                @click="doSort('trend_score_10')"
               >
                 Radar
-                <span v-if="sortKey === 'nb_radar_playlists'" class="arr">{{
+                <span v-if="sortKey === 'trend_score_10'" class="arr">{{
                   sortDir === 'asc' ? '↑' : '↓'
                 }}</span>
               </th>
