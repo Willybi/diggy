@@ -703,6 +703,7 @@ onMounted(async () => {
   border-radius: var(--r-sm);
   transition: background 0.1s;
   min-width: 0;
+  cursor: pointer;
 }
 .mini-row:hover {
   background: var(--surface-2);
