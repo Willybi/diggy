@@ -219,6 +219,8 @@ class SimilarityComponents(BaseModel):
     genre: Optional[float] = None
     label: Optional[float] = None
     era: Optional[float] = None
+    cooc_playlist: Optional[float] = None
+    cooc_set: Optional[float] = None
 
 
 class SimilarityBlock(BaseModel):

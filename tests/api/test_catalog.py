@@ -318,3 +318,96 @@ class TestCatalogSimilar:
         r = await client.get(f"/api/catalog/{ref.id}/similar?limit=2&min_score=0")
         assert r.status_code == 200
         assert len(r.json()) == 2
+
+    async def test_cooc_playlist_signal(self, client, db):
+        """Tracks partageant une playlist radar reçoivent cooc_playlist dans available_features."""
+        ref = CatalogEntry(title="CoocRef", artist="A", normalized_key="a|cooc-ref", bpm=128.0, key="8A")
+        other = CatalogEntry(title="CoocOther", artist="B", normalized_key="b|cooc-other", bpm=128.0, key="8A")
+        db.add_all([ref, other])
+        await db.commit()
+        await db.refresh(ref)
+        await db.refresh(other)
+
+        entity = WatchedEntity(external_id="test-playlist-cooc", source="deezer", type="playlist", title="Test")
+        db.add(entity)
+        await db.commit()
+        await db.refresh(entity)
+
+        db.add(RadarTrack(
+            watched_entity_id=entity.id, external_track_id="ext-ref",
+            source="deezer", title="CoocRef", catalog_id=ref.id,
+        ))
+        db.add(RadarTrack(
+            watched_entity_id=entity.id, external_track_id="ext-other",
+            source="deezer", title="CoocOther", catalog_id=other.id,
+        ))
+        await db.commit()
+
+        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data) >= 1
+        result = next((t for t in data if t["id"] == other.id), None)
+        assert result is not None
+        sim = result["similarity"]
+        assert "cooc_playlist" in sim["available_features"]
+        assert sim["components"]["cooc_playlist"] == 1.0  # seule playlist, Jaccard = 1/1
+
+    async def test_cooc_set_signal(self, client, db):
+        """Tracks dans le même set reçoivent cooc_set dans available_features."""
+        ref = CatalogEntry(title="SetRef", artist="A", normalized_key="a|set-ref", bpm=128.0, key="8A")
+        other = CatalogEntry(title="SetOther", artist="B", normalized_key="b|set-other", bpm=128.0, key="8A")
+        db.add_all([ref, other])
+        await db.commit()
+        await db.refresh(ref)
+        await db.refresh(other)
+
+        dj_set = DJSet(source="trackid", title="Test Set", external_id="set-cooc-test")
+        db.add(dj_set)
+        await db.commit()
+        await db.refresh(dj_set)
+
+        db.add(SetTrack(set_id=dj_set.id, catalog_id=ref.id, position=1))
+        db.add(SetTrack(set_id=dj_set.id, catalog_id=other.id, position=2))
+        await db.commit()
+
+        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        assert r.status_code == 200
+        data = r.json()
+        result = next((t for t in data if t["id"] == other.id), None)
+        assert result is not None
+        sim = result["similarity"]
+        assert "cooc_set" in sim["available_features"]
+        assert sim["components"]["cooc_set"] == 1.0
+
+    async def test_cooc_only_weights(self, client, db):
+        """Avec uniquement les poids cooc, seules les tracks co-occurrentes remontent."""
+        ref = CatalogEntry(title="OnlyCoocRef", artist="A", normalized_key="a|only-cooc-ref", bpm=128.0)
+        in_playlist = CatalogEntry(title="InPlaylist", artist="B", normalized_key="b|in-playlist", bpm=200.0)
+        not_in = CatalogEntry(title="NotIn", artist="C", normalized_key="c|not-in", bpm=128.0)
+        db.add_all([ref, in_playlist, not_in])
+        await db.commit()
+        await db.refresh(ref)
+        await db.refresh(in_playlist)
+
+        entity = WatchedEntity(external_id="only-cooc-entity", source="deezer", type="playlist", title="X")
+        db.add(entity)
+        await db.commit()
+        await db.refresh(entity)
+
+        db.add(RadarTrack(
+            watched_entity_id=entity.id, external_track_id="ref-only",
+            source="deezer", title="OnlyCoocRef", catalog_id=ref.id,
+        ))
+        db.add(RadarTrack(
+            watched_entity_id=entity.id, external_track_id="in-only",
+            source="deezer", title="InPlaylist", catalog_id=in_playlist.id,
+        ))
+        await db.commit()
+
+        params = "w_bpm=0&w_key=0&w_genre=0&w_label=0&w_era=0&w_cooc_playlist=1&w_cooc_set=0&min_score=0.01"
+        r = await client.get(f"/api/catalog/{ref.id}/similar?{params}")
+        assert r.status_code == 200
+        ids = [t["id"] for t in r.json()]
+        assert in_playlist.id in ids
+        assert not_in.id not in ids

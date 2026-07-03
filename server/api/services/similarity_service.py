@@ -1,7 +1,8 @@
-"""Track similarity engine — metadata-based scoring (V1, SQL+Python hybrid)."""
+"""Track similarity engine — metadata + co-occurrence scoring (C2.b + C2.c)."""
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -21,16 +22,19 @@ class SimilarityConfig:
     LABEL_MIN_TRACKS: int = 3
     ERA_MAX_DIFF: int = 9
     MIN_FEATURES: int = 2
+    COOC_MIN_SHARED: int = 1  # min apparitions communes pour activer la feature
 
 
 CFG = SimilarityConfig()
 
 DEFAULT_WEIGHTS = {
-    "bpm": 0.30,
-    "key": 0.25,
-    "genre": 0.30,
-    "label": 0.10,
-    "era": 0.05,
+    "bpm": 0.25,
+    "key": 0.20,
+    "genre": 0.25,
+    "label": 0.08,
+    "era": 0.04,
+    "cooc_playlist": 0.10,
+    "cooc_set": 0.08,
 }
 
 # ---------------------------------------------------------------------------
@@ -119,6 +123,15 @@ def sim_era(a: date, b: date) -> float:
     return max(0.0, 1.0 - (diff - 1) / CFG.ERA_MAX_DIFF)
 
 
+def sim_cooc(a_items: frozenset[int], b_items: frozenset[int]) -> float:
+    """Jaccard sur ensembles d'IDs (playlists ou sets)."""
+    if not a_items or not b_items:
+        return 0.0
+    inter = len(a_items & b_items)
+    union = len(a_items | b_items)
+    return inter / union if union > 0 else 0.0
+
+
 # ---------------------------------------------------------------------------
 # Genre resolution helpers
 # ---------------------------------------------------------------------------
@@ -181,6 +194,41 @@ async def _load_label_counts(db: AsyncSession) -> dict[str, int]:
     return {r[0]: r[1] for r in rows}
 
 
+async def _load_playlist_map(db: AsyncSession) -> dict[int, frozenset[int]]:
+    """catalog_id -> frozenset[watched_entity_id] pour les tracks actives."""
+    from models import RadarTrack
+
+    rows = (
+        await db.execute(
+            select(RadarTrack.catalog_id, RadarTrack.watched_entity_id).where(
+                RadarTrack.catalog_id.isnot(None),
+                RadarTrack.removed_at.is_(None),
+            )
+        )
+    ).all()
+    result: dict[int, set[int]] = {}
+    for catalog_id, entity_id in rows:
+        result.setdefault(catalog_id, set()).add(entity_id)
+    return {k: frozenset(v) for k, v in result.items()}
+
+
+async def _load_set_map(db: AsyncSession) -> dict[int, frozenset[int]]:
+    """catalog_id -> frozenset[set_id]."""
+    from models import SetTrack
+
+    rows = (
+        await db.execute(
+            select(SetTrack.catalog_id, SetTrack.set_id).where(
+                SetTrack.catalog_id.isnot(None),
+            )
+        )
+    ).all()
+    result: dict[int, set[int]] = {}
+    for catalog_id, set_id in rows:
+        result.setdefault(catalog_id, set()).add(set_id)
+    return {k: frozenset(v) for k, v in result.items()}
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -196,6 +244,8 @@ async def get_similar_tracks(
     w_genre: float = DEFAULT_WEIGHTS["genre"],
     w_label: float = DEFAULT_WEIGHTS["label"],
     w_era: float = DEFAULT_WEIGHTS["era"],
+    w_cooc_playlist: float = DEFAULT_WEIGHTS["cooc_playlist"],
+    w_cooc_set: float = DEFAULT_WEIGHTS["cooc_set"],
     min_score: float = 0.4,
     in_lib: bool | None = None,
 ) -> list[dict]:
@@ -211,41 +261,82 @@ async def get_similar_tracks(
     if ref is None:
         raise LookupError(f"Catalog entry {catalog_id} not found")
 
-    # 2. Load genre + label context
-    name_to_node, parent_map = await _load_genre_context(db)
-    label_counts = await _load_label_counts(db)
+    # 2. Load context in parallel (genre/label + co-occurrence maps)
+    (name_to_node, parent_map), label_counts, playlist_map, set_map = await asyncio.gather(
+        _load_genre_context(db),
+        _load_label_counts(db),
+        _load_playlist_map(db),
+        _load_set_map(db),
+    )
 
     ref_genres = _expand_genre_nodes(ref.genres or [], name_to_node, parent_map)
     ref_label = (ref.label or "").strip().lower()
     ref_label_valid = ref_label and label_counts.get(ref_label, 0) >= CFG.LABEL_MIN_TRACKS
+    ref_playlists = playlist_map.get(catalog_id, frozenset())
+    ref_sets = set_map.get(catalog_id, frozenset())
 
-    # 3. Build candidate query with BPM pre-filter
+    # 3. Build candidate set — union(BPM window, co-occurrence)
     q = select(CatalogEntry).where(CatalogEntry.id != catalog_id)
 
+    bpm_filter_ids: set[int] | None = None
     if ref.bpm is not None:
         bpm = ref.bpm
         w = CFG.BPM_PREFILTER_WINDOW
-        q = q.where(
+        bpm_q = q.where(
             (CatalogEntry.bpm.is_(None))
             | (CatalogEntry.bpm.between(bpm - w, bpm + w))
             | (CatalogEntry.bpm.between(bpm / 2 - w, bpm / 2 + w))
             | (CatalogEntry.bpm.between(bpm * 2 - w, bpm * 2 + w))
         )
+        bpm_candidates = (await db.execute(bpm_q)).scalars().all()
+        bpm_filter_ids = {c.id for c in bpm_candidates}
+    else:
+        bpm_candidates = (await db.execute(q)).scalars().all()
+        bpm_filter_ids = {c.id for c in bpm_candidates}
+
+    # Co-occurrence candidate IDs (share ≥1 playlist or set with ref)
+    cooc_ids: set[int] = set()
+    if ref_playlists:
+        for cid, playlists in playlist_map.items():
+            if cid != catalog_id and playlists & ref_playlists:
+                cooc_ids.add(cid)
+    if ref_sets:
+        for cid, sets in set_map.items():
+            if cid != catalog_id and sets & ref_sets:
+                cooc_ids.add(cid)
+
+    # Union: BPM candidates + co-occurrence candidates not already included
+    extra_ids = cooc_ids - bpm_filter_ids
+    extra_candidates: list[CatalogEntry] = []
+    if extra_ids:
+        extra_q = select(CatalogEntry).where(CatalogEntry.id.in_(extra_ids))
+        extra_candidates = (await db.execute(extra_q)).scalars().all()
+
+    # Combine, preserving bpm_candidates list (already fetched)
+    all_candidates = list(bpm_candidates) + extra_candidates
 
     if in_lib is True and user_id is not None:
-        q = q.where(
-            CatalogEntry.id.in_(
+        lib_ids_rows = (
+            await db.execute(
                 select(UserTrack.catalog_id).where(UserTrack.user_id == user_id)
             )
-        )
-
-    candidates = (await db.execute(q)).scalars().all()
+        ).all()
+        lib_ids = {r[0] for r in lib_ids_rows}
+        all_candidates = [c for c in all_candidates if c.id in lib_ids]
 
     # 4. Score each candidate
-    weights = {"bpm": w_bpm, "key": w_key, "genre": w_genre, "label": w_label, "era": w_era}
+    weights = {
+        "bpm": w_bpm,
+        "key": w_key,
+        "genre": w_genre,
+        "label": w_label,
+        "era": w_era,
+        "cooc_playlist": w_cooc_playlist,
+        "cooc_set": w_cooc_set,
+    }
     scored: list[tuple[CatalogEntry, float, dict[str, float], list[str]]] = []
 
-    for cand in candidates:
+    for cand in all_candidates:
         components: dict[str, float] = {}
         available: list[str] = []
 
@@ -276,6 +367,18 @@ async def get_similar_tracks(
         if ref.release_date and cand.release_date:
             components["era"] = sim_era(ref.release_date, cand.release_date)
             available.append("era")
+
+        # Co-occurrence — playlist
+        cand_playlists = playlist_map.get(cand.id, frozenset())
+        if ref_playlists and cand_playlists:
+            components["cooc_playlist"] = sim_cooc(ref_playlists, cand_playlists)
+            available.append("cooc_playlist")
+
+        # Co-occurrence — set
+        cand_sets = set_map.get(cand.id, frozenset())
+        if ref_sets and cand_sets:
+            components["cooc_set"] = sim_cooc(ref_sets, cand_sets)
+            available.append("cooc_set")
 
         # Aggregate
         if len(available) < CFG.MIN_FEATURES:
@@ -364,7 +467,9 @@ async def get_similar_tracks(
                 "artists": [a.model_dump() for a in entry_artists],
                 "similarity": SimilarityBlock(
                     score=round(score, 4),
-                    components=SimilarityComponents(**{f: round(components.get(f, 0), 4) for f in available}),
+                    components=SimilarityComponents(
+                        **{f: round(components[f], 4) for f in available}
+                    ),
                     available_features=available,
                 ).model_dump(),
             }

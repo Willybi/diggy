@@ -9,6 +9,7 @@ from services.similarity_service import (
     _expand_genre_nodes,
     parse_camelot,
     sim_bpm,
+    sim_cooc,
     sim_era,
     sim_genre,
     sim_key,
@@ -199,6 +200,38 @@ class TestExpandGenreNodes:
         parent_map = {1: {10}}
         result = _expand_genre_nodes(["Tech House", "House"], name_to_node, parent_map)
         assert result[10] == 1.0  # direct, not 0.5
+
+
+# ---------------------------------------------------------------------------
+# sim_cooc
+# ---------------------------------------------------------------------------
+
+
+class TestSimCooc:
+    def test_identical(self):
+        a = frozenset([1, 2, 3])
+        assert sim_cooc(a, a) == 1.0
+
+    def test_no_overlap(self):
+        assert sim_cooc(frozenset([1, 2]), frozenset([3, 4])) == 0.0
+
+    def test_partial_overlap(self):
+        # |{1,2} ∩ {2,3}| = 1, |{1,2} ∪ {2,3}| = 3 → 1/3
+        score = sim_cooc(frozenset([1, 2]), frozenset([2, 3]))
+        assert abs(score - 1 / 3) < 0.001
+
+    def test_single_shared(self):
+        # Jaccard = 1/1 = 1.0 quand les deux ont exactement 1 playlist commune
+        assert sim_cooc(frozenset([5]), frozenset([5])) == 1.0
+
+    def test_empty_a(self):
+        assert sim_cooc(frozenset(), frozenset([1])) == 0.0
+
+    def test_empty_b(self):
+        assert sim_cooc(frozenset([1]), frozenset()) == 0.0
+
+    def test_both_empty(self):
+        assert sim_cooc(frozenset(), frozenset()) == 0.0
 
 
 # ---------------------------------------------------------------------------
