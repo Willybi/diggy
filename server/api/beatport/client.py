@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 
 import requests
 
@@ -156,6 +157,11 @@ _ARTIST_SEPARATORS = re.compile(
 )
 
 
+def _fold(s: str) -> str:
+    """Lowercase + strip diacritics for accent-insensitive comparison."""
+    return unicodedata.normalize("NFD", s.lower()).encode("ascii", "ignore").decode()
+
+
 def _artist_matches(bp_artists: list[dict], catalog_artist: str | None) -> bool:
     """Check if at least one Beatport artist matches the catalog artist string."""
     if not catalog_artist:
@@ -163,9 +169,9 @@ def _artist_matches(bp_artists: list[dict], catalog_artist: str | None) -> bool:
     if not bp_artists:
         return False
     catalog_names = [
-        n.strip().lower() for n in _ARTIST_SEPARATORS.split(catalog_artist) if n.strip()
+        _fold(n.strip()) for n in _ARTIST_SEPARATORS.split(catalog_artist) if n.strip()
     ]
-    bp_names = [a["name"].lower() for a in bp_artists if a.get("name")]
+    bp_names = [_fold(a["name"]) for a in bp_artists if a.get("name")]
     for cat in catalog_names:
         for bp in bp_names:
             if cat in bp or bp in cat:
@@ -177,8 +183,8 @@ def _title_matches(bp_name: str | None, catalog_title: str | None) -> bool:
     """Check if a Beatport track name matches the catalog title (substring)."""
     if not catalog_title or not bp_name:
         return False
-    cat = catalog_title.lower()
-    bp = bp_name.lower()
+    cat = _fold(catalog_title)
+    bp = _fold(bp_name)
     return cat in bp or bp in cat
 
 
