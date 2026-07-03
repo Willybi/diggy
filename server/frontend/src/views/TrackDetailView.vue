@@ -441,18 +441,26 @@ async function loadSimilar(catalogId) {
   }
 }
 
-onMounted(async () => {
+async function loadTrack(id) {
+  loading.value = true
+  track.value = null
+  similarTracks.value = []
+  enrichResult.value = null
+  dzGenreResult.value = null
   try {
-    const { data } = await api.get(`/api/catalog/${route.params.id}`)
+    const { data } = await api.get(`/api/catalog/${id}`)
     track.value = data
     opinion.value = data.avis ?? null
-    loadSimilar(route.params.id)
+    loadSimilar(id)
   } catch {
     track.value = null
   } finally {
     loading.value = false
   }
-})
+}
+
+watch(() => route.params.id, (id) => { if (id) loadTrack(id) })
+onMounted(() => loadTrack(route.params.id))
 </script>
 
 <style scoped>
