@@ -53,9 +53,12 @@ class TestPublicEndpoints:
     async def test_auth_google_callback_no_token_needed(self, mw_client):
         client, _ = mw_client
         # Will fail at app level (invalid code), but middleware should not block it
-        r = await client.get("/api/auth/google/callback?code=x&state=y")
-        # 400 = app-level rejection (not 401 from middleware)
-        assert r.status_code == 400
+        r = await client.get(
+            "/api/auth/google/callback?code=x&state=y",
+            follow_redirects=False,
+        )
+        # 302 = app-level redirect to /login/callback?error=... (not 401 from middleware)
+        assert r.status_code == 302
 
     async def test_catalog_get_public(self, mw_client):
         client, _ = mw_client
