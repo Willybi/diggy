@@ -162,19 +162,26 @@
       </RelBlock>
 
       <!-- Artistes proches -->
-      <RelBlock v-if="connections.length" title="Artistes proches" :count="connections.length">
-        <div class="shelf">
+      <ExpandableShelf
+        v-if="connections.length"
+        title="Artistes proches"
+        :items="connectionsPage"
+        :total="connections.length"
+        :loading="false"
+        v-model:expanded="connectionsExpanded"
+        v-model:page="connectionsPageNum"
+        @load-page="onConnectionsLoadPage"
+      >
+        <template #default="{ item: c }">
           <ShelfCard
-            v-for="c in connections"
-            :key="c.artist_id"
             variant="round"
             :image-src="c.has_artwork ? `/storage/artist-artworks/${c.artist_id}.jpg` : null"
             :title="c.name"
             :fallback-letter="c.name?.[0] || '?'"
             :to="`/artist/${c.artist_id}`"
           />
-        </div>
-      </RelBlock>
+        </template>
+      </ExpandableShelf>
 
       <RelBlock v-if="artist.sets.length" title="Sets" :count="artist.stats.nb_sets">
         <RouterLink
@@ -272,6 +279,7 @@ import StyleTag from '../components/StyleTag.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
 import AdminCard from '../components/AdminCard.vue'
 import ShelfCard from '../components/ShelfCard.vue'
+import ExpandableShelf from '../components/ExpandableShelf.vue'
 import LibDot from '../components/LibDot.vue'
 import RingPct from '../components/RingPct.vue'
 import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
@@ -283,6 +291,18 @@ const artist = ref(null)
 const loading = ref(true)
 const showAllTracks = ref(false)
 const connections = ref([])
+const connectionsExpanded = ref(false)
+const connectionsPageNum = ref(0)
+
+const connectionsPage = computed(() => {
+  if (!connectionsExpanded.value) return connections.value.slice(0, 12)
+  const offset = connectionsPageNum.value * 48
+  return connections.value.slice(offset, offset + 48)
+})
+
+function onConnectionsLoadPage() {
+  // Client-side pagination — data already loaded, nothing to fetch
+}
 
 // Admin Deezer link
 const dzQuery = ref('')
@@ -411,6 +431,8 @@ async function loadArtist(id) {
   loading.value = true
   connections.value = []
   showAllTracks.value = false
+  connectionsExpanded.value = false
+  connectionsPageNum.value = 0
   try {
     const { data } = await api.get(`/api/artists/${id}`)
     artist.value = data
@@ -825,19 +847,6 @@ watch(() => route.params.id, (id) => {
   font-size: 14px;
   font-style: italic;
   padding-top: 40px;
-}
-
-/* Shelf (artistes proches) */
-.shelf {
-  display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  padding: 14px;
-  scroll-snap-type: x proximity;
-  -webkit-overflow-scrolling: touch;
-}
-.shelf::-webkit-scrollbar {
-  display: none;
 }
 
 /* Admin card */

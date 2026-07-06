@@ -30,11 +30,11 @@ function formatScore(s) {
   font: 500 12px/1 var(--font-mono);
 }
 .meter {
+  flex: none;
   width: 50px;
   height: 11px;
   border-radius: 2px;
-  background: currentColor;
-  opacity: 0.2;
+  background: color-mix(in srgb, currentColor 20%, transparent);
   position: relative;
   overflow: hidden;
 }
@@ -44,7 +44,6 @@ function formatScore(s) {
   left: 0;
   height: 100%;
   background: currentColor;
-  opacity: 1;
   border-radius: 2px;
   transition: width 0.3s ease;
 }

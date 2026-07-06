@@ -129,11 +129,18 @@
       </AdminCard>
 
       <!-- Shelf: Artistes -->
-      <RelBlock v-if="artists.length" title="Artistes" :count="artistsTotal">
-        <div class="shelf">
+      <ExpandableShelf
+        v-if="artists.length"
+        title="Artistes"
+        :items="artists"
+        :total="artistsTotal"
+        :loading="artistsLoading"
+        v-model:expanded="artistsExpanded"
+        v-model:page="artistsPage"
+        @load-page="onArtistsLoadPage"
+      >
+        <template #default="{ item: a }">
           <ShelfCard
-            v-for="a in artists"
-            :key="a.id"
             variant="round"
             :image-src="a.hasArtwork ? `/storage/artist-artworks/${a.id}.jpg` : null"
             :title="a.name"
@@ -141,16 +148,8 @@
             :to="`/artist/${a.id}`"
             :fallback-letter="a.name[0]"
           />
-        </div>
-        <button
-          v-if="artists.length < artistsTotal"
-          class="load-more"
-          :disabled="artistsLoading"
-          @click="fetchArtists(true)"
-        >
-          {{ artistsLoading ? 'Chargement…' : `Voir les ${artistsTotal - artists.length} autres` }}
-        </button>
-      </RelBlock>
+        </template>
+      </ExpandableShelf>
 
       <!-- Shelf: Sets -->
       <RelBlock v-if="sets.length" title="Sets" :count="setsTotal">
@@ -286,6 +285,7 @@ import RelBlock from '../components/RelBlock.vue'
 import StyleTag from '../components/StyleTag.vue'
 import GenreTrackRow from '../components/GenreTrackRow.vue'
 import ShelfCard from '../components/ShelfCard.vue'
+import ExpandableShelf from '../components/ExpandableShelf.vue'
 import AdminCard from '../components/AdminCard.vue'
 import SearchBox from '../components/SearchBox.vue'
 import LikeDislike from '../components/LikeDislike.vue'
@@ -302,6 +302,8 @@ const genre = ref(null)
 const artists = ref([])
 const artistsTotal = ref(0)
 const artistsLoading = ref(false)
+const artistsExpanded = ref(false)
+const artistsPage = ref(0)
 const sets = ref([])
 const setsTotal = ref(0)
 const setsLoading = ref(false)
@@ -409,21 +411,37 @@ async function fetchGenre() {
   }
 }
 
-async function fetchArtists(append = false) {
+async function fetchArtists(page = null) {
   artistsLoading.value = true
+  const limit = page !== null ? 48 : 12
+  const offset = page !== null ? page * 48 : 0
   try {
-    const params = { limit: 12 }
-    if (append) params.offset = artists.value.length
     const { data } = await api.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, {
-      params,
+      params: { limit, offset },
     })
-    artists.value = append ? [...artists.value, ...data.items] : data.items
+    artists.value = data.items
     artistsTotal.value = data.total
   } catch {
-    if (!append) artists.value = []
+    if (page === null) artists.value = []
   } finally {
     artistsLoading.value = false
   }
+}
+
+function onArtistsLoadPage({ offset, limit }) {
+  artistsLoading.value = true
+  api
+    .get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, {
+      params: { limit, offset },
+    })
+    .then(({ data }) => {
+      artists.value = data.items
+      artistsTotal.value = data.total
+    })
+    .catch(() => {})
+    .finally(() => {
+      artistsLoading.value = false
+    })
 }
 
 async function fetchSets(append = false) {
@@ -587,6 +605,8 @@ watch(
     trackSearch.value = ''
     trackSort.value = 'recent'
     trackInLib.value = null
+    artistsExpanded.value = false
+    artistsPage.value = 0
     mergeQuery.value = ''
     mergeTarget.value = null
     mergeSuggestions.value = []
