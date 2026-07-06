@@ -1,4 +1,11 @@
-# Golden Set — Similarity Evaluation
+# [ARCHIVE] Golden Set — Similarity Evaluation
+
+> **Approche abandonnee (juillet 2026).** Le golden set n'a jamais ete peuple.
+> L'evaluation du scoring C2 se fait en production par iteration au feeling
+> sur les donnees et les formules (notebook `docs/similarity_calibration.ipynb`).
+> Le script `eval_similarity.py` a ete supprime en meme temps.
+
+---
 
 ## Format
 

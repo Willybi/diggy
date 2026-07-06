@@ -167,7 +167,7 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant.
 | Model change, migration, 3+ table query | `docs/database-schema.md` (generated — run `/schema_doc` after any model/migration change) |
 | Proposing features, choosing next work | `docs/ROADMAP.md` (or run `/roadmap_status`) |
 | Starting work on a chantier | Its agent prompt in `docs/prompts/` and its brief in `docs/`. If none exist yet for the target chantier, create them via `/work_manager`. |
-| Similarity/scoring work (C2) | `docs/eval/README.md` + `docs/eval/golden_similar.json` + `docs/similarity_calibration.ipynb` |
+| Similarity/scoring work (C2) | `docs/similarity_calibration.ipynb` |
 | UI change on an existing view | Matching handoff in `_design/` (brief + HTML mockup + tokens) |
 | Anything about past decisions | `docs/completed/` and `docs/PROJECT_STATUS_*.md` are FROZEN archives: read-only, never treat as current state, NEVER modify |
 
