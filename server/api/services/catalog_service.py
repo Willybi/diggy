@@ -562,25 +562,22 @@ async def update_avis(
     from models import CatalogEntry, UserTrack
     from opinion_sync import sync_track_opinion
 
+    # Verify catalog entry exists
+    cat = await db.execute(
+        select(CatalogEntry.id).where(CatalogEntry.id == catalog_id)
+    )
+    if not cat.scalar_one_or_none():
+        raise LookupError("Catalog entry not found")
+
+    # Update avis on existing UserTrack if present (don't create one)
     result = await db.execute(
         select(UserTrack).where(
             UserTrack.user_id == user_id, UserTrack.catalog_id == catalog_id
         )
     )
     ut = result.scalar_one_or_none()
-
     if ut:
         ut.avis = avis
-    else:
-        cat = await db.execute(
-            select(CatalogEntry.id).where(CatalogEntry.id == catalog_id)
-        )
-        if not cat.scalar_one_or_none():
-            raise LookupError("Catalog entry not found")
-        ut = UserTrack(
-            user_id=user_id, catalog_id=catalog_id, avis=avis, source="catalog_avis"
-        )
-        db.add(ut)
 
     await sync_track_opinion(db, user_id, catalog_id, avis)
     await db.commit()

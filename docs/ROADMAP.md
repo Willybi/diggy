@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-06 (ajout H0, revue priorisation + dependances)
+> **Derniere mise a jour** : 2026-07-06 (H0 + P1 termines, F5/C6 prochains)
 
 ---
 
@@ -23,7 +23,7 @@ Avant l'ouverture aux amis (5-10 DJs), Diggy doit offrir :
 
 Apres l'ouverture : la recommandation personnalisee (croisement similarite x likes), utile des un seul user et enrichie par chaque nouvel utilisateur.
 
-Sequence : **~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> H0 + C6 + F5 + P1 (paralleles) -> C3 (ouverture) -> C4 -> C5**
+Sequence : **~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> ~~H0 + P1~~ (TERMINE) -> F5 + C6 (paralleles) -> C3 (ouverture) -> C4 -> C5**
 
 ---
 
@@ -36,10 +36,10 @@ Sequence : **~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> H0 + C6 + F5 + P1 (paralleles
  R1   Responsive / Support Mobile           HAUT        3-4 jours    TERMINE
  C1   Trend v2 + Decouvrir + Collections    HAUT        5-7 jours    TERMINE
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   TERMINE (graphe D3 reporte)
- H0   Hygiene & Solidification              MOYEN       2 jours      A FAIRE (prerequis C3)
+ H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
+ P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
  C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   A FAIRE
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
- P1   Polish & Correctifs UI               MOYEN       1-2 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
@@ -65,6 +65,8 @@ Sequence : **~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> H0 + C6 + F5 + P1 (paralleles
  R1   Responsive / Support Mobile     TERMINE
  C1   Trend v2 + Decouvrir + Collections TERMINE
  C2   Moteur de Similarite + Artistes    TERMINE (graphe D3 reporte)
+ H0   Hygiene & Solidification          TERMINE
+ P1   Polish & Correctifs UI            TERMINE
 ```
 
 ### Dependances
@@ -75,14 +77,15 @@ R1 ─────────> C1 (mobile requis pour l'UX decouvrir)          
 C1 (trend) ─> C3 (reco par defaut prete avant ouverture)              ✅ TERMINE
 C2 (simil) ─> C4 (socle de la reco personnalisee)                     ✅ TERMINE
 
+H0 ─────────> C3 (hygiene secu/infra avant ouverture)              ✅ TERMINE
+P1 ─────────> Rien (parallelisable avec tout)                      ✅ TERMINE
+
 --- actif ---
-H0 ─────────> C3 (hygiene secu/infra avant ouverture)
 C6 (veille) ┬ C6.0 dedup prerequis avant C6.a crawl massif
-             ├ parallele avec H0/P1/F5
+             ├ parallele avec F5
              └ avant C3 idealement (plus de donnees = meilleure XP nouveaux users)
 F5 ─────────> Rien (parallelisable avec tout)
-P1 ─────────> Rien (parallelisable avec tout)
-C3 (ouvert) = declenchement manuel, apres H0 + C1 + idealement C6
+C3 (ouvert) = declenchement manuel, apres H0 (FAIT) + C1 + idealement C6
 C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> C3 (apres ouverture)
 ```
@@ -393,7 +396,7 @@ Relations de proximite entre tracks et entre artistes. C'est le socle de toute r
 **Priorite : MOYEN**
 **Estimation : 2 jours (1 jour backend/infra + 1 jour frontend)**
 **Depend de : rien (parallelisable avec tout)**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-06)**
 
 ### Contexte
 
@@ -409,7 +412,7 @@ Pas de risque reel (pas de `allow_credentials`), mais c'est de l'hygiene.
 Fix : remplacer par `allow_methods=["GET", "POST", "PATCH", "DELETE"]` et
 `allow_headers=["Authorization", "Content-Type"]`.
 
-- [ ] Restreindre CORS methods et headers dans `main.py`
+- [x] Restreindre CORS methods et headers dans `main.py`
 
 **Rate limiting : etendre au-dela de l'auth** (15 min)
 Seules 3 routes auth sont rate-limitees (`rate_limit.py:15-19`). Les endpoints publics (search,
@@ -417,7 +420,7 @@ catalog) et admin (triggers de crawl, import) n'ont aucune protection contre le 
 Fix : ajouter des entrees dans le dict `RATE_LIMITS` existant. Pas de nouveau code, juste
 de la config.
 
-- [ ] Ajouter rate limits : `/api/search` (30/min), `/api/import/rekordbox` (3/5min), `/api/admin` (10/min)
+- [x] Ajouter rate limits : `/api/search` (30/min), `/api/import/rekordbox` (3/5min), `/api/admin` (10/min)
 
 **Timeouts Celery explicites** (10 min)
 3 taches longues n'ont pas de `soft_time_limit`/`time_limit` explicites et dependent du global
@@ -425,15 +428,15 @@ de la config.
 Les autres taches (beatport, backfill, genres) ont deja des timeouts explicites.
 Fix : ajouter 2 lignes par tache.
 
-- [ ] `crawl_single_playlist` (`workers/tasks/radar.py:21`) : `soft_time_limit=3600, time_limit=4500`
-- [ ] `enrich_catalog` (`workers/tasks/catalog.py:16`) : `soft_time_limit=7200, time_limit=9000`
-- [ ] `sync_artists` (`workers/tasks/artists.py:16`) : `soft_time_limit=3600, time_limit=4500`
+- [x] `crawl_single_playlist` (`workers/tasks/radar.py:21`) : `soft_time_limit=3600, time_limit=4500`
+- [x] `enrich_catalog` (`workers/tasks/catalog.py:16`) : `soft_time_limit=7200, time_limit=9000`
+- [x] `sync_artists` (`workers/tasks/artists.py:16`) : `soft_time_limit=3600, time_limit=4500`
 
 **Retirer `Base.metadata.create_all` en production** (5 min)
 `main.py:54-55` — `create_all` au demarrage peut creer des tables hors Alembic. Alembic gere
 deja tout via `alembic upgrade head` dans deploy.yml. Conditionner a un flag env ou supprimer.
 
-- [ ] Conditionner `create_all` a `ENV != production` ou supprimer
+- [x] Conditionner `create_all` a `ENV != production` ou supprimer
 
 ### H0.b — Infra Docker (30 min)
 
@@ -443,9 +446,9 @@ pas si ces services plantent et ne peut pas les redemarrer proprement. Les autre
 (postgres, redis, minio) en ont deja.
 Fix : ajouter un bloc `healthcheck` avec `curl -f` sur chaque service.
 
-- [ ] Healthcheck `api` : `curl -f http://localhost:8000/api/health`
-- [ ] Healthcheck `frontend` : `curl -f http://localhost:80/`
-- [ ] Healthcheck `nginx` : `curl -f http://localhost:80/api/health`
+- [x] Healthcheck `api` : python urllib sur 127.0.0.1:8000
+- [x] Healthcheck `frontend` : wget sur 127.0.0.1:80
+- [x] Healthcheck `nginx` : wget HTTPS sur 127.0.0.1:443
 
 **Volume mount en production** (10 min)
 `docker-compose.yml:69` — `./server/api:/app` monte le code source en live. En prod le code
@@ -454,7 +457,7 @@ buildee et code sur le disque VPS.
 Fix : utiliser un `docker-compose.override.yml` pour le dev avec le volume mount, et retirer
 le mount du compose principal.
 
-- [ ] Retirer `./server/api:/app` du compose principal, deplacer en override dev
+- [x] Retirer `./server/api:/app` du compose principal, deplacer en override dev
 
 ### H0.c — Architecture backend (2-3h)
 
@@ -478,9 +481,9 @@ models/
   admin.py        → AdminAuditLog, CrawlLog
 ```
 
-- [ ] Creer le package `models/` avec split par domaine
-- [ ] Verifier que `from models import X` fonctionne toujours (tests)
-- [ ] Supprimer l'ancien `models.py`
+- [x] Creer le package `models/` avec split par domaine
+- [x] Verifier que `from models import X` fonctionne toujours (tests)
+- [x] Supprimer l'ancien `models.py`
 
 **Index compound supplementaires** (15 min)
 La migration `0020` couvre les index critiques. Deux index compound supplementaires utiles
