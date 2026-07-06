@@ -12,7 +12,7 @@ from auth import (
 )
 from database import get_db
 from dependencies import get_current_user
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 from models import User
 from pydantic import BaseModel
@@ -51,7 +51,6 @@ async def google_login():
             "response_type": "code",
             "scope": "openid email profile",
             "state": state,
-            "access_type": "offline",
             "prompt": "select_account",
         }
     )
@@ -70,7 +69,7 @@ async def google_callback(
         google_info = await verify_google_token(code)
     except Exception as exc:
         logging.getLogger("auth").warning("Google token exchange failed: %s", exc)
-        raise HTTPException(status_code=400, detail="Google authentication failed")
+        return RedirectResponse("/login/callback?error=google_failed", status_code=302)
 
     # Lookup by google_id
     result = await db.execute(
