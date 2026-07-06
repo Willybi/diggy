@@ -63,6 +63,7 @@ class TestGoogleCallback:
         cookie = r.headers["set-cookie"]
         # Extract cookie value
         value = cookie.split("auth_callback=")[1].split(";")[0]
+        value += "=" * ((4 - len(value) % 4) % 4)  # re-pad
         payload = json.loads(base64.urlsafe_b64decode(value))
         assert payload["state"] == "mystate123"
         assert "token" in payload

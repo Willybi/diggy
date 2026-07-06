@@ -44,7 +44,10 @@ onMounted(() => {
       return
     }
 
-    const data = JSON.parse(atob(raw.replace(/-/g, '+').replace(/_/g, '/')))
+    // base64url → base64 (replace chars + re-add padding)
+    const b64 = raw.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const data = JSON.parse(atob(padded))
 
     const expected = localStorage.getItem('oauth_state')
     localStorage.removeItem('oauth_state')

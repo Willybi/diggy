@@ -115,9 +115,13 @@ async def google_callback(
     # Pass credentials via a short-lived cookie, then redirect to the SPA
     # callback page. Avoids hash fragments (Safari iOS drops them) and
     # inline scripts (blocked by CSP script-src 'self').
-    cookie_value = base64.urlsafe_b64encode(
-        json.dumps({"token": token, "user": user_data, "state": state}).encode()
-    ).decode()
+    cookie_value = (
+        base64.urlsafe_b64encode(
+            json.dumps({"token": token, "user": user_data, "state": state}).encode()
+        )
+        .decode()
+        .rstrip("=")  # strip padding — '=' triggers cookie quoting
+    )
 
     response = RedirectResponse("/login/callback", status_code=302)
     response.set_cookie(
