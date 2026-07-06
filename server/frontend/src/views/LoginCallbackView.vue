@@ -1,55 +1,24 @@
 <template>
   <div class="callback-page">
-    <template v-if="error">
-      <p class="callback-error">{{ error }}</p>
-      <router-link to="/login" class="callback-retry">Réessayer</router-link>
-    </template>
-    <p v-else>Connexion en cours…</p>
+    <p class="callback-error">{{ message }}</p>
+    <router-link to="/login" class="callback-retry">Réessayer</router-link>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+/**
+ * This view only handles error redirects from the backend
+ * (e.g. /login/callback?error=google_failed).
+ * The success flow is handled by inline HTML returned by the API callback.
+ */
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 
-const router = useRouter()
 const route = useRoute()
-const auth = useAuthStore()
-const error = ref(null)
 
-onMounted(() => {
-  // Backend error redirect (e.g. Google token exchange failed)
-  if (route.query.error) {
-    error.value = 'La connexion Google a échoué. Veuillez réessayer.'
-    return
-  }
-
-  try {
-    const hash = window.location.hash.substring(1)
-    const params = new URLSearchParams(hash)
-    const token = params.get('token')
-    const user = params.get('user')
-    const state = params.get('state')
-
-    const expected = localStorage.getItem('oauth_state')
-    localStorage.removeItem('oauth_state')
-
-    if (!expected || expected !== state) {
-      error.value = 'Erreur de sécurité (state mismatch). Veuillez réessayer.'
-      return
-    }
-
-    if (!token || !user) {
-      error.value = 'Données de connexion manquantes.'
-      return
-    }
-
-    auth._persist(token, JSON.parse(user))
-    router.replace('/')
-  } catch {
-    error.value = 'Erreur inattendue lors de la connexion.'
-  }
+const message = computed(() => {
+  if (route.query.error) return 'La connexion Google a échoué. Veuillez réessayer.'
+  return 'Erreur de connexion.'
 })
 </script>
 

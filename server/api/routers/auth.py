@@ -13,7 +13,7 @@ from auth import (
 from database import get_db
 from dependencies import get_current_user
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from models import User
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -109,13 +109,36 @@ async def google_callback(
 
     token = create_token(user.id)
 
-    user_data = json.dumps(
-        {"id": user.id, "username": user.username, "is_admin": user.is_admin}
-    )
+    user_data = {"id": user.id, "username": user.username, "is_admin": user.is_admin}
 
-    # Redirect to frontend with credentials in hash fragment (never sent to server)
-    fragment = urlencode({"token": token, "user": user_data, "state": state})
-    return RedirectResponse(f"/login/callback#{fragment}", status_code=302)
+    # Return HTML that persists JWT client-side then redirects.
+    # Avoids hash-fragment redirect which Safari iOS drops silently.
+    payload = json.dumps(
+        {"token": token, "user": user_data, "state": state}
+    ).replace("</", r"<\/")  # prevent script-tag breakout
+
+    html = f"""\
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Connexion…</title></head>
+<body><p style="text-align:center;margin-top:40vh;font-family:system-ui">
+Connexion en cours…</p>
+<script>
+(function(){{
+  var d={payload};
+  var expected=localStorage.getItem("oauth_state");
+  localStorage.removeItem("oauth_state");
+  if(!expected||expected!==d.state){{
+    document.body.innerHTML='<p style="text-align:center;margin-top:40vh;'
+      +'font-family:system-ui;color:#e55">Erreur de s\\u00e9curit\\u00e9.'
+      +' <a href="/login">R\\u00e9essayer</a></p>';
+    return;
+  }}
+  localStorage.setItem("diggy_token",d.token);
+  localStorage.setItem("diggy_user",JSON.stringify(d.user));
+  window.location.replace("/");
+}})();
+</script></body></html>"""
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/me", response_model=UserOut)
