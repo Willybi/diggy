@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-02
+> **Derniere mise a jour** : 2026-07-03
 
 ---
 
@@ -23,7 +23,7 @@ Avant l'ouverture aux amis (5-10 DJs), Diggy doit offrir :
 
 Apres l'ouverture : la recommandation personnalisee (croisement similarite x likes), utile des un seul user et enrichie par chaque nouvel utilisateur.
 
-Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
+Sequence : **C0 -> R1 -> C1 -> C2 + P1 -> C3 (ouverture) -> C4 -> C5**
 
 ---
 
@@ -36,8 +36,10 @@ Sequence : **C0 -> R1 -> C1 -> C2 -> C3 (ouverture) -> C4**
  R1   Responsive / Support Mobile           HAUT        3-4 jours    TERMINE
  C1   Trend v2 + Decouvrir + Collections    HAUT        5-7 jours    TERMINE
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   A FAIRE
+ P1   Polish & Correctifs UI               MOYEN       1-2 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
+ C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
 ```
 
@@ -77,7 +79,7 @@ C4 ─────────> C2 + C3 (similarite + likes + users)
 | Decision | Contenu |
 |---|---|
 | Politique de scope a l'import | Track absente du catalog -> tentative d'enrichissement. Match plateforme -> `shared`. Pas de match ou match ambigu -> `private`, visible uniquement par l'importeur. Re-tentative periodique avec promotion automatique si un match apparait. Doublons entre scopes prives : non traites, par design. |
-| Collections perso | Integrees a la roadmap (vue frontend a creer, backend deja live). Strictement privees : une collection n'est visible que par son proprietaire. |
+| Collections perso | v1 (tracks only) integree dans C1. v2 prevue dans C5 : items polymorphes (tracks/sets/artistes/genres/playlists) + dossiers. Strictement privees : une collection n'est visible que par son proprietaire. |
 | F3 Graphe artistes | Absorbe dans le moteur de similarite (C2). Le graphe devient une vue du moteur, pas un chantier separe. |
 | Trend | Classement (pas score absolu), calcule par famille de genre, recalcule chaque nuit. Formule composite : detections ponderees (type de source, taille de playlist) x decay temporel x velocite x convergence multi-sources. Distinction fraicheur / revival portee par la ponderation temporelle. |
 | Reco de trend | Decorrellee des likes. Offre par defaut, notamment pour les nouveaux users sans historique. |
@@ -257,6 +259,71 @@ Methode : prototype notebook sur les donnees reelles (~5000 radar_tracks), calib
 
 ---
 
+## P1 — Polish & Correctifs UI
+
+**Priorite : MOYEN**
+**Estimation : 1-2 jours**
+**Depend de : C1 (TERMINE)**
+**Statut : A FAIRE — parallélisable avec C2**
+
+### P1.1 — PlayerBar : navigation titre et artiste
+
+Le titre et l'artiste dans la PlayerBar sont des `<span>` inertes. Les rendre cliquables.
+
+- [ ] Titre cliquable → `/catalog/:catalog_id`
+- [ ] Artiste cliquable → `/artist/:artist_id`
+- [ ] Stocker `artist_id` dans le player store lors du `play()` (champ absent actuellement)
+
+### P1.2 — Boutons Play dans TrackDetailView
+
+Les sections "Du même artiste" et "Tracks similaires" sont des `RouterLink` sans bouton play,
+contrairement aux mini-rows de ArtistDetailView qui en ont un.
+
+- [ ] Ajouter bouton play (conditionnel sur `has_preview`) dans la grille "Du même artiste"
+- [ ] Ajouter bouton play dans la grille "Tracks similaires"
+- [ ] Vérifier que `has_preview` est bien exposé par les endpoints `/api/catalog/{id}/similar` et `same_artist_tracks`
+
+### P1.3 — ScorePill : refonte pour les floats
+
+Le score radar (`trend_score_10`) peut désormais être un float. Le composant actuel
+affiche `7.3/10` avec 10 barres binaires (on/off) — lisible mais pas optimal pour un continu.
+
+- [ ] Remplacer les 10 barres discrètes par une barre de progression continue (`width: score * 10%`)
+- [ ] Arrondir l'affichage texte à 1 décimale si float, entier sinon
+
+### P1.4 — GenreDetailView : pagination shelves artistes/playlists
+
+Les shelves "Artistes" et "Playlists" chargent 12 items max sans possibilité d'en voir plus.
+Si `artistsTotal > 12` ou `playlistsTotal > 12`, les items supplémentaires sont inaccessibles.
+Audit aussi le scroll horizontal (possible conflit de container query sur mobile).
+
+- [ ] Ajouter un bouton "Voir les N autres" sous chaque shelf si total > items affichés
+- [ ] Fetch paginé au clic (limit +12 ou page suivante)
+- [ ] Auditer le CSS scroll horizontal des shelves sur mobile
+
+### P1.5 — Admin : split artiste manuel sur espace
+
+`detectSeparator()` ne reconnait que les séparateurs explicites (`/`, ` & `, `,`, `feat.`…).
+Les concaténations sans séparateur type "Bad Boombox mischluft" ne sont pas détectables
+automatiquement — l'espace seul est trop ambigu.
+
+- [ ] Ajouter un mode de split manuel : afficher les tokens potentiels du nom en cliquant sur les espaces
+- [ ] UI : nom de l'artiste affiché avec espaces cliquables, clic = choisir le point de coupure
+- [ ] Générer les tokens côté frontend, envoyer vers le flow `flags/manual` existant
+- [ ] Bouton "Splitter manuellement" visible pour tous les artistes (pas uniquement ceux avec séparateur reconnu)
+
+### Definition of Done
+
+```bash
+# PlayerBar : clic titre -> navigation /catalog/:id, clic artiste -> /artist/:id
+# TrackDetailView : play button visible au hover sur "Du même artiste" et "Tracks similaires"
+# ScorePill : barre continue, texte arrondi à 1 décimale
+# GenreDetailView : "Voir plus" fonctionnel sur artistes et playlists
+# Admin : split manuel disponible sur n'importe quel artiste
+```
+
+---
+
 ## C2 — Moteur de Similarite (absorbe F3)
 
 **Priorite : MOYEN**
@@ -383,6 +450,61 @@ Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des
 
 ---
 
+## C5 — Collections v2 (polymorphe + dossiers)
+
+**Priorite : BAS**
+**Estimation : 3-5 jours**
+**Depend de : C1 (TERMINE)**
+**Statut : A FAIRE — après ouverture**
+
+### Objectif
+
+Transformer les collections (actuellement tracks-only) en un système de curation général :
+n'importe quelle entité de l'app peut être ajoutée à une collection, et les collections
+peuvent être organisées en dossiers. Concept : "boards" de curation DJ (inspiration Pinterest/Rekordbox folders).
+
+### C5.a — Items polymorphes
+
+Actuellement `collection_items` a une FK stricte vers `catalog.id`. Migration vers un pattern
+polymorphe : `item_type` (enum) + `item_id` (integer) + `item_name` optionnel (pour les entités
+adressées par slug comme les genres).
+
+- [ ] Migration Alembic : alter `collection_items` — supprimer FK `catalog_id`, ajouter `item_type VARCHAR(20)` + `item_id INTEGER` + `item_name VARCHAR(255)` nullable
+- [ ] Types supportés : `track` / `set` / `artist` / `genre` / `playlist`
+- [ ] Mettre à jour le router `/api/collections` : sérialisation et désérialisation par type
+- [ ] Bouton "Ajouter à une collection" sur les pages : ArtistDetailView, SetDetailView, GenreDetailView, CollectionDetailView (pour les playlists/watched)
+- [ ] `CollectionDetailView` : render hétérogène selon le type de chaque item (card artiste ≠ card track ≠ card set)
+
+### C5.b — Dossiers
+
+Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dossiers Rekordbox.
+
+- [ ] Migration Alembic : nouvelle table `collection_folders` (id, user_id, name, position, created_at)
+- [ ] Ajouter `folder_id INTEGER NULL` FK vers `collection_folders` sur `user_collections`
+- [ ] CRUD dossiers : POST/PATCH/DELETE `/api/collections/folders`
+- [ ] `CollectionsView` : affichage arborescent — dossiers dépliables avec leurs collections, collections "orphelines" (sans dossier) en bas
+- [ ] UX déplacement : assigner/retirer une collection d'un dossier (simple select ou drag & drop)
+
+### Decision produit actee
+
+| Decision | Contenu |
+|---|---|
+| Intégrité référentielle | Pattern polymorphe sans FK native PostgreSQL — intégrité gérée au niveau applicatif. Acceptable à l'échelle de Diggy. |
+| Dossiers | Un seul niveau (dossier > collection > items). Pas de dossiers imbriqués. |
+| Visibilité | Collections et dossiers strictement privés par user (inchangé). |
+
+### Definition of Done
+
+```bash
+# collection_items supporte track/set/artist/genre/playlist
+# Bouton "Ajouter à une collection" présent sur Artist/Set/Genre/Playlist detail
+# CollectionDetailView render correct pour chaque type d'item
+# collection_folders CRUD fonctionnel
+# CollectionsView affiche l'arborescence dossiers > collections
+```
+
+---
+
 ## D4 — Pages Detail (Vague 3 Design)
 
 **Priorite : BAS**
@@ -423,8 +545,10 @@ Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des
 | R1 | Responsive mobile | Immediat apres C0 | - |
 | C1 | Trend v2 + velocite + Decouvrir + Collections | Apres R1 | - (velocite calculable sur l'existant) |
 | C2 | Moteur de similarite + graphe artistes | Apres C1 (ou en parallele partiel) | pgvector (metadonnees verifiees OK) |
+| P1 | Polish & Correctifs UI (player nav, play btns, score, genres, admin split) | Parallélisable avec C2 | C1 |
 | C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | C1 (reco par defaut prete) |
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
+| C5 | Collections v2 (items polymorphes + dossiers) | Apres ouverture | C1 |
 
 Note : la velocite sur les ajouts (C1.b) est calculable des maintenant depuis `radar_tracks`. Seul le signal de retrait (`removed_at`) necessite d'accumuler de l'historique a partir de C0.1, et il s'ajoutera a la formule quand il aura de la profondeur.
 

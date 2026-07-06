@@ -214,13 +214,10 @@ class CatalogList(BaseModel):
 
 
 class SimilarityComponents(BaseModel):
-    bpm: Optional[float] = None
-    key: Optional[float] = None
-    genre: Optional[float] = None
-    label: Optional[float] = None
-    era: Optional[float] = None
-    cooc_playlist: Optional[float] = None
-    cooc_set: Optional[float] = None
+    sets: float = 0.0       # pts 0-3
+    playlists: float = 0.0  # pts 0-2
+    style: float = 0.0      # pts 0-2
+    context: float = 0.0    # pts 0-1
 
 
 class SimilarityBlock(BaseModel):

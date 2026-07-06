@@ -271,7 +271,7 @@ class TestCatalogSimilar:
         await db.commit()
         await db.refresh(ref)
 
-        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        r = await client.get(f"/api/catalog/{ref.id}/similar?score_floor=0")
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)
@@ -285,27 +285,17 @@ class TestCatalogSimilar:
         await db.commit()
         await db.refresh(ref)
 
-        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        r = await client.get(f"/api/catalog/{ref.id}/similar?score_floor=0")
         data = r.json()
         assert len(data) == 1
         sim = data[0]["similarity"]
         assert "score" in sim
         assert "components" in sim
         assert "available_features" in sim
-
-    async def test_custom_weights(self, client, db):
-        ref = CatalogEntry(title="Ref", artist="A", normalized_key="a|ref-cw", bpm=128.0, key="8A")
-        other = CatalogEntry(title="Other", artist="A", normalized_key="a|other-cw", bpm=128.0, key="8A")
-        db.add_all([ref, other])
-        await db.commit()
-        await db.refresh(ref)
-
-        r = await client.get(f"/api/catalog/{ref.id}/similar?w_bpm=1&w_key=0&w_genre=0&w_label=0&w_era=0&min_score=0")
-        assert r.status_code == 200
-        data = r.json()
-        assert len(data) == 1
-        # With only BPM weight and identical BPM, should score 1.0
-        assert data[0]["similarity"]["score"] == 1.0
+        assert "sets" in sim["components"]
+        assert "playlists" in sim["components"]
+        assert "style" in sim["components"]
+        assert "context" in sim["components"]
 
     async def test_limit_param(self, client, db):
         ref = CatalogEntry(title="Ref", artist="A", normalized_key="a|ref-lp", bpm=128.0, key="8A")
@@ -315,12 +305,12 @@ class TestCatalogSimilar:
         await db.commit()
         await db.refresh(ref)
 
-        r = await client.get(f"/api/catalog/{ref.id}/similar?limit=2&min_score=0")
+        r = await client.get(f"/api/catalog/{ref.id}/similar?limit=2&score_floor=0")
         assert r.status_code == 200
         assert len(r.json()) == 2
 
     async def test_cooc_playlist_signal(self, client, db):
-        """Tracks partageant une playlist radar reçoivent cooc_playlist dans available_features."""
+        """Tracks partageant une playlist radar reçoivent playlists dans available_features."""
         ref = CatalogEntry(title="CoocRef", artist="A", normalized_key="a|cooc-ref", bpm=128.0, key="8A")
         other = CatalogEntry(title="CoocOther", artist="B", normalized_key="b|cooc-other", bpm=128.0, key="8A")
         db.add_all([ref, other])
@@ -343,18 +333,18 @@ class TestCatalogSimilar:
         ))
         await db.commit()
 
-        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        r = await client.get(f"/api/catalog/{ref.id}/similar?score_floor=0")
         assert r.status_code == 200
         data = r.json()
         assert len(data) >= 1
         result = next((t for t in data if t["id"] == other.id), None)
         assert result is not None
         sim = result["similarity"]
-        assert "cooc_playlist" in sim["available_features"]
-        assert sim["components"]["cooc_playlist"] == 1.0  # seule playlist, Jaccard = 1/1
+        assert "playlists" in sim["available_features"]
+        assert sim["components"]["playlists"] > 0
 
     async def test_cooc_set_signal(self, client, db):
-        """Tracks dans le même set reçoivent cooc_set dans available_features."""
+        """Tracks dans le même set reçoivent sets dans available_features."""
         ref = CatalogEntry(title="SetRef", artist="A", normalized_key="a|set-ref", bpm=128.0, key="8A")
         other = CatalogEntry(title="SetOther", artist="B", normalized_key="b|set-other", bpm=128.0, key="8A")
         db.add_all([ref, other])
@@ -371,17 +361,17 @@ class TestCatalogSimilar:
         db.add(SetTrack(set_id=dj_set.id, catalog_id=other.id, position=2))
         await db.commit()
 
-        r = await client.get(f"/api/catalog/{ref.id}/similar?min_score=0")
+        r = await client.get(f"/api/catalog/{ref.id}/similar?score_floor=0")
         assert r.status_code == 200
         data = r.json()
         result = next((t for t in data if t["id"] == other.id), None)
         assert result is not None
         sim = result["similarity"]
-        assert "cooc_set" in sim["available_features"]
-        assert sim["components"]["cooc_set"] == 1.0
+        assert "sets" in sim["available_features"]
+        assert sim["components"]["sets"] > 0
 
-    async def test_cooc_only_weights(self, client, db):
-        """Avec uniquement les poids cooc, seules les tracks co-occurrentes remontent."""
+    async def test_cooc_playlist_boosts_score(self, client, db):
+        """Tracks co-occurrentes en playlist remontent avec un score > 0."""
         ref = CatalogEntry(title="OnlyCoocRef", artist="A", normalized_key="a|only-cooc-ref", bpm=128.0)
         in_playlist = CatalogEntry(title="InPlaylist", artist="B", normalized_key="b|in-playlist", bpm=200.0)
         not_in = CatalogEntry(title="NotIn", artist="C", normalized_key="c|not-in", bpm=128.0)
@@ -405,9 +395,7 @@ class TestCatalogSimilar:
         ))
         await db.commit()
 
-        params = "w_bpm=0&w_key=0&w_genre=0&w_label=0&w_era=0&w_cooc_playlist=1&w_cooc_set=0&min_score=0.01"
-        r = await client.get(f"/api/catalog/{ref.id}/similar?{params}")
+        r = await client.get(f"/api/catalog/{ref.id}/similar?score_floor=0.01")
         assert r.status_code == 200
         ids = [t["id"] for t in r.json()]
         assert in_playlist.id in ids
-        assert not_in.id not in ids

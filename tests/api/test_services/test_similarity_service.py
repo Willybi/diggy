@@ -7,7 +7,9 @@ import pytest
 from services.similarity_service import (
     CFG,
     _expand_genre_nodes,
+    bpm_factor,
     parse_camelot,
+    score_cooc,
     sim_bpm,
     sim_cooc,
     sim_era,
@@ -278,6 +280,48 @@ class TestSimEra:
 
 
 # ---------------------------------------------------------------------------
+# bpm_factor (C2.d)
+# ---------------------------------------------------------------------------
+
+
+class TestBpmFactor:
+    def test_identical(self):
+        assert bpm_factor(128.0, 128.0) == 1.0
+
+    def test_floor_at_max_diff(self):
+        assert bpm_factor(128.0, 143.0) == CFG.BPM_FACTOR_FLOOR
+
+    def test_beyond_max_diff(self):
+        assert bpm_factor(128.0, 160.0) == CFG.BPM_FACTOR_FLOOR
+
+    def test_half_time_boosted(self):
+        f = bpm_factor(130.0, 65.0)
+        assert f > CFG.BPM_FACTOR_FLOOR
+        assert f < 1.0
+
+
+# ---------------------------------------------------------------------------
+# score_cooc (C2.d)
+# ---------------------------------------------------------------------------
+
+
+class TestScoreCooc:
+    def test_zero(self):
+        assert score_cooc(0, 2.0, 3.0) == 0.0
+
+    def test_one_set(self):
+        # k=2.0, n=1, cap=3 -> 3*(1-e^-2) ~ 2.594
+        s = score_cooc(1, 2.0, 3.0)
+        assert abs(s - 2.594) < 0.01
+
+    def test_approaches_cap(self):
+        assert score_cooc(10, 2.0, 3.0) > 2.99
+
+    def test_monotone(self):
+        assert score_cooc(2, 0.8, 2.0) > score_cooc(1, 0.8, 2.0)
+
+
+# ---------------------------------------------------------------------------
 # Integration: get_similar_tracks
 # ---------------------------------------------------------------------------
 
@@ -317,19 +361,22 @@ class TestGetSimilarTracks:
         entries = await self._create_tracks(db, [
             {"bpm": 128.0, "key": "8A"},
         ])
-        result = await similarity_service.get_similar_tracks(db, entries[0].id, min_score=0.0)
+        result = await similarity_service.get_similar_tracks(db, entries[0].id, score_floor=0.0)
         assert result == []
 
     async def test_returns_similar_tracks(self, db):
         from services import similarity_service
 
         entries = await self._create_tracks(db, [
-            {"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|ref"},
-            {"title": "Close", "bpm": 129.0, "key": "8A", "normalized_key": "a|close"},
-            {"title": "Far", "bpm": 80.0, "key": "3B", "normalized_key": "a|far"},
+            {"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|ref",
+             "release_date": date(2025, 1, 1)},
+            {"title": "Close", "bpm": 129.0, "key": "8A", "normalized_key": "a|close",
+             "release_date": date(2025, 3, 1)},
+            {"title": "Far", "bpm": 80.0, "key": "3B", "normalized_key": "a|far",
+             "release_date": date(2010, 1, 1)},
         ])
         result = await similarity_service.get_similar_tracks(
-            db, entries[0].id, min_score=0.0,
+            db, entries[0].id, score_floor=0.0,
         )
         assert len(result) >= 1
         assert result[0]["title"] == "Close"
@@ -344,15 +391,17 @@ class TestGetSimilarTracks:
             {"title": "B", "bpm": 128.0, "key": "8A", "normalized_key": "a|b"},
         ])
         result = await similarity_service.get_similar_tracks(
-            db, entries[0].id, min_score=0.0,
+            db, entries[0].id, score_floor=0.0,
         )
         assert len(result) == 1
         sim = result[0]["similarity"]
         assert "score" in sim
         assert "components" in sim
         assert "available_features" in sim
-        assert "bpm" in sim["available_features"]
-        assert "key" in sim["available_features"]
+        assert "sets" in sim["components"]
+        assert "playlists" in sim["components"]
+        assert "style" in sim["components"]
+        assert "context" in sim["components"]
 
     async def test_min_score_filter(self, db):
         from services import similarity_service
@@ -362,7 +411,7 @@ class TestGetSimilarTracks:
             {"title": "Different", "bpm": 140.0, "key": "3B", "normalized_key": "a|diff"},
         ])
         result = await similarity_service.get_similar_tracks(
-            db, entries[0].id, min_score=0.9,
+            db, entries[0].id, score_floor=0.9,
         )
         assert len(result) == 0
 
@@ -374,22 +423,9 @@ class TestGetSimilarTracks:
             tracks.append({"title": f"T{i}", "bpm": 128.0 + i, "key": "8A", "normalized_key": f"a|t{i}lim"})
         entries = await self._create_tracks(db, tracks)
         result = await similarity_service.get_similar_tracks(
-            db, entries[0].id, limit=2, min_score=0.0,
+            db, entries[0].id, limit=2, score_floor=0.0,
         )
         assert len(result) == 2
-
-    async def test_min_features_required(self, db):
-        from services import similarity_service
-
-        # Tracks with only BPM (1 feature) should be excluded (min 2 required)
-        entries = await self._create_tracks(db, [
-            {"title": "Ref", "bpm": 128.0, "normalized_key": "a|refmin"},
-            {"title": "One", "bpm": 128.0, "normalized_key": "a|onemin"},
-        ])
-        result = await similarity_service.get_similar_tracks(
-            db, entries[0].id, min_score=0.0,
-        )
-        assert len(result) == 0
 
     async def test_in_lib_filter(self, db, auth_user):
         from models import UserTrack
@@ -405,7 +441,7 @@ class TestGetSimilarTracks:
         await db.commit()
 
         result = await similarity_service.get_similar_tracks(
-            db, entries[0].id, auth_user.id, min_score=0.0, in_lib=True,
+            db, entries[0].id, auth_user.id, score_floor=0.0, in_lib=True,
         )
         assert len(result) == 1
         assert result[0]["title"] == "InLib"

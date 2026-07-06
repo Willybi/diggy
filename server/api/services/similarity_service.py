@@ -1,8 +1,9 @@
-"""Track similarity engine — metadata + co-occurrence scoring (C2.b + C2.c)."""
+"""Track similarity engine — 4-segment scoring (C2.b + C2.c + C2.d)."""
 
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -16,26 +17,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @dataclass(frozen=True)
 class SimilarityConfig:
+    # BPM
     BPM_MAX_DIFF: float = 15.0
     HALF_DOUBLE_PENALTY: float = 0.9
     BPM_PREFILTER_WINDOW: float = 16.0
-    LABEL_MIN_TRACKS: int = 3
+    BPM_FACTOR_FLOOR: float = 0.3
+    # Era / Label
     ERA_MAX_DIFF: int = 9
-    MIN_FEATURES: int = 2
-    COOC_MIN_SHARED: int = 1  # min apparitions communes pour activer la feature
+    LABEL_MIN_TRACKS: int = 3
+    # Segment caps (pts)
+    CAP_SETS: float = 3.0
+    CAP_PLAYLISTS: float = 2.0
+    CAP_STYLE: float = 2.0
+    CAP_CONTEXT: float = 1.0
+    SCORE_TOTAL_CAP: float = 8.0
+    # Asymptotic k (calibrated)
+    K_SETS: float = 2.0
+    K_PLAYLISTS: float = 0.8
+    # Context weights
+    W_LABEL: float = 0.6
+    W_ERA: float = 0.4
+    # Result filter
+    TOP_N: int = 20
+    SCORE_FLOOR: float = 0.10
 
 
 CFG = SimilarityConfig()
-
-DEFAULT_WEIGHTS = {
-    "bpm": 0.25,
-    "key": 0.20,
-    "genre": 0.25,
-    "label": 0.08,
-    "era": 0.04,
-    "cooc_playlist": 0.10,
-    "cooc_set": 0.08,
-}
 
 # ---------------------------------------------------------------------------
 # Camelot helpers
@@ -62,7 +69,7 @@ def _camelot_distance(n1: int, n2: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Similarity functions (pure, return [0, 1])
+# Similarity functions (pure, return [0, 1]) — kept for tests & backwards compat
 # ---------------------------------------------------------------------------
 
 def sim_bpm(a: float, b: float) -> float:
@@ -130,6 +137,37 @@ def sim_cooc(a_items: frozenset[int], b_items: frozenset[int]) -> float:
     inter = len(a_items & b_items)
     union = len(a_items | b_items)
     return inter / union if union > 0 else 0.0
+
+
+# ---------------------------------------------------------------------------
+# New scoring functions (C2.d — 4-segment additive)
+# ---------------------------------------------------------------------------
+
+def bpm_factor(a: float, b: float) -> float:
+    """BPM alignment factor in [BPM_FACTOR_FLOOR, 1.0]."""
+    def _raw(x: float, y: float) -> float:
+        return max(0.0, 1.0 - abs(x - y) / CFG.BPM_MAX_DIFF)
+    raw = max(
+        _raw(a, b),
+        _raw(a, b / 2.0) * CFG.HALF_DOUBLE_PENALTY,
+        _raw(a, b * 2.0) * CFG.HALF_DOUBLE_PENALTY,
+    )
+    return CFG.BPM_FACTOR_FLOOR + (1.0 - CFG.BPM_FACTOR_FLOOR) * raw
+
+
+def score_style(genre_jac: float, bpm_fac: float) -> float:
+    return genre_jac * bpm_fac * CFG.CAP_STYLE
+
+
+def score_context(label_sim: float, era_sim_val: float) -> float:
+    return CFG.CAP_CONTEXT * (CFG.W_LABEL * label_sim + CFG.W_ERA * era_sim_val)
+
+
+def score_cooc(n: int, k: float, cap: float) -> float:
+    """Asymptotic scoring: cap * (1 - e^(-k*n))."""
+    if n <= 0:
+        return 0.0
+    return cap * (1.0 - math.exp(-k * n))
 
 
 # ---------------------------------------------------------------------------
@@ -239,14 +277,8 @@ async def get_similar_tracks(
     user_id: int | None = None,
     *,
     limit: int = 10,
-    w_bpm: float = DEFAULT_WEIGHTS["bpm"],
-    w_key: float = DEFAULT_WEIGHTS["key"],
-    w_genre: float = DEFAULT_WEIGHTS["genre"],
-    w_label: float = DEFAULT_WEIGHTS["label"],
-    w_era: float = DEFAULT_WEIGHTS["era"],
-    w_cooc_playlist: float = DEFAULT_WEIGHTS["cooc_playlist"],
-    w_cooc_set: float = DEFAULT_WEIGHTS["cooc_set"],
-    min_score: float = 0.4,
+    top_n: int = CFG.TOP_N,
+    score_floor: float = CFG.SCORE_FLOOR,
     in_lib: bool | None = None,
 ) -> list[dict]:
     from models import CatalogArtist, CatalogEntry, UserTrack
@@ -294,7 +326,7 @@ async def get_similar_tracks(
         bpm_candidates = (await db.execute(q)).scalars().all()
         bpm_filter_ids = {c.id for c in bpm_candidates}
 
-    # Co-occurrence candidate IDs (share ≥1 playlist or set with ref)
+    # Co-occurrence candidate IDs (share >=1 playlist or set with ref)
     cooc_ids: set[int] = set()
     if ref_playlists:
         for cid, playlists in playlist_map.items():
@@ -324,77 +356,66 @@ async def get_similar_tracks(
         lib_ids = {r[0] for r in lib_ids_rows}
         all_candidates = [c for c in all_candidates if c.id in lib_ids]
 
-    # 4. Score each candidate
-    weights = {
-        "bpm": w_bpm,
-        "key": w_key,
-        "genre": w_genre,
-        "label": w_label,
-        "era": w_era,
-        "cooc_playlist": w_cooc_playlist,
-        "cooc_set": w_cooc_set,
-    }
+    # 4. Score each candidate (4-segment additive)
     scored: list[tuple[CatalogEntry, float, dict[str, float], list[str]]] = []
 
     for cand in all_candidates:
-        components: dict[str, float] = {}
-        available: list[str] = []
-
-        # BPM
-        if ref.bpm is not None and cand.bpm is not None:
-            components["bpm"] = sim_bpm(ref.bpm, cand.bpm)
-            available.append("bpm")
-
-        # Key
-        if ref.key and cand.key:
-            components["key"] = sim_key(ref.key, cand.key)
-            available.append("key")
-
         # Genre
         cand_genres = _expand_genre_nodes(cand.genres or [], name_to_node, parent_map)
-        if ref_genres and cand_genres:
-            components["genre"] = sim_genre(ref_genres, cand_genres)
-            available.append("genre")
+        gj = sim_genre(ref_genres, cand_genres) if (ref_genres and cand_genres) else 0.0
 
-        # Label
+        # BPM factor
+        if ref.bpm is not None and cand.bpm is not None:
+            bf = bpm_factor(ref.bpm, cand.bpm)
+        else:
+            bf = CFG.BPM_FACTOR_FLOOR
+
+        # Style
+        s_style = score_style(gj, bf)
+
+        # Context
         cand_label = (cand.label or "").strip().lower()
         cand_label_valid = cand_label and label_counts.get(cand_label, 0) >= CFG.LABEL_MIN_TRACKS
-        if ref_label_valid and cand_label_valid:
-            components["label"] = sim_label(ref.label, cand.label)
-            available.append("label")
+        lm = sim_label(ref.label, cand.label) if (ref_label_valid and cand_label_valid) else 0.0
+        es = sim_era(ref.release_date, cand.release_date) if (ref.release_date and cand.release_date) else 0.0
+        s_context = score_context(lm, es)
 
-        # Era
-        if ref.release_date and cand.release_date:
-            components["era"] = sim_era(ref.release_date, cand.release_date)
-            available.append("era")
-
-        # Co-occurrence — playlist
+        # Co-occurrence
         cand_playlists = playlist_map.get(cand.id, frozenset())
-        if ref_playlists and cand_playlists:
-            components["cooc_playlist"] = sim_cooc(ref_playlists, cand_playlists)
-            available.append("cooc_playlist")
+        n_pl = len(ref_playlists & cand_playlists)
+        s_playlists = score_cooc(n_pl, CFG.K_PLAYLISTS, CFG.CAP_PLAYLISTS)
 
-        # Co-occurrence — set
         cand_sets = set_map.get(cand.id, frozenset())
-        if ref_sets and cand_sets:
-            components["cooc_set"] = sim_cooc(ref_sets, cand_sets)
-            available.append("cooc_set")
+        n_st = len(ref_sets & cand_sets)
+        s_sets = score_cooc(n_st, CFG.K_SETS, CFG.CAP_SETS)
 
-        # Aggregate
-        if len(available) < CFG.MIN_FEATURES:
+        total_pts = s_sets + s_playlists + s_style + s_context
+        score_pct = total_pts / CFG.SCORE_TOTAL_CAP
+
+        if score_pct < score_floor:
             continue
 
-        w_sum = sum(weights[f] for f in available)
-        if w_sum == 0:
-            continue
-        score = sum(weights[f] * components[f] for f in available) / w_sum
+        available = []
+        components = {
+            "sets": round(s_sets, 4),
+            "playlists": round(s_playlists, 4),
+            "style": round(s_style, 4),
+            "context": round(s_context, 4),
+        }
+        if n_st > 0:
+            available.append("sets")
+        if n_pl > 0:
+            available.append("playlists")
+        if gj > 0:
+            available.append("style")
+        if lm > 0 or es > 0:
+            available.append("context")
 
-        if score >= min_score:
-            scored.append((cand, score, components, available))
+        scored.append((cand, score_pct, components, available))
 
-    # 5. Sort and limit
+    # 5. Sort, top_n, then limit
     scored.sort(key=lambda x: x[1], reverse=True)
-    top = scored[:limit]
+    top = scored[:top_n][:limit]
 
     if not top:
         return []
@@ -468,7 +489,10 @@ async def get_similar_tracks(
                 "similarity": SimilarityBlock(
                     score=round(score, 4),
                     components=SimilarityComponents(
-                        **{f: round(components[f], 4) for f in available}
+                        sets=components["sets"],
+                        playlists=components["playlists"],
+                        style=components["style"],
+                        context=components["context"],
                     ),
                     available_features=available,
                 ).model_dump(),
