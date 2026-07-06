@@ -71,6 +71,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import api from '../utils/api.js'
+import { useToast } from '../stores/toast.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import GenreCard from '../components/GenreCard.vue'
@@ -167,14 +168,18 @@ async function fetchUnclassifiedCount() {
   try {
     const { data } = await api.get('/api/admin/genres/unclassified-count')
     unclassifiedCount.value = data.count
-  } catch {}
+  } catch {
+    useToast().show('Erreur lors du chargement des genres non classifiés')
+  }
 }
 
 async function launchClassify() {
   classifying.value = true
   try {
     await api.post('/api/admin/genres/auto-classify', null)
-  } catch {}
+  } catch {
+    useToast().show('Erreur lors de la classification automatique')
+  }
   classifying.value = false
 }
 

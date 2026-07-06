@@ -254,13 +254,6 @@
       </div>
     </div>
 
-    <!-- toast -->
-    <Transition name="toast">
-      <div v-if="toastVisible" class="toast">
-        <span class="tt">{{ toastText }}</span>
-        <button class="tb" @click="$router.push('/login')">Se connecter</button>
-      </div>
-    </Transition>
   </div>
 </template>
 
@@ -269,6 +262,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../stores/toast.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { styleTone } from '../composables/useStyleMap.js'
 import { fmtMs, fmtBpm } from '../utils/format.js'
@@ -293,9 +287,7 @@ const items = ref([])
 const total = ref(0)
 const totals = ref({})
 
-const toastVisible = ref(false)
-const toastText = ref('')
-let toastTimer = null
+const toast = useToast()
 
 // ── static data ──
 const suggestions = ['house', 'disclosure', 'boiler room', 'techno', 'trance', 'deep house']
@@ -582,12 +574,7 @@ function onRowClick(item) {
 }
 
 function showToast(text) {
-  toastText.value = text
-  toastVisible.value = true
-  clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => {
-    toastVisible.value = false
-  }, 3000)
+  toast.show(text, 'info', 3000, { label: 'Se connecter', route: '/login' })
 }
 
 // ── click outside directive ──
@@ -1350,60 +1337,6 @@ const vClickOutside = {
   text-align: center;
   color: var(--ink-3);
   font: 500 14px var(--font-mono);
-}
-
-/* ── toast ── */
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  translate: -50% 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 12px 14px 12px 16px;
-  background: var(--ink);
-  color: var(--bg);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-lg);
-}
-.toast .tt {
-  font: 500 13.5px var(--font-ui);
-}
-.toast .tb {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 13px;
-  border-radius: var(--r-sm);
-  border: 0;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 12.5px var(--font-ui);
-  cursor: pointer;
-}
-.toast .tb:hover {
-  background: var(--accent-hover);
-}
-
-.toast-enter-active {
-  transition:
-    opacity 0.2s,
-    transform 0.2s;
-}
-.toast-enter-from {
-  opacity: 0;
-  transform: translateY(12px);
-}
-.toast-leave-active {
-  transition:
-    opacity 0.2s,
-    transform 0.2s;
-}
-.toast-leave-to {
-  opacity: 0;
-  transform: translateY(12px);
 }
 
 /* ── discover ── */

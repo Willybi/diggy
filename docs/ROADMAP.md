@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-03
+> **Derniere mise a jour** : 2026-07-06 (ajout H0, revue priorisation + dependances)
 
 ---
 
@@ -23,7 +23,7 @@ Avant l'ouverture aux amis (5-10 DJs), Diggy doit offrir :
 
 Apres l'ouverture : la recommandation personnalisee (croisement similarite x likes), utile des un seul user et enrichie par chaque nouvel utilisateur.
 
-Sequence : **C0 -> R1 -> C1 -> C2 + P1 -> C3 (ouverture) -> C4 -> C5**
+Sequence : **~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> H0 + C6 + F5 + P1 (paralleles) -> C3 (ouverture) -> C4 -> C5**
 
 ---
 
@@ -35,11 +35,14 @@ Sequence : **C0 -> R1 -> C1 -> C2 + P1 -> C3 (ouverture) -> C4 -> C5**
  C0   Correctifs critiques + fondations     CRITIQUE    1-2 jours    TERMINE
  R1   Responsive / Support Mobile           HAUT        3-4 jours    TERMINE
  C1   Trend v2 + Decouvrir + Collections    HAUT        5-7 jours    TERMINE
- C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   A FAIRE
+ C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   TERMINE (graphe D3 reporte)
+ H0   Hygiene & Solidification              MOYEN       2 jours      A FAIRE (prerequis C3)
+ C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   A FAIRE
+ F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    A FAIRE
- C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL
+ C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
- C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE
+ C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
 ```
 
@@ -61,17 +64,27 @@ Sequence : **C0 -> R1 -> C1 -> C2 + P1 -> C3 (ouverture) -> C4 -> C5**
  C0   Correctifs critiques + fondations TERMINE
  R1   Responsive / Support Mobile     TERMINE
  C1   Trend v2 + Decouvrir + Collections TERMINE
+ C2   Moteur de Similarite + Artistes    TERMINE (graphe D3 reporte)
 ```
 
 ### Dependances
 
 ```
-C0 ─────────> Tout (prerequis securite + fondations data)
-R1 ─────────> C1 (mobile requis pour l'UX decouvrir)
-C1 (trend) ─> C3 (reco par defaut prete avant ouverture)
-C2 (simil) ─> C4 (socle de la reco personnalisee)
-C3 (ouvert) = declenchement manuel (ta decision d'inviter)
+C0 ─────────> Tout (prerequis securite + fondations data)              ✅ TERMINE
+R1 ─────────> C1 (mobile requis pour l'UX decouvrir)                  ✅ TERMINE
+C1 (trend) ─> C3 (reco par defaut prete avant ouverture)              ✅ TERMINE
+C2 (simil) ─> C4 (socle de la reco personnalisee)                     ✅ TERMINE
+
+--- actif ---
+H0 ─────────> C3 (hygiene secu/infra avant ouverture)
+C6 (veille) ┬ C6.0 dedup prerequis avant C6.a crawl massif
+             ├ parallele avec H0/P1/F5
+             └ avant C3 idealement (plus de donnees = meilleure XP nouveaux users)
+F5 ─────────> Rien (parallelisable avec tout)
+P1 ─────────> Rien (parallelisable avec tout)
+C3 (ouvert) = declenchement manuel, apres H0 + C1 + idealement C6
 C4 ─────────> C2 + C3 (similarite + likes + users)
+C5 ─────────> C3 (apres ouverture)
 ```
 
 ### Decisions produit actees
@@ -84,6 +97,8 @@ C4 ─────────> C2 + C3 (similarite + likes + users)
 | Trend | Classement (pas score absolu), calcule par famille de genre, recalcule chaque nuit. Formule composite : detections ponderees (type de source, taille de playlist) x decay temporel x velocite x convergence multi-sources. Distinction fraicheur / revival portee par la ponderation temporelle. |
 | Reco de trend | Decorrellee des likes. Offre par defaut, notamment pour les nouveaux users sans historique. |
 | Reco personnalisee | Apres ouverture. Necessite le moteur de similarite + les likes. |
+| Dedup sets | Un set logique = un seul signal trend, peu importe le nombre de sources (YouTube + Soundcloud) ou de parties. Les doublons sont rattaches (parent/enfant ou multi-source) et exclus du scoring. |
+| Follow vs Like | Like = signal passif de gout pour la reco. Follow = surveillance active d'un artiste (releases, sets, activite). Les deux systemes coexistent, decorrelees. |
 
 ---
 
@@ -227,8 +242,8 @@ Methode : prototype notebook sur les donnees reelles (~5000 radar_tracks), calib
 - [x] Ratio fenetre recente / fenetre precedente : 7j vs 7j precedents, clampe 0-5
 - [x] Bonus multiplicateur sur le score C1.a : `* (1 + 0.5 * velocity)`
 - [x] Exclure les detections `is_initial_detection` du calcul de velocite
-- [ ] Le signal de retrait (fading) s'ajoutera quand `removed_at` aura de la profondeur
-- [ ] Signal revival : badge distinct "revient" — reporte (donnees insuffisantes)
+- ~~Le signal de retrait (fading) s'ajoutera quand `removed_at` aura de la profondeur~~ → futur (donnees insuffisantes)
+- ~~Signal revival : badge distinct "revient"~~ → futur (donnees insuffisantes)
 
 ### C1.c — Surface produit "Decouvrir"
 
@@ -329,7 +344,7 @@ automatiquement — l'espace seul est trop ambigu.
 **Priorite : MOYEN**
 **Estimation : 7-10 jours**
 **Depend de : C1 (TERMINE)**
-**Statut : A FAIRE — prochain chantier**
+**Statut : TERMINE (2026-07-06) — graphe visuel D3 reporte**
 
 ### Objectif
 
@@ -343,34 +358,488 @@ Relations de proximite entre tracks et entre artistes. C'est le socle de toute r
 
 ### C2.a — Preparation
 
-- [ ] Installation pgvector (image Docker `pgvector/pgvector:pg16`) + migration `CREATE EXTENSION vector`
-- [ ] Optionnel : campagne d'enrichissement ciblee sur les ~350 shared non trouvees sur Beatport
+- [x] ~~Installation pgvector~~ — non necessaire : le scoring fonctionne sans embeddings vectoriels (metadonnees + co-occurrence suffisent pour le MVP)
 
 ### C2.b — V1 metadonnees
 
-- [ ] Embedding sur les champs disponibles (genre, BPM, key, label, release era)
-- [ ] Fallback `rb_bpm` / `rb_key` pour les tracks private non enrichies
-- [ ] Stockage pgvector, endpoint de voisinage track -> tracks similaires
-- [ ] Prototype notebook d'abord (methodologie standard)
+- [x] Scoring sur les champs disponibles (genre, BPM, key, label, release era) — sans pgvector, calcul direct
+- [x] Endpoint `/api/catalog/{id}/similar` -> top tracks similaires
 
 ### C2.c — V2 co-occurrence
 
-- [ ] Paires par playlist (`radar_tracks` x 29 playlists) et par set (`set_tracks`, 428 lignes) : volume modeste mais exploitable en MVP, et croissant (crawls quotidiens + futurs imports YouTube)
-- [ ] Ponderation : co-occurrence en set > co-occurrence en playlist (meme logique que le trend)
-- [ ] Multi-view : poids controlables metadonnees / co-occurrence
+- [x] Paires par playlist (`radar_tracks`) et par set (`set_tracks`) : co-occurrence integree au scoring
+- [x] Ponderation : co-occurrence en set > co-occurrence en playlist (asymptotique calibree)
 
-### C2.d — Graphe artistes (ex-F3, devient une vue du moteur)
+### C2.d — Bareme v2 + Graphe artistes
 
-- [ ] Endpoint `/api/artists/:id/connections` : sets communs (`set_artists`), collabs (`catalog_artists`), playlists partagees, similarite C2
-- [ ] Composant GraphView (D3 force-directed ou vue-flow) depuis Artist Detail
-- [ ] Shelves "artistes proches" sur les pages artistes
+- [x] Refonte du scoring : bareme a 4 segments additifs sur 8 pts (sets 3, playlists 2, style 2, contexte 1), calibre par notebook sur donnees reelles (17.2M paires)
+- [x] Endpoint `/api/artists/:id/connections` : collabs (`catalog_artists`), sets communs (`set_artists`), playlists partagees, genre Jaccard
+- [x] Shelf "Artistes proches" sur les pages artistes (ShelfCard round, navigation inter-artistes)
+- [ ] **REPORTE** : Composant GraphView (D3 force-directed) depuis Artist Detail — les donnees et l'endpoint sont prets, il manque le composant visuel interactif. Graphe egocentrique (1 artiste + ses connexions directes). A faire quand le besoin se fera sentir.
 
 ### Definition of Done
 
 ```bash
-# pgvector installe et fonctionnel
-# Endpoint /api/catalog/{id}/similar -> top 10 tracks similaires
-# Graphe artistes accessible depuis Artist Detail
+# Endpoint /api/catalog/{id}/similar -> top 10 tracks similaires (scoring metadonnees + co-occurrence)
+# Endpoint /api/artists/{id}/connections -> artistes proches
+# Shelf "Artistes proches" sur ArtistDetailView
+# REPORTE : graphe visuel D3 (endpoint pret, composant visuel manquant)
+```
+
+---
+
+## H0 — Hygiene & Solidification
+
+**Priorite : MOYEN**
+**Estimation : 2 jours (1 jour backend/infra + 1 jour frontend)**
+**Depend de : rien (parallelisable avec tout)**
+**Statut : A FAIRE**
+
+### Contexte
+
+Audit technique du 06/07/2026 : revue globale securite, architecture, performance et friction de dev.
+Aucun point critique bloquant identifie, mais 16 points d'hygiene a traiter pour solidifier le projet
+avant de continuer a empiler des features. Chaque point est independant et peut etre fait isolement.
+
+### H0.a — Securite & Resilience (3-4h)
+
+**CORS : restreindre methods et headers** (5 min)
+`main.py:75-76` — `allow_methods=["*"]` et `allow_headers=["*"]` sont plus larges que necessaire.
+Pas de risque reel (pas de `allow_credentials`), mais c'est de l'hygiene.
+Fix : remplacer par `allow_methods=["GET", "POST", "PATCH", "DELETE"]` et
+`allow_headers=["Authorization", "Content-Type"]`.
+
+- [ ] Restreindre CORS methods et headers dans `main.py`
+
+**Rate limiting : etendre au-dela de l'auth** (15 min)
+Seules 3 routes auth sont rate-limitees (`rate_limit.py:15-19`). Les endpoints publics (search,
+catalog) et admin (triggers de crawl, import) n'ont aucune protection contre le spam.
+Fix : ajouter des entrees dans le dict `RATE_LIMITS` existant. Pas de nouveau code, juste
+de la config.
+
+- [ ] Ajouter rate limits : `/api/search` (30/min), `/api/import/rekordbox` (3/5min), `/api/admin` (10/min)
+
+**Timeouts Celery explicites** (10 min)
+3 taches longues n'ont pas de `soft_time_limit`/`time_limit` explicites et dependent du global
+(1h). Sur des playlists volumineuses ou un catalogue large, elles peuvent timeout sans grace.
+Les autres taches (beatport, backfill, genres) ont deja des timeouts explicites.
+Fix : ajouter 2 lignes par tache.
+
+- [ ] `crawl_single_playlist` (`workers/tasks/radar.py:21`) : `soft_time_limit=3600, time_limit=4500`
+- [ ] `enrich_catalog` (`workers/tasks/catalog.py:16`) : `soft_time_limit=7200, time_limit=9000`
+- [ ] `sync_artists` (`workers/tasks/artists.py:16`) : `soft_time_limit=3600, time_limit=4500`
+
+**Retirer `Base.metadata.create_all` en production** (5 min)
+`main.py:54-55` — `create_all` au demarrage peut creer des tables hors Alembic. Alembic gere
+deja tout via `alembic upgrade head` dans deploy.yml. Conditionner a un flag env ou supprimer.
+
+- [ ] Conditionner `create_all` a `ENV != production` ou supprimer
+
+### H0.b — Infra Docker (30 min)
+
+**Healthchecks manquants** (20 min)
+`api`, `frontend`, `nginx` n'ont pas de healthcheck dans `docker-compose.yml`. Docker ne detecte
+pas si ces services plantent et ne peut pas les redemarrer proprement. Les autres services
+(postgres, redis, minio) en ont deja.
+Fix : ajouter un bloc `healthcheck` avec `curl -f` sur chaque service.
+
+- [ ] Healthcheck `api` : `curl -f http://localhost:8000/api/health`
+- [ ] Healthcheck `frontend` : `curl -f http://localhost:80/`
+- [ ] Healthcheck `nginx` : `curl -f http://localhost:80/api/health`
+
+**Volume mount en production** (10 min)
+`docker-compose.yml:69` — `./server/api:/app` monte le code source en live. En prod le code
+devrait venir du `COPY` dans le Dockerfile, pas d'un mount. Risque : divergence entre image
+buildee et code sur le disque VPS.
+Fix : utiliser un `docker-compose.override.yml` pour le dev avec le volume mount, et retirer
+le mount du compose principal.
+
+- [ ] Retirer `./server/api:/app` du compose principal, deplacer en override dev
+
+### H0.c — Architecture backend (2-3h)
+
+**Split `models.py` en multi-fichiers** (1-2h)
+582 lignes, 22 modeles dans un seul fichier. Genable aujourd'hui mais va continuer a grossir.
+Pattern : creer un package `models/` avec un fichier par domaine et un `__init__.py` qui
+reexporte tout (`from .catalog import *`, etc.). Tous les imports existants (`from models import
+Artist`) continuent de fonctionner sans modification. Les 564 tests servent de filet.
+
+```
+models/
+  __init__.py     → reexporte tout
+  user.py         → User
+  catalog.py      → CatalogEntry, CatalogArtist
+  artist.py       → Artist, ArtistAlias, ArtistFlag
+  radar.py        → RadarTrack, RadarTrend, WatchedEntity, UserFollow, UserRadarState
+  sets.py         → DJSet, SetTrack, SetArtist
+  genre.py        → GenreNode, GenreEdge, GenreMapping
+  collection.py   → UserCollection, CollectionItem
+  opinion.py      → UserOpinion
+  admin.py        → AdminAuditLog, CrawlLog
+```
+
+- [ ] Creer le package `models/` avec split par domaine
+- [ ] Verifier que `from models import X` fonctionne toujours (tests)
+- [ ] Supprimer l'ancien `models.py`
+
+**Index compound supplementaires** (15 min)
+La migration `0020` couvre les index critiques. Deux index compound supplementaires utiles
+quand les tables grossiront (20K+ rows) :
+- `radar_tracks(source, detected_at DESC)` — tri radar par date et source
+- `user_opinions(user_id, opinion)` — requete "tous mes likes" rapide
+
+- [ ] Migration Alembic : index compound `radar_tracks(source, detected_at DESC)`
+- [ ] Migration Alembic : index compound `user_opinions(user_id, opinion)`
+
+**`selectinload` explicite sur les relations accedees** (30 min)
+En async SQLAlchemy, acceder a une relation non-chargee leve `MissingGreenlet` au lieu de
+faire un N+1 silencieux. Donc pas de risque de perf cachee, mais risque de crash inattendu
+si un dev accede a une relation sans y penser. Ajouter des `selectinload` explicites la ou
+des relations sont accedees dans les routers/services.
+
+- [ ] Auditer les acces relation dans les routers et ajouter `selectinload` si manquant
+
+**Deplacer `deezer_enrich.py` dans workers/** (15 min)
+Ce fichier utilise des sessions synchrones (contexte Celery) mais vit dans `server/api/`
+qui est entierement async. Source de confusion pour les devs. 2-3 imports a mettre a jour.
+
+- [ ] Deplacer `server/api/deezer_enrich.py` -> `server/workers/deezer_enrich.py`
+- [ ] Mettre a jour les imports dans les tasks qui l'utilisent
+
+### H0.d — Frontend (4-5h)
+
+**Decouper AdminView.vue** (3-4h)
+1725 lignes, plus grosse vue du projet. C'est une page a sections/onglets : chaque section
+peut devenir un composant autonome avec son propre state et ses appels API.
+AdminView.vue devient un layout leger qui charge le bon composant.
+
+```
+components/admin/
+  AdminArtists.vue    → sync artistes, recherche Deezer, linking
+  AdminFlags.vue      → gestion des flags artistes
+  AdminSets.vue       → linking artistes-sets
+  AdminGenres.vue     → taxonomie, enrichissement genres
+  AdminCrawl.vue      → logs de crawl, triggers
+  AdminBeatport.vue   → enrichissement Beatport
+```
+
+- [ ] Extraire chaque section en composant dans `components/admin/`
+- [ ] AdminView.vue : layout avec tabs, charge le composant actif
+- [ ] Verification manuelle de chaque onglet apres le split
+
+**Toast global pour les erreurs** (1h)
+Aucun feedback utilisateur sur les erreurs API (30+ blocs `catch {}` silencieux). Le seul
+intercepteur Axios gere le 401 (auto-logout). Les 500, timeouts, erreurs reseau sont avales.
+Fix : un store Pinia `toast.js` (~10 lignes) + un composant `ToastNotification.vue` (~40 lignes)
++ branchement dans l'intercepteur Axios pour les 5xx et network errors.
+
+- [ ] Creer `stores/toast.js` (message, type, show/hide)
+- [ ] Creer `components/ToastNotification.vue` (affichage temporaire, auto-dismiss)
+- [ ] Brancher dans l'intercepteur Axios (`api.js`) pour 5xx et network errors
+- [ ] Remplacer les `catch {}` silencieux par `catch (e) { toast.show(...) }` dans les vues critiques
+
+### H0.e — Qualite API : response models Pydantic (sprint dedie ~1 jour)
+
+**Pourquoi** : la plupart des routers retournent des `dict` construits a la main. Risques :
+doc OpenAPI incomplete, breaking changes silencieuses (renommer un champ backend = crash
+frontend sans warning), pas de validation de sortie.
+
+**Comment** : sprint d'une journee dedie. Pour chaque router, creer les schemas Pydantic de
+reponse et les brancher en `response_model`. ~40-50 endpoints, ~10-15 min chacun.
+
+**Ordre suggere** (par frequence d'utilisation frontend) :
+1. `catalog.py` (128 lignes, 5 endpoints) — le plus utilise
+2. `artists.py` (66 lignes, ~3 endpoints) — pages artistes
+3. `search.py` (408 lignes, ~5 endpoints) — hub
+4. `sets.py` (358 lignes, ~6 endpoints) — sets
+5. `radar.py` (148 lignes, ~3 endpoints) — radar/trend
+6. `tracks.py` (350 lignes, ~5 endpoints) — user library
+7. `collections.py` (215 lignes, ~5 endpoints)
+8. `watchlist.py` (432 lignes, ~6 endpoints)
+9. `genres.py` (194 lignes, ~4 endpoints)
+10. `opinions.py` (92 lignes, ~3 endpoints)
+11. `admin.py` (468 lignes, ~15 endpoints)
+12. Reste : `taxonomy.py`, `import_rb.py`, `auth.py`
+
+- [ ] Sprint Pydantic : creer les response models pour tous les endpoints
+- [ ] Verifier la doc OpenAPI generee (`/api/docs`)
+
+### H0.f — Tests d'integration backend (2-3h)
+
+**Pourquoi** : 564 tests unitaires API mais aucun test de flux complet. Les bugs de pipeline
+(crawl → enrichissement → trend → surface) ne sont detectes qu'en prod.
+
+**Quoi** : 2-3 tests pytest qui chainent des etapes. Pas d'infra supplementaire,
+pas de browser, juste des tests pytest plus longs. Pas d'E2E frontend (trop lourd
+a mettre en place et a maintenir pour la taille du projet).
+
+Flux critiques a couvrir :
+1. **Pipeline radar** : creer watched_entity → simuler crawl → verifier radar_tracks → trigger compute_trends → verifier radar_trends
+2. **Import Rekordbox** : upload XML → verifier user_tracks crees → verifier enrichissement catalog
+3. **Similarite** : creer tracks avec metadonnees variees → appeler `/catalog/{id}/similar` → verifier que le scoring est coherent
+
+- [ ] Test integration : pipeline radar (crawl → trends)
+- [ ] Test integration : import Rekordbox (upload → enrichissement)
+- [ ] Test integration : similarite (tracks → scoring)
+
+### Definition of Done
+
+```bash
+# Securite
+# CORS restreint, rate limiting etendu, timeouts Celery explicites
+# create_all conditionne a l'env
+
+# Infra
+# Healthchecks sur api/frontend/nginx
+# Volume mount retire du compose principal
+
+# Architecture
+# models/ split en multi-fichiers, imports preserves
+# Index compound ajoutes, selectinload audite
+# deezer_enrich.py dans workers/
+
+# Frontend
+# AdminView decoupe en 6 composants
+# Toast global operationnel, catch silencieux remplaces
+
+# API
+# Response models Pydantic sur tous les endpoints
+# Doc OpenAPI complete
+
+# Tests
+# 3 tests d'integration sur les flux critiques
+# pytest passe toujours (564+ tests)
+```
+
+---
+
+## C6 — Veille elargie & Suivi artistes
+
+**Priorite : HAUT**
+**Estimation : 7-10 jours**
+**Depend de : C1 (TERMINE). Parallelisable avec C2.**
+**Statut : A FAIRE**
+
+### Objectif
+
+Le bottleneck de Diggy n'est ni l'algo ni l'UI : c'est le volume et la diversite des donnees entrantes. Aujourd'hui 29 playlists suivies + 27 sets manuels = bassin trop etroit et biaise vers les choix de curation du createur. Ce chantier elargit les sources de donnees automatiques pour alimenter le trend, la similarite (C2), et la reco (C4).
+
+Trois axes :
+1. Crawler global TrackID.net (pas juste les sets user)
+2. Suivi actif d'artistes (releases, sets, activite multi-source)
+3. Re-crawl intelligent des sets incomplets
+
+### Constats
+
+- Les 29 playlists produisent ~5000 radar_tracks : seul flux entrant automatique
+- Les sets sont ajoutes manuellement, jamais re-crawles apres import
+- Un track qui passe dans un set DJ = signal de trending fort et objectif (pondere 3x dans C1), mais on ne capture quasi rien de ce signal aujourd'hui
+- TrackID.net publie des dizaines de sets quotidiennement avec tracklists identifiees : mine d'or inexploitee
+- Probleme de doublons TrackID.net : meme set sur YouTube + Soundcloud = 2 lignes, sets en parties (PART1, PART2...) = pollution du scoring
+
+### C6.0 — Dedup sets TrackID (prerequis)
+
+**Doit passer AVANT le crawl massif, sinon on cree de la dette immediatement.**
+
+Deux cas de doublons a traiter :
+
+**Cas 1 : Meme set, sources differentes (YouTube + Soundcloud)**
+
+Signaux de dedup par ordre de confiance :
+- Artiste + titre normalise (apres strip des tags source, lowercase, trim) : couvre ~90% des cas
+- Premiere track identique + meme artiste : quasi certain
+- Tracklist overlap > 80% dans le meme ordre : meme set
+
+Modele : ne pas supprimer le doublon, mais le **rattacher** via une table `set_sources` :
+```
+set_sources (nouvelle table)
+  set_id      → sets.id (le set "master")
+  source      → enum (youtube, soundcloud, mixcloud, etc.)
+  external_url
+  trackid_id  → identifiant TrackID.net de cette version
+```
+Avantages : un seul set dans le scoring, on garde les deux sources, on peut **merger les tracklists** (YouTube a identifie tracks 1-5, Soundcloud 3-8 → on recupere 1-8).
+
+**Cas 2 : Set complet + parties (PART 1, PART 2...)**
+
+- Detection : regex sur le titre → `(part\s*\d+|pt\.?\s*\d+|p\d+)` en fin de titre
+- Groupement : meme artiste + meme titre de base (sans suffixe part) → candidats au regroupement
+- Si un set "complet" existe : les parties sont rattachees comme enfants (`parent_set_id` sur `sets`)
+- Si pas de set complet : les parties partagent un `group_id`, scorees comme un seul set logique
+
+**Regle scoring : un set logique = un seul signal trend, peu importe le nombre de sources ou de parties.**
+
+Taches :
+- [ ] Normalisation titre : fonction `normalize_set_title()` (strip tags source, lowercase, trim, retirer "Official", "Full Set", etc.)
+- [ ] Migration : table `set_sources` (set_id, source, external_url, trackid_id, created_at)
+- [ ] Migration : colonne `parent_set_id` (nullable FK vers `sets.id`) + `group_id` (nullable) sur `sets`
+- [ ] Logique de detection de doublons a l'import (avant insertion)
+- [ ] Merge tracklists entre sources d'un meme set (union ordonnee)
+- [ ] Adapter `compute_trends` : exclure les sets avec `parent_set_id IS NOT NULL` du scoring
+- [ ] Audit des 27 sets existants pour valider la logique de dedup
+
+### C6.a — Crawler global TrackID.net
+
+Crawler le flux global de TrackID.net (pas juste les sets importes par un user). Impact immediat sur trend + co-occurrence (C2.c).
+
+- [ ] Crawl quotidien du flux "latest sets" de TrackID.net (toutes categories, pages 1 a N)
+- [ ] Import automatique dans `sets` + `set_tracks` + enrichissement `catalog`
+- [ ] Dedup a l'import via C6.0 (verifier doublon avant insertion)
+- [ ] Filtrage optionnel par pertinence genre (a evaluer apres quelques jours de crawl test — risque de bruit hors-scope : pop, rock, etc.)
+- [ ] Rate limiting poli : headers respectueux, throttling entre requetes, pas de crawl agressif
+- [ ] Task Celery Beat : `crawl_trackid_latest`, schedule quotidien
+
+Volume attendu : 10-50 sets/jour → des centaines de paires track x set par semaine. Multiplie le bassin de co-occurrence pour C2.c.
+
+### C6.b — Re-crawl decroissant des sets incomplets
+
+Les sets TrackID.net ne sont pas toujours complets a la premiere visite (identification en cours). Re-crawler intelligemment sans gaspiller de bande passante.
+
+Cadence de re-crawl (backoff exponentiel) :
+
+```
+Age du set           Frequence
+───────────────────  ─────────────────────
+0 - 7 jours          tous les jours
+7 - 30 jours         1x / semaine
+30 - 90 jours        1x / mois
+90+ jours             STOP (marque "final")
+```
+
+Sortie anticipee : si le % d'identification n'a pas bouge sur 3 re-crawls consecutifs → marque "final" immediatement, peu importe l'age.
+
+- [ ] Colonnes sur `sets` : `completion_pct` (float), `last_recrawl_at`, `recrawl_count`, `recrawl_status` (enum: active/final)
+- [ ] Task Celery : `recrawl_incomplete_sets`, schedule quotidien, selectionne les sets eligibles selon la cadence
+- [ ] Logique de sortie anticipee (3 crawls sans changement → final)
+- [ ] Mise a jour des tracklists au re-crawl (ajout des tracks nouvellement identifiees)
+
+### C6.c — Suivi d'artistes v1 (Deezer + TrackID)
+
+Feature user-facing : "suivre" un artiste = surveillance active de son activite. Decouple du like (qui reste un signal de gout passif pour la reco).
+
+| Source | Signal surveille | Faisabilite |
+|--------|-----------------|-------------|
+| **Deezer** | Nouvelles releases (`/artist/{id}/albums?order=date`) | Trivial — `deezer_id` sur 99% des artistes |
+| **TrackID.net** | Nouveaux sets contenant l'artiste | Faisable — on scrape deja le site |
+
+- [ ] Migration : table `followed_artists` (user_id, artist_id, followed_at)
+- [ ] Migration : table `artist_activity` (id, artist_id, activity_type enum, source, title, external_url, catalog_id nullable, set_id nullable, detected_at, payload_json)
+- [ ] Bouton "Suivre" sur ArtistDetailView (distinct du like)
+- [ ] Task Celery Beat : `check_followed_artists`, quotidien, batch sur tous les artistes suivis par au moins 1 user
+- [ ] Check Deezer releases : comparer derniere release connue vs API, creer `artist_activity` si nouveau
+- [ ] Check TrackID.net : rechercher sets recents contenant l'artiste, croiser avec sets deja importes
+- [ ] Surface frontend : section "Nouveautes de tes artistes" (vue dediee ou shelf sur le Hub)
+- [ ] Badge/notification : indicateur de nouvelles activites non vues
+
+### C6.d — Suivi d'artistes v2 (Soundcloud) — futur
+
+Extension du suivi artiste a Soundcloud. **Reporte apres validation de C6.c** car le scraping Soundcloud est fragile (pas d'API officielle, anti-bot).
+
+| Source | Signal surveille | Faisabilite |
+|--------|-----------------|-------------|
+| **Soundcloud** | Nouveaux tracks + reposts + mixes | Moyen — scraping ou `soundcloud-lib`, fragile |
+
+- [ ] Colonne `soundcloud_url` sur `artists`
+- [ ] Scraping profil Soundcloud (tracks + reposts)
+- [ ] Import des tracks trouvees → enrichissement Deezer/Beatport
+- [ ] Integration dans `artist_activity`
+
+Extensions futures possibles (non planifiees) :
+- YouTube : Data API v3, quota limite mais suffisant pour des checks quotidiens
+- Bandcamp : RSS/feed scraping
+- Beatport : extension naturelle de l'enrichissement existant
+
+### C6.e — Playlists auto-follow
+
+Toute playlist en base devrait etre surveillee a intervalle regulier, pas seulement les 29 "watched".
+
+- [ ] Supprimer la distinction rigide watched/non-watched : toute playlist connue = crawl periodique
+- [ ] Cadence adaptative (meme principe que C6.b : frequente au debut, decroissante si stable)
+- [ ] Ou a minima : elargir les criteres d'ajout automatique de playlists a surveiller
+
+### Risques identifies
+
+| Risque | Mitigation |
+|--------|-----------|
+| Rate limiting / ban TrackID.net | Headers polis, throttling, potentiellement proxy rotatif |
+| Bruit hors-genre (pop, rock) | Filtrage post-crawl par pertinence genre — a evaluer empiriquement |
+| Volume DB (5k → 50k+ radar_tracks) | Pas un probleme pour Postgres, mais surveiller index et temps de `compute_trends` |
+| Fragilite scraping Soundcloud | Ne pas en faire un pilier critique en v1, d'ou le report en C6.d |
+
+### Definition of Done
+
+```bash
+# Dedup
+# Doublons sets existants identifies et rattaches
+# Nouveau set importe → dedup automatique avant insertion
+# compute_trends exclut les doublons/parties
+
+# Crawler global
+# crawl_trackid_latest tourne quotidiennement
+# Nouveaux sets apparaissent dans la table sets sans intervention manuelle
+# Impact visible sur le trend (plus de signaux set)
+
+# Re-crawl
+# Sets incomplets re-crawles avec backoff exponentiel
+# Sets "final" ne consomment plus de bande passante
+
+# Suivi artistes
+# Bouton "Suivre" sur Artist Detail, distinct du like
+# check_followed_artists detecte les nouvelles releases Deezer
+# Section "Nouveautes" accessible dans l'app
+```
+
+---
+
+## F5 — Import manuel (recherche externe)
+
+**Priorite : MOYEN**
+**Estimation : 2-3 jours**
+**Depend de : rien (APIs Deezer/TIDAL deja accessibles)**
+**Statut : A FAIRE — parallelisable avec C6/P1**
+
+### Objectif
+
+Permettre a tout utilisateur connecte d'ajouter un track au catalog via une recherche sur les sources externes (Deezer, TIDAL). Aujourd'hui les tracks n'entrent que par import en masse (Rekordbox XML, crawl playlists, import sets TrackID) — aucun moyen d'ajouter un son a la main.
+
+### Faisabilite technique
+
+| Source | Recherche | Auth | ISRC | Statut |
+|--------|-----------|------|------|--------|
+| **Deezer** | `search_deezer()` dans `deezer_enrich.py` | Aucune (API publique) | Oui | Pret a l'emploi |
+| **TIDAL** | `tidalapi.session.search()` | OAuth device flow (tokens deja en Redis) | Oui | Trivial a ajouter |
+| **Spotify** | Pas de search dans `spotifyscraper` | — | Non | Pas faisable |
+
+### F5.a — Backend : endpoint recherche externe
+
+- [ ] `GET /api/search/external?q=...` : recherche parallele Deezer + TIDAL
+- [ ] Resultats fusionnes, dedupliques par ISRC (priorite Deezer si doublon)
+- [ ] Rate limiting Deezer (0.12s entre requetes, deja en place dans `deezer_enrich.py`)
+- [ ] Indiquer dans la reponse si le track existe deja dans le catalog (`catalog_id` si match ISRC/normalized_key)
+
+### F5.b — Backend : endpoint import
+
+- [ ] `POST /api/catalog/import` : prend un `deezer_id` ou `tidal_id`
+- [ ] Enrichissement via `deezer_enrich.py` (flow existant : artwork, ISRC, duration, etc.)
+- [ ] Scope `shared` (source officielle = match confirme)
+- [ ] Dedup : verifier ISRC / `normalized_key` avant insertion, retourner l'entree existante si doublon
+- [ ] Creation artiste(s) via le flow existant (`get_or_create_artist`)
+
+### F5.c — Frontend : barre de recherche + import
+
+- [ ] UI de recherche (vue dediee ou modale depuis le header)
+- [ ] Affichage resultats : artwork, titre, artiste, source (badge Deezer/TIDAL)
+- [ ] Badge "Deja dans le catalog" si le track existe
+- [ ] Bouton "Importer" par resultat, feedback immediat (track ajoutee, lien vers la fiche catalog)
+
+### Definition of Done
+
+```bash
+# GET /api/search/external?q=artist+title -> resultats Deezer + TIDAL
+# POST /api/catalog/import avec deezer_id -> entree catalog creee
+# Dedup : meme ISRC -> pas de doublon, retourne l'existant
+# Frontend : recherche + affichage + bouton import fonctionnels
+# Accessible a tout utilisateur connecte
 ```
 
 ---
@@ -379,7 +848,7 @@ Relations de proximite entre tracks et entre artistes. C'est le socle de toute r
 
 **Priorite : MOYEN**
 **Estimation : 5-7 jours**
-**Depend de : C1 (reco par defaut prete)**
+**Depend de : C1 (TERMINE) + H0 (hygiene secu/infra) + idealement C6 (donnees)**
 **Declenchement : ta decision d'inviter, pas la roadmap**
 **Statut : A FAIRE**
 
@@ -410,7 +879,7 @@ Reste :
 ### C3.c — Accueil
 
 - [ ] Onboarding minimal : que voit un nouvel utilisateur sans bibliotheque ? (reponse : le catalogue shared + le trend par famille = la reco par defaut, d'ou C1 avant C3)
-- [ ] Frontend build statique de prod (sortir du Vite dev server) : a faire avant d'exposer l'app a d'autres
+- [x] ~~Frontend build statique de prod~~ — FAIT (Nginx static build, voir reliquats)
 - [ ] Sentry DSN configure (monitoring minimal avant d'avoir des users reels)
 
 ### Definition of Done
@@ -436,10 +905,10 @@ Reste :
 
 Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des un seul user (toi), mais volontairement place apres l'ouverture : chaque nouvel utilisateur enrichit le signal.
 
-- [ ] Profil de gout par user : agregation des embeddings des tracks likees (et penalisation des dislikees)
-- [ ] Reco = voisinage pgvector du profil, filtre par famille/BPM, excluant la lib existante
+- [ ] Profil de gout par user : agregation des scores de similarite (C2) des tracks likees (penalisation des dislikees)
+- [ ] Reco = scoring C2 (metadonnees + co-occurrence) pondere par le profil, filtre par famille/BPM, excluant la lib existante
 - [ ] Surface : section "Pour toi" distincte de la section trend (les deux recos coexistent, decorrelees)
-- [ ] Long terme (parque, inchange) : track2vec sur tracklists de sets, imports YouTube timestamps, V3 audio features, LLM local en normalisation
+- [ ] Long terme (parque, inchange) : track2vec sur tracklists de sets, pgvector si embeddings necessaires, audio features, LLM normalisation
 
 ### Definition of Done
 
@@ -525,10 +994,10 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 
 | Point | Quand |
 |---|---|
-| Refonte AdminView (1725 LOC) | Opportuniste, pas bloquant |
+| ~~Refonte AdminView (1725 LOC)~~ | Absorbe dans H0.d |
 | Monitoring complet (Flower, UptimeRobot, pg_stat_statements) | Apres ouverture, si le besoin apparait |
 | Websocket progression import | Jamais peut-etre : le polling 2s suffit |
-| Tests composants frontend | Au fil de l'eau |
+| Tests composants frontend | Au fil de l'eau (tests integration backend dans H0.f) |
 | ~~Auto-migration au deploy~~ | FAIT — `alembic upgrade head` dans deploy.yml |
 | ~~`/api/radar/full` crash genres sort~~ | FAIT — `literal_column` au lieu de `StringArray[1]` |
 | ~~CSP bloque requetes API~~ | FAIT — `upgrade-insecure-requests` + location priority `^~` sur `/api/` et `/storage/` |
@@ -545,12 +1014,17 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 | R1 | Responsive mobile | Immediat apres C0 | - |
 | C1 | Trend v2 + velocite + Decouvrir + Collections | Apres R1 | - (velocite calculable sur l'existant) |
 | C2 | Moteur de similarite + graphe artistes | Apres C1 (ou en parallele partiel) | pgvector (metadonnees verifiees OK) |
-| P1 | Polish & Correctifs UI (player nav, play btns, score, genres, admin split) | Parallélisable avec C2 | C1 |
-| C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | C1 (reco par defaut prete) |
+| H0 | Hygiene & Solidification | Parallelisable avec tout | Rien (audit 06/07) |
+| C6 | Veille elargie & Suivi artistes | Parallelisable avec C2 | C1 (trend). C6.0 dedup prerequis a C6.a crawl |
+| F5 | Import manuel (recherche externe Deezer/TIDAL) | Parallelisable avec C6/P1 | Rien (APIs deja accessibles) |
+| P1 | Polish & Correctifs UI (player nav, play btns, score, genres, admin split) | Parallelisable avec C2/C6 | C1 |
+| C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | C1 + idealement C6 (plus de donnees) |
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
 | C5 | Collections v2 (items polymorphes + dossiers) | Apres ouverture | C1 |
 
-Note : la velocite sur les ajouts (C1.b) est calculable des maintenant depuis `radar_tracks`. Seul le signal de retrait (`removed_at`) necessite d'accumuler de l'historique a partir de C0.1, et il s'ajoutera a la formule quand il aura de la profondeur.
+Notes :
+- La velocite sur les ajouts (C1.b) est calculable des maintenant depuis `radar_tracks`. Seul le signal de retrait (`removed_at`) necessite d'accumuler de l'historique a partir de C0.1.
+- C6 alimente directement C2 (plus de co-occurrences en set) et le trend C1 (plus de signaux). Lancer C6.0 + C6.a tot maximise les benefices pour les autres chantiers.
 
 ---
 

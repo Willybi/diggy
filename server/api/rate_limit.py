@@ -16,6 +16,9 @@ RATE_LIMITS = {
     "/api/auth/login": (5, 60),
     "/api/auth/register": (3, 60),
     "/api/auth/google/callback": (5, 60),
+    "/api/search": (30, 60),
+    "/api/import/rekordbox": (3, 300),
+    "/api/admin": (10, 60),
 }
 
 _redis = None
@@ -42,7 +45,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         limit_config = None
         for prefix, config in RATE_LIMITS.items():
-            if path == prefix or path == prefix + "/":
+            if path == prefix or path == prefix + "/" or path.startswith(prefix + "/"):
                 limit_config = config
                 break
 

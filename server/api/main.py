@@ -51,8 +51,9 @@ _start_time = time.time()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if os.getenv("ENV") != "production":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     from services.image_service import BUCKET_ARTWORKS, ImageService
 
     ImageService.ensure_bucket(BUCKET_ARTWORKS)
@@ -72,8 +73,8 @@ app.add_middleware(JWTAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.environ.get("CORS_ORIGIN", "http://localhost:5173").split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 logger = logging.getLogger(__name__)

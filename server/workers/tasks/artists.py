@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3, "countdown": 60},
     retry_backoff=True,
+    soft_time_limit=3600,
+    time_limit=4500,
 )
 def sync_artists(self):
     """
@@ -739,7 +741,7 @@ def backfill_multi_artists(self):
                         contributors = hit.get("contributors") or []
                         if len(contributors) <= 1:
                             return
-                        from deezer_enrich import link_catalog_artist_from_hit
+                        from workers.deezer_enrich import link_catalog_artist_from_hit
 
                         link_catalog_artist_from_hit(session, entry.id, hit)
                         enriched += 1

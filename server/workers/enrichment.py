@@ -51,10 +51,7 @@ async def _search_deezer_async(
         return None
 
     # Import the title-cleaning helpers from deezer_enrich
-    import sys
-
-    sys.path.insert(0, "/app")
-    from deezer_enrich import (
+    from workers.deezer_enrich import (
         _first_artist,
         _strip_non_remix_parens,
         _strip_safe_suffixes,
@@ -216,7 +213,7 @@ async def enrich_deezer_batch(
                 enriched += 1
                 # Link artist from Deezer hit to catalog_artists
                 try:
-                    from deezer_enrich import link_catalog_artist_from_hit
+                    from workers.deezer_enrich import link_catalog_artist_from_hit
 
                     link_catalog_artist_from_hit(session, entry.id, hit)
                 except Exception:

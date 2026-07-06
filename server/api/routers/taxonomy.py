@@ -1,6 +1,16 @@
 from database import get_db
 from dependencies import require_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
+from schemas import (
+    TaxonomyDepthNodeList,
+    TaxonomyEdgeNodeList,
+    TaxonomyMappingList,
+    TaxonomyMappingUpdateResponse,
+    TaxonomyNeighborNodeList,
+    TaxonomyNode,
+    TaxonomyNodeList,
+    TaxonomyStats,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +20,7 @@ router = APIRouter(tags=["taxonomy"])
 # ── Nodes ─────────────────────────────────────────────────────────────────
 
 
-@router.get("/nodes")
+@router.get("/nodes", response_model=TaxonomyNodeList)
 async def list_nodes(
     q: str = Query("", max_length=200),
     limit: int = Query(50, ge=1, le=500),
@@ -48,7 +58,7 @@ async def list_nodes(
     }
 
 
-@router.get("/nodes/{node_id}")
+@router.get("/nodes/{node_id}", response_model=TaxonomyNode)
 async def get_node(node_id: int, db: AsyncSession = Depends(get_db)):
     row = (
         await db.execute(
@@ -61,7 +71,7 @@ async def get_node(node_id: int, db: AsyncSession = Depends(get_db)):
     return {"id": row[0], "wikidataId": row[1], "label": row[2]}
 
 
-@router.get("/nodes/{node_id}/children")
+@router.get("/nodes/{node_id}/children", response_model=TaxonomyEdgeNodeList)
 async def get_children(
     node_id: int,
     include_influence: bool = Query(False),
@@ -100,7 +110,7 @@ async def get_children(
     }
 
 
-@router.get("/nodes/{node_id}/parents")
+@router.get("/nodes/{node_id}/parents", response_model=TaxonomyEdgeNodeList)
 async def get_parents(node_id: int, db: AsyncSession = Depends(get_db)):
     """Parent genres: edges where from_node_id = node_id and type = parent."""
     rows = (
@@ -130,7 +140,7 @@ async def get_parents(node_id: int, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/nodes/{node_id}/ancestors")
+@router.get("/nodes/{node_id}/ancestors", response_model=TaxonomyDepthNodeList)
 async def get_ancestors(node_id: int, db: AsyncSession = Depends(get_db)):
     """All ancestors via recursive CTE on parent edges (depth max 20)."""
     rows = (
@@ -163,7 +173,7 @@ async def get_ancestors(node_id: int, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/nodes/{node_id}/descendants")
+@router.get("/nodes/{node_id}/descendants", response_model=TaxonomyDepthNodeList)
 async def get_descendants(node_id: int, db: AsyncSession = Depends(get_db)):
     """All descendants via recursive CTE on parent edges (depth max 20)."""
     rows = (
@@ -196,7 +206,7 @@ async def get_descendants(node_id: int, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/nodes/{node_id}/neighbors")
+@router.get("/nodes/{node_id}/neighbors", response_model=TaxonomyNeighborNodeList)
 async def get_neighbors(node_id: int, db: AsyncSession = Depends(get_db)):
     """Genres connected via influence edges (both directions)."""
     rows = (
@@ -234,7 +244,7 @@ async def get_neighbors(node_id: int, db: AsyncSession = Depends(get_db)):
 # ── Roots & Stats ────────────────────────────────────────────────────────
 
 
-@router.get("/roots")
+@router.get("/roots", response_model=TaxonomyNodeList)
 async def get_roots(db: AsyncSession = Depends(get_db)):
     """Nodes with no outgoing parent edges (top-level genres)."""
     rows = (
@@ -254,7 +264,7 @@ async def get_roots(db: AsyncSession = Depends(get_db)):
     return {"items": [{"id": r[0], "wikidataId": r[1], "label": r[2]} for r in rows]}
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=TaxonomyStats)
 async def get_stats(db: AsyncSession = Depends(get_db)):
     node_count = (await db.execute(text("SELECT COUNT(*) FROM genre_nodes"))).scalar()
     edge_count = (await db.execute(text("SELECT COUNT(*) FROM genre_edges"))).scalar()
@@ -287,7 +297,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 # ── Mappings ─────────────────────────────────────────────────────────────
 
 
-@router.get("/mappings")
+@router.get("/mappings", response_model=TaxonomyMappingList)
 async def list_mappings(
     unmapped: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
@@ -330,7 +340,7 @@ async def list_mappings(
     }
 
 
-@router.put("/mappings/{raw_name}")
+@router.put("/mappings/{raw_name}", response_model=TaxonomyMappingUpdateResponse)
 async def update_mapping(
     raw_name: str,
     node_id: int = Query(...),

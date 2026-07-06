@@ -91,7 +91,7 @@ describe('App.vue skip link', () => {
     const { default: App } = await import('../App.vue')
     const wrapper = mount(App, {
       global: {
-        stubs: { RouterView: true, SidebarNav: true, PlayerBar: true, Transition: true },
+        stubs: { RouterView: true, SidebarNav: true, PlayerBar: true, Transition: true, ToastNotification: true },
       },
     })
     const skip = wrapper.find('.skip-link')
@@ -103,7 +103,7 @@ describe('App.vue skip link', () => {
     const { default: App } = await import('../App.vue')
     const wrapper = mount(App, {
       global: {
-        stubs: { RouterView: true, SidebarNav: true, PlayerBar: true, Transition: true },
+        stubs: { RouterView: true, SidebarNav: true, PlayerBar: true, Transition: true, ToastNotification: true },
       },
     })
     expect(wrapper.find('#main-content').exists()).toBe(true)

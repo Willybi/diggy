@@ -95,6 +95,8 @@ def crawl_radar(self):
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3, "countdown": 60},
     retry_backoff=True,
+    soft_time_limit=3600,
+    time_limit=4500,
 )
 def crawl_single_playlist(self, playlist_id: int):
     """

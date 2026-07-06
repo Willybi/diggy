@@ -11,7 +11,26 @@ from models import (
     ArtistFlag,
     User,
 )
-from pydantic import BaseModel
+from schemas import (
+    ArtistDeezerIn,
+    ArtistFlagOut,
+    CrawlLogsResponse,
+    DeezerArtistHit,
+    DeezerGenreLookupResponse,
+    EnrichBeatportResponse,
+    FetchPlaylistArtworksResponse,
+    FlagManualIn,
+    LinkDeezerResponse,
+    NoDeezerResponse,
+    OkResponse,
+    ResetBeatportResponse,
+    ResolveIn,
+    SetArtistAddResponse,
+    SetArtistIn,
+    SyncQueued,
+    SyncStatus,
+    UnclassifiedCountResponse,
+)
 from services import artist_service, catalog_service, genre_service
 from services.image_service import ImageService
 from sqlalchemy import select
@@ -38,59 +57,6 @@ async def _audit(
             created_at=datetime.now(timezone.utc),
         )
     )
-
-
-# ---------- Schemas ----------
-
-
-class ArtistFlagOut(BaseModel):
-    id: int
-    raw_artist_string: str
-    reason: str
-    tokens: list[str]
-    deezer_ids: dict
-    status: str
-    resolved_artist_ids: list[int] | None = None
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class SyncQueued(BaseModel):
-    status: str
-    task_id: str
-
-
-class SyncStatus(BaseModel):
-    status: str  # pending | running | done | error
-    result: dict | None = None
-    error: str | None = None
-
-
-class ResolveIn(BaseModel):
-    action: Literal["split", "keep", "skip"]
-
-
-class ArtistDeezerIn(BaseModel):
-    deezer_id: str
-
-
-class FlagManualIn(BaseModel):
-    raw_artist_string: str
-    tokens: list[str]
-    reason: str = "manual"
-
-
-class SetArtistIn(BaseModel):
-    artist_id: int
-    role: str = "dj"
-
-
-class DeezerArtistHit(BaseModel):
-    deezer_id: str
-    name: str
-    picture: str | None = None
-    nb_fan: int | None = None
 
 
 # ---------- Artist sync ----------
@@ -159,7 +125,7 @@ async def search_deezer_artist(
         return []
 
 
-@router.patch("/artists/{artist_id}/deezer")
+@router.patch("/artists/{artist_id}/deezer", response_model=LinkDeezerResponse)
 async def link_artist_deezer(
     artist_id: int,
     body: ArtistDeezerIn,
@@ -186,7 +152,7 @@ async def link_artist_deezer(
     return result
 
 
-@router.patch("/artists/{artist_id}/no-deezer")
+@router.patch("/artists/{artist_id}/no-deezer", response_model=NoDeezerResponse)
 async def mark_no_deezer(
     artist_id: int,
     db: AsyncSession = Depends(get_db),
@@ -281,7 +247,7 @@ async def enrich_set_tracks_task(_: User = Depends(require_admin)):
     return SyncQueued(status="queued", task_id=result.id)
 
 
-@router.post("/sets/{set_id}/artists")
+@router.post("/sets/{set_id}/artists", response_model=SetArtistAddResponse)
 async def add_set_artist(
     set_id: int,
     body: SetArtistIn,
@@ -309,7 +275,7 @@ async def add_set_artist(
     return {"set_id": set_id, "artist_id": body.artist_id, "role": body.role}
 
 
-@router.delete("/sets/{set_id}/artists/{artist_id}")
+@router.delete("/sets/{set_id}/artists/{artist_id}", response_model=OkResponse)
 async def remove_set_artist(
     set_id: int,
     artist_id: int,
@@ -347,7 +313,7 @@ async def trigger_enrich_beatport(
     return SyncQueued(status="queued", task_id=result.id)
 
 
-@router.post("/reset-beatport")
+@router.post("/reset-beatport", response_model=ResetBeatportResponse)
 async def reset_beatport(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -359,7 +325,7 @@ async def reset_beatport(
     return result
 
 
-@router.post("/enrich-beatport/{catalog_id}")
+@router.post("/enrich-beatport/{catalog_id}", response_model=EnrichBeatportResponse)
 async def enrich_single_beatport(
     catalog_id: int,
     force_genre: bool = False,
@@ -376,7 +342,7 @@ async def enrich_single_beatport(
 # ---------- Genres ----------
 
 
-@router.get("/genres/unclassified-count")
+@router.get("/genres/unclassified-count", response_model=UnclassifiedCountResponse)
 async def genres_unclassified_count(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
@@ -424,7 +390,7 @@ async def genres_reclassify(
     return SyncQueued(status="queued", task_id=result.id)
 
 
-@router.get("/deezer-genre/{catalog_id}")
+@router.get("/deezer-genre/{catalog_id}", response_model=DeezerGenreLookupResponse)
 async def deezer_genre_lookup(
     catalog_id: int,
     apply: bool = False,
@@ -443,7 +409,7 @@ async def deezer_genre_lookup(
 # ---------- Playlist Artworks ----------
 
 
-@router.post("/playlists/fetch-artworks")
+@router.post("/playlists/fetch-artworks", response_model=FetchPlaylistArtworksResponse)
 async def fetch_all_playlist_artworks(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
@@ -455,7 +421,7 @@ async def fetch_all_playlist_artworks(
 # ---------- Crawl Logs ----------
 
 
-@router.get("/crawl-logs")
+@router.get("/crawl-logs", response_model=CrawlLogsResponse)
 async def get_crawl_logs(
     page: int = 1,
     per_page: int = 20,

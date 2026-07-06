@@ -1,9 +1,9 @@
-"""Tests for server/api/deezer_enrich.py — pure logic tests."""
+"""Tests for server/workers/deezer_enrich.py — pure logic tests."""
 from unittest.mock import MagicMock, patch
 
 import pytest
 from database import Base
-from deezer_enrich import (
+from workers.deezer_enrich import (
     _first_artist,
     _is_remix_paren,
     _strip_non_remix_parens,

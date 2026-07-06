@@ -6,7 +6,15 @@ from dependencies import get_current_user, get_current_user_optional
 from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import User
-from schemas import CatalogAvisUpdate, CatalogDetailOut, CatalogList
+from schemas import (
+    AvisResponse,
+    CatalogAvisUpdate,
+    CatalogDetailOut,
+    CatalogGenreItem,
+    CatalogList,
+    PreviewUrlResponse,
+    SimilarTrackOut,
+)
 from services import catalog_service, similarity_service
 from services.genre_service import _ensure_pillar_cache, genre_pillar
 from sqlalchemy import func, select
@@ -29,7 +37,7 @@ CatalogSortField = Literal[
 ]
 
 
-@router.get("/genres")
+@router.get("/genres", response_model=list[CatalogGenreItem])
 async def list_genres(db: AsyncSession = Depends(get_db)):
     """Return all distinct genres with track counts (unnested from arrays)."""
     from models import CatalogEntry
@@ -74,7 +82,7 @@ async def list_catalog(
     )
 
 
-@router.get("/{catalog_id}/similar")
+@router.get("/{catalog_id}/similar", response_model=list[SimilarTrackOut])
 async def get_similar_tracks(
     catalog_id: int,
     limit: int = Query(10, ge=1, le=50),
@@ -106,7 +114,7 @@ async def get_catalog_detail(
         raise HTTPException(404, str(e))
 
 
-@router.get("/{catalog_id}/preview-url")
+@router.get("/{catalog_id}/preview-url", response_model=PreviewUrlResponse)
 async def get_preview_url(catalog_id: int, db: AsyncSession = Depends(get_db)):
     """Retourne une preview URL fraîche depuis l'API Deezer."""
     try:
@@ -115,7 +123,7 @@ async def get_preview_url(catalog_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, str(e))
 
 
-@router.patch("/{catalog_id}/avis")
+@router.patch("/{catalog_id}/avis", response_model=AvisResponse)
 async def update_avis(
     catalog_id: int,
     body: CatalogAvisUpdate,

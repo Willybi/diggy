@@ -9,6 +9,7 @@ from celery_client import celery
 from dependencies import get_current_user, get_redis
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from models import User
+from schemas import ImportQueuedResponse, ImportStatusResponse
 
 logger = logging.getLogger("diggy")
 
@@ -18,7 +19,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 router = APIRouter(tags=["import"])
 
 
-@router.post("/rekordbox-xml")
+@router.post("/rekordbox-xml", response_model=ImportQueuedResponse)
 async def upload_rekordbox_xml(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
@@ -69,7 +70,7 @@ async def upload_rekordbox_xml(
     return {"task_id": task_id, "status": "queued"}
 
 
-@router.get("/status/{task_id}")
+@router.get("/status/{task_id}", response_model=ImportStatusResponse)
 async def get_import_status(
     task_id: str,
     user: User = Depends(get_current_user),

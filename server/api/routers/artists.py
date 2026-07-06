@@ -3,14 +3,19 @@ from dependencies import get_current_user_optional
 from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import User
-from schemas import ArtistDetailOut
+from schemas import (
+    ArtistConnectionOut,
+    ArtistDetailOut,
+    ArtistListResponse,
+    RandomTrackResponse,
+)
 from services import artist_service
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/artists", tags=["artists"])
 
 
-@router.get("/")
+@router.get("/", response_model=ArtistListResponse)
 async def list_artists(
     sort: str = Query("catalog", pattern="^(catalog|lib|liked|disliked|rating|alpha)$"),
     family: str | None = Query(None, max_length=100),
@@ -29,7 +34,7 @@ async def list_artists(
     )
 
 
-@router.get("/random-track")
+@router.get("/random-track", response_model=RandomTrackResponse)
 async def random_artist_track(
     artist_id: int = Query(...),
     exclude: int | None = Query(None),
@@ -42,7 +47,7 @@ async def random_artist_track(
         raise HTTPException(404, str(e))
 
 
-@router.get("/{artist_id}/connections")
+@router.get("/{artist_id}/connections", response_model=list[ArtistConnectionOut])
 async def get_artist_connections(
     artist_id: int,
     limit: int = Query(20, ge=1, le=50),

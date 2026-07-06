@@ -5,7 +5,21 @@ from dependencies import get_current_user_optional, require_admin
 from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import User
-from pydantic import BaseModel
+from schemas import (
+    GenreArtistListResponse,
+    GenreDetailResponse,
+    GenreListResponse,
+    GenreMergeIn,
+    GenreMergeResponse,
+    GenreNeighborResponse,
+    GenrePlaylistListResponse,
+    GenreRenameIn,
+    GenreRenameResponse,
+    GenreSetListResponse,
+    GenreTrackListResponse,
+    RandomTrackResponse,
+    RefreshPillarsResponse,
+)
 from services import genre_service
 from services.genre_service import (
     _PILLAR_CACHE,
@@ -17,22 +31,10 @@ router = APIRouter(tags=["genres"])
 log = logging.getLogger(__name__)
 
 
-# ── Schemas ────────────────────────────────────────────────────────────────
-
-
-class GenreRenameIn(BaseModel):
-    new_name: str
-
-
-class GenreMergeIn(BaseModel):
-    source: str
-    target: str
-
-
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
-@router.get("/random-track")
+@router.get("/random-track", response_model=RandomTrackResponse)
 async def random_genre_track(
     genre: str = Query(..., max_length=100),
     exclude: int | None = Query(None),
@@ -45,7 +47,7 @@ async def random_genre_track(
         raise HTTPException(404, str(e))
 
 
-@router.get("")
+@router.get("", response_model=GenreListResponse)
 async def list_genres(
     sort: str = Query("tracks", pattern="^(tracks|alpha)$"),
     family: str | None = Query(None, max_length=100),
@@ -61,7 +63,7 @@ async def list_genres(
     )
 
 
-@router.post("/merge")
+@router.post("/merge", response_model=GenreMergeResponse)
 async def merge_genres(
     body: GenreMergeIn,
     db: AsyncSession = Depends(get_db),
@@ -76,7 +78,7 @@ async def merge_genres(
         raise HTTPException(400, str(e))
 
 
-@router.get("/detail/{name:path}")
+@router.get("/detail/{name:path}", response_model=GenreDetailResponse)
 async def get_genre_detail(
     name: str,
     db: AsyncSession = Depends(get_db),
@@ -89,7 +91,7 @@ async def get_genre_detail(
         raise HTTPException(404, str(e))
 
 
-@router.get("/artists/{name:path}")
+@router.get("/artists/{name:path}", response_model=GenreArtistListResponse)
 async def get_genre_artists(
     name: str,
     limit: int = Query(12, ge=1, le=100),
@@ -104,7 +106,7 @@ async def get_genre_artists(
         raise HTTPException(404, str(e))
 
 
-@router.get("/sets/{name:path}")
+@router.get("/sets/{name:path}", response_model=GenreSetListResponse)
 async def get_genre_sets(
     name: str,
     limit: int = Query(12, ge=1, le=100),
@@ -118,7 +120,7 @@ async def get_genre_sets(
         raise HTTPException(404, str(e))
 
 
-@router.get("/playlists/{name:path}")
+@router.get("/playlists/{name:path}", response_model=GenrePlaylistListResponse)
 async def get_genre_playlists(
     name: str,
     limit: int = Query(12, ge=1, le=100),
@@ -132,7 +134,7 @@ async def get_genre_playlists(
         raise HTTPException(404, str(e))
 
 
-@router.get("/tracks/{name:path}")
+@router.get("/tracks/{name:path}", response_model=GenreTrackListResponse)
 async def get_genre_tracks(
     name: str,
     sort: str = Query("recent", pattern="^(recent|bpm|key|alpha)$"),
@@ -153,7 +155,7 @@ async def get_genre_tracks(
         raise HTTPException(404, str(e))
 
 
-@router.get("/neighbors/{name:path}")
+@router.get("/neighbors/{name:path}", response_model=GenreNeighborResponse)
 async def get_genre_neighbors(
     name: str,
     limit: int = Query(6, ge=1, le=20),
@@ -166,7 +168,7 @@ async def get_genre_neighbors(
         raise HTTPException(404, str(e))
 
 
-@router.post("/refresh-pillars")
+@router.post("/refresh-pillars", response_model=RefreshPillarsResponse)
 async def refresh_pillars(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin),
@@ -177,7 +179,7 @@ async def refresh_pillars(
     return {"ok": True, "cached": len(_PILLAR_CACHE)}
 
 
-@router.patch("/rename/{name:path}")
+@router.patch("/rename/{name:path}", response_model=GenreRenameResponse)
 async def rename_genre(
     name: str,
     body: GenreRenameIn,

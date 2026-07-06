@@ -23,6 +23,7 @@ sys.modules.setdefault("celery", mock_celery_mod)
 sys.modules.setdefault("celery.result", MagicMock())
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server"))  # for workers.deezer_enrich
 os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")
 os.environ.setdefault("GOOGLE_CLIENT_SECRET", "test-client-secret")

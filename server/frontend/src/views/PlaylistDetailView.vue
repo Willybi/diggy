@@ -166,6 +166,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
+import { useToast } from '../stores/toast.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -277,7 +278,9 @@ async function toggleFollow() {
       await api.post(`/api/watchlist/${playlist.value.id}/follow`)
     }
     await fetchDetail()
-  } catch {}
+  } catch {
+    useToast().show('Erreur lors du suivi de la playlist')
+  }
 }
 
 async function fetchArtwork() {

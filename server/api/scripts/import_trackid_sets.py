@@ -14,6 +14,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))  # server/
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -142,11 +143,11 @@ async def _resolve_set_tracks(engine):
     """Inline async version of resolve_set_tracks Celery task with Deezer enrichment."""
     from datetime import datetime, timezone
 
-    from deezer_enrich import enrich_entry, search_deezer
     from models import CatalogEntry, SetTrack
     from services.image_service import ImageService
     from sqlalchemy import select
     from utils import make_normalized_key
+    from workers.deezer_enrich import enrich_entry, search_deezer
 
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     ImageService.ensure_bucket("catalog-artworks")

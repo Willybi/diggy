@@ -6,8 +6,11 @@ from dependencies import get_current_user, require_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import CatalogEntry, RadarTrack, RadarTrend, User
 from schemas import (
+    NewCountResponse,
     RadarBatchItem,
+    RadarBatchResponse,
     RadarFullList,
+    RadarStateResponse,
     RadarStateUpdate,
     TrendItem,
     TrendList,
@@ -105,7 +108,7 @@ async def list_radar_full(
     )
 
 
-@router.get("/new-count")
+@router.get("/new-count", response_model=NewCountResponse)
 async def radar_new_count(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -113,7 +116,7 @@ async def radar_new_count(
     return await radar_service.new_count(db, user.id)
 
 
-@router.patch("/{catalog_id}/state")
+@router.patch("/{catalog_id}/state", response_model=RadarStateResponse)
 async def update_radar_state(
     catalog_id: int,
     body: RadarStateUpdate,
@@ -123,7 +126,7 @@ async def update_radar_state(
     return await radar_service.update_state(db, user.id, catalog_id, body.status)
 
 
-@router.patch("/state/batch")
+@router.patch("/state/batch", response_model=RadarBatchResponse)
 async def batch_update_radar_state(
     body: list[RadarBatchItem],
     db: AsyncSession = Depends(get_db),

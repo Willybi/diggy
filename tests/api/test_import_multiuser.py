@@ -193,7 +193,7 @@ class TestMultiUserIsolation:
 class TestScopePromotion:
     def test_enrich_promotes_private_to_shared(self):
         """When enrich_entry sets deezer_id on a private entry, it should promote to shared."""
-        from deezer_enrich import enrich_entry
+        from workers.deezer_enrich import enrich_entry
 
         class FakeEntry:
             def __init__(self):
@@ -217,7 +217,7 @@ class TestScopePromotion:
 
     def test_enrich_shared_stays_shared(self):
         """Enriching a shared entry should not change its scope."""
-        from deezer_enrich import enrich_entry
+        from workers.deezer_enrich import enrich_entry
 
         class FakeEntry:
             def __init__(self):
@@ -239,7 +239,7 @@ class TestScopePromotion:
 
     def test_no_promotion_without_deezer_match(self):
         """If enrich_entry makes no changes (already enriched), no promotion."""
-        from deezer_enrich import enrich_entry
+        from workers.deezer_enrich import enrich_entry
 
         class FakeEntry:
             def __init__(self):

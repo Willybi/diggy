@@ -11,6 +11,7 @@
       <PlayerBar v-if="player.visible" />
     </Transition>
     <BottomNav v-if="auth.isAuthenticated" />
+    <ToastNotification />
   </div>
 </template>
 
@@ -18,6 +19,7 @@
 import SidebarNav from './components/SidebarNav.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import BottomNav from './components/BottomNav.vue'
+import ToastNotification from './components/ToastNotification.vue'
 import { useAudioPlayer } from './stores/audioPlayer'
 import { useAuthStore } from './stores/auth'
 import { useOpinionsStore } from './stores/opinions.js'

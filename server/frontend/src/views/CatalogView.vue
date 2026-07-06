@@ -347,6 +347,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import api from '../utils/api.js'
+import { useToast } from '../stores/toast.js'
 import SearchBox from '../components/SearchBox.vue'
 import ImportRekordboxModal from '../components/ImportRekordboxModal.vue'
 import ScorePill from '../components/ScorePill.vue'
@@ -460,7 +461,9 @@ async function fetchNLib() {
   try {
     const { data } = await api.get('/api/catalog/', { params: { in_lib: true, limit: 1 } })
     nLib.value = data.total
-  } catch {}
+  } catch {
+    useToast().show('Erreur lors du chargement de la bibliothèque')
+  }
 }
 
 function goTo(p) {

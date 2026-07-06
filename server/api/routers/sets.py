@@ -16,14 +16,16 @@ from models import (
     UserSetFollow,
     UserTrack,
 )
-from pydantic import BaseModel
 from schemas import (
     ArtistRef,
     DJSetDetailOut,
     SetArtistDetailOut,
+    SetImportIn,
+    SetImportResponse,
     SetListItemOut,
     SetListResponse,
     SetTrackDetailOut,
+    TrackIDSearchResult,
 )
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,27 +34,7 @@ from sqlalchemy.orm import selectinload
 router = APIRouter(prefix="/sets", tags=["sets"])
 
 
-# ---------- Schemas ----------
-
-
-class SetImportIn(BaseModel):
-    url: str | None = None
-    slug: str | None = None
-
-
 # ---------- Search TrackID ----------
-
-
-class TrackIDSearchResult(BaseModel):
-    trackid_id: int
-    slug: str
-    title: str
-    channel: str | None = None
-    artwork_url: str | None = None
-    track_count: int = 0
-    duration: str | None = None
-    created_on: str | None = None
-    already_imported: bool = False
 
 
 @router.get("/search", response_model=list[TrackIDSearchResult])
@@ -167,7 +149,7 @@ async def list_sets(
 # ---------- Import ----------
 
 
-@router.post("/import")
+@router.post("/import", response_model=SetImportResponse)
 async def import_set_url(
     body: SetImportIn,
     db: AsyncSession = Depends(get_db),

@@ -16,32 +16,17 @@ from dependencies import get_current_user, get_redis
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 from models import User
-from pydantic import BaseModel
+from schemas import GoogleLoginResponse, UserOut
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# ---------- Schemas ----------
-
-
-class UserOut(BaseModel):
-    id: int
-    email: str
-    username: str
-    picture_url: str | None = None
-    is_active: bool
-    is_admin: bool = False
-    created_at: datetime | None
-
-    model_config = {"from_attributes": True}
-
-
 # ---------- Endpoints ----------
 
 
-@router.get("/google/login")
+@router.get("/google/login", response_model=GoogleLoginResponse)
 async def google_login(redis=Depends(get_redis)):
     """Return Google authorization URL and state for CSRF check."""
     state = secrets.token_urlsafe(32)

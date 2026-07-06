@@ -3,19 +3,13 @@ from dependencies import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from models import User, UserOpinion
 from opinion_sync import sync_playlist_opinion, sync_set_opinion, sync_track_opinion
-from pydantic import BaseModel
+from schemas import OpinionSetResponse, OpinionUpdate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/opinions", tags=["opinions"])
 
 VALID_TYPES = {"artist", "set", "playlist", "genre", "track"}
-
-
-class OpinionUpdate(BaseModel):
-    entity_type: str
-    entity_key: str
-    opinion: str | None  # 'liked' | 'disliked' | None (remove)
 
 
 @router.get("/")
@@ -34,7 +28,7 @@ async def get_opinions(
     return out
 
 
-@router.patch("/")
+@router.patch("/", response_model=OpinionSetResponse)
 async def set_opinion(
     body: OpinionUpdate,
     db: AsyncSession = Depends(get_db),

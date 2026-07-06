@@ -1,0 +1,113 @@
+from database import Base
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import relationship
+
+
+class DJSet(Base):
+    __tablename__ = "sets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    external_id = Column(String(64), nullable=True)
+    source = Column(String(64), nullable=False)
+    source_url = Column(Text, nullable=True)
+    title = Column(String(500), nullable=False)
+    event = Column(String(255), nullable=True)
+    venue = Column(String(255), nullable=True)
+    played_date = Column(Date, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True)
+    external_slug = Column(String(500), nullable=True)
+    has_artwork = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True))
+    last_crawled_at = Column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("external_id", "source", name="uq_set_external_source"),
+    )
+
+    tracks = relationship(
+        "SetTrack",
+        back_populates="dj_set",
+        cascade="all, delete-orphan",
+        order_by="SetTrack.position",
+    )
+    artist_links = relationship(
+        "SetArtist",
+        back_populates="dj_set",
+        cascade="all, delete-orphan",
+    )
+
+
+class SetArtist(Base):
+    __tablename__ = "set_artists"
+
+    set_id = Column(
+        Integer, ForeignKey("sets.id", ondelete="CASCADE"), primary_key=True
+    )
+    artist_id = Column(
+        Integer,
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    role = Column(String(32), nullable=True)
+    position = Column(Integer, nullable=True)
+
+    dj_set = relationship("DJSet", back_populates="artist_links")
+    artist = relationship("Artist", back_populates="set_links")
+
+
+class SetTrack(Base):
+    __tablename__ = "set_tracks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    set_id = Column(
+        Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    catalog_id = Column(
+        Integer,
+        ForeignKey("catalog.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    position = Column(Integer, nullable=False)
+    timecode_ms = Column(Integer, nullable=True)
+    raw_title = Column(String(500), nullable=True)
+    raw_artist = Column(String(500), nullable=True)
+    is_id = Column(Boolean, default=False)
+    trackid_music_track_id = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("set_id", "position", name="uq_set_track_position"),
+    )
+
+    dj_set = relationship("DJSet", back_populates="tracks")
+    catalog = relationship("CatalogEntry")
+
+
+class UserSetFollow(Base):
+    __tablename__ = "user_set_follows"
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    set_id = Column(
+        Integer,
+        ForeignKey("sets.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    followed_at = Column(DateTime(timezone=True))

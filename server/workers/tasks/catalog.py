@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3, "countdown": 60},
     retry_backoff=True,
+    soft_time_limit=7200,
+    time_limit=9000,
 )
 def enrich_catalog(self):
     """

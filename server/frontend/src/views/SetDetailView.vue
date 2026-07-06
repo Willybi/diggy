@@ -196,6 +196,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
+import { useToast } from '../stores/toast.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -236,7 +237,9 @@ async function addSetArtist(artistId) {
     djSet.value = data
     saQuery.value = ''
     saResults.value = []
-  } catch {}
+  } catch {
+    useToast().show('Erreur lors de l\'ajout de l\'artiste')
+  }
 }
 
 async function removeSetArtist(artistId) {
@@ -244,7 +247,9 @@ async function removeSetArtist(artistId) {
   try {
     await api.delete(`/api/admin/sets/${djSet.value.id}/artists/${artistId}`)
     djSet.value.artists = djSet.value.artists.filter((a) => a.artist_id !== artistId)
-  } catch {}
+  } catch {
+    useToast().show('Erreur lors de la suppression de l\'artiste')
+  }
 }
 
 function playTrack(t) {

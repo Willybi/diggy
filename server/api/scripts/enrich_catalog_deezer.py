@@ -18,13 +18,14 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))  # server/
 
-from deezer_enrich import enrich_entry, search_deezer
 from models import CatalogEntry
 from services.image_service import ImageService
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from workers.deezer_enrich import enrich_entry, search_deezer
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 

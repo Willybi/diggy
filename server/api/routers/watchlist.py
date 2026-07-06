@@ -15,6 +15,9 @@ from models import (
     WatchedEntity,
 )
 from schemas import (
+    CrawlQueuedResponse,
+    CrawlStatusResponse,
+    FetchArtworkResponse,
     PlaylistTrackOut,
     WatchedEntityBrowseOut,
     WatchedEntityDetailOut,
@@ -282,7 +285,7 @@ async def follow_playlist(
     return entity
 
 
-@router.post("/{entry_id}/crawl", status_code=202)
+@router.post("/{entry_id}/crawl", status_code=202, response_model=CrawlQueuedResponse)
 async def crawl_playlist(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
@@ -328,7 +331,7 @@ async def mark_crawled(
     return entry
 
 
-@router.get("/{entry_id}/crawl-status")
+@router.get("/{entry_id}/crawl-status", response_model=CrawlStatusResponse)
 async def crawl_status(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
@@ -371,7 +374,7 @@ async def crawl_status(
         return {"status": "queued"}
 
 
-@router.post("/{entry_id}/fetch-artwork")
+@router.post("/{entry_id}/fetch-artwork", response_model=FetchArtworkResponse)
 async def fetch_playlist_artwork(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
