@@ -161,6 +161,21 @@
         </p>
       </RelBlock>
 
+      <!-- Artistes proches -->
+      <RelBlock v-if="connections.length" title="Artistes proches" :count="connections.length">
+        <div class="shelf">
+          <ShelfCard
+            v-for="c in connections"
+            :key="c.artist_id"
+            variant="round"
+            :image-src="c.has_artwork ? `/storage/artist-artworks/${c.artist_id}.jpg` : null"
+            :title="c.name"
+            :fallback-letter="c.name?.[0] || '?'"
+            :to="`/artist/${c.artist_id}`"
+          />
+        </div>
+      </RelBlock>
+
       <RelBlock v-if="artist.sets.length" title="Sets" :count="artist.stats.nb_sets">
         <RouterLink
           v-for="s in artist.sets"
@@ -182,22 +197,6 @@
             <RingPct :value="s.identified_tracks" :total="s.total_tracks" />
           </span>
         </RouterLink>
-      </RelBlock>
-
-      <!-- Artistes proches -->
-      <RelBlock v-if="connections.length" title="Artistes proches" :count="connections.length">
-        <div class="shelf">
-          <ShelfCard
-            v-for="c in connections"
-            :key="c.artist_id"
-            variant="round"
-            :image-src="c.has_artwork ? `/storage/artist-artworks/${c.artist_id}.jpg` : null"
-            :title="c.name"
-            :subtitle="connectionSub(c)"
-            :fallback-letter="c.name?.[0] || '?'"
-            :to="`/artist/${c.artist_id}`"
-          />
-        </div>
       </RelBlock>
 
       <!-- Admin panel -->
@@ -263,7 +262,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
@@ -395,13 +394,6 @@ const stats = computed(() => {
   ]
 })
 
-function connectionSub(c) {
-  if (c.shared_tracks > 0) return `${c.shared_tracks} collab${c.shared_tracks > 1 ? 's' : ''}`
-  if (c.shared_sets > 0) return `${c.shared_sets} set${c.shared_sets > 1 ? 's' : ''}`
-  if (c.shared_playlists > 0) return `${c.shared_playlists} playlist${c.shared_playlists > 1 ? 's' : ''}`
-  return `${Math.round(c.score * 100)}%`
-}
-
 function setSub(s) {
   const parts = []
   if (s.played_date) parts.push(fmtDate(s.played_date))
@@ -414,19 +406,27 @@ function setSub(s) {
   return parts.join(' · ')
 }
 
-onMounted(async () => {
+async function loadArtist(id) {
+  loading.value = true
+  connections.value = []
+  showAllTracks.value = false
   try {
-    const { data } = await api.get(`/api/artists/${route.params.id}`)
+    const { data } = await api.get(`/api/artists/${id}`)
     artist.value = data
   } catch {
     artist.value = null
   } finally {
     loading.value = false
   }
-  // Fetch connections (non-blocking)
-  api.get(`/api/artists/${route.params.id}/connections`)
+  api.get(`/api/artists/${id}/connections`)
     .then(({ data }) => { connections.value = data })
     .catch(() => {})
+}
+
+onMounted(() => loadArtist(route.params.id))
+
+watch(() => route.params.id, (id) => {
+  if (id) loadArtist(id)
 })
 </script>
 
