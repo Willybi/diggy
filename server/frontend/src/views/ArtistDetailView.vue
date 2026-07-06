@@ -184,6 +184,22 @@
         </RouterLink>
       </RelBlock>
 
+      <!-- Artistes proches -->
+      <RelBlock v-if="connections.length" title="Artistes proches" :count="connections.length">
+        <div class="shelf">
+          <ShelfCard
+            v-for="c in connections"
+            :key="c.artist_id"
+            variant="round"
+            :image-src="c.has_artwork ? `/storage/artist-artworks/${c.artist_id}.jpg` : null"
+            :title="c.name"
+            :subtitle="connectionSub(c)"
+            :fallback-letter="c.name?.[0] || '?'"
+            :to="`/artist/${c.artist_id}`"
+          />
+        </div>
+      </RelBlock>
+
       <!-- Admin panel -->
       <AdminCard>
         <div class="admin-header">
@@ -256,6 +272,7 @@ import RelBlock from '../components/RelBlock.vue'
 import StyleTag from '../components/StyleTag.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
 import AdminCard from '../components/AdminCard.vue'
+import ShelfCard from '../components/ShelfCard.vue'
 import LibDot from '../components/LibDot.vue'
 import RingPct from '../components/RingPct.vue'
 import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
@@ -266,6 +283,7 @@ const player = useAudioPlayer()
 const artist = ref(null)
 const loading = ref(true)
 const showAllTracks = ref(false)
+const connections = ref([])
 
 // Admin Deezer link
 const dzQuery = ref('')
@@ -377,6 +395,13 @@ const stats = computed(() => {
   ]
 })
 
+function connectionSub(c) {
+  if (c.shared_tracks > 0) return `${c.shared_tracks} collab${c.shared_tracks > 1 ? 's' : ''}`
+  if (c.shared_sets > 0) return `${c.shared_sets} set${c.shared_sets > 1 ? 's' : ''}`
+  if (c.shared_playlists > 0) return `${c.shared_playlists} playlist${c.shared_playlists > 1 ? 's' : ''}`
+  return `${Math.round(c.score * 100)}%`
+}
+
 function setSub(s) {
   const parts = []
   if (s.played_date) parts.push(fmtDate(s.played_date))
@@ -398,6 +423,10 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  // Fetch connections (non-blocking)
+  api.get(`/api/artists/${route.params.id}/connections`)
+    .then(({ data }) => { connections.value = data })
+    .catch(() => {})
 })
 </script>
 
@@ -795,6 +824,19 @@ onMounted(async () => {
   font-size: 14px;
   font-style: italic;
   padding-top: 40px;
+}
+
+/* Shelf (artistes proches) */
+.shelf {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 14px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.shelf::-webkit-scrollbar {
+  display: none;
 }
 
 /* Admin card */

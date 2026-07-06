@@ -42,6 +42,22 @@ async def random_artist_track(
         raise HTTPException(404, str(e))
 
 
+@router.get("/{artist_id}/connections")
+async def get_artist_connections(
+    artist_id: int,
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    from services import artist_connection_service
+
+    try:
+        return await artist_connection_service.get_connections(
+            db, artist_id, limit=limit,
+        )
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+
 @router.get("/{artist_id}", response_model=ArtistDetailOut)
 async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
     try:

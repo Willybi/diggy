@@ -230,6 +230,25 @@ class SimilarTrackOut(CatalogEntryOut):
     similarity: SimilarityBlock
 
 
+class ArtistConnectionComponents(BaseModel):
+    collabs: float = 0.0    # pts 0-3
+    sets: float = 0.0       # pts 0-2
+    playlists: float = 0.0  # pts 0-2
+    style: float = 0.0      # pts 0-1
+
+
+class ArtistConnectionOut(BaseModel):
+    artist_id: int
+    name: str
+    has_artwork: bool = False
+    genres: list[GenreRef] = []
+    score: float
+    components: ArtistConnectionComponents
+    shared_tracks: int = 0
+    shared_sets: int = 0
+    shared_playlists: int = 0
+
+
 class TrendItem(BaseModel):
     catalog_id: int
     title: str

@@ -179,3 +179,29 @@ class TestListArtistsPagination:
         data = r.json()
         assert data["items"][0]["name"] == "Alpha"
         assert data["items"][1]["name"] == "Zebra"
+
+
+class TestArtistConnections:
+    async def test_connections_200(self, client, db):
+        a1 = Artist(name="ConnA", normalized_name="conn-a")
+        a2 = Artist(name="ConnB", normalized_name="conn-b")
+        track = CatalogEntry(title="Duo", artist="A & B", normalized_key="conn|duo")
+        db.add_all([a1, a2, track])
+        await db.commit()
+        await db.refresh(a1)
+        await db.refresh(a2)
+        await db.refresh(track)
+        db.add(CatalogArtist(catalog_id=track.id, artist_id=a1.id, position=1))
+        db.add(CatalogArtist(catalog_id=track.id, artist_id=a2.id, position=2))
+        await db.commit()
+
+        r = await client.get(f"/api/artists/{a1.id}/connections")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["artist_id"] == a2.id
+
+    async def test_connections_404(self, client):
+        r = await client.get("/api/artists/999999/connections")
+        assert r.status_code == 404
