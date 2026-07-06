@@ -167,31 +167,21 @@ def search_deezer(
     return None
 
 
-def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
-    """Link a Deezer artist from a search hit to a catalog entry via catalog_artists.
+_DEEZER_ROLE_MAP = {"Main": "primary", "Featured": "featured"}
 
-    Uses synchronous session (for Celery tasks).
-    Creates the Artist if it doesn't exist, then inserts CatalogArtist link.
-    """
-    from models import Artist, CatalogArtist
+
+def _resolve_or_create_artist(session, name: str, deezer_id: str | None):
+    """Find an Artist by name/alias, or create one. Returns the Artist instance."""
+    from models import Artist, ArtistAlias
     from sqlalchemy import select as sa_select
     from utils import normalize
 
-    dz_artist = hit.get("artist") or {}
-    artist_name = dz_artist.get("name")
-    dz_artist_id = str(dz_artist.get("id", "")) if dz_artist.get("id") else None
-    if not artist_name:
-        return
-
-    norm = normalize(artist_name)
+    norm = normalize(name)
     artist = session.execute(
         sa_select(Artist).where(Artist.normalized_name == norm)
     ).scalar_one_or_none()
 
     if not artist:
-        # Check aliases
-        from models import ArtistAlias
-
         alias = session.execute(
             sa_select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
         ).scalar_one_or_none()
@@ -202,19 +192,27 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
         from datetime import datetime, timezone
 
         artist = Artist(
-            name=artist_name,
+            name=name,
             normalized_name=norm,
             created_at=datetime.now(timezone.utc),
         )
-        if dz_artist_id:
-            artist.deezer_id = dz_artist_id
+        if deezer_id:
+            artist.deezer_id = deezer_id
         session.add(artist)
         session.flush()
 
-    # Check if link already exists
+    return artist
+
+
+def _link_one_artist(session, catalog_id: int, artist_id: int, role: str, position: int):
+    """Insert a CatalogArtist link if it doesn't already exist."""
+    from models import CatalogArtist
+    from sqlalchemy import select as sa_select
+
     existing = session.execute(
         sa_select(CatalogArtist).where(
-            CatalogArtist.catalog_id == catalog_id, CatalogArtist.artist_id == artist.id
+            CatalogArtist.catalog_id == catalog_id,
+            CatalogArtist.artist_id == artist_id,
         )
     ).scalar_one_or_none()
 
@@ -222,11 +220,44 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
         session.add(
             CatalogArtist(
                 catalog_id=catalog_id,
-                artist_id=artist.id,
-                role="primary",
-                position=0,
+                artist_id=artist_id,
+                role=role,
+                position=position,
             )
         )
+
+
+def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
+    """Link Deezer artists from a track hit to a catalog entry via catalog_artists.
+
+    Uses synchronous session (for Celery tasks).
+    When the hit contains a ``contributors`` list (from /track/{id}), links all
+    artists with proper roles and positions. Otherwise falls back to the single
+    ``hit["artist"]`` object (from /search).
+    """
+    contributors = hit.get("contributors") or []
+    if contributors:
+        seen_ids = set()
+        for position, contrib in enumerate(contributors):
+            artist_name = contrib.get("name")
+            dz_id = str(contrib["id"]) if contrib.get("id") else None
+            if not artist_name or dz_id in seen_ids:
+                continue
+            if dz_id:
+                seen_ids.add(dz_id)
+            artist = _resolve_or_create_artist(session, artist_name, dz_id)
+            role = _DEEZER_ROLE_MAP.get(contrib.get("role", ""), "primary")
+            _link_one_artist(session, catalog_id, artist.id, role, position)
+        return
+
+    # Fallback: single artist from search results
+    dz_artist = hit.get("artist") or {}
+    artist_name = dz_artist.get("name")
+    dz_artist_id = str(dz_artist.get("id", "")) if dz_artist.get("id") else None
+    if not artist_name:
+        return
+    artist = _resolve_or_create_artist(session, artist_name, dz_artist_id)
+    _link_one_artist(session, catalog_id, artist.id, "primary", 0)
 
 
 

@@ -1,5 +1,10 @@
 # Re-export all tasks for Celery autodiscover
-from workers.tasks.artists import fetch_artist_artworks, link_set_artists, sync_artists
+from workers.tasks.artists import (
+    backfill_multi_artists,
+    fetch_artist_artworks,
+    link_set_artists,
+    sync_artists,
+)
 from workers.tasks.catalog import enrich_catalog, enrich_catalog_beatport
 from workers.tasks.genres import reclassify_all_genres, reclassify_genres_chunk
 from workers.tasks.import_rb import import_rekordbox_xml
@@ -26,4 +31,5 @@ __all__ = [
     "reclassify_all_genres",
     "compute_trends",
     "import_rekordbox_xml",
+    "backfill_multi_artists",
 ]

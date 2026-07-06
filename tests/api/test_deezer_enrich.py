@@ -1,14 +1,20 @@
 """Tests for server/api/deezer_enrich.py — pure logic tests."""
 from unittest.mock import MagicMock, patch
 
+import pytest
+from database import Base
 from deezer_enrich import (
     _first_artist,
     _is_remix_paren,
     _strip_non_remix_parens,
     _strip_safe_suffixes,
     enrich_entry,
+    link_catalog_artist_from_hit,
 )
+from models import Artist, ArtistAlias, CatalogArtist, CatalogEntry
 from services.image_service import ImageService
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 
 class TestStripSafeSuffixes:
@@ -157,3 +163,176 @@ class TestImageServiceUploadFromUrl:
         result = ImageService.upload_from_url("http://img.jpg", "bucket", "key.jpg")
         assert result is True
         mock_upload.assert_called_once_with(b"x" * 2000, "bucket", "key.jpg")
+
+
+# ── Tests for multi-artist linking ──
+
+
+@pytest.fixture
+def sync_session():
+    """Sync SQLite session with all tables created."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
+
+
+def _make_catalog(session, title="Track", artist="Artist A"):
+    entry = CatalogEntry(
+        title=title,
+        artist=artist,
+        normalized_key=f"{artist}|{title}".lower(),
+    )
+    session.add(entry)
+    session.flush()
+    return entry
+
+
+class TestLinkCatalogArtistFromHit:
+    def test_links_single_artist_from_search_hit(self, sync_session):
+        entry = _make_catalog(sync_session)
+        hit = {"artist": {"id": 100, "name": "Artist A"}}
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        links = sync_session.execute(
+            select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+        ).scalars().all()
+        assert len(links) == 1
+        assert links[0].role == "primary"
+        assert links[0].position == 0
+
+    def test_links_multiple_artists_from_contributors(self, sync_session):
+        entry = _make_catalog(sync_session)
+        hit = {
+            "artist": {"id": 100, "name": "Artist A"},
+            "contributors": [
+                {"id": 100, "name": "Artist A", "role": "Main"},
+                {"id": 200, "name": "Artist B", "role": "Featured"},
+            ],
+        }
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        links = sync_session.execute(
+            select(CatalogArtist)
+            .where(CatalogArtist.catalog_id == entry.id)
+            .order_by(CatalogArtist.position)
+        ).scalars().all()
+        assert len(links) == 2
+        assert links[0].role == "primary"
+        assert links[0].position == 0
+        assert links[1].role == "featured"
+        assert links[1].position == 1
+
+    def test_idempotent_no_duplicates(self, sync_session):
+        entry = _make_catalog(sync_session)
+        hit = {
+            "artist": {"id": 100, "name": "Artist A"},
+            "contributors": [
+                {"id": 100, "name": "Artist A", "role": "Main"},
+                {"id": 200, "name": "Artist B", "role": "Featured"},
+            ],
+        }
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        links = sync_session.execute(
+            select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+        ).scalars().all()
+        assert len(links) == 2
+
+    def test_creates_artist_if_not_exists(self, sync_session):
+        entry = _make_catalog(sync_session)
+        hit = {"artist": {"id": 999, "name": "New Artist"}}
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        artist = sync_session.execute(
+            select(Artist).where(Artist.name == "New Artist")
+        ).scalar_one()
+        assert artist.deezer_id == "999"
+
+    def test_resolves_via_alias(self, sync_session):
+        artist = Artist(name="Official Name", normalized_name="official name")
+        sync_session.add(artist)
+        sync_session.flush()
+        alias = ArtistAlias(
+            artist_id=artist.id,
+            alias="Alt Name",
+            normalized_alias="alt name",
+        )
+        sync_session.add(alias)
+        sync_session.flush()
+
+        entry = _make_catalog(sync_session)
+        hit = {"artist": {"id": 50, "name": "Alt Name"}}
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        link = sync_session.execute(
+            select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+        ).scalar_one()
+        assert link.artist_id == artist.id
+
+    def test_maps_deezer_roles(self, sync_session):
+        entry = _make_catalog(sync_session)
+        hit = {
+            "contributors": [
+                {"id": 1, "name": "Main Guy", "role": "Main"},
+                {"id": 2, "name": "Feat Guy", "role": "Featured"},
+                {"id": 3, "name": "Unknown Role", "role": "SomeOther"},
+            ],
+        }
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        links = sync_session.execute(
+            select(CatalogArtist)
+            .where(CatalogArtist.catalog_id == entry.id)
+            .order_by(CatalogArtist.position)
+        ).scalars().all()
+        assert [link.role for link in links] == ["primary", "featured", "primary"]
+
+    def test_falls_back_when_no_contributors(self, sync_session):
+        entry = _make_catalog(sync_session)
+        # Empty contributors list — should fall back to hit["artist"]
+        hit = {
+            "artist": {"id": 100, "name": "Solo Artist"},
+            "contributors": [],
+        }
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        links = sync_session.execute(
+            select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+        ).scalars().all()
+        assert len(links) == 1
+        assert links[0].role == "primary"
+
+    def test_skips_duplicate_contributor_ids(self, sync_session):
+        """Deezer sometimes returns same artist twice in contributors."""
+        entry = _make_catalog(sync_session)
+        hit = {
+            "contributors": [
+                {"id": 100, "name": "Artist A", "role": "Main"},
+                {"id": 100, "name": "Artist A", "role": "Featured"},
+            ],
+        }
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        links = sync_session.execute(
+            select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+        ).scalars().all()
+        assert len(links) == 1

@@ -652,3 +652,129 @@ def link_set_artists(self):
             session.commit()
 
     return {"linked": linked, "skipped": skipped}
+
+
+@celery_app.task(
+    name="workers.tasks.backfill_multi_artists",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 60},
+    retry_backoff=True,
+    soft_time_limit=7200,
+    time_limit=9000,
+)
+def backfill_multi_artists(self):
+    """Re-fetch Deezer track data for catalog entries with only 1 artist linked.
+
+    Uses the /track/{deezer_id} endpoint which returns a ``contributors`` array,
+    then calls link_catalog_artist_from_hit to add missing artist links.
+    """
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import CatalogArtist, CatalogEntry
+    from workers.crawl_logger import CrawlLogger
+    from workers.db import get_engine
+
+    engine = get_engine()
+
+    _log_session = Session(engine)
+    _clog = CrawlLogger(
+        _log_session,
+        task_type="backfill_multi_artists",
+        celery_task_id=self.request.id,
+    )
+    _clog.__enter__()
+
+    async def _async_backfill():
+        from workers.async_http import HttpPool
+        from workers.rate_limiter import RateLimiter
+
+        limiter = RateLimiter()
+        enriched = 0
+        errors = 0
+
+        async with HttpPool(limiter) as pool:
+            with Session(engine) as session:
+                # Entries with a deezer_id and exactly 1 catalog_artist link
+                link_count = (
+                    select(
+                        CatalogArtist.catalog_id,
+                        func.count().label("cnt"),
+                    )
+                    .group_by(CatalogArtist.catalog_id)
+                    .subquery()
+                )
+                entries = (
+                    session.execute(
+                        select(CatalogEntry)
+                        .join(
+                            link_count,
+                            CatalogEntry.id == link_count.c.catalog_id,
+                        )
+                        .where(
+                            CatalogEntry.deezer_id.isnot(None),
+                            CatalogEntry.deezer_id != "",
+                            link_count.c.cnt == 1,
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+                logger.info(
+                    "backfill_multi_artists: %d entries with 1 artist link",
+                    len(entries),
+                )
+
+                batch = 0
+
+                async def _process_one(entry):
+                    nonlocal enriched, errors, batch
+                    try:
+                        hit = await pool.deezer_get(f"/track/{entry.deezer_id}")
+                        if not hit.get("id"):
+                            return
+                        contributors = hit.get("contributors") or []
+                        if len(contributors) <= 1:
+                            return
+                        from deezer_enrich import link_catalog_artist_from_hit
+
+                        link_catalog_artist_from_hit(session, entry.id, hit)
+                        enriched += 1
+                        batch += 1
+                        if batch % 50 == 0:
+                            session.commit()
+                            logger.info(
+                                "backfill_multi_artists: committed %d", batch
+                            )
+                    except Exception as e:
+                        errors += 1
+                        logger.warning(
+                            "backfill_multi_artists failed for catalog %s: %s",
+                            entry.id,
+                            e,
+                        )
+
+                await asyncio.gather(*[_process_one(e) for e in entries])
+                session.commit()
+
+        return {"enriched": enriched, "errors": errors, "total": len(entries)}
+
+    try:
+        result = asyncio.run(_async_backfill())
+    except Exception:
+        logger.exception("backfill_multi_artists failed")
+        _clog.set_stats({"enriched": 0, "errors": 0})
+        import sys as _sys
+
+        _clog.__exit__(*_sys.exc_info())
+        _log_session.close()
+        raise
+
+    _clog.set_stats(result)
+    _clog.__exit__(None, None, None)
+    _log_session.close()
+
+    return result

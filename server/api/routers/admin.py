@@ -125,6 +125,13 @@ async def fetch_artworks(_: User = Depends(require_admin)):
     return SyncQueued(status="queued", task_id=result.id)
 
 
+@router.post("/artists/backfill-multi-artists", response_model=SyncQueued)
+async def backfill_multi_artists(_: User = Depends(require_admin)):
+    """Re-fetch Deezer data for tracks with 1 artist to discover missing contributors."""
+    result = celery.send_task("workers.tasks.backfill_multi_artists")
+    return SyncQueued(status="queued", task_id=result.id)
+
+
 @router.get("/artists/search-deezer", response_model=list[DeezerArtistHit])
 async def search_deezer_artist(
     q: str = Query(..., max_length=100),
