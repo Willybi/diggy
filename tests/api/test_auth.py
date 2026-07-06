@@ -40,27 +40,27 @@ class TestGoogleCallback:
         )
 
     @patch("routers.auth.verify_google_token", new_callable=AsyncMock, return_value=FAKE_GOOGLE_INFO)
-    async def test_creates_user_and_redirects(self, mock_verify, client):
+    async def test_creates_user_and_returns_html(self, mock_verify, client):
         r = await self._callback(client)
-        assert r.status_code == 302
-        location = r.headers["location"]
-        assert location.startswith("/login/callback#")
-        assert "token=" in location
-        assert "user=" in location
-        assert "state=" in location
+        assert r.status_code == 200
+        body = r.text
+        assert "diggy_token" in body
+        assert "diggy_user" in body
+        assert "oauth_state" in body
+        assert "no-store" in r.headers.get("cache-control", "")
 
     @patch("routers.auth.verify_google_token", new_callable=AsyncMock, return_value=FAKE_GOOGLE_INFO)
     async def test_second_login_reuses_user(self, mock_verify, client):
         await self._callback(client)
         r = await self._callback(client)
-        assert r.status_code == 302
+        assert r.status_code == 200
         # Still works — same user, no duplicate error
 
     @patch("routers.auth.verify_google_token", new_callable=AsyncMock, return_value=FAKE_GOOGLE_INFO)
-    async def test_redirect_contains_state(self, mock_verify, client):
+    async def test_html_contains_state(self, mock_verify, client):
         r = await self._callback(client, state="mystate123")
-        assert r.status_code == 302
-        assert "mystate123" in r.headers["location"]
+        assert r.status_code == 200
+        assert "mystate123" in r.text
 
 
 class TestMe:
