@@ -40,7 +40,7 @@ server/
 │   └── tasks/               # 7 modules: radar, catalog, artists, genres,
 │                            # import_rb, sets, trends
 ├── frontend/src/
-│   ├── views/               # 14 views (one per route)
+│   ├── views/               # 17 views (16 routed + 1 dead TagsView)
 │   ├── components/          # 25 shared components
 │   ├── composables/         # useInfiniteScroll, useStyleMap, useTheme
 │   ├── stores/              # Pinia: auth, audioPlayer, opinions
@@ -168,8 +168,8 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant.
 | Proposing features, choosing next work | `docs/ROADMAP.md` (or run `/roadmap_status`) |
 | Starting work on a chantier | Its agent prompt in `docs/prompts/` and its brief in `docs/`. If none exist yet for the target chantier, create them via `/work_manager`. |
 | Similarity/scoring work (C2) | `docs/similarity_calibration.ipynb` |
-| UI change on an existing view | Matching handoff in `_design/` (brief + HTML mockup + tokens) |
-| Anything about past decisions | `docs/completed/` and `docs/PROJECT_STATUS_*.md` are FROZEN archives: read-only, never treat as current state, NEVER modify |
+| UI change on an existing view | `_design/PAGES_REFERENCE.md` (view→handoff index), then the matching handoff folder |
+| Anything about past decisions | `docs/completed/` contains FROZEN archives: read-only, never treat as current state, NEVER modify |
 
 ## Maintaining This File
 
