@@ -44,6 +44,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
+ N1   Nettoyage residus                     BAS         1 jour       A FAIRE
 ```
 
 ### Chantiers termines (reference)
@@ -88,6 +89,7 @@ F5 ─────────> Rien (parallelisable avec tout)
 C3 (ouvert) = declenchement manuel, apres H0 (FAIT) + C1 + idealement C6
 C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> C3 (apres ouverture)
+N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 ```
 
 ### Decisions produit actees
@@ -486,6 +488,45 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 
 ---
 
+## N1 — Nettoyage residus
+
+**Priorite : BAS**
+**Estimation : 1 jour**
+**Depend de : rien (parallelisable avec tout)**
+**Statut : A FAIRE**
+
+### Objectif
+
+Supprimer le code mort et les residus de fonctionnalites supprimees. Reduction de surface d'attaque + coherence avec les conventions actuelles.
+
+### N1.a — Residus auth email/password
+
+L'auth est Google OAuth only depuis F3, mais des restes de l'ancien login email/password subsistent probablement :
+
+- [ ] Routes mortes dans `server/api/routers/auth.py` (login/register email/password)
+- [ ] Variables d'env avec defaults liees a l'ancien flow
+- [ ] Colonne `hashed_password` eventuelle sur `users` (verifier `models.py`, prevoir migration de drop si elle existe)
+- [ ] Tests obsoletes couvrant l'ancien flow
+
+### N1.b — Suppression TagsView
+
+TagsView est une vue morte, `/tags` redirige vers `/genres`.
+
+- [ ] Supprimer `TagsView.vue` du frontend
+- [ ] Supprimer la route `/tags` du router Vue
+
+### Definition of Done
+
+```bash
+# Aucune route email/password dans auth.py
+# Pas de colonne hashed_password sur users
+# Pas de TagsView.vue dans le frontend
+# Pas de route /tags dans le router
+# Tests CI passent (pytest + vitest + lint)
+```
+
+---
+
 ## Reliquats hors chantiers (opportunistes)
 
 | Point | Quand |
@@ -517,6 +558,7 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 | C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | H0 (FAIT) + C1 + idealement C6 |
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
 | C5 | Collections v2 (items polymorphes + dossiers) | Apres ouverture | C1 |
+| N1 | Nettoyage residus (auth legacy + TagsView morte) | Opportuniste | Rien |
 
 Notes :
 - La velocite sur les ajouts (C1.b) est calculable des maintenant depuis `radar_tracks`. Seul le signal de retrait (`removed_at`) necessite d'accumuler de l'historique a partir de C0.1.
