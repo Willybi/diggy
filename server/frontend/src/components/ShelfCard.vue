@@ -100,6 +100,7 @@ defineProps({
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   max-width: 100%;
+  min-height: 2.6em;
 }
 .sc-sub {
   font: 400 10.5px/1 var(--font-mono);

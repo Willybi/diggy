@@ -93,22 +93,27 @@ function goPage(p) {
 
 <style scoped>
 .shelf {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 14px;
-  overflow-x: auto;
   padding: 14px;
-  scroll-snap-type: x proximity;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
+  max-height: 180px;
 }
-.shelf::-webkit-scrollbar {
-  display: none;
+.shelf :deep(.shelf-card) {
+  width: auto;
+  flex: initial;
 }
 
 .shelf-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 14px;
   padding: 14px;
+}
+.shelf-grid :deep(.shelf-card) {
+  width: auto;
+  flex: initial;
 }
 
 .load-more {
