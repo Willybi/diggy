@@ -282,32 +282,32 @@ Methode : prototype notebook sur les donnees reelles (~5000 radar_tracks), calib
 **Priorite : MOYEN**
 **Estimation : 1-2 jours**
 **Depend de : C1 (TERMINE)**
-**Statut : A FAIRE — parallélisable avec C2**
+**Statut : TERMINE (2026-07-06)**
 
 ### P1.1 — PlayerBar : navigation titre et artiste
 
 Le titre et l'artiste dans la PlayerBar sont des `<span>` inertes. Les rendre cliquables.
 
-- [ ] Titre cliquable → `/catalog/:catalog_id`
-- [ ] Artiste cliquable → `/artist/:artist_id`
-- [ ] Stocker `artist_id` dans le player store lors du `play()` (champ absent actuellement)
+- [x] Titre cliquable → `/catalog/:catalog_id`
+- [x] Artiste cliquable → `/artist/:artist_id` (conditionnel, span fallback si null)
+- [x] Stocker `artist_id` dans le player store lors du `play()` + mise a jour de 10 appelants
 
 ### P1.2 — Boutons Play dans TrackDetailView
 
 Les sections "Du même artiste" et "Tracks similaires" sont des `RouterLink` sans bouton play,
 contrairement aux mini-rows de ArtistDetailView qui en ont un.
 
-- [ ] Ajouter bouton play (conditionnel sur `has_preview`) dans la grille "Du même artiste"
-- [ ] Ajouter bouton play dans la grille "Tracks similaires"
-- [ ] Vérifier que `has_preview` est bien exposé par les endpoints `/api/catalog/{id}/similar` et `same_artist_tracks`
+- [x] Ajouter bouton play (conditionnel sur `has_preview`) dans la grille "Du même artiste"
+- [x] Ajouter bouton play dans la grille "Tracks similaires"
+- [x] `has_preview` ajoute a `SameArtistTrackOut` + query SQL corrigee
 
 ### P1.3 — ScorePill : refonte pour les floats
 
 Le score radar (`trend_score_10`) peut désormais être un float. Le composant actuel
 affiche `7.3/10` avec 10 barres binaires (on/off) — lisible mais pas optimal pour un continu.
 
-- [ ] Remplacer les 10 barres discrètes par une barre de progression continue (`width: score * 10%`)
-- [ ] Arrondir l'affichage texte à 1 décimale si float, entier sinon
+- [x] Remplacer les 10 barres discretes par une barre de progression continue (`width: score * 10%`, `color-mix` pour le fond)
+- [x] Arrondir l'affichage texte a 1 decimale si float, entier sinon
 
 ### P1.4 — GenreDetailView : pagination shelves artistes/playlists
 
@@ -315,9 +315,10 @@ Les shelves "Artistes" et "Playlists" chargent 12 items max sans possibilité d'
 Si `artistsTotal > 12` ou `playlistsTotal > 12`, les items supplémentaires sont inaccessibles.
 Audit aussi le scroll horizontal (possible conflit de container query sur mobile).
 
-- [ ] Ajouter un bouton "Voir les N autres" sous chaque shelf si total > items affichés
-- [ ] Fetch paginé au clic (limit +12 ou page suivante)
-- [ ] Auditer le CSS scroll horizontal des shelves sur mobile
+- [x] Composant `ExpandableShelf.vue` : shelf collapsed (grille auto-fill, 1 rangee) → expanded (grille wrappee + pagination interne par pages de 48)
+- [x] Integre dans GenreDetailView (artistes, fetch backend pagine) et ArtistDetailView (artistes proches, pagination client)
+- [x] Pagination intelligente (first/last + ±2 + ellipses), hauteur de cards uniforme (`min-height: 2.6em` sur titre)
+- [x] Audit mobile : pas de probleme, grille wrap naturellement
 
 ### P1.5 — Admin : split artiste manuel sur espace
 
@@ -325,10 +326,10 @@ Audit aussi le scroll horizontal (possible conflit de container query sur mobile
 Les concaténations sans séparateur type "Bad Boombox mischluft" ne sont pas détectables
 automatiquement — l'espace seul est trop ambigu.
 
-- [ ] Ajouter un mode de split manuel : afficher les tokens potentiels du nom en cliquant sur les espaces
-- [ ] UI : nom de l'artiste affiché avec espaces cliquables, clic = choisir le point de coupure
-- [ ] Générer les tokens côté frontend, envoyer vers le flow `flags/manual` existant
-- [ ] Bouton "Splitter manuellement" visible pour tous les artistes (pas uniquement ceux avec séparateur reconnu)
+- [x] Bouton "Splitter" visible pour tous les artistes avec espaces dans AdminArtists.vue
+- [x] UI : mots separes par des separateurs `·` cliquables, preview pills gauche/droite
+- [x] Flow : `POST flags/manual` + auto-resolve `split` en un seul clic "Confirmer"
+- [x] Edge case : nom sans espace → bouton masque
 
 ### Definition of Done
 
@@ -491,8 +492,8 @@ quand les tables grossiront (20K+ rows) :
 - `radar_tracks(source, detected_at DESC)` — tri radar par date et source
 - `user_opinions(user_id, opinion)` — requete "tous mes likes" rapide
 
-- [ ] Migration Alembic : index compound `radar_tracks(source, detected_at DESC)`
-- [ ] Migration Alembic : index compound `user_opinions(user_id, opinion)`
+- [x] Migration Alembic : index compound `radar_tracks(source, detected_at DESC)`
+- [x] Migration Alembic : index compound `user_opinions(user_id, opinion)`
 
 **`selectinload` explicite sur les relations accedees** (30 min)
 En async SQLAlchemy, acceder a une relation non-chargee leve `MissingGreenlet` au lieu de
@@ -500,14 +501,14 @@ faire un N+1 silencieux. Donc pas de risque de perf cachee, mais risque de crash
 si un dev accede a une relation sans y penser. Ajouter des `selectinload` explicites la ou
 des relations sont accedees dans les routers/services.
 
-- [ ] Auditer les acces relation dans les routers et ajouter `selectinload` si manquant
+- [x] Auditer les acces relation dans les routers et ajouter `selectinload` si manquant (audit : aucun cas risque trouve)
 
 **Deplacer `deezer_enrich.py` dans workers/** (15 min)
 Ce fichier utilise des sessions synchrones (contexte Celery) mais vit dans `server/api/`
 qui est entierement async. Source de confusion pour les devs. 2-3 imports a mettre a jour.
 
-- [ ] Deplacer `server/api/deezer_enrich.py` -> `server/workers/deezer_enrich.py`
-- [ ] Mettre a jour les imports dans les tasks qui l'utilisent
+- [x] Deplacer `server/api/deezer_enrich.py` -> `server/workers/deezer_enrich.py`
+- [x] Mettre a jour les imports dans les tasks qui l'utilisent
 
 ### H0.d — Frontend (4-5h)
 
@@ -526,9 +527,9 @@ components/admin/
   AdminBeatport.vue   → enrichissement Beatport
 ```
 
-- [ ] Extraire chaque section en composant dans `components/admin/`
-- [ ] AdminView.vue : layout avec tabs, charge le composant actif
-- [ ] Verification manuelle de chaque onglet apres le split
+- [x] Extraire chaque section en composant dans `components/admin/`
+- [x] AdminView.vue : layout avec tabs, charge le composant actif
+- [x] Verification manuelle de chaque onglet apres le split
 
 **Toast global pour les erreurs** (1h)
 Aucun feedback utilisateur sur les erreurs API (30+ blocs `catch {}` silencieux). Le seul
@@ -536,10 +537,10 @@ intercepteur Axios gere le 401 (auto-logout). Les 500, timeouts, erreurs reseau 
 Fix : un store Pinia `toast.js` (~10 lignes) + un composant `ToastNotification.vue` (~40 lignes)
 + branchement dans l'intercepteur Axios pour les 5xx et network errors.
 
-- [ ] Creer `stores/toast.js` (message, type, show/hide)
-- [ ] Creer `components/ToastNotification.vue` (affichage temporaire, auto-dismiss)
-- [ ] Brancher dans l'intercepteur Axios (`api.js`) pour 5xx et network errors
-- [ ] Remplacer les `catch {}` silencieux par `catch (e) { toast.show(...) }` dans les vues critiques
+- [x] Creer `stores/toast.js` (message, type, action optionnelle show/hide)
+- [x] Creer `components/ToastNotification.vue` (affichage temporaire, auto-dismiss, bouton action)
+- [x] Brancher dans l'intercepteur Axios (`api.js`) pour 5xx et network errors
+- [x] Remplacer les `catch {}` silencieux dans les vues critiques + migrer le toast local HubView
 
 ### H0.e — Qualite API : response models Pydantic (sprint dedie ~1 jour)
 
@@ -564,8 +565,8 @@ reponse et les brancher en `response_model`. ~40-50 endpoints, ~10-15 min chacun
 11. `admin.py` (468 lignes, ~15 endpoints)
 12. Reste : `taxonomy.py`, `import_rb.py`, `auth.py`
 
-- [ ] Sprint Pydantic : creer les response models pour tous les endpoints
-- [ ] Verifier la doc OpenAPI generee (`/api/docs`)
+- [x] Sprint Pydantic : creer les response models pour tous les endpoints (89/89 endpoints, 16 fichiers schemas/)
+- [x] Verifier la doc OpenAPI generee (`/api/docs`)
 
 ### H0.f — Tests d'integration backend (2-3h)
 
@@ -581,9 +582,9 @@ Flux critiques a couvrir :
 2. **Import Rekordbox** : upload XML → verifier user_tracks crees → verifier enrichissement catalog
 3. **Similarite** : creer tracks avec metadonnees variees → appeler `/catalog/{id}/similar` → verifier que le scoring est coherent
 
-- [ ] Test integration : pipeline radar (crawl → trends)
-- [ ] Test integration : import Rekordbox (upload → enrichissement)
-- [ ] Test integration : similarite (tracks → scoring)
+- [x] Test integration : pipeline radar (crawl → trends) — 4 tests
+- [x] Test integration : import Rekordbox (upload → enrichissement) — 3 tests
+- [x] Test integration : similarite (tracks → scoring) — 5 tests
 
 ### Definition of Done
 
@@ -1017,11 +1018,11 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 | R1 | Responsive mobile | Immediat apres C0 | - |
 | C1 | Trend v2 + velocite + Decouvrir + Collections | Apres R1 | - (velocite calculable sur l'existant) |
 | C2 | Moteur de similarite + graphe artistes | Apres C1 (ou en parallele partiel) | pgvector (metadonnees verifiees OK) |
-| H0 | Hygiene & Solidification | Parallelisable avec tout | Rien (audit 06/07) |
-| C6 | Veille elargie & Suivi artistes | Parallelisable avec C2 | C1 (trend). C6.0 dedup prerequis a C6.a crawl |
-| F5 | Import manuel (recherche externe Deezer/TIDAL) | Parallelisable avec C6/P1 | Rien (APIs deja accessibles) |
-| P1 | Polish & Correctifs UI (player nav, play btns, score, genres, admin split) | Parallelisable avec C2/C6 | C1 |
-| C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | C1 + idealement C6 (plus de donnees) |
+| H0 | Hygiene & Solidification | TERMINE | Rien (audit 06/07) |
+| P1 | Polish & Correctifs UI | TERMINE | C1 |
+| F5 | Import manuel (recherche externe Deezer/TIDAL) | Parallelisable avec C6 | Rien (APIs deja accessibles) |
+| C6 | Veille elargie & Suivi artistes | Parallelisable avec F5 | C1 (trend). C6.0 dedup prerequis a C6.a crawl |
+| C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | H0 (FAIT) + C1 + idealement C6 |
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
 | C5 | Collections v2 (items polymorphes + dossiers) | Apres ouverture | C1 |
 
