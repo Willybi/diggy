@@ -171,16 +171,26 @@ _DEEZER_ROLE_MAP = {"Main": "primary", "Featured": "featured"}
 
 
 def _resolve_or_create_artist(session, name: str, deezer_id: str | None):
-    """Find an Artist by name/alias, or create one. Returns the Artist instance."""
+    """Find an Artist by deezer_id, name, or alias. Creates one if not found."""
     from models import Artist, ArtistAlias
     from sqlalchemy import select as sa_select
     from utils import normalize
 
+    # 1. Lookup by deezer_id first (most reliable)
+    if deezer_id:
+        artist = session.execute(
+            sa_select(Artist).where(Artist.deezer_id == deezer_id)
+        ).scalar_one_or_none()
+        if artist:
+            return artist
+
+    # 2. Lookup by normalized name
     norm = normalize(name)
     artist = session.execute(
         sa_select(Artist).where(Artist.normalized_name == norm)
     ).scalar_one_or_none()
 
+    # 3. Lookup by alias
     if not artist:
         alias = session.execute(
             sa_select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)

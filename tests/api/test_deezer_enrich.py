@@ -336,3 +336,28 @@ class TestLinkCatalogArtistFromHit:
             select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
         ).scalars().all()
         assert len(links) == 1
+
+    def test_resolves_by_deezer_id_different_name(self, sync_session):
+        """Artist exists with deezer_id but under a different name."""
+        artist = Artist(
+            name="TNGHT",
+            normalized_name="tnght",
+            deezer_id="3582201",
+        )
+        sync_session.add(artist)
+        sync_session.flush()
+
+        entry = _make_catalog(sync_session)
+        hit = {
+            "contributors": [
+                {"id": 3582201, "name": "TNGHT (Hudson Mohawke x Lunice)", "role": "Main"},
+            ],
+        }
+
+        link_catalog_artist_from_hit(sync_session, entry.id, hit)
+        sync_session.flush()
+
+        link = sync_session.execute(
+            select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+        ).scalar_one()
+        assert link.artist_id == artist.id
