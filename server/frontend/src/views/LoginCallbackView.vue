@@ -1,24 +1,64 @@
 <template>
   <div class="callback-page">
-    <p class="callback-error">{{ message }}</p>
-    <router-link to="/login" class="callback-retry">Réessayer</router-link>
+    <template v-if="error">
+      <p class="callback-error">{{ error }}</p>
+      <router-link to="/login" class="callback-retry">Réessayer</router-link>
+    </template>
+    <p v-else>Connexion en cours…</p>
   </div>
 </template>
 
 <script setup>
-/**
- * This view only handles error redirects from the backend
- * (e.g. /login/callback?error=google_failed).
- * The success flow is handled by inline HTML returned by the API callback.
- */
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
+const router = useRouter()
 const route = useRoute()
+const auth = useAuthStore()
+const error = ref(null)
 
-const message = computed(() => {
-  if (route.query.error) return 'La connexion Google a échoué. Veuillez réessayer.'
-  return 'Erreur de connexion.'
+function readCookie(name) {
+  const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
+  return match ? match[1] : null
+}
+
+function deleteCookie(name) {
+  document.cookie = name + '=; Max-Age=0; Path=/'
+}
+
+onMounted(() => {
+  // Backend error redirect
+  if (route.query.error) {
+    error.value = 'La connexion Google a échoué. Veuillez réessayer.'
+    return
+  }
+
+  try {
+    // Read credentials from temporary cookie set by backend callback
+    const raw = readCookie('auth_callback')
+    deleteCookie('auth_callback')
+
+    if (!raw) {
+      error.value = 'Données de connexion manquantes.'
+      return
+    }
+
+    const data = JSON.parse(atob(raw.replace(/-/g, '+').replace(/_/g, '/')))
+
+    const expected = localStorage.getItem('oauth_state')
+    localStorage.removeItem('oauth_state')
+
+    if (!expected || expected !== data.state) {
+      error.value = 'Erreur de sécurité. Veuillez réessayer.'
+      return
+    }
+
+    auth._persist(data.token, data.user)
+    router.replace('/')
+  } catch {
+    error.value = 'Erreur inattendue lors de la connexion.'
+  }
 })
 </script>
 

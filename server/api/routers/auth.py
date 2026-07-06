@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import secrets
@@ -13,7 +14,7 @@ from auth import (
 from database import get_db
 from dependencies import get_current_user
 from fastapi import APIRouter, Depends
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from models import User
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -111,34 +112,24 @@ async def google_callback(
 
     user_data = {"id": user.id, "username": user.username, "is_admin": user.is_admin}
 
-    # Return HTML that persists JWT client-side then redirects.
-    # Avoids hash-fragment redirect which Safari iOS drops silently.
-    payload = json.dumps(
-        {"token": token, "user": user_data, "state": state}
-    ).replace("</", r"<\/")  # prevent script-tag breakout
+    # Pass credentials via a short-lived cookie, then redirect to the SPA
+    # callback page. Avoids hash fragments (Safari iOS drops them) and
+    # inline scripts (blocked by CSP script-src 'self').
+    cookie_value = base64.urlsafe_b64encode(
+        json.dumps({"token": token, "user": user_data, "state": state}).encode()
+    ).decode()
 
-    html = f"""\
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Connexion…</title></head>
-<body><p style="text-align:center;margin-top:40vh;font-family:system-ui">
-Connexion en cours…</p>
-<script>
-(function(){{
-  var d={payload};
-  var expected=localStorage.getItem("oauth_state");
-  localStorage.removeItem("oauth_state");
-  if(!expected||expected!==d.state){{
-    document.body.innerHTML='<p style="text-align:center;margin-top:40vh;'
-      +'font-family:system-ui;color:#e55">Erreur de s\\u00e9curit\\u00e9.'
-      +' <a href="/login">R\\u00e9essayer</a></p>';
-    return;
-  }}
-  localStorage.setItem("diggy_token",d.token);
-  localStorage.setItem("diggy_user",JSON.stringify(d.user));
-  window.location.replace("/");
-}})();
-</script></body></html>"""
-    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+    response = RedirectResponse("/login/callback", status_code=302)
+    response.set_cookie(
+        "auth_callback",
+        cookie_value,
+        max_age=60,
+        httponly=False,  # must be readable by frontend JS
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+    return response
 
 
 @router.get("/me", response_model=UserOut)

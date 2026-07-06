@@ -1,4 +1,6 @@
 """Tests for /api/auth endpoints (Google OAuth)."""
+import base64
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest_asyncio
@@ -40,27 +42,31 @@ class TestGoogleCallback:
         )
 
     @patch("routers.auth.verify_google_token", new_callable=AsyncMock, return_value=FAKE_GOOGLE_INFO)
-    async def test_creates_user_and_returns_html(self, mock_verify, client):
+    async def test_creates_user_and_sets_cookie(self, mock_verify, client):
         r = await self._callback(client)
-        assert r.status_code == 200
-        body = r.text
-        assert "diggy_token" in body
-        assert "diggy_user" in body
-        assert "oauth_state" in body
-        assert "no-store" in r.headers.get("cache-control", "")
+        assert r.status_code == 302
+        assert r.headers["location"] == "/login/callback"
+        assert "auth_callback" in r.headers.get("set-cookie", "")
 
     @patch("routers.auth.verify_google_token", new_callable=AsyncMock, return_value=FAKE_GOOGLE_INFO)
     async def test_second_login_reuses_user(self, mock_verify, client):
         await self._callback(client)
         r = await self._callback(client)
-        assert r.status_code == 200
+        assert r.status_code == 302
         # Still works — same user, no duplicate error
 
     @patch("routers.auth.verify_google_token", new_callable=AsyncMock, return_value=FAKE_GOOGLE_INFO)
-    async def test_html_contains_state(self, mock_verify, client):
+    async def test_cookie_contains_state(self, mock_verify, client):
+        import base64
         r = await self._callback(client, state="mystate123")
-        assert r.status_code == 200
-        assert "mystate123" in r.text
+        assert r.status_code == 302
+        cookie = r.headers["set-cookie"]
+        # Extract cookie value
+        value = cookie.split("auth_callback=")[1].split(";")[0]
+        payload = json.loads(base64.urlsafe_b64decode(value))
+        assert payload["state"] == "mystate123"
+        assert "token" in payload
+        assert "user" in payload
 
 
 class TestMe:
