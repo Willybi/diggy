@@ -1,166 +1,178 @@
-# Diggy — Project Context
+# Diggy - Project Context
 
-> DJ web app to manage and visualize a Rekordbox library — tracks, cues, tags, BPM, artworks, radar, sets, artists.
-
-## Architecture
-
-```
-diggy/
-├── server/
-│   ├── api/                 # FastAPI backend (async)
-│   │   ├── main.py          # App entrypoint, mounts routers
-│   │   ├── models.py        # All SQLAlchemy models (single file)
-│   │   ├── dependencies.py  # get_current_user, require_admin
-│   │   ├── deezer_enrich.py # Deezer search + catalog enrichment
-│   │   ├── trackid/         # TrackID.net importer (sets)
-│   │   │   └── importer.py  # get_or_create_artist, import_audiostream
-│   │   └── routers/
-│   │       ├── tracks.py    # User library (user_tracks)
-│   │       ├── catalog.py   # Master catalog (all known tracks)
-│   │       ├── radar.py     # Radar tracks from watched playlists
-│   │       ├── watchlist.py # Watched playlists CRUD + crawl triggers
-│   │       ├── artists.py   # Artist pages + search
-│   │       ├── sets.py      # DJ sets + tracklists
-│   │       ├── genres.py    # Genre hierarchy
-│   │       ├── opinions.py  # Like/dislike (user_track_opinions)
-│   │       ├── admin.py     # Admin-only: sync artists, Deezer linking, flags
-│   │       └── auth.py      # JWT auth (email/password)
-│   ├── workers/
-│   │   ├── tasks/           # Celery tasks: crawl_radar, sync_artists, import_rekordbox_xml, ...
-│   │   └── source_clients.py # Multi-source abstraction (Deezer/TIDAL/Spotify)
-│   ├── frontend/            # Vue.js 3 SPA
-│   │   └── src/
-│   │       ├── views/       # One view per route (see Routes below)
-│   │       ├── components/  # Reusable components (TrackTable, LikeDislike, etc.)
-│   │       ├── stores/      # Pinia stores (auth, etc.)
-│   │       └── styles/
-│   │           └── diggy-tokens.css  # Design tokens (ALL colors/spacing here)
-│   └── nginx/               # Reverse proxy config
-├── docker-compose.yml
-└── .github/workflows/       # CI/CD: test + deploy
-```
+> DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
+> Last verified: 2026-07-06
+> If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI + SQLAlchemy async + Alembic |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (27 migrations) |
 | Database | PostgreSQL 16 |
-| Queue | Celery + Redis |
+| Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
-| Frontend | Vue.js 3 + Vite + Pinia |
-| Proxy | Nginx |
-| Deploy | Docker Compose on Hostinger VPS (Ubuntu 24.04) |
-| CI/CD | GitHub Actions -> SSH -> `docker compose up -d --build` |
+| Frontend | Vue 3 + Vite + Pinia (static build served by Nginx in prod) |
+| Proxy | Nginx (HTTPS Let's Encrypt, certbot auto-renew) |
+| Deploy | Docker Compose on Hostinger VPS (Ubuntu 24.04), push to master = auto-deploy |
 
-## Database (key tables)
+## Architecture
 
-The **`catalog`** table is the central hub. Every track from any source resolves to a catalog entry.
-
-| Table | Role | ~Rows |
-|-------|------|-------|
-| `catalog` | Master reference for all known tracks | 5200+ |
-| `user_tracks` | User's Rekordbox library (PK: user_id + catalog_id) | 600 |
-| `radar_tracks` | Tracks discovered from watched playlists | 5000+ |
-| `watched_entities` | Playlists being monitored (Deezer/TIDAL/Spotify) | 29 |
-| `sets` | DJ sets with tracklists | 27 |
-| `set_tracks` | Individual tracks in a set | 428 |
-| `artists` | Artist reference (99% linked to Deezer) | 2686 |
-| `artist_aliases` | Alternative spellings for artist resolution | |
-| `genres` | Hierarchical genre taxonomy | 26 |
-| `users` | User accounts with `is_admin` flag | |
-
-Association tables: `catalog_genres`, `artist_genres`, `set_genres`, `set_artists`.
-
-Full schema: `docs/database-schema.md`
-
-### Key conventions
-- `catalog` is the ONLY hub — everything points to it via `catalog_id`
-- Dedup via `normalized_key` (artist|title) or `isrc`
-- `has_artwork` = file exists in MinIO, never external URLs in DB
-- All timestamps are TIMESTAMPTZ (UTC)
-- Durations in milliseconds (integer)
-
-## Frontend Routes
-
-| Route | View | Description |
-|-------|------|-------------|
-| `/catalog` | CatalogView | Browse full catalog with filters |
-| `/tracks` | (in CatalogView) | User's library subset |
-| `/radar` | (in CatalogView) | Radar discoveries |
-| `/tags` | TagsView | Browse by tags |
-| `/artists` | ArtistsView | Artist directory |
-| `/artist/:id` | ArtistDetailView | Artist page (tracks, sets, genres) |
-| `/sets` | SetsView | DJ sets list |
-| `/set/:id` | SetDetailView | Set tracklist |
-| `/genres` | GenresView | Genre hierarchy |
-| `/genre/:id` | GenreDetailView | Tracks in a genre |
-| `/admin` | AdminView | Admin panel (artist sync, Deezer linking) |
-| `/login` | LoginView | Authentication |
-
-## MinIO Buckets
-
-| Bucket | Content | Key format |
-|--------|---------|------------|
-| `artworks` | User library covers | `{track_id}.jpg` |
-| `catalog-artworks` | Catalog covers | `{catalog_id}.jpg` |
-| `artist-artworks` | Artist photos | `{artist_id}.jpg` |
-
-URLs served via: `/storage/{bucket}/{file}`
-
-## Celery Tasks (server/workers/tasks.py)
-
-- `crawl_radar` — daily 8h: crawl all watched playlists, detect new tracks
-- `sync_artists` — extract artists from catalog, deduplicate, link Deezer
-- `fetch_artist_artworks` — download artist photos from Deezer
-- `link_set_artists` — parse set titles to link artists
-- `populate_artist_genres` — infer artist genres from their catalog tracks
-
-## Multi-Source Playlists (server/workers/source_clients.py)
-
-| Source | Method | ISRC |
-|--------|--------|------|
-| Deezer | Official API | Yes |
-| TIDAL | `tidalapi` (OAuth device flow) | Yes |
-| Spotify | `spotifyscraper` (no auth) | No — cross-search via Deezer |
-
-All sources go through `crawl_single_playlist` -> `get_fetchers()` -> RadarTracks -> Deezer enrichment.
-
-## Code Conventions
-
-- **Language**: Code in English, UI in French
-- **Frontend tokens**: Zero hardcoded colors — everything via `var(--...)` from `diggy-tokens.css`
-- **User preference**: Modular, short focused files, simple blocks
-- **Admin**: `is_admin` flag on User model, `require_admin` dependency, admin routes in `admin.py`
-- **Deezer sentinel**: `deezer_id = "NOT_FOUND"` marks artists confirmed absent from Deezer
-- **Artist linking**: Rename uses official Deezer name + creates alias for old name + merges duplicates
-- **Vue handlers**: No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`) — extract to a method. Prettier reformats them on multiple lines which breaks the Vue compiler.
-
-## Workflow — Avant chaque commit
-
-Toujours vérifier le linting avant de proposer un nom de commit ou de valider une implémentation.
-Un push sur master déclenche le déploiement — un lint qui échoue en CI bloque tout.
-
-```bash
-# Backend
-pip install ruff --quiet && ruff check server/
-
-# Frontend
-cd server/frontend && npm run lint
+```
+server/
+├── api/
+│   ├── main.py              # FastAPI entrypoint
+│   ├── models.py            # All SQLAlchemy models (25 classes, single file)
+│   ├── dependencies.py      # get_current_user, require_admin
+│   ├── deezer_enrich.py     # Deezer search + enrichment
+│   ├── rate_limit.py        # Per-IP/endpoint rate limiting
+│   ├── alembic/             # Migrations (alembic.ini is in server/api/)
+│   ├── trackid/             # TrackID.net set importer
+│   ├── routers/             # 16 routers, 93 endpoints:
+│   │                        # tracks, catalog, radar, watchlist, artists, sets,
+│   │                        # genres, taxonomy, search, collections, opinions,
+│   │                        # import_rb, auth, admin
+│   └── services/            # Business logic lives HERE, not in routers:
+│                            # genre, artist, catalog, radar, image, rekordbox_xml
+├── workers/
+│   ├── celery_app.py        # Celery config + beat schedule
+│   ├── source_clients.py    # Multi-source abstraction (Deezer/TIDAL/Spotify)
+│   └── tasks/               # 7 modules: radar, catalog, artists, genres,
+│                            # import_rb, sets, trends
+├── frontend/src/
+│   ├── views/               # 14 views (one per route)
+│   ├── components/          # 25 shared components
+│   ├── composables/         # useInfiniteScroll, useStyleMap, useTheme
+│   ├── stores/              # Pinia: auth, audioPlayer, opinions
+│   └── styles/diggy-tokens.css  # ALL colors/spacing (zero hardcoded)
+└── nginx/                   # default.ssl.conf.template = active prod config
 ```
 
-Les deux doivent passer avant de committer.
+Rule: new business logic goes in a service, routers stay thin. New Celery tasks go in the matching `tasks/` module.
+
+## Database
+
+`catalog` is the ONLY hub. Everything points to it via `catalog_id`.
+
+- Dedup via `normalized_key` (artist|title) or `isrc`
+- `user_tracks`: composite PK `(user_id, catalog_id)`, FK to catalog is `ON DELETE RESTRICT`
+- `catalog_artists`: many-to-many with `role` + `position` (~7200 rows). Never assume a single artist per track.
+- Genres: `catalog.genres` is a `TEXT[]` of raw names; normalization goes through the graph `genre_nodes` / `genre_edges` / `genre_mappings` (Wikidata-based). The legacy tables `genres`, `catalog_genres`, `artist_genres`, `set_genres` were DROPPED in migration 0013 and no longer exist.
+- Artist genres are computed dynamically from their catalog tracks (`artist_service._artist_genres()`), there is no association table.
+- Timestamps: TIMESTAMPTZ (UTC). Durations: milliseconds (integer).
+- `has_artwork` = file exists in MinIO. Never store external image URLs in DB.
+- Deezer sentinel: `deezer_id = "NOT_FOUND"` marks artists confirmed absent from Deezer.
+
+→ Before any model change, migration, or query joining 3+ tables: read `docs/database-schema.md`.
+
+## Data Authority Principles
+
+These are project invariants. Never propose code that violates them.
+
+1. **Rekordbox is read-only** from Diggy's perspective. All write operations stay within Rekordbox itself.
+2. **Rekordbox BPM is authoritative** over all external sources for the user's performance data.
+3. **Beatport is the canonical authority** for BPM and key in the shared catalog (`bpm_source` / `key_source` track provenance).
+4. **Merge asymmetry**: duplicate rows (false negatives) are cheap storage debt; bad merges (false positives) are expensive data corruption. Always err toward separation.
+5. **LLMs handle language-boundary tasks only** (normalization, classification assistance, explanation, extraction). They never compute similarity scores and never write directly to DB.
+
+## Auth & Multi-User
+
+- Auth: Google OAuth ONLY. There is no email/password login. OAuth `state` is validated server-side via Redis (`oauth_state:{state}`, TTL 5min, one-shot delete). No localStorage.
+- Token delivery: temporary `auth_callback` cookie (base64url no padding, 60s TTL, Secure, SameSite=Lax, httponly=False). Backend 302s to `/login/callback`, frontend reads then deletes the cookie.
+- This cookie flow exists because of Safari iOS: hash fragments are dropped on 302 redirects, CSP `script-src 'self'` blocks inline scripts, sessionStorage is lost on cross-origin navigation. Do not "simplify" it back to fragments or storage.
+- `uid()` returns `None` for guests. There is no `user_id=1` fallback anymore. Every user-conditional query must handle `None`.
+- Admin: `is_admin` flag + `require_admin` dependency. Destructive admin actions are logged in `admin_audit_log`.
+
+## Dev Commands
+
+```bash
+# Backend tests (SQLite in-memory by default, no PG needed; deps in requirements-test.txt)
+pytest tests/ -q
+pytest tests/ -q --cov=server --cov-report= --cov-fail-under=55        # CI coverage gate
+DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/diggy_test pytest tests/ -q  # PG like CI
+
+# Frontend tests
+cd server/frontend && npx vitest run
+
+# Lint - BOTH must pass before any commit (push to master deploys to prod)
+ruff check server/
+cd server/frontend && npm run lint
+
+# Alembic (alembic.ini lives in server/api/)
+cd server/api && python -m alembic revision --autogenerate -m "description"
+cd server/api && python -m alembic upgrade head
+# Prod: CI runs `alembic upgrade head` automatically on deploy
+
+# Local stack (override mounts ./server/api:/app for hot reload)
+docker compose up -d --build
+cd server/frontend && npm run dev     # frontend dev server
+```
+
+Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`, `DATABASE_URL`, `JWT_SECRET`, `MINIO_USER/PASSWORD`. Prod adds `COMPOSE_FILE=docker-compose.yml:docker-compose.ssl.yml` and `DOMAIN`. `ENV=production` disables permissive CORS.
+
+## Celery Beat Schedule
+
+| Task | Time | Module |
+|------|------|--------|
+| `crawl_radar` | 03:00 | tasks/radar.py |
+| `crawl_followed_sets` | 04:00 | tasks/sets.py |
+| `enrich_catalog` (Deezer) | 05:00 | tasks/catalog.py |
+| `enrich_catalog_beatport` | 06:00 | tasks/catalog.py |
+| `compute_trends` | 07:00 | tasks/trends.py |
+
+Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited external APIs); everything else on `diggy_worker`. Keep that separation when adding tasks.
+
+## Known Pitfalls
+
+### Nginx
+- `add_header` in a `location` block REMOVES all server-level headers. Asset locations must be nested inside `location /` without their own `add_header` to inherit the CSP.
+- `/api/`, `/storage/`, `/minio/` use `^~` prefix priority so they are not captured by the assets regex `\.(js|css|jpg)$`.
+- The active prod config is `default.ssl.conf.template`. `default.conf` is intentionally empty.
+- Keep CSP `upgrade-insecure-requests` as long as any `http://` request can arrive.
+
+### Frontend
+- Container queries everywhere; `@media` ONLY for `position: fixed` elements.
+- Zero hardcoded colors: everything via `var(--...)` from `diggy-tokens.css`.
+- No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`): Prettier reformats them across lines, which breaks the Vue compiler. Extract to a method.
+- Responsive tables: columns hidden progressively across 6 breakpoints (CatalogView). At 375px only Play / Track / Key / InLib remain.
+- BottomNav (mobile <640px): 5 items + conditional Admin; PlayerBar repositions above it.
+
+### Language
+- Code in English, UI text in French.
+
+## Slash Commands (.claude/commands/)
+
+| Command | Use |
+|---------|-----|
+| `/work_manager` | Orchestrates a full chantier: analysis, batching, agent prompts, delivery control, closing commit |
+| `/deploy_verify` | Post-deploy verification on the VPS: container health, HTTP smoke tests, feature checks |
+| `/roadmap_status` | Reads the roadmap, reports pending chantiers, recommends the next one |
+| `/roadmap_update` | Updates roadmap statuses after a finished chantier (cross-checks session + git log) |
+| `/schema_doc` | Regenerates `docs/database-schema.md` from models and shows the diff |
+
+Prefer these over ad-hoc equivalents. Suggest them to the user when relevant.
 
 ## Deploy
 
-- Domain: `diggy-music.fr` (HTTPS, Let's Encrypt, certbot auto-renew)
-- VPS: Hostinger, Ubuntu 24.04, ports 80 (redirect) + 443 (HTTPS)
-- `.env` only on VPS, never in git
-- Docker containers: `diggy_api`, `diggy_worker`, `diggy_beat`, `diggy_frontend`, `diggy_nginx`, `diggy_redis`, `diggy_postgres`, `diggy_minio`, `diggy_certbot`
-- CI/CD: push to `master` -> GitHub Actions (lint + test + deploy) -> SSH -> rebuild
+- Domain: `diggy-music.fr`. VPS project path: `/root/diggy`. `.env` lives ONLY on the VPS, never in git.
+- Push to `master` → GitHub Actions (ruff + eslint + pytest on real PG + vitest + pip-audit) → SSH → `docker compose up -d --build` + `alembic upgrade head`. A failing lint blocks everything.
+- SSH from Claude: `ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247` (dedicated key required).
+- Local vs prod: local = `docker-compose.yml` + override (hot reload, port 8080 HTTP); prod = `COMPOSE_FILE` chains `docker-compose.ssl.yml` (ports 80/443, certbot container).
+- After deploying, run `/deploy_verify`.
 
-## Roadmap
+## Documentation Pointers (read on trigger)
 
-- **Active roadmap**: `docs/ROADMAP.md` — backlog and pending items only
-- **Completed roadmaps**: `docs/completed/` — archived, DO NOT modify unless explicitly asked
-- **Future ideas**: Multi-artist per track (feat support), artist connection graph, Soundcloud/Bandcamp sources
+| Trigger | Read |
+|---------|------|
+| Model change, migration, 3+ table query | `docs/database-schema.md` (generated — run `/schema_doc` after any model/migration change) |
+| Proposing features, choosing next work | `docs/ROADMAP.md` (or run `/roadmap_status`) |
+| Starting work on a chantier | Its agent prompt in `docs/prompts/` and its brief in `docs/`. If none exist yet for the target chantier, create them via `/work_manager`. |
+| Similarity/scoring work (C2) | `docs/eval/README.md` + `docs/eval/golden_similar.json` + `docs/similarity_calibration.ipynb` |
+| UI change on an existing view | Matching handoff in `_design/` (brief + HTML mockup + tokens) |
+| Anything about past decisions | `docs/completed/` and `docs/PROJECT_STATUS_*.md` are FROZEN archives: read-only, never treat as current state, NEVER modify |
+
+## Maintaining This File
+
+- This file contains only stable invariants and commands. Volatile state (metrics, chantier progress) lives in the pointed docs.
+- When a convention changes or a new pitfall is discovered the hard way, propose adding it here.
+- Update the `Last verified` date whenever the file is audited against the code.

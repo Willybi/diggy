@@ -1,310 +1,473 @@
 # Diggy - Database Schema
 
-> PostgreSQL 16 | SQLAlchemy async | Alembic migrations (rev 0002)
-
-## Vue d'ensemble
-
-```
-                        +-----------+
-                        |  catalog  |  <-- Hub central
-                        +-----------+
-                       ^   ^   ^   |
-                      /    |    \  +---> catalog_genres ---> genres
-                     /     |     \                           ^  ^
-              +----------+ | +----------+                    |  |
-              |lib_tracks| | |set_tracks|            artist_genres
-              +----------+ | +----------+                    |
-                           |       |                         |
-                    +-------------+|                     +--------+
-                    |radar_tracks | |                     |artists |
-                    +-------------+ |                     +--------+
-                           |        v                        |  |
-                           v     +------+         set_artists   |
-                  +------------------+  |              |   artist_aliases
-                  |watched_playlists |  +---> set_genres
-                  +------------------+
-```
-
-14 tables : 9 models + 3 tables d'association pures + alembic_version
-
----
-
-## Changements migration 0002
-
-- Toutes les colonnes timestamp sont en **TIMESTAMPTZ** (UTC)
-- FK `catalog_id` sur lib_tracks, radar_tracks, set_tracks : **ON DELETE SET NULL**
-- FK `genres.parent_id` : **ON DELETE SET NULL**
-- Index `ix_set_genres_genre_id`, `ix_artist_genres_genre_id`, `ix_catalog_genres_genre_id`
-- Nouvelle table `catalog_genres` (association catalog <-> genres)
-
----
-
-## Tables principales
-
-### `catalog` -- Hub central, referentiel unique de tout morceau connu
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `title` | String(500) | NOT NULL | Titre du morceau |
-| `artist` | String(500) | nullable | Artiste (texte brut) |
-| `normalized_key` | String(500) | UNIQUE, NOT NULL | Cle de dedup `artist\|title` normalise |
-| `isrc` | String(20) | UNIQUE, nullable | Code ISRC (identifiant international) |
-| `deezer_id` | String(64) | nullable | ID Deezer pour fetch preview |
-| `bpm` | Float | nullable | BPM |
-| `key` | String(10) | nullable | Tonalite musicale |
-| `duration_ms` | Integer | nullable | Duree en millisecondes |
-| `genre` | String(100) | nullable | Genre principal (texte brut, conserve pour affichage) |
-| `release_date` | Date | nullable | Date de sortie |
-| `preview_url` | Text | nullable | URL preview Deezer (expirante) |
-| `has_artwork` | Boolean | default false | Cover dans MinIO `catalog-artworks` |
-| `has_preview` | Boolean | default false | Preview Deezer dispo (verifie hebdo) |
-| `created_at` | TIMESTAMPTZ | nullable | Date de creation (UTC) |
-
-**Relations** : `catalog.genres` via `catalog_genres` (many-to-many avec `genres`)
-
-**Role** : Point de convergence unique. Tout morceau (lib, radar, set) pointe ici via `catalog_id`. Dedup via `normalized_key` ou `isrc`.
-
----
-
-### `lib_tracks` -- Bibliotheque Rekordbox active
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK (= rekordbox_id) | ID Rekordbox, pas auto-increment |
-| `title` | String(255) | nullable | Titre |
-| `artist` | String(255) | nullable | Artiste |
-| `bpm` | Float | nullable | BPM |
-| `key` | String(10) | nullable | Tonalite |
-| `duration` | Integer | nullable | Duree en ms |
-| `rating` | Integer | nullable | Note Rekordbox (0-5) |
-| `file_path` | Text | nullable | Chemin fichier local |
-| `date_added` | TIMESTAMPTZ | nullable | Date d'ajout dans RB (UTC) |
-| `tags` | Text | nullable | JSON array de styles `["Tech House", "TO_CUE"]` |
-| `has_artwork` | Boolean | default false | Artwork dans MinIO `artworks` |
-| `catalog_id` | Integer | FK -> catalog.id (SET NULL), nullable | Lien vers le catalog |
-
-**Role** : Miroir de la collection Rekordbox. Import via `main.py`. ~625 tracks.
-
----
-
-### `watched_playlists` -- Playlists Deezer surveillees
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `external_id` | String(64) | UNIQUE, NOT NULL | ID Deezer de la playlist |
-| `source` | String(64) | NOT NULL | Source (`"deezer"`) |
-| `title` | String(255) | nullable | Nom de la playlist |
-| `description` | Text | nullable | Description |
-| `created_at` | TIMESTAMPTZ | nullable | Date d'ajout dans Diggy (UTC) |
-| `last_crawled_at` | TIMESTAMPTZ | nullable | Dernier crawl reussi (UTC) |
-| `has_artwork` | Boolean | default false | Cover dans MinIO |
-| `track_count` | Integer | nullable | Nombre de tracks |
-| `owner` | String(255) | nullable | Proprietaire de la playlist |
-
-**Role** : Playlists surveillees. Celery `crawl_radar` (cron 8h) les parcourt quotidiennement.
-
----
-
-### `radar_tracks` -- Morceaux decouverts par le radar Deezer
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `watched_playlist_id` | Integer | FK -> watched_playlists.id, NOT NULL | Playlist source |
-| `external_track_id` | String(255) | NOT NULL | ID Deezer du morceau |
-| `source` | String(50) | NOT NULL | Source (`"deezer"`) |
-| `title` | String(500) | NOT NULL | Titre (texte brut) |
-| `artist` | String(500) | nullable | Artiste (texte brut) |
-| `isrc` | String(20) | nullable | Code ISRC |
-| `detected_at` | TIMESTAMPTZ | nullable | Date de premiere detection (UTC) |
-| `catalog_id` | Integer | FK -> catalog.id (SET NULL), nullable | Resolu apres matching |
-
-**Contrainte unique** : `(watched_playlist_id, external_track_id)`
-
-**Role** : Chaque morceau trouve dans une playlist surveillee. ~4465 entrees.
-
----
-
-## Tables Sets / DJ
-
-### `sets` -- Sets DJ (tracklists)
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `external_id` | String(64) | nullable | ID source (trackid.net, 1001tracklists...) |
-| `source` | String(64) | NOT NULL | `"trackid"`, `"1001tracklists"`, `"manual"`... |
-| `source_url` | Text | nullable | URL de la source |
-| `title` | String(500) | NOT NULL | Nom du set |
-| `event` | String(255) | nullable | Festival, club, Boiler Room... |
-| `venue` | String(255) | nullable | Lieu |
-| `played_date` | Date | nullable | Date de performance |
-| `duration_ms` | Integer | nullable | Duree totale en ms |
-| `description` | Text | nullable | Description |
-| `has_artwork` | Boolean | default false | Cover dans MinIO `set-artworks` |
-| `created_at` | TIMESTAMPTZ | nullable | Date de creation (UTC) |
-| `last_crawled_at` | TIMESTAMPTZ | nullable | Dernier crawl (UTC) |
-
-**Contrainte unique** : `(external_id, source)` -- supporte plusieurs sources sans collision
-
-**Role** : Sets DJ avec tracklists. Source de decouverte comme le radar.
-
----
-
-### `set_tracks` -- Tracklist d'un set
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `set_id` | Integer | FK -> sets.id (CASCADE), NOT NULL, index | Set parent |
-| `catalog_id` | Integer | FK -> catalog.id (SET NULL), nullable, index | Resolu apres matching |
-| `position` | Integer | NOT NULL | Ordre dans la tracklist |
-| `timecode_ms` | Integer | nullable | Position dans le set (ms) |
-| `raw_title` | String(500) | nullable | Titre tel que scrape |
-| `raw_artist` | String(500) | nullable | Artiste tel que scrape |
-| `is_id` | Boolean | default false | Morceau non identifie ("ID - ID") |
-
-**Contrainte unique** : `(set_id, position)`
-
-**Role** : Meme philosophie que `radar_tracks` : texte brut + `catalog_id` resolu dans un second temps. Les `is_id = true` restent sans `catalog_id`.
-
----
-
-### `set_artists` -- Artistes d'un set (gere B2B)
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `set_id` | Integer | FK -> sets.id (CASCADE), PK | Set |
-| `artist_id` | Integer | FK -> artists.id (CASCADE), PK, index | Artiste |
-| `role` | String(32) | nullable | `"main"`, `"b2b"` |
-| `position` | Integer | nullable | Ordre de billing |
-
-**Role** : Many-to-many avec attributs. Un set peut avoir plusieurs artistes (B2B).
-
----
-
-## Tables Artists
-
-### `artists` -- Referentiel artistes
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `name` | String(500) | NOT NULL | Nom d'artiste |
-| `normalized_name` | String(500) | UNIQUE, NOT NULL | Cle de dedup |
-| `real_name` | String(255) | nullable | Nom reel |
-| `country` | String(2) | nullable | Code ISO 2 lettres |
-| `deezer_id` | String(64) | nullable | ID Deezer |
-| `soundcloud_id` | String(64) | nullable | ID SoundCloud |
-| `trackid_id` | String(64) | nullable | ID TrackID.net |
-| `bio` | Text | nullable | Biographie |
-| `has_artwork` | Boolean | default false | Photo dans MinIO `artist-artworks` |
-| `created_at` | TIMESTAMPTZ | nullable | Date de creation (UTC) |
-
-**Role** : Referentiel artistes. Relie aux sets uniquement pour l'instant. `catalog.artist` reste une String (lien futur).
-
----
-
-### `artist_aliases` -- Alias / orthographes alternatives
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `artist_id` | Integer | FK -> artists.id (CASCADE), NOT NULL, index | Artiste canonique |
-| `alias` | String(500) | NOT NULL | Forme alternative |
-| `normalized_alias` | String(500) | UNIQUE, NOT NULL | Cle de resolution |
-
-**Role** : Resolution d'un `raw_artist` : chercher d'abord `artists.normalized_name`, puis `artist_aliases.normalized_alias`.
-
----
-
-## Tables Genres
-
-### `genres` -- Genres musicaux normalises
-
-| Colonne | Type | Contraintes | Description |
-|---|---|---|---|
-| `id` | Integer | PK, auto-increment | ID interne |
-| `name` | String(100) | UNIQUE, NOT NULL | Nom du genre |
-| `parent_id` | Integer | FK -> genres.id (SET NULL), nullable | Hierarchie (ex. Techno > Melodic Techno) |
-| `created_at` | TIMESTAMPTZ | nullable | Date de creation (UTC) |
-
-**Role** : Table de genres normalisee. Self-reference via `parent_id` pour hierarchie optionnelle. Reliee a `catalog`, `sets` et `artists` via tables d'association.
-
----
-
-## Tables d'association pures
-
-### `catalog_genres`
-
-| Colonne | Contraintes | Index |
-|---|---|---|
-| `catalog_id` | FK -> catalog.id (CASCADE), PK | PK (tete) |
-| `genre_id` | FK -> genres.id (CASCADE), PK | `ix_catalog_genres_genre_id` |
-
-### `set_genres`
-
-| Colonne | Contraintes | Index |
-|---|---|---|
-| `set_id` | FK -> sets.id (CASCADE), PK | PK (tete) |
-| `genre_id` | FK -> genres.id (CASCADE), PK | `ix_set_genres_genre_id` |
-
-### `artist_genres`
-
-| Colonne | Contraintes | Index |
-|---|---|---|
-| `artist_id` | FK -> artists.id (CASCADE), PK | PK (tete) |
-| `genre_id` | FK -> genres.id (CASCADE), PK | `ix_artist_genres_genre_id` |
-
----
-
-## Relations (resume)
-
-```
-lib_tracks.catalog_id         ------> catalog.id       (SET NULL)
-radar_tracks.catalog_id       ------> catalog.id       (SET NULL)
-radar_tracks.watched_playlist_id ---> watched_playlists.id
-set_tracks.catalog_id         ------> catalog.id       (SET NULL)
-set_tracks.set_id             ------> sets.id          (CASCADE)
-set_artists.set_id            ------> sets.id          (CASCADE)
-set_artists.artist_id         ------> artists.id       (CASCADE)
-artist_aliases.artist_id      ------> artists.id       (CASCADE)
-genres.parent_id              ------> genres.id         (SET NULL)
-catalog_genres                ------> catalog.id + genres.id  (CASCADE)
-set_genres                    ------> sets.id + genres.id     (CASCADE)
-artist_genres                 ------> artists.id + genres.id  (CASCADE)
-```
-
-## Conventions
-
-- **`catalog`** = seul hub de convergence. Rien ne court-circuite.
-- **`external_id` + `source` + `last_crawled_at`** pour toute source crawlee.
-- **Texte brut + `catalog_id` nullable** pour toute donnee externe a resoudre.
-- **`has_artwork`** = presence dans MinIO, jamais d'URL externe en base.
-- **`normalized_*`** en UNIQUE pour toute dedup.
-- **Durees et timecodes** en entier milliseconde.
-- **Timestamps** en TIMESTAMPTZ, stockes en UTC.
-- **CASCADE** : suppression d'un set supprime ses tracks, artist_links, genres lies. Idem pour un artiste et ses aliases.
-- **SET NULL** : suppression d'une entree catalog repasse les `catalog_id` lies a NULL (non resolu). Suppression d'un genre parent remet ses enfants au niveau racine.
-
-## Buckets MinIO
-
-| Bucket | Contenu | Nommage |
-|---|---|---|
-| `artworks` | Covers lib_tracks | `{lib_track_id}.jpg` |
-| `catalog-artworks` | Covers catalog | `{catalog_id}.jpg` |
-| `set-artworks` | Covers sets | `{set_id}.jpg` |
-| `artist-artworks` | Photos artistes | `{artist_id}.jpg` |
-
-## Scripts one-shot
-
-| Script | Description |
-|---|---|
-| `scripts/populate_catalog_genres.py` | Peuple `catalog_genres` depuis `catalog.genre` + `lib_tracks.tags` |
-| `scripts/fetch_catalog_artworks.py` | Telecharge les covers catalog dans MinIO |
-| `scripts/populate_has_preview.py` | Verifie la dispo des previews Deezer |
-| `scripts/link_lib_to_catalog.py` | Lie les lib_tracks sans catalog_id via Deezer search |
-| `scripts/backfill_deezer_id.py` | Remplit deezer_id sur catalog |
-| `scripts/migrate_catalog.py` | Migration initiale du catalog |
+> **Auto-generated** on 2026-07-06 20:50 UTC from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
+> 24 tables across 7 domains.
+
+<!-- MANUAL:BEGIN -->
+## Conventions & domain rules
+
+These notes are maintained by hand. Everything below `<!-- MANUAL:END -->`
+is auto-generated — do not edit it directly.
+
+### Sentinels
+- `artists.deezer_id = "NOT_FOUND"` marks an artist confirmed absent from Deezer.
+
+### Deduplication
+- `catalog.normalized_key` = lower(`artist|title`). Primary dedup key.
+- `catalog.isrc` = secondary dedup key when available.
+
+### Genre system
+- `catalog.genres` is a `TEXT[]` of raw genre names as received from sources.
+- Normalization uses the Wikidata-based graph: `genre_nodes` (canonical genres)
+  linked by `genre_edges` (subgenre_of, related_to) and mapped from raw names
+  via `genre_mappings`.
+- Artist genres are computed dynamically from their catalog tracks
+  (`artist_service._artist_genres()`), there is no association table.
+
+### Provenance columns
+- `catalog.bpm_source` / `catalog.key_source`: track which external source
+  provided the authoritative BPM / key value (e.g. `"beatport"`, `"deezer"`).
+
+### Lifecycle & radar columns
+- `catalog.scope`: `"shared"` (default) or `"personal"`.
+- `catalog.origin`: how the entry entered the catalog (`"deezer"`, `"rekordbox"`, etc.).
+- `catalog.status`: `"official"` (default), `"pending"`, etc.
+- `radar_tracks.removed_at`: soft-delete timestamp for tracks removed from a playlist.
+- `radar_tracks.is_initial_detection`: `true` for tracks present at first crawl
+  (avoids inflating trend scores).
+
+### Merge asymmetry
+- Duplicate rows (false negatives) are cheap storage debt.
+- Bad merges (false positives) are expensive data corruption.
+- Always err toward separation.
+<!-- MANUAL:END -->
+
+## Table of contents
+
+**Catalog hub:** `catalog` · `catalog_artists` · `user_tracks`
+**Users:** `users` · `user_opinions` · `user_collections` · `collection_items`
+**Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
+**Artists:** `artists` · `artist_aliases` · `artist_flags`
+**Sets:** `sets` · `set_artists` · `set_tracks` · `user_set_follows`
+**Genres:** `genre_nodes` · `genre_edges` · `genre_mappings`
+**System:** `admin_audit_log` · `crawl_logs`
+
+## Catalog hub
+
+### `catalog`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `title` | String(500) | no |  |  |
+| `artist` | String(500) | yes |  |  |
+| `normalized_key` | String(500) | no |  |  |
+| `isrc` | String(20) | yes |  |  |
+| `deezer_id` | String(64) | yes |  |  |
+| `beatport_id` | String(64) | yes |  |  |
+| `bpm` | Float | yes |  |  |
+| `key` | String(10) | yes |  |  |
+| `duration_ms` | Integer | yes |  |  |
+| `genres` | TEXT[] | yes |  | server_default='{}', default=func |
+| `release_date` | Date | yes |  |  |
+| `preview_url` | Text | yes |  |  |
+| `has_artwork` | Boolean | yes |  | default=False |
+| `has_preview` | Boolean | yes |  | default=False |
+| `created_at` | DateTime(tz) | yes |  |  |
+| `scope` | String(10) | no |  | server_default='shared', default='shared' |
+| `owner_id` | Integer | yes | FK → users.id ON DELETE SET NULL |  |
+| `origin` | String(50) | no |  | server_default='deezer', default='deezer' |
+| `status` | String(20) | no |  | server_default='official', default='official' |
+| `bpm_source` | String(20) | yes |  |  |
+| `key_source` | String(20) | yes |  |  |
+| `label` | String(255) | yes |  |  |
+| `fingerprint` | String | yes |  |  |
+| `needs_reconciliation` | Boolean | yes |  | server_default='false' |
+| `deezer_searched_at` | DateTime(tz) | yes |  |  |
+| `beatport_searched_at` | DateTime(tz) | yes |  |  |
+
+### `catalog_artists`
+
+Composite PK: (`catalog_id`, `artist_id`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `catalog_id` **PK** | Integer | no | FK → catalog.id ON DELETE CASCADE |  |
+| `artist_id` **PK** | Integer | no | FK → artists.id ON DELETE CASCADE |  |
+| `role` | String(32) | yes |  |  |
+| `position` | Integer | yes |  |  |
+
+**Indexes:**
+- `ix_catalog_artists_artist_id`: `artist_id`
+
+### `user_tracks`
+
+Composite PK: (`user_id`, `catalog_id`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `user_id` **PK** | Integer | no | FK → users.id ON DELETE CASCADE |  |
+| `catalog_id` **PK** | Integer | no | FK → catalog.id ON DELETE RESTRICT |  |
+| `rekordbox_id` | Integer | yes |  |  |
+| `date_added` | DateTime(tz) | yes |  |  |
+| `source` | String(50) | yes |  | server_default='rekordbox_import', default='rekordbox_import' |
+| `file_path` | Text | yes |  |  |
+| `rb_bpm` | Float | yes |  |  |
+| `rb_key` | String(10) | yes |  |  |
+| `rb_mytags` | JSON | yes |  | server_default='[]', default=func |
+| `rating` | Integer | yes |  |  |
+| `avis` | String(20) | yes |  |  |
+| `has_artwork` | Boolean | yes |  | default=False |
+| `created_at` | DateTime(tz) | yes |  |  |
+
+## Users
+
+### `users`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `email` | String(255) | no |  |  |
+| `username` | String(100) | no |  |  |
+| `google_id` | String(255) | no |  |  |
+| `picture_url` | Text | yes |  |  |
+| `is_active` | Boolean | no |  | default=True |
+| `is_admin` | Boolean | no |  | server_default='false', default=False |
+| `settings` | JSON | no |  | server_default='{}', default=func |
+| `created_at` | DateTime(tz) | yes |  |  |
+
+### `user_opinions`
+
+Composite PK: (`user_id`, `entity_type`, `entity_key`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `user_id` **PK** | Integer | no | FK → users.id ON DELETE CASCADE |  |
+| `entity_type` **PK** | String(20) | no |  |  |
+| `entity_key` **PK** | String(255) | no |  |  |
+| `opinion` | String(20) | no |  |  |
+| `created_at` | DateTime(tz) | yes |  |  |
+
+### `user_collections`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `user_id` | Integer | no | FK → users.id ON DELETE CASCADE |  |
+| `name` | String(255) | no |  |  |
+| `type` | String(20) | yes |  | server_default='playlist', default='playlist' |
+| `created_at` | DateTime(tz) | yes |  |  |
+
+**Indexes:**
+- `ix_user_collections_user_id`: `user_id`
+
+### `collection_items`
+
+Composite PK: (`collection_id`, `catalog_id`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `collection_id` **PK** | Integer | no | FK → user_collections.id ON DELETE CASCADE |  |
+| `catalog_id` **PK** | Integer | no | FK → catalog.id ON DELETE CASCADE |  |
+| `position` | Integer | yes |  | server_default='0', default=0 |
+| `added_at` | DateTime(tz) | yes |  |  |
+
+## Radar
+
+### `watched_entities`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `external_id` | String(64) | no |  |  |
+| `source` | String(64) | no |  |  |
+| `type` | String(20) | no |  | server_default='playlist', default='playlist' |
+| `title` | String(255) | yes |  |  |
+| `description` | Text | yes |  |  |
+| `created_at` | DateTime(tz) | yes |  |  |
+| `last_crawled_at` | DateTime(tz) | yes |  |  |
+| `has_artwork` | Boolean | yes |  | default=False |
+| `track_count` | Integer | yes |  |  |
+| `owner` | String(255) | yes |  |  |
+| `current_task_id` | String(255) | yes |  |  |
+| `crawl_started_at` | DateTime(tz) | yes |  |  |
+
+### `user_follows`
+
+Composite PK: (`user_id`, `entity_id`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `user_id` **PK** | Integer | no | FK → users.id ON DELETE CASCADE |  |
+| `entity_id` **PK** | Integer | no | FK → watched_entities.id ON DELETE CASCADE |  |
+| `followed_at` | DateTime(tz) | yes |  |  |
+
+### `radar_tracks`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `watched_entity_id` | Integer | no | FK → watched_entities.id |  |
+| `external_track_id` | String(255) | no |  |  |
+| `source` | String(50) | no |  |  |
+| `title` | String(500) | no |  |  |
+| `artist` | String(500) | yes |  |  |
+| `isrc` | String(20) | yes |  |  |
+| `detected_at` | DateTime(tz) | yes |  |  |
+| `catalog_id` | Integer | yes | FK → catalog.id ON DELETE SET NULL |  |
+| `removed_at` | DateTime(tz) | yes |  |  |
+| `is_initial_detection` | Boolean | yes |  | server_default='false', default=False |
+
+**Unique constraints:**
+- `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
+
+### `radar_trends`
+
+PK: `catalog_id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `catalog_id` **PK** | Integer | no | FK → catalog.id ON DELETE CASCADE |  |
+| `trend_score` | Float | no |  | server_default='0', default=0 |
+| `window_days` | Integer | yes |  | server_default='30', default=30 |
+| `detection_count` | Integer | yes |  | server_default='0', default=0 |
+| `family` | String(50) | yes |  |  |
+| `rank_in_family` | Integer | yes |  |  |
+| `rank_global` | Integer | yes |  |  |
+| `velocity` | Float | yes |  |  |
+| `source_count` | Integer | yes |  |  |
+| `computed_at` | DateTime(tz) | yes |  |  |
+
+### `user_radar_state`
+
+Composite PK: (`user_id`, `catalog_id`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `user_id` **PK** | Integer | no | FK → users.id ON DELETE CASCADE |  |
+| `catalog_id` **PK** | Integer | no | FK → catalog.id ON DELETE CASCADE |  |
+| `status` | String(20) | no |  | server_default='new', default='new' |
+| `updated_at` | DateTime(tz) | yes |  |  |
+
+## Artists
+
+### `artists`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `name` | String(500) | no |  |  |
+| `normalized_name` | String(500) | no |  |  |
+| `real_name` | String(255) | yes |  |  |
+| `country` | String(2) | yes |  |  |
+| `deezer_id` | String(64) | yes |  |  |
+| `soundcloud_id` | String(64) | yes |  |  |
+| `trackid_id` | String(64) | yes |  |  |
+| `bio` | Text | yes |  |  |
+| `has_artwork` | Boolean | yes |  | default=False |
+| `created_at` | DateTime(tz) | yes |  |  |
+
+### `artist_aliases`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `artist_id` | Integer | no | FK → artists.id ON DELETE CASCADE |  |
+| `alias` | String(500) | no |  |  |
+| `normalized_alias` | String(500) | no |  |  |
+
+**Indexes:**
+- `ix_artist_aliases_artist_id`: `artist_id`
+
+### `artist_flags`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `raw_artist_string` | String(500) | no |  |  |
+| `reason` | String(64) | no |  |  |
+| `tokens` | JSON | no |  |  |
+| `deezer_ids` | JSON | no |  |  |
+| `status` | String(32) | no |  | server_default='pending', default='pending' |
+| `resolved_artist_ids` | JSON | yes |  |  |
+| `created_at` | DateTime(tz) | yes |  |  |
+| `updated_at` | DateTime(tz) | yes |  |  |
+
+## Sets
+
+### `sets`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `external_id` | String(64) | yes |  |  |
+| `source` | String(64) | no |  |  |
+| `source_url` | Text | yes |  |  |
+| `title` | String(500) | no |  |  |
+| `event` | String(255) | yes |  |  |
+| `venue` | String(255) | yes |  |  |
+| `played_date` | Date | yes |  |  |
+| `duration_ms` | Integer | yes |  |  |
+| `description` | Text | yes |  |  |
+| `external_slug` | String(500) | yes |  |  |
+| `has_artwork` | Boolean | yes |  | default=False |
+| `created_at` | DateTime(tz) | yes |  |  |
+| `last_crawled_at` | DateTime(tz) | yes |  |  |
+
+**Unique constraints:**
+- `external_id`, `source` (`uq_set_external_source`)
+
+### `set_artists`
+
+Composite PK: (`set_id`, `artist_id`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `set_id` **PK** | Integer | no | FK → sets.id ON DELETE CASCADE |  |
+| `artist_id` **PK** | Integer | no | FK → artists.id ON DELETE CASCADE |  |
+| `role` | String(32) | yes |  |  |
+| `position` | Integer | yes |  |  |
+
+**Indexes:**
+- `ix_set_artists_artist_id`: `artist_id`
+
+### `set_tracks`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `set_id` | Integer | no | FK → sets.id ON DELETE CASCADE |  |
+| `catalog_id` | Integer | yes | FK → catalog.id ON DELETE SET NULL |  |
+| `position` | Integer | no |  |  |
+| `timecode_ms` | Integer | yes |  |  |
+| `raw_title` | String(500) | yes |  |  |
+| `raw_artist` | String(500) | yes |  |  |
+| `is_id` | Boolean | yes |  | default=False |
+| `trackid_music_track_id` | Integer | yes |  |  |
+
+**Indexes:**
+- `ix_set_tracks_set_id`: `set_id`
+- `ix_set_tracks_catalog_id`: `catalog_id`
+
+**Unique constraints:**
+- `set_id`, `position` (`uq_set_track_position`)
+
+### `user_set_follows`
+
+Composite PK: (`user_id`, `set_id`)
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `user_id` **PK** | Integer | no | FK → users.id ON DELETE CASCADE |  |
+| `set_id` **PK** | Integer | no | FK → sets.id ON DELETE CASCADE |  |
+| `followed_at` | DateTime(tz) | yes |  |  |
+
+## Genres
+
+### `genre_nodes`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `wikidata_id` | String(64) | no |  |  |
+| `label` | String(255) | no |  |  |
+| `created_at` | DateTime(tz) | yes |  |  |
+
+**Indexes:**
+- `ix_genre_nodes_label`: `label`
+
+### `genre_edges`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `from_node_id` | Integer | no | FK → genre_nodes.id ON DELETE CASCADE |  |
+| `to_node_id` | Integer | no | FK → genre_nodes.id ON DELETE CASCADE |  |
+| `type` | String(20) | no |  |  |
+| `source` | String(50) | no |  |  |
+
+**Indexes:**
+- `ix_genre_edges_from_node_id`: `from_node_id`
+- `ix_genre_edges_to_node_id`: `to_node_id`
+
+**Unique constraints:**
+- `from_node_id`, `to_node_id`, `type` (`uq_genre_edge`)
+
+### `genre_mappings`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `raw_name` | String(255) | no |  |  |
+| `node_id` | Integer | yes | FK → genre_nodes.id ON DELETE SET NULL |  |
+
+**Indexes:**
+- `ix_genre_mappings_node_id`: `node_id`
+
+## System
+
+### `admin_audit_log`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `user_id` | Integer | yes | FK → users.id ON DELETE SET NULL |  |
+| `action` | String(64) | no |  |  |
+| `target_type` | String(64) | yes |  |  |
+| `target_id` | Integer | yes |  |  |
+| `details` | JSON | yes |  |  |
+| `created_at` | DateTime(tz) | no |  |  |
+
+**Indexes:**
+- `ix_admin_audit_log_user_id`: `user_id`
+- `ix_admin_audit_log_action`: `action`
+
+### `crawl_logs`
+
+PK: `id`
+
+| Column | Type | Nullable | FK | Default |
+|--------|------|----------|----|---------|
+| `id` **PK** | Integer | no |  |  |
+| `task_type` | String(64) | no |  |  |
+| `target_id` | Integer | yes |  |  |
+| `target_label` | String(500) | yes |  |  |
+| `source` | String(64) | yes |  |  |
+| `status` | String(20) | no |  | server_default='running', default='running' |
+| `started_at` | DateTime(tz) | no |  |  |
+| `finished_at` | DateTime(tz) | yes |  |  |
+| `duration_ms` | Integer | yes |  |  |
+| `stats` | JSON | yes |  |  |
+| `error_message` | Text | yes |  |  |
+| `celery_task_id` | String(255) | yes |  |  |
+
+**Indexes:**
+- `ix_crawl_logs_task_type`: `task_type`
