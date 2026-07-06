@@ -34,7 +34,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from database import Base, get_db
-from dependencies import get_current_user, get_current_user_optional, require_admin
+from dependencies import get_current_user, get_current_user_optional, get_redis, require_admin
 from models import User
 import auth_middleware
 auth_middleware.enabled = False  # Tests use dependency overrides, not real JWTs
@@ -90,6 +90,32 @@ async def override_get_db():
 
 
 app.dependency_overrides[get_db] = override_get_db
+
+
+class FakeRedis:
+    """In-memory Redis mock for tests."""
+
+    def __init__(self):
+        self._store = {}
+
+    async def setex(self, key, ttl, value):
+        self._store[key] = value
+
+    async def delete(self, key):
+        return 1 if self._store.pop(key, None) is not None else 0
+
+    async def aclose(self):
+        pass
+
+
+_fake_redis = FakeRedis()
+
+
+async def override_get_redis():
+    yield _fake_redis
+
+
+app.dependency_overrides[get_redis] = override_get_redis
 
 
 @pytest_asyncio.fixture(autouse=True, scope="session")

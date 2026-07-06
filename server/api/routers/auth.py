@@ -12,7 +12,7 @@ from auth import (
     verify_google_token,
 )
 from database import get_db
-from dependencies import get_current_user
+from dependencies import get_current_user, get_redis
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 from models import User
@@ -42,9 +42,10 @@ class UserOut(BaseModel):
 
 
 @router.get("/google/login")
-async def google_login():
+async def google_login(redis=Depends(get_redis)):
     """Return Google authorization URL and state for CSRF check."""
     state = secrets.token_urlsafe(32)
+    await redis.setex(f"oauth_state:{state}", 300, "1")  # valid 5 min
     params = urlencode(
         {
             "client_id": GOOGLE_CLIENT_ID,
@@ -56,7 +57,7 @@ async def google_login():
         }
     )
     url = f"https://accounts.google.com/o/oauth2/v2/auth?{params}"
-    return JSONResponse({"url": url, "state": state})
+    return JSONResponse({"url": url})
 
 
 @router.get("/google/callback")
@@ -64,8 +65,17 @@ async def google_callback(
     code: str,
     state: str,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ):
-    """Exchange Google code, create/find user, return HTML that stores JWT."""
+    """Exchange Google code, create/find user, set cookie + redirect."""
+    # Server-side state validation (Redis, one-time use)
+    consumed = await redis.delete(f"oauth_state:{state}")
+    if not consumed:
+        logging.getLogger("auth").warning("OAuth state invalid or expired: %s", state)
+        return RedirectResponse(
+            "/login/callback?error=invalid_state", status_code=302
+        )
+
     try:
         google_info = await verify_google_token(code)
     except Exception as exc:
@@ -117,7 +127,7 @@ async def google_callback(
     # inline scripts (blocked by CSP script-src 'self').
     cookie_value = (
         base64.urlsafe_b64encode(
-            json.dumps({"token": token, "user": user_data, "state": state}).encode()
+            json.dumps({"token": token, "user": user_data}).encode()
         )
         .decode()
         .rstrip("=")  # strip padding — '=' triggers cookie quoting

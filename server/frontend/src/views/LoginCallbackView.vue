@@ -36,6 +36,7 @@ onMounted(() => {
 
   try {
     // Read credentials from temporary cookie set by backend callback
+    // (state already validated server-side via Redis)
     const raw = readCookie('auth_callback')
     deleteCookie('auth_callback')
 
@@ -48,14 +49,6 @@ onMounted(() => {
     const b64 = raw.replace(/-/g, '+').replace(/_/g, '/')
     const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
     const data = JSON.parse(atob(padded))
-
-    const expected = localStorage.getItem('oauth_state')
-    localStorage.removeItem('oauth_state')
-
-    if (!expected || expected !== data.state) {
-      error.value = 'Erreur de sécurité. Veuillez réessayer.'
-      return
-    }
 
     auth._persist(data.token, data.user)
     router.replace('/')

@@ -17,14 +17,18 @@ from main import app
 async def mw_client(auth_user):
     """Client with middleware enabled, keeping only the DB override."""
     from database import get_db
+    from dependencies import get_redis
     old = auth_middleware.enabled
     auth_middleware.enabled = True
     saved = dict(app.dependency_overrides)
-    # Keep only the DB override — strip auth overrides so middleware is tested
+    # Keep DB + Redis overrides — strip auth overrides so middleware is tested
     db_override = saved.get(get_db)
+    redis_override = saved.get(get_redis)
     app.dependency_overrides.clear()
     if db_override:
         app.dependency_overrides[get_db] = db_override
+    if redis_override:
+        app.dependency_overrides[get_redis] = redis_override
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",

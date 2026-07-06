@@ -40,8 +40,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function loginWithGoogle() {
     const res = await fetch(`${API}/google/login`)
     if (!res.ok) throw new Error('Impossible de lancer la connexion Google')
-    const { url, state } = await res.json()
-    localStorage.setItem('oauth_state', state)
+    const { url } = await res.json()
     window.location.href = url
   }
 
