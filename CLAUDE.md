@@ -22,7 +22,9 @@
 server/
 ├── api/
 │   ├── main.py              # FastAPI entrypoint
-│   ├── models.py            # All SQLAlchemy models (25 classes, single file)
+│   ├── models/              # SQLAlchemy models (24 classes, 10 modules):
+│   │                        # catalog, user, artist, radar, sets, genre,
+│   │                        # collection, opinion, admin (+ base, __init__)
 │   ├── dependencies.py      # get_current_user, require_admin
 │   ├── deezer_enrich.py     # Deezer search + enrichment
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting

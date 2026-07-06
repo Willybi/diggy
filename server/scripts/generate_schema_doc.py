@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -70,7 +69,7 @@ INITIAL_MANUAL_BLOCK = """\
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
 
-These notes are maintained by hand. Everything below `<!-- MANUAL:END -->`
+These notes are maintained by hand. Everything below the END marker
 is auto-generated — do not edit it directly.
 
 ### Sentinels
@@ -93,7 +92,7 @@ is auto-generated — do not edit it directly.
   provided the authoritative BPM / key value (e.g. `"beatport"`, `"deezer"`).
 
 ### Lifecycle & radar columns
-- `catalog.scope`: `"shared"` (default) or `"personal"`.
+- `catalog.scope`: `"shared"` (default) or `"private"` (Rekordbox-only entries before enrichment).
 - `catalog.origin`: how the entry entered the catalog (`"deezer"`, `"rekordbox"`, etc.).
 - `catalog.status`: `"official"` (default), `"pending"`, etc.
 - `radar_tracks.removed_at`: soft-delete timestamp for tracks removed from a playlist.
@@ -104,6 +103,11 @@ is auto-generated — do not edit it directly.
 - Duplicate rows (false negatives) are cheap storage debt.
 - Bad merges (false positives) are expensive data corruption.
 - Always err toward separation.
+
+### Model vs DB caveat
+- This doc reflects SQLAlchemy model declarations. The actual DB may diverge
+  if a migration altered a constraint manually (e.g. `ON DELETE`). When in
+  doubt, check `alembic/versions/`.
 <!-- MANUAL:END -->"""
 
 
@@ -165,10 +169,7 @@ def _fk_info(col) -> str:
         return ""
     fk = fks[0]
     target = fk.target_fullname
-    on_delete = fk.ondelete or fk.parent.onupdate or ""
-    if not on_delete and hasattr(fk, "_colspec"):
-        on_delete = ""
-    # Try to get ondelete from the ForeignKey object
+    on_delete = fk.ondelete or ""
     on_del_str = f" ON DELETE {on_delete}" if on_delete else ""
     return f"FK → {target}{on_del_str}"
 
@@ -192,16 +193,17 @@ def _render_table(table) -> list[str]:
     lines.append("")
 
     # Columns table
-    lines.append("| Column | Type | Nullable | FK | Default |")
-    lines.append("|--------|------|----------|----|---------|")
+    lines.append("| Column | Type | Nullable | Unique | FK | Default |")
+    lines.append("|--------|------|----------|--------|----|---------|")
     for col in table.columns:
         nullable = "yes" if col.nullable else "no"
+        unique = "yes" if col.unique else ""
         fk = _fk_info(col)
         default = _default_str(col)
         pk_marker = " **PK**" if col.primary_key else ""
         lines.append(
             f"| `{col.name}`{pk_marker} | {_col_type_str(col)} "
-            f"| {nullable} | {fk} | {default} |"
+            f"| {nullable} | {unique} | {fk} | {default} |"
         )
 
     # Indexes
@@ -248,11 +250,10 @@ def generate() -> str:
     lines: list[str] = []
 
     # Header
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines.append("# Diggy - Database Schema")
     lines.append("")
     lines.append(
-        f"> **Auto-generated** on {now} from `server/api/models/`. "
+        "> **Auto-generated** from `server/api/models/`. "
         "Do not edit below the MANUAL block — regenerate via `/schema_doc`."
     )
     lines.append(f"> {len(all_tables)} tables across {len(DOMAIN_ORDER)} domains.")

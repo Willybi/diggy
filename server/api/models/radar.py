@@ -81,7 +81,7 @@ class RadarTrack(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     watched_entity_id = Column(
-        Integer, ForeignKey("watched_entities.id"), nullable=False
+        Integer, ForeignKey("watched_entities.id", ondelete="CASCADE"), nullable=False
     )
     external_track_id = Column(String(255), nullable=False)
     source = Column(String(50), nullable=False)
