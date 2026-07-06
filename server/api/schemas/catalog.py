@@ -99,6 +99,7 @@ class SameArtistTrackOut(BaseModel):
     key: Optional[str] = None
     duration_ms: Optional[int] = None
     has_artwork: bool = False
+    has_preview: bool = False
     in_lib: bool = False
     rating: Optional[int] = None
 

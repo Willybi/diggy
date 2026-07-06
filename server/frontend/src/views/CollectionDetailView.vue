@@ -137,6 +137,7 @@ function playTrack(t) {
     catalog_id: t.catalog_id,
     title: t.title,
     artist: t.artist,
+    artist_id: t.artist_id,
     bpm: t.bpm,
     key: t.key,
   })

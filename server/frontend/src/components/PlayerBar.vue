@@ -22,8 +22,20 @@
 
       <!-- Identity -->
       <div class="pl-id">
-        <span class="pl-title">{{ player.track?.title }}</span>
-        <span class="pl-artist">{{ player.track?.artist }}</span>
+        <RouterLink
+          class="pl-title pl-link"
+          :to="`/catalog/${player.track?.catalog_id}`"
+        >
+          {{ player.track?.title }}
+        </RouterLink>
+        <RouterLink
+          v-if="player.track?.artist_id"
+          class="pl-artist pl-link"
+          :to="`/artist/${player.track.artist_id}`"
+        >
+          {{ player.track?.artist }}
+        </RouterLink>
+        <span v-else class="pl-artist">{{ player.track?.artist }}</span>
       </div>
 
       <!-- BPM · Key -->
@@ -108,6 +120,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtSec } from '../utils/format'
 
@@ -278,6 +291,14 @@ function onScrubStart(e) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.pl-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.pl-link:hover {
+  color: var(--accent);
 }
 
 /* ── BPM / Key ── */

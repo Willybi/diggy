@@ -212,6 +212,7 @@
                       catalog_id: e.id,
                       title: e.title,
                       artist: e.artist,
+                      artist_id: e.artist_id,
                       bpm: e.bpm,
                       key: e.key,
                     })

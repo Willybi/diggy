@@ -72,6 +72,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
       catalog_id: trackObj.catalog_id,
       title: trackObj.title || '',
       artist: trackObj.artist || '',
+      artist_id: trackObj.artist_id || null,
       bpm: trackObj.bpm,
       key: trackObj.key,
     }

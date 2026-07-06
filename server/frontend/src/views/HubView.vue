@@ -380,6 +380,7 @@ function playTrend(track) {
     catalog_id: track.catalog_id,
     title: track.title,
     artist: track.artist,
+    artist_id: track.artist_id,
     bpm: track.bpm,
     key: track.key,
   })
@@ -550,6 +551,7 @@ function onPlay(item) {
       catalog_id: item.id,
       title: item.title,
       artist: item.artist,
+      artist_id: item.artist_id,
       bpm: item.bpm,
       key: item.key,
     })

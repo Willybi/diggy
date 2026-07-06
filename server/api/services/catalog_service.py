@@ -439,6 +439,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 CatalogEntry.key,
                 CatalogEntry.duration_ms,
                 CatalogEntry.has_artwork,
+                CatalogEntry.has_preview,
                 sa_ut_sub.c.catalog_id.label("sa_ut_cid"),
                 sa_ut_sub.c.rating,
             )
@@ -476,8 +477,9 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 key=r[4],
                 duration_ms=r[5],
                 has_artwork=r[6],
-                in_lib=r[7] is not None,
-                rating=r[8],
+                has_preview=r[7],
+                in_lib=r[8] is not None,
+                rating=r[9],
                 artists=sa_artists_map.get(r[0], []),
             )
             for r in sa_rows

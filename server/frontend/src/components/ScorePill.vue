@@ -1,9 +1,10 @@
 <template>
   <span class="score-pill">
     <span class="meter">
-      <i v-for="n in 10" :key="n" :class="{ 'is-on': n <= score }" />
+      <span class="meter-fill" :style="{ width: score * 10 + '%' }" />
     </span>
-    {{ score }}<span class="total">/10</span>
+    <span class="meter-text">{{ formatScore(score) }}</span
+    ><span class="total">/10</span>
   </span>
 </template>
 
@@ -11,6 +12,10 @@
 defineProps({
   score: { type: Number, required: true },
 })
+
+function formatScore(s) {
+  return s % 1 === 0 ? s.toString() : s.toFixed(1)
+}
 </script>
 
 <style scoped>
@@ -25,19 +30,23 @@ defineProps({
   font: 500 12px/1 var(--font-mono);
 }
 .meter {
-  display: inline-flex;
-  gap: 2px;
-}
-.meter i {
-  width: 3px;
+  width: 50px;
   height: 11px;
-  border-radius: 1px;
+  border-radius: 2px;
   background: currentColor;
-  opacity: 0.28;
-  font-style: normal;
+  opacity: 0.2;
+  position: relative;
+  overflow: hidden;
 }
-.meter i.is-on {
+.meter-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: currentColor;
   opacity: 1;
+  border-radius: 2px;
+  transition: width 0.3s ease;
 }
 .total {
   opacity: 0.5;

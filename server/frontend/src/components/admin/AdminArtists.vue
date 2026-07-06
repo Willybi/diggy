@@ -108,6 +108,14 @@
               >
                 Flagguer
               </button>
+              <button
+                v-if="hasSpaces(a.name)"
+                class="btn-row-action split"
+                title="Splitter manuellement sur un espace"
+                @click="openManualSplit(a)"
+              >
+                Splitter
+              </button>
             </div>
           </div>
         </div>
@@ -157,11 +165,48 @@
       <span v-if="linkSuccess" class="result-item ok">✓ Lié</span>
       <span v-if="linkError" class="sync-error">{{ linkError }}</span>
     </div>
+
+    <!-- Manual split panel -->
+    <div v-if="splitArtist" class="split-panel">
+      <div class="split-header">
+        <span class="split-label">Splitter manuellement :</span>
+        <strong>{{ splitArtist.name }}</strong>
+        <button class="btn-row-action" @click="cancelSplit">Annuler</button>
+      </div>
+
+      <div v-if="splitIndex === null" class="split-tokens">
+        <template v-for="(word, i) in splitWords" :key="i">
+          <span class="split-word">{{ word }}</span>
+          <button
+            v-if="i < splitWords.length - 1"
+            class="split-sep"
+            :title="`Couper ici : « ${splitWords.slice(0, i + 1).join(' ')} » + « ${splitWords.slice(i + 1).join(' ')} »`"
+            @click="chooseSplit(i)"
+          >
+            ·
+          </button>
+        </template>
+      </div>
+
+      <div v-else class="split-preview">
+        <span class="split-pill">{{ splitLeft }}</span>
+        <span class="split-plus">+</span>
+        <span class="split-pill">{{ splitRight }}</span>
+      </div>
+
+      <div v-if="splitIndex !== null" class="split-actions">
+        <button class="btn-row-action" @click="splitIndex = null">Modifier</button>
+        <button class="btn-confirm-link" :disabled="splitting" @click="confirmManualSplit">
+          {{ splitting ? 'Split…' : 'Confirmer le split' }}
+        </button>
+        <span v-if="splitError" class="sync-error">{{ splitError }}</span>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../../utils/api.js'
 
 const syncing = ref(false)
@@ -350,6 +395,69 @@ const SEPARATORS = ['/', ' & ', ', ', ' feat. ', ' feat ', ' ft. ', ' ft ']
 
 function detectSeparator(name) {
   return SEPARATORS.find((sep) => name.includes(sep)) || null
+}
+
+// Manual split
+const splitArtist = ref(null)
+const splitIndex = ref(null)
+const splitting = ref(false)
+const splitError = ref('')
+
+const splitWords = computed(() => {
+  if (!splitArtist.value) return []
+  return splitArtist.value.name.split(' ').filter(Boolean)
+})
+
+const splitLeft = computed(() => {
+  if (splitIndex.value === null) return ''
+  return splitWords.value.slice(0, splitIndex.value + 1).join(' ')
+})
+
+const splitRight = computed(() => {
+  if (splitIndex.value === null) return ''
+  return splitWords.value.slice(splitIndex.value + 1).join(' ')
+})
+
+function hasSpaces(name) {
+  return name.trim().includes(' ')
+}
+
+function openManualSplit(artist) {
+  splitArtist.value = artist
+  splitIndex.value = null
+  splitError.value = ''
+}
+
+function cancelSplit() {
+  splitArtist.value = null
+  splitIndex.value = null
+}
+
+function chooseSplit(index) {
+  splitIndex.value = index
+}
+
+async function confirmManualSplit() {
+  if (!splitArtist.value || splitIndex.value === null) return
+  splitting.value = true
+  splitError.value = ''
+  try {
+    const { data: flag } = await api.post('/api/admin/artists/flags/manual', {
+      raw_artist_string: splitArtist.value.name,
+      tokens: [splitLeft.value, splitRight.value],
+      reason: 'manual',
+    })
+    await api.post(`/api/admin/artists/flags/${flag.id}/resolve`, { action: 'split' })
+    dbArtistResults.value = dbArtistResults.value.filter(
+      (a) => a.id !== splitArtist.value.id,
+    )
+    splitArtist.value = null
+    splitIndex.value = null
+  } catch (e) {
+    splitError.value = e.response?.data?.detail || 'Erreur lors du split'
+  } finally {
+    splitting.value = false
+  }
 }
 
 async function flagArtist(artist) {
@@ -584,5 +692,88 @@ onMounted(() => {
 .btn-confirm-link:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Manual split */
+.split-panel {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+}
+.split-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font: 400 13px/1.4 var(--font-ui);
+  color: var(--ink-2);
+}
+.split-header strong {
+  color: var(--ink);
+}
+.split-label {
+  white-space: nowrap;
+}
+.split-tokens {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+}
+.split-word {
+  font: 500 14px/1 var(--font-ui);
+  color: var(--ink);
+  padding: 4px 0;
+}
+.split-sep {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  margin: 0 2px;
+  background: var(--accent-soft);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  font: 700 14px/1 var(--font-mono);
+  color: var(--accent-ink);
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.split-sep:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.split-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.split-pill {
+  font: 500 13px/1 var(--font-ui);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  padding: 5px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.split-plus {
+  font: 500 14px/1 var(--font-ui);
+  color: var(--ink-3);
+}
+.split-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.btn-row-action.split:hover {
+  color: var(--accent-ink);
+  border-color: var(--accent);
 }
 </style>

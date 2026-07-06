@@ -69,6 +69,7 @@ function onPlay() {
     catalog_id: props.track.id,
     title: props.track.title,
     artist: props.track.artist,
+    artist_id: props.track.artist_id,
     bpm: props.track.bpm,
     key: props.track.key,
   })

@@ -50,6 +50,7 @@
             :catalog-id="track.id"
             :title="track.title"
             :artist="track.artist"
+            :artist-id="track.artist_id"
             :bpm="track.bpm"
             :track-key="track.key"
           />
@@ -155,11 +156,12 @@
         :count="track.same_artist_tracks.length"
       >
         <div class="mini-grid">
-          <RouterLink
+          <div
             v-for="t in track.same_artist_tracks"
             :key="t.id"
-            :to="`/catalog/${t.id}`"
             class="mini-row"
+            :class="{ playing: player.isCurrent(t.id) }"
+            @click="$router.push(`/catalog/${t.id}`)"
           >
             <img
               v-if="t.has_artwork"
@@ -173,6 +175,22 @@
             </span>
             <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
             <span class="m-key mono">{{ t.key || '' }}</span>
+            <span class="m-play" @click.stop>
+              <button
+                v-if="t.has_preview"
+                class="play-btn"
+                :class="{ playing: player.isCurrent(t.id) && player.playing }"
+                @click="playTrack(t)"
+              >
+                <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="5" width="4" height="14" />
+                  <rect x="14" y="5" width="4" height="14" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+            </span>
             <span class="m-rating">
               <span v-if="t.rating" class="rating">
                 <span
@@ -185,7 +203,7 @@
               </span>
             </span>
             <span class="m-lib"><LibDot :in-lib="!!t.in_lib" /></span>
-          </RouterLink>
+          </div>
         </div>
       </RelBlock>
 
@@ -197,11 +215,12 @@
       >
         <div v-if="similarLoading" class="state state--inline">Chargement…</div>
         <div v-else class="mini-grid">
-          <RouterLink
+          <div
             v-for="t in similarTracks"
             :key="t.id"
-            :to="`/catalog/${t.id}`"
             class="mini-row mini-row--sim"
+            :class="{ playing: player.isCurrent(t.id) }"
+            @click="$router.push(`/catalog/${t.id}`)"
           >
             <img
               v-if="t.has_artwork"
@@ -216,9 +235,25 @@
             </span>
             <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
             <span class="m-key mono">{{ t.key || '' }}</span>
+            <span class="m-play" @click.stop>
+              <button
+                v-if="t.has_preview"
+                class="play-btn"
+                :class="{ playing: player.isCurrent(t.id) && player.playing }"
+                @click="playTrack(t)"
+              >
+                <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="5" width="4" height="14" />
+                  <rect x="14" y="5" width="4" height="14" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+            </span>
             <span class="m-sim-score">{{ Math.round(t.similarity.score * 100) }}%</span>
             <span class="m-lib"><LibDot :in-lib="!!t.in_lib" /></span>
-          </RouterLink>
+          </div>
         </div>
       </RelBlock>
 
@@ -289,9 +324,11 @@ import AdminCard from '../components/AdminCard.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SourceBadge from '../components/SourceBadge.vue'
 import LibDot from '../components/LibDot.vue'
+import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs, fmtBpm, fmtDate, fmtCue } from '../utils/format'
 
 const route = useRoute()
+const player = useAudioPlayer()
 const track = ref(null)
 const loading = ref(true)
 const enriching = ref(false)
@@ -304,6 +341,17 @@ const userCollections = ref([])
 const collLoading = ref(false)
 const similarTracks = ref([])
 const similarLoading = ref(false)
+
+function playTrack(t) {
+  player.play({
+    id: t.id,
+    catalog_id: t.id,
+    title: t.title,
+    artist: t.artist,
+    bpm: t.bpm,
+    key: t.key,
+  })
+}
 
 const coverSrc = computed(() => {
   if (!track.value) return null
@@ -702,7 +750,7 @@ onMounted(() => loadTrack(route.params.id))
 }
 .mini-row {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 72px 16px;
+  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 30px 72px 16px;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
@@ -822,7 +870,7 @@ onMounted(() => loadTrack(route.params.id))
 
 /* T9: Similar tracks */
 .mini-row--sim {
-  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 36px 16px;
+  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 30px 36px 16px;
 }
 .mr-artist {
   display: block;
@@ -843,10 +891,54 @@ onMounted(() => loadTrack(route.params.id))
   font-size: 13px;
 }
 
+/* Play button */
+.m-play {
+  display: flex;
+  justify-content: center;
+  min-height: 30px;
+  align-items: center;
+}
+.play-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--ink-3);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.play-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.mini-row:hover .play-btn {
+  opacity: 1;
+}
+.play-btn:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.play-btn.playing {
+  opacity: 1;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.mini-row.playing {
+  background: var(--accent-soft);
+}
+
 /* ============ RESPONSIVE ============ */
 @container (max-width: 640px) {
   .detail-view {
     padding: var(--page-px-mobile);
+  }
+  .play-btn {
+    opacity: 1;
   }
 }
 </style>

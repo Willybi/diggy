@@ -22,6 +22,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   title: { type: String, default: '' },
   artist: { type: String, default: '' },
+  artistId: { type: Number, default: null },
   bpm: { type: Number, default: null },
   trackKey: { type: String, default: '' },
 })
@@ -36,6 +37,7 @@ function onPlay() {
     catalog_id: props.catalogId,
     title: props.title,
     artist: props.artist,
+    artist_id: props.artistId,
     bpm: props.bpm,
     key: props.trackKey,
   })

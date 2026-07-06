@@ -142,6 +142,14 @@
             :fallback-letter="a.name[0]"
           />
         </div>
+        <button
+          v-if="artists.length < artistsTotal"
+          class="load-more"
+          :disabled="artistsLoading"
+          @click="fetchArtists(true)"
+        >
+          {{ artistsLoading ? 'Chargement…' : `Voir les ${artistsTotal - artists.length} autres` }}
+        </button>
       </RelBlock>
 
       <!-- Shelf: Sets -->
@@ -164,6 +172,14 @@
             </template>
           </ShelfCard>
         </div>
+        <button
+          v-if="sets.length < setsTotal"
+          class="load-more"
+          :disabled="setsLoading"
+          @click="fetchSets(true)"
+        >
+          {{ setsLoading ? 'Chargement…' : `Voir les ${setsTotal - sets.length} autres` }}
+        </button>
       </RelBlock>
 
       <!-- Shelf: Playlists -->
@@ -183,6 +199,18 @@
             </template>
           </ShelfCard>
         </div>
+        <button
+          v-if="playlists.length < playlistsTotal"
+          class="load-more"
+          :disabled="playlistsLoading"
+          @click="fetchPlaylists(true)"
+        >
+          {{
+            playlistsLoading
+              ? 'Chargement…'
+              : `Voir les ${playlistsTotal - playlists.length} autres`
+          }}
+        </button>
       </RelBlock>
 
       <!-- Tracks section -->
@@ -273,10 +301,13 @@ const loading = ref(true)
 const genre = ref(null)
 const artists = ref([])
 const artistsTotal = ref(0)
+const artistsLoading = ref(false)
 const sets = ref([])
 const setsTotal = ref(0)
+const setsLoading = ref(false)
 const playlists = ref([])
 const playlistsTotal = ref(0)
+const playlistsLoading = ref(false)
 const tracks = ref([])
 const trackTotal = ref(0)
 const tracksLoading = ref(false)
@@ -378,39 +409,54 @@ async function fetchGenre() {
   }
 }
 
-async function fetchArtists() {
+async function fetchArtists(append = false) {
+  artistsLoading.value = true
   try {
+    const params = { limit: 12 }
+    if (append) params.offset = artists.value.length
     const { data } = await api.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, {
-      params: { limit: 12 },
+      params,
     })
-    artists.value = data.items
+    artists.value = append ? [...artists.value, ...data.items] : data.items
     artistsTotal.value = data.total
   } catch {
-    artists.value = []
+    if (!append) artists.value = []
+  } finally {
+    artistsLoading.value = false
   }
 }
 
-async function fetchSets() {
+async function fetchSets(append = false) {
+  setsLoading.value = true
   try {
+    const params = { limit: 12 }
+    if (append) params.offset = sets.value.length
     const { data } = await api.get(`/api/genres/sets/${encodeURIComponent(genreName.value)}`, {
-      params: { limit: 12 },
+      params,
     })
-    sets.value = data.items
+    sets.value = append ? [...sets.value, ...data.items] : data.items
     setsTotal.value = data.total
   } catch {
-    sets.value = []
+    if (!append) sets.value = []
+  } finally {
+    setsLoading.value = false
   }
 }
 
-async function fetchPlaylists() {
+async function fetchPlaylists(append = false) {
+  playlistsLoading.value = true
   try {
+    const params = { limit: 12 }
+    if (append) params.offset = playlists.value.length
     const { data } = await api.get(`/api/genres/playlists/${encodeURIComponent(genreName.value)}`, {
-      params: { limit: 12 },
+      params,
     })
-    playlists.value = data.items
+    playlists.value = append ? [...playlists.value, ...data.items] : data.items
     playlistsTotal.value = data.total
   } catch {
-    playlists.value = []
+    if (!append) playlists.value = []
+  } finally {
+    playlistsLoading.value = false
   }
 }
 
@@ -881,6 +927,25 @@ onUnmounted(() => {
 }
 .shelf::-webkit-scrollbar {
   display: none;
+}
+
+/* Load more */
+.load-more {
+  display: block;
+  margin: 8px auto 0;
+  padding: 6px 14px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+}
+.load-more:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Ring on set cards */
