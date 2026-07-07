@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-07
+> Last verified: 2026-07-07 (C6.a)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -119,7 +119,9 @@ Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`
 
 | Task | Time | Module |
 |------|------|--------|
+| `backfill_trackid_sets` | 02:00 | tasks/sets.py |
 | `crawl_radar` | 03:00 | tasks/radar.py |
+| `crawl_trackid_latest` | 03:30 | tasks/sets.py |
 | `crawl_followed_sets` | 04:00 | tasks/sets.py |
 | `enrich_catalog` (Deezer) | 05:00 | tasks/catalog.py |
 | `enrich_catalog_beatport` | 06:00 | tasks/catalog.py |

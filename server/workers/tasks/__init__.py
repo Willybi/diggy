@@ -10,7 +10,9 @@ from workers.tasks.genres import reclassify_all_genres, reclassify_genres_chunk
 from workers.tasks.import_rb import import_rekordbox_xml
 from workers.tasks.radar import crawl_radar, crawl_single_playlist
 from workers.tasks.sets import (
+    backfill_trackid_sets,
     crawl_followed_sets,
+    crawl_trackid_latest,
     enrich_set_tracks,
     resolve_set_tracks,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "resolve_set_tracks",
     "enrich_set_tracks",
     "crawl_followed_sets",
+    "crawl_trackid_latest",
+    "backfill_trackid_sets",
     "sync_artists",
     "fetch_artist_artworks",
     "link_set_artists",
