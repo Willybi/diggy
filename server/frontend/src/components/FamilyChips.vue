@@ -53,7 +53,7 @@ const chips = computed(() => {
   gap: 7px;
   height: 32px;
   padding: 0 12px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);

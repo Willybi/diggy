@@ -51,6 +51,15 @@
   --pos: oklch(var(--pos-l) var(--pos-c) var(--pos-h));
   --pos-soft: oklch(0.94 0.046 var(--pos-h));
   --pos-ink: oklch(0.46 0.098 var(--pos-h));
+  /* pos washes — teinte de ligne "liked". Composition alpha sur --pos-l/c/h,
+     donc theme-adaptive automatiquement (contrairement à --accent-wash, qui est
+     solide avec un override dark explicite). --pos-wash (0.06) = repos light ;
+     --pos-wash-2 (0.1) = hover light + repos dark. À terme --accent-wash
+     pourrait migrer vers cette même mécanique. */
+  --pos-wash: oklch(
+    var(--pos-l) var(--pos-c) var(--pos-h) / 0.06
+  );
+  --pos-wash-2: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
 
   /* ---- negative / dislike (Wildflower terracotta, hue 28) ---- */
   --neg-h: 28;
@@ -110,6 +119,7 @@
   --r-md: 13px;
   --r-lg: 18px;
   --r-xl: 24px;
+  --r-pill: 999px;
 
   /* ---- depth ---- */
   --shadow-sm: 0 1px 2px oklch(0.4 0.02 70 / 0.06), 0 1px 1px oklch(0.4 0.02 70 / 0.04);

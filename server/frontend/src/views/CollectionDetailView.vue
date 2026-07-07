@@ -180,7 +180,7 @@ onMounted(fetchCollection)
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  padding: 26px 30px 18px;
+  padding: 26px var(--page-px) 18px;
   flex-wrap: wrap;
 }
 .titles h1 {
@@ -222,7 +222,7 @@ onMounted(fetchCollection)
 
 /* ============ TABLE ============ */
 .table-wrap {
-  padding: 4px 30px 30px;
+  padding: 4px var(--page-px) 30px;
   overflow-x: auto;
 }
 table.tt {
@@ -403,7 +403,7 @@ table.tt tbody tr.playing {
 
 /* ============ STATES ============ */
 .state {
-  padding: 40px 30px;
+  padding: 40px var(--page-px);
   color: var(--ink-3);
   font: 400 14px var(--font-ui);
   font-style: italic;

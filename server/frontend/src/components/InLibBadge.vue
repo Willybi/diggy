@@ -30,7 +30,7 @@ defineProps({
   font: 500 11.5px/1 var(--font-ui);
   letter-spacing: 0.005em;
   padding: 4px 10px 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .badge--in {
   background: var(--pos-soft);

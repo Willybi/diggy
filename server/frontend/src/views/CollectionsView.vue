@@ -137,7 +137,7 @@ onMounted(async () => {
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  padding: 26px 30px 18px;
+  padding: 26px var(--page-px) 18px;
   flex-wrap: wrap;
 }
 .titles h1 {
@@ -187,7 +187,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 14px;
-  padding: 16px 30px 30px;
+  padding: 16px var(--page-px) 30px;
 }
 .coll-card {
   position: relative;
@@ -326,7 +326,7 @@ onMounted(async () => {
 
 /* ============ STATES ============ */
 .state {
-  padding: 40px 30px;
+  padding: 40px var(--page-px);
   color: var(--ink-3);
   font: 400 14px var(--font-ui);
   font-style: italic;

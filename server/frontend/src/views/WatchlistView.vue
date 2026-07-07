@@ -407,7 +407,7 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  padding: 26px 30px 18px;
+  padding: 26px var(--page-px) 18px;
   flex-wrap: wrap;
 }
 .page-head .titles h1 {
@@ -465,7 +465,7 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 
 /* formulaire d'ajout */
 .addform {
-  padding: 0 30px 6px;
+  padding: 0 var(--page-px) 6px;
 }
 .addcard {
   background: var(--surface);
@@ -525,7 +525,7 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 
 /* table */
 .table-wrap {
-  padding: 4px 30px 30px;
+  padding: 4px var(--page-px) 30px;
   overflow-x: auto;
 }
 table.tt {
@@ -680,10 +680,10 @@ table.tt tbody tr:hover .td-avis :deep(.ld-btn) {
 
 /* ── row avis states ── */
 table.tt tbody tr.liked {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.06);
+  background: var(--pos-wash);
 }
 table.tt tbody tr.liked:hover {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+  background: var(--pos-wash-2);
 }
 table.tt tbody tr.disliked td:not(.td-avis) {
   opacity: 0.42;
@@ -796,7 +796,7 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
 }
 
 .state {
-  padding: 60px 30px;
+  padding: 60px var(--page-px);
   color: var(--ink-3);
   font: 400 14px var(--font-ui);
   text-align: center;

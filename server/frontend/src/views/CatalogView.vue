@@ -575,7 +575,7 @@ watch(
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  padding: 26px 30px 18px;
+  padding: 26px var(--page-px) 18px;
   flex-wrap: wrap;
 }
 .titles h1 {
@@ -649,7 +649,7 @@ watch(
   background: var(--surface-2);
   border: 1px solid var(--line);
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .viewseg button {
   border: 0;
@@ -661,7 +661,7 @@ watch(
   font: 600 12.5px var(--font-ui);
   color: var(--ink-2);
   padding: 7px 14px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   line-height: 1;
 }
 .viewseg button svg {
@@ -683,7 +683,7 @@ watch(
   align-items: center;
   gap: 12px;
   min-height: 46px;
-  padding: 0 30px 14px;
+  padding: 0 var(--page-px) 14px;
 }
 /* ============ RECENCY (radar only) ============ */
 .recency {
@@ -725,7 +725,7 @@ watch(
 
 /* ============ TABLE ============ */
 .table-wrap {
-  padding: 4px 30px 30px;
+  padding: 4px var(--page-px) 30px;
   overflow-x: auto;
 }
 table.tt {
@@ -1066,10 +1066,10 @@ tr:hover .c-avis :deep(.ld-btn) {
 
 /* ============ ROW AVIS STATES ============ */
 table.tt tbody tr.liked {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.06);
+  background: var(--pos-wash);
 }
 table.tt tbody tr.liked:hover {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+  background: var(--pos-wash-2);
 }
 table.tt tbody tr.disliked td:not(.c-avis) {
   opacity: 0.42;
@@ -1078,7 +1078,7 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
   opacity: 0.7;
 }
 [data-theme='dark'] table.tt tbody tr.liked {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+  background: var(--pos-wash-2);
 }
 
 /* ============ PAGINATION ============ */
@@ -1087,7 +1087,7 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 0 30px 30px;
+  padding: 0 var(--page-px) 30px;
 }
 .page-btn {
   padding: 6px 14px;

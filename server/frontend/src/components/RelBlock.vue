@@ -38,7 +38,7 @@ defineProps({
   color: var(--ink-3);
   background: var(--surface-2);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .rel-body {
   border: 1px solid var(--line);

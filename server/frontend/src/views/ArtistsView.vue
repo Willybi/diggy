@@ -203,7 +203,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  padding: 26px 30px 18px;
+  padding: 26px var(--page-px) 18px;
   flex-wrap: wrap;
 }
 .titles h1 {
@@ -226,7 +226,7 @@ onMounted(() => {
 }
 /* -- Grid -- */
 .artist-grid {
-  padding: 2px 30px 36px;
+  padding: 2px var(--page-px) 36px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
   gap: 16px;
@@ -234,7 +234,7 @@ onMounted(() => {
 
 /* -- Empty -- */
 .empty {
-  padding: 60px 30px;
+  padding: 60px var(--page-px);
   text-align: center;
   color: var(--ink-3);
   font: 500 14px var(--font-mono);
@@ -246,7 +246,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 8px 30px 40px;
+  padding: 8px var(--page-px) 40px;
   color: var(--ink-3);
   font: 500 12px/1 var(--font-mono);
 }

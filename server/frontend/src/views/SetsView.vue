@@ -386,7 +386,7 @@ onMounted(fetchSets)
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  padding: 26px 30px 18px;
+  padding: 26px var(--page-px) 18px;
   flex-wrap: wrap;
 }
 .titles h1 {
@@ -450,7 +450,7 @@ onMounted(fetchSets)
 
 /* ============ ADD FORM ============ */
 .addform {
-  padding: 0 30px 6px;
+  padding: 0 var(--page-px) 6px;
 }
 .addcard {
   background: var(--surface);
@@ -648,7 +648,7 @@ onMounted(fetchSets)
 
 /* ============ TABLE ============ */
 .table-wrap {
-  padding: 4px 30px 30px;
+  padding: 4px var(--page-px) 30px;
   overflow-x: auto;
 }
 table.tt {
@@ -790,10 +790,10 @@ table.tt tbody tr:hover .td-avis :deep(.ld-btn) {
 
 /* ============ ROW AVIS STATES ============ */
 table.tt tbody tr.liked {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.06);
+  background: var(--pos-wash);
 }
 table.tt tbody tr.liked:hover {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+  background: var(--pos-wash-2);
 }
 table.tt tbody tr.disliked td:not(.td-avis) {
   opacity: 0.42;
@@ -804,7 +804,7 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
 
 /* ============ STATES ============ */
 .state {
-  padding: 40px 30px;
+  padding: 40px var(--page-px);
   color: var(--ink-3);
   font: 400 14px var(--font-ui);
   font-style: italic;

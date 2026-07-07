@@ -246,7 +246,7 @@ function onAvatarError(e) {
   color: var(--pos-ink);
   background: var(--surface);
   padding: 5px 8px 5px 7px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--line);
 }

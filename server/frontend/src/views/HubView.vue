@@ -681,7 +681,7 @@ const vClickOutside = {
   gap: 9px;
   height: 38px;
   padding: 0 6px 0 12px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--line);
   background: var(--surface);
   font: 500 13.5px var(--font-ui);
@@ -755,7 +755,7 @@ const vClickOutside = {
   margin: 0 auto;
   background: var(--surface);
   border: 1px solid var(--line-2);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   box-shadow: var(--shadow-md);
   padding: 7px 8px 7px 7px;
   transition:
@@ -780,7 +780,7 @@ const vClickOutside = {
   gap: 8px;
   height: 46px;
   padding: 0 12px 0 14px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border: 0;
   background: var(--surface-2);
   color: var(--ink-2);
@@ -956,7 +956,7 @@ const vClickOutside = {
   gap: 9px;
   padding: 9px 14px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
@@ -1000,7 +1000,7 @@ const vClickOutside = {
   color: var(--ink-2);
   background: var(--surface-2);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   padding: 7px 12px;
   cursor: pointer;
 }
@@ -1253,7 +1253,7 @@ const vClickOutside = {
   color: var(--pos-ink);
   background: var(--pos-soft);
   padding: 5px 7px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   white-space: nowrap;
 }
 .enbib .d {

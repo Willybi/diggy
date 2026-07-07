@@ -56,7 +56,7 @@ const shortLabel = computed(() => props.name.split('/')[0].trim())
   font: 500 12px var(--font-ui);
   white-space: nowrap;
   padding: 4px 10px 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .lbl {
   overflow: hidden;

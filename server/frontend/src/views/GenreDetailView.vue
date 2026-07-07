@@ -975,7 +975,7 @@ onUnmounted(() => {
   right: 6px;
   font: 600 9px/1 var(--font-mono);
   padding: 3px 6px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border: 1.5px solid;
 }
 .ring-full {
@@ -1000,7 +1000,7 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 3px 7px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .source-badge.deezer {
   background: var(--accent-soft);
@@ -1040,7 +1040,7 @@ onUnmounted(() => {
   color: var(--ink-3);
   background: var(--surface-2);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .tracks-tools {
   display: flex;

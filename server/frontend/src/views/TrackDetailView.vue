@@ -563,7 +563,7 @@ onMounted(() => loadTrack(route.params.id))
   background: var(--surface-2);
   border: 1px solid var(--line-2);
   padding: 5px 9px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   white-space: nowrap;
 }
 

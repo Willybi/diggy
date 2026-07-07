@@ -328,7 +328,7 @@ function onCoverError(e) {
   gap: 4px;
   height: 23px;
   padding: 0 9px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--overlay-modal);
   backdrop-filter: blur(6px);
   color: var(--overlay-text);
@@ -353,7 +353,7 @@ function onCoverError(e) {
   gap: 6px;
   height: 22px;
   padding: 0 9px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--overlay-modal);
   backdrop-filter: blur(6px);
   color: var(--overlay-text);

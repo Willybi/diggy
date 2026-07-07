@@ -85,7 +85,7 @@ async function handleLogin() {
 .brand-glyph {
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: var(--accent);
   color: var(--on-accent);
   display: grid;

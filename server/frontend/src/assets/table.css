@@ -52,7 +52,7 @@ table.dt td {
   vertical-align: middle;
 }
 table.dt tbody tr.liked {
-  background: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.06);
+  background: var(--pos-wash);
 }
 table.dt tbody tr.disliked td:not(.c-avis) {
   opacity: 0.42;

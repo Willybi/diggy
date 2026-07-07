@@ -143,7 +143,7 @@ watch(() => route.path, fetchNewCount)
   color: var(--on-accent);
   font: 600 9px/1 var(--font-mono);
   padding: 2px 5px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   min-width: 16px;
   text-align: center;
 }

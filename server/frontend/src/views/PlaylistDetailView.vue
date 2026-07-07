@@ -589,14 +589,14 @@ onUnmounted(stopCrawlPoll)
 }
 .dom-bar {
   height: 7px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-2);
   overflow: hidden;
 }
 .dom-bar i {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0));
 }
 .dom-bar[data-fam='house'] { --th: var(--hue-house); }
