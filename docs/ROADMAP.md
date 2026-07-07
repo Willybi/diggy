@@ -38,7 +38,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   TERMINE (graphe D3 reporte)
  H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
- C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 TERMINES)
+ C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 + C6.a TERMINES)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
@@ -116,7 +116,7 @@ N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 **Priorite : HAUT**
 **Estimation : 7-10 jours**
 **Depend de : C1 (TERMINE). Parallelisable avec C2.**
-**Statut : EN COURS — C6.0 + C6.1 TERMINES (2026-07-07)**
+**Statut : EN COURS — C6.0 + C6.1 + C6.a TERMINES (2026-07-07 / 2026-07-08)**
 
 ### Objectif
 
@@ -200,13 +200,13 @@ Distribution approximative :
 
 #### C6.a.0 — Prospectif (flux quotidien)
 
-- [ ] Task Celery Beat : `crawl_trackid_latest`, schedule quotidien (03:30, avant compute_trends)
-- [ ] Crawl des sets indexes depuis la derniere execution (`addedOn > last_run_ts`, stocke en Redis : `trackid_crawl_last_run`)
-- [ ] Import automatique dans `sets` + `set_tracks` via `import_audiostream()`
-- [ ] Dedup a l'import via C6.0 (verifier doublon avant insertion)
+- [x] Task Celery Beat : `crawl_trackid_latest`, schedule quotidien (03:30, avant compute_trends)
+- [x] Crawl des sets indexes depuis la derniere execution (`addedOn > last_run_ts`, stocke en Redis : `trackid_crawl_last_run`)
+- [x] Import automatique dans `sets` + `set_tracks` via `import_audiostream()`
+- [x] Dedup a l'import via C6.0 (verifier doublon avant insertion)
 - [ ] Filtrage optionnel par pertinence genre (a evaluer apres quelques jours — risque de bruit hors-scope : pop, rock)
-- [ ] Rate limiting : `trackid` deja configure dans `rate_limiter.py` (0.66 req/s, 1 concurrent)
-- [ ] Declenchement de `resolve_set_tracks` apres chaque run (lien catalog + enrichissement Deezer)
+- [x] Rate limiting : `trackid` deja configure dans `rate_limiter.py` (0.66 req/s, 1 concurrent)
+- [x] Declenchement de `resolve_set_tracks` apres chaque run (lien catalog + enrichissement Deezer)
 
 #### C6.a.1 — Backfill historique (rattrapage progressif)
 
@@ -246,11 +246,11 @@ Backfill      Crawl TrackID    Nouvelles tracks/j   Overhead Deezer   Overhead B
 - Charge totale par nuit : ~15 min de trafic TrackID + 25 min overhead Beatport
 
 Taches :
-- [ ] Task Celery Beat : `backfill_trackid_sets`, schedule quotidien (02:00, avant prospectif)
-- [ ] Curseur Redis `trackid_backfill_cursor` init a `today` au premier run
-- [ ] Env var `TRACKID_BACKFILL_SETS_PER_DAY` (defaut : 500) + `TRACKID_BACKFILL_MIN_DATE` (defaut : today - 730j)
-- [ ] Condition d'arret : curseur < min_date ou reponse vide → marquer backfill termine dans Redis
-- [ ] Log du curseur courant a chaque run (monitoring progression)
+- [x] Task Celery Beat : `backfill_trackid_sets`, schedule quotidien (02:00, avant prospectif)
+- [x] Curseur Redis `trackid_backfill_cursor` init a `today` au premier run
+- [x] Env var `TRACKID_BACKFILL_SETS_PER_DAY` (defaut : 500) + `TRACKID_BACKFILL_MIN_DATE` (defaut : today - 730j)
+- [x] Condition d'arret : curseur < min_date ou reponse vide → marquer backfill termine dans Redis
+- [x] Log du curseur courant a chaque run (monitoring progression)
 
 ### C6.b — Re-crawl decroissant des sets incomplets
 
