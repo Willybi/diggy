@@ -35,7 +35,7 @@ function onAction() {
   cursor: pointer;
   max-width: 90vw;
   text-align: center;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.2);
 }
 .toast.error {
   background: var(--neg-soft);

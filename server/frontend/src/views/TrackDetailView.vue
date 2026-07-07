@@ -647,7 +647,7 @@ onMounted(() => loadTrack(route.params.id))
   gap: 12px;
   margin: 12px 0 4px;
   font: 400 13px/1 var(--font-ui);
-  color: var(--ink-muted);
+  color: var(--ink-3);
 }
 .meta-label {
   color: var(--ink-2);

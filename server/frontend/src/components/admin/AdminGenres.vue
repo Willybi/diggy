@@ -301,13 +301,13 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font: 400 13px/1 var(--font-ui);
-  color: var(--ink-muted);
+  color: var(--ink-3);
 }
 .batch-input {
   width: 80px;
   padding: 6px 8px;
   border-radius: var(--r-sm);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--ink);
   font: 400 13px/1 var(--font-mono);
@@ -418,7 +418,7 @@ onMounted(() => {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px oklch(0 0 0 / 0.15);
   max-height: 200px;
   overflow-y: auto;
   margin-top: 2px;

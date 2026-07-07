@@ -282,7 +282,7 @@ function reset() {
 .modal-box {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-lg, 16px);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 480px;
@@ -305,7 +305,7 @@ function reset() {
   align-items: center;
   gap: 10px;
   border: 2px dashed var(--line-2);
-  border-radius: var(--r-md, 10px);
+  border-radius: var(--r-md);
   padding: 32px 24px;
   text-align: center;
   cursor: default;
@@ -348,7 +348,7 @@ function reset() {
 /* ============ INSTRUCTIONS ============ */
 .instructions {
   background: var(--surface-2);
-  border-radius: var(--r-sm, 6px);
+  border-radius: var(--r-sm);
   padding: 12px 14px;
 }
 
@@ -376,7 +376,7 @@ function reset() {
   align-items: center;
   height: 38px;
   padding: 0 18px;
-  border-radius: var(--r-sm, 6px);
+  border-radius: var(--r-sm);
   border: none;
   background: var(--accent);
   color: var(--on-accent);
@@ -394,7 +394,7 @@ function reset() {
   align-items: center;
   height: 38px;
   padding: 0 16px;
-  border-radius: var(--r-sm, 6px);
+  border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--ink-2);
