@@ -97,6 +97,21 @@ class ImageService:
         return f"/storage/{bucket}/{key}"
 
     @classmethod
+    def copy_object(cls, bucket: str, src_key: str, dst_key: str) -> bool:
+        """Copy an object within the same bucket. Returns True on success."""
+        if src_key == dst_key:
+            return True
+        try:
+            cls._get_s3().copy_object(
+                Bucket=bucket,
+                CopySource={"Bucket": bucket, "Key": src_key},
+                Key=dst_key,
+            )
+            return True
+        except Exception:
+            return False
+
+    @classmethod
     async def fetch_playlist_artworks(cls, db, playlist_ids: list[int] | None = None) -> dict:
         """Fetch Deezer artworks for watched playlists missing artwork."""
         from models import WatchedEntity

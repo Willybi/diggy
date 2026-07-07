@@ -584,12 +584,15 @@ async def find_or_create_virtual_parent(
     chosen_title = (
         title if title is not None else min(set_a.title, set_b.title, key=len)
     )
+    artwork_donor = next(
+        (s for s in (set_a, set_b) if s.has_artwork), None
+    )
     parent = DJSet(
         source="virtual",
         is_virtual=True,
         title=chosen_title,
         played_date=played_date if played_date is not None else set_a.played_date,
-        has_artwork=bool(set_a.has_artwork or set_b.has_artwork),
+        has_artwork=artwork_donor is not None,
         created_at=now,
         last_crawled_at=now,
     )
@@ -599,6 +602,13 @@ async def find_or_create_virtual_parent(
     set_a.parent_set_id = parent.id
     set_b.parent_set_id = parent.id
     await db.flush()
+
+    if artwork_donor is not None:
+        try:
+            from services.image_service import BUCKET_SET, ImageService
+            ImageService.copy_object(BUCKET_SET, f"{artwork_donor.id}.jpg", f"{parent.id}.jpg")
+        except Exception:
+            pass
 
     return parent.id, True
 
