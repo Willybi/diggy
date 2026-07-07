@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-06 (H0 + P1 termines, F5/C6 prochains)
+> **Derniere mise a jour** : 2026-07-07 (C6.0 dedup sets termine, C6 EN COURS)
 
 ---
 
@@ -38,7 +38,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   TERMINE (graphe D3 reporte)
  H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
- C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   A FAIRE
+ C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 TERMINE)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
@@ -116,7 +116,7 @@ N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 **Priorite : HAUT**
 **Estimation : 7-10 jours**
 **Depend de : C1 (TERMINE). Parallelisable avec C2.**
-**Statut : A FAIRE**
+**Statut : EN COURS — C6.0 TERMINE (2026-07-07)**
 
 ### Objectif
 
@@ -168,13 +168,13 @@ Avantages : un seul set dans le scoring, on garde les deux sources, on peut **me
 **Regle scoring : un set logique = un seul signal trend, peu importe le nombre de sources ou de parties.**
 
 Taches :
-- [ ] Normalisation titre : fonction `normalize_set_title()` (strip tags source, lowercase, trim, retirer "Official", "Full Set", etc.)
+- [x] Normalisation titre : fonction `normalize_set_title()` (strip tags source, lowercase, trim, retirer "Official", "Full Set", etc.)
 - [ ] Migration : table `set_sources` (set_id, source, external_url, trackid_id, created_at)
-- [ ] Migration : colonne `parent_set_id` (nullable FK vers `sets.id`) + `group_id` (nullable) sur `sets`
-- [ ] Logique de detection de doublons a l'import (avant insertion)
-- [ ] Merge tracklists entre sources d'un meme set (union ordonnee)
-- [ ] Adapter `compute_trends` : exclure les sets avec `parent_set_id IS NOT NULL` du scoring
-- [ ] Audit des 27 sets existants pour valider la logique de dedup
+- [x] Migration : colonne `parent_set_id` (nullable FK vers `sets.id`) + `group_id` (nullable) sur `sets`
+- [x] Logique de detection de doublons a l'import (avant insertion)
+- [x] Merge tracklists entre sources d'un meme set (union ordonnee)
+- [x] Adapter `compute_trends` : exclure les sets avec `parent_set_id IS NOT NULL` du scoring
+- [x] Audit des 27 sets existants pour valider la logique de dedup
 
 ### C6.a — Crawler global TrackID.net
 
