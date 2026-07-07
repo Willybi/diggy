@@ -168,6 +168,7 @@ def compute_trends(self, window_days=30):
                     JOIN sets s ON s.id = st.set_id
                     JOIN catalog c ON c.id = st.catalog_id
                     WHERE st.catalog_id IS NOT NULL
+                      AND s.parent_set_id IS NULL
                       AND COALESCE(s.played_date::timestamptz, s.created_at)
                           >= NOW() - MAKE_INTERVAL(days => :window)
                 ),

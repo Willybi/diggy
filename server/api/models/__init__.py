@@ -16,5 +16,13 @@ from .radar import (  # noqa: F401
     UserRadarState,
     WatchedEntity,
 )
-from .sets import DJSet, SetArtist, SetTrack, UserSetFollow  # noqa: F401
+from .sets import (  # noqa: F401
+    DJSet,
+    SetArtist,
+    SetFlag,
+    SetFlagStatus,
+    SetFlagType,
+    SetTrack,
+    UserSetFollow,
+)
 from .user import User  # noqa: F401

@@ -298,7 +298,7 @@ def crawl_followed_sets(self):
 
         for sid in followed_ids:
             dj_set = session.get(DJSet, sid)
-            if not dj_set or dj_set.source != "trackid":
+            if not dj_set or dj_set.source != "trackid" or dj_set.is_virtual:
                 continue
 
             total = (
@@ -366,7 +366,17 @@ def crawl_followed_sets(self):
                             )
                             if result and track_count > 0:
                                 crawled += 1
+                            parent_set_id = result.parent_set_id if result else None
                             await db.commit()
+                            if parent_set_id is not None:
+                                from services.set_dedup_service import (
+                                    materialize_parent,
+                                )
+                                try:
+                                    await materialize_parent(db, parent_set_id)
+                                    await db.commit()
+                                except Exception:
+                                    pass  # ne pas bloquer le crawl
                 except Exception:
                     logger.exception(
                         "crawl_followed_sets: failed for set %s", info.get("slug")

@@ -99,6 +99,31 @@ class DJSetDetailOut(DJSetOut):
     tracklist: list[SetTrackDetailOut] = []
 
 
+class SetFlagOut(BaseModel):
+    id: int
+    set_id_a: int
+    set_id_b: int
+    flag_type: str
+    confidence: Optional[float] = None
+    signals: Optional[dict] = None
+    status: str
+    created_at: datetime
+    title_a: str = ""
+    title_b: str = ""
+
+    model_config = {"from_attributes": True}
+
+
+class SetFlagListResponse(BaseModel):
+    total: int
+    items: list[SetFlagOut]
+
+
+class SetFlagAttachResponse(BaseModel):
+    ok: bool
+    parent_id: int
+
+
 class SetImportIn(BaseModel):
     url: str | None = None
     slug: str | None = None

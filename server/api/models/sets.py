@@ -1,16 +1,23 @@
+import enum
+
 from database import Base
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy import (
+    Enum as SAEnum,
+)
+from sqlalchemy.orm import backref, relationship
 
 
 class DJSet(Base):
@@ -30,6 +37,13 @@ class DJSet(Base):
     has_artwork = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
     last_crawled_at = Column(DateTime(timezone=True))
+    parent_set_id = Column(
+        Integer, ForeignKey("sets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    is_virtual = Column(Boolean, nullable=False, default=False, server_default="false")
+    platform = Column(String(32), nullable=True)
+    normalized_title = Column(String(500), nullable=True)
+    part_number = Column(Integer, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),
@@ -45,6 +59,11 @@ class DJSet(Base):
         "SetArtist",
         back_populates="dj_set",
         cascade="all, delete-orphan",
+    )
+    children = relationship(
+        "DJSet",
+        foreign_keys=[parent_set_id],
+        backref=backref("parent", remote_side="DJSet.id"),
     )
 
 
@@ -85,7 +104,7 @@ class SetTrack(Base):
     raw_title = Column(String(500), nullable=True)
     raw_artist = Column(String(500), nullable=True)
     is_id = Column(Boolean, default=False)
-    trackid_music_track_id = Column(Integer, nullable=True)
+    trackid_music_track_id = Column(Integer, nullable=True, index=True)
 
     __table_args__ = (
         UniqueConstraint("set_id", "position", name="uq_set_track_position"),
@@ -111,3 +130,45 @@ class UserSetFollow(Base):
         nullable=False,
     )
     followed_at = Column(DateTime(timezone=True))
+
+
+class SetFlagType(str, enum.Enum):
+    duplicate_candidate = "duplicate_candidate"
+    part_candidate = "part_candidate"
+    part_overlap_anomaly = "part_overlap_anomaly"
+
+
+class SetFlagStatus(str, enum.Enum):
+    pending = "pending"
+    attached = "attached"
+    rejected = "rejected"
+
+
+class SetFlag(Base):
+    __tablename__ = "set_flags"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    set_id_a = Column(
+        Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    set_id_b = Column(
+        Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    flag_type = Column(SAEnum(SetFlagType, name="set_flag_type"), nullable=False)
+    confidence = Column(Float, nullable=True)
+    signals = Column(JSON, nullable=True)
+    status = Column(
+        SAEnum(SetFlagStatus, name="set_flag_status"),
+        nullable=False,
+        default=SetFlagStatus.pending,
+        server_default="pending",
+    )
+    resolved_by = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("set_id_a", "set_id_b", name="uq_set_flag_pair"),
+    )

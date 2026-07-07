@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 24 tables across 7 domains.
+> 25 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -53,7 +53,7 @@ is auto-generated — do not edit it directly.
 **Users:** `users` · `user_opinions` · `user_collections` · `collection_items`
 **Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
 **Artists:** `artists` · `artist_aliases` · `artist_flags`
-**Sets:** `sets` · `set_artists` · `set_tracks` · `user_set_follows`
+**Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows`
 **Genres:** `genre_nodes` · `genre_edges` · `genre_mappings`
 **System:** `admin_audit_log` · `crawl_logs`
 
@@ -336,6 +336,14 @@ PK: `id`
 | `has_artwork` | Boolean | yes |  |  | default=False |
 | `created_at` | DateTime(tz) | yes |  |  |  |
 | `last_crawled_at` | DateTime(tz) | yes |  |  |  |
+| `parent_set_id` | Integer | yes |  | FK → sets.id ON DELETE SET NULL |  |
+| `is_virtual` | Boolean | no |  |  | server_default='false', default=False |
+| `platform` | String(32) | yes |  |  |  |
+| `normalized_title` | String(500) | yes |  |  |  |
+| `part_number` | Integer | yes |  |  |  |
+
+**Indexes:**
+- `ix_sets_parent_set_id`: `parent_set_id`
 
 **Unique constraints:**
 - `external_id`, `source` (`uq_set_external_source`)
@@ -371,11 +379,36 @@ PK: `id`
 | `trackid_music_track_id` | Integer | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_tracks_catalog_id`: `catalog_id`
+- `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 - `ix_set_tracks_set_id`: `set_id`
+- `ix_set_tracks_catalog_id`: `catalog_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
+
+### `set_flags`
+
+PK: `id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `id` **PK** | Integer | no |  |  |  |
+| `set_id_a` | Integer | no |  | FK → sets.id ON DELETE CASCADE |  |
+| `set_id_b` | Integer | no |  | FK → sets.id ON DELETE CASCADE |  |
+| `flag_type` | Enum | no |  |  |  |
+| `confidence` | Float | yes |  |  |  |
+| `signals` | JSON | yes |  |  |  |
+| `status` | Enum | no |  |  | server_default='pending', default=<SetFlagStatus.pending: 'pending'> |
+| `resolved_by` | Integer | yes |  | FK → users.id ON DELETE SET NULL |  |
+| `resolved_at` | DateTime(tz) | yes |  |  |  |
+| `created_at` | DateTime(tz) | no |  |  |  |
+
+**Indexes:**
+- `ix_set_flags_set_id_a`: `set_id_a`
+- `ix_set_flags_set_id_b`: `set_id_b`
+
+**Unique constraints:**
+- `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
 
 ### `user_set_follows`
 

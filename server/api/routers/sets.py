@@ -102,6 +102,7 @@ async def list_sets(
             ).label("identified_tracks"),
         )
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
+        .where(DJSet.parent_set_id.is_(None))
         .group_by(DJSet.id)
         .order_by(DJSet.played_date.desc().nulls_last(), DJSet.created_at.desc())
     )

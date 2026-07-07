@@ -9,6 +9,9 @@ from models import (
     AdminAuditLog,
     Artist,
     ArtistFlag,
+    DJSet,
+    SetFlag,
+    SetFlagStatus,
     User,
 )
 from schemas import (
@@ -27,13 +30,16 @@ from schemas import (
     ResolveIn,
     SetArtistAddResponse,
     SetArtistIn,
+    SetFlagAttachResponse,
+    SetFlagListResponse,
+    SetFlagOut,
     SyncQueued,
     SyncStatus,
     UnclassifiedCountResponse,
 )
 from services import artist_service, catalog_service, genre_service
 from services.image_service import ImageService
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -294,6 +300,176 @@ async def remove_set_artist(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Link not found")
     await _audit(db, admin, "remove_set_artist", "set", set_id, {"artist_id": artist_id})
+    await db.commit()
+    return {"ok": True}
+
+
+# ---------- Set Flags ----------
+
+
+@router.get("/set-flags", response_model=SetFlagListResponse)
+async def list_set_flags(
+    status: Literal["pending", "attached", "rejected"] = "pending",
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """List set dedup flags filtered by status."""
+    from sqlalchemy.orm import aliased
+
+    SetA = aliased(DJSet)
+    SetB = aliased(DJSet)
+
+    total = (
+        await db.execute(
+            select(func.count()).select_from(SetFlag).where(SetFlag.status == status)
+        )
+    ).scalar_one()
+
+    rows = (
+        await db.execute(
+            select(SetFlag, SetA.title.label("title_a"), SetB.title.label("title_b"))
+            .join(SetA, SetFlag.set_id_a == SetA.id)
+            .join(SetB, SetFlag.set_id_b == SetB.id)
+            .where(SetFlag.status == status)
+            .order_by(SetFlag.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+
+    items = [
+        SetFlagOut(
+            id=flag.id,
+            set_id_a=flag.set_id_a,
+            set_id_b=flag.set_id_b,
+            flag_type=flag.flag_type,
+            confidence=flag.confidence,
+            signals=flag.signals,
+            status=flag.status,
+            created_at=flag.created_at,
+            title_a=title_a or "",
+            title_b=title_b or "",
+        )
+        for flag, title_a, title_b in rows
+    ]
+    return SetFlagListResponse(total=total, items=items)
+
+
+@router.post("/set-flags/{flag_id}/attach", response_model=SetFlagAttachResponse)
+async def attach_set_flag(
+    flag_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Attach two sets flagged as duplicates under a virtual parent."""
+    from services.set_dedup_service import (
+        find_or_create_virtual_parent,
+        materialize_parent,
+    )
+
+    flag = (
+        await db.execute(select(SetFlag).where(SetFlag.id == flag_id))
+    ).scalar_one_or_none()
+    if not flag or flag.status != SetFlagStatus.pending:
+        raise HTTPException(404, "Flag not found or already resolved")
+
+    set_a = (
+        await db.execute(select(DJSet).where(DJSet.id == flag.set_id_a))
+    ).scalar_one_or_none()
+    set_b = (
+        await db.execute(select(DJSet).where(DJSet.id == flag.set_id_b))
+    ).scalar_one_or_none()
+    if not set_a or not set_b:
+        raise HTTPException(404, "Set not found")
+
+    parent_id, created = await find_or_create_virtual_parent(
+        db, flag.set_id_a, flag.set_id_b, None, None
+    )
+    if created:
+        await materialize_parent(db, parent_id)
+
+    now = datetime.now(timezone.utc)
+    flag.status = SetFlagStatus.attached
+    flag.resolved_by = admin.id
+    flag.resolved_at = now
+
+    await _audit(
+        db,
+        admin,
+        "attach_set_flag",
+        "set_flag",
+        flag_id,
+        {"set_id_a": flag.set_id_a, "set_id_b": flag.set_id_b, "parent_id": parent_id},
+    )
+    await db.commit()
+    return SetFlagAttachResponse(ok=True, parent_id=parent_id)
+
+
+@router.post("/set-flags/{flag_id}/reject", response_model=OkResponse)
+async def reject_set_flag(
+    flag_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Reject a set dedup flag."""
+    flag = (
+        await db.execute(select(SetFlag).where(SetFlag.id == flag_id))
+    ).scalar_one_or_none()
+    if not flag or flag.status != SetFlagStatus.pending:
+        raise HTTPException(404, "Flag not found or already resolved")
+
+    now = datetime.now(timezone.utc)
+    flag.status = SetFlagStatus.rejected
+    flag.resolved_by = admin.id
+    flag.resolved_at = now
+
+    await _audit(
+        db,
+        admin,
+        "reject_set_flag",
+        "set_flag",
+        flag_id,
+        {"set_id_a": flag.set_id_a, "set_id_b": flag.set_id_b},
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/sets/{set_id}/detach", response_model=OkResponse)
+async def detach_set(
+    set_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Detach a set from its virtual parent."""
+    from sqlalchemy import delete as sa_delete
+
+    dj_set = (
+        await db.execute(select(DJSet).where(DJSet.id == set_id))
+    ).scalar_one_or_none()
+    if not dj_set:
+        raise HTTPException(404, "Set not found")
+    if dj_set.parent_set_id is None:
+        raise HTTPException(400, "Ce set n'est pas attaché à un parent")
+
+    parent_id = dj_set.parent_set_id
+    dj_set.parent_set_id = None
+    await db.flush()
+
+    siblings = (
+        await db.execute(select(DJSet).where(DJSet.parent_set_id == parent_id))
+    ).scalars().all()
+
+    if len(siblings) <= 1:
+        if len(siblings) == 1:
+            siblings[0].parent_set_id = None
+        await db.execute(sa_delete(DJSet).where(DJSet.id == parent_id))
+
+    await _audit(
+        db, admin, "detach_set", "set", set_id, {"parent_id": parent_id}
+    )
     await db.commit()
     return {"ok": True}
 

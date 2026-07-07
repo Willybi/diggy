@@ -161,4 +161,20 @@ async def import_audiostream(
         track_count += 1
 
     await db.flush()
+
+    # Post-import: normalize title then run dedup matching
+    try:
+        from services.set_dedup_service import (
+            apply_match_results,
+            backfill_normalized_titles,
+            match_set,
+        )
+        await backfill_normalized_titles(db)
+        if dj_set.id is not None and not dj_set.is_virtual:
+            results = await match_set(db, dj_set.id)
+            if results:
+                await apply_match_results(db, dj_set.id, results)
+    except Exception:
+        pass  # matching failure must never abort import
+
     return dj_set, track_count

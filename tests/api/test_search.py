@@ -50,6 +50,21 @@ class TestSearch:
         assert data["totals"]["set"] == 1
         assert data["items"][0]["title"] == "Boiler Room Set"
 
+    async def test_search_sets_excludes_children(self, client, db):
+        parent = DJSet(title="Boiler Room London", source="trackid")
+        db.add(parent)
+        await db.flush()
+        child = DJSet(title="Boiler Room London Part 2", source="trackid", parent_set_id=parent.id)
+        db.add(child)
+        await db.commit()
+
+        r = await client.get("/api/search?q=boiler&scope=set")
+        data = r.json()
+        titles = [i["title"] for i in data["items"]]
+        assert "Boiler Room London" in titles
+        assert "Boiler Room London Part 2" not in titles
+        assert data["totals"]["set"] == 1
+
     async def test_search_playlists(self, client, db):
         db.add(WatchedEntity(external_id="123", source="deezer", title="Deep House Selection"))
         db.add(WatchedEntity(external_id="456", source="deezer", title="Techno Picks"))

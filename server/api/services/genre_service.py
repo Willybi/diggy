@@ -409,6 +409,7 @@ async def list_genre_sets(db: AsyncSession, name: str, limit: int, offset: int) 
         CROSS JOIN LATERAL (
             SELECT COUNT(*)::int AS total_tracks FROM set_tracks WHERE set_id = s.id
         ) total_sub
+        WHERE s.parent_set_id IS NULL
         GROUP BY s.id, s.title, s.played_date, s.has_artwork, total_sub.total_tracks
         ORDER BY genre_track_count DESC, s.played_date DESC NULLS LAST
         LIMIT :limit OFFSET :offset

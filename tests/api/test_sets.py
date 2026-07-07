@@ -139,6 +139,42 @@ class TestImportSet:
         assert r.json()["title"] == "Test Set from TrackID"
 
 
+class TestSetChildVisibility:
+    """Un set enfant (parent_set_id non NULL) ne doit pas apparaître dans les listings."""
+
+    async def test_list_sets_excludes_child(self, client, db):
+        parent = DJSet(source="trackid", title="Parent Set")
+        db.add(parent)
+        await db.flush()
+        child = DJSet(source="trackid", title="Child Set", parent_set_id=parent.id)
+        db.add(child)
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        assert r.status_code == 200
+        data = r.json()
+        titles = [item["title"] for item in data["items"]]
+        assert "Parent Set" in titles
+        assert "Child Set" not in titles
+        assert data["total"] == 1
+
+    async def test_list_sets_with_q_excludes_child(self, client, db):
+        parent = DJSet(source="trackid", title="Boiler Room Berlin")
+        db.add(parent)
+        await db.flush()
+        child = DJSet(source="trackid", title="Boiler Room Berlin Part 2", parent_set_id=parent.id)
+        db.add(child)
+        await db.commit()
+
+        r = await client.get("/api/sets/?q=boiler")
+        assert r.status_code == 200
+        data = r.json()
+        titles = [item["title"] for item in data["items"]]
+        assert "Boiler Room Berlin" in titles
+        assert "Boiler Room Berlin Part 2" not in titles
+        assert data["total"] == 1
+
+
 class TestSearchSets:
     async def test_search(self, client, mocker):
         mock_client_instance = AsyncMock()

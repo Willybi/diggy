@@ -1,14 +1,14 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-06
+> Last verified: 2026-07-07
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (27 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (29 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -22,9 +22,10 @@
 server/
 ├── api/
 │   ├── main.py              # FastAPI entrypoint
-│   ├── models/              # SQLAlchemy models (24 classes, 10 modules):
+│   ├── models/              # SQLAlchemy models (27 classes, 10 modules):
 │   │                        # catalog, user, artist, radar, sets, genre,
 │   │                        # collection, opinion, admin (+ base, __init__)
+│   │                        # sets module gained: SetFlag, SetFlagType, SetFlagStatus
 │   ├── dependencies.py      # get_current_user, require_admin
 │   ├── deezer_enrich.py     # Deezer search + enrichment
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
@@ -35,7 +36,8 @@ server/
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin
 │   └── services/            # Business logic lives HERE, not in routers:
-│                            # genre, artist, catalog, radar, image, rekordbox_xml
+│                            # genre, artist, catalog, radar, image, rekordbox_xml,
+│                            # set_dedup (normalize_set_title, match_set, materialize_parent)
 ├── workers/
 │   ├── celery_app.py        # Celery config + beat schedule
 │   ├── source_clients.py    # Multi-source abstraction (Deezer/TIDAL/Spotify)
@@ -64,6 +66,7 @@ Rule: new business logic goes in a service, routers stay thin. New Celery tasks 
 - Timestamps: TIMESTAMPTZ (UTC). Durations: milliseconds (integer).
 - `has_artwork` = file exists in MinIO. Never store external image URLs in DB.
 - Deezer sentinel: `deezer_id = "NOT_FOUND"` marks artists confirmed absent from Deezer.
+- Sets dedup (C6.0): `sets.parent_set_id` (self-referential FK, ON DELETE SET NULL) + `is_virtual` model virtual parents. Only roots (`parent_set_id IS NULL`) appear in listings and trend scoring. `set_flags` table tracks ambiguous pairs for admin review. Service: `services/set_dedup_service.py`.
 
 → Before any model change, migration, or query joining 3+ tables: read `docs/database-schema.md`.
 

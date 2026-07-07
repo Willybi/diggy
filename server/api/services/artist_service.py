@@ -356,7 +356,7 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
         )
         .join(DJSet, DJSet.id == SetArtist.set_id)
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
-        .where(SetArtist.artist_id == artist_id)
+        .where(SetArtist.artist_id == artist_id, DJSet.parent_set_id.is_(None))
         .group_by(
             DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork, SetArtist.role
         )

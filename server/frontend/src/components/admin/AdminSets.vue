@@ -1,4 +1,49 @@
 <template>
+  <!-- Flags en attente -->
+  <section class="admin-section">
+    <h2 class="section-title">
+      Flags en attente
+      <span v-if="flagsTotal > 0" class="flags-badge">{{ flagsTotal }}</span>
+    </h2>
+    <p class="section-sub">
+      Candidats dupliqués ou parties identifiés par le service de déduplication.
+    </p>
+    <div v-if="flagsLoading" class="section-sub">Chargement…</div>
+    <div v-else-if="flagsError" class="sync-error">{{ flagsError }}</div>
+    <div v-else-if="flags.length === 0" class="section-sub">Aucun flag en attente.</div>
+    <div v-else class="flags-list">
+      <div v-for="flag in flags" :key="flag.id" class="flag-card">
+        <div class="flag-sets">
+          <span class="flag-set-title">{{ flag.title_a }}</span>
+          <span class="flag-sep">↔</span>
+          <span class="flag-set-title">{{ flag.title_b }}</span>
+        </div>
+        <div class="flag-meta">
+          <span class="flag-type">{{ flagTypeLabel(flag.flag_type) }}</span>
+          <span v-if="flag.confidence != null" class="flag-conf">
+            Confiance : {{ Math.round(flag.confidence * 100) }}%
+          </span>
+        </div>
+        <div class="flag-actions">
+          <button
+            class="btn-sync"
+            :disabled="flagLoadingIds.has(flag.id)"
+            @click="attachFlag(flag)"
+          >
+            Attacher
+          </button>
+          <button
+            class="btn-sync btn-reject"
+            :disabled="flagLoadingIds.has(flag.id)"
+            @click="rejectFlag(flag)"
+          >
+            Rejeter
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Lier artistes aux sets -->
   <section class="admin-section">
     <h2 class="section-title">Artistes des sets</h2>
@@ -38,8 +83,67 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import api from '../../utils/api.js'
+
+// --- Flags ---
+const flags = ref([])
+const flagsTotal = ref(0)
+const flagsLoading = ref(false)
+const flagsError = ref('')
+const flagLoadingIds = ref(new Set())
+
+function flagTypeLabel(type) {
+  if (type === 'duplicate_candidate') return 'Doublon'
+  if (type === 'part_candidate') return 'Parties'
+  return type
+}
+
+async function loadFlags() {
+  flagsLoading.value = true
+  flagsError.value = ''
+  try {
+    const { data } = await api.get('/api/admin/set-flags?status=pending&limit=50')
+    flags.value = data.items
+    flagsTotal.value = data.total
+  } catch (e) {
+    flagsError.value = e.response?.data?.detail || 'Erreur chargement flags'
+  } finally {
+    flagsLoading.value = false
+  }
+}
+
+async function attachFlag(flag) {
+  flagLoadingIds.value = new Set([...flagLoadingIds.value, flag.id])
+  try {
+    await api.post(`/api/admin/set-flags/${flag.id}/attach`)
+    flags.value = flags.value.filter((f) => f.id !== flag.id)
+    flagsTotal.value = Math.max(0, flagsTotal.value - 1)
+  } catch (e) {
+    flagsError.value = e.response?.data?.detail || 'Erreur attach'
+  } finally {
+    const next = new Set(flagLoadingIds.value)
+    next.delete(flag.id)
+    flagLoadingIds.value = next
+  }
+}
+
+async function rejectFlag(flag) {
+  flagLoadingIds.value = new Set([...flagLoadingIds.value, flag.id])
+  try {
+    await api.post(`/api/admin/set-flags/${flag.id}/reject`)
+    flags.value = flags.value.filter((f) => f.id !== flag.id)
+    flagsTotal.value = Math.max(0, flagsTotal.value - 1)
+  } catch (e) {
+    flagsError.value = e.response?.data?.detail || 'Erreur reject'
+  } finally {
+    const next = new Set(flagLoadingIds.value)
+    next.delete(flag.id)
+    flagLoadingIds.value = next
+  }
+}
+
+onMounted(loadFlags)
 
 const linkingSets = ref(false)
 const linkSetsResult = ref(null)
@@ -180,5 +284,64 @@ async function runEnrichSets() {
 .sync-error {
   font-size: 13px;
   color: var(--neg-ink);
+}
+.flags-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 11px/1 var(--font-ui);
+}
+.flags-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.flag-card {
+  padding: 12px 14px;
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.flag-sets {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.flag-set-title {
+  font: 500 13px/1.3 var(--font-ui);
+  color: var(--ink);
+}
+.flag-sep {
+  font-size: 14px;
+  color: var(--ink-3);
+}
+.flag-meta {
+  display: flex;
+  gap: 12px;
+  font: 400 12px/1 var(--font-ui);
+}
+.flag-type {
+  color: var(--ink-3);
+}
+.flag-conf {
+  color: var(--ink-2, var(--ink-3));
+}
+.flag-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-reject {
+  background: transparent;
+  color: var(--neg-ink);
+  border: 1px solid var(--neg-ink);
 }
 </style>

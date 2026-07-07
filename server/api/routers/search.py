@@ -174,13 +174,15 @@ async def _search_sets(
             func.count(SetTrack.id).label("track_count"),
         )
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
-        .where(DJSet.title.ilike(pattern))
+        .where(DJSet.title.ilike(pattern), DJSet.parent_set_id.is_(None))
         .group_by(DJSet.id)
     )
 
     # count total matching sets
     count_q = select(func.count()).select_from(
-        select(DJSet.id).where(DJSet.title.ilike(pattern)).subquery()
+        select(DJSet.id)
+        .where(DJSet.title.ilike(pattern), DJSet.parent_set_id.is_(None))
+        .subquery()
     )
     total = (await db.execute(count_q)).scalar() or 0
 
