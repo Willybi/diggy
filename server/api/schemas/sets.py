@@ -102,14 +102,17 @@ class DJSetDetailOut(DJSetOut):
 class SetFlagOut(BaseModel):
     id: int
     set_id_a: int
-    set_id_b: int
+    set_id_b: Optional[int] = None
     flag_type: str
     confidence: Optional[float] = None
     signals: Optional[dict] = None
     status: str
     created_at: datetime
     title_a: str = ""
-    title_b: str = ""
+    title_b: Optional[str] = None
+    group_key: Optional[str] = None
+    member_set_ids: Optional[list[int]] = None
+    member_titles: list[str] = []
 
     model_config = {"from_attributes": True}
 

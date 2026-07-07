@@ -44,6 +44,7 @@ class DJSet(Base):
     platform = Column(String(32), nullable=True)
     normalized_title = Column(String(500), nullable=True)
     part_number = Column(Integer, nullable=True)
+    part_total = Column(Integer, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),
@@ -152,7 +153,7 @@ class SetFlag(Base):
         Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True
     )
     set_id_b = Column(
-        Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey("sets.id", ondelete="CASCADE"), nullable=True, index=True
     )
     flag_type = Column(SAEnum(SetFlagType, name="set_flag_type"), nullable=False)
     confidence = Column(Float, nullable=True)
@@ -168,7 +169,5 @@ class SetFlag(Base):
     )
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("set_id_a", "set_id_b", name="uq_set_flag_pair"),
-    )
+    group_key = Column(String(500), nullable=True, index=True)
+    member_set_ids = Column(JSON, nullable=True)

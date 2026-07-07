@@ -142,14 +142,14 @@ class TestImportHookTriggersMatching:
         # same 10 mtids → 100% overlap
         await _add_tracks(db, s2.id, mtids)
 
-        results = await match_set(db, s2.id)
-        assert results, "Expected at least one match candidate"
+        pair_results, group_results = await match_set(db, s2.id)
+        assert pair_results, "Expected at least one match candidate"
 
-        auto_results = [r for r in results if r.verdict.value == "auto_attach"]
+        auto_results = [r for r in pair_results if r.verdict.value == "auto_attach"]
         assert auto_results, "Expected AUTO_ATTACH verdict"
 
         s1_id, s2_id = s1.id, s2.id  # capture before expire_all
-        counts = await apply_match_results(db, s2_id, results)
+        counts = await apply_match_results(db, s2_id, pair_results, group_results)
         assert counts["attached"] >= 1
 
         db.expire_all()
@@ -191,13 +191,13 @@ class TestImportHookFlagLowOverlap:
         mtids_b = list(range(200, 206)) + list(range(300, 304))
         await _add_tracks(db, s2.id, mtids_b)
 
-        results = await match_set(db, s2.id)
-        assert results, "Expected at least one match candidate"
+        pair_results, group_results = await match_set(db, s2.id)
+        assert pair_results, "Expected at least one match candidate"
 
-        flag_results = [r for r in results if r.verdict.value == "flag"]
+        flag_results = [r for r in pair_results if r.verdict.value == "flag"]
         assert flag_results, "Expected FLAG verdict for medium overlap"
 
-        counts = await apply_match_results(db, s2.id, results)
+        counts = await apply_match_results(db, s2.id, pair_results, group_results)
         assert counts["flagged"] >= 1
         assert counts["attached"] == 0
 

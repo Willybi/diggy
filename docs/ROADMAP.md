@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-07 (C6.0 dedup sets termine, C6 EN COURS)
+> **Derniere mise a jour** : 2026-07-07 (C6.0 termine ; C6.a architecture backfill documentee)
 
 ---
 
@@ -178,16 +178,79 @@ Taches :
 
 ### C6.a — Crawler global TrackID.net
 
-Crawler le flux global de TrackID.net (pas juste les sets importes par un user). Impact immediat sur trend + co-occurrence (C2.c).
+Crawler le flux global de TrackID.net (pas juste les sets importes par un user). Deux axes paralleles : prospectif (nouveaux sets) + backfill (rattrapage historique progressif).
 
-- [ ] Crawl quotidien du flux "latest sets" de TrackID.net (toutes categories, pages 1 a N)
-- [ ] Import automatique dans `sets` + `set_tracks` + enrichissement `catalog`
+**Pourquoi le backfill est utile au-dela du trend :**
+Le trend ne valorise que les sets recents (signal chaud). Mais le graphe de proximite C2 est base sur la co-occurrence dans les sets : un set de 2019 qui contient Eric Prydz + Nina Kraviz est aussi utile qu'un set de 2025 pour confirmer leur proximite. L'historique enrichit le graphe de facon cumulative, independamment de la valeur trend.
+
+**Volume TrackID.net (sonde le 2026-07-07) :**
+```
+Total sets indexes : 363 650
+Cadence actuelle  : ~150 sets/jour ajoutes
+Plus ancien       : 1978-11-17 (addedOn 2024-01-31)
+Distribution approximative :
+  avant 2018  →  ~50 000 sets  (exotiques, peu pertinents)
+  2018-2020   →  ~50 000 sets
+  2021-2022   →  ~50 000 sets
+  2023-2024   → ~100 000 sets
+  2025-2026   → ~100 000 sets  (cadence ~150/j)
+```
+
+**Note API :** champ `addedOn` = date d'indexation TrackID (fiable pour le tri backfill). Champ `createdOn` = date declaree du set (peut etre vintage, non fiable pour ordonner le crawl).
+
+#### C6.a.0 — Prospectif (flux quotidien)
+
+- [ ] Task Celery Beat : `crawl_trackid_latest`, schedule quotidien (03:30, avant compute_trends)
+- [ ] Crawl des sets indexes depuis la derniere execution (`addedOn > last_run_ts`, stocke en Redis : `trackid_crawl_last_run`)
+- [ ] Import automatique dans `sets` + `set_tracks` via `import_audiostream()`
 - [ ] Dedup a l'import via C6.0 (verifier doublon avant insertion)
-- [ ] Filtrage optionnel par pertinence genre (a evaluer apres quelques jours de crawl test — risque de bruit hors-scope : pop, rock, etc.)
-- [ ] Rate limiting poli : headers respectueux, throttling entre requetes, pas de crawl agressif
-- [ ] Task Celery Beat : `crawl_trackid_latest`, schedule quotidien
+- [ ] Filtrage optionnel par pertinence genre (a evaluer apres quelques jours — risque de bruit hors-scope : pop, rock)
+- [ ] Rate limiting : `trackid` deja configure dans `rate_limiter.py` (0.66 req/s, 1 concurrent)
+- [ ] Declenchement de `resolve_set_tracks` apres chaque run (lien catalog + enrichissement Deezer)
 
-Volume attendu : 10-50 sets/jour → des centaines de paires track x set par semaine. Multiplie le bassin de co-occurrence pour C2.c.
+#### C6.a.1 — Backfill historique (rattrapage progressif)
+
+Recuperer l'historique TrackID a raison de X sets/jour, en remontant dans le temps depuis la date d'implementation. Converge naturellement sans spike de charge.
+
+**Mecanique :**
+- Curseur Redis : `trackid_backfill_cursor` = `addedOn` du set le plus ancien traite (ISO8601)
+- Chaque run : fetch X sets avec `addedOn < curseur`, tri `addedOn` desc, met a jour le curseur
+- Condition d'arret : curseur < `TRACKID_BACKFILL_MIN_DATE` (env var, defaut = `today - 2ans`) ou plus aucun resultat
+- Partage la meme logique d'import et de dedup que C6.a.0
+
+**Estimation charge (pipeline complet par set) :**
+```
+Etape                    Detail                            Temps/set
+────────────────────────────────────────────────────────────────────
+1. Fetch TrackID detail  0.66 req/s (rate limiter)        ~1.5s    ← goulot
+2. DB catalog lookup     bulk_get_or_create_catalog()     ~50ms
+3. Deezer enrich         tache nightly separee (05:00)    —
+4. Beatport enrich       tache nightly separee (06:00)    —
+```
+
+**Impact sur les taches nightly (estimation 20% nouvelles tracks par set) :**
+```
+Backfill      Crawl TrackID    Nouvelles tracks/j   Overhead Deezer   Overhead Beatport
+──────────────────────────────────────────────────────────────────────────────────────
+100 sets/j    2.5 min          ~500                 +1 min            +5 min
+500 sets/j    12.5 min         ~2 500               +4 min            +25 min   ← recommande
+1 000 sets/j  25 min           ~5 000               +8 min            +50 min
+3 000 sets/j  75 min           ~15 000              +25 min           +2h30
+```
+
+> Beatport : `soft_time_limit=7h` dans `enrich_catalog_beatport`. A surveiller au-dela de 1000 sets/j.
+
+**Cadence recommandee : 500 sets/jour**
+- 1 an d'historique (~55 000 sets) → rattrapé en ~110 jours
+- 2 ans (~100 000 sets) → rattrapé en ~200 jours
+- Charge totale par nuit : ~15 min de trafic TrackID + 25 min overhead Beatport
+
+Taches :
+- [ ] Task Celery Beat : `backfill_trackid_sets`, schedule quotidien (02:00, avant prospectif)
+- [ ] Curseur Redis `trackid_backfill_cursor` init a `today` au premier run
+- [ ] Env var `TRACKID_BACKFILL_SETS_PER_DAY` (defaut : 500) + `TRACKID_BACKFILL_MIN_DATE` (defaut : today - 730j)
+- [ ] Condition d'arret : curseur < min_date ou reponse vide → marquer backfill termine dans Redis
+- [ ] Log du curseur courant a chaque run (monitoring progression)
 
 ### C6.b — Re-crawl decroissant des sets incomplets
 

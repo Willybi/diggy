@@ -7,11 +7,14 @@ from sqlalchemy import select
 
 from models import DJSet, SetFlag, SetFlagStatus, SetFlagType, SetTrack
 from services.set_dedup_service import (
+    GroupMatchResult,
     MatchResult,
     MatchSignals,
     MatchVerdict,
+    _validate_part_group,
     apply_match_results,
     find_or_create_virtual_parent,
+    get_part_candidates,
     materialize_parent,
 )
 
@@ -556,3 +559,258 @@ class TestAttachSetFlagRefactor:
         db.expire_all()
         s2_ref = (await db.execute(select(DJSet).where(DJSet.id == s2_id))).scalar_one()
         assert s2_ref.parent_set_id == parent_id_expected
+
+
+# ---------------------------------------------------------------------------
+# C6.1 — Part group validation (unit-level, no DB)
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePartGroup:
+    def test_valid_group(self):
+        members = [
+            {"id": 1, "part_number": 1, "part_total": 7},
+            {"id": 2, "part_number": 2, "part_total": 7},
+            {"id": 3, "part_number": 3, "part_total": 7},
+        ]
+        assert _validate_part_group(members) is True
+
+    def test_duplicate_part_numbers_rejected(self):
+        members = [
+            {"id": 1, "part_number": 1, "part_total": 7},
+            {"id": 2, "part_number": 1, "part_total": 7},
+        ]
+        assert _validate_part_group(members) is False
+
+    def test_inconsistent_part_totals_rejected(self):
+        members = [
+            {"id": 1, "part_number": 1, "part_total": 7},
+            {"id": 2, "part_number": 2, "part_total": 8},
+        ]
+        assert _validate_part_group(members) is False
+
+    def test_none_part_totals_ok(self):
+        members = [
+            {"id": 1, "part_number": 1, "part_total": None},
+            {"id": 2, "part_number": 2, "part_total": None},
+        ]
+        assert _validate_part_group(members) is True
+
+    def test_mixed_none_and_value_ok(self):
+        """If some members have no part_total, only check consistency of non-None values."""
+        members = [
+            {"id": 1, "part_number": 1, "part_total": 7},
+            {"id": 2, "part_number": 2, "part_total": None},
+        ]
+        assert _validate_part_group(members) is True
+
+
+# ---------------------------------------------------------------------------
+# C6.1 — get_part_candidates (integration, SQLite)
+# ---------------------------------------------------------------------------
+
+
+async def _make_part_set(
+    db, title, normalized_title, part_number, part_total=None, source="trackid"
+):
+    s = DJSet(
+        title=title,
+        source=source,
+        part_number=part_number,
+        part_total=part_total,
+        normalized_title=normalized_title,
+        is_virtual=False,
+    )
+    db.add(s)
+    await db.flush()
+    return s
+
+
+class TestGetPartCandidates:
+    async def test_finds_folamour_parts(self, db):
+        base = "folamour - the very best of folamour - home party series"
+        p1 = await _make_part_set(db, "Folamour 1/7", f"{base} 1/7", 1, 7)
+        p2 = await _make_part_set(db, "Folamour 2/7", f"{base} 2/7", 2, 7)
+        p3 = await _make_part_set(db, "Folamour 3/7", f"{base} 3/7", 3, 7)
+        await db.flush()
+
+        # From p1's perspective, should find p2 and p3
+        candidates = await get_part_candidates(db, p1.id, 1, f"{base} 1/7")
+        candidate_ids = [c["id"] for c in candidates]
+        assert p2.id in candidate_ids
+        assert p3.id in candidate_ids
+        assert p1.id not in candidate_ids
+
+    async def test_no_candidates_without_part_number(self, db):
+        """Sets without part_number are excluded even with matching base_title."""
+        base = "some set title"
+        s = await _make_part_set(db, "Some Set", base, part_number=None)
+        # s has no part_number
+        s2 = await _make_part_set(db, "Some Set 1/3", f"{base} 1/3", 1, 3)
+        await db.flush()
+
+        candidates = await get_part_candidates(db, s2.id, 1, f"{base} 1/3")
+        assert not any(c["id"] == s.id for c in candidates)
+
+    async def test_different_base_title_excluded(self, db):
+        """Sets from a completely different set are not returned."""
+        p1 = await _make_part_set(db, "Folamour 1/7", "folamour series 1/7", 1, 7)
+        other = await _make_part_set(
+            db, "Other Artist 1/7", "other artist completely different 1/7", 1, 7
+        )
+        await db.flush()
+
+        candidates = await get_part_candidates(db, p1.id, 1, "folamour series 1/7")
+        assert not any(c["id"] == other.id for c in candidates)
+
+
+# ---------------------------------------------------------------------------
+# C6.1 — apply_match_results with group flags (flag lifecycle)
+# ---------------------------------------------------------------------------
+
+
+class TestApplyGroupFlags:
+    async def test_creates_group_flag(self, db):
+        s1 = await _make_set(db, "Set Part 1", part_number=1)
+        s2 = await _make_set(db, "Set Part 2", part_number=2)
+        await db.flush()
+        s1_id, s2_id = s1.id, s2.id
+
+        gr = GroupMatchResult(
+            group_key="set",
+            member_set_ids=sorted([s1_id, s2_id]),
+            signals={"member_count": 2, "part_numbers": [1, 2], "part_total": None,
+                     "pairwise_overlaps_max": 0.0, "title_sim_min": 0.95,
+                     "date_span_days": 0, "group_key": "set"},
+            confidence=0.95,
+            flag_type="part_candidate",
+        )
+
+        counts = await apply_match_results(db, s1_id, [], [gr])
+        assert counts["flagged"] == 1
+
+        flag = (
+            await db.execute(select(SetFlag).where(SetFlag.group_key == "set"))
+        ).scalar_one_or_none()
+        assert flag is not None
+        assert flag.flag_type == SetFlagType.part_candidate
+        assert flag.set_id_b is None
+        assert set(flag.member_set_ids) == {s1_id, s2_id}
+
+    async def test_extends_pending_group_flag(self, db):
+        s1 = await _make_set(db, "Set Part 1", part_number=1)
+        s2 = await _make_set(db, "Set Part 2", part_number=2)
+        s3 = await _make_set(db, "Set Part 3", part_number=3)
+        await db.flush()
+
+        # Create initial flag for s1+s2
+        existing = SetFlag(
+            set_id_a=min(s1.id, s2.id),
+            set_id_b=None,
+            group_key="folamour",
+            member_set_ids=[s1.id, s2.id],
+            flag_type=SetFlagType.part_candidate,
+            confidence=0.92,
+            signals={"member_count": 2},
+            status=SetFlagStatus.pending,
+            created_at=_now(),
+        )
+        db.add(existing)
+        await db.flush()
+
+        # Now s3 arrives and extends to 3 members
+        gr = GroupMatchResult(
+            group_key="folamour",
+            member_set_ids=sorted([s1.id, s2.id, s3.id]),
+            signals={"member_count": 3, "part_numbers": [1, 2, 3]},
+            confidence=0.94,
+            flag_type="part_candidate",
+        )
+        counts = await apply_match_results(db, s3.id, [], [gr])
+        assert counts["flagged"] == 1
+
+        db.expire_all()
+        flag = (
+            await db.execute(select(SetFlag).where(SetFlag.group_key == "folamour"))
+        ).scalar_one()
+        assert len(flag.member_set_ids) == 3
+        assert flag.confidence == 0.94
+
+    async def test_rejected_flag_not_recreated(self, db):
+        s1 = await _make_set(db, "Set Part 1", part_number=1)
+        s2 = await _make_set(db, "Set Part 2", part_number=2)
+        await db.flush()
+
+        rejected = SetFlag(
+            set_id_a=min(s1.id, s2.id),
+            set_id_b=None,
+            group_key="rejected-group",
+            member_set_ids=[s1.id, s2.id],
+            flag_type=SetFlagType.part_candidate,
+            confidence=0.9,
+            signals={},
+            status=SetFlagStatus.rejected,
+            created_at=_now(),
+        )
+        db.add(rejected)
+        await db.flush()
+
+        gr = GroupMatchResult(
+            group_key="rejected-group",
+            member_set_ids=[s1.id, s2.id],
+            signals={},
+            confidence=0.9,
+            flag_type="part_candidate",
+        )
+        counts = await apply_match_results(db, s1.id, [], [gr])
+        assert counts["nothing"] == 1
+        # Still only one flag
+        all_flags = (
+            await db.execute(select(SetFlag).where(SetFlag.group_key == "rejected-group"))
+        ).scalars().all()
+        assert len(all_flags) == 1
+
+
+# ---------------------------------------------------------------------------
+# C6.1 — Admin endpoint: attach group flag
+# ---------------------------------------------------------------------------
+
+
+class TestAttachGroupFlag:
+    async def test_attach_group_flag_creates_parent(self, db, admin_client):
+        p1 = await _make_part_set(db, "DJ Set Part 1", "dj set 1/3", 1, 3)
+        p2 = await _make_part_set(db, "DJ Set Part 2", "dj set 2/3", 2, 3)
+        p3 = await _make_part_set(db, "DJ Set Part 3", "dj set 3/3", 3, 3)
+        await db.flush()
+        p1_id, p2_id, p3_id = p1.id, p2.id, p3.id
+
+        flag = SetFlag(
+            set_id_a=p1_id,
+            set_id_b=None,
+            group_key="dj set",
+            member_set_ids=[p1_id, p2_id, p3_id],
+            flag_type=SetFlagType.part_candidate,
+            confidence=0.95,
+            signals={"part_numbers": [1, 2, 3], "part_total": 3},
+            status=SetFlagStatus.pending,
+            created_at=_now(),
+        )
+        db.add(flag)
+        await db.commit()
+        flag_id = flag.id
+
+        r = await admin_client.post(f"/api/admin/set-flags/{flag_id}/attach")
+        assert r.status_code == 200
+        parent_id = r.json()["parent_id"]
+
+        db.expire_all()
+        parent = (await db.execute(select(DJSet).where(DJSet.id == parent_id))).scalar_one()
+        assert parent.is_virtual is True
+        assert parent.title == "dj set"
+
+        for pid in (p1_id, p2_id, p3_id):
+            member = (await db.execute(select(DJSet).where(DJSet.id == pid))).scalar_one()
+            assert member.parent_set_id == parent_id
+
+        flag_ref = (await db.execute(select(SetFlag).where(SetFlag.id == flag_id))).scalar_one()
+        assert flag_ref.status == SetFlagStatus.attached

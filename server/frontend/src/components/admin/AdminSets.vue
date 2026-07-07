@@ -14,14 +14,31 @@
     <div v-else class="flags-list">
       <div v-for="flag in flags" :key="flag.id" class="flag-card">
         <div class="flag-sets">
-          <span class="flag-set-title">{{ flag.title_a }}</span>
-          <span class="flag-sep">↔</span>
-          <span class="flag-set-title">{{ flag.title_b }}</span>
+          <template v-if="flag.member_set_ids">
+            <div class="flag-members">
+              <span
+                v-for="(title, i) in flag.member_titles"
+                :key="i"
+                class="flag-set-title flag-member"
+              >{{ title }}</span>
+            </div>
+          </template>
+          <template v-else>
+            <span class="flag-set-title">{{ flag.title_a }}</span>
+            <span class="flag-sep">↔</span>
+            <span class="flag-set-title">{{ flag.title_b }}</span>
+          </template>
         </div>
         <div class="flag-meta">
           <span class="flag-type">{{ flagTypeLabel(flag.flag_type) }}</span>
           <span v-if="flag.confidence != null" class="flag-conf">
             Confiance : {{ Math.round(flag.confidence * 100) }}%
+          </span>
+          <span v-if="flag.signals?.part_numbers?.length" class="flag-conf">
+            Parts : {{ flag.signals.part_numbers.join(', ') }}
+          </span>
+          <span v-if="flag.signals?.date_span_days > 0" class="flag-conf">
+            Écart : {{ flag.signals.date_span_days }} j
           </span>
         </div>
         <div class="flag-actions">
@@ -323,6 +340,17 @@ async function runEnrichSets() {
 .flag-sep {
   font-size: 14px;
   color: var(--ink-3);
+}
+.flag-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flag-member {
+  padding: 2px 8px;
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
 }
 .flag-meta {
   display: flex;

@@ -236,3 +236,128 @@ class TestMisc:
         assert isinstance(result, NormalizedTitle)
         assert isinstance(result.text, str)
         assert isinstance(result.base_title, str)
+
+    def test_part_total_none_for_digit_branch(self):
+        result = normalize_set_title("DJ Set - Berlin Part 2")
+        assert result.part_total is None
+
+
+# ---------------------------------------------------------------------------
+# C6.1 — Branche 2 : chiffres romains
+# ---------------------------------------------------------------------------
+
+
+class TestPartRoman:
+    # Fixture réelle : set 5 (Thomas Bangalter of Daft Punk … Part II)
+    _SET5 = (
+        "Thomas Bangalter of Daft Punk and Fred again.. live in London "
+        "USB002 (February 27, 2026) Part II"
+    )
+
+    def test_roman_ii_detected(self):
+        result = normalize_set_title(self._SET5)
+        assert result.part_number == 2
+
+    def test_roman_part_total_is_none(self):
+        result = normalize_set_title(self._SET5)
+        assert result.part_total is None
+
+    def test_roman_base_title_no_suffix(self):
+        result = normalize_set_title(self._SET5)
+        assert "part" not in result.base_title
+        assert "ii" not in result.base_title
+
+    def test_roman_i(self):
+        result = normalize_set_title("Great Set Part I")
+        assert result.part_number == 1
+
+    def test_roman_iii(self):
+        result = normalize_set_title("Great Set Part III")
+        assert result.part_number == 3
+
+    def test_roman_iv(self):
+        result = normalize_set_title("Great Set Part IV")
+        assert result.part_number == 4
+
+    def test_roman_v(self):
+        result = normalize_set_title("Great Set Pt. V")
+        assert result.part_number == 5
+
+    def test_roman_without_keyword_not_matched(self):
+        """A bare roman numeral at the end (no part/pt keyword) must NOT match."""
+        result = normalize_set_title("Boiler Room London II")
+        assert result.part_number is None
+
+
+# ---------------------------------------------------------------------------
+# C6.1 — Branche 3 : fraction N/M
+# ---------------------------------------------------------------------------
+
+
+class TestPartFraction:
+    # Fixture réelle : groupe Folamour (format 1/7 … 7/7)
+    def test_folamour_1_7(self):
+        result = normalize_set_title(
+            "Folamour - The Very Best Of Folamour - Home Party Series 1/7"
+        )
+        assert result.part_number == 1
+        assert result.part_total == 7
+
+    def test_folamour_7_7(self):
+        result = normalize_set_title(
+            "Folamour - The Very Best Of Folamour - Home Party Series 7/7"
+        )
+        assert result.part_number == 7
+        assert result.part_total == 7
+
+    def test_fraction_base_title_no_suffix(self):
+        result = normalize_set_title("Some DJ Set 3/5")
+        assert "3/5" not in result.base_title
+        assert result.base_title == "some dj set"
+
+    def test_fraction_guard_n_greater_than_m(self):
+        """9/7 is not a valid part fraction — n > m."""
+        result = normalize_set_title("Some Set 9/7")
+        assert result.part_number is None
+        assert result.part_total is None
+
+    def test_fraction_guard_denominator_too_large(self):
+        """1/24 is more likely a date fragment — denominator > 20."""
+        result = normalize_set_title("Some Set 1/24")
+        assert result.part_number is None
+
+    def test_fraction_guard_denominator_too_small(self):
+        """X/1 — denominator must be >= 2."""
+        result = normalize_set_title("Some Set 1/1")
+        assert result.part_number is None
+
+    # Fixture négative réelle : set 10 (6/1/24 = date, 3 composants)
+    _SET10 = (
+        "Clearcast b2b Vertigo @ Fred Again x Skrillex "
+        "| Civic Center San Francisco | 6/1/24"
+    )
+
+    def test_anti_date_guard_three_components(self):
+        """6/1/24 = date M/D/YY — must NOT produce part_number."""
+        result = normalize_set_title(self._SET10)
+        assert result.part_number is None
+        assert result.part_total is None
+
+    # Fixture synthétique : titre avec date d'événement + suffixe Part N
+    _SYNTHETIC_P1 = "Live set @ Tresor x Mord Showcase 12.06.26 - Part 1"
+    _SYNTHETIC_P2 = "Live set @ Tresor x Mord Showcase 12.06.26 - Part 2"
+
+    def test_synthetic_part1_branch1(self):
+        """Date extracted at step 6, then Part 1 at end → branch 1 matches."""
+        result = normalize_set_title(self._SYNTHETIC_P1)
+        assert result.part_number == 1
+
+    def test_synthetic_part2_branch1(self):
+        result = normalize_set_title(self._SYNTHETIC_P2)
+        assert result.part_number == 2
+
+    def test_synthetic_same_base_title(self):
+        """Both synthetic parts must share the same base_title."""
+        r1 = normalize_set_title(self._SYNTHETIC_P1)
+        r2 = normalize_set_title(self._SYNTHETIC_P2)
+        assert r1.base_title == r2.base_title

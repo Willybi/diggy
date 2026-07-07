@@ -20,6 +20,7 @@ class NormalizedTitle:
     text: str
     base_title: str
     part_number: int | None
+    part_total: int | None
     extracted_date: date | None
 
 
@@ -33,7 +34,20 @@ _RE_DATE_BRACKETS = re.compile(r"\[(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\]")
 _RE_DATE_PARENS = re.compile(r"\((\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\)")
 _RE_DATE_BARE = re.compile(r"(\d{2})[.\-](\d{2})[.\-](\d{4})$")
 _RE_SPACES = re.compile(r"\s+")
+# Branch 1: standard digit suffix — part N / pt N / p N
 _RE_PART = re.compile(r"(?:part|pt\.?|p)\s*(\d+)\s*$", re.IGNORECASE)
+# Branch 2: roman numeral (keyword required to avoid false positives on event editions)
+_RE_PART_ROMAN = re.compile(
+    r"(?:part|pt\.?)\s+(I{1,3}|IV|VI{0,3}|V|IX|X)\s*$", re.IGNORECASE
+)
+_ROMAN_MAP = {
+    "I": 1, "II": 2, "III": 3, "IV": 4, "V": 5,
+    "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
+}
+# Anti-date guard: M/D/YY or D/M/YYYY patterns with 3 components
+_RE_DATE_FRACTION = re.compile(r"\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4}\s*$")
+# Branch 3: fraction N/M
+_RE_PART_FRACTION = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*$")
 
 _DECO_PATTERNS = [
     re.compile(p, re.IGNORECASE)
@@ -134,19 +148,38 @@ def normalize_set_title(
     # 9. Lowercase
     titre = titre.lower()
 
-    # 10. Extract part number
+    # 10. Extract part number (three branches, tested in order)
+    part_number: int | None = None
+    part_total: int | None = None
+    base_title: str = titre
+
+    # Branch 1: standard digit suffix (part N / pt N / p N)
     pm = _RE_PART.search(titre)
     if pm:
         part_number = int(pm.group(1))
         base_title = titre[: pm.start()].rstrip(" -")
     else:
-        part_number = None
-        base_title = titre
+        # Branch 2: roman numeral with obligatory part/pt keyword
+        rm = _RE_PART_ROMAN.search(titre)
+        if rm:
+            part_number = _ROMAN_MAP[rm.group(1).upper()]
+            base_title = titre[: rm.start()].rstrip(" -")
+        else:
+            # Branch 3: fraction N/M — anti-date guard first
+            if not _RE_DATE_FRACTION.search(titre):
+                fm = _RE_PART_FRACTION.search(titre)
+                if fm:
+                    n, m_val = int(fm.group(1)), int(fm.group(2))
+                    if n <= m_val and 2 <= m_val <= 20:
+                        part_number = n
+                        part_total = m_val
+                        base_title = titre[: fm.start()].rstrip(" -")
 
     return NormalizedTitle(
         text=titre,
         base_title=base_title,
         part_number=part_number,
+        part_total=part_total,
         extracted_date=extracted_date,
     )
 
@@ -183,6 +216,15 @@ class MatchResult:
     signals: MatchSignals
     verdict: MatchVerdict
     flag_type: str | None  # "duplicate_candidate" or None
+
+
+@dataclass
+class GroupMatchResult:
+    group_key: str
+    member_set_ids: list[int]
+    signals: dict
+    confidence: float
+    flag_type: str  # "part_candidate" | "part_overlap_anomaly"
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +300,203 @@ async def get_match_candidates(
 
 
 # ---------------------------------------------------------------------------
+# Part-candidate generation (C6.1)
+# ---------------------------------------------------------------------------
+
+
+def _compute_base_title(normalized_title: str) -> str:
+    """Strip part suffix from a normalized title to get the grouping base_title."""
+    for regex in (_RE_PART, _RE_PART_ROMAN):
+        m = regex.search(normalized_title)
+        if m:
+            return normalized_title[: m.start()].rstrip(" -")
+    if not _RE_DATE_FRACTION.search(normalized_title):
+        m = _RE_PART_FRACTION.search(normalized_title)
+        if m:
+            n, m_val = int(m.group(1)), int(m.group(2))
+            if n <= m_val and 2 <= m_val <= 20:
+                return normalized_title[: m.start()].rstrip(" -")
+    return normalized_title
+
+
+def _validate_part_group(members: list[dict]) -> bool:
+    """Return True if the group of part-members is coherent.
+
+    members: list of {"id": int, "part_number": int, "part_total": int|None}
+    Rules:
+    - part_numbers must be distinct (two copies of Part 1 are duplicates, not parts)
+    - If part_total is set on any member, all non-None part_totals must be identical
+    """
+    part_numbers = [m["part_number"] for m in members]
+    if len(set(part_numbers)) != len(part_numbers):
+        return False
+    totals = [m["part_total"] for m in members if m["part_total"] is not None]
+    if len(set(totals)) > 1:
+        return False
+    return True
+
+
+def _compute_pairwise_overlap(mtids_a: list[int], mtids_b: list[int]) -> float:
+    """Compute overlap ratio: shared / min(len_a, len_b)."""
+    if not mtids_a or not mtids_b:
+        return 0.0
+    shared = len(set(mtids_a) & set(mtids_b))
+    return shared / min(len(mtids_a), len(mtids_b))
+
+
+async def get_part_candidates(
+    db: AsyncSession,
+    set_id: int,
+    part_number: int,
+    normalized_title: str,
+) -> list[dict]:
+    """Return physical sets whose base_title is similar enough to be parts of the same set.
+
+    Returns list of {"id", "part_number", "part_total", "played_date", "normalized_title"}.
+    """
+    from models import DJSet
+
+    base_title_incoming = _compute_base_title(normalized_title)
+    if not base_title_incoming:
+        return []
+
+    candidates = (
+        await db.execute(
+            select(DJSet).where(
+                DJSet.is_virtual.is_(False),
+                DJSet.id != set_id,
+                DJSet.part_number.isnot(None),
+                DJSet.normalized_title.isnot(None),
+            )
+        )
+    ).scalars().all()
+
+    results = []
+    for c in candidates:
+        base_title_cand = _compute_base_title(c.normalized_title)
+        if token_set_ratio(base_title_incoming, base_title_cand) >= 0.85:
+            results.append(
+                {
+                    "id": c.id,
+                    "part_number": c.part_number,
+                    "part_total": c.part_total,
+                    "played_date": c.played_date,
+                    "normalized_title": c.normalized_title,
+                }
+            )
+    return results
+
+
+async def _build_group_match_result(
+    db: AsyncSession,
+    incoming_set_id: int,
+    incoming_part_number: int,
+    incoming_part_total: int | None,
+    incoming_played_date,
+    incoming_normalized_title: str,
+    candidate_members: list[dict],
+) -> GroupMatchResult:
+    """Build a GroupMatchResult from the incoming set + candidate members."""
+    from models import SetTrack
+
+    # All members including the incoming set
+    all_members = candidate_members + [
+        {
+            "id": incoming_set_id,
+            "part_number": incoming_part_number,
+            "part_total": incoming_part_total,
+            "played_date": incoming_played_date,
+            "normalized_title": incoming_normalized_title,
+        }
+    ]
+
+    member_ids = [m["id"] for m in all_members]
+    base_title = _compute_base_title(incoming_normalized_title)
+
+    # Load mtids for all members
+    member_mtids: dict[int, list[int]] = {}
+    for mid in member_ids:
+        rows = (
+            await db.execute(
+                select(SetTrack.trackid_music_track_id)
+                .where(
+                    SetTrack.set_id == mid,
+                    SetTrack.is_id.is_(False),
+                    SetTrack.trackid_music_track_id.isnot(None),
+                )
+            )
+        ).scalars().all()
+        member_mtids[mid] = list(rows)
+
+    # Pairwise overlaps
+    pairwise_max = 0.0
+    for i in range(len(member_ids)):
+        for j in range(i + 1, len(member_ids)):
+            ov = _compute_pairwise_overlap(
+                member_mtids[member_ids[i]], member_mtids[member_ids[j]]
+            )
+            if ov > pairwise_max:
+                pairwise_max = ov
+
+    flag_type = "part_overlap_anomaly" if pairwise_max > 0.30 else "part_candidate"
+
+    # Title similarities between all pairs (min)
+    title_sims = []
+    for i in range(len(all_members)):
+        for j in range(i + 1, len(all_members)):
+            title_sims.append(
+                token_set_ratio(
+                    all_members[i]["normalized_title"] or "",
+                    all_members[j]["normalized_title"] or "",
+                )
+            )
+    title_sim_min = min(title_sims) if title_sims else 1.0
+
+    # Date span
+    dates = [m["played_date"] for m in all_members if m["played_date"] is not None]
+    date_span_days = (max(dates) - min(dates)).days if len(dates) >= 2 else 0
+
+    # Consistent part_total
+    totals = [m["part_total"] for m in all_members if m["part_total"] is not None]
+    part_total = totals[0] if len(set(totals)) == 1 else None
+
+    part_numbers = sorted(m["part_number"] for m in all_members)
+
+    signals = {
+        "group_key": base_title,
+        "title_sim_min": round(title_sim_min, 4),
+        "part_numbers": part_numbers,
+        "part_total": part_total,
+        "pairwise_overlaps_max": round(pairwise_max, 4),
+        "date_span_days": date_span_days,
+        "member_count": len(all_members),
+    }
+
+    # Confidence formula
+    confidence = title_sim_min
+    # Bonus: consecutive complete sequence
+    if part_total and sorted(part_numbers) == list(range(1, part_total + 1)):
+        confidence = min(1.0, confidence + 0.05)
+    elif part_total and len(part_numbers) == part_total:
+        confidence = min(1.0, confidence + 0.03)
+    # Malus: very long date span suggests recurring series
+    if date_span_days > 60:
+        confidence = max(0.0, confidence - 0.10)
+    # Malus: members with no identified tracks
+    empty_members = sum(1 for mid in member_ids if not member_mtids[mid])
+    if empty_members:
+        confidence = max(0.0, confidence - 0.05 * empty_members)
+
+    return GroupMatchResult(
+        group_key=base_title,
+        member_set_ids=sorted(member_ids),
+        signals=signals,
+        confidence=round(confidence, 4),
+        flag_type=flag_type,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Signal computation (L3)
 # ---------------------------------------------------------------------------
 
@@ -311,9 +550,11 @@ def decide_verdict(
 ) -> tuple[MatchVerdict, str | None]:
     """Return (verdict, flag_type).
 
-    Part-number detection (part_candidate / part_overlap_anomaly) is deferred to L4:
-    sets with different part_number values fall through to duplicate_candidate logic.
+    Sets with distinct part_numbers are handled by the parts path — not pairwise.
     """
+    # Distinct part numbers → handled by get_part_candidates, not duplicate path
+    if set_a_part is not None and set_b_part is not None and set_a_part != set_b_part:
+        return MatchVerdict.NOTHING, None
     if signals.overlap >= 0.80 and (signals.title_sim >= 0.50 or signals.date_match):
         return MatchVerdict.AUTO_ATTACH, None
     if 0.50 <= signals.overlap < 0.80:
@@ -328,15 +569,20 @@ def decide_verdict(
 # ---------------------------------------------------------------------------
 
 
-async def match_set(db: AsyncSession, set_id: int) -> list[MatchResult]:
-    """Full matching pipeline: load set → candidates → signals → verdicts."""
+async def match_set(
+    db: AsyncSession, set_id: int
+) -> tuple[list[MatchResult], list[GroupMatchResult]]:
+    """Full matching pipeline: load set → candidates → signals → verdicts.
+
+    Returns (pair_results, group_results).
+    """
     from models import DJSet, SetTrack
 
     row = (
         await db.execute(select(DJSet).where(DJSet.id == set_id))
     ).scalar_one_or_none()
     if row is None:
-        return []
+        return [], []
 
     tracks = (
         await db.execute(
@@ -360,7 +606,7 @@ async def match_set(db: AsyncSession, set_id: int) -> list[MatchResult]:
         "identified_mtids": incoming_mtids,
     }
 
-    results = []
+    pair_results: list[MatchResult] = []
     for candidate in candidates:
         cand_row = (
             await db.execute(select(DJSet).where(DJSet.id == candidate.set_id))
@@ -396,7 +642,7 @@ async def match_set(db: AsyncSession, set_id: int) -> list[MatchResult]:
             signals, row.part_number, cand_row.part_number
         )
 
-        results.append(
+        pair_results.append(
             MatchResult(
                 candidate_id=candidate.set_id,
                 signals=signals,
@@ -405,7 +651,32 @@ async def match_set(db: AsyncSession, set_id: int) -> list[MatchResult]:
             )
         )
 
-    return results
+    # Parts path: only when the incoming set has a known part_number
+    group_results: list[GroupMatchResult] = []
+    if row.part_number is not None and row.normalized_title:
+        part_cands = await get_part_candidates(
+            db, set_id, row.part_number, row.normalized_title
+        )
+        if part_cands:
+            incoming_member = {
+                "id": set_id,
+                "part_number": row.part_number,
+                "part_total": getattr(row, "part_total", None),
+            }
+            all_members = part_cands + [incoming_member]
+            if _validate_part_group(all_members):
+                group_result = await _build_group_match_result(
+                    db,
+                    set_id,
+                    row.part_number,
+                    getattr(row, "part_total", None),
+                    row.played_date,
+                    row.normalized_title,
+                    part_cands,
+                )
+                group_results.append(group_result)
+
+    return pair_results, group_results
 
 
 # ---------------------------------------------------------------------------
@@ -680,7 +951,8 @@ async def materialize_parent(db: AsyncSession, parent_id: int) -> int:
 async def apply_match_results(
     db: AsyncSession,
     set_id: int,
-    results: list[MatchResult],
+    pair_results: list[MatchResult],
+    group_results: list[GroupMatchResult] | None = None,
 ) -> dict:
     """Apply match results: attach duplicates, insert flags, or ignore.
 
@@ -691,7 +963,7 @@ async def apply_match_results(
     counts = {"attached": 0, "flagged": 0, "nothing": 0}
     now = datetime.now(timezone.utc)
 
-    for result in results:
+    for result in pair_results:
         if result.verdict == MatchVerdict.AUTO_ATTACH:
             set_a = await db.get(DJSet, set_id)
             set_b = await db.get(DJSet, result.candidate_id)
@@ -741,6 +1013,46 @@ async def apply_match_results(
         else:
             counts["nothing"] += 1
 
+    # Group flags (part_candidate / part_overlap_anomaly)
+    for gr in group_results or []:
+        existing = (
+            await db.execute(
+                select(SetFlag).where(SetFlag.group_key == gr.group_key)
+            )
+        ).scalar_one_or_none()
+
+        if existing is not None:
+            if existing.status == SetFlagStatus.rejected:
+                # Rejection is memorised per group_key — do not recreate
+                counts["nothing"] += 1
+                continue
+            # Extend pending flag with new member data
+            # Use flag_modified for JSON columns (SQLAlchemy doesn't track in-place mutation)
+            from sqlalchemy.orm.attributes import flag_modified
+            existing.member_set_ids = list(gr.member_set_ids)
+            existing.signals = dict(gr.signals)
+            flag_modified(existing, "member_set_ids")
+            flag_modified(existing, "signals")
+            existing.confidence = gr.confidence
+            existing.flag_type = SetFlagType[gr.flag_type]
+            await db.flush()
+            counts["flagged"] += 1
+        else:
+            db.add(
+                SetFlag(
+                    set_id_a=min(gr.member_set_ids),
+                    set_id_b=None,
+                    group_key=gr.group_key,
+                    member_set_ids=gr.member_set_ids,
+                    flag_type=SetFlagType[gr.flag_type],
+                    confidence=gr.confidence,
+                    signals=gr.signals,
+                    status=SetFlagStatus.pending,
+                    created_at=now,
+                )
+            )
+            counts["flagged"] += 1
+
     return counts
 
 
@@ -763,6 +1075,8 @@ async def backfill_normalized_titles(db: AsyncSession) -> int:
         s.normalized_title = result.text
         if s.part_number is None and result.part_number is not None:
             s.part_number = result.part_number
+        if s.part_total is None and result.part_total is not None:
+            s.part_total = result.part_total
         count += 1
     await db.flush()
     return count

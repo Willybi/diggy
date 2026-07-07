@@ -47,12 +47,12 @@ async def run(apply: bool) -> None:
         total_nothing = 0
         seen_pairs: set[tuple[int, int]] = set()
 
-        for dj_set in sets:
-            results = await match_set(db, dj_set.id)
-            if not results:
-                continue
+        seen_groups: set[str] = set()
 
-            for r in results:
+        for dj_set in sets:
+            pair_results, group_results = await match_set(db, dj_set.id)
+
+            for r in pair_results:
                 pair = (min(dj_set.id, r.candidate_id), max(dj_set.id, r.candidate_id))
                 if pair in seen_pairs:
                     continue
@@ -79,6 +79,17 @@ async def run(apply: bool) -> None:
                 else:
                     total_nothing += 1
 
+            for gr in group_results:
+                if gr.group_key in seen_groups:
+                    continue
+                seen_groups.add(gr.group_key)
+                print(
+                    f"  PART_FLAG   | group={gr.group_key!r} "
+                    f"members={gr.member_set_ids} "
+                    f"conf={gr.confidence:.2f} type={gr.flag_type}"
+                )
+                total_flag += 1
+
         print(
             f"\n[résumé] AUTO_ATTACH={total_auto} FLAG={total_flag} NOTHING={total_nothing}"
         )
@@ -90,9 +101,11 @@ async def run(apply: bool) -> None:
                 fresh = await db.get(DJSet, dj_set.id)
                 if fresh is None or fresh.parent_set_id is not None:
                     continue
-                results = await match_set(db, dj_set.id)
-                if results:
-                    counts = await apply_match_results(db, dj_set.id, results)
+                pair_results, group_results = await match_set(db, dj_set.id)
+                if pair_results or group_results:
+                    counts = await apply_match_results(
+                        db, dj_set.id, pair_results, group_results
+                    )
                     if counts["attached"] or counts["flagged"]:
                         print(f"  set {dj_set.id}: {counts}")
             await db.commit()

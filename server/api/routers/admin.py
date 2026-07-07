@@ -331,13 +331,27 @@ async def list_set_flags(
         await db.execute(
             select(SetFlag, SetA.title.label("title_a"), SetB.title.label("title_b"))
             .join(SetA, SetFlag.set_id_a == SetA.id)
-            .join(SetB, SetFlag.set_id_b == SetB.id)
+            .outerjoin(SetB, SetFlag.set_id_b == SetB.id)
             .where(SetFlag.status == status)
             .order_by(SetFlag.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
     ).all()
+
+    # Batch-fetch member titles for group flags
+    all_member_ids: set[int] = set()
+    for flag, _, _ in rows:
+        if flag.member_set_ids:
+            all_member_ids.update(flag.member_set_ids)
+    member_title_map: dict[int, str] = {}
+    if all_member_ids:
+        title_rows = (
+            await db.execute(
+                select(DJSet.id, DJSet.title).where(DJSet.id.in_(all_member_ids))
+            )
+        ).all()
+        member_title_map = {r[0]: r[1] for r in title_rows}
 
     items = [
         SetFlagOut(
@@ -350,7 +364,12 @@ async def list_set_flags(
             status=flag.status,
             created_at=flag.created_at,
             title_a=title_a or "",
-            title_b=title_b or "",
+            title_b=title_b,
+            group_key=flag.group_key,
+            member_set_ids=flag.member_set_ids,
+            member_titles=(
+                [member_title_map.get(mid, "") for mid in (flag.member_set_ids or [])]
+            ),
         )
         for flag, title_a, title_b in rows
     ]
@@ -363,7 +382,7 @@ async def attach_set_flag(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Attach two sets flagged as duplicates under a virtual parent."""
+    """Attach sets flagged as duplicates or parts under a virtual parent."""
     from services.set_dedup_service import (
         find_or_create_virtual_parent,
         materialize_parent,
@@ -375,34 +394,66 @@ async def attach_set_flag(
     if not flag or flag.status != SetFlagStatus.pending:
         raise HTTPException(404, "Flag not found or already resolved")
 
-    set_a = (
-        await db.execute(select(DJSet).where(DJSet.id == flag.set_id_a))
-    ).scalar_one_or_none()
-    set_b = (
-        await db.execute(select(DJSet).where(DJSet.id == flag.set_id_b))
-    ).scalar_one_or_none()
-    if not set_a or not set_b:
-        raise HTTPException(404, "Set not found")
+    now = datetime.now(timezone.utc)
 
-    parent_id, created = await find_or_create_virtual_parent(
-        db, flag.set_id_a, flag.set_id_b, None, None
-    )
-    if created:
+    if flag.member_set_ids:
+        # Group flag: attach all members to a shared virtual parent
+        member_ids: list[int] = flag.member_set_ids
+        members = (
+            await db.execute(select(DJSet).where(DJSet.id.in_(member_ids)))
+        ).scalars().all()
+        if len(members) < 2:
+            raise HTTPException(404, "Not enough member sets found")
+
+        dates = [m.played_date for m in members if m.played_date is not None]
+        played_date = min(dates) if dates else None
+        base_title = flag.group_key or members[0].title
+
+        parent_id, _ = await find_or_create_virtual_parent(
+            db, member_ids[0], member_ids[1], played_date, base_title
+        )
+        # Attach remaining members (beyond the first pair)
+        for mid in member_ids[2:]:
+            member = await db.get(DJSet, mid)
+            if member and member.parent_set_id is None:
+                member.parent_set_id = parent_id
+        await db.flush()
+
         await materialize_parent(db, parent_id)
 
-    now = datetime.now(timezone.utc)
+        audit_details = {
+            "member_set_ids": member_ids,
+            "parent_id": parent_id,
+            "group_key": flag.group_key,
+        }
+    else:
+        # Pairwise flag
+        set_a = (
+            await db.execute(select(DJSet).where(DJSet.id == flag.set_id_a))
+        ).scalar_one_or_none()
+        set_b = (
+            await db.execute(select(DJSet).where(DJSet.id == flag.set_id_b))
+        ).scalar_one_or_none()
+        if not set_a or not set_b:
+            raise HTTPException(404, "Set not found")
+
+        parent_id, created = await find_or_create_virtual_parent(
+            db, flag.set_id_a, flag.set_id_b, None, None
+        )
+        if created:
+            await materialize_parent(db, parent_id)
+
+        audit_details = {
+            "set_id_a": flag.set_id_a,
+            "set_id_b": flag.set_id_b,
+            "parent_id": parent_id,
+        }
+
     flag.status = SetFlagStatus.attached
     flag.resolved_by = admin.id
     flag.resolved_at = now
 
-    await _audit(
-        db,
-        admin,
-        "attach_set_flag",
-        "set_flag",
-        flag_id,
-        {"set_id_a": flag.set_id_a, "set_id_b": flag.set_id_b, "parent_id": parent_id},
-    )
+    await _audit(db, admin, "attach_set_flag", "set_flag", flag_id, audit_details)
     await db.commit()
     return SetFlagAttachResponse(ok=True, parent_id=parent_id)
 
@@ -431,7 +482,11 @@ async def reject_set_flag(
         "reject_set_flag",
         "set_flag",
         flag_id,
-        {"set_id_a": flag.set_id_a, "set_id_b": flag.set_id_b},
+        {
+            "set_id_a": flag.set_id_a,
+            "set_id_b": flag.set_id_b,
+            **({"group_key": flag.group_key} if flag.group_key else {}),
+        },
     )
     await db.commit()
     return {"ok": True}

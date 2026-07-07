@@ -171,9 +171,9 @@ async def import_audiostream(
         )
         await backfill_normalized_titles(db)
         if dj_set.id is not None and not dj_set.is_virtual:
-            results = await match_set(db, dj_set.id)
-            if results:
-                await apply_match_results(db, dj_set.id, results)
+            pair_results, group_results = await match_set(db, dj_set.id)
+            if pair_results or group_results:
+                await apply_match_results(db, dj_set.id, pair_results, group_results)
     except Exception:
         pass  # matching failure must never abort import
 
