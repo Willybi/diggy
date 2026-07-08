@@ -1,5 +1,13 @@
 <template>
-  <div class="ds">
+  <div ref="dsRoot" class="ds">
+    <div class="ds-toolbar">
+      <button class="btn btn--sm" @click="toggle">
+        {{ isDark ? 'Mode clair' : 'Mode sombre' }}
+      </button>
+      <button class="btn btn--sm btn--accent" :disabled="exporting" @click="exportPng">
+        {{ exporting ? 'Export…' : 'Exporter PNG' }}
+      </button>
+    </div>
     <header class="ds-head">
       <h1 class="ds-title">Design System</h1>
       <p class="ds-note">
@@ -119,6 +127,15 @@
         <button class="btn" disabled>Disabled</button>
       </div>
 
+      <h3 class="ds-h3 mono">buttons.css · état hover forcé <span class="ds-tag">.is-hover</span></h3>
+      <div class="comp-row">
+        <button class="btn is-hover">Ghost</button>
+        <button class="btn btn--accent is-hover">Accent</button>
+        <button class="btn btn--ghost-accent is-hover">Ghost accent</button>
+        <button class="btn btn--sm is-hover">Small</button>
+        <button class="btn btn--danger is-hover">Danger</button>
+      </div>
+
       <h3 class="ds-h3 mono">Badges</h3>
       <div class="comp-row">
         <InLibBadge :in-lib="true" />
@@ -153,6 +170,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { domToPng } from 'modern-screenshot'
+import { useTheme } from '../composables/useTheme.js'
 import InLibBadge from '../components/InLibBadge.vue'
 import SourceBadge from '../components/SourceBadge.vue'
 import ScorePill from '../components/ScorePill.vue'
@@ -248,6 +267,26 @@ const densities = [
   { mode: 'comfy', label: 'Confort' },
 ]
 
+const { isDark, toggle } = useTheme()
+const dsRoot = ref(null)
+const exporting = ref(false)
+
+async function exportPng() {
+  exporting.value = true
+  try {
+    const dataUrl = await domToPng(dsRoot.value, {
+      scale: 2,
+      filter: (node) => !node.classList?.contains('ds-toolbar'),
+    })
+    const link = document.createElement('a')
+    link.href = dataUrl
+    link.download = `design-system-${isDark.value ? 'dark' : 'light'}-${new Date().toISOString().slice(0, 10)}.png`
+    link.click()
+  } finally {
+    exporting.value = false
+  }
+}
+
 const computed = ref({})
 onMounted(() => {
   const cs = window.getComputedStyle(document.documentElement)
@@ -271,6 +310,14 @@ onMounted(() => {
 }
 .mono {
   font-family: var(--font-mono);
+}
+.ds-toolbar {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  gap: var(--space-2);
+  z-index: 10;
 }
 .ds-head {
   margin-bottom: var(--space-10);

@@ -18,7 +18,9 @@
     color 0.12s,
     border-color 0.12s;
 }
-.btn:hover {
+/* .is-hover = hover forcé pour la vitrine /design-system (dev only) */
+.btn:hover,
+.btn.is-hover {
   background: var(--surface-2);
   color: var(--ink);
 }
@@ -28,7 +30,8 @@
   color: var(--on-accent);
   font-weight: 600;
 }
-.btn--accent:hover {
+.btn--accent:hover,
+.btn--accent.is-hover {
   background: var(--accent-hover);
   color: var(--on-accent);
 }
@@ -36,7 +39,8 @@
   border-color: var(--accent);
   color: var(--accent-ink);
 }
-.btn--ghost-accent:hover {
+.btn--ghost-accent:hover,
+.btn--ghost-accent.is-hover {
   background: var(--accent-soft);
 }
 .btn--sm {
@@ -44,7 +48,8 @@
   padding: 0 var(--space-3);
   font-size: var(--fs-sm);
 }
-.btn--danger:hover {
+.btn--danger:hover,
+.btn--danger.is-hover {
   color: var(--neg-ink);
   border-color: var(--neg-ink);
   background: var(--surface);
