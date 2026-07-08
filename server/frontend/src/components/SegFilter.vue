@@ -22,9 +22,9 @@ const emit = defineEmits(['update:modelValue'])
 <style scoped>
 .filterseg {
   display: flex;
-  gap: 2px;
+  gap: var(--space-05);
   background: var(--surface-2);
-  padding: 3px;
+  padding: var(--space-05);
   border-radius: var(--r-sm);
   overflow-x: auto;
   scrollbar-width: none;
@@ -37,8 +37,8 @@ const emit = defineEmits(['update:modelValue'])
   border: 0;
   background: transparent;
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
-  padding: 8px 14px;
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--r-xs);
   cursor: pointer;
   white-space: nowrap;

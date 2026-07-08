@@ -29,21 +29,21 @@ defineProps({
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-right: 1px solid var(--line);
 }
 .stat-cell:last-child {
   border-right: none;
 }
 .stat-value {
-  font: 600 15px/1 var(--font-mono);
+  font: 600 var(--fs-title)/1 var(--font-mono);
   color: var(--ink);
 }
 .stat-label {
-  font: 400 10.5px/1 var(--font-mono);
+  font: 400 var(--fs-label)/1 var(--font-mono);
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 </style>

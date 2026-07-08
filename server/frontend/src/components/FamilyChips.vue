@@ -43,21 +43,21 @@ const chips = computed(() => {
 .fam-chips {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
-  padding: 0 30px 16px;
+  padding: 0 var(--page-px) var(--space-4);
 }
 .fam-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-15);
   height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border-radius: var(--r-pill);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -78,7 +78,7 @@ const chips = computed(() => {
   box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / 0.28);
 }
 .fc-n {
-  font: 600 11px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
 }
 .fam-chip.on {

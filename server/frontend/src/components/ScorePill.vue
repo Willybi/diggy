@@ -22,12 +22,12 @@ function formatScore(s) {
 .score-pill {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-15);
   background: var(--accent-soft);
   color: var(--accent-ink);
   border-radius: var(--r-xs);
-  padding: 4px 11px 4px 9px;
-  font: 500 12px/1 var(--font-mono);
+  padding: var(--space-1) var(--space-25) var(--space-1) var(--space-2);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
 }
 .meter {
   flex: none;

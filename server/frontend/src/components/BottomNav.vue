@@ -93,7 +93,7 @@ watch(() => route.path, fetchNewCount)
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--space-1);
   position: relative;
   background: none;
   border: none;
@@ -132,7 +132,7 @@ watch(() => route.path, fetchNewCount)
 }
 
 .bottom-nav-label {
-  font: 500 10px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
 }
 
 .bottom-nav-badge {
@@ -141,8 +141,8 @@ watch(() => route.path, fetchNewCount)
   left: calc(50% + 9px);
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 9px/1 var(--font-mono);
-  padding: 2px 5px;
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  padding: var(--space-05) var(--space-1);
   border-radius: var(--r-sm);
   min-width: 16px;
   text-align: center;

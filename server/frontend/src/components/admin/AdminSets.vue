@@ -248,38 +248,38 @@ async function runEnrichSets() {
 
 <style scoped>
 .admin-section {
-  margin-bottom: 36px;
-  padding: 20px 24px;
+  margin-bottom: var(--space-8);
+  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
 .section-title {
-  font: 600 15px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-15);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .section-sub {
-  font: 400 12px/1.4 var(--font-ui);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
   color: var(--ink-3);
-  margin-bottom: 14px;
+  margin-bottom: var(--space-4);
 }
 .sync-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 .btn-sync {
-  padding: 9px 20px;
+  padding: var(--space-2) var(--space-5);
   border-radius: var(--r-sm);
   border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   transition: opacity 0.12s;
 }
@@ -289,8 +289,8 @@ async function runEnrichSets() {
 }
 .sync-result {
   display: flex;
-  gap: 14px;
-  font: 400 13px/1 var(--font-mono);
+  gap: var(--space-4);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
 }
 .result-item.ok {
   color: var(--pos-ink);
@@ -299,7 +299,7 @@ async function runEnrichSets() {
   color: var(--ink-3);
 }
 .sync-error {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--neg-ink);
 }
 .flags-badge {
@@ -307,55 +307,55 @@ async function runEnrichSets() {
   align-items: center;
   justify-content: center;
   min-width: 20px;
-  padding: 2px 6px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 10px;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 11px/1 var(--font-ui);
+  font: 600 var(--fs-xs)/1 var(--font-ui);
 }
 .flags-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .flag-card {
-  padding: 12px 14px;
+  padding: var(--space-3) var(--space-4);
   background: var(--surface-2, var(--surface));
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .flag-sets {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .flag-set-title {
-  font: 500 13px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
 }
 .flag-sep {
-  font-size: 14px;
+  font-size: var(--fs-base);
   color: var(--ink-3);
 }
 .flag-members {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-15);
 }
 .flag-member {
-  padding: 2px 8px;
+  padding: var(--space-05) var(--space-2);
   background: var(--surface-2, var(--surface));
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
 .flag-meta {
   display: flex;
-  gap: 12px;
-  font: 400 12px/1 var(--font-ui);
+  gap: var(--space-3);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
 }
 .flag-type {
   color: var(--ink-3);
@@ -365,7 +365,7 @@ async function runEnrichSets() {
 }
 .flag-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .btn-reject {
   background: transparent;

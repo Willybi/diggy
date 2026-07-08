@@ -574,19 +574,19 @@ watch(
 .page-head {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  padding: 26px var(--page-px) 18px;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
 .titles h1 {
   margin: 0;
-  font: 600 28px/1 var(--font-ui);
+  font: 600 var(--fs-xl)/1 var(--font-ui);
   letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
-  margin-top: 5px;
-  font: 500 13px/1 var(--font-mono);
+  margin-top: var(--space-1);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .sub b {
@@ -597,7 +597,7 @@ watch(
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -606,14 +606,14 @@ watch(
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-15);
   height: 38px;
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -645,10 +645,10 @@ watch(
 /* ============ VIEW SEGMENT ============ */
 .viewseg {
   display: flex;
-  gap: 3px;
+  gap: var(--space-05);
   background: var(--surface-2);
   border: 1px solid var(--line);
-  padding: 3px;
+  padding: var(--space-05);
   border-radius: var(--r-pill);
 }
 .viewseg button {
@@ -657,10 +657,10 @@ watch(
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font: 600 12.5px var(--font-ui);
+  gap: var(--space-15);
+  font: 600 var(--fs-sm) var(--font-ui);
   color: var(--ink-2);
-  padding: 7px 14px;
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-pill);
   line-height: 1;
 }
@@ -681,36 +681,36 @@ watch(
 .sub-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-height: 46px;
-  padding: 0 var(--page-px) 14px;
+  padding: 0 var(--page-px) var(--space-4);
 }
 /* ============ RECENCY (radar only) ============ */
 .recency {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .rlbl {
-  font: 600 10px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
 .seg-rec {
   display: flex;
-  gap: 2px;
+  gap: var(--space-05);
   background: var(--surface-2);
-  padding: 3px;
+  padding: var(--space-05);
   border-radius: var(--r-sm);
 }
 .seg-rec button {
   border: 0;
   background: transparent;
   color: var(--ink-2);
-  font: 500 12px/1 var(--font-mono);
-  padding: 7px 11px;
+  font: 500 var(--fs-sm)/1 var(--font-mono);
+  padding: var(--space-15) var(--space-25);
   border-radius: var(--r-xs);
   cursor: pointer;
 }
@@ -725,7 +725,7 @@ watch(
 
 /* ============ TABLE ============ */
 .table-wrap {
-  padding: 4px var(--page-px) 30px;
+  padding: var(--space-1) var(--page-px) var(--space-8);
   overflow-x: auto;
 }
 table.tt {
@@ -782,12 +782,12 @@ table.tt thead th {
   top: 0;
   background: var(--surface);
   z-index: 2;
-  font: 600 10.5px/1.5 var(--font-mono);
+  font: 600 var(--fs-label)/1.5 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: left;
-  padding: 10px 14px;
+  padding: var(--space-25) var(--space-3);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
@@ -811,7 +811,7 @@ table.tt th.is-sorted {
 }
 .arr {
   color: var(--accent-ink);
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 table.tt tbody tr {
@@ -828,7 +828,7 @@ table.tt tbody tr.playing:hover {
   background: var(--accent-soft);
 }
 table.tt td {
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   vertical-align: middle;
 }
 
@@ -852,7 +852,7 @@ table.tt td {
 /* ============ PLAY BTN ============ */
 .c-play {
   width: 44px;
-  padding: 0 14px;
+  padding: 0 var(--space-3);
 }
 .pbtn {
   width: 30px;
@@ -890,7 +890,7 @@ tr:hover .pbtn {
 .td-track {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 .aw {
@@ -923,7 +923,7 @@ tr:hover .pbtn {
   overflow: hidden;
 }
 .tt-title {
-  font-size: 14.5px;
+  font-size: var(--fs-table);
   font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
@@ -949,21 +949,21 @@ tr.playing .tt-title {
 .tt-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .trend-badge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
+  padding: var(--space-05) var(--space-15);
   border-radius: var(--r-xs);
   background: var(--accent-soft);
   color: var(--accent-ink);
-  font: 600 10px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   flex: none;
 }
 .tt-art {
-  font-size: 12.5px;
+  font-size: var(--fs-table-sm);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -973,26 +973,26 @@ tr.playing .tt-title {
 
 /* ============ DATA CELLS ============ */
 .td-bpm {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
 }
 .td-key {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--accent-ink);
 }
 .td-dur {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
 }
 .td-empty {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-3);
 }
 
 /* ============ RATING ============ */
 .rating {
   display: inline-flex;
-  gap: 2px;
+  gap: var(--space-05);
   color: var(--accent);
 }
 .rating svg {
@@ -1007,16 +1007,16 @@ tr.playing .tt-title {
 .src {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   max-width: 100%;
   min-width: 0;
 }
 .src .src-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 4px;
-  font: 600 10px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.06em;
   white-space: nowrap;
   flex: none;
@@ -1035,7 +1035,7 @@ tr.playing .tt-title {
   border: 1px solid var(--line-2);
 }
 .src .nm {
-  font: 500 13px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -1044,14 +1044,14 @@ tr.playing .tt-title {
 
 /* ============ DÉTECTÉ ============ */
 .detect {
-  font: 500 12.5px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
   white-space: nowrap;
 }
 
 /* ============ AVIS (LikeDislike) ============ */
 .c-avis {
-  padding: 0 14px;
+  padding: 0 var(--space-3);
 }
 .c-avis :deep(.ld-btn) {
   opacity: 0;
@@ -1086,16 +1086,16 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 0 var(--page-px) 30px;
+  gap: var(--space-3);
+  padding: 0 var(--page-px) var(--space-8);
 }
 .page-btn {
-  padding: 6px 14px;
+  padding: var(--space-15) var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   transition: background 0.12s;
 }
@@ -1107,7 +1107,7 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
   cursor: default;
 }
 .page-info {
-  font: 400 12px/1 var(--font-mono);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
   min-width: 60px;
   text-align: center;
@@ -1130,10 +1130,10 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
 
 /* ============ STATES ============ */
 .state {
-  font: 400 14px var(--font-mono);
+  font: 400 var(--fs-base) var(--font-mono);
   color: var(--ink-3);
   text-align: center;
-  padding: 60px 0;
+  padding: var(--space-15x) 0;
 }
 
 /* ============ RESPONSIVE ============ */
@@ -1161,16 +1161,16 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
     min-width: 0;
   }
   .page-head {
-    padding: 16px var(--page-px-mobile) 12px;
+    padding: var(--space-4) var(--page-px-mobile) var(--space-3);
   }
   .titles h1 {
-    font-size: 23px;
+    font-size: var(--fs-lg);
   }
   .head-tools {
     width: 100%;
     margin-left: 0;
     flex-wrap: wrap;
-    row-gap: 9px;
+    row-gap: var(--space-2);
   }
   :deep(.search) {
     order: -1;
@@ -1178,14 +1178,14 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
     min-width: 0;
   }
   .table-wrap {
-    padding: 4px var(--page-px-mobile) 22px;
+    padding: var(--space-1) var(--page-px-mobile) var(--space-6);
   }
   .sub-bar {
     padding-left: var(--page-px-mobile);
     padding-right: var(--page-px-mobile);
   }
   .pagination {
-    padding: 0 var(--page-px-mobile) 22px;
+    padding: 0 var(--page-px-mobile) var(--space-6);
   }
   /* Touch: always show play buttons & avis */
   .pbtn {

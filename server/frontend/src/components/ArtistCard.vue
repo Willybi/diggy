@@ -219,7 +219,7 @@ function onCoverError(e) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .ac-tile {
   position: relative;
@@ -307,7 +307,7 @@ function onCoverError(e) {
 .ac-avatar.init {
   background: oklch(var(--tag-bg-l) calc(var(--tag-bg-c) * 0.9) var(--th));
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
-  font: 600 30px/1 var(--font-ui);
+  font: 600 var(--fs-fallback)/1 var(--font-ui);
 }
 .artist-card[data-fam='autres'] .ac-avatar.init {
   background: var(--surface-3);
@@ -325,14 +325,14 @@ function onCoverError(e) {
   z-index: 4;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   height: 23px;
-  padding: 0 9px;
+  padding: 0 var(--space-2);
   border-radius: var(--r-pill);
   background: var(--overlay-modal);
   backdrop-filter: blur(6px);
   color: var(--overlay-text);
-  font: 600 11px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   pointer-events: none;
 }
 .ac-rating svg {
@@ -350,14 +350,14 @@ function onCoverError(e) {
   z-index: 4;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-15);
   height: 22px;
-  padding: 0 9px;
+  padding: 0 var(--space-2);
   border-radius: var(--r-pill);
   background: var(--overlay-modal);
   backdrop-filter: blur(6px);
   color: var(--overlay-text);
-  font: 600 10px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   pointer-events: none;
 }
 .libdot {
@@ -394,7 +394,7 @@ function onCoverError(e) {
 .ac-play svg {
   width: 14px;
   height: 14px;
-  margin-left: 2px;
+  margin-left: var(--space-05);
 }
 .artist-card:hover .ac-play {
   opacity: 1;
@@ -410,15 +410,15 @@ function onCoverError(e) {
 
 /* ---- body (tinted) ---- */
 .ac-body {
-  padding: 14px 16px 16px;
+  padding: var(--pad);
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: var(--space-2);
   flex: 1;
   background: oklch(var(--ct-l) var(--ct-c) var(--th));
 }
 .ac-name {
-  font: 600 16px/1.15 var(--font-ui);
+  font: 600 var(--fs-title)/1.15 var(--font-ui);
   letter-spacing: -0.2px;
   color: var(--ink);
   text-align: center;
@@ -429,7 +429,7 @@ function onCoverError(e) {
 .ac-genres {
   display: flex;
   flex-wrap: nowrap;
-  gap: 5px;
+  gap: var(--space-1);
   justify-content: center;
   min-height: 22px;
   overflow: hidden;
@@ -445,12 +445,12 @@ function onCoverError(e) {
   display: flex;
   margin-top: auto;
   border-top: 1px solid var(--ct-line);
-  padding-top: 10px;
+  padding-top: var(--space-25);
 }
 .ac-stat {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-05);
   flex: 1;
   align-items: center;
 }
@@ -458,17 +458,17 @@ function onCoverError(e) {
   border-left: 1px solid var(--ct-line);
 }
 .ac-stat .k {
-  font: 600 8.5px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
 .ac-stat .v {
-  font: 600 14px/1 var(--font-mono);
+  font: 600 var(--fs-base)/1 var(--font-mono);
   color: var(--ink);
 }
 .v-empty {
-  font: 500 13px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
 }
 
@@ -477,7 +477,7 @@ function onCoverError(e) {
   border-left: 1px solid var(--ct-line);
   display: flex;
   align-items: center;
-  padding-left: 12px;
+  padding-left: var(--space-3);
   margin-left: auto;
 }
 

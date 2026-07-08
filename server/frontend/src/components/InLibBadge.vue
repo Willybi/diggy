@@ -26,10 +26,10 @@ defineProps({
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font: 500 11.5px/1 var(--font-ui);
+  gap: var(--space-1);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
   letter-spacing: 0.005em;
-  padding: 4px 10px 4px 8px;
+  padding: var(--space-1) var(--space-25) var(--space-1) var(--space-2);
   border-radius: var(--r-pill);
 }
 .badge--in {

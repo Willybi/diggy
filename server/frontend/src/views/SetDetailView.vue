@@ -358,22 +358,22 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-right: 1px solid var(--line);
 }
 .stat-cell:last-child {
   border-right: none;
 }
 .stat-value {
-  font: 600 15px/1 var(--font-mono);
+  font: 600 var(--fs-title)/1 var(--font-mono);
   color: var(--ink);
 }
 .stat-label {
-  font: 400 10.5px/1 var(--font-mono);
+  font: 400 var(--fs-label)/1 var(--font-mono);
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .ring-val {
   display: inline-flex;
@@ -382,18 +382,18 @@ onMounted(async () => {
 
 /* Description */
 .rel-prose {
-  font: 400 14px/1.6 var(--font-ui);
+  font: 400 var(--fs-base)/1.6 var(--font-ui);
   color: var(--ink-2);
   max-width: 78ch;
-  padding: 0 10px;
+  padding: 0 var(--space-25);
 }
 
 /* Artist appear rows */
 .appear {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-25);
   border-radius: var(--r-sm);
   text-decoration: none;
   color: inherit;
@@ -420,14 +420,14 @@ onMounted(async () => {
 .ap-tx {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .ap-title {
-  font: 500 14px/1 var(--font-ui);
+  font: 500 var(--fs-base)/1 var(--font-ui);
   color: var(--ink);
 }
 .ap-sub {
-  font: 400 12px/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-3);
 }
 
@@ -438,19 +438,19 @@ onMounted(async () => {
 .tracklist {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .tracklist thead th {
   text-align: left;
-  padding: 8px 12px;
-  font: 500 10.5px/1 var(--font-mono);
+  padding: var(--space-2) var(--space-3);
+  font: 500 var(--fs-label)/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--ink-3);
   border-bottom: 1px solid var(--line);
 }
 .tracklist tbody td {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   vertical-align: middle;
   border-bottom: 1px solid var(--line);
 }
@@ -468,14 +468,14 @@ onMounted(async () => {
 .tl-play {
   width: 44px;
   text-align: center;
-  padding: 4px !important;
+  padding: var(--space-1) !important;
 }
 .tl-time {
   width: 72px;
 }
 .tl-cover {
   width: 40px;
-  padding: 4px 8px !important;
+  padding: var(--space-1) var(--space-2) !important;
 }
 .tl-track {
   min-width: 180px;
@@ -530,7 +530,7 @@ onMounted(async () => {
 }
 .tl-artist {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--ink-2);
 }
 
@@ -583,19 +583,19 @@ tr.playing td {
 
 /* ID label */
 .id-label {
-  font: 600 9px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .btn-ghost {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   text-decoration: none;
   transition:
     background 0.12s,
@@ -608,27 +608,27 @@ tr.playing td {
 
 .state {
   color: var(--ink-3);
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-style: italic;
-  padding-top: 40px;
+  padding-top: var(--space-10);
 }
 
 /* Admin card */
 .set-artists-list {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-25);
 }
 .set-artist-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 5px 8px;
+  gap: var(--space-25);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--r-sm);
 }
 .set-artist-row:hover {
   background: var(--surface-2);
 }
 .sa-name {
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink);
   text-decoration: none;
 }
@@ -636,21 +636,21 @@ tr.playing td {
   color: var(--accent-ink);
 }
 .sa-role {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--ink-3);
 }
 .sa-add-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .admin-input {
   flex: 1;
-  padding: 7px 12px;
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface-2);
   color: var(--ink);
-  font: 400 13px/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   outline: none;
 }
 .admin-input:focus {
@@ -659,13 +659,13 @@ tr.playing td {
 .sa-results {
   max-height: 160px;
   overflow-y: auto;
-  margin-top: 6px;
+  margin-top: var(--space-15);
 }
 .sa-hit {
-  padding: 6px 10px;
+  padding: var(--space-15) var(--space-25);
   cursor: pointer;
   border-radius: var(--r-sm);
-  font: 400 13px/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink);
 }
 .sa-hit:hover {
@@ -673,19 +673,19 @@ tr.playing td {
   color: var(--accent-ink);
 }
 .empty-hint {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--ink-3);
   font-style: italic;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-25);
 }
 .btn-row-action {
   margin-left: auto;
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 4px;
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 10px/1 var(--font-ui);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
   cursor: pointer;
 }
 .btn-row-action:hover {

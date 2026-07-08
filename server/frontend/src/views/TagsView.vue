@@ -49,29 +49,29 @@ onMounted(fetchGenres)
   padding: var(--pad) calc(var(--pad) * 1.5);
 }
 .view-header {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 .view-title {
-  font: 600 22px/1.1 var(--font-ui);
+  font: 600 var(--fs-lg)/1.1 var(--font-ui);
   letter-spacing: -0.02em;
   color: var(--ink);
 }
 .view-sub {
-  font: 400 12px/1 var(--font-mono);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
-  margin-top: 4px;
+  margin-top: var(--space-1);
   display: block;
 }
 .genre-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .genre-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -86,13 +86,13 @@ onMounted(fetchGenres)
 }
 .genre-count {
   margin-left: auto;
-  font: 400 12px/1 var(--font-mono);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
   white-space: nowrap;
 }
 .state {
   color: var(--ink-3);
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-style: italic;
 }
 </style>

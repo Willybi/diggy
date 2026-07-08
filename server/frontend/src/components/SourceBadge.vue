@@ -12,9 +12,9 @@ defineProps({
 .src-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 4px;
-  font: 600 10px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.06em;
   white-space: nowrap;
   flex: none;

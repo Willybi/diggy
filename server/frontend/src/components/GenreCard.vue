@@ -189,7 +189,7 @@ function onAvatarError(e) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  gap: 2px;
+  gap: var(--space-05);
 }
 
 .gc-tile {
@@ -241,11 +241,11 @@ function onAvatarError(e) {
   left: 10px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font: 600 10.5px/1 var(--font-mono);
+  gap: var(--space-1);
+  font: 600 var(--fs-label)/1 var(--font-mono);
   color: var(--pos-ink);
   background: var(--surface);
-  padding: 5px 8px 5px 7px;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-15);
   border-radius: var(--r-pill);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--line);
@@ -284,8 +284,8 @@ function onAvatarError(e) {
   border-color: oklch(0.28 0.012 262);
 }
 .more {
-  margin-left: 7px;
-  font: 600 11px/1 var(--font-mono);
+  margin-left: var(--space-15);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   color: oklch(0.99 0.004 92);
   text-shadow: 0 1px 3px oklch(0.2 0.02 70 / 0.6);
 }
@@ -315,7 +315,7 @@ function onAvatarError(e) {
 .gc-play svg {
   width: 17px;
   height: 17px;
-  margin-left: 2px;
+  margin-left: var(--space-05);
 }
 .genre-card:hover .gc-play {
   opacity: 1;
@@ -361,17 +361,17 @@ function onAvatarError(e) {
 
 /* ── Body ── */
 .gc-body {
-  padding: 13px 16px 15px;
+  padding: var(--pad);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   flex: 1;
   background: oklch(var(--ct-l) var(--ct-c) var(--th));
 }
 .gc-titlerow {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .gc-dot {
@@ -384,7 +384,7 @@ function onAvatarError(e) {
   box-shadow: 0 0 0 1px oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th) / 0.28);
 }
 .gc-title {
-  font: 600 17px var(--font-ui);
+  font: 600 var(--fs-md) var(--font-ui);
   letter-spacing: -0.2px;
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
   white-space: nowrap;
@@ -392,7 +392,7 @@ function onAvatarError(e) {
   text-overflow: ellipsis;
 }
 .gc-fam {
-  font: 500 9.5px/1 var(--font-mono);
+  font: 500 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -405,36 +405,36 @@ function onAvatarError(e) {
   display: flex;
   margin-top: auto;
   border-top: 1px solid var(--ct-line);
-  padding-top: 11px;
+  padding-top: var(--space-25);
 }
 .gc-stat {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-right: 14px;
+  gap: var(--space-1);
+  padding-right: var(--space-3);
 }
 .gc-stat + .gc-stat {
-  padding-left: 14px;
+  padding-left: var(--space-3);
   border-left: 1px solid var(--ct-line);
 }
 .gc-stat .k {
-  font: 600 9px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   white-space: nowrap;
 }
 .gc-stat .v {
-  font: 600 14.5px/1 var(--font-mono);
+  font: 600 var(--fs-base)/1 var(--font-mono);
   color: var(--ink);
   white-space: nowrap;
 }
 .gc-stat.bpm .v {
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .gc-stat .v-empty {
-  font: 500 13px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
 }
 </style>

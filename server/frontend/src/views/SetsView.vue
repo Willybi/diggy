@@ -385,20 +385,20 @@ onMounted(fetchSets)
 .page-head {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  padding: 26px var(--page-px) 18px;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
 .titles h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--fs-xl);
   font-weight: 600;
   letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
-  margin-top: 5px;
-  font: 500 13px/1 var(--font-mono);
+  margin-top: var(--space-1);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .sub .muted {
@@ -409,7 +409,7 @@ onMounted(fetchSets)
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
@@ -417,14 +417,14 @@ onMounted(fetchSets)
 .btn-add {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-15);
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid transparent;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -450,29 +450,29 @@ onMounted(fetchSets)
 
 /* ============ ADD FORM ============ */
 .addform {
-  padding: 0 var(--page-px) 6px;
+  padding: 0 var(--page-px) var(--space-15);
 }
 .addcard {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-sm);
-  padding: 6px 18px 18px;
-  margin-bottom: 8px;
+  padding: var(--space-15) var(--space-5) var(--space-5);
+  margin-bottom: var(--space-2);
 }
 .addtabs {
   display: flex;
-  gap: 22px;
+  gap: var(--space-6);
   border-bottom: 1px solid var(--line);
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .addtab {
   border: 0;
   background: transparent;
   cursor: pointer;
-  font: 500 14px var(--font-ui);
+  font: 500 var(--fs-base) var(--font-ui);
   color: var(--ink-3);
-  padding: 14px 2px 12px;
+  padding: var(--space-4) var(--space-05) var(--space-3);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
@@ -485,17 +485,17 @@ onMounted(fetchSets)
 }
 .addrow {
   display: flex;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .addrow input {
   flex: 1;
   min-width: 0;
   height: 42px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
   background: var(--bg);
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-input) var(--font-ui);
   color: var(--ink);
   outline: none;
 }
@@ -508,12 +508,12 @@ onMounted(fetchSets)
 }
 .btn-go {
   height: 42px;
-  padding: 0 20px;
+  padding: 0 var(--space-5);
   border: 0;
   border-radius: var(--r-sm);
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -526,8 +526,8 @@ onMounted(fetchSets)
 }
 .form-error {
   display: block;
-  margin-top: 10px;
-  font: 400 12px/1 var(--font-mono);
+  margin-top: var(--space-25);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
   color: var(--neg-ink);
 }
 
@@ -589,7 +589,7 @@ onMounted(fetchSets)
 
 /* ============ SEARCH RESULTS ============ */
 .results {
-  margin-top: 14px;
+  margin-top: var(--space-4);
   max-height: 312px;
   overflow-y: auto;
   display: flex;
@@ -598,8 +598,8 @@ onMounted(fetchSets)
 .res {
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 9px 4px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 .res:last-child {
@@ -627,19 +627,19 @@ onMounted(fetchSets)
   flex: 1;
 }
 .rt {
-  font: 500 14px var(--font-ui);
+  font: 500 var(--fs-base) var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .rm {
-  font: 500 11.5px/1.4 var(--font-mono);
+  font: 500 var(--fs-xs)/1.4 var(--font-mono);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 3px;
+  margin-top: var(--space-05);
 }
 .rm b {
   color: var(--ink-2);
@@ -648,7 +648,7 @@ onMounted(fetchSets)
 
 /* ============ TABLE ============ */
 .table-wrap {
-  padding: 4px var(--page-px) 30px;
+  padding: var(--space-1) var(--page-px) var(--space-8);
   overflow-x: auto;
 }
 table.tt {
@@ -673,12 +673,12 @@ table.tt col.w-avis {
   width: 100px;
 }
 table.tt thead th {
-  font: 600 10.5px/1 var(--font-mono);
+  font: 600 var(--fs-label)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: left;
-  padding: 0 14px 11px;
+  padding: 0 var(--space-3) var(--space-25);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
@@ -691,7 +691,7 @@ table.tt th.sortable:hover {
 }
 table.tt th .arr {
   color: var(--accent-ink);
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 table.tt th.num,
 table.tt td.num {
@@ -710,7 +710,7 @@ table.tt tbody tr:hover {
   background: var(--surface-2);
 }
 table.tt td {
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   vertical-align: middle;
 }
 
@@ -718,7 +718,7 @@ table.tt td {
 .td-track {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 .td-track .aw {
@@ -739,7 +739,7 @@ table.tt td {
   display: block;
 }
 .fallback-letter {
-  font: 600 16px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink-3);
   text-transform: uppercase;
 }
@@ -748,7 +748,7 @@ table.tt td {
   flex: 1;
 }
 .tt-title {
-  font-size: 14.5px;
+  font-size: var(--fs-table);
   font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
@@ -756,7 +756,7 @@ table.tt td {
   text-overflow: ellipsis;
 }
 .tt-art {
-  font-size: 12.5px;
+  font-size: var(--fs-table-sm);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -765,13 +765,13 @@ table.tt td {
 
 /* ============ DATE ============ */
 .detect {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
 }
 
 /* ============ DURATION ============ */
 .td-dur {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
 }
 
@@ -804,9 +804,9 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
 
 /* ============ STATES ============ */
 .state {
-  padding: 40px var(--page-px);
+  padding: var(--space-10) var(--page-px);
   color: var(--ink-3);
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-base) var(--font-ui);
   font-style: italic;
 }
 
@@ -837,7 +837,7 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
     padding-right: var(--page-px-mobile);
   }
   .table-wrap {
-    padding: 4px var(--page-px-mobile) 22px;
+    padding: var(--space-1) var(--page-px-mobile) var(--space-6);
   }
   .addrow {
     flex-direction: column;

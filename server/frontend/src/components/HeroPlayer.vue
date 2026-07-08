@@ -48,13 +48,13 @@ function onPlay() {
 .hero-play {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: var(--space-15);
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   transition:
     background 0.12s,

@@ -75,7 +75,7 @@
             </td>
             <td>
               <span v-if="m.nodeLabel" class="token-pill">{{ m.nodeLabel }}</span>
-              <span v-else class="muted" style="font-size: 12px; color: var(--ink-3)">—</span>
+              <span v-else class="muted" style="font-size: var(--fs-sm); color: var(--ink-3)">—</span>
             </td>
             <td>
               <div class="mapping-search-wrap">
@@ -103,7 +103,7 @@
               <button
                 v-if="mappingSelected[m.id]"
                 class="btn-sync"
-                style="padding: 5px 12px; font-size: 11px"
+                style="padding: var(--space-1) var(--space-3); font-size: var(--fs-xs)"
                 :disabled="savingMapping[m.id]"
                 @click="saveMapping(m)"
               >
@@ -241,8 +241,8 @@ onMounted(() => {
 
 <style scoped>
 .admin-section {
-  margin-bottom: 36px;
-  padding: 20px 24px;
+  margin-bottom: var(--space-8);
+  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -251,44 +251,44 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .section-title {
-  font: 600 15px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-15);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .section-header .section-title {
   margin-bottom: 0;
 }
 .section-sub {
-  font: 400 12px/1.4 var(--font-ui);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
   color: var(--ink-3);
-  margin-bottom: 14px;
+  margin-bottom: var(--space-4);
 }
 .flag-count {
-  font: 400 11px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   background: var(--accent-soft);
   color: var(--accent-ink);
-  padding: 2px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 10px;
 }
 .sync-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 .btn-sync {
-  padding: 9px 20px;
+  padding: var(--space-2) var(--space-5);
   border-radius: var(--r-sm);
   border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   transition: opacity 0.12s;
 }
@@ -299,26 +299,26 @@ onMounted(() => {
 .batch-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font: 400 13px/1 var(--font-ui);
+  gap: var(--space-2);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-3);
 }
 .batch-input {
   width: 80px;
-  padding: 6px 8px;
+  padding: var(--space-15) var(--space-2);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--ink);
-  font: 400 13px/1 var(--font-mono);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
 }
 .enrich-result.ok {
   color: var(--pos-ink);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .enrich-result.err {
   color: var(--neg-ink);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .filter-group {
   display: flex;
@@ -327,11 +327,11 @@ onMounted(() => {
   overflow: hidden;
 }
 .filter-btn {
-  padding: 6px 12px;
+  padding: var(--space-15) var(--space-3);
   border: none;
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 11px/1 var(--font-ui);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
   cursor: pointer;
   transition:
     background 0.12s,
@@ -350,12 +350,12 @@ onMounted(() => {
 .flag-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .flag-table thead th {
   text-align: left;
-  padding: 0 12px 10px;
-  font: 500 10px/1 var(--font-mono);
+  padding: 0 var(--space-3) var(--space-25);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -363,7 +363,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .flag-table tbody td {
-  padding: 10px 12px;
+  padding: var(--space-25) var(--space-3);
   vertical-align: top;
   border-bottom: 1px solid var(--line);
 }
@@ -371,22 +371,22 @@ onMounted(() => {
   border-bottom: none;
 }
 .raw-string {
-  font: 500 13px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
 }
 .token-pill {
-  font: 400 11px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   background: var(--surface-2);
   color: var(--ink-2);
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 4px;
   white-space: nowrap;
 }
 .state {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--ink-3);
   font-style: italic;
-  padding: 12px 0;
+  padding: var(--space-3) 0;
 }
 .mono {
   font-family: var(--font-mono);
@@ -401,12 +401,12 @@ onMounted(() => {
 }
 .mapping-search-input {
   width: 100%;
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--ink);
-  font: 400 12px/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   box-sizing: border-box;
 }
 .mapping-dropdown {
@@ -421,13 +421,13 @@ onMounted(() => {
   box-shadow: 0 4px 12px oklch(0 0 0 / 0.15);
   max-height: 200px;
   overflow-y: auto;
-  margin-top: 2px;
+  margin-top: var(--space-05);
 }
 .mapping-option {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 10px;
+  padding: var(--space-15) var(--space-25);
   cursor: pointer;
   transition: background 0.1s;
 }
@@ -438,11 +438,11 @@ onMounted(() => {
   background: var(--accent-soft);
 }
 .mapping-option-label {
-  font: 400 12px/1.3 var(--font-ui);
+  font: 400 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
 }
 .mapping-option-qid {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--ink-3);
 }
 </style>

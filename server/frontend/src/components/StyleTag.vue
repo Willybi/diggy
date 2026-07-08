@@ -49,13 +49,13 @@ const shortLabel = computed(() => props.name.split('/')[0].trim())
   --th: 0;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-15);
   max-width: 100%;
   background: oklch(var(--tag-bg-l) calc(var(--tag-bg-c) * (1 - 0.17 * var(--d, 0))) var(--th));
   color: oklch(var(--tag-fg-l) calc(var(--tag-fg-c) * (1 - 0.1 * var(--d, 0))) var(--th));
-  font: 500 12px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   white-space: nowrap;
-  padding: 4px 10px 4px 8px;
+  padding: var(--space-1) var(--space-25) var(--space-1) var(--space-2);
   border-radius: var(--r-pill);
 }
 .lbl {

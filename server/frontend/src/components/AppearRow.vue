@@ -21,7 +21,7 @@ defineProps({
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: var(--space-25) var(--space-3);
   border-bottom: 1px solid var(--line);
   text-decoration: none;
   color: inherit;
@@ -39,7 +39,7 @@ defineProps({
 }
 .appear-title {
   display: block;
-  font: 500 13.5px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -47,14 +47,14 @@ defineProps({
 }
 .appear-sub {
   display: block;
-  font: 400 12px/1.3 var(--font-mono);
+  font: 400 var(--fs-sm)/1.3 var(--font-mono);
   color: var(--ink-3);
-  margin-top: 2px;
+  margin-top: var(--space-05);
 }
 .appear-arrow {
   flex: none;
-  font-size: 18px;
+  font-size: var(--fs-md);
   color: var(--ink-3);
-  margin-left: 8px;
+  margin-left: var(--space-2);
 }
 </style>

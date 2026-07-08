@@ -209,70 +209,70 @@ onMounted(() => {
 .page-head {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  padding: 26px var(--page-px) 18px;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
 .titles h1 {
   margin: 0;
-  font: 600 28px/1.1 var(--font-ui);
+  font: 600 var(--fs-xl)/1.1 var(--font-ui);
   letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
-  margin-top: 5px;
-  font: 500 13px/1 var(--font-mono);
+  margin-top: var(--space-1);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .head-tools {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 /* ── Admin strip ── */
 .admin-strip {
   display: flex;
-  margin: 0 var(--page-px) 18px;
+  margin: 0 var(--page-px) var(--space-5);
 }
 .admin-block {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-4);
   border: 1px dashed var(--line-2);
   background: var(--surface-2);
   border-radius: var(--r-md);
-  padding: 14px 16px;
+  padding: var(--space-4) var(--space-4);
 }
 .admin-label {
-  font: 600 9.5px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);
   border: 1px solid var(--line-2);
   border-radius: 4px;
-  padding: 5px 7px;
+  padding: var(--space-1) var(--space-15);
   flex: none;
 }
 .admin-txt {
-  font: 500 13.5px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   color: var(--ink-2);
 }
 .admin-txt b {
   color: var(--ink);
-  font: 600 13.5px var(--font-mono);
+  font: 600 var(--fs-sm) var(--font-mono);
 }
 .btn-admin {
   margin-left: auto;
   height: 34px;
-  padding: 0 15px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 600 12.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -287,18 +287,18 @@ onMounted(() => {
 
 /* ── Grid ── */
 .genre-grid {
-  padding: 2px var(--page-px) 36px;
+  padding: var(--space-05) var(--page-px) var(--space-8);
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(296px, 1fr));
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 /* ── Empty state ── */
 .empty {
-  padding: 60px var(--page-px);
+  padding: var(--space-15x) var(--page-px);
   text-align: center;
   color: var(--ink-3);
-  font: 500 14px var(--font-mono);
+  font: 500 var(--fs-base) var(--font-mono);
 }
 
 /* ── Sentinel ── */
@@ -306,10 +306,10 @@ onMounted(() => {
   display: none;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 8px var(--page-px) 40px;
+  gap: var(--space-25);
+  padding: var(--space-2) var(--page-px) var(--space-10);
   color: var(--ink-3);
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
 }
 .sentinel.on {
   display: flex;

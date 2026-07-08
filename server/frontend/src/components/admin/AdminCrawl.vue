@@ -46,7 +46,7 @@
         </thead>
         <tbody>
           <tr v-for="log in crawlLogs" :key="log.id">
-            <td class="mono" style="font-size: 11px; white-space: nowrap">
+            <td class="mono" style="font-size: var(--fs-xs); white-space: nowrap">
               {{ formatDate(log.started_at) }}
             </td>
             <td>
@@ -70,15 +70,15 @@
             <td>
               <span class="status-badge" :class="log.status">{{ log.status }}</span>
             </td>
-            <td class="mono" style="font-size: 11px">
+            <td class="mono" style="font-size: var(--fs-xs)">
               {{ log.duration_ms != null ? formatDuration(log.duration_ms) : '-' }}
             </td>
             <td
               style="
-                font-size: 11px;
+                font-size: var(--fs-xs);
                 display: flex;
                 flex-wrap: wrap;
-                gap: 3px;
+                gap: var(--space-05);
                 align-items: center;
               "
             >
@@ -90,7 +90,7 @@
               <span
                 v-if="log.error_message"
                 class="sync-error"
-                style="font-size: 10px"
+                style="font-size: var(--fs-xs)"
                 :title="log.error_message"
               >
                 {{ log.error_message.slice(0, 60) }}
@@ -103,7 +103,7 @@
 
     <div v-if="crawlTotalPages > 1" class="crawl-pagination">
       <button :disabled="crawlPage <= 1" @click="prevCrawlPage()">Prev</button>
-      <span class="mono" style="font-size: 12px">{{ crawlPage }} / {{ crawlTotalPages }}</span>
+      <span class="mono" style="font-size: var(--fs-sm)">{{ crawlPage }} / {{ crawlTotalPages }}</span>
       <button :disabled="crawlPage >= crawlTotalPages" @click="nextCrawlPage()">Next</button>
     </div>
   </section>
@@ -191,8 +191,8 @@ onMounted(() => {
 
 <style scoped>
 .admin-section {
-  margin-bottom: 36px;
-  padding: 20px 24px;
+  margin-bottom: var(--space-8);
+  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -201,21 +201,21 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .section-title {
-  font: 600 15px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink);
   margin-bottom: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .flag-count {
-  font: 400 11px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   background: var(--accent-soft);
   color: var(--accent-ink);
-  padding: 2px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 10px;
 }
 .filter-group {
@@ -225,11 +225,11 @@ onMounted(() => {
   overflow: hidden;
 }
 .filter-btn {
-  padding: 6px 12px;
+  padding: var(--space-15) var(--space-3);
   border: none;
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 11px/1 var(--font-ui);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
   cursor: pointer;
   transition:
     background 0.12s,
@@ -248,12 +248,12 @@ onMounted(() => {
 .flag-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .flag-table thead th {
   text-align: left;
-  padding: 0 12px 10px;
-  font: 500 10px/1 var(--font-mono);
+  padding: 0 var(--space-3) var(--space-25);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -261,7 +261,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .flag-table tbody td {
-  padding: 10px 12px;
+  padding: var(--space-25) var(--space-3);
   vertical-align: top;
   border-bottom: 1px solid var(--line);
 }
@@ -269,20 +269,20 @@ onMounted(() => {
   border-bottom: none;
 }
 .raw-string {
-  font: 500 13px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
 }
 .token-pill {
-  font: 400 11px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   background: var(--surface-2);
   color: var(--ink-2);
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 4px;
   white-space: nowrap;
 }
 .status-badge {
-  font: 500 11px/1 var(--font-mono);
-  padding: 3px 8px;
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  padding: var(--space-05) var(--space-2);
   border-radius: 4px;
 }
 .status-badge.running {
@@ -298,14 +298,14 @@ onMounted(() => {
   color: var(--neg-ink);
 }
 .sync-error {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--neg-ink);
 }
 .state {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--ink-3);
   font-style: italic;
-  padding: 12px 0;
+  padding: var(--space-3) 0;
 }
 .mono {
   font-family: var(--font-mono);
@@ -315,42 +315,42 @@ onMounted(() => {
 }
 .stat-chip {
   display: inline-block;
-  font: 400 10px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   background: var(--surface-2);
   color: var(--ink-2);
-  padding: 2px 6px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 3px;
-  margin: 1px 2px;
+  margin: var(--space-05) var(--space-05);
   white-space: nowrap;
 }
 .crawl-filters {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .crawl-select {
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 400 11px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   cursor: pointer;
 }
 .crawl-pagination {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
 }
 .crawl-pagination button {
-  padding: 5px 12px;
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 12px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
 }
 .crawl-pagination button:disabled {

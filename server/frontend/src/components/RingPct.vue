@@ -44,7 +44,7 @@ const stateClass = computed(() => {
 .ring {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
 }
 .ring svg {
   width: 30px;
@@ -70,7 +70,7 @@ const stateClass = computed(() => {
   stroke: var(--warn);
 }
 .pct {
-  font: 600 12.5px var(--font-mono);
+  font: 600 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
   min-width: 34px;
 }

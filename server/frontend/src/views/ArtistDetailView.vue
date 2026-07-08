@@ -466,7 +466,7 @@ watch(() => route.params.id, (id) => {
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 0 0 22px;
+  padding: 0 0 var(--space-6);
   position: relative;
 }
 .hero-banner {
@@ -527,7 +527,7 @@ watch(() => route.params.id, (id) => {
   display: block;
 }
 .hero-fallback {
-  font: 700 32px/1 var(--font-ui);
+  font: 700 var(--fs-fallback)/1 var(--font-ui);
   color: var(--ink-3);
   text-transform: uppercase;
 }
@@ -547,38 +547,38 @@ watch(() => route.params.id, (id) => {
 }
 /* Body below the banner — offset right of avatar */
 .hero-body-below {
-  padding: 16px 0 0 156px;
+  padding: var(--space-4) 0 0 156px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .hero-sub {
-  font: 400 14px/1.3 var(--font-ui);
+  font: 400 var(--fs-base)/1.3 var(--font-ui);
   color: var(--ink-2);
   margin: 0;
 }
 .hero-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .hero-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* Buttons */
 .btn-accent {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 0;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
 }
 .btn-accent svg {
@@ -589,12 +589,12 @@ watch(() => route.params.id, (id) => {
   background: var(--accent-hover);
 }
 .btn-ghost {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   text-decoration: none;
   transition:
     background 0.12s,
@@ -608,8 +608,8 @@ watch(() => route.params.id, (id) => {
 /* Text blocks */
 .aliases-text,
 .bio-text {
-  padding: 12px 14px;
-  font: 400 13.5px/1.5 var(--font-ui);
+  padding: var(--space-3) var(--space-4);
+  font: 400 var(--fs-sm)/1.5 var(--font-ui);
   color: var(--ink-2);
 }
 
@@ -617,7 +617,7 @@ watch(() => route.params.id, (id) => {
 .trk-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2px 30px;
+  gap: var(--space-05) var(--space-8);
 }
 /* grid items must shrink below min-content for equal 1fr columns */
 .trk-grid > .mini-row {
@@ -633,8 +633,8 @@ watch(() => route.params.id, (id) => {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) 120px 30px 26px 40px 30px 14px;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: var(--space-2);
+  padding: var(--space-15) var(--space-25);
   border-radius: var(--r-sm);
   cursor: pointer;
   transition: background 0.1s;
@@ -664,12 +664,12 @@ watch(() => route.params.id, (id) => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .mini-title {
   display: block;
   max-width: 100%;
-  font: 500 13px/1.2 var(--font-ui);
+  font: 500 var(--fs-sm)/1.2 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -679,7 +679,7 @@ watch(() => route.params.id, (id) => {
   color: var(--accent-ink);
 }
 .mini-artist {
-  font: 400 12px/1.2 var(--font-ui);
+  font: 400 var(--fs-sm)/1.2 var(--font-ui);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -696,17 +696,17 @@ watch(() => route.params.id, (id) => {
 }
 .m-bpm {
   text-align: right;
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .m-key {
   text-align: center;
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--accent-ink);
 }
 .m-dur {
   text-align: right;
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
 }
 .m-play {
@@ -728,7 +728,7 @@ watch(() => route.params.id, (id) => {
 }
 .star {
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 .star.is-on {
   color: var(--accent-ink);
@@ -770,13 +770,13 @@ watch(() => route.params.id, (id) => {
 .show-more {
   display: block;
   width: 100%;
-  margin-top: 8px;
-  padding: 10px;
+  margin-top: var(--space-2);
+  padding: var(--space-25);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   text-align: center;
   transition: background 0.12s, color 0.12s;
@@ -786,9 +786,9 @@ watch(() => route.params.id, (id) => {
   color: var(--ink);
 }
 .more-note {
-  font: 400 13px var(--font-ui);
+  font: 400 var(--fs-sm) var(--font-ui);
   color: var(--ink-3);
-  margin-top: 8px;
+  margin-top: var(--space-2);
   text-align: center;
 }
 
@@ -796,8 +796,8 @@ watch(() => route.params.id, (id) => {
 .appear {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: var(--space-3);
+  padding: var(--space-25) var(--space-3);
   text-decoration: none;
   color: inherit;
   border-bottom: 1px solid var(--line);
@@ -826,7 +826,7 @@ watch(() => route.params.id, (id) => {
 }
 .ap-title {
   display: block;
-  font: 500 13.5px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -834,9 +834,9 @@ watch(() => route.params.id, (id) => {
 }
 .ap-sub {
   display: block;
-  font: 400 12px/1.3 var(--font-ui);
+  font: 400 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink-3);
-  margin-top: 2px;
+  margin-top: var(--space-05);
 }
 .ap-right {
   flex: none;
@@ -844,9 +844,9 @@ watch(() => route.params.id, (id) => {
 
 .state {
   color: var(--ink-3);
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-style: italic;
-  padding-top: 40px;
+  padding-top: var(--space-10);
 }
 
 /* Admin card */
@@ -854,21 +854,21 @@ watch(() => route.params.id, (id) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-25);
 }
 .admin-link-row {
   display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 .admin-input {
   flex: 1;
-  padding: 7px 12px;
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface-2);
   color: var(--ink);
-  font: 400 13px/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   outline: none;
 }
 .admin-input:focus {
@@ -877,13 +877,13 @@ watch(() => route.params.id, (id) => {
 .dz-results {
   max-height: 200px;
   overflow-y: auto;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .dz-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
+  gap: var(--space-25);
+  padding: var(--space-15) var(--space-25);
   border-radius: var(--r-sm);
   cursor: pointer;
   border: 1px solid transparent;
@@ -903,13 +903,13 @@ watch(() => route.params.id, (id) => {
 }
 .dz-name {
   display: block;
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink);
 }
 .dz-meta {
   display: block;
-  font-size: 11px;
-  margin-top: 2px;
+  font-size: var(--fs-xs);
+  margin-top: var(--space-05);
 }
 .dz-link {
   color: var(--accent-ink);
@@ -921,23 +921,23 @@ watch(() => route.params.id, (id) => {
 .admin-confirm {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--space-25);
+  padding: var(--space-25) var(--space-3);
   background: var(--surface-2);
   border-radius: var(--r-sm);
-  margin-top: 6px;
+  margin-top: var(--space-15);
 }
 .confirm-text {
-  font: 400 13px/1.3 var(--font-ui);
+  font: 400 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink-2);
 }
 .btn-accent-sm {
-  padding: 6px 14px;
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-sm);
   border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 12px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -946,12 +946,12 @@ watch(() => route.params.id, (id) => {
   cursor: default;
 }
 .btn-ghost-sm {
-  padding: 6px 12px;
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 12px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
 }
 .btn-ghost-sm.danger:hover {
@@ -959,9 +959,9 @@ watch(() => route.params.id, (id) => {
   border-color: var(--neg-ink);
 }
 .admin-msg {
-  font: 400 12px/1 var(--font-ui);
-  margin-top: 8px;
-  padding: 6px 10px;
+  font: 400 var(--fs-sm)/1 var(--font-ui);
+  margin-top: var(--space-2);
+  padding: var(--space-15) var(--space-25);
   border-radius: 4px;
 }
 .admin-msg.ok {

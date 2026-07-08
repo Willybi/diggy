@@ -625,16 +625,16 @@ onUnmounted(() => {
 .detail-view {
   max-width: var(--detail-max-w);
   margin-inline: auto;
-  padding: 26px 30px 56px;
+  padding: var(--space-6) var(--page-px) var(--space-15x);
 }
 
 /* Back link */
 .back-link {
-  font: 400 12px/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-3);
   text-decoration: none;
   display: inline-block;
-  margin-bottom: 14px;
+  margin-bottom: var(--space-4);
 }
 .back-link:hover {
   color: var(--ink);
@@ -675,7 +675,7 @@ onUnmounted(() => {
 
 /* ── Hero ── */
 .hero {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .hero-mosaic {
   position: relative;
@@ -683,7 +683,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: 1fr 1fr;
-  gap: 2px;
+  gap: var(--space-05);
   border-radius: var(--r-md);
   overflow: hidden;
 }
@@ -757,8 +757,8 @@ onUnmounted(() => {
   border-color: oklch(0.28 0.012 262);
 }
 .more {
-  margin-left: 8px;
-  font: 600 12px/1 var(--font-mono);
+  margin-left: var(--space-2);
+  font: 600 var(--fs-sm)/1 var(--font-mono);
   color: oklch(0.99 0.004 92);
   text-shadow: 0 1px 3px oklch(0.2 0.02 70 / 0.6);
 }
@@ -788,7 +788,7 @@ onUnmounted(() => {
 .hero-play svg {
   width: 20px;
   height: 20px;
-  margin-left: 2px;
+  margin-left: var(--space-05);
 }
 .hero:hover .hero-play {
   opacity: 1;
@@ -806,13 +806,13 @@ onUnmounted(() => {
 .hero-body {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 14px;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 .hero-titlerow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
   min-width: 0;
 }
 .hero-dot {
@@ -833,10 +833,10 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 .type-badge {
-  font: 600 9px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: var(--r-xs);
   background: var(--surface-2);
   color: var(--ink-2);
@@ -844,16 +844,16 @@ onUnmounted(() => {
 .hero-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  margin-bottom: 16px;
+  gap: var(--space-25);
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 .hero-actions .btn svg {
   width: 15px;
   height: 15px;
 }
 .hero-fam {
-  font: 500 10px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -865,28 +865,28 @@ onUnmounted(() => {
 /* ── Admin card ── */
 .admin-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .admin-input {
   flex: 1;
-  padding: 7px 12px;
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
-  font: 400 13px/1.4 var(--font-ui);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
 }
 .admin-input:focus {
   outline: none;
   border-color: var(--accent);
 }
 .btn-ghost-sm {
-  padding: 6px 14px;
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 12px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -901,12 +901,12 @@ onUnmounted(() => {
 .merge-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .merge-item {
-  padding: 6px 10px;
+  padding: var(--space-15) var(--space-25);
   border-radius: var(--r-xs);
-  font: 400 13px/1.3 var(--font-ui);
+  font: 400 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
   cursor: pointer;
 }
@@ -917,8 +917,8 @@ onUnmounted(() => {
   background: var(--accent-wash);
 }
 .admin-msg {
-  font: 400 12px/1.3 var(--font-mono);
-  padding: 6px 10px;
+  font: 400 var(--fs-sm)/1.3 var(--font-mono);
+  padding: var(--space-15) var(--space-25);
   border-radius: var(--r-xs);
 }
 .admin-msg.ok {
@@ -939,9 +939,9 @@ onUnmounted(() => {
 /* ── Shelves ── */
 .shelf {
   display: flex;
-  gap: 14px;
+  gap: var(--space-4);
   overflow-x: auto;
-  padding: 14px;
+  padding: var(--space-4);
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
 }
@@ -952,12 +952,12 @@ onUnmounted(() => {
 /* Load more */
 .load-more {
   display: block;
-  margin: 8px auto 0;
-  padding: 6px 14px;
+  margin: var(--space-2) auto 0;
+  padding: var(--space-15) var(--space-4);
   border: none;
   background: none;
   color: var(--accent);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
 }
 .load-more:hover:not(:disabled) {
@@ -973,8 +973,8 @@ onUnmounted(() => {
   position: absolute;
   bottom: 6px;
   right: 6px;
-  font: 600 9px/1 var(--font-mono);
-  padding: 3px 6px;
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  padding: var(--space-05) var(--space-15);
   border-radius: var(--r-pill);
   border: 1.5px solid;
 }
@@ -996,10 +996,10 @@ onUnmounted(() => {
 
 /* Source badges */
 .source-badge {
-  font: 600 9px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: var(--r-pill);
 }
 .source-badge.deezer {
@@ -1018,34 +1018,34 @@ onUnmounted(() => {
 
 /* ── Tracks section ── */
 .tracks-section {
-  margin-top: 28px;
+  margin-top: var(--space-6);
 }
 .tracks-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 .section-title {
-  font: 600 15px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink);
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .section-count {
-  font: 500 11px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
   background: var(--surface-2);
-  padding: 2px 8px;
+  padding: var(--space-05) var(--space-2);
   border-radius: var(--r-pill);
 }
 .tracks-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-left: auto;
   flex-wrap: wrap;
 }
@@ -1057,11 +1057,11 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .seg {
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-25);
   border: none;
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 11px/1 var(--font-ui);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
   cursor: pointer;
   transition:
     background 0.12s,
@@ -1083,7 +1083,7 @@ onUnmounted(() => {
 .lib-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
@@ -1105,13 +1105,13 @@ onUnmounted(() => {
 .track-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-05);
 }
 
 .state-empty {
-  font: 400 13px/1.4 var(--font-mono);
+  font: 400 var(--fs-sm)/1.4 var(--font-mono);
   color: var(--ink-3);
-  padding: 24px 14px;
+  padding: var(--space-6) var(--space-4);
   text-align: center;
 }
 
@@ -1119,7 +1119,7 @@ onUnmounted(() => {
 .sentinel {
   display: flex;
   justify-content: center;
-  padding: 20px;
+  padding: var(--space-5);
   min-height: 40px;
 }
 .sentinel-spinner {
@@ -1146,18 +1146,18 @@ onUnmounted(() => {
 .neighbor-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--space-25);
+  padding: var(--space-4);
 }
 .neighbor-chip {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: var(--space-1);
   text-decoration: none;
   color: inherit;
   cursor: pointer;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--surface);
@@ -1170,7 +1170,7 @@ onUnmounted(() => {
   box-shadow: var(--shadow-sm);
 }
 .neighbor-meta {
-  font: 400 10px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
 }
 
@@ -1178,7 +1178,7 @@ onUnmounted(() => {
 .skeleton {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .sk-back {
   width: 60px;
@@ -1204,7 +1204,7 @@ onUnmounted(() => {
 .sk-rows {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .sk-row {
   height: 48px;
@@ -1217,11 +1217,11 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 60px 20px;
+  gap: var(--space-4);
+  padding: var(--space-15x) var(--space-5);
 }
 .msg-404 {
-  font: 500 16px/1 var(--font-ui);
+  font: 500 var(--fs-title)/1 var(--font-ui);
   color: var(--ink-3);
 }
 

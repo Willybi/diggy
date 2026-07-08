@@ -19,6 +19,23 @@
   --font-ui: 'Space Grotesk', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
 
+  /* ---- font-size scale (design-decisions.md §2 + §2bis), ordonnée par valeur ---- */
+  --fs-nano: 9px; /* badges/clés nano, uppercase mono (§2bis) — absorbe 8.5/9.5 */
+  --fs-label: 10.5px; /* en-têtes de table, micro-labels (§2bis) */
+  --fs-xs: 11px; /* absorbe 10, 11.5 */
+  --fs-table-sm: 12.5px; /* RÉSERVÉ tables */
+  --fs-sm: 13px; /* absorbe 12, 13.5 */
+  --fs-base: 14px; /* absorbe 14.5 hors table */
+  --fs-table: 14.5px; /* RÉSERVÉ tables (table.css + vues à table) */
+  --fs-title: 15px; /* titres section/carte/valeur stat (§2bis) — absorbe 16 */
+  --fs-input: 16px; /* inputs — minimum 16px : iOS zoome au focus sous ce seuil (§2bis) */
+  --fs-md: 18px; /* absorbe 17, 19 */
+  --fs-lg: 22px; /* view titles (§2bis, ex-24) — absorbe 23 */
+  --fs-xl: 28px;
+  --fs-fallback: 32px; /* initiales avatar/hero fallback (§2bis) — absorbe 30 */
+  --fs-display: 36px;
+  --fs-hero: 46px; /* mot display Hub (§2bis) */
+
   /* ---- neutrals (warm ivory + warm greys) — INVARIANT across palettes ---- */
   --bg: oklch(0.974 0.008 92);
   --surface: oklch(0.995 0.004 92);
@@ -125,6 +142,20 @@
   --shadow-sm: 0 1px 2px oklch(0.4 0.02 70 / 0.06), 0 1px 1px oklch(0.4 0.02 70 / 0.04);
   --shadow-md: 0 4px 14px oklch(0.4 0.02 70 / 0.07), 0 2px 5px oklch(0.4 0.02 70 / 0.05);
   --shadow-lg: 0 18px 48px oklch(0.4 0.02 70 / 0.12), 0 6px 16px oklch(0.4 0.02 70 / 0.07);
+
+  /* ---- spacing scale (grille hybride : pas 2px ≤12px, pas 4px au-delà — design-decisions.md §1) ---- */
+  --space-05: 2px;
+  --space-1: 4px;
+  --space-15: 6px;
+  --space-2: 8px;
+  --space-25: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-15x: 60px;
 
   /* ---- density (table row height + base padding) ---- */
   --row-h: 56px;

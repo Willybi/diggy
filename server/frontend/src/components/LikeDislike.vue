@@ -47,7 +47,7 @@ function toggle(val) {
 .ld {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-15);
 }
 .ld-btn {
   width: 30px;

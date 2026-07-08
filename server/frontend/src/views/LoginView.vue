@@ -70,16 +70,16 @@ async function handleLogin() {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
-  padding: 36px 32px;
+  padding: var(--space-8) var(--space-8);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .login-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
 }
 
 .brand-glyph {
@@ -90,23 +90,23 @@ async function handleLogin() {
   color: var(--on-accent);
   display: grid;
   place-items: center;
-  font: 700 15px/1 var(--font-ui);
+  font: 700 var(--fs-title)/1 var(--font-ui);
 }
 
 .brand-name {
-  font: 600 16px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   letter-spacing: -0.02em;
   color: var(--ink);
 }
 
 .login-title {
-  font: 600 22px/1.2 var(--font-ui);
+  font: 600 var(--fs-lg)/1.2 var(--font-ui);
   color: var(--ink);
   margin: 0;
 }
 
 .login-error {
-  font: 400 13px/1.4 var(--font-ui);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
   color: var(--error);
   margin: 0;
 }
@@ -115,12 +115,12 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: var(--space-25);
   background: var(--surface);
   border: 1px solid var(--line-2);
   border-radius: 8px;
-  padding: 11px 16px;
-  font: 600 14px/1 var(--font-ui);
+  padding: var(--space-25) var(--space-4);
+  font: 600 var(--fs-base)/1 var(--font-ui);
   color: var(--ink);
   cursor: pointer;
   transition:

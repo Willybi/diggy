@@ -179,38 +179,38 @@ onMounted(fetchCollection)
 .page-head {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  padding: 26px var(--page-px) 18px;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
 .titles h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--fs-xl);
   font-weight: 600;
   letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
-  margin-top: 5px;
-  font: 500 13px/1 var(--font-mono);
+  margin-top: var(--space-1);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .head-tools {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
 }
 
 /* ============ BTN DELETE ============ */
 .btn-del {
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13.5px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.12s, border-color 0.12s;
@@ -222,7 +222,7 @@ onMounted(fetchCollection)
 
 /* ============ TABLE ============ */
 .table-wrap {
-  padding: 4px var(--page-px) 30px;
+  padding: var(--space-1) var(--page-px) var(--space-8);
   overflow-x: auto;
 }
 table.tt {
@@ -250,12 +250,12 @@ table.tt col.w-rm {
   width: 48px;
 }
 table.tt thead th {
-  font: 600 10.5px/1 var(--font-mono);
+  font: 600 var(--fs-label)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: left;
-  padding: 0 14px 11px;
+  padding: 0 var(--space-3) var(--space-25);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
@@ -277,7 +277,7 @@ table.tt tbody tr:hover {
   background: var(--surface-2);
 }
 table.tt td {
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   vertical-align: middle;
 }
 
@@ -315,7 +315,7 @@ table.tt td {
 .td-track {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 .td-track .aw {
@@ -336,7 +336,7 @@ table.tt td {
   display: block;
 }
 .fallback-letter {
-  font: 600 16px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink-3);
   text-transform: uppercase;
 }
@@ -345,7 +345,7 @@ table.tt td {
   flex: 1;
 }
 .tt-title {
-  font-size: 14.5px;
+  font-size: var(--fs-table);
   font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
@@ -353,7 +353,7 @@ table.tt td {
   text-overflow: ellipsis;
 }
 .tt-art {
-  font-size: 12.5px;
+  font-size: var(--fs-table-sm);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -362,11 +362,11 @@ table.tt td {
 
 /* ============ MONO CELLS ============ */
 .td-mono {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
 }
 .td-key {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--accent-ink);
 }
 
@@ -403,9 +403,9 @@ table.tt tbody tr.playing {
 
 /* ============ STATES ============ */
 .state {
-  padding: 40px var(--page-px);
+  padding: var(--space-10) var(--page-px);
   color: var(--ink-3);
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-base) var(--font-ui);
   font-style: italic;
 }
 
@@ -421,7 +421,7 @@ table.tt tbody tr.playing {
     padding-right: var(--page-px-mobile);
   }
   .table-wrap {
-    padding: 4px var(--page-px-mobile) 22px;
+    padding: var(--space-1) var(--page-px-mobile) var(--space-6);
   }
   .col-bpm {
     display: none;

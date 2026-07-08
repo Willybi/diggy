@@ -187,8 +187,8 @@ function onScrubStart(e) {
   container-name: player;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 16px;
+  gap: var(--space-4);
+  padding: var(--space-25) var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -222,7 +222,7 @@ function onScrubStart(e) {
   flex: none;
   display: flex;
   align-items: flex-end;
-  gap: 2px;
+  gap: var(--space-05);
   height: 20px;
 }
 .eq-bar {
@@ -276,17 +276,17 @@ function onScrubStart(e) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .pl-title {
-  font: 600 13px/1.2 var(--font-ui);
+  font: 600 var(--fs-sm)/1.2 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .pl-artist {
-  font: 400 11.5px/1.2 var(--font-ui);
+  font: 400 var(--fs-xs)/1.2 var(--font-ui);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -305,27 +305,27 @@ function onScrubStart(e) {
 .pl-stats {
   flex: none;
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .pl-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: var(--space-05);
 }
 .pl-stat + .pl-stat {
-  padding-left: 12px;
+  padding-left: var(--space-3);
   border-left: 1px solid var(--line);
 }
 .pl-stat-val {
-  font: 500 13px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .pl-stat--key .pl-stat-val {
   color: var(--accent-ink);
 }
 .pl-stat-lbl {
-  font: 400 9px/1 var(--font-mono);
+  font: 400 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -334,7 +334,7 @@ function onScrubStart(e) {
 /* ── Timeline ── */
 .mono {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   flex: none;
   min-width: 32px;
   text-align: center;
@@ -389,14 +389,14 @@ function onScrubStart(e) {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-15);
 }
 .pl-vol-icon {
   background: none;
   border: none;
   color: var(--ink-2);
   cursor: pointer;
-  padding: 2px;
+  padding: var(--space-05);
   display: grid;
   place-items: center;
   transition: color 0.12s;
@@ -443,7 +443,7 @@ function onScrubStart(e) {
   border: none;
   color: var(--ink-3);
   cursor: pointer;
-  padding: 4px;
+  padding: var(--space-1);
   display: grid;
   place-items: center;
   border-radius: var(--r-xs);
@@ -471,8 +471,8 @@ function onScrubStart(e) {
 }
 @container player (max-width: 440px) {
   .pl-shell {
-    gap: 8px;
-    padding: 8px 12px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
   }
   .pl-vol {
     display: none;

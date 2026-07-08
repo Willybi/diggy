@@ -323,17 +323,17 @@ onUnmounted(stopCrawlPoll)
   container-type: inline-size;
 }
 .desc-text {
-  padding: 12px 14px;
-  font: 400 13.5px/1.5 var(--font-ui);
+  padding: var(--space-3) var(--space-4);
+  font: 400 var(--fs-sm)/1.5 var(--font-ui);
   color: var(--ink-2);
 }
 .btn-ghost {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   text-decoration: none;
   cursor: pointer;
   transition:
@@ -363,19 +363,19 @@ onUnmounted(stopCrawlPoll)
 .mini-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .mini-table thead th {
   text-align: left;
-  padding: 8px 12px;
-  font: 500 10.5px/1 var(--font-mono);
+  padding: var(--space-2) var(--space-3);
+  font: 500 var(--fs-label)/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--ink-3);
   border-bottom: 1px solid var(--line);
 }
 .mini-table tbody td {
-  padding: 6px 12px;
+  padding: var(--space-15) var(--space-3);
   vertical-align: middle;
   border-bottom: 1px solid var(--line);
 }
@@ -392,7 +392,7 @@ onUnmounted(stopCrawlPoll)
 }
 .mt-cover {
   width: 40px;
-  padding: 4px 8px !important;
+  padding: var(--space-1) var(--space-2) !important;
 }
 .mt-track {
   min-width: 180px;
@@ -446,7 +446,7 @@ onUnmounted(stopCrawlPoll)
 }
 .mt-artist {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--ink-2);
 }
 
@@ -476,20 +476,20 @@ onUnmounted(stopCrawlPoll)
 
 .state {
   color: var(--ink-3);
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-style: italic;
-  padding-top: 40px;
+  padding-top: var(--space-10);
 }
 
 /* Crawl status banner */
 .crawl-banner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 12px 0;
-  padding: 10px 16px;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-25) var(--space-4);
   border-radius: var(--r-sm);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
 }
 .crawl-banner .crawl-dot {
   width: 7px;
@@ -523,7 +523,7 @@ onUnmounted(stopCrawlPoll)
 }
 
 .admin-msg {
-  font: 400 13px/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
 }
 .admin-msg.success {
   color: var(--pos-ink);
@@ -536,24 +536,24 @@ onUnmounted(stopCrawlPoll)
 .dom-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 22px;
+  gap: var(--space-6);
 }
 .dom-col h3 {
-  margin: 0 0 11px;
-  font: 600 11px/1 var(--font-mono);
+  margin: 0 0 var(--space-25);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
 .dom-artists {
   display: flex;
-  gap: 14px;
+  gap: var(--space-4);
 }
 .dom-artist {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   text-decoration: none;
 }
 .dom-av {
@@ -565,7 +565,7 @@ onUnmounted(stopCrawlPoll)
   background: var(--surface-3);
 }
 .dom-name {
-  font: 500 12px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   color: var(--ink);
   max-width: 72px;
   white-space: nowrap;
@@ -579,13 +579,13 @@ onUnmounted(stopCrawlPoll)
 .dom-genres {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: var(--space-2);
 }
 .dom-genre {
   display: grid;
   grid-template-columns: 132px 1fr 38px;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .dom-bar {
   height: 7px;
@@ -607,7 +607,7 @@ onUnmounted(stopCrawlPoll)
 .dom-bar[data-fam='harddance'] { --th: var(--hue-harddance); }
 .dom-bar[data-fam='autres'] i { background: var(--ink-3); }
 .dom-pct {
-  font: 500 11px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
   text-align: right;
 }

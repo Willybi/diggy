@@ -275,7 +275,7 @@ function reset() {
   align-items: center;
   justify-content: center;
   z-index: 200;
-  padding: 24px;
+  padding: var(--space-6);
 }
 
 /* ============ BOX ============ */
@@ -286,15 +286,15 @@ function reset() {
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 480px;
-  padding: 28px 28px 24px;
+  padding: var(--space-6) var(--space-6) var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .modal-title {
   margin: 0;
-  font: 600 18px/1.2 var(--font-ui);
+  font: 600 var(--fs-md)/1.2 var(--font-ui);
   color: var(--ink);
 }
 
@@ -303,10 +303,10 @@ function reset() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
   border: 2px dashed var(--line-2);
   border-radius: var(--r-md);
-  padding: 32px 24px;
+  padding: var(--space-8) var(--space-6);
   text-align: center;
   cursor: default;
   transition:
@@ -331,13 +331,13 @@ function reset() {
 
 .drop-label {
   margin: 0;
-  font: 500 15px var(--font-ui);
+  font: 500 var(--fs-title) var(--font-ui);
   color: var(--ink);
 }
 
 .drop-or {
   margin: 0;
-  font: 400 13px var(--font-mono);
+  font: 400 var(--fs-sm) var(--font-mono);
   color: var(--ink-3);
 }
 
@@ -349,12 +349,12 @@ function reset() {
 .instructions {
   background: var(--surface-2);
   border-radius: var(--r-sm);
-  padding: 12px 14px;
+  padding: var(--space-3) var(--space-4);
 }
 
 .instructions p {
   margin: 0;
-  font: 400 13px/1.5 var(--font-ui);
+  font: 400 var(--fs-sm)/1.5 var(--font-ui);
   color: var(--ink-2);
 }
 
@@ -367,7 +367,7 @@ function reset() {
 .modal-foot {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--space-25);
 }
 
 /* ============ BUTTONS ============ */
@@ -375,12 +375,12 @@ function reset() {
   display: inline-flex;
   align-items: center;
   height: 38px;
-  padding: 0 18px;
+  padding: 0 var(--space-5);
   border-radius: var(--r-sm);
   border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   transition: background 0.12s;
 }
@@ -393,12 +393,12 @@ function reset() {
   display: inline-flex;
   align-items: center;
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--ink-2);
-  font: 500 13.5px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   transition:
     background 0.12s,
@@ -415,14 +415,14 @@ function reset() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 20px 0 8px;
+  gap: var(--space-4);
+  padding: var(--space-5) 0 var(--space-2);
   text-align: center;
 }
 
 .state-label {
   margin: 0;
-  font: 400 14px/1.5 var(--font-ui);
+  font: 400 var(--fs-base)/1.5 var(--font-ui);
   color: var(--ink-2);
 }
 
@@ -452,7 +452,7 @@ function reset() {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
 }
 
 .progress-bar {
@@ -472,7 +472,7 @@ function reset() {
 
 .progress-pct {
   flex: none;
-  font: 600 12px/1 var(--font-mono);
+  font: 600 var(--fs-sm)/1 var(--font-mono);
   color: var(--accent-ink);
   min-width: 36px;
   text-align: right;
@@ -506,7 +506,7 @@ function reset() {
 
 .error-msg {
   margin: 0;
-  font: 500 14px/1.5 var(--font-ui);
+  font: 500 var(--fs-base)/1.5 var(--font-ui);
   color: var(--neg-ink);
   text-align: center;
 }
@@ -520,7 +520,7 @@ function reset() {
     max-width: 100%;
     height: 100%;
     border-radius: 0;
-    padding: 20px var(--page-px-mobile, 16px);
+    padding: var(--space-5) var(--page-px-mobile);
   }
 }
 </style>

@@ -136,41 +136,41 @@ onMounted(async () => {
 .page-head {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  padding: 26px var(--page-px) 18px;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
 .titles h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--fs-xl);
   font-weight: 600;
   letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
-  margin-top: 5px;
-  font: 500 13px/1 var(--font-mono);
+  margin-top: var(--space-1);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .head-tools {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
 }
 
 /* ============ BTN ADD ============ */
 .btn-add {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-15);
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid transparent;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -186,15 +186,15 @@ onMounted(async () => {
 .coll-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
-  padding: 16px var(--page-px) 30px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--page-px) var(--space-8);
 }
 .coll-card {
   position: relative;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  padding: 18px;
+  padding: var(--space-5);
   cursor: pointer;
   transition: background 0.12s;
 }
@@ -202,19 +202,19 @@ onMounted(async () => {
   background: var(--surface-2);
 }
 .coll-name {
-  font: 600 15px/1.3 var(--font-ui);
+  font: 600 var(--fs-title)/1.3 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-right: 28px;
+  padding-right: var(--space-6);
 }
 .coll-meta {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   display: flex;
   align-items: center;
-  gap: 10px;
-  font: 500 12px/1 var(--font-mono);
+  gap: var(--space-25);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
 }
 .coll-del {
@@ -257,24 +257,24 @@ onMounted(async () => {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  padding: 24px;
+  padding: var(--space-6);
   width: 380px;
   max-width: calc(100vw - 32px);
   box-shadow: var(--shadow-lg);
 }
 .modal-box h2 {
-  margin: 0 0 16px;
-  font: 600 18px/1 var(--font-ui);
+  margin: 0 0 var(--space-4);
+  font: 600 var(--fs-md)/1 var(--font-ui);
   color: var(--ink);
 }
 .modal-box input {
   width: 100%;
   height: 42px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
   background: var(--bg);
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-input) var(--font-ui);
   color: var(--ink);
   outline: none;
   box-sizing: border-box;
@@ -289,17 +289,17 @@ onMounted(async () => {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
+  gap: var(--space-25);
+  margin-top: var(--space-5);
 }
 .btn-cancel {
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13.5px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
 }
 .btn-cancel:hover {
@@ -308,12 +308,12 @@ onMounted(async () => {
 }
 .btn-confirm {
   height: 38px;
-  padding: 0 20px;
+  padding: 0 var(--space-5);
   border-radius: var(--r-sm);
   border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
 }
 .btn-confirm:hover {
@@ -326,9 +326,9 @@ onMounted(async () => {
 
 /* ============ STATES ============ */
 .state {
-  padding: 40px var(--page-px);
+  padding: var(--space-10) var(--page-px);
   color: var(--ink-3);
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-base) var(--font-ui);
   font-style: italic;
 }
 
@@ -339,7 +339,7 @@ onMounted(async () => {
     padding-right: var(--page-px-mobile);
   }
   .coll-grid {
-    padding: 16px var(--page-px-mobile) 22px;
+    padding: var(--space-4) var(--page-px-mobile) var(--space-6);
   }
   .state {
     padding-left: var(--page-px-mobile);

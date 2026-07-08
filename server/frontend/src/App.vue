@@ -87,11 +87,11 @@ body {
   top: -100%;
   left: 16px;
   z-index: 9999;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   background: var(--accent);
   color: var(--on-accent);
   border-radius: var(--r-sm);
-  font: 500 14px var(--font-ui);
+  font: 500 var(--fs-base) var(--font-ui);
   text-decoration: none;
 }
 .skip-link:focus {

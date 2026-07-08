@@ -84,38 +84,38 @@ async function runEnrichBeatport() {
 
 <style scoped>
 .admin-section {
-  margin-bottom: 36px;
-  padding: 20px 24px;
+  margin-bottom: var(--space-8);
+  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
 .section-title {
-  font: 600 15px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-15);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .section-sub {
-  font: 400 12px/1.4 var(--font-ui);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
   color: var(--ink-3);
-  margin-bottom: 14px;
+  margin-bottom: var(--space-4);
 }
 .sync-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 .btn-sync {
-  padding: 9px 20px;
+  padding: var(--space-2) var(--space-5);
   border-radius: var(--r-sm);
   border: none;
   background: var(--accent);
   color: var(--on-accent);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   transition: opacity 0.12s;
 }
@@ -126,23 +126,23 @@ async function runEnrichBeatport() {
 .batch-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font: 400 13px/1 var(--font-ui);
+  gap: var(--space-2);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-3);
 }
 .batch-input {
   width: 80px;
-  padding: 6px 8px;
+  padding: var(--space-15) var(--space-2);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--ink);
-  font: 400 13px/1 var(--font-mono);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
 }
 .sync-result {
   display: flex;
-  gap: 14px;
-  font: 400 13px/1 var(--font-mono);
+  gap: var(--space-4);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
 }
 .result-item.ok {
   color: var(--pos-ink);
@@ -154,7 +154,7 @@ async function runEnrichBeatport() {
   color: var(--ink-3);
 }
 .sync-error {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--neg-ink);
 }
 </style>

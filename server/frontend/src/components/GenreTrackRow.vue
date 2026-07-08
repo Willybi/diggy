@@ -80,8 +80,8 @@ function onPlay() {
 .track-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 14px;
+  gap: var(--space-3);
+  padding: var(--space-15) var(--space-3);
   border-radius: var(--r-sm);
   cursor: pointer;
   transition: background 0.12s;
@@ -139,7 +139,7 @@ function onPlay() {
   object-fit: cover;
 }
 .fb {
-  font: 600 14px/1 var(--font-ui);
+  font: 600 var(--fs-base)/1 var(--font-ui);
   color: var(--ink-3);
 }
 
@@ -149,17 +149,17 @@ function onPlay() {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .title {
-  font: 500 13px/1.2 var(--font-ui);
+  font: 500 var(--fs-sm)/1.2 var(--font-ui);
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .artist {
-  font: 400 11px/1.2 var(--font-ui);
+  font: 400 var(--fs-xs)/1.2 var(--font-ui);
   color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -168,7 +168,7 @@ function onPlay() {
 
 /* Meta fields */
 .meta {
-  font: 400 11.5px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   white-space: nowrap;
   flex: none;
 }

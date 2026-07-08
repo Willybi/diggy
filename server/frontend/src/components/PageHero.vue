@@ -33,7 +33,7 @@ defineProps({
 <style scoped>
 .page-hero {
   display: flex;
-  gap: 24px;
+  gap: var(--space-6);
   align-items: flex-start;
   padding: var(--pad) 0;
 }
@@ -53,7 +53,7 @@ defineProps({
   display: block;
 }
 .hero-fallback {
-  font: 700 32px/1 var(--font-ui);
+  font: 700 var(--fs-fallback)/1 var(--font-ui);
   color: var(--ink-3);
   text-transform: uppercase;
 }
@@ -81,7 +81,7 @@ defineProps({
 .hero-body {
   flex: 1;
   min-width: 0;
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 .hero-title {
   font: 600 clamp(20px, 2.2vw, 34px)/1.2 var(--font-ui);
@@ -91,19 +91,19 @@ defineProps({
   overflow-wrap: break-word;
 }
 .hero-sub {
-  font: 400 14px/1.3 var(--font-ui);
+  font: 400 var(--fs-base)/1.3 var(--font-ui);
   color: var(--ink-2);
-  margin: 6px 0 0;
+  margin: var(--space-15) 0 0;
 }
 .hero-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .hero-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 16px;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 </style>

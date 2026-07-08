@@ -95,8 +95,8 @@ function goPage(p) {
 .shelf {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 14px;
-  padding: 14px;
+  gap: var(--space-4);
+  padding: var(--space-4);
   overflow: hidden;
   max-height: 180px;
 }
@@ -108,8 +108,8 @@ function goPage(p) {
 .shelf-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 14px;
-  padding: 14px;
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 .shelf-grid :deep(.shelf-card) {
   width: auto;
@@ -118,12 +118,12 @@ function goPage(p) {
 
 .load-more {
   display: block;
-  margin: 8px auto 0;
-  padding: 6px 14px;
+  margin: var(--space-2) auto 0;
+  padding: var(--space-15) var(--space-4);
   border: none;
   background: none;
   color: var(--accent);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
 }
 .load-more:hover:not(:disabled) {
@@ -138,8 +138,8 @@ function goPage(p) {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 4px;
-  padding: 12px 0;
+  gap: var(--space-1);
+  padding: var(--space-3) 0;
 }
 .pg-btn,
 .pg-arrow {
@@ -149,7 +149,7 @@ function goPage(p) {
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   cursor: pointer;
   transition:
     background 0.12s,
@@ -169,8 +169,8 @@ function goPage(p) {
   cursor: default;
 }
 .pg-ellipsis {
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
-  padding: 0 4px;
+  padding: 0 var(--space-1);
 }
 </style>

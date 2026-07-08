@@ -285,7 +285,7 @@
           }}</span>
         </div>
 
-        <div class="admin-row" style="margin-top: 8px">
+        <div class="admin-row" style="margin-top: var(--space-2)">
           <button
             class="btn-sync"
             :disabled="!track.deezer_id || fetchingDzGenre"
@@ -520,19 +520,19 @@ onMounted(() => loadTrack(route.params.id))
 }
 .state {
   color: var(--ink-3);
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-style: italic;
-  padding-top: 40px;
+  padding-top: var(--space-10);
 }
 
 /* T1: Artist chips */
 .artist-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   text-decoration: none;
   color: var(--ink-2);
-  font: 500 14.5px var(--font-ui);
+  font: 500 var(--fs-base) var(--font-ui);
 }
 .chip-av {
   width: 24px;
@@ -557,12 +557,12 @@ onMounted(() => loadTrack(route.params.id))
 .rb-tag {
   display: inline-flex;
   align-items: center;
-  font: 500 10.5px/1 var(--font-mono);
+  font: 500 var(--fs-label)/1 var(--font-mono);
   letter-spacing: 0.03em;
   color: var(--ink-2);
   background: var(--surface-2);
   border: 1px solid var(--line-2);
-  padding: 5px 9px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--r-pill);
   white-space: nowrap;
 }
@@ -574,14 +574,14 @@ onMounted(() => loadTrack(route.params.id))
 .btn-coll {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-15);
   height: 34px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 500 13px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.12s, border-color 0.12s;
@@ -606,11 +606,11 @@ onMounted(() => loadTrack(route.params.id))
   border-radius: var(--r-md);
   box-shadow: var(--shadow-md);
   z-index: 50;
-  padding: 4px;
+  padding: var(--space-1);
 }
 .coll-dd-state {
-  padding: 10px 12px;
-  font: 400 13px var(--font-ui);
+  padding: var(--space-25) var(--space-3);
+  font: 400 var(--fs-sm) var(--font-ui);
   color: var(--ink-3);
 }
 .coll-dd-item {
@@ -618,11 +618,11 @@ onMounted(() => loadTrack(route.params.id))
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border: none;
   background: transparent;
   color: var(--ink);
-  font: 500 13.5px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   border-radius: var(--r-sm);
   text-align: left;
@@ -644,9 +644,9 @@ onMounted(() => loadTrack(route.params.id))
 .track-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 12px 0 4px;
-  font: 400 13px/1 var(--font-ui);
+  gap: var(--space-3);
+  margin: var(--space-3) 0 var(--space-1);
+  font: 400 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-3);
 }
 .meta-label {
@@ -665,7 +665,7 @@ onMounted(() => loadTrack(route.params.id))
 .rel-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 26px 34px;
+  gap: var(--space-6) var(--space-8);
   align-items: start;
 }
 .rel-cols > :deep(.rel-block) {
@@ -683,8 +683,8 @@ onMounted(() => loadTrack(route.params.id))
 .appear {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: var(--space-25);
+  padding: var(--space-25) var(--space-3);
   border-bottom: 1px solid var(--line);
   text-decoration: none;
   color: inherit;
@@ -702,11 +702,11 @@ onMounted(() => loadTrack(route.params.id))
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .appear-title {
   display: block;
-  font: 500 13.5px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -715,8 +715,8 @@ onMounted(() => loadTrack(route.params.id))
 .appear-sub {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font: 400 12px/1.3 var(--font-mono);
+  gap: var(--space-15);
+  font: 400 var(--fs-sm)/1.3 var(--font-mono);
   color: var(--ink-3);
 }
 .sep {
@@ -724,7 +724,7 @@ onMounted(() => loadTrack(route.params.id))
 }
 .appear-arrow {
   flex: none;
-  font-size: 18px;
+  font-size: var(--fs-md);
   color: var(--ink-3);
 }
 .timecode {
@@ -736,7 +736,7 @@ onMounted(() => loadTrack(route.params.id))
 .mini-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2px;
+  gap: var(--space-05);
 }
 /* grid items must shrink below min-content for equal 1fr columns */
 .mini-grid > .mini-row {
@@ -752,8 +752,8 @@ onMounted(() => loadTrack(route.params.id))
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) 34px 30px 30px 72px 16px;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: var(--space-25);
+  padding: var(--space-2) var(--space-25);
   text-decoration: none;
   color: inherit;
   border-radius: var(--r-sm);
@@ -781,7 +781,7 @@ onMounted(() => loadTrack(route.params.id))
 .mr-title {
   display: block;
   max-width: 100%;
-  font: 500 13px/1.2 var(--font-ui);
+  font: 500 var(--fs-sm)/1.2 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -792,12 +792,12 @@ onMounted(() => loadTrack(route.params.id))
 }
 .m-bpm {
   text-align: right;
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .m-key {
   text-align: center;
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--accent-ink);
 }
 .m-rating {
@@ -816,7 +816,7 @@ onMounted(() => loadTrack(route.params.id))
 }
 .star {
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 .star.is-on {
   color: var(--accent-ink);
@@ -827,7 +827,7 @@ onMounted(() => loadTrack(route.params.id))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-25);
 }
 .muted {
   color: var(--ink-3);
@@ -835,16 +835,16 @@ onMounted(() => loadTrack(route.params.id))
 .admin-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 .btn-sync {
-  padding: 7px 16px;
+  padding: var(--space-15) var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid var(--accent);
   background: var(--accent-soft);
   color: var(--accent-ink);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   transition: opacity 0.12s;
 }
@@ -853,7 +853,7 @@ onMounted(() => loadTrack(route.params.id))
   cursor: default;
 }
 .enrich-result {
-  font: 400 13px/1.4 var(--font-ui);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
 }
 .enrich-result.ok {
   color: var(--pos-ink);
@@ -874,7 +874,7 @@ onMounted(() => loadTrack(route.params.id))
 }
 .mr-artist {
   display: block;
-  font: 400 11px/1.2 var(--font-ui);
+  font: 400 var(--fs-xs)/1.2 var(--font-ui);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -882,13 +882,13 @@ onMounted(() => loadTrack(route.params.id))
 }
 .m-sim-score {
   text-align: right;
-  font: 600 11px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   color: var(--accent-ink);
   opacity: 0.75;
 }
 .state--inline {
-  padding: 0 14px 12px;
-  font-size: 13px;
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: var(--fs-sm);
 }
 
 /* Play button */

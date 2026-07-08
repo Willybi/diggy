@@ -406,19 +406,19 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 .page-head {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  padding: 26px var(--page-px) 18px;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
 .page-head .titles h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--fs-xl);
   font-weight: 600;
   letter-spacing: -0.3px;
 }
 .page-head .sub {
-  margin-top: 5px;
-  font: 500 13px/1 var(--font-mono);
+  margin-top: var(--space-1);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .sub .muted {
@@ -428,7 +428,7 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
@@ -436,14 +436,14 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 .btn-add {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-15);
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 1px solid transparent;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -465,29 +465,29 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 
 /* formulaire d'ajout */
 .addform {
-  padding: 0 var(--page-px) 6px;
+  padding: 0 var(--page-px) var(--space-15);
 }
 .addcard {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-sm);
-  padding: 18px;
-  margin-bottom: 8px;
+  padding: var(--space-5);
+  margin-bottom: var(--space-2);
 }
 .addrow {
   display: flex;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .addrow input {
   flex: 1;
   min-width: 0;
   height: 42px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
   background: var(--bg);
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-input) var(--font-ui);
   color: var(--ink);
   outline: none;
 }
@@ -500,12 +500,12 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 }
 .btn-go {
   height: 42px;
-  padding: 0 20px;
+  padding: 0 var(--space-5);
   border: 0;
   border-radius: var(--r-sm);
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -518,14 +518,14 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 }
 .form-error {
   display: block;
-  margin-top: 10px;
-  font: 400 12px/1 var(--font-mono);
+  margin-top: var(--space-25);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
   color: var(--neg-ink);
 }
 
 /* table */
 .table-wrap {
-  padding: 4px var(--page-px) 30px;
+  padding: var(--space-1) var(--page-px) var(--space-8);
   overflow-x: auto;
 }
 table.tt {
@@ -553,12 +553,12 @@ table.tt col.w-avis {
 table.tt thead th {
   position: sticky;
   top: 0;
-  font: 600 10.5px/1 var(--font-mono);
+  font: 600 var(--fs-label)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: left;
-  padding: 0 14px 11px;
+  padding: 0 var(--space-3) var(--space-25);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
@@ -571,7 +571,7 @@ table.tt th.sortable:hover {
 }
 table.tt th .arr {
   color: var(--accent-ink);
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 table.tt th.num,
 table.tt td.num {
@@ -589,7 +589,7 @@ table.tt tbody tr:hover {
   background: var(--surface-2);
 }
 table.tt td {
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   vertical-align: middle;
 }
 
@@ -597,7 +597,7 @@ table.tt td {
 .pl-cell {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: var(--space-3);
   min-width: 0;
   text-decoration: none;
   color: inherit;
@@ -620,16 +620,16 @@ table.tt td {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .pl-top {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .pl-name {
-  font: 500 14px var(--font-ui);
+  font: 500 var(--fs-base) var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -639,29 +639,29 @@ table.tt td {
   color: var(--accent-ink);
 }
 .pl-id {
-  font: 500 11px var(--font-mono);
+  font: 500 var(--fs-xs) var(--font-mono);
   color: var(--ink-3);
   white-space: nowrap;
 }
 
 /* créateur */
 .td-creator {
-  font: 400 13px var(--font-ui);
+  font: 400 var(--fs-sm) var(--font-ui);
   color: var(--ink-2);
 }
 
 /* numbers + dates */
 .td-num {
-  font: 600 13px var(--font-mono);
+  font: 600 var(--fs-sm) var(--font-mono);
   color: var(--ink);
 }
 .td-date {
-  font: 500 12.5px var(--font-mono);
+  font: 500 var(--fs-table-sm) var(--font-mono);
   color: var(--ink-2);
   white-space: nowrap;
 }
 .td-empty {
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-3);
 }
 
@@ -695,15 +695,15 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
 /* crawl button */
 .btn-crawl {
   height: 24px;
-  padding: 0 10px;
+  padding: 0 var(--space-25);
   border-radius: var(--r-xs);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 11px var(--font-ui);
+  font: 500 var(--fs-xs) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
-  margin-left: 8px;
+  margin-left: var(--space-2);
 }
 .btn-crawl:hover {
   border-color: var(--accent);
@@ -714,7 +714,7 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
 .crawl {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   white-space: nowrap;
 }
 .crawl .cdot {
@@ -724,7 +724,7 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
   flex: none;
 }
 .crawl .clbl {
-  font: 600 12.5px/1 var(--font-ui);
+  font: 600 var(--fs-sm)/1 var(--font-ui);
 }
 .crawl.running .cdot {
   background: var(--accent);
@@ -767,8 +767,8 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 18px 0 4px;
+  gap: var(--space-3);
+  padding: var(--space-5) 0 var(--space-1);
 }
 .pagination button {
   width: 32px;
@@ -777,7 +777,7 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 600 16px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -791,14 +791,14 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
   cursor: default;
 }
 .pg-info {
-  font: 500 12.5px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 
 .state {
-  padding: 60px var(--page-px);
+  padding: var(--space-15x) var(--page-px);
   color: var(--ink-3);
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-base) var(--font-ui);
   text-align: center;
 }
 

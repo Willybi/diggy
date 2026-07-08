@@ -29,10 +29,10 @@ defineProps({
   animation: shimmer 1.2s ease-in-out infinite alternate;
 }
 .sk-body {
-  padding: 16px;
+  padding: var(--pad);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .sk-line {
   height: 14px;

@@ -202,42 +202,42 @@ onMounted(() => {
 .page-head {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  padding: 26px var(--page-px) 18px;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
 .titles h1 {
   margin: 0;
-  font: 600 28px/1.1 var(--font-ui);
+  font: 600 var(--fs-xl)/1.1 var(--font-ui);
   letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
-  margin-top: 5px;
-  font: 500 13px/1 var(--font-mono);
+  margin-top: var(--space-1);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
 }
 .head-tools {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 /* -- Grid -- */
 .artist-grid {
-  padding: 2px var(--page-px) 36px;
+  padding: var(--space-05) var(--page-px) var(--space-8);
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 /* -- Empty -- */
 .empty {
-  padding: 60px var(--page-px);
+  padding: var(--space-15x) var(--page-px);
   text-align: center;
   color: var(--ink-3);
-  font: 500 14px var(--font-mono);
+  font: 500 var(--fs-base) var(--font-mono);
 }
 
 /* -- Sentinel -- */
@@ -245,10 +245,10 @@ onMounted(() => {
   display: none;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 8px var(--page-px) 40px;
+  gap: var(--space-25);
+  padding: var(--space-2) var(--page-px) var(--space-10);
   color: var(--ink-3);
-  font: 500 12px/1 var(--font-mono);
+  font: 500 var(--fs-sm)/1 var(--font-mono);
 }
 .sentinel.on {
   display: flex;

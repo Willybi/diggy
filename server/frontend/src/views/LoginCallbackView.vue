@@ -64,10 +64,10 @@ onMounted(() => {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-height: 50vh;
   color: var(--ink-2);
-  font: 400 14px/1.4 var(--font-ui);
+  font: 400 var(--fs-base)/1.4 var(--font-ui);
 }
 
 .callback-error {

@@ -607,17 +607,17 @@ const vClickOutside = {
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 30px;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--page-px);
   background: color-mix(in oklab, var(--bg) 86%, transparent);
   backdrop-filter: blur(8px);
 }
 .top-word {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   font-weight: 600;
-  font-size: 17px;
+  font-size: var(--fs-md);
   letter-spacing: 0.2px;
   color: var(--ink);
   transition: opacity 0.2s;
@@ -635,26 +635,26 @@ const vClickOutside = {
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: 14px;
+  font-size: var(--fs-base);
 }
 .top-right {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
 }
 
 .btn-login {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 38px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--r-sm);
   border: 0;
   background: var(--accent);
   color: var(--on-accent);
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -678,13 +678,13 @@ const vClickOutside = {
 .top-user {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   height: 38px;
-  padding: 0 6px 0 12px;
+  padding: 0 var(--space-15) 0 var(--space-3);
   border-radius: var(--r-pill);
   border: 1px solid var(--line);
   background: var(--surface);
-  font: 500 13.5px var(--font-ui);
+  font: 500 var(--fs-sm) var(--font-ui);
   color: var(--ink-2);
 }
 .top-user .av {
@@ -695,7 +695,7 @@ const vClickOutside = {
   color: var(--accent-ink);
   display: grid;
   place-items: center;
-  font: 600 11px var(--font-mono);
+  font: 600 var(--fs-xs) var(--font-mono);
 }
 
 /* ── hub ── */
@@ -703,7 +703,7 @@ const vClickOutside = {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0 30px 40px;
+  padding: 0 var(--page-px) var(--space-10);
 }
 .hub.is-empty {
   justify-content: flex-start;
@@ -715,13 +715,13 @@ const vClickOutside = {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 10px;
-  padding: 60px 0 30px;
+  gap: var(--space-25);
+  padding: var(--space-15x) 0 var(--space-8);
 }
 .big-word {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-4);
 }
 .big-word .glyph {
   width: 54px;
@@ -732,15 +732,15 @@ const vClickOutside = {
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: 28px;
+  font-size: var(--fs-xl);
   box-shadow: var(--shadow-md);
 }
 .big-word .w {
-  font: 600 46px/1 var(--font-ui);
+  font: 600 var(--fs-hero)/1 var(--font-ui);
   letter-spacing: -1.2px;
 }
 .hub-hero .tag {
-  font: 500 14px/1.5 var(--font-mono);
+  font: 500 var(--fs-base)/1.5 var(--font-mono);
   color: var(--ink-3);
   max-width: 420px;
 }
@@ -749,7 +749,7 @@ const vClickOutside = {
 .searchwrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   max-width: 720px;
   margin: 0 auto;
@@ -757,7 +757,7 @@ const vClickOutside = {
   border: 1px solid var(--line-2);
   border-radius: var(--r-pill);
   box-shadow: var(--shadow-md);
-  padding: 7px 8px 7px 7px;
+  padding: var(--space-15) var(--space-2) var(--space-15) var(--space-15);
   transition:
     box-shadow 0.16s,
     border-color 0.16s;
@@ -777,14 +777,14 @@ const vClickOutside = {
 .scope-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 46px;
-  padding: 0 12px 0 14px;
+  padding: 0 var(--space-3) 0 var(--space-3);
   border-radius: var(--r-pill);
   border: 0;
   background: var(--surface-2);
   color: var(--ink-2);
-  font: 600 13px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -815,7 +815,7 @@ const vClickOutside = {
   border: 1px solid var(--line-2);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-lg);
-  padding: 6px;
+  padding: var(--space-15);
   display: none;
 }
 .scope.open .scope-menu {
@@ -824,14 +824,14 @@ const vClickOutside = {
 .scope-menu button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-25);
   width: 100%;
   text-align: left;
   border: 0;
   background: transparent;
   color: var(--ink-2);
-  font: 500 13.5px var(--font-ui);
-  padding: 9px 10px;
+  font: 500 var(--fs-sm) var(--font-ui);
+  padding: var(--space-2) var(--space-25);
   border-radius: var(--r-sm);
   cursor: pointer;
 }
@@ -858,8 +858,8 @@ const vClickOutside = {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 0 8px;
+  gap: var(--space-25);
+  padding: 0 var(--space-2);
   min-width: 0;
 }
 .search-field > svg {
@@ -874,7 +874,7 @@ const vClickOutside = {
   border: 0;
   background: transparent;
   outline: none;
-  font: 400 16.5px var(--font-ui);
+  font: 400 var(--fs-input) var(--font-ui);
   color: var(--ink);
 }
 .search-field input::placeholder {
@@ -905,17 +905,17 @@ const vClickOutside = {
 .extras {
   width: 100%;
   max-width: 720px;
-  margin: 24px auto 0;
+  margin: var(--space-6) auto 0;
 }
 .ex-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 .ex-label {
-  font: 500 10px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
 }
 
 /* genre pills */
@@ -948,13 +948,13 @@ const vClickOutside = {
 .gpills {
   display: flex;
   flex-wrap: wrap;
-  gap: 9px;
+  gap: var(--space-2);
 }
 .gpill {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 14px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   background: var(--surface);
@@ -979,12 +979,12 @@ const vClickOutside = {
   background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
 }
 .gpill .vn {
-  font: 600 13.5px var(--font-ui);
+  font: 600 var(--fs-sm) var(--font-ui);
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
   white-space: nowrap;
 }
 .gpill .vc {
-  font: 500 11px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
 }
 
@@ -992,16 +992,16 @@ const vClickOutside = {
 .qsugs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 6px;
+  gap: var(--space-2);
+  margin-top: var(--space-15);
 }
 .qsug {
-  font: 500 12.5px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
   background: var(--surface-2);
   border: 0;
   border-radius: var(--r-pill);
-  padding: 7px 12px;
+  padding: var(--space-15) var(--space-3);
   cursor: pointer;
 }
 .qsug:hover {
@@ -1017,17 +1017,17 @@ const vClickOutside = {
 .results {
   width: 100%;
   max-width: 720px;
-  margin: 22px auto 0;
+  margin: var(--space-6) auto 0;
 }
 .results-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 2px 4px 12px;
+  gap: var(--space-3);
+  padding: var(--space-05) var(--space-1) var(--space-3);
   flex-wrap: wrap;
 }
 .results-head .rc {
-  font: 600 12px/1 var(--font-mono);
+  font: 600 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
 }
 .results-head .rc :deep(b) {
@@ -1037,18 +1037,18 @@ const vClickOutside = {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .tools-locked {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font: 500 12px var(--font-mono);
+  gap: var(--space-15);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-3);
   border: 1px dashed var(--line-2);
   border-radius: var(--r-sm);
-  padding: 7px 11px;
+  padding: var(--space-15) var(--space-25);
 }
 .tools-locked svg {
   width: 13px;
@@ -1063,8 +1063,8 @@ const vClickOutside = {
 .rrow {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 11px 12px;
+  gap: var(--space-3);
+  padding: var(--space-25) var(--space-3);
   border-radius: var(--r-md);
   cursor: pointer;
   text-decoration: none;
@@ -1081,10 +1081,10 @@ const vClickOutside = {
 .tbadge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-15);
   flex: none;
   width: 92px;
-  font: 600 9.5px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -1125,7 +1125,7 @@ const vClickOutside = {
   display: block;
 }
 .rart .ini {
-  font: 600 14px var(--font-mono);
+  font: 600 var(--fs-base) var(--font-mono);
   color: var(--ink-3);
 }
 .rart .play {
@@ -1141,7 +1141,7 @@ const vClickOutside = {
 .rart .play svg {
   width: 17px;
   height: 17px;
-  margin-left: 1px;
+  margin-left: 1px; /* optical centering */
 }
 .rrow:hover .rart .play,
 .rrow.playing .rart .play {
@@ -1190,10 +1190,10 @@ const vClickOutside = {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-05);
 }
 .rtitle {
-  font: 500 15px var(--font-ui);
+  font: 500 var(--fs-title) var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -1203,7 +1203,7 @@ const vClickOutside = {
   color: var(--accent-ink);
 }
 .rsub {
-  font: 400 12.5px var(--font-ui);
+  font: 400 var(--fs-sm) var(--font-ui);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -1214,26 +1214,26 @@ const vClickOutside = {
   background: var(--accent-soft);
   color: var(--accent-ink);
   border-radius: 3px;
-  padding: 0 1px;
+  padding: 0 var(--space-05);
 }
 
 /* meta */
 .rmeta {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-3);
   flex: none;
 }
 .rmeta .m-bpm {
-  font: 500 12.5px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
 }
 .rmeta .m-key {
-  font: 500 12.5px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--accent-ink);
 }
 .rmeta .m-dur {
-  font: 500 12.5px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-3);
 }
 
@@ -1247,12 +1247,12 @@ const vClickOutside = {
 .enbib {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font: 600 9px/1 var(--font-mono);
+  gap: var(--space-1);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.04em;
   color: var(--pos-ink);
   background: var(--pos-soft);
-  padding: 5px 7px;
+  padding: var(--space-1) var(--space-15);
   border-radius: var(--r-pill);
   white-space: nowrap;
 }
@@ -1294,9 +1294,9 @@ const vClickOutside = {
 .lockrow {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin: 8px 4px 0;
-  padding: 16px 18px;
+  gap: var(--space-4);
+  margin: var(--space-2) var(--space-1) 0;
+  padding: var(--space-4) var(--space-5);
   border: 1px dashed var(--line-2);
   border-radius: var(--r-md);
   background: var(--surface-2);
@@ -1321,51 +1321,51 @@ const vClickOutside = {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .lock-tx .t {
-  font: 600 14px var(--font-ui);
+  font: 600 var(--fs-base) var(--font-ui);
   color: var(--ink);
 }
 .lock-tx .s {
-  font: 400 12.5px var(--font-ui);
+  font: 400 var(--fs-sm) var(--font-ui);
   color: var(--ink-3);
-  margin-top: 2px;
+  margin-top: var(--space-05);
 }
 
 /* no results */
 .r-empty {
-  padding: 48px 0;
+  padding: var(--space-10) 0;
   text-align: center;
   color: var(--ink-3);
-  font: 500 14px var(--font-mono);
+  font: 500 var(--fs-base) var(--font-mono);
 }
 
 /* ── discover ── */
 .discover {
   width: 100%;
   max-width: 960px;
-  margin: 8px auto 0;
+  margin: var(--space-2) auto 0;
 }
 .discover-title {
-  font: 600 18px/1 var(--font-ui);
+  font: 600 var(--fs-md)/1 var(--font-ui);
   color: var(--ink);
-  margin: 0 0 14px;
+  margin: 0 0 var(--space-4);
 }
 .discover :deep(.fam-chips) {
-  padding: 0 0 14px;
+  padding: 0 0 var(--space-4);
 }
 .trend-shelf {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
-  padding: 0 0 16px;
+  gap: var(--space-25);
+  padding: 0 0 var(--space-4);
 }
 .trend-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px;
+  gap: var(--space-3);
+  padding: var(--space-2);
   border-radius: var(--r-md);
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1413,27 +1413,27 @@ const vClickOutside = {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .tc-rank {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
+  padding: var(--space-05) var(--space-15);
   border-radius: var(--r-xs);
   background: var(--accent-soft);
   color: var(--accent-ink);
-  font: 600 11px/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
   align-self: flex-start;
 }
 .tc-title {
-  font: 500 14px var(--font-ui);
+  font: 500 var(--fs-base) var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .tc-artist {
-  font: 400 12px var(--font-ui);
+  font: 400 var(--fs-sm) var(--font-ui);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -1495,7 +1495,7 @@ const vClickOutside = {
 }
 @container app (max-width: 540px) {
   .big-word .w {
-    font-size: 36px;
+    font-size: var(--fs-display);
   }
   .rmeta .m-bpm {
     display: none;

@@ -49,7 +49,7 @@ defineProps({
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 120px;
   flex: none;
   scroll-snap-align: start;
@@ -85,13 +85,13 @@ defineProps({
   object-fit: cover;
 }
 .sc-fb {
-  font: 600 22px/1 var(--font-ui);
+  font: 600 var(--fs-lg)/1 var(--font-ui);
   color: var(--ink-3);
 }
 
 /* Text */
 .sc-title {
-  font: 500 12px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
   text-align: center;
   overflow: hidden;
@@ -103,7 +103,7 @@ defineProps({
   min-height: 2.6em;
 }
 .sc-sub {
-  font: 400 10.5px/1 var(--font-mono);
+  font: 400 var(--fs-label)/1 var(--font-mono);
   color: var(--ink-3);
   text-align: center;
   white-space: nowrap;

@@ -18,14 +18,14 @@ const auth = useAuthStore()
 
 <style scoped>
 .admin-card {
-  margin: 16px 0;
-  padding: 14px 18px;
+  margin: var(--space-4) 0;
+  padding: var(--space-4) var(--space-5);
   background: var(--surface-2);
   border: 1px dashed var(--line-2);
   border-radius: var(--r-md);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-25);
 }
 .admin-card.warn {
   background: var(--surface);
@@ -33,7 +33,7 @@ const auth = useAuthStore()
   border-radius: var(--r-sm);
 }
 .admin-label {
-  font: 600 9.5px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);

@@ -155,8 +155,8 @@ onMounted(() => {
 
 <style scoped>
 .admin-section {
-  margin-bottom: 36px;
-  padding: 20px 24px;
+  margin-bottom: var(--space-8);
+  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -165,21 +165,21 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .section-title {
-  font: 600 15px/1 var(--font-ui);
+  font: 600 var(--fs-title)/1 var(--font-ui);
   color: var(--ink);
   margin-bottom: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .flag-count {
-  font: 400 11px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   background: var(--accent-soft);
   color: var(--accent-ink);
-  padding: 2px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 10px;
 }
 .filter-group {
@@ -189,11 +189,11 @@ onMounted(() => {
   overflow: hidden;
 }
 .filter-btn {
-  padding: 6px 12px;
+  padding: var(--space-15) var(--space-3);
   border: none;
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 11px/1 var(--font-ui);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
   cursor: pointer;
   transition:
     background 0.12s,
@@ -212,12 +212,12 @@ onMounted(() => {
 .flag-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .flag-table thead th {
   text-align: left;
-  padding: 0 12px 10px;
-  font: 500 10px/1 var(--font-mono);
+  padding: 0 var(--space-3) var(--space-25);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -225,7 +225,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .flag-table tbody td {
-  padding: 10px 12px;
+  padding: var(--space-25) var(--space-3);
   vertical-align: top;
   border-bottom: 1px solid var(--line);
 }
@@ -252,12 +252,12 @@ onMounted(() => {
   text-align: right;
 }
 .raw-string {
-  font: 500 13px/1.3 var(--font-ui);
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
 }
 .reason-badge {
-  font: 500 11px/1 var(--font-mono);
-  padding: 3px 7px;
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  padding: var(--space-05) var(--space-15);
   border-radius: 4px;
   white-space: nowrap;
 }
@@ -276,28 +276,28 @@ onMounted(() => {
 .token-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .token-pill {
-  font: 400 11px/1 var(--font-mono);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   background: var(--surface-2);
   color: var(--ink-2);
-  padding: 3px 7px;
+  padding: var(--space-05) var(--space-15);
   border-radius: 4px;
   white-space: nowrap;
 }
 .deezer-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-05);
 }
 .deezer-entry {
   display: flex;
-  gap: 6px;
+  gap: var(--space-15);
   align-items: baseline;
 }
 .deezer-name {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--ink-2);
   white-space: nowrap;
   overflow: hidden;
@@ -305,7 +305,7 @@ onMounted(() => {
   max-width: 100px;
 }
 .deezer-id {
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 .deezer-entry.found .deezer-id {
   color: var(--pos-ink);
@@ -315,16 +315,16 @@ onMounted(() => {
 }
 .action-btns {
   display: flex;
-  gap: 5px;
+  gap: var(--space-1);
   justify-content: flex-end;
   flex-wrap: wrap;
 }
 .btn-split,
 .btn-keep,
 .btn-skip {
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-25);
   border-radius: var(--r-sm);
-  font: 500 11px/1 var(--font-ui);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
   transition: opacity 0.12s;
@@ -362,8 +362,8 @@ onMounted(() => {
   border-color: var(--neg-ink);
 }
 .status-badge {
-  font: 500 11px/1 var(--font-mono);
-  padding: 3px 8px;
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  padding: var(--space-05) var(--space-2);
   border-radius: 4px;
 }
 .status-badge.validated {
@@ -375,10 +375,10 @@ onMounted(() => {
   color: var(--ink-3);
 }
 .state {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--ink-3);
   font-style: italic;
-  padding: 12px 0;
+  padding: var(--space-3) 0;
 }
 .mono {
   font-family: var(--font-mono);
@@ -387,7 +387,7 @@ onMounted(() => {
   color: var(--accent-ink);
   text-decoration: none;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 .dz-link:hover {
   text-decoration: underline;

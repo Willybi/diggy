@@ -29,9 +29,9 @@ function onAction() {
   left: 50%;
   transform: translateX(-50%);
   z-index: 9000;
-  padding: 10px 20px;
+  padding: var(--space-25) var(--space-5);
   border-radius: var(--r-sm);
-  font: 500 13px/1.4 var(--font-ui);
+  font: 500 var(--fs-sm)/1.4 var(--font-ui);
   cursor: pointer;
   max-width: 90vw;
   text-align: center;
@@ -53,13 +53,13 @@ function onAction() {
   border: 1px solid var(--accent-ink);
 }
 .toast-action {
-  margin-left: 12px;
-  padding: 4px 12px;
+  margin-left: var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border: none;
   border-radius: var(--r-xs);
   background: var(--accent);
   color: var(--bg);
-  font: 600 12px/1 var(--font-ui);
+  font: 600 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
 }
 .toast-action:hover {

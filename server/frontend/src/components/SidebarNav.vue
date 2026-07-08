@@ -99,14 +99,14 @@ const libraryItems = [
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  padding: 18px 14px 14px;
-  gap: 2px;
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  gap: var(--space-05);
 }
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 8px 18px;
+  gap: var(--space-25);
+  padding: var(--space-1) var(--space-2) var(--space-5);
   text-decoration: none;
   cursor: pointer;
 }
@@ -118,11 +118,11 @@ const libraryItems = [
   color: var(--on-accent);
   display: grid;
   place-items: center;
-  font: 700 16px/1 var(--font-ui);
+  font: 700 var(--fs-title)/1 var(--font-ui);
   flex: none;
 }
 .brand-name {
-  font: 600 19px/1 var(--font-ui);
+  font: 600 var(--fs-md)/1 var(--font-ui);
   letter-spacing: 0.2px;
   color: var(--ink);
 }
@@ -130,22 +130,22 @@ const libraryItems = [
   margin-bottom: 0;
 }
 .nav-label {
-  font: 500 10px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);
-  padding: 16px 10px 8px;
+  padding: var(--space-4) var(--space-25) var(--space-2);
   margin: 0;
 }
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 9px 10px;
+  gap: var(--space-25);
+  padding: var(--space-2) var(--space-25);
   border-radius: var(--r-sm);
   color: var(--ink-2);
   cursor: pointer;
-  font: 500 14.5px/1 var(--font-ui);
+  font: 500 var(--fs-base)/1 var(--font-ui);
   transition:
     background 0.12s,
     color 0.12s;
@@ -177,7 +177,7 @@ const libraryItems = [
 }
 .nav-count {
   margin-left: auto;
-  font: 500 11.5px/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
 }
 .nav-item.is-active .nav-count {
@@ -186,13 +186,13 @@ const libraryItems = [
 
 /* --- ADMIN : surface "utility", se detache (decision D2) --- */
 .nav-admin {
-  margin-top: 8px;
-  padding-top: 12px;
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
   border-top: 1px dashed var(--line-2);
 }
 .nav-admin .nav-label {
   color: var(--ink-3);
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 .nav-admin .nav-item {
   color: var(--ink-2);
@@ -204,20 +204,20 @@ const libraryItems = [
 }
 .util-key {
   margin-left: auto;
-  font: 600 9px/1 var(--font-mono);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.1em;
   color: var(--ink-3);
   border: 1px solid var(--line-2);
   border-radius: 4px;
-  padding: 3px 4px;
+  padding: var(--space-05) var(--space-1);
 }
 
 .sidebar-footer {
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-05);
 }
 .theme-toggle {
   width: 100%;
@@ -228,11 +228,11 @@ const libraryItems = [
 .user-row {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 9px 10px;
+  gap: var(--space-25);
+  padding: var(--space-2) var(--space-25);
   border-radius: var(--r-sm);
   color: var(--ink-2);
-  font: 500 14px/1 var(--font-ui);
+  font: 500 var(--fs-base)/1 var(--font-ui);
 }
 .user-name {
   flex: 1;
@@ -243,7 +243,7 @@ const libraryItems = [
 .logout-btn {
   background: none;
   border: none;
-  padding: 2px;
+  padding: var(--space-05);
   cursor: pointer;
   color: var(--ink-3);
   display: grid;
@@ -273,14 +273,14 @@ const libraryItems = [
   }
   .nav-label {
     text-align: center;
-    padding: 14px 0 8px;
+    padding: var(--space-4) 0 var(--space-2);
   }
   .nav-label::after {
     content: '\b7';
   }
   .nav-item {
     justify-content: center;
-    padding: 10px 0;
+    padding: var(--space-25) 0;
   }
   .nav-admin .nav-item {
     border-style: dashed;

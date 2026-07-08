@@ -49,11 +49,11 @@ function clear() {
 .search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   background: var(--surface);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   height: 38px;
   min-width: 220px;
   cursor: text;
@@ -69,7 +69,7 @@ function clear() {
   background: transparent;
   outline: none;
   width: 100%;
-  font: 400 14px var(--font-ui);
+  font: 400 var(--fs-input) var(--font-ui);
   color: var(--ink);
 }
 .search input::placeholder {

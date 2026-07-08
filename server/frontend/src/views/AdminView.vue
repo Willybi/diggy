@@ -52,26 +52,26 @@ const activeTab = ref('artists')
   margin: 0 auto;
 }
 .view-header {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 .view-title {
-  font: 600 22px/1.1 var(--font-ui);
+  font: 600 var(--fs-lg)/1.1 var(--font-ui);
   letter-spacing: -0.02em;
   color: var(--ink);
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .tab-bar {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   border-bottom: 1px solid var(--line);
   padding-bottom: 0;
 }
 .tab-btn {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border: none;
   background: none;
   color: var(--ink-3);
-  font: 500 13px/1 var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
