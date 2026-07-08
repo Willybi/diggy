@@ -114,7 +114,7 @@
       </div>
 
       <!-- discover: trend shelves -->
-      <div v-if="auth.isAuthenticated && isEmpty && trendTracks.length" class="discover">
+      <div v-if="isEmpty && trendTracks.length" class="discover">
         <h2 class="discover-title">Ca sort en ce moment</h2>
         <FamilyChips v-model="trendFamily" :counts="trendFamilyCounts" />
         <div class="trend-shelf">
@@ -122,7 +122,7 @@
             v-for="track in trendTracks"
             :key="track.catalog_id"
             class="trend-card"
-            @click="$router.push(`/catalog/${track.catalog_id}`)"
+            @click="openTrend(track)"
           >
             <div class="tc-art">
               <img
@@ -360,7 +360,6 @@ const trendTracks = ref([])
 const trendFamilyCounts = ref({})
 
 async function loadTrends() {
-  if (!auth.isAuthenticated) return
   try {
     const params = { limit: 20 }
     if (trendFamily.value !== 'all') params.family = trendFamily.value
@@ -373,6 +372,14 @@ async function loadTrends() {
 }
 
 watch(trendFamily, loadTrends)
+
+function openTrend(track) {
+  if (!auth.isAuthenticated) {
+    showToast('Connecte-toi pour ouvrir cette fiche.')
+    return
+  }
+  router.push(`/catalog/${track.catalog_id}`)
+}
 
 function playTrend(track) {
   player.play({

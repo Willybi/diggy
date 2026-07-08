@@ -16,6 +16,7 @@
 </template>
 
 <script setup>
+import { watch } from 'vue'
 import SidebarNav from './components/SidebarNav.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import BottomNav from './components/BottomNav.vue'
@@ -27,7 +28,17 @@ import { useOpinionsStore } from './stores/opinions.js'
 const player = useAudioPlayer()
 const auth = useAuthStore()
 const opinions = useOpinionsStore()
-opinions.load()
+
+// Guests get a 401 on /api/opinions/, and the OAuth callback is an SPA
+// navigation (no reload) — load on auth transitions, not once at startup.
+watch(
+  () => auth.isAuthenticated,
+  (ok) => {
+    if (ok) opinions.load()
+    else opinions.reset()
+  },
+  { immediate: true },
+)
 </script>
 
 <style>

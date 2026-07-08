@@ -77,7 +77,7 @@ vi.mock('../stores/audioPlayer.js', () => ({
   useAudioPlayer: () => ({ visible: false }),
 }))
 vi.mock('../stores/opinions.js', () => ({
-  useOpinionsStore: () => ({ load: vi.fn() }),
+  useOpinionsStore: () => ({ load: vi.fn(), reset: vi.fn() }),
 }))
 vi.mock('../components/SidebarNav.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('../components/PlayerBar.vue', () => ({ default: { template: '<div />' } }))
