@@ -79,6 +79,11 @@ class TestPublicEndpoints:
         r = await client.get("/api/sets/")
         assert r.status_code == 200
 
+    async def test_radar_trends_get_public(self, mw_client):
+        client, _ = mw_client
+        r = await client.get("/api/radar/trends?limit=20")
+        assert r.status_code == 200
+
 
 class TestProtectedEndpoints:
     """Non-public endpoints should require a valid JWT."""
@@ -109,6 +114,12 @@ class TestProtectedEndpoints:
     async def test_radar_full_no_token_returns_401(self, mw_client):
         client, _ = mw_client
         r = await client.get("/api/radar/full")
+        assert r.status_code == 401
+
+    async def test_radar_new_count_no_token_returns_401(self, mw_client):
+        # Guard: the /trends allowlist entry must not open the rest of /api/radar.
+        client, _ = mw_client
+        r = await client.get("/api/radar/new-count")
         assert r.status_code == 401
 
     async def test_opinions_no_token_returns_401(self, mw_client):

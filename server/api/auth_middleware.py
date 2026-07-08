@@ -15,6 +15,9 @@ _PUBLIC_GET_PREFIXES = (
     "/api/genres",
     "/api/search",
     "/api/taxonomy",
+    # Only the trends sub-path is public (Hub discovery for guests). The other
+    # radar GET routes (/full, /new-count) expose per-user state and stay behind auth.
+    "/api/radar/trends",
 )
 
 # Always open (any method)
