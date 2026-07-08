@@ -171,3 +171,9 @@ spacing. Le prochain audit doit les ignorer (ne pas les re-signaler) :
 Complètent la liste blanche typographique : les **3 `clamp()`** de §2bis
 (responsive display) et les demi-pixels `--fs-table` / `--fs-table-sm`
 (ajustement optique tables, intentionnel).
+
+**Fausse équivalence (ne pas re-signaler)** : les fallbacks d'ArtistCard
+(gradient 2 stops, `--fb-l1/c1/l2/c2`) et de GenreCard (mosaïque 4 tuiles,
+`--ml/--mc`) sont des mécaniques **volontairement distinctes**, examinées
+lors de la factorisation et non unifiées — l'item §1.3-B de l'audit était
+une fausse équivalence.

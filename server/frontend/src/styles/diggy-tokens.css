@@ -111,6 +111,17 @@
   --fb-l2: 0.97;
   --fb-c2: 0.03;
 
+  /* ---- genre tile colors (sur image, theme-indep.) ---- */
+  --genre-tile-ink: oklch(0.99 0.004 92); /* near-white : anneau avatar + label */
+  --genre-tile-scrim: oklch(0.2 0.02 70 / 0.42); /* gradient bas de tuile */
+  --genre-tile-shadow: oklch(0.2 0.02 70 / 0.6); /* text-shadow label */
+  --genre-tile-border-dark: oklch(0.28 0.012 262); /* anneau avatar en dark */
+
+  /* ---- artist hero scrim (noir chaud, composé avec alpha au point d'usage) ---- */
+  --hero-scrim-l: 0.11;
+  --hero-scrim-c: 0.015;
+  --hero-scrim-h: 70;
+
   /* ============================================================
      GENRE PILLARS  ·  v2 "taxonomy" — 6 piliers + Autres (gris)
      Chaque pilier = un hue. Tout descendant hérite du hue de sa

@@ -5,6 +5,7 @@ import router from './router'
 import './styles/diggy-tokens.css'
 import './assets/buttons.css'
 import './assets/table.css'
+import './assets/page.css'
 
 const pinia = createPinia()
 const app = createApp(App)

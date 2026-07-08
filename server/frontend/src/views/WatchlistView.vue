@@ -403,13 +403,6 @@ onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
   width: 100%;
 }
 
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-5);
-  padding: var(--space-6) var(--page-px) var(--space-5);
-  flex-wrap: wrap;
-}
 .page-head .titles h1 {
   margin: 0;
   font-size: var(--fs-xl);

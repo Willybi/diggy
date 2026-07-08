@@ -495,8 +495,8 @@ watch(() => route.params.id, (id) => {
   inset: 0;
   background: linear-gradient(
     to top,
-    oklch(0.12 0.01 70 / 0.7) 0%,
-    oklch(0.12 0.01 70 / 0.3) 40%,
+    oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.7) 0%,
+    oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.3) 40%,
     transparent 70%
   );
   pointer-events: none;
@@ -541,7 +541,8 @@ watch(() => route.params.id, (id) => {
   letter-spacing: -0.02em;
   color: oklch(0.99 0 0);
   margin: 0;
-  text-shadow: 0 1px 4px oklch(0.1 0.02 70 / 0.6), 0 0 12px oklch(0.1 0.02 70 / 0.3);
+  text-shadow: 0 1px 4px oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.6),
+    0 0 12px oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.3);
   overflow-wrap: break-word;
   z-index: 1;
 }

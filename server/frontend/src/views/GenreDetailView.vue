@@ -728,7 +728,7 @@ onUnmounted(() => {
 .hero-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, oklch(0.2 0.02 70 / 0.42) 0%, transparent 46%);
+  background: linear-gradient(to top, var(--genre-tile-scrim) 0%, transparent 46%);
   pointer-events: none;
 }
 
@@ -746,7 +746,7 @@ onUnmounted(() => {
   border-radius: 50%;
   flex: none;
   margin-left: -10px;
-  border: 2px solid oklch(0.99 0.004 92);
+  border: 2px solid var(--genre-tile-ink);
   object-fit: cover;
   box-shadow: var(--shadow-sm);
 }
@@ -754,13 +754,13 @@ onUnmounted(() => {
   margin-left: 0;
 }
 [data-theme='dark'] .av {
-  border-color: oklch(0.28 0.012 262);
+  border-color: var(--genre-tile-border-dark);
 }
 .more {
   margin-left: var(--space-2);
   font: 600 var(--fs-sm)/1 var(--font-mono);
-  color: oklch(0.99 0.004 92);
-  text-shadow: 0 1px 3px oklch(0.2 0.02 70 / 0.6);
+  color: var(--genre-tile-ink);
+  text-shadow: 0 1px 3px var(--genre-tile-shadow);
 }
 
 /* Play */

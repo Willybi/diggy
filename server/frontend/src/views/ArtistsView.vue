@@ -199,13 +199,6 @@ onMounted(() => {
 }
 
 /* -- Header -- */
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-5);
-  padding: var(--space-6) var(--page-px) var(--space-5);
-  flex-wrap: wrap;
-}
 .titles h1 {
   margin: 0;
   font: 600 var(--fs-xl)/1.1 var(--font-ui);
