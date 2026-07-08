@@ -10,6 +10,10 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# Lock TTL must cover the task's time_limit (28800s) so the lock cannot
+# expire while a legitimate run is still in progress
+BEATPORT_LOCK_TTL = 30000
+
 
 @celery_app.task(
     name="workers.tasks.enrich_catalog",
@@ -121,13 +125,36 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
     """
     Enrichit les entrées catalog via Beatport (concurrent async scraping).
     Uses 2 concurrent scrapers with Redis caching.
+    Single-instance: a Redis lock skips the run if another one is in flight
+    (beat run vs admin-triggered run, or broker re-delivery).
     """
-    from sqlalchemy import select
-    from sqlalchemy.orm import Session
+    import redis as redis_lib
 
     sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:enrich_beatport"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=BEATPORT_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning(
+            "enrich_catalog_beatport already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_enrich_catalog_beatport(self, batch_size)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_enrich_catalog_beatport(task, batch_size: int):
     from models import CatalogEntry
     from services.image_service import BUCKET_CATALOG, ImageService
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
     from workers.db import get_engine
 
     engine = get_engine()
@@ -140,7 +167,7 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
             log_session,
             task_type="enrich_beatport",
             source="beatport",
-            celery_task_id=self.request.id,
+            celery_task_id=task.request.id,
         ) as clog:
 
             async def _async_enrich():

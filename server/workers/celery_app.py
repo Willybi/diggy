@@ -83,6 +83,9 @@ celery_app.conf.update(
     task_acks_late=True,  # re-deliver on crash
     worker_prefetch_multiplier=1,  # don't hoard tasks
     task_reject_on_worker_lost=True,  # requeue if worker crashes mid-task
+    # Must exceed the longest task time_limit (enrich_catalog_beatport: 28800s),
+    # otherwise Redis re-delivers still-running tasks and spawns concurrent duplicates
+    broker_transport_options={"visibility_timeout": 30000},
     # Task routing
     task_routes={
         "workers.tasks.crawl_single_playlist": {"queue": "crawl"},

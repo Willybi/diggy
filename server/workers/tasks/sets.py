@@ -49,12 +49,18 @@ def _collect_backfill_batch(
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3, "countdown": 60},
     retry_backoff=True,
+    # Large imports (TrackID backfill: 500 sets/night) push inline enrichment
+    # past the global 1800s limit; keep time_limit under the broker
+    # visibility_timeout (30000s) to avoid duplicate deliveries
+    soft_time_limit=7200,
+    time_limit=7500,
 )
 def resolve_set_tracks(self):
     """
     Résout les set_tracks sans catalog_id.
     Uses bulk catalog operations + concurrent async enrichment.
     """
+    from celery.exceptions import SoftTimeLimitExceeded
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
@@ -169,6 +175,15 @@ def resolve_set_tracks(self):
 
             try:
                 dz_stats, bp_stats = asyncio.run(_async_enrich())
+            except SoftTimeLimitExceeded:
+                # Resolution is already committed; leftover enrichment is
+                # picked up by the nightly enrich_catalog / enrich_beatport
+                logger.warning(
+                    "resolve_set_tracks: enrichment cut by soft time limit "
+                    "(%d tracks resolved), nightly enrich tasks will catch up",
+                    resolved,
+                )
+                dz_stats, bp_stats = {"enriched": 0}, {"enriched": 0}
             except Exception:
                 logger.exception("Async enrichment failed in resolve_set_tracks")
                 raise

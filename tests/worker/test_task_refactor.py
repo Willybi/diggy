@@ -51,6 +51,8 @@ def _task_decorator(*args, **kwargs):
         fn.name = kwargs.get("name", fn.__name__)
         fn.autoretry_for = kwargs.get("autoretry_for", ())
         fn.bind = kwargs.get("bind", False)
+        fn.soft_time_limit = kwargs.get("soft_time_limit")
+        fn.time_limit = kwargs.get("time_limit")
         fn.delay = MagicMock()
         fn.s = MagicMock()
         return fn
@@ -188,6 +190,77 @@ class TestRetryPolicies:
             task = getattr(wt, attr)
             assert task.name == expected_name, (
                 f"Expected {attr}.name == '{expected_name}', got '{task.name}'"
+            )
+
+
+# ── Time limits vs broker visibility_timeout ──────────────────────────
+
+
+def _read_visibility_timeout():
+    """Parse visibility_timeout from celery_app.py source.
+
+    workers.celery_app is mocked in this test env, so the value is read
+    from source instead of the imported module.
+    """
+    import re
+
+    path = os.path.join(_SERVER_PATH, "workers", "celery_app.py")
+    with open(path, encoding="utf-8") as f:
+        source = f.read()
+    match = re.search(r"\"visibility_timeout\":\s*(\d+)", source)
+    return int(match.group(1)) if match else None
+
+
+class TestTimeLimits:
+    """Long tasks must finish before the broker re-delivers them.
+
+    Redis re-delivers unacked tasks after visibility_timeout; with
+    task_acks_late=True a task outliving it runs twice concurrently
+    (root cause of the 2026-07-08 enrich_beatport deadlocks).
+    """
+
+    def _get_tasks(self):
+        mods_to_clear = [k for k in sys.modules if k.startswith("workers.tasks")]
+        for m in mods_to_clear:
+            del sys.modules[m]
+        import workers.tasks as wt
+        return wt
+
+    def test_visibility_timeout_is_configured(self):
+        assert _read_visibility_timeout() is not None, (
+            "broker_transport_options visibility_timeout missing from celery_app.py"
+        )
+
+    def test_resolve_set_tracks_has_dedicated_limits(self):
+        """Inline enrichment after big imports needs more than the global 1800s."""
+        wt = self._get_tasks()
+        assert wt.resolve_set_tracks.soft_time_limit == 7200
+        assert wt.resolve_set_tracks.time_limit == 7500
+
+    def test_enrich_catalog_beatport_keeps_long_limits(self):
+        wt = self._get_tasks()
+        assert wt.enrich_catalog_beatport.soft_time_limit == 25200
+        assert wt.enrich_catalog_beatport.time_limit == 28800
+
+    def test_all_task_time_limits_below_visibility_timeout(self):
+        visibility_timeout = _read_visibility_timeout()
+        wt = self._get_tasks()
+        task_names = [
+            "crawl_radar", "crawl_single_playlist",
+            "enrich_catalog", "enrich_catalog_beatport",
+            "resolve_set_tracks", "enrich_set_tracks", "crawl_followed_sets",
+            "sync_artists", "fetch_artist_artworks", "link_set_artists",
+            "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
+        ]
+        for tname in task_names:
+            task = getattr(wt, tname)
+            time_limit = task.time_limit
+            if time_limit is None:
+                # Falls back to the global CELERY_TIME_LIMIT default (3600)
+                time_limit = 3600
+            assert time_limit < visibility_timeout, (
+                f"Task {tname} time_limit={time_limit} >= visibility_timeout="
+                f"{visibility_timeout}: the broker would re-deliver it mid-run"
             )
 
 
