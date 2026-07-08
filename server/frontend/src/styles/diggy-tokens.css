@@ -8,13 +8,16 @@
 
    Dark mode: add `data-theme="dark"` on <html> (or <body>).
    Density:   add `data-density="compact" | "comfy"` (default regular).
+   Light can be forced locally via `data-theme="light"` (mirrors :root)
+   — used e.g. by the /design-system showcase to render both themes.
 
    Fonts (add to index.html <head>):
    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
    ============================================================ */
 
-:root {
+:root,
+[data-theme='light'] {
   /* ---- type ---- */
   --font-ui: 'Space Grotesk', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;

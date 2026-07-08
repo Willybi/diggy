@@ -38,6 +38,16 @@ const routes = [
   { path: '/collections/:id', component: CollectionDetailView, props: true },
   { path: '/playlists', component: WatchlistView },
   { path: '/playlists/:id', component: PlaylistDetailView, props: true },
+  // Dev-only : vitrine de non-régression visuelle du design system.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: '/design-system',
+          component: () => import('./views/DesignSystemView.vue'),
+          meta: { public: true },
+        },
+      ]
+    : []),
 ]
 
 const router = createRouter({
