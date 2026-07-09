@@ -3,6 +3,22 @@ services:
     volumes:
       - ./server/api:/app
 
+  # Dev-only hot reload: prod runs the code baked into the image
+  worker:
+    volumes:
+      - ./server/api:/app
+      - ./server/workers:/app/workers
+
+  worker_enrich:
+    volumes:
+      - ./server/api:/app
+      - ./server/workers:/app/workers
+
+  beat:
+    volumes:
+      - ./server/api:/app
+      - ./server/workers:/app/workers
+
   nginx:
     ports:
       - "${NGINX_PORT:-8080}:80"

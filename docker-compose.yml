@@ -49,7 +49,8 @@ services:
 
   api:
     build:
-      context: ./server/api
+      context: ./server
+      dockerfile: Dockerfile
     container_name: diggy_api
     restart: unless-stopped
     deploy:
@@ -79,7 +80,8 @@ services:
 
   worker:
     build:
-      context: ./server/api
+      context: ./server
+      dockerfile: Dockerfile
     container_name: diggy_worker
     restart: unless-stopped
     deploy:
@@ -95,19 +97,23 @@ services:
         condition: service_healthy
     networks:
       - diggy_network
-    volumes:
-      - ./server/api:/app
-      - ./server/workers:/app/workers
     logging:
       driver: json-file
       options:
         max-size: "50m"
         max-file: "3"
     command: celery -A workers.celery_app worker --loglevel=info -Q celery,crawl -c 3
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
 
   worker_enrich:
     build:
-      context: ./server/api
+      context: ./server
+      dockerfile: Dockerfile
     container_name: diggy_worker_enrich
     restart: unless-stopped
     deploy:
@@ -123,19 +129,23 @@ services:
         condition: service_healthy
     networks:
       - diggy_network
-    volumes:
-      - ./server/api:/app
-      - ./server/workers:/app/workers
     logging:
       driver: json-file
       options:
         max-size: "50m"
         max-file: "3"
     command: celery -A workers.celery_app worker --loglevel=info -Q enrich -c 2
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
 
   beat:
     build:
-      context: ./server/api
+      context: ./server
+      dockerfile: Dockerfile
     container_name: diggy_beat
     restart: unless-stopped
     deploy:
@@ -152,8 +162,6 @@ services:
     networks:
       - diggy_network
     volumes:
-      - ./server/api:/app
-      - ./server/workers:/app/workers
       - beat_schedule:/var/spool/celery
     logging:
       driver: json-file
@@ -161,6 +169,13 @@ services:
         max-size: "50m"
         max-file: "3"
     command: celery -A workers.celery_app beat --loglevel=info -s /var/spool/celery/beat-schedule
+    healthcheck:
+      # PersistentScheduler rewrites the schedule file every ~3 min; stale mtime = beat is stuck
+      test: ["CMD-SHELL", "find /var/spool/celery -name 'beat-schedule*' -mmin -15 | grep -q ."]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build:
@@ -258,6 +273,9 @@ services:
       - ./server/scripts/backup.sh:/backup.sh:ro
       - ./server/scripts/backup_freshness_check.sh:/freshness.sh:ro
       - backups:/backups
+      # Read-write on purpose: rclone rewrites its OAuth token on every refresh (a :ro
+      # mount would break it). Host dir only exists on the VPS (profile "backup" never runs locally).
+      - /root/.config/rclone:/root/.config/rclone
     logging:
       driver: json-file
       options:
@@ -267,7 +285,7 @@ services:
     command:
       - -c
       - |
-        apk add --no-cache postgresql16-client curl gnupg > /dev/null 2>&1
+        apk add --no-cache postgresql16-client curl gnupg rclone > /dev/null 2>&1
         curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
         chmod +x /usr/local/bin/mc
         cp /backup.sh /tmp/backup.sh && chmod +x /tmp/backup.sh

@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-09 (AU1)
+> Last verified: 2026-07-10 (AU2 code)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -108,7 +108,7 @@ cd server/api && python -m alembic revision --autogenerate -m "description"
 cd server/api && python -m alembic upgrade head
 # Prod: CI runs `alembic upgrade head` automatically on deploy
 
-# Local stack (override mounts ./server/api:/app for hot reload)
+# Local stack (override bind-mounts server/api + server/workers for hot reload; prod runs the image code)
 docker compose up -d --build
 cd server/frontend && npm run dev     # frontend dev server
 ```
@@ -138,6 +138,11 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 - Keep CSP `upgrade-insecure-requests` as long as any `http://` request can arrive.
 - `client_max_body_size` (12M) is coupled to the Rekordbox XML import limit (`MAX_FILE_SIZE` 10MB in `import_rb.py`): keep nginx slightly above the app limit so the app returns its French 413 message, and raise both together.
 
+### Docker & Backup
+- api/worker/worker_enrich/beat share ONE image built from context `./server` (`server/Dockerfile` copies `api/` + `workers/`). Prod runs the code baked into the image — hot reload only exists through the local override bind mounts.
+- `server/.dockerignore` excludes `frontend/`, `nginx/`, `scripts/`, `deezer/` from the build context: a new directory under `server/` needed at runtime must be removed from that file, or it silently won't ship.
+- The `backup` service mounts `/root/.config/rclone` read-write (VPS-only path): rclone rewrites its OAuth token on refresh — never make this mount `:ro`. Offsite = encrypted PG dumps only (MinIO mirror stays local by design).
+
 ### Frontend
 - Container queries everywhere; `@media` ONLY for `position: fixed` elements.
 - Zero hardcoded colors: everything via `var(--...)` from `diggy-tokens.css`.
@@ -163,7 +168,7 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant.
 ## Deploy
 
 - Domain: `diggy-music.fr`. VPS project path: `/root/diggy`. `.env` lives ONLY on the VPS, never in git.
-- Push to `master` → GitHub Actions (ruff + eslint + pytest on real PG + vitest + pip-audit) → SSH → `docker compose up -d --build` + `alembic upgrade head`. A failing lint blocks everything.
+- Push to `master` → GitHub Actions (ruff + eslint + pytest on real PG + vitest + pip-audit) → SSH → `docker compose build` → `alembic upgrade head` (on the NEW image, before the switch) → `docker compose up -d`. A failing lint blocks everything; a failing build or migration aborts the deploy (old code keeps serving).
 - SSH from Claude: `ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247` (dedicated key required).
 - Local vs prod: local = `docker-compose.yml` + override (hot reload, port 8080 HTTP); prod = `COMPOSE_FILE` chains `docker-compose.ssl.yml` (ports 80/443, certbot container).
 - After deploying, run `/deploy_verify`.
@@ -177,6 +182,7 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant.
 | Starting work on a chantier | Its agent prompt in `docs/prompts/` and its brief in `docs/`. If none exist yet for the target chantier, create them via `/work_manager`. |
 | Similarity/scoring work (C2) | `docs/similarity_calibration.ipynb` |
 | UI change on an existing view | `_design/PAGES_REFERENCE.md` (view→handoff index), then the matching handoff folder |
+| Backup/restore operation, data incident | `docs/restore.md` (GPG + psql + offsite fetch; keep the "last tested" date honest) |
 | Anything about past decisions | `docs/completed/` contains FROZEN archives: read-only, never treat as current state, NEVER modify |
 
 ## Maintaining This File

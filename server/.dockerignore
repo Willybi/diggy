@@ -1,0 +1,10 @@
+# Context is ./server but the image only needs api/ and workers/.
+# Do NOT exclude api/alembic/ or api/alembic.ini: migrations run from the image in prod.
+frontend/
+nginx/
+scripts/
+deezer/
+Dockerfile
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
