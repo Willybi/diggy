@@ -1,6 +1,7 @@
 """Tests for server/api/rate_limit.py — Redis-based rate limiting middleware."""
 from unittest.mock import MagicMock, patch
 import asyncio
+import logging
 import os
 import sys
 
@@ -13,15 +14,22 @@ from rate_limit import _get_real_ip, RATE_LIMITS, RateLimitMiddleware
 
 
 class TestGetRealIp:
-    def test_uses_x_forwarded_for(self):
+    def test_uses_x_real_ip(self):
         request = MagicMock()
-        request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
+        request.headers = {"X-Real-IP": "1.2.3.4"}
         assert _get_real_ip(request) == "1.2.3.4"
 
-    def test_uses_x_forwarded_for_single(self):
+    def test_x_real_ip_wins_over_x_forwarded_for(self):
         request = MagicMock()
-        request.headers = {"X-Forwarded-For": "10.0.0.1"}
-        assert _get_real_ip(request) == "10.0.0.1"
+        request.headers = {"X-Real-IP": "1.2.3.4", "X-Forwarded-For": "6.6.6.6"}
+        assert _get_real_ip(request) == "1.2.3.4"
+
+    def test_x_forwarded_for_alone_is_ignored(self):
+        """XFF is client-controlled: it must never be used for identity."""
+        request = MagicMock()
+        request.headers = {"X-Forwarded-For": "6.6.6.6, 5.6.7.8"}
+        request.client.host = "192.168.1.1"
+        assert _get_real_ip(request) == "192.168.1.1"
 
     def test_falls_back_to_client_host(self):
         request = MagicMock()
@@ -31,7 +39,7 @@ class TestGetRealIp:
 
     def test_strips_whitespace(self):
         request = MagicMock()
-        request.headers = {"X-Forwarded-For": "  1.2.3.4 , 5.6.7.8"}
+        request.headers = {"X-Real-IP": "  1.2.3.4 "}
         assert _get_real_ip(request) == "1.2.3.4"
 
 
@@ -125,8 +133,56 @@ class TestRateLimitMiddleware:
         assert "Retry-After" in response.headers
 
     @patch("rate_limit._get_redis")
-    def test_redis_failure_passes_through(self, mock_redis_fn):
-        """If Redis is unavailable, request should still pass through."""
+    def test_x_real_ip_used_as_key(self, mock_redis_fn):
+        """The Redis key must be built from X-Real-IP when present."""
+        middleware = RateLimitMiddleware(app=MagicMock())
+
+        mock_r = MagicMock()
+        mock_r.incr.return_value = 1
+        mock_r.ttl.return_value = 60
+        mock_redis_fn.return_value = mock_r
+
+        request = MagicMock()
+        request.method = "GET"
+        request.url.path = "/api/auth/google/callback"
+        request.headers = {"X-Real-IP": "203.0.113.7"}
+        request.client.host = "172.18.0.1"
+
+        async def mock_next(req):
+            return MagicMock()
+
+        asyncio.run(middleware.dispatch(request, mock_next))
+        key = mock_r.incr.call_args[0][0]
+        assert key == "ratelimit:/api/auth/google/callback:203.0.113.7"
+
+    @patch("rate_limit._get_redis")
+    def test_spoofed_x_forwarded_for_shares_same_counter(self, mock_redis_fn):
+        """Rotating X-Forwarded-For must NOT rotate the rate-limit key."""
+        middleware = RateLimitMiddleware(app=MagicMock())
+
+        mock_r = MagicMock()
+        mock_r.incr.return_value = 1
+        mock_r.ttl.return_value = 60
+        mock_redis_fn.return_value = mock_r
+
+        async def mock_next(req):
+            return MagicMock()
+
+        keys = []
+        for spoofed in ("6.6.6.6", "7.7.7.7"):
+            request = MagicMock()
+            request.method = "GET"
+            request.url.path = "/api/auth/google/callback"
+            request.headers = {"X-Forwarded-For": spoofed}
+            request.client.host = "172.18.0.1"
+            asyncio.run(middleware.dispatch(request, mock_next))
+            keys.append(mock_r.incr.call_args[0][0])
+
+        assert keys[0] == keys[1] == "ratelimit:/api/auth/google/callback:172.18.0.1"
+
+    @patch("rate_limit._get_redis")
+    def test_redis_failure_passes_through_and_logs_warning(self, mock_redis_fn, caplog):
+        """If Redis is unavailable, request passes through and a warning is logged."""
         middleware = RateLimitMiddleware(app=MagicMock())
 
         mock_redis_fn.side_effect = Exception("Redis down")
@@ -143,8 +199,12 @@ class TestRateLimitMiddleware:
             next_called = True
             return MagicMock()
 
-        asyncio.run(middleware.dispatch(request, mock_next))
+        with caplog.at_level(logging.WARNING, logger="rate_limit"):
+            asyncio.run(middleware.dispatch(request, mock_next))
+
         assert next_called
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Redis down" in r.getMessage() for r in warnings)
 
 
 class TestRateLimitIntegration:

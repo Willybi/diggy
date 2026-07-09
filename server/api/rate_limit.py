@@ -4,10 +4,13 @@ No decorators — limits are defined by path prefix in RATE_LIMITS.
 Shared counters across all uvicorn workers via Redis.
 """
 
+import logging
 import os
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
@@ -34,9 +37,14 @@ def _get_redis():
 
 
 def _get_real_ip(request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # X-Real-IP is set by nginx from $remote_addr and cannot be spoofed by the
+    # client. X-Forwarded-For must never be used for identity: its first value
+    # is client-controlled, which would let an attacker rotate it per request
+    # and bypass any limit.
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    # Local dev without nginx in front
     return request.client.host
 
 
@@ -69,8 +77,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     content={"detail": f"Rate limit exceeded. Try again in {ttl}s."},
                     headers={"Retry-After": str(ttl)},
                 )
-        except Exception:
-            # If Redis is unavailable, let the request through
-            pass
+        except Exception as exc:
+            # Fail-open by design: availability wins over rate limiting.
+            # Log it so a Redis outage doesn't silently disable all limits.
+            logger.warning("Rate limiting skipped (Redis unavailable): %s", exc)
 
         return await call_next(request)

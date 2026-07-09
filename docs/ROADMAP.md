@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-09 (serie AU inseree — audit global 2026-07, voir `docs/audit_2026-07/` ; C6 EN COURS)
+> **Derniere mise a jour** : 2026-07-09 (AU1 code TERMINE, reste OPS VPS ; serie AU inseree — audit global 2026-07, voir `docs/audit_2026-07/` ; C6 EN COURS)
 
 ---
 
@@ -41,7 +41,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
  C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 + C6.a TERMINES)
- AU1  Quick Wins audit                      HAUT        1-2 jours    A FAIRE
+ AU1  Quick Wins audit                      HAUT        1-2 jours    EN COURS (code TERMINE 2026-07-09, reste OPS VPS)
  AU2  Sauvegardes & deploiement             HAUT        1-2 jours    A FAIRE
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    A FAIRE
  AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    A FAIRE (avant/avec AU4)
@@ -54,7 +54,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
- N1   Nettoyage residus                     BAS         1 jour       A FAIRE
+ N1   Nettoyage residus                     BAS         1 jour       A FAIRE (N1.b fait via AU1)
 ```
 
 ### Chantiers termines (reference)
@@ -386,7 +386,7 @@ Toute playlist en base devrait etre surveillee a intervalle regulier, pas seulem
 **Priorite : HAUT**
 **Estimation : 1-2 jours**
 **Depend de : rien (parallelisable avec C6)**
-**Statut : A FAIRE**
+**Statut : EN COURS — code TERMINE le 2026-07-09 (ebca46b + 9eb90dd + fix A6-02), verifie en prod. Reste : volet OPS VPS uniquement (A5-01 cron backup — prerequis AU2, A5-13 menage, execution du rattrapage A3-01)**
 
 ### Objectif
 
@@ -395,51 +395,51 @@ Les 8 QUICK WINS stricts (impact haute/critique x effort S) + les quick-wins can
 ### AU1.a — Les 8 quick wins stricts
 
 - [ ] A5-01 : cron backup quotidien sur le VPS (`docker compose run --rm backup`) + verification de fraicheur (alerte si latest > 26h)
-- [ ] M1 (A1-03/A2-10) : filtrer `in_lib` par `user_id` sur `GET /sets/{id}` (`sets.py:264`), `in_lib=False` pour les guests
-- [ ] M2 (A1-24/A4-01) : corriger `api.get('/radar/new-count')` -> `/api/radar/new-count` (`BottomNav.vue:58`) + ne fetcher que si authentifie
-- [ ] A4-02 : rebrancher les avis TrackDetailView sur le chemin canonique (trancher : `PATCH /api/catalog/{id}/avis` comme CatalogView, ou store opinions) — le POST actuel vise un endpoint inexistant
-- [ ] A3-01 : porter la promotion `private -> shared` dans `_enrich_entry_async` (`enrichment.py`) + test. Rattrapage des 235 lignes prod = script SEPARE, execute apres validation du fix (modalite Q1)
-- [ ] A6-02 : rate limiting — lire `X-Real-IP` (pose par nginx, non spoofable) au lieu de la 1re valeur de `X-Forwarded-For` (`rate_limit.py:36-40`) ; + A6-13 : logger le fail-open Redis (meme fichier)
-- [ ] A5-04 : `pip-audit -r server/api/requirements.txt --desc` dans la CI (le job actuel scanne le runner)
-- [ ] A7-01 : `git rm --cached .coverage` + patterns `.coverage`/`.coverage.*` dans `.gitignore`
+- [x] M1 (A1-03/A2-10) : filtrer `in_lib` par `user_id` sur `GET /sets/{id}` (`sets.py:264`), `in_lib=False` pour les guests
+- [x] M2 (A1-24/A4-01) : corriger `api.get('/radar/new-count')` -> `/api/radar/new-count` (`BottomNav.vue:58`) + ne fetcher que si authentifie
+- [x] A4-02 : rebrancher les avis TrackDetailView sur le chemin canonique (trancher : `PATCH /api/catalog/{id}/avis` comme CatalogView, ou store opinions) — le POST actuel vise un endpoint inexistant
+- [x] A3-01 : porter la promotion `private -> shared` dans `_enrich_entry_async` (`enrichment.py`) + test. Rattrapage des 235 lignes prod = script SEPARE, execute apres validation du fix (modalite Q1)
+- [x] A6-02 : rate limiting — lire `X-Real-IP` (pose par nginx, non spoofable) au lieu de la 1re valeur de `X-Forwarded-For` (`rate_limit.py:36-40`) ; + A6-13 : logger le fail-open Redis (meme fichier)
+- [x] A5-04 : `pip-audit -r server/api/requirements.txt --desc` dans la CI (le job actuel scanne le runner)
+- [x] A7-01 : `git rm --cached .coverage` + patterns `.coverage`/`.coverage.*` dans `.gitignore`
 
 ### AU1.b — Volet repo/tokens (reliquat M3, rotation deja faite)
 
-- [ ] A6-01/A7-02 : `git rm --cached server/scripts/.tidal_tokens.json` + pattern `.tidal_tokens.json` au `.gitignore`
-- [ ] A3-16 : fallback fichier de `source_clients.py:246-259` -> chemin hors repo via env `TIDAL_TOKEN_FILE` (ou suppression du fallback, Redis + env suffisent)
+- [x] A6-01/A7-02 : `git rm --cached server/scripts/.tidal_tokens.json` + pattern `.tidal_tokens.json` au `.gitignore`
+- [x] A3-16 : fallback fichier de `source_clients.py:246-259` -> chemin hors repo via env `TIDAL_TOKEN_FILE` (ou suppression du fallback, Redis + env suffisent)
 
 ### AU1.c — Bugs et suppressions actees (Q1b)
 
-- [ ] A1-02 : pagination `/search` — ORDER BY stable dans chaque helper + offset pousse en DB (ou retire de la signature). Fix minimal, independant du refactor AU5
-- [ ] A1-06 : supprimer `PATCH /watchlist/{id}/crawled` (preuve mecanique : 0 appelant)
-- [ ] A1-13 : supprimer `POST /genres/refresh-pillars` (casse en multi-process)
-- [ ] M7 (A4-03/A4-04/A7-13) : supprimer `AppearRow.vue` + `TagsView.vue` + retirer la mention TagsView de CLAUDE.md + corriger la ligne AppearRow de `detail-pages-audit.md` (absorbe N1.b)
+- [x] A1-02 : pagination `/search` — ORDER BY stable dans chaque helper + offset pousse en DB (ou retire de la signature). Fix minimal, independant du refactor AU5
+- [x] A1-06 : supprimer `PATCH /watchlist/{id}/crawled` (preuve mecanique : 0 appelant)
+- [x] A1-13 : supprimer `POST /genres/refresh-pillars` (casse en multi-process)
+- [x] M7 (A4-03/A4-04/A7-13) : supprimer `AppearRow.vue` + `TagsView.vue` + retirer la mention TagsView de CLAUDE.md + corriger la ligne AppearRow de `detail-pages-audit.md` (absorbe N1.b)
 
 ### AU1.d — Lot backend (QW-c confiance haute)
 
-- [ ] A1-19/A1-20 : `GET /opinions/` avec response_model + validation `Literal` dans `OpinionUpdate` + garde `int(entity_key)` (422 au lieu de 500)
-- [ ] A1-21 : constante unique `BUCKET_PLAYLIST` importee depuis `image_service` (3 definitions du bucket)
-- [ ] A6-03 : `defusedxml.ElementTree` dans `rekordbox_xml.py` (billion laughs)
-- [ ] A6-05 : borner les payloads (`PATCH /radar/state/batch` max_length, `image_base64` max_length, strings watchlist)
-- [ ] A6-10 (volet docs) : desactiver `/api/docs` + `/api/openapi.json` en `ENV=production`. NB : le volet `/api/watchlist/active` part en AU5 (depend de A1-17, sinon `crawl_radar` casse)
-- [ ] A6-11 : ne plus logger `resp.text` du endpoint token Google (`auth.py:50-52`)
-- [ ] A6-12 : aligner `client_max_body_size` nginx sur 10M (ou lecture par chunks)
+- [x] A1-19/A1-20 : `GET /opinions/` avec response_model + validation `Literal` dans `OpinionUpdate` + garde `int(entity_key)` (422 au lieu de 500)
+- [x] A1-21 : constante unique `BUCKET_PLAYLIST` importee depuis `image_service` (3 definitions du bucket)
+- [x] A6-03 : `defusedxml.ElementTree` dans `rekordbox_xml.py` (billion laughs)
+- [x] A6-05 : borner les payloads (`PATCH /radar/state/batch` max_length, `image_base64` max_length, strings watchlist)
+- [x] A6-10 (volet docs) : desactiver `/api/docs` + `/api/openapi.json` en `ENV=production`. NB : le volet `/api/watchlist/active` part en AU5 (depend de A1-17, sinon `crawl_radar` casse)
+- [x] A6-11 : ne plus logger `resp.text` du endpoint token Google (`auth.py:50-52`)
+- [x] A6-12 : aligner `client_max_body_size` nginx sur 10M (ou lecture par chunks)
 
 ### AU1.e — Lot frontend (QW-c)
 
-- [ ] A4-10 : `'/api/genres/'` -> `'/api/genres'` dans HubView (307 a chaque affichage du Hub)
-- [ ] A4-11 : AdminGenres — deriver les stats du fetch principal (3 appels -> 2) + try/catch sur `fetchMappingStats`
+- [x] A4-10 : `'/api/genres/'` -> `'/api/genres'` dans HubView (307 a chaque affichage du Hub)
+- [x] A4-11 : AdminGenres — deriver les stats du fetch principal (3 appels -> 2) + try/catch sur `fetchMappingStats`
 
 ### AU1.f — Lot infra (QW-c)
 
-- [ ] A5-05 : `COPY package-lock.json` + `npm ci` dans le Dockerfile frontend (build reproductible)
-- [ ] A5-10 : bloc `concurrency: deploy-prod` dans le workflow deploy
-- [ ] A5-11 : pinner `minio/minio` et `certbot/certbot` sur des tags versionnes
-- [ ] A5-12 : retirer le mapping `8080:80` du compose de base (le deplacer dans l'override local)
+- [x] A5-05 : `COPY package-lock.json` + `npm ci` dans le Dockerfile frontend (build reproductible)
+- [x] A5-10 : bloc `concurrency: deploy-prod` dans le workflow deploy
+- [x] A5-11 : pinner `minio/minio` et `certbot/certbot` sur des tags versionnes
+- [x] A5-12 : retirer le mapping `8080:80` du compose de base (le deplacer dans l'override local)
 - [ ] A5-13 : VPS — `docker rm` du certbot fantome + `docker volume prune` (fenetre de maintenance)
-- [ ] A5-16 : `.env.example` — `SECRET_KEY` -> `JWT_SECRET` + variables Google/Sentry/Backup manquantes
-- [ ] A5-18 : `http2 on;` sur le listener 443
-- [ ] A5-19 : `cache: npm` + `node-version: 22` dans la CI (alignement avec l'image prod)
+- [x] A5-16 : `.env.example` — `SECRET_KEY` -> `JWT_SECRET` + variables Google/Sentry/Backup manquantes
+- [x] A5-18 : `http2 on;` sur le listener 443
+- [x] A5-19 : `cache: npm` + `node-version: 22` dans la CI (alignement avec l'image prod)
 
 ### Definition of Done
 
@@ -910,7 +910,7 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 **Priorite : BAS**
 **Estimation : 1 jour**
 **Depend de : rien (parallelisable avec tout)**
-**Statut : A FAIRE**
+**Statut : A FAIRE (N1.b execute via AU1, 2026-07-09)**
 
 ### Objectif
 
@@ -931,8 +931,8 @@ L'auth est Google OAuth only depuis F3, mais des restes de l'ancien login email/
 
 TagsView est une vue morte, `/tags` redirige vers `/genres`.
 
-- [ ] Supprimer `TagsView.vue` du frontend
-- [ ] Supprimer la route `/tags` du router Vue
+- [x] Supprimer `TagsView.vue` du frontend
+- [x] Supprimer la route `/tags` du router Vue
 
 ### Definition of Done
 
