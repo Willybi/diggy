@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-07 (C6.0 + C6.1 termines ; C6 EN COURS)
+> **Derniere mise a jour** : 2026-07-09 (serie AU inseree — audit global 2026-07, voir `docs/audit_2026-07/` ; C6 EN COURS)
 
 ---
 
@@ -23,7 +23,9 @@ Avant l'ouverture aux amis (5-10 DJs), Diggy doit offrir :
 
 Apres l'ouverture : la recommandation personnalisee (croisement similarite x likes), utile des un seul user et enrichie par chaque nouvel utilisateur.
 
-**Sequence verrouillee** : ~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> ~~H0 + P1~~ (TERMINE) -> F5 + C6 (paralleles) -> C3 (ouverture) -> C4 -> C5. L'ordre des chantiers est fixe et ne doit pas etre modifie.
+**Sequence verrouillee** : ~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> ~~H0 + P1~~ (TERMINE) -> F5 + C6 (paralleles) -> **serie AU (audit 2026-07)** -> C3 (ouverture) -> C4 -> C5. L'ordre des chantiers est fixe et ne doit pas etre modifie.
+
+**Sequencement interne serie AU** (arbitre dans `docs/audit_2026-07/DECISIONS.md`) : AU1 -> AU2 -> AU3 -> AU7 -> AU4 -> AU5 -> AU6 -> AU8. Contrainte imperative : le volet enrichissement de AU7 s'execute AVANT ou AVEC AU4.
 
 ---
 
@@ -39,6 +41,14 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
  C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 + C6.a TERMINES)
+ AU1  Quick Wins audit                      HAUT        1-2 jours    A FAIRE
+ AU2  Sauvegardes & deploiement             HAUT        1-2 jours    A FAIRE
+ AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    A FAIRE
+ AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    A FAIRE (avant/avec AU4)
+ AU4  Robustesse workers                    MOYEN       2 jours      A FAIRE
+ AU5  Couche service backend                MOYEN       2-3 jours    A FAIRE
+ AU6  Dette frontend                        MOYEN       1-2 jours    A FAIRE
+ AU8  Hygiene repo & documentation          MOYEN       1-2 jours    A FAIRE
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
@@ -87,6 +97,14 @@ C6 (veille) ┬ C6.0 dedup prerequis avant C6.a crawl massif
              └ avant C3 idealement (plus de donnees = meilleure XP nouveaux users)
 F5 ─────────> Rien (parallelisable avec tout)
 C3 (ouvert) = declenchement manuel, apres H0 (FAIT) + C1 + idealement C6
+
+--- serie AU (audit 2026-07 — findings dans docs/audit_2026-07/CONSOLIDATED.md, arbitrages dans DECISIONS.md) ---
+AU1 ────────> Rien (demarrage immediat, parallelisable avec C6)
+AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + restore en AU2)
+AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md
+AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)
+AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)
+Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)
 C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> C3 (apres ouverture)
 N1 ─────────> Rien (parallelisable avec tout, priorite basse)
@@ -117,6 +135,7 @@ N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 **Estimation : 7-10 jours**
 **Depend de : C1 (TERMINE). Parallelisable avec C2.**
 **Statut : EN COURS — C6.0 + C6.1 + C6.a TERMINES (2026-07-07 / 2026-07-08)**
+**Renvois audit 2026-07** : rattaches a ce chantier (arbitrage Q8) — A1-10 (deplacer la logique attach/detach de `routers/admin.py` vers `set_dedup_service`), A1-11 (garde `is_virtual` avant suppression du parent dans `detach_set`), A2-12 (N+1 dans `match_set`, opportuniste). Voir `docs/audit_2026-07/CONSOLIDATED.md`.
 
 ### Objectif
 
@@ -352,6 +371,334 @@ Toute playlist en base devrait etre surveillee a intervalle regulier, pas seulem
 
 ---
 
+# Serie AU — Audit global 2026-07
+
+> Issue de l'audit read-only du 2026-07-09 : 114 findings bruts, 106 uniques (2 critiques, 9 hautes, 38 moyennes, 57 basses).
+> References : `docs/audit_2026-07/CONSOLIDATED.md` (findings + preuves), `docs/audit_2026-07/DECISIONS.md` (arbitrages Q1-Q9).
+> Chaque tache reference l'ID de son finding source (tracabilite vers les rapports A1-A7).
+> Sequencement : AU1 -> AU2 -> AU3 -> AU7 -> AU4 -> AU5 -> AU6 -> AU8. La serie passe avant C3.
+> Deja fait hors chantier (2026-07-09, William) : dump manuel copie hors VPS (mitigation A5-01/02) ; rotation des tokens TIDAL (M3).
+
+---
+
+## AU1 — Quick Wins audit
+
+**Priorite : HAUT**
+**Estimation : 1-2 jours**
+**Depend de : rien (parallelisable avec C6)**
+**Statut : A FAIRE**
+
+### Objectif
+
+Les 8 QUICK WINS stricts (impact haute/critique x effort S) + les quick-wins candidats de confiance haute sans decision produit (arbitrage Q1, option A). Revue de la PR par lots thematiques : workers ensemble, infra ensemble, frontend ensemble.
+
+### AU1.a — Les 8 quick wins stricts
+
+- [ ] A5-01 : cron backup quotidien sur le VPS (`docker compose run --rm backup`) + verification de fraicheur (alerte si latest > 26h)
+- [ ] M1 (A1-03/A2-10) : filtrer `in_lib` par `user_id` sur `GET /sets/{id}` (`sets.py:264`), `in_lib=False` pour les guests
+- [ ] M2 (A1-24/A4-01) : corriger `api.get('/radar/new-count')` -> `/api/radar/new-count` (`BottomNav.vue:58`) + ne fetcher que si authentifie
+- [ ] A4-02 : rebrancher les avis TrackDetailView sur le chemin canonique (trancher : `PATCH /api/catalog/{id}/avis` comme CatalogView, ou store opinions) — le POST actuel vise un endpoint inexistant
+- [ ] A3-01 : porter la promotion `private -> shared` dans `_enrich_entry_async` (`enrichment.py`) + test. Rattrapage des 235 lignes prod = script SEPARE, execute apres validation du fix (modalite Q1)
+- [ ] A6-02 : rate limiting — lire `X-Real-IP` (pose par nginx, non spoofable) au lieu de la 1re valeur de `X-Forwarded-For` (`rate_limit.py:36-40`) ; + A6-13 : logger le fail-open Redis (meme fichier)
+- [ ] A5-04 : `pip-audit -r server/api/requirements.txt --desc` dans la CI (le job actuel scanne le runner)
+- [ ] A7-01 : `git rm --cached .coverage` + patterns `.coverage`/`.coverage.*` dans `.gitignore`
+
+### AU1.b — Volet repo/tokens (reliquat M3, rotation deja faite)
+
+- [ ] A6-01/A7-02 : `git rm --cached server/scripts/.tidal_tokens.json` + pattern `.tidal_tokens.json` au `.gitignore`
+- [ ] A3-16 : fallback fichier de `source_clients.py:246-259` -> chemin hors repo via env `TIDAL_TOKEN_FILE` (ou suppression du fallback, Redis + env suffisent)
+
+### AU1.c — Bugs et suppressions actees (Q1b)
+
+- [ ] A1-02 : pagination `/search` — ORDER BY stable dans chaque helper + offset pousse en DB (ou retire de la signature). Fix minimal, independant du refactor AU5
+- [ ] A1-06 : supprimer `PATCH /watchlist/{id}/crawled` (preuve mecanique : 0 appelant)
+- [ ] A1-13 : supprimer `POST /genres/refresh-pillars` (casse en multi-process)
+- [ ] M7 (A4-03/A4-04/A7-13) : supprimer `AppearRow.vue` + `TagsView.vue` + retirer la mention TagsView de CLAUDE.md + corriger la ligne AppearRow de `detail-pages-audit.md` (absorbe N1.b)
+
+### AU1.d — Lot backend (QW-c confiance haute)
+
+- [ ] A1-19/A1-20 : `GET /opinions/` avec response_model + validation `Literal` dans `OpinionUpdate` + garde `int(entity_key)` (422 au lieu de 500)
+- [ ] A1-21 : constante unique `BUCKET_PLAYLIST` importee depuis `image_service` (3 definitions du bucket)
+- [ ] A6-03 : `defusedxml.ElementTree` dans `rekordbox_xml.py` (billion laughs)
+- [ ] A6-05 : borner les payloads (`PATCH /radar/state/batch` max_length, `image_base64` max_length, strings watchlist)
+- [ ] A6-10 (volet docs) : desactiver `/api/docs` + `/api/openapi.json` en `ENV=production`. NB : le volet `/api/watchlist/active` part en AU5 (depend de A1-17, sinon `crawl_radar` casse)
+- [ ] A6-11 : ne plus logger `resp.text` du endpoint token Google (`auth.py:50-52`)
+- [ ] A6-12 : aligner `client_max_body_size` nginx sur 10M (ou lecture par chunks)
+
+### AU1.e — Lot frontend (QW-c)
+
+- [ ] A4-10 : `'/api/genres/'` -> `'/api/genres'` dans HubView (307 a chaque affichage du Hub)
+- [ ] A4-11 : AdminGenres — deriver les stats du fetch principal (3 appels -> 2) + try/catch sur `fetchMappingStats`
+
+### AU1.f — Lot infra (QW-c)
+
+- [ ] A5-05 : `COPY package-lock.json` + `npm ci` dans le Dockerfile frontend (build reproductible)
+- [ ] A5-10 : bloc `concurrency: deploy-prod` dans le workflow deploy
+- [ ] A5-11 : pinner `minio/minio` et `certbot/certbot` sur des tags versionnes
+- [ ] A5-12 : retirer le mapping `8080:80` du compose de base (le deplacer dans l'override local)
+- [ ] A5-13 : VPS — `docker rm` du certbot fantome + `docker volume prune` (fenetre de maintenance)
+- [ ] A5-16 : `.env.example` — `SECRET_KEY` -> `JWT_SECRET` + variables Google/Sentry/Backup manquantes
+- [ ] A5-18 : `http2 on;` sur le listener 443
+- [ ] A5-19 : `cache: npm` + `node-version: 22` dans la CI (alignement avec l'image prod)
+
+### Definition of Done
+
+```bash
+# Backup : cron actif, dump quotidien frais dans diggy_backups
+# Badge radar mobile > 0 pour un user avec du nouveau ; avis track persistes apres reload
+# 0 entree scope=private avec deezer_id valide en prod (apres script de rattrapage)
+# pip-audit audite requirements.txt ; .coverage et .tidal_tokens.json hors du suivi git
+# pytest + vitest + ruff + eslint passent
+```
+
+---
+
+## AU2 — Sauvegardes & deploiement
+
+**Priorite : HAUT**
+**Estimation : 1-2 jours**
+**Depend de : AU1 (cron backup pose)**
+**Statut : A FAIRE**
+
+### Objectif
+
+Rendre les backups reellement protecteurs (offsite + restauration testee) et fiabiliser le pipeline de deploiement. Integre la refonte du contexte de build workers (arbitrage Q9, test local complet du build obligatoire avant push).
+
+### Taches
+
+- [ ] A5-02 : copie offsite des dumps chiffres (S3/B2/rclone hors Hostinger) + rétention >= 2 generations hors retention locale + verifier les snapshots dans le panel Hostinger
+- [ ] A5-03 : `docs/restore.md` (dechiffrement GPG + psql + re-mirror MinIO), cle GPG stockee hors VPS, test de restauration reel sur DB jetable, date
+- [ ] A5-06 : retirer `--force-recreate` du deploy (coupure DB/Redis a chaque push)
+- [ ] A5-07 : executer `alembic upgrade head` AVANT la bascule du nouveau code (meme bloc de script que A5-06)
+- [ ] A5-08 + A5-09 (Q9) : contexte de build `./server` + Dockerfile copiant api/ et workers/ + `.dockerignore` par contexte + suppression des bind mounts du compose de base. CONDITION : build local complet valide avant push
+- [ ] A5-14 : nettoyer le cron reload nginx redondant (apres A5-01)
+- [ ] A5-20 : healthchecks celery sur worker/worker_enrich + beat
+
+### Definition of Done
+
+```bash
+# Un dump existe hors du VPS, restaure avec succes sur une DB jetable (procedure datee)
+# Push sur master : postgres/redis/minio ne sont plus recrees sans changement
+# docker inspect worker : plus de bind mount du repo hote en prod
+```
+
+---
+
+## AU3 — Integrite donnees (migration 0031)
+
+**Priorite : HAUT**
+**Estimation : 1-2 jours**
+**Depend de : rien. Ordre interne impose : 0031 -> A2-04 -> /schema_doc -> passe doc CLAUDE.md**
+**Statut : A FAIRE**
+
+### Objectif
+
+Purger le schema des elements morts prouves (arbitrage Q3), realigner modeles/migrations/doc, et corriger les donnees servies perimees.
+
+### AU3.a — Migration 0031 (perimetre exact Q3)
+
+- [ ] A2-01 : `DROP TABLE watched_playlists` (dump de precaution deja en place)
+- [ ] A2-06 : drop `catalog.fingerprint` + son index unique
+- [ ] A2-07 : drop `catalog.preview_url` + retirer le champ des schemas API (`schemas/catalog.py:26`, `schemas/radar.py:94`) et des SELECT (radar, similarity, catalog detail). NE PAS toucher `PreviewUrlResponse` (endpoint live, utilise par audioPlayer — garde-fou verifie le 2026-07-09)
+- [ ] A2-09 : `server_default=func.now()` sur `user_tracks.created_at`
+- [ ] A2-11 : index `ix_user_tracks_catalog_id` + `ix_user_follows_entity_id` (les 4 autres FK differees a C3)
+
+### AU3.b — Realignement schema
+
+- [ ] A2-05 : retirer `artists.bio/country/real_name/soundcloud_id` des schemas Pydantic (colonnes conservees)
+- [ ] A2-08 : retirer `sets.event/venue/description` de `DJSetDetailOut` (colonnes conservees) + documenter leur statut reserve dans le MANUAL block
+- [ ] A2-02 : reserver `create_all` au harnais de test ; en dev Docker, `alembic upgrade head` au demarrage (cause racine de la table orpheline)
+- [ ] A2-04 : declarer dans les modeles les ~10 index/contraintes existant uniquement en migration (0020/0028/0029/0030) + autogenerate a blanc = diff vide
+- [ ] M4 (A2-03/A7-06) : regenerer `docs/database-schema.md` via `/schema_doc` (APRES A2-04)
+- [ ] A7-05 + M5 (A1-22/A3-15) : passe doc CLAUDE.md — 5 compteurs, arborescence `deezer_enrich.py` sous workers/, docstring `image_service.py`, "weekly" -> "daily", date Last verified
+
+### AU3.c — Donnees servies perimees
+
+- [ ] A3-02 : purger `radar_trends` a chaque `compute_trends` (DELETE des lignes non touchees par le run, meme transaction) — 28% de lignes perimees servies aujourd'hui
+- [ ] A3-04 : distinguer echec HTTP Deezer de "not found" — ne poser `deezer_searched_at` que sur reponse 200 vide (sinon les entrees sortent definitivement du pipeline)
+
+### Definition of Done
+
+```bash
+# alembic upgrade head OK en prod ; alembic revision --autogenerate = diff vide
+# SELECT count(*) FROM radar_trends WHERE computed_at < (SELECT max(computed_at)...) = 0 apres compute_trends
+# database-schema.md et CLAUDE.md a jour (compteurs, arborescence)
+```
+
+---
+
+## AU7 — Dette de tests (enrichissement + auth)
+
+**Priorite : HAUT**
+**Estimation : 1-2 jours**
+**Depend de : rien. IMPERATIF : s'execute AVANT ou AVEC AU4 (filet pour les modifications workers)**
+**Statut : A FAIRE**
+
+### Objectif
+
+Perimetre reduit par l'arbitrage Q7 : tester le code le plus critique aujourd'hui a zero filet, et rendre le gate de coverage honnete. A6-08 (import RB) et A6-14 (branches OAuth) restent opportunistes, au fil des chantiers.
+
+### Taches
+
+- [ ] A6-04 (prioritaire) : retirer progressivement `enrichment.py`, `source_clients.py`, `workers/tasks/*` du `omit` de `pyproject.toml` — un gate aveugle est pire que pas de gate
+- [ ] A6-04 : tests unitaires sur `enrichment.py` (mock HTTP) — en priorite la resolution de conflits ISRC et la cascade Deezer
+- [ ] A6-07 : tests Vitest sur `LoginCallbackView` (cookie valide -> persist + redirect, cookie absent, base64 malforme, `?error=`)
+- [ ] M6 (A6-09/A7-08) : supprimer la fausse couverture `test_check_sync.py` (helper mort visant un module supprime) — pointer sur `server/deezer/sync_checker.py` si la logique y vit, sinon archiver
+
+### Definition of Done
+
+```bash
+# pyproject.toml : enrichment.py hors du omit, gate CI toujours vert
+# Cascade Deezer + conflits ISRC testes ; LoginCallbackView couvert (4 branches)
+# Plus aucun test validant du code supprime
+```
+
+---
+
+## AU4 — Robustesse workers
+
+**Priorite : MOYEN**
+**Estimation : 2 jours**
+**Depend de : AU7 (volet enrichissement = filet de tests)**
+**Statut : A FAIRE**
+
+### Objectif
+
+Erreurs typees, locks corrects, observabilite : que les crawls nocturnes echouent bruyamment et proprement au lieu de corrompre ou de se taire.
+
+### Taches
+
+- [ ] A3-03 : `reclassify_genres_chunk` — ne vider `entry.genres` qu'a l'affectation d'une nouvelle valeur ; distinguer "aucun genre trouve (200)" d'"erreur source"
+- [ ] A3-05 : rate limiting partage (token bucket Redis pour deezer/beatport, ou borner la concurrence de la queue crawl) — limites actuellement multipliees par la concurrence prefork
+- [ ] A3-06 : clients Deezer sync — verifier status 200 + absence de cle `error` du JSON, lever sinon (tracklist partielle => faux `removed_at`)
+- [ ] A3-07 : remplacer le matching de chaine "404" par une exception typee `PlaylistGoneError` par source (suppression destructive actuellement declenchable par un message d'erreur quelconque)
+- [ ] A3-08 : logger les 6 `except: pass` muets (materialize_parent x3, post-import dedup, artwork, link artist)
+- [ ] A3-09 : `CrawlLogger` sur `crawl_followed_sets` et `link_set_artists`
+- [ ] A3-10 : `chord` au lieu de `result.get()` dans `reclassify_all_genres` (slot worker bloque jusqu'a 7h)
+- [ ] A3-11 : lock Redis sur `resolve_set_tracks` (pattern `enrich_catalog_beatport`, TTL 7500s)
+- [ ] A3-12 : `deezer_searched_at` sur Artist (stop aux re-recherches des 226 memes artistes a chaque run)
+- [ ] A3-13 : lock `crawl_single_playlist` TTL 4600s (> time_limit, actuellement 900s)
+- [ ] A3-14 : lock import RB en `SET NX EX` + delete conditionnel a la valeur, TTL >= time_limit
+
+### Definition of Done
+
+```bash
+# Plus aucun except:pass muet dans workers/ + trackid/
+# crawl_followed_sets visible dans /api/admin/crawl-logs
+# Locks : TTL >= time_limit partout, acquisition atomique, release conditionnel
+```
+
+---
+
+## AU5 — Couche service backend
+
+**Priorite : MOYEN**
+**Estimation : 2-3 jours**
+**Depend de : AU1 (A1-02 deja fixe — verifier la non-regression)**
+**Statut : A FAIRE**
+
+### Objectif
+
+Perimetre reduit par l'arbitrage Q8 : finir la couche service pour search et watchlist (les deux seuls domaines sans service) + rangements S. Contrainte : zero changement de comportement, protege par les tests existants. A1-10/A1-11 sont rattaches a C6.
+
+### Taches
+
+- [ ] A1-01 : extraire `services/search_service.py` depuis `routers/search.py` (365 LOC, 5 helpers metier) + verifier la non-regression du fix A1-02
+- [ ] A6-06 : au passage dans search — helper `like_escape()` pour les metacaracteres `%`/`_` (~11 emplacements)
+- [ ] A1-05 : extraire `services/watchlist_service.py` (metadonnees Deezer, artwork, trigger crawl, cooldown)
+- [ ] A1-04 : remplacer les I/O synchrones (requests, MinIO) des endpoints async par httpx.AsyncClient / run_in_executor — a combiner avec A1-05 pour watchlist
+- [ ] A1-17 : `crawl_radar` lit les playlists actives en DB directe (via `workers/db.py`) au lieu de HTTP ; puis A6-10 (volet watchlist) : retirer `/api/watchlist/active` de `_OPEN_PREFIXES` et supprimer l'endpoint
+- [ ] A1-15 : deplacer `api/catalog.py` et `api/opinion_sync.py` vers `services/` (6 imports a mettre a jour)
+- [ ] A1-25 : `POST /sets/import` utilise `opinion_sync.sync_set_opinion` au lieu de sa reimplementation
+- [ ] A1-16 : API publique du cache pillars (`genre_service.ensure_pillar_cache()`) au lieu des imports de membres `_prives` par 3 routers
+- [ ] A1-18 + Q1b-2 : taxonomy (endpoints conserves, arbitrage Q1b) — smoke test 200 par endpoint + nettoyage SQL brut/camelCase sur le perimetre conserve
+
+### Definition of Done
+
+```bash
+# routers/search.py et routers/watchlist.py < 100 LOC chacun, logique en service
+# Plus d'appel HTTP worker -> API ; /api/watchlist/active supprime de _OPEN_PREFIXES
+# 11 endpoints taxonomy smoke-testes ; pytest sans regression
+```
+
+---
+
+## AU6 — Dette frontend
+
+**Priorite : MOYEN**
+**Estimation : 1-2 jours**
+**Depend de : rien**
+**Statut : A FAIRE**
+
+### Objectif
+
+Factoriser les patterns dupliques (pagination, polling, styles) et stopper les fuites d'intervals. A4-09 (HubView dans le bundle principal) : mesurer avant/apres, ne decouper que si le gain le justifie.
+
+### Taches
+
+- [ ] A4-07 : composable `useTaskPoll(statusUrlFn, {intervalMs, onDone, onError})` avec cleanup `onUnmounted` integre — migrer les 7 implementations (5 admin d'abord)
+- [ ] A4-06 : resolu par construction via A4-07 (verifier : plus aucun `setInterval` sans cleanup dans `components/admin/`)
+- [ ] A4-05 : composable `usePaginatedList({endpoint, pageSize})` — adopter dans ArtistsView + GenresView (CatalogView hors scope)
+- [ ] A4-08 : trancher le `loading` de `useInfiniteScroll` (le retirer ou y integrer le guard) — avec A4-05
+- [ ] A4-12 : classe utilitaire `.state` + keyframe `spin` dans `assets/page.css`, migration vue par vue validee contre /design-system
+- [ ] A1-23 (volet frontend) : appeler `GET /auth/me` au boot pour rafraichir `user` (un passage `is_admin` false->true n'est visible qu'au re-login aujourd'hui)
+- [ ] A4-09 (optionnel, mesure d'abord) : reduire ce que HubView embarque (sections lazy sous le fold) — `vite build` avant/apres
+
+### Definition of Done
+
+```bash
+# 0 setInterval sans onUnmounted dans src/
+# 1 seule implementation du poll de task Celery ; 1 seule du pattern liste paginee infinite-scroll
+# vitest + eslint passent
+```
+
+---
+
+## AU8 — Hygiene repo & documentation
+
+**Priorite : MOYEN**
+**Estimation : 1-2 jours**
+**Depend de : AU1 (suppressions actees), decisions Q2/Q5/Q6**
+**Statut : A FAIRE**
+
+### Objectif
+
+Executer les decisions de rangement (Q2 import legacy, Q5 design clean, Q6 stack locale) et remettre la documentation d'entree au niveau (README bloquant pour C3).
+
+### AU8.a — Import legacy (Q2)
+
+- [ ] A7-07/A1-08 : archiver `worker/import_rekordbox.py` dans `docs/completed/` (pas de suppression seche)
+- [ ] A1-08 : supprimer le router `tracks` (5 endpoints, ~500 LOC) + ses tests dedies. Garde-fou deja verifie (2026-07-09) : 0 appel frontend, seule une redirection de route. A1-09 sans objet
+- [ ] A7-07 : documenter dans CLAUDE.md — `worker/` + `server/deezer/` = outillage local cote PC Rekordbox (relocate, sync-check), hors runtime serveur
+
+### AU8.b — Design clean (Q5)
+
+- [ ] A7-09 : versionner `.claude/commands/` (retirer `.claude/` du .gitignore pour ce chemin)
+- [ ] A7-09 : archiver les .md de reference de `_design/` dans `docs/completed/design/` ; `_design/` cesse d'etre reference par CLAUDE.md (les futurs handoffs viennent du projet Claude Design)
+- [ ] A7-10 : deplacer `design-decisions.md` vers `docs/` (a cote de design-audit.md)
+- [ ] `.gitignore` : newline finale + slash sur `docs/prompts/` (reste ignore, convention conservee)
+
+### AU8.c — Documentation d'entree
+
+- [ ] A7-04 : reecrire README.md (structure actuelle, quickstart `docker compose up` + `.env.example`, liens CLAUDE.md / database-schema.md) — il decrit un projet qui n'existe plus
+- [ ] Q6/A5-17 : documenter dans CLAUDE.md que le dev local full-stack n'est PAS supporte (flux = push -> CI -> prod) + verifier que `npm run dev` seul degrade proprement (pas de crash de page si l'API est absente)
+- [ ] Q1b-2 : documenter les 8 endpoints taxonomy dans CLAUDE.md comme "reserves, non branches, futur explorateur de genres"
+- [ ] Q1b-4 : documenter `GET /watchlist/`, `POST /reset-beatport`, `POST /artists/backfill-multi-artists` comme outillage curl admin (A1-07/A1-14)
+- [ ] A5-15 : corriger les notes internes "Sentry non configure" (DSN pose, SDK initialise) + verifier la reception des evenements dans l'UI Sentry
+- [ ] A7-11 : `server/api/scripts/README.md` — classer chaque script `rejouable` / `one-shot execute le X`
+- [ ] A7-12 : renommer `server/scripts/test_sources.py` -> `bootstrap_tidal_tokens.py` + docstring du role reel
+- [ ] A7-03 : deplacer `out/*.csv` vers `scripts/data/` (seed du graphe de genres — NE PAS supprimer) + `out/` au .gitignore
+
+### Definition of Done
+
+```bash
+# Un tiers peut cloner, lire le README et lancer la stack sans instruction cassee
+# Plus de router tracks ; worker/import_rekordbox.py archive
+# .claude/commands/ versionne ; _design/ archive et deference de CLAUDE.md
+```
+
+---
+
 ## F5 — Import manuel (recherche externe)
 
 **Priorite : MOYEN**
@@ -411,7 +758,14 @@ Permettre a tout utilisateur connecte d'ajouter un track au catalog via une rech
 **Estimation : 5-7 jours**
 **Depend de : C1 (TERMINE) + H0 (hygiene secu/infra) + idealement C6 (donnees)**
 **Declenchement : ta decision d'inviter, pas la roadmap**
-**Statut : A FAIRE**
+**Statut : A FAIRE — apres la serie AU**
+
+**Renvois audit 2026-07** (voir `docs/audit_2026-07/CONSOLIDATED.md` + `DECISIONS.md`) :
+- C3.a in_lib `GET /sets/{id}` : fixe en **AU1** (M1/A1-03) — la tache ci-dessous devient une simple verification.
+- C3.b : diagnostic corrige par l'audit (A3-01, R6) — les tracks private SONT enrichies (aucun filtre scope dans les queries), c'est la promotion `private -> shared` qui manquait dans le pipeline async. Fix + rattrapage des 235 lignes en **AU1**. Reste a C3.b : le test de bout en bout multi-user.
+- C3.c Sentry : deja configure en prod (A5-15 — DSN pose, SDK initialise API + workers). Reste : verifier la reception des evenements (AU8).
+- A reprendre dans ce chantier : A2-11 (4 FK restantes sans index, a reevaluer avec la volumetrie), A2-14 (index `radar_trends (family, rank_in_family)` + `(rank_global)` — endpoint public le plus expose), A6-14 (branches d'echec OAuth + lifecycle radar en CI PG, opportuniste).
+- **Condition Q4** : si le repo est un jour ouvert (public ou contributeurs), la purge `git filter-repo` de l'historique (tokens TIDAL, A6-01) devient un prerequis BLOQUANT de cette ouverture.
 
 ### Objectif
 
@@ -573,6 +927,8 @@ L'auth est Google OAuth only depuis F3, mais des restes de l'ancien login email/
 
 ### N1.b — Suppression TagsView
 
+> **Absorbe par AU1** (M7 : TagsView + AppearRow, audit 2026-07). Conserve ici pour trace jusqu'a execution d'AU1.
+
 TagsView est une vue morte, `/tags` redirige vers `/genres`.
 
 - [ ] Supprimer `TagsView.vue` du frontend
@@ -598,6 +954,8 @@ TagsView est une vue morte, `/tags` redirige vers `/genres`.
 | Monitoring complet (Flower, UptimeRobot, pg_stat_statements) | Apres ouverture, si le besoin apparait |
 | Websocket progression import | Jamais peut-etre : le polling 2s suffit |
 | Tests composants frontend | Au fil de l'eau (tests integration backend dans H0.f) |
+| Tests import RB + branches OAuth (A6-08, A6-14 — arbitrage Q7) | Opportuniste, au fil des chantiers touchant ces zones |
+| Batch upsert import RB (A2-13) | Opportuniste, meme zone que A6-08 |
 | ~~Auto-migration au deploy~~ | FAIT — `alembic upgrade head` dans deploy.yml |
 | ~~`/api/radar/full` crash genres sort~~ | FAIT — `literal_column` au lieu de `StringArray[1]` |
 | ~~CSP bloque requetes API~~ | FAIT — `upgrade-insecure-requests` + location priority `^~` sur `/api/` et `/storage/` |
@@ -618,7 +976,15 @@ TagsView est une vue morte, `/tags` redirige vers `/genres`.
 | P1 | Polish & Correctifs UI | TERMINE | C1 |
 | F5 | Import manuel (recherche externe Deezer/TIDAL) | Parallelisable avec C6 | Rien (APIs deja accessibles) |
 | C6 | Veille elargie & Suivi artistes | Parallelisable avec F5 | C1 (trend). C6.0 dedup prerequis a C6.a crawl |
-| C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | H0 (FAIT) + C1 + idealement C6 |
+| AU1 | Quick Wins audit | Immediat | - |
+| AU2 | Sauvegardes & deploiement | Apres AU1 | AU1 (cron backup) |
+| AU3 | Integrite donnees (migration 0031) | Apres AU2 | Ordre interne : 0031 -> A2-04 -> /schema_doc -> doc |
+| AU7 | Dette de tests (enrich + auth) | AVANT ou AVEC AU4 | - |
+| AU4 | Robustesse workers | Apres AU7 (filet enrichissement) | AU7 |
+| AU5 | Couche service backend | Apres AU1 | AU1 (A1-02) |
+| AU6 | Dette frontend | Apres AU5 (ou parallele) | - |
+| AU8 | Hygiene repo & documentation | Fin de serie | Decisions Q2/Q5/Q6 (actees) |
+| C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | H0 (FAIT) + C1 + serie AU + idealement C6 |
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
 | C5 | Collections v2 (items polymorphes + dossiers) | Apres ouverture | C1 |
 | N1 | Nettoyage residus (auth legacy + TagsView morte) | Opportuniste | Rien |
