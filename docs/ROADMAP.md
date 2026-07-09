@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-09 (AU1 code TERMINE, reste OPS VPS ; serie AU inseree — audit global 2026-07, voir `docs/audit_2026-07/` ; C6 EN COURS)
+> **Derniere mise a jour** : 2026-07-09 (AU1 TERMINE — code + OPS VPS ; serie AU inseree — audit global 2026-07, voir `docs/audit_2026-07/` ; C6 EN COURS)
 
 ---
 
@@ -41,7 +41,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
  C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 + C6.a TERMINES)
- AU1  Quick Wins audit                      HAUT        1-2 jours    EN COURS (code TERMINE 2026-07-09, reste OPS VPS)
+ AU1  Quick Wins audit                      HAUT        1-2 jours    TERMINE (2026-07-09)
  AU2  Sauvegardes & deploiement             HAUT        1-2 jours    A FAIRE
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    A FAIRE
  AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    A FAIRE (avant/avec AU4)
@@ -78,6 +78,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C2   Moteur de Similarite + Artistes    TERMINE (graphe D3 reporte)
  H0   Hygiene & Solidification          TERMINE
  P1   Polish & Correctifs UI            TERMINE
+ AU1  Quick Wins audit                  TERMINE
 ```
 
 ### Dependances
@@ -99,7 +100,7 @@ F5 ─────────> Rien (parallelisable avec tout)
 C3 (ouvert) = declenchement manuel, apres H0 (FAIT) + C1 + idealement C6
 
 --- serie AU (audit 2026-07 — findings dans docs/audit_2026-07/CONSOLIDATED.md, arbitrages dans DECISIONS.md) ---
-AU1 ────────> Rien (demarrage immediat, parallelisable avec C6)
+AU1 ────────> Rien (demarrage immediat, parallelisable avec C6)      ✅ TERMINE
 AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + restore en AU2)
 AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md
 AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)
@@ -386,7 +387,7 @@ Toute playlist en base devrait etre surveillee a intervalle regulier, pas seulem
 **Priorite : HAUT**
 **Estimation : 1-2 jours**
 **Depend de : rien (parallelisable avec C6)**
-**Statut : EN COURS — code TERMINE le 2026-07-09 (ebca46b + 9eb90dd + fix A6-02), verifie en prod. Reste : volet OPS VPS uniquement (A5-01 cron backup — prerequis AU2, A5-13 menage, execution du rattrapage A3-01)**
+**Statut : TERMINE (2026-07-09) — code deploye et verifie en prod (ebca46b, 9eb90dd, e2e4488) ; OPS VPS fait : cron backup actif (01:30 + check fraicheur 09:00), rattrapage A3-01 execute (235 promues, 0 restante), menage A5-13 (certbot fantome + 11 volumes orphelins)**
 
 ### Objectif
 
@@ -394,7 +395,7 @@ Les 8 QUICK WINS stricts (impact haute/critique x effort S) + les quick-wins can
 
 ### AU1.a — Les 8 quick wins stricts
 
-- [ ] A5-01 : cron backup quotidien sur le VPS (`docker compose run --rm backup`) + verification de fraicheur (alerte si latest > 26h)
+- [x] A5-01 : cron backup quotidien sur le VPS (`docker compose run --rm backup`) + verification de fraicheur (alerte si latest > 26h)
 - [x] M1 (A1-03/A2-10) : filtrer `in_lib` par `user_id` sur `GET /sets/{id}` (`sets.py:264`), `in_lib=False` pour les guests
 - [x] M2 (A1-24/A4-01) : corriger `api.get('/radar/new-count')` -> `/api/radar/new-count` (`BottomNav.vue:58`) + ne fetcher que si authentifie
 - [x] A4-02 : rebrancher les avis TrackDetailView sur le chemin canonique (trancher : `PATCH /api/catalog/{id}/avis` comme CatalogView, ou store opinions) — le POST actuel vise un endpoint inexistant
@@ -436,7 +437,7 @@ Les 8 QUICK WINS stricts (impact haute/critique x effort S) + les quick-wins can
 - [x] A5-10 : bloc `concurrency: deploy-prod` dans le workflow deploy
 - [x] A5-11 : pinner `minio/minio` et `certbot/certbot` sur des tags versionnes
 - [x] A5-12 : retirer le mapping `8080:80` du compose de base (le deplacer dans l'override local)
-- [ ] A5-13 : VPS — `docker rm` du certbot fantome + `docker volume prune` (fenetre de maintenance)
+- [x] A5-13 : VPS — `docker rm` du certbot fantome + `docker volume prune` (fenetre de maintenance)
 - [x] A5-16 : `.env.example` — `SECRET_KEY` -> `JWT_SECRET` + variables Google/Sentry/Backup manquantes
 - [x] A5-18 : `http2 on;` sur le listener 443
 - [x] A5-19 : `cache: npm` + `node-version: 22` dans la CI (alignement avec l'image prod)
