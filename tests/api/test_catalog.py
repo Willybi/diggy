@@ -1,7 +1,7 @@
 """Tests for /api/catalog endpoints."""
 from datetime import datetime, timezone
 
-from models import CatalogEntry, CatalogArtist, UserTrack, Artist, RadarTrack, WatchedEntity, SetTrack, DJSet
+from models import CatalogEntry, CatalogArtist, UserTrack, Artist, RadarTrack, WatchedEntity, SetTrack, DJSet, User, UserOpinion
 
 
 class TestListCatalog:
@@ -257,6 +257,117 @@ class TestCatalogAvis:
         r = await auth_client.patch(f"/api/catalog/{cat.id}/avis", json={"avis": None})
         assert r.status_code == 200
         assert r.json()["avis"] is None
+
+
+class TestCatalogAvisReadPaths:
+    """Read paths for avis: user_opinions is canonical, covers tracks outside the library."""
+
+    async def test_avis_outside_library_in_detail_and_listing(self, auth_client, db, auth_user):
+        cat = CatalogEntry(title="OutLib", artist="A", normalized_key="a|outlib")
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+
+        r = await auth_client.patch(f"/api/catalog/{cat.id}/avis", json={"avis": "liked"})
+        assert r.status_code == 200
+
+        r = await auth_client.get(f"/api/catalog/{cat.id}")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["in_lib"] is False
+        assert data["avis"] == "liked"
+
+        r = await auth_client.get("/api/catalog/?avis=liked")
+        data = r.json()
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == cat.id
+        assert data["items"][0]["avis"] == "liked"
+        assert data["items"][0]["in_lib"] is False
+
+    async def test_guest_detail_avis_is_none(self, client, db, auth_user):
+        cat = CatalogEntry(title="GuestTrack", artist="A", normalized_key="a|guesttrack")
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(UserOpinion(
+            user_id=auth_user.id, entity_type="track",
+            entity_key=str(cat.id), opinion="liked",
+        ))
+        await db.commit()
+
+        r = await client.get(f"/api/catalog/{cat.id}")
+        assert r.status_code == 200
+        assert r.json()["avis"] is None
+
+    async def test_other_user_does_not_see_avis(self, client, db, auth_user):
+        from dependencies import get_current_user, get_current_user_optional
+        from main import app
+
+        user2 = User(
+            email="other@test.com", username="other",
+            google_id="google-other-user", is_active=True, is_admin=False,
+        )
+        cat = CatalogEntry(title="Private", artist="A", normalized_key="a|private")
+        db.add_all([user2, cat])
+        await db.commit()
+        await db.refresh(cat)
+        db.add(UserOpinion(
+            user_id=auth_user.id, entity_type="track",
+            entity_key=str(cat.id), opinion="liked",
+        ))
+        await db.commit()
+
+        app.dependency_overrides[get_current_user] = lambda: user2
+        app.dependency_overrides[get_current_user_optional] = lambda: user2
+        try:
+            r = await client.get(f"/api/catalog/{cat.id}")
+            assert r.status_code == 200
+            assert r.json()["avis"] is None
+
+            r = await client.get("/api/catalog/?avis=liked")
+            assert r.json()["total"] == 0
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_current_user_optional, None)
+
+    async def test_avis_in_library_still_served(self, auth_client, db, auth_user):
+        cat = CatalogEntry(title="InLibAvis", artist="A", normalized_key="a|inlibavis")
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(UserTrack(user_id=auth_user.id, catalog_id=cat.id, source="test"))
+        await db.commit()
+
+        r = await auth_client.patch(f"/api/catalog/{cat.id}/avis", json={"avis": "disliked"})
+        assert r.status_code == 200
+
+        r = await auth_client.get(f"/api/catalog/{cat.id}")
+        data = r.json()
+        assert data["in_lib"] is True
+        assert data["avis"] == "disliked"
+
+        r = await auth_client.get("/api/catalog/?avis=disliked")
+        data = r.json()
+        assert data["total"] == 1
+        assert data["items"][0]["avis"] == "disliked"
+        assert data["items"][0]["in_lib"] is True
+
+    async def test_legacy_ut_avis_without_opinion_row(self, auth_client, db, auth_user):
+        """Legacy denormalized data: user_tracks.avis set without a user_opinions row."""
+        cat = CatalogEntry(title="Legacy", artist="A", normalized_key="a|legacy")
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(UserTrack(user_id=auth_user.id, catalog_id=cat.id, source="test", avis="liked"))
+        await db.commit()
+
+        r = await auth_client.get(f"/api/catalog/{cat.id}")
+        assert r.json()["avis"] == "liked"
+
+        r = await auth_client.get("/api/catalog/?avis=liked")
+        data = r.json()
+        assert data["total"] == 1
+        assert data["items"][0]["avis"] == "liked"
 
 
 class TestCatalogSimilar:

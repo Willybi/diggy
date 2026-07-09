@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime
 
 import httpx
-from sqlalchemy import case, func, select
+from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.genre_service import _PILLAR_CACHE, _ensure_pillar_cache, genre_pillar
@@ -37,6 +37,7 @@ async def list_catalog(
         RadarTrack,
         RadarTrend,
         SetTrack,
+        UserOpinion,
         UserTrack,
         WatchedEntity,
     )
@@ -77,6 +78,16 @@ async def list_catalog(
         .where(UserTrack.user_id == user_id)
         .subquery()
     )
+    # Canonical opinions: covers tracks outside the library (no user_tracks row)
+    uo_sub = (
+        select(
+            UserOpinion.entity_key,
+            UserOpinion.opinion,
+        )
+        .where(UserOpinion.user_id == user_id, UserOpinion.entity_type == "track")
+        .subquery()
+    )
+    avis_col = func.coalesce(uo_sub.c.opinion, ut_sub.c.ut_avis)
     radar_src = (
         select(
             RadarTrack.catalog_id,
@@ -125,7 +136,7 @@ async def list_catalog(
         ut_sub.c.rb_key.label("ut_key"),
         ut_sub.c.rb_mytags.label("ut_tags"),
         ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
-        ut_sub.c.ut_avis.label("ut_avis"),
+        avis_col.label("avis"),
         trend_sub.c.rank_global.label("trend_rank"),
         trend_sub.c.trend_score_10.label("trend_score_10"),
     ]
@@ -143,6 +154,7 @@ async def list_catalog(
         .outerjoin(radar_count, CatalogEntry.id == radar_count.c.catalog_id)
         .outerjoin(set_count, CatalogEntry.id == set_count.c.catalog_id)
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
+        .outerjoin(uo_sub, uo_sub.c.entity_key == cast(CatalogEntry.id, String))
         .outerjoin(trend_sub, CatalogEntry.id == trend_sub.c.catalog_id)
     )
 
@@ -171,7 +183,7 @@ async def list_catalog(
             CatalogEntry.title.ilike(pattern) | CatalogEntry.artist.ilike(pattern)
         )
     if avis:
-        query = query.where(ut_sub.c.ut_avis == avis)
+        query = query.where(avis_col == avis)
 
     await _ensure_pillar_cache(db)
 
@@ -212,7 +224,7 @@ async def list_catalog(
         dir_fn = (lambda c: c.desc().nulls_last()) if order != "asc" else (lambda c: c.asc().nulls_last())
         query = query.order_by(dir_fn(ut_sub.c.ut_date_added))
     elif sort == "avis":
-        sort_col = func.coalesce(ut_sub.c.ut_avis, "")
+        sort_col = func.coalesce(avis_col, "")
     elif sort == "title":
         sort_col = CatalogEntry.title
     else:
@@ -261,7 +273,7 @@ async def list_catalog(
         ut_key = row[6]
         ut_tags = row[7]
         ut_has_artwork = row[8]
-        ut_avis = row[9]
+        row_avis = row[9]
         t_rank = row[10]
         t_score_10 = row[11]
         entry_artists = artists_by_catalog.get(entry.id, [])
@@ -309,7 +321,7 @@ async def list_catalog(
                 nb_radar_sets=nb_sets or 0,
                 style=lib_style,
                 rating=ut_rating,
-                avis=ut_avis,
+                avis=row_avis,
                 trend_rank=t_rank,
                 trend_score_10=round(t_score_10, 1) if t_score_10 is not None else None,
                 artist_id=art_id,
@@ -329,6 +341,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
         DJSet,
         RadarTrack,
         SetTrack,
+        UserOpinion,
         UserTrack,
         WatchedEntity,
     )
@@ -354,6 +367,22 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
     ut = ut_result.scalar_one_or_none()
     in_lib = ut is not None
     ut_rating = ut.rating if ut else None
+
+    # Canonical opinion (covers tracks outside the library); fall back to
+    # the denormalized user_tracks.avis for consistency with list_catalog.
+    avis = None
+    if user_id is not None:
+        op_result = await db.execute(
+            select(UserOpinion)
+            .where(
+                UserOpinion.user_id == user_id,
+                UserOpinion.entity_type == "track",
+                UserOpinion.entity_key == str(catalog_id),
+            )
+            .limit(1)
+        )
+        op = op_result.scalar_one_or_none()
+        avis = op.opinion if op else (ut.avis if ut else None)
     ut_tags: list[str] = []
     lib_style = None
     if ut and ut.rb_mytags:
@@ -513,6 +542,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
         nb_radar_sets=len(set_appearances),
         style=lib_style,
         rating=ut_rating,
+        avis=avis,
         artist_id=entry_artist_id,
         artists=entry_artists,
         lib_track_id=ut.rekordbox_id if ut else None,
