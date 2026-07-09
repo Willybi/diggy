@@ -73,7 +73,6 @@ from .genres import (
     GenreSetListResponse,
     GenreTrackItem,
     GenreTrackListResponse,
-    RefreshPillarsResponse,
 )
 from .import_rb import ImportQueuedResponse, ImportStatusResponse
 from .opinions import OpinionSetResponse, OpinionUpdate
@@ -231,7 +230,6 @@ __all__ = [
     "GenreNeighborResponse",
     "GenreMergeResponse",
     "GenreRenameResponse",
-    "RefreshPillarsResponse",
     # collections
     "CollectionCreateIn",
     "CollectionItemAddIn",

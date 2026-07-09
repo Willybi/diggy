@@ -3,15 +3,15 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .common import ArtistRef
 
 
 class WatchedEntityIn(BaseModel):
-    external_id: str
-    source: str
-    description: Optional[str] = None
+    external_id: str = Field(..., max_length=64)
+    source: str = Field(..., max_length=50)
+    description: Optional[str] = Field(None, max_length=2000)
 
 
 class WatchedEntityOut(BaseModel):

@@ -70,6 +70,33 @@ class TestRadarBatchValidation:
         )
         assert r.status_code != 422
 
+    async def test_batch_over_limit_returns_422(self, client):
+        # A6-05: the batch body is bounded to MAX_BATCH_SIZE items.
+        from routers.radar import MAX_BATCH_SIZE
+
+        payload = [{"catalog_id": 1, "status": "seen"}] * (MAX_BATCH_SIZE + 1)
+        r = await client.patch("/api/radar/state/batch", json=payload)
+        assert r.status_code == 422
+
+
+# ── Bulk import payload bounds (A6-05) ───────────────────────────────────────
+
+class TestTrackImportBounds:
+    async def test_image_base64_too_long_returns_422(self, client):
+        from schemas.tracks import MAX_IMAGE_BASE64_LEN
+
+        payload = {"id": 1, "image_base64": "A" * (MAX_IMAGE_BASE64_LEN + 1)}
+        r = await client.post("/api/tracks/bulk", json=[payload])
+        assert r.status_code == 422
+
+    async def test_image_base64_within_bound_accepted(self, client, mocker):
+        mocker.patch("services.image_service.ImageService.ensure_bucket")
+        mocker.patch("services.image_service.ImageService.upload_file")
+        # A short, valid base64 payload must not be rejected by the length bound.
+        payload = {"id": 1, "title": "T", "image_base64": None}
+        r = await client.post("/api/tracks/bulk", json=[payload])
+        assert r.status_code != 422
+
 
 # ── Catalog sort/order validation ────────────────────────────────────────────
 

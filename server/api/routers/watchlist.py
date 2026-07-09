@@ -32,7 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 DEEZER_API = "https://api.deezer.com"
-PLAYLIST_ARTWORK_BUCKET = "playlist-artworks"
 
 
 def _fetch_deezer_playlist(external_id: str) -> dict:
@@ -59,10 +58,10 @@ def _upload_playlist_artwork(entity_id: int, picture_url: str) -> bool:
     if not picture_url:
         return False
     try:
-        from services.image_service import ImageService
+        from services.image_service import BUCKET_PLAYLIST, ImageService
 
-        ImageService.ensure_bucket(PLAYLIST_ARTWORK_BUCKET)
-        return ImageService.upload_from_url(picture_url, PLAYLIST_ARTWORK_BUCKET, f"{entity_id}.jpg")
+        ImageService.ensure_bucket(BUCKET_PLAYLIST)
+        return ImageService.upload_from_url(picture_url, BUCKET_PLAYLIST, f"{entity_id}.jpg")
     except Exception:
         return False
 
@@ -311,24 +310,6 @@ async def crawl_playlist(
 
     await _trigger_crawl(entity.id, db)
     return {"status": "crawl_queued", "playlist_id": entry_id}
-
-
-@router.patch("/{entry_id}/crawled", response_model=WatchedEntityOut)
-async def mark_crawled(
-    entry_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
-    entry = result.scalar_one_or_none()
-    if not entry:
-        raise HTTPException(status_code=404, detail="Not found")
-    entry.last_crawled_at = datetime.now(timezone.utc)
-    entry.current_task_id = None
-    entry.crawl_started_at = None
-    await db.commit()
-    await db.refresh(entry)
-    return entry
 
 
 @router.get("/{entry_id}/crawl-status", response_model=CrawlStatusResponse)

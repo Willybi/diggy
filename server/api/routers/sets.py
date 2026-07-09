@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 
 from celery_client import celery
 from database import get_db
-from dependencies import get_current_user
+from dependencies import get_current_user, get_current_user_optional
+from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import (
     Artist,
@@ -231,7 +232,13 @@ async def import_set_url(
 
 
 @router.get("/{set_id}", response_model=DJSetDetailOut)
-async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
+async def get_set_detail(
+    set_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    uid = _uid(user)
+
     # 1. DJSet
     result = await db.execute(
         select(DJSet)
@@ -257,12 +264,16 @@ async def get_set_detail(set_id: int, db: AsyncSession = Depends(get_db)):
         for sa in sorted(dj_set.artist_links, key=lambda x: x.position or 99)
     ]
 
-    # 3. Collect catalog_ids to batch-check lib status + artists
+    # 3. Collect catalog_ids to batch-check lib status + artists.
+    # in_lib is scoped to the current user; guests (uid None) never own tracks.
     catalog_ids = [t.catalog_id for t in dj_set.tracks if t.catalog_id]
     lib_set = set()
-    if catalog_ids:
+    if uid is not None and catalog_ids:
         lib_result = await db.execute(
-            select(UserTrack.catalog_id).where(UserTrack.catalog_id.in_(catalog_ids))
+            select(UserTrack.catalog_id).where(
+                UserTrack.user_id == uid,
+                UserTrack.catalog_id.in_(catalog_ids),
+            )
         )
         lib_set = {r[0] for r in lib_result.all()}
 

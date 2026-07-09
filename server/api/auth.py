@@ -47,9 +47,9 @@ async def verify_google_token(code: str) -> dict:
             },
         )
         if resp.status_code != 200:
-            logger.warning(
-                "Google token endpoint %s — body: %s", resp.status_code, resp.text
-            )
+            # Do not log resp.text: the Google token endpoint response may carry
+            # sensitive material. Status code is enough to diagnose failures.
+            logger.warning("Google token endpoint returned %s", resp.status_code)
         resp.raise_for_status()
         token_data = resp.json()
 

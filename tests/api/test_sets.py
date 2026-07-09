@@ -6,7 +6,16 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from main import app
-from models import DJSet, SetTrack, SetArtist, Artist, UserSetFollow
+from models import (
+    Artist,
+    CatalogEntry,
+    DJSet,
+    SetArtist,
+    SetTrack,
+    User,
+    UserSetFollow,
+    UserTrack,
+)
 
 
 class TestListSets:
@@ -102,6 +111,54 @@ class TestSetDetail:
         data = r.json()
         assert len(data["tracklist"]) == 1
         assert data["tracklist"][0]["raw_title"] == "Cola"
+
+
+class TestSetDetailInLib:
+    """in_lib in the tracklist must be scoped to the requesting user (M1)."""
+
+    async def _make_set_with_track(self, db):
+        cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")
+        db.add(cat)
+        await db.flush()
+        s = DJSet(source="trackid", title="In-Lib Set")
+        db.add(s)
+        await db.flush()
+        db.add(SetTrack(set_id=s.id, position=1, catalog_id=cat.id, raw_title="Cola"))
+        return s, cat
+
+    async def test_guest_in_lib_is_false_even_if_others_own_it(self, client, db, auth_user):
+        """Guests own nothing: in_lib must be False even when a user has the track."""
+        s, cat = await self._make_set_with_track(db)
+        db.add(UserTrack(user_id=auth_user.id, catalog_id=cat.id, source="test"))
+        await db.commit()
+
+        r = await client.get(f"/api/sets/{s.id}")
+        assert r.status_code == 200
+        assert r.json()["tracklist"][0]["in_lib"] is False
+
+    async def test_in_lib_true_for_owner(self, auth_client, db, auth_user):
+        s, cat = await self._make_set_with_track(db)
+        db.add(UserTrack(user_id=auth_user.id, catalog_id=cat.id, source="test"))
+        await db.commit()
+
+        r = await auth_client.get(f"/api/sets/{s.id}")
+        assert r.status_code == 200
+        assert r.json()["tracklist"][0]["in_lib"] is True
+
+    async def test_in_lib_false_when_only_another_user_owns_it(self, auth_client, db, auth_user):
+        """A track owned by a different user must not leak into auth_user's in_lib."""
+        s, cat = await self._make_set_with_track(db)
+        other = User(
+            email="other@test.com", username="other", google_id="g-other", is_active=True
+        )
+        db.add(other)
+        await db.flush()
+        db.add(UserTrack(user_id=other.id, catalog_id=cat.id, source="test"))
+        await db.commit()
+
+        r = await auth_client.get(f"/api/sets/{s.id}")
+        assert r.status_code == 200
+        assert r.json()["tracklist"][0]["in_lib"] is False
 
 
 class TestImportSet:

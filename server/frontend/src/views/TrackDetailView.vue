@@ -375,11 +375,11 @@ const stats = computed(() => {
   ]
 })
 
-// T3: persist opinion
+// T3: persist opinion (canonical avis endpoint, same as CatalogView)
 watch(opinion, async (val) => {
   if (!track.value) return
   try {
-    await api.post(`/api/opinions/${track.value.id}`, { opinion: val })
+    await api.patch(`/api/catalog/${track.value.id}/avis`, { avis: val })
   } catch {
     // silent
   }

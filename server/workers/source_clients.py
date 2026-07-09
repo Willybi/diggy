@@ -243,8 +243,13 @@ def _get_tidal_session():
         if _try_refresh_tidal(session):
             return session
 
-    # 3. Fallback: token file (dev)
-    token_file = Path(__file__).parent.parent / "scripts" / ".tidal_tokens.json"
+    # 3. Fallback: token file (dev) — path overridable to point outside the repo
+    token_file = Path(
+        os.environ.get(
+            "TIDAL_TOKEN_FILE",
+            str(Path(__file__).parent.parent / "scripts" / ".tidal_tokens.json"),
+        )
+    )
     if token_file.exists():
         tokens = json.loads(token_file.read_text())
         session.load_oauth_session(

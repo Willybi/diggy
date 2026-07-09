@@ -18,13 +18,8 @@ from schemas import (
     GenreSetListResponse,
     GenreTrackListResponse,
     RandomTrackResponse,
-    RefreshPillarsResponse,
 )
 from services import genre_service
-from services.genre_service import (
-    _PILLAR_CACHE,
-    _load_pillar_cache,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(tags=["genres"])
@@ -166,17 +161,6 @@ async def get_genre_neighbors(
         return await genre_service.get_neighbors(db, name, limit)
     except LookupError as e:
         raise HTTPException(404, str(e))
-
-
-@router.post("/refresh-pillars", response_model=RefreshPillarsResponse)
-async def refresh_pillars(
-    db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
-):
-    """Admin: reload pillar cache from taxonomy."""
-    _PILLAR_CACHE.clear()
-    await _load_pillar_cache(db)
-    return {"ok": True, "cached": len(_PILLAR_CACHE)}
 
 
 @router.patch("/rename/{name:path}", response_model=GenreRenameResponse)

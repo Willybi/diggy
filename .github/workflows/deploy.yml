@@ -5,6 +5,10 @@ on:
     branches:
       - master
 
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
 jobs:
   lint-frontend:
     runs-on: ubuntu-latest
@@ -13,7 +17,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: server/frontend/package-lock.json
 
       - name: Install frontend dependencies
         run: cd server/frontend && npm ci
@@ -73,7 +79,7 @@ jobs:
           python-version: "3.13"
           cache: "pip"
       - name: Audit Python dependencies
-        run: pip install pip-audit && pip-audit --desc
+        run: pip install pip-audit && pip-audit -r server/api/requirements.txt --desc
 
   test-frontend:
     runs-on: ubuntu-latest
@@ -81,7 +87,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: server/frontend/package-lock.json
       - name: Install dependencies
         run: cd server/frontend && npm ci
       - name: Run tests

@@ -49,6 +49,22 @@ APP_VERSION = "1.0.0"
 _start_time = time.time()
 
 
+def _docs_urls() -> dict:
+    """Docs/redoc/openapi URLs — all disabled in production.
+
+    Exposing the full OpenAPI schema (every endpoint, incl. admin) publicly
+    hands scanners a reconnaissance map. In prod we return None for the three
+    URLs so FastAPI does not register those routes at all.
+    """
+    if os.environ.get("ENV") == "production":
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {
+        "docs_url": "/api/docs",
+        "redoc_url": "/api/redoc",
+        "openapi_url": "/api/openapi.json",
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if os.getenv("ENV") != "production":
@@ -63,9 +79,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Diggy API",
     version=APP_VERSION,
-    docs_url="/api/docs",
-    openapi_url="/api/openapi.json",
     lifespan=lifespan,
+    **_docs_urls(),
 )
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(JWTAuthMiddleware)

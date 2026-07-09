@@ -144,3 +144,39 @@ class TestSearch:
         assert len(data["items"]) == 2
         # Exact match "Cola" should come first
         assert data["items"][0]["title"] == "Cola"
+
+
+class TestSearchPagination:
+    """A1-02: LIMIT must be deterministic (ORDER BY) and single-scope offset real."""
+
+    async def test_order_stable_between_identical_calls(self, client, db):
+        for i in range(5):
+            db.add(CatalogEntry(
+                title=f"Techno {i}", artist="DJ",
+                normalized_key=f"techno {i} - dj",
+            ))
+        await db.commit()
+
+        r1 = await client.get("/api/search?q=techno&scope=track")
+        r2 = await client.get("/api/search?q=techno&scope=track")
+        ids1 = [i["id"] for i in r1.json()["items"]]
+        ids2 = [i["id"] for i in r2.json()["items"]]
+        assert len(ids1) >= 1
+        assert ids1 == ids2
+
+    async def test_single_scope_offset_returns_distinct_pages(self, auth_client, db):
+        for i in range(4):
+            db.add(CatalogEntry(
+                title=f"House {i}", artist="DJ",
+                normalized_key=f"house {i} - dj",
+            ))
+        await db.commit()
+
+        r0 = await auth_client.get("/api/search?q=house&scope=track&limit=2&offset=0")
+        r2 = await auth_client.get("/api/search?q=house&scope=track&limit=2&offset=2")
+        ids0 = {i["id"] for i in r0.json()["items"]}
+        ids2 = {i["id"] for i in r2.json()["items"]}
+        assert len(ids0) == 2
+        assert len(ids2) == 2
+        # Real DB pagination: the two windows never overlap.
+        assert ids0.isdisjoint(ids2)

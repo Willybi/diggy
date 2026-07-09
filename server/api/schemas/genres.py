@@ -130,8 +130,3 @@ class GenreRenameResponse(BaseModel):
     affected: int
 
     model_config = {"populate_by_name": True}
-
-
-class RefreshPillarsResponse(BaseModel):
-    ok: bool = True
-    cached: int

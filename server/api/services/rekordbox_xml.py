@@ -1,18 +1,27 @@
 """Parser for Rekordbox XML export files (Fichier > Exporter la collection > XML)."""
 
 import logging
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Optional
+
+import defusedxml.ElementTree as ET
+from defusedxml.common import DefusedXmlException
 
 logger = logging.getLogger("diggy")
 
 
 def validate_rekordbox_xml(content: bytes) -> bool:
-    """Return True if content looks like a valid Rekordbox XML export."""
+    """Return True if content looks like a valid Rekordbox XML export.
+
+    Parsing goes through defusedxml, which raises a DefusedXmlException
+    (EntitiesForbidden / DTDForbidden / …) on entity-expansion payloads
+    ("billion laughs") instead of exploding memory. We treat any such
+    malicious or malformed input as invalid rather than letting it
+    propagate — the validation runs synchronously in the web worker.
+    """
     try:
         root = ET.fromstring(content)
-    except ET.ParseError:
+    except (ET.ParseError, DefusedXmlException):
         return False
     return root.tag == "DJ_PLAYLISTS" and root.get("Version") is not None
 

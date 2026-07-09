@@ -12,7 +12,7 @@ router = APIRouter(prefix="/opinions", tags=["opinions"])
 VALID_TYPES = {"artist", "set", "playlist", "genre", "track"}
 
 
-@router.get("/")
+@router.get("/", response_model=dict[str, dict[str, str]])
 async def get_opinions(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -70,13 +70,21 @@ async def set_opinion(
             )
         )
 
-    # Sync follow/avis state
-    if body.entity_type == "set":
-        await sync_set_opinion(db, uid, int(body.entity_key), body.opinion)
-    elif body.entity_type == "playlist":
-        await sync_playlist_opinion(db, uid, int(body.entity_key), body.opinion)
-    elif body.entity_type == "track":
-        await sync_track_opinion(db, uid, int(body.entity_key), body.opinion)
+    # Sync follow/avis state. set/playlist/track key onto a numeric primary key;
+    # a non-numeric entity_key is a client error (422), not a server crash (500).
+    if body.entity_type in ("set", "playlist", "track"):
+        try:
+            entity_id = int(body.entity_key)
+        except ValueError:
+            raise HTTPException(
+                422, f"entity_key must be numeric for entity_type '{body.entity_type}'"
+            )
+        if body.entity_type == "set":
+            await sync_set_opinion(db, uid, entity_id, body.opinion)
+        elif body.entity_type == "playlist":
+            await sync_playlist_opinion(db, uid, entity_id, body.opinion)
+        else:
+            await sync_track_opinion(db, uid, entity_id, body.opinion)
 
     await db.commit()
     return {

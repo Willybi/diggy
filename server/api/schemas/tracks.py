@@ -4,7 +4,13 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+# Cap the artwork payload to guard against memory-DoS on bulk import (an image
+# per track, up to MAX_BULK_IMPORT_SIZE items). base64 inflates ~33 %, so ~3 MiB
+# of base64 caps a ~2.2 MiB source image — well above any real Rekordbox embedded
+# artwork (typically a few hundred KB).
+MAX_IMAGE_BASE64_LEN = 3 * 1024 * 1024
 
 
 class TrackOut(BaseModel):
@@ -60,7 +66,7 @@ class TrackImport(BaseModel):
     file_path: Optional[str] = None
     date_added: Optional[datetime] = None
     tags: list[str] = []
-    image_base64: Optional[str] = None
+    image_base64: Optional[str] = Field(default=None, max_length=MAX_IMAGE_BASE64_LEN)
 
 
 class BulkImportResult(BaseModel):

@@ -24,7 +24,7 @@ services:
         done
 
   certbot:
-    image: certbot/certbot
+    image: certbot/certbot:v5.7.0
     container_name: diggy_certbot
     volumes:
       - certbot_conf:/etc/letsencrypt

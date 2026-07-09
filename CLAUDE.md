@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-07 (C6.a)
+> Last verified: 2026-07-09 (AU1)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -31,7 +31,7 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 16 routers, 93 endpoints:
+│   ├── routers/             # 14 routers, 97 endpoints:
 │   │                        # tracks, catalog, radar, watchlist, artists, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin
@@ -44,8 +44,8 @@ server/
 │   └── tasks/               # 7 modules: radar, catalog, artists, genres,
 │                            # import_rb, sets, trends
 ├── frontend/src/
-│   ├── views/               # 17 views (16 routed + 1 dead TagsView)
-│   ├── components/          # 25 shared components
+│   ├── views/               # 17 views (all routed)
+│   ├── components/          # 33 components (27 shared + 6 admin)
 │   ├── composables/         # useInfiniteScroll, useStyleMap, useTheme
 │   ├── stores/              # Pinia: auth, audioPlayer, opinions
 │   └── styles/diggy-tokens.css  # ALL colors/spacing (zero hardcoded)
@@ -113,7 +113,7 @@ docker compose up -d --build
 cd server/frontend && npm run dev     # frontend dev server
 ```
 
-Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`, `DATABASE_URL`, `JWT_SECRET`, `MINIO_USER/PASSWORD`. Prod adds `COMPOSE_FILE=docker-compose.yml:docker-compose.ssl.yml` and `DOMAIN`. `ENV=production` disables permissive CORS.
+Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`, `DATABASE_URL`, `JWT_SECRET`, `MINIO_USER/PASSWORD`. Prod adds `COMPOSE_FILE=docker-compose.yml:docker-compose.ssl.yml` and `DOMAIN`. `ENV=production` disables permissive CORS and the API docs (`/api/docs`, `/api/redoc`, `/api/openapi.json` are not registered).
 
 ## Celery Beat Schedule
 
@@ -136,6 +136,7 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 - `/api/`, `/storage/`, `/minio/` use `^~` prefix priority so they are not captured by the assets regex `\.(js|css|jpg)$`.
 - The active prod config is `default.ssl.conf.template`. `default.conf` is intentionally empty.
 - Keep CSP `upgrade-insecure-requests` as long as any `http://` request can arrive.
+- `client_max_body_size` (12M) is coupled to the Rekordbox XML import limit (`MAX_FILE_SIZE` 10MB in `import_rb.py`): keep nginx slightly above the app limit so the app returns its French 413 message, and raise both together.
 
 ### Frontend
 - Container queries everywhere; `@media` ONLY for `position: fixed` elements.

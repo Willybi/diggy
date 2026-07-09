@@ -339,7 +339,7 @@ const topGenres = ref([])
 
 async function loadTopGenres() {
   try {
-    const { data } = await api.get('/api/genres/', { params: { limit: 10, sort: 'tracks' } })
+    const { data } = await api.get('/api/genres', { params: { limit: 10, sort: 'tracks' } })
     topGenres.value = (data.items || []).map((g) => {
       const tone = styleTone({ pillar: g.pillar, depth: g.depth })
       return {

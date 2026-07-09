@@ -18,7 +18,6 @@
 | `PageHero.vue` | Zone hero (image + titre + subtitle + slots badges/actions) | `square` (160×160) · `round` (160×160, border-radius 50%) · `wide` (280×158) |
 | `StatStrip.vue` | Bande de stats horizontale — tableau `[{label, value}]` | — |
 | `RelBlock.vue` | Section avec titre + compteur optionnel | — |
-| `AppearRow.vue` | Ligne simple titre + subtitle + lien (dans RelBlock) | — |
 | `AdminCard.vue` | Zone admin role-gated (masquée si non-admin) | `warn` (amber border) · défaut |
 | `StyleTag.vue` | Badge genre coloré par pillar/depth | — |
 | `ArtistLinks.vue` | Liste de noms d'artistes cliquables (liens vers `/artist/:id`) | — |

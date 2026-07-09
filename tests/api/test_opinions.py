@@ -123,6 +123,15 @@ class TestSetOpinion:
         r = await client.patch("/api/opinions/", json=opinion_payload("artist", "1", "love"))
         assert r.status_code == 422
 
+    async def test_non_numeric_track_key_returns_422_not_500(self, client):
+        """A1-19/20: a non-numeric entity_key on a numeric type is a 422, not a 500."""
+        r = await client.patch("/api/opinions/", json=opinion_payload("track", "abc", "liked"))
+        assert r.status_code == 422
+
+    async def test_non_numeric_set_key_returns_422_not_500(self, client):
+        r = await client.patch("/api/opinions/", json=opinion_payload("set", "not-an-int", "liked"))
+        assert r.status_code == 422
+
 
 # ── Track opinion sync (UserOpinion ↔ UserTrack.avis ↔ UserRadarState) ───────
 

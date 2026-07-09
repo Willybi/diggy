@@ -15,8 +15,12 @@ server {
 # HTTPS — TLS termination + proxy
 server {
     listen 443 ssl;
+    http2 on;
     server_name ${DOMAIN};
-    client_max_body_size 50M;
+    # App caps Rekordbox XML upload at 10 MB (import_rb.py). Keep a small margin
+    # above it so multipart overhead never edge-blocks a legit import and the app
+    # returns its own friendly 413 for oversized files.
+    client_max_body_size 12M;
 
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;

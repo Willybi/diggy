@@ -163,6 +163,11 @@ async def _enrich_entry_async(
                     entry.has_artwork = True
                     changed = True
 
+    # Promote private → shared when Deezer confirms the track exists
+    if changed and getattr(entry, "scope", None) == "private" and entry.deezer_id:
+        entry.scope = "shared"
+        entry.owner_id = None
+
     return changed
 
 

@@ -182,17 +182,36 @@ async function fetchMappings() {
       if (!(m.id in mappingSelected)) mappingSelected[m.id] = null
       if (!(m.id in savingMapping)) savingMapping[m.id] = false
     }
+    // `data.total` is the full matching count (independent of the page limit):
+    // the unmapped total in "unmapped" mode, the grand total otherwise.
+    return data.total
   } finally {
     loadingMappings.value = false
   }
 }
 
-async function fetchMappingStats() {
-  const [all, unmapped] = await Promise.all([
-    api.get('/api/taxonomy/mappings', { params: { limit: 1 } }),
-    api.get('/api/taxonomy/mappings', { params: { unmapped: true, limit: 1 } }),
-  ])
-  mappingStats.value = { total: all.data.total, unmapped: unmapped.data.total }
+// Badge counts. When `known` supplies one side (derived from the main mappings
+// fetch), only the missing side is queried — 1 call instead of 2.
+async function fetchMappingStats(known = null) {
+  try {
+    if (known && 'total' in known) {
+      const unmapped = await api.get('/api/taxonomy/mappings', {
+        params: { unmapped: true, limit: 1 },
+      })
+      mappingStats.value = { total: known.total, unmapped: unmapped.data.total }
+    } else if (known && 'unmapped' in known) {
+      const all = await api.get('/api/taxonomy/mappings', { params: { limit: 1 } })
+      mappingStats.value = { total: all.data.total, unmapped: known.unmapped }
+    } else {
+      const [all, unmapped] = await Promise.all([
+        api.get('/api/taxonomy/mappings', { params: { limit: 1 } }),
+        api.get('/api/taxonomy/mappings', { params: { unmapped: true, limit: 1 } }),
+      ])
+      mappingStats.value = { total: all.data.total, unmapped: unmapped.data.total }
+    }
+  } catch {
+    // silent — the badge is non-critical
+  }
 }
 
 function onMappingSearch(mappingId) {
@@ -233,9 +252,13 @@ async function saveMapping(m) {
   }
 }
 
-onMounted(() => {
-  fetchMappings()
-  fetchMappingStats()
+onMounted(async () => {
+  const total = await fetchMappings()
+  if (typeof total === 'number') {
+    await fetchMappingStats(mappingShowUnmapped.value ? { unmapped: total } : { total })
+  } else {
+    await fetchMappingStats()
+  }
 })
 </script>
 

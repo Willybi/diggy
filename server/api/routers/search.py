@@ -45,6 +45,7 @@ async def _search_tracks(
     user_id: int | None,
     is_guest: bool,
     limit: int,
+    offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
@@ -64,12 +65,13 @@ async def _search_tracks(
         )
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
         .where(CatalogEntry.title.ilike(pattern) | CatalogEntry.artist.ilike(pattern))
+        .order_by(CatalogEntry.title, CatalogEntry.id)
     )
 
     total_r = await db.execute(select(func.count()).select_from(base.subquery()))
     total = total_r.scalar() or 0
 
-    rows = (await db.execute(base.limit(limit))).all()
+    rows = (await db.execute(base.offset(offset).limit(limit))).all()
 
     items: list[SearchItem] = []
     for r in rows:
@@ -96,17 +98,20 @@ async def _search_artists(
     user_id: int | None,
     is_guest: bool,
     limit: int,
+    offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
-    base = select(Artist.id, Artist.name, Artist.has_artwork).where(
-        Artist.name.ilike(pattern)
+    base = (
+        select(Artist.id, Artist.name, Artist.has_artwork)
+        .where(Artist.name.ilike(pattern))
+        .order_by(Artist.name, Artist.id)
     )
 
     total_r = await db.execute(select(func.count()).select_from(base.subquery()))
     total = total_r.scalar() or 0
 
-    rows = (await db.execute(base.limit(limit))).all()
+    rows = (await db.execute(base.offset(offset).limit(limit))).all()
     if not rows:
         return [], total
 
@@ -162,6 +167,7 @@ async def _search_sets(
     db: AsyncSession,
     q: str,
     limit: int,
+    offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
@@ -176,6 +182,7 @@ async def _search_sets(
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
         .where(DJSet.title.ilike(pattern), DJSet.parent_set_id.is_(None))
         .group_by(DJSet.id)
+        .order_by(DJSet.played_date.desc().nulls_last(), DJSet.id)
     )
 
     # count total matching sets
@@ -186,7 +193,7 @@ async def _search_sets(
     )
     total = (await db.execute(count_q)).scalar() or 0
 
-    rows = (await db.execute(base.limit(limit))).all()
+    rows = (await db.execute(base.offset(offset).limit(limit))).all()
 
     items: list[SearchItem] = []
     for r in rows:
@@ -207,21 +214,26 @@ async def _search_playlists(
     db: AsyncSession,
     q: str,
     limit: int,
+    offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
-    base = select(
-        WatchedEntity.id,
-        WatchedEntity.title,
-        WatchedEntity.source,
-        WatchedEntity.track_count,
-        WatchedEntity.has_artwork,
-    ).where(WatchedEntity.title.ilike(pattern))
+    base = (
+        select(
+            WatchedEntity.id,
+            WatchedEntity.title,
+            WatchedEntity.source,
+            WatchedEntity.track_count,
+            WatchedEntity.has_artwork,
+        )
+        .where(WatchedEntity.title.ilike(pattern))
+        .order_by(WatchedEntity.title, WatchedEntity.id)
+    )
 
     total_r = await db.execute(select(func.count()).select_from(base.subquery()))
     total = total_r.scalar() or 0
 
-    rows = (await db.execute(base.limit(limit))).all()
+    rows = (await db.execute(base.offset(offset).limit(limit))).all()
 
     items: list[SearchItem] = []
     for r in rows:
@@ -244,6 +256,7 @@ async def _search_genres(
     user_id: int | None,
     is_guest: bool,
     limit: int,
+    offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
     pattern = f"%{q}%"
 
@@ -258,10 +271,10 @@ async def _search_genres(
         FROM catalog c, unnest(c.genres) AS g
         WHERE LOWER(g) LIKE LOWER(:pattern)
         GROUP BY g
-        ORDER BY COUNT(*) DESC
-        LIMIT :lim
+        ORDER BY COUNT(*) DESC, g
+        LIMIT :lim OFFSET :off
     """),
-        {"pattern": pattern, "lim": limit},
+        {"pattern": pattern, "lim": limit, "off": offset},
     )
     rows = result.all()
 
@@ -314,33 +327,44 @@ async def search(
     if not q_lower:
         return SearchResponse(items=[], total=0, totals=SearchTotals())
 
+    # For a single scope, offset+limit are pushed straight into the DB query
+    # (true pagination). For scope="all", results from every type are merged and
+    # re-ranked in Python, which forbids a meaningful global DB offset — so offset
+    # is ignored there (see pagination block below) and only limit is applied.
     per_type_limit = limit if scope != "all" else 30
+    per_type_offset = offset if scope != "all" else 0
 
     all_items: list[SearchItem] = []
     totals = SearchTotals()
 
     if scope in ("all", "track"):
-        items, t = await _search_tracks(db, q_lower, user_id, is_guest, per_type_limit)
+        items, t = await _search_tracks(
+            db, q_lower, user_id, is_guest, per_type_limit, per_type_offset
+        )
         all_items.extend(items)
         totals.track = t
 
     if scope in ("all", "artist"):
-        items, t = await _search_artists(db, q_lower, user_id, is_guest, per_type_limit)
+        items, t = await _search_artists(
+            db, q_lower, user_id, is_guest, per_type_limit, per_type_offset
+        )
         all_items.extend(items)
         totals.artist = t
 
     if scope in ("all", "set"):
-        items, t = await _search_sets(db, q_lower, per_type_limit)
+        items, t = await _search_sets(db, q_lower, per_type_limit, per_type_offset)
         all_items.extend(items)
         totals.set = t
 
     if scope in ("all", "playlist"):
-        items, t = await _search_playlists(db, q_lower, per_type_limit)
+        items, t = await _search_playlists(db, q_lower, per_type_limit, per_type_offset)
         all_items.extend(items)
         totals.playlist = t
 
     if scope in ("all", "genre"):
-        items, t = await _search_genres(db, q_lower, user_id, is_guest, per_type_limit)
+        items, t = await _search_genres(
+            db, q_lower, user_id, is_guest, per_type_limit, per_type_offset
+        )
         all_items.extend(items)
         totals.genre = t
 
@@ -360,6 +384,8 @@ async def search(
         capped = all_items[:GUEST_CAP]
         return SearchResponse(items=capped, total=total, totals=totals)
 
-    # Paginate
-    page = all_items[offset : offset + limit]
+    # Paginate. For a single scope the DB already applied offset+limit, so return
+    # the merged window as-is. For scope="all" offset is ignored (merge-in-Python
+    # can't honor a global offset); only the limit bounds the merged result.
+    page = all_items if scope != "all" else all_items[:limit]
     return SearchResponse(items=page, total=total, totals=totals)

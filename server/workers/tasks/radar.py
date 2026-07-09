@@ -125,7 +125,7 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
 
     sys.path.insert(0, "/app")
     from models import CatalogEntry, RadarTrack, UserFollow, WatchedEntity
-    from services.image_service import ImageService
+    from services.image_service import BUCKET_PLAYLIST, ImageService
     from workers.db import (
         bulk_get_or_create_catalog,
         bulk_insert_radar_tracks,
@@ -208,9 +208,9 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
                     if meta.title and not entity.title:
                         entity.title = meta.title
                     if not entity.has_artwork and meta.cover_url:
-                        ImageService.ensure_bucket("playlist-artworks")
+                        ImageService.ensure_bucket(BUCKET_PLAYLIST)
                         if ImageService.upload_from_url(
-                            meta.cover_url, "playlist-artworks", f"{playlist_id}.jpg"
+                            meta.cover_url, BUCKET_PLAYLIST, f"{playlist_id}.jpg"
                         ):
                             entity.has_artwork = True
                     session.commit()

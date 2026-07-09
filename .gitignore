@@ -9,3 +9,10 @@ server/frontend/dist/
 _design/
 
 docs/prompts
+
+# Coverage artifacts
+.coverage
+.coverage.*
+
+# TIDAL OAuth tokens (dev fallback — never commit)
+.tidal_tokens.json

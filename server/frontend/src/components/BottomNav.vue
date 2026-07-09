@@ -54,8 +54,13 @@ const items = computed(() => {
 })
 
 async function fetchNewCount() {
+  // Endpoint requires an authenticated user — skip the network call for guests.
+  if (!auth.isAuthenticated) {
+    newCount.value = 0
+    return
+  }
   try {
-    const res = await api.get('/radar/new-count')
+    const res = await api.get('/api/radar/new-count')
     newCount.value = res.data.count ?? 0
   } catch {
     newCount.value = 0

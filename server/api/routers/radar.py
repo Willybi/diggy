@@ -3,7 +3,7 @@ from typing import Literal
 
 from database import get_db
 from dependencies import get_current_user, require_admin
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from models import CatalogEntry, RadarTrack, RadarTrend, User
 from schemas import (
     NewCountResponse,
@@ -20,6 +20,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/radar", tags=["radar"])
+
+# Bound the batch body: 5x the max listing page (limit<=200) is a generous
+# ceiling for a single "select & mark" action while keeping the IN() query and
+# per-item upsert load finite.
+MAX_BATCH_SIZE = 1000
 
 
 @router.get("/trends", response_model=TrendList)
@@ -128,7 +133,7 @@ async def update_radar_state(
 
 @router.patch("/state/batch", response_model=RadarBatchResponse)
 async def batch_update_radar_state(
-    body: list[RadarBatchItem],
+    body: list[RadarBatchItem] = Body(max_length=MAX_BATCH_SIZE),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
