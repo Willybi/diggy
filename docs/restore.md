@@ -75,6 +75,8 @@ gpg --batch --passphrase "$BACKUP_ENCRYPTION_KEY" -d /backups/postgres/diggy_YYY
 
 Le dump est produit par `pg_dump --no-owner --no-acl` (SQL plain, gzippé) : il se
 rejoue tel quel avec `psql`, les objets appartiennent à l'utilisateur qui restaure.
+Malgré `-q`, la restauration affiche une série de lignes `set_config` / `setval`
+(repositionnement des séquences) : c'est normal, ce ne sont pas des erreurs.
 
 Contrôles de cohérence :
 
@@ -130,6 +132,16 @@ Sur une machine de travail (ou le nouveau VPS) avec rclone configuré
 rclone lsf gdrive:diggy-backups/postgres/
 rclone copy gdrive:diggy-backups/postgres/diggy_YYYYmmdd_HHMMSS.sql.gz.gpg .
 ```
+
+> Note (constaté au test du 2026-07-10) : sur le VPS lui-même, rclone n'est PAS
+> installé sur l'hôte — seule sa config (`/root/.config/rclone`) y vit. Pour
+> récupérer un dump offsite depuis le VPS, passer par le container backup avec
+> `/tmp` monté :
+>
+> ```bash
+> docker compose run --rm -v /tmp:/restore --entrypoint /bin/sh backup \
+>   -c 'apk add --no-cache rclone >/dev/null && rclone copy gdrive:diggy-backups/postgres/diggy_YYYYmmdd_HHMMSS.sql.gz.gpg /restore/'
+> ```
 
 ### 2. Remonter une stack neuve
 
@@ -214,8 +226,19 @@ tâches d'enrichissement.
 
 ## Test de restauration
 
-Dernier test réussi : [à dater lors du test AU2-L4]
+Dernier test réussi : **2026-07-10** (AU2-L4) — dump chiffré récupéré depuis
+Google Drive (offsite) → restauré dans la base jetable `diggy_restore_test` ;
+counts `catalog` / `users` / `alembic_version` identiques à la prod.
 
 ## Snapshots Hostinger
 
-[à compléter]
+Filet de sécurité indépendant du dispositif rclone, géré par Hostinger
+(actions via le panel Hostinger uniquement) :
+
+- **Sauvegardes automatiques hebdomadaires** incluses dans le pack VPS :
+  2 générations conservées, stockage séparé (Pays-Bas), restauration complète
+  du VPS en ~30 min. Dernières vues : 02/07/2026 et 09/07/2026.
+- **1 snapshot manuel gratuit** : créé avant le deploy AU2. Un nouveau snapshot
+  écrase le précédent — en refaire un avant toute opération risquée.
+- L'upgrade payant « sauvegardes quotidiennes » est inutile : le RPO quotidien
+  est déjà couvert par l'offsite rclone (dump chiffré chaque nuit à 01:30).
