@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-10 (AU4 + E1 TERMINES — robustesse workers + re-scan enrichissement sous budget nightly)
+> **Derniere mise a jour** : 2026-07-10 (AU5 TERMINE — couche service backend : search + watchlist en services, crawl_radar en DB directe)
 
 ---
 
@@ -46,7 +46,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    TERMINE (2026-07-10)
  AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    TERMINE (2026-07-10)
  AU4  Robustesse workers                    MOYEN       2 jours      TERMINE (2026-07-10)
- AU5  Couche service backend                MOYEN       2-3 jours    A FAIRE
+ AU5  Couche service backend                MOYEN       2-3 jours    TERMINE (2026-07-10)
  AU6  Dette frontend                        MOYEN       1-2 jours    A FAIRE
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    A FAIRE
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
@@ -85,6 +85,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU7  Dette de tests (enrich + auth)    TERMINE
  AU4  Robustesse workers                TERMINE
  E1   Re-scan enrichissement (backoff+budget) TERMINE
+ AU5  Couche service backend            TERMINE
 ```
 
 ### Dependances
@@ -110,7 +111,7 @@ AU1 ────────> Rien (demarrage immediat, parallelisable avec C6) 
 AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + restore en AU2)   ✅ TERMINE
 AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md   ✅ TERMINE
 AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)   ✅ TERMINE
-AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)
+AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)   ✅ TERMINE
 E1 ─────────> AU7 imperatif (filet de tests enrichment.py avant modification) ; recommande avec ou juste apres AU4 (meme zone de code, coordonner avec A3-05 rate limiting partage)   ✅ TERMINE
 Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)
 C4 ─────────> C2 + C3 (similarite + likes + users)
@@ -604,7 +605,7 @@ Erreurs typees, locks corrects, observabilite : que les crawls nocturnes echouen
 **Priorite : MOYEN**
 **Estimation : 2-3 jours**
 **Depend de : AU1 (A1-02 deja fixe — verifier la non-regression)**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-10) — code deploye et verifie en prod (8bb21a0, /deploy_verify SAIN) : search et watchlist extraits en services (routers 392->32 et 417->138 LOC), like_escape sur les LIKE de search + taxonomy, I/O watchlist async (httpx + run_in_threadpool), crawl_radar en DB directe + endpoint /api/watchlist/active supprime (router + _OPEN_PREFIXES), opinion_sync et get_or_create_catalog deplaces dans services/, sets/import via sync_set_opinion, API publique pillars (ensure_pillar_cache/ALL_PILLARS/pillar_map), taxonomy en ORM (CTE recursives conservees) + 20 smoke tests. Tests 981->1017, non-regression A1-02 verifiee. Ecart DoD assume : watchlist.py a 138 LOC (>100, zero logique metier restante). Reliquats opportunistes : requests sync dans admin.py/artist_service.py, LIKE non echappes hors search/taxonomy. Premier run prod de crawl_radar DB directe a verifier le 2026-07-11 (crawl-logs, avec le sanity check AU4/E1)**
 
 ### Objectif
 
@@ -612,15 +613,15 @@ Perimetre reduit par l'arbitrage Q8 : finir la couche service pour search et wat
 
 ### Taches
 
-- [ ] A1-01 : extraire `services/search_service.py` depuis `routers/search.py` (365 LOC, 5 helpers metier) + verifier la non-regression du fix A1-02
-- [ ] A6-06 : au passage dans search — helper `like_escape()` pour les metacaracteres `%`/`_` (~11 emplacements)
-- [ ] A1-05 : extraire `services/watchlist_service.py` (metadonnees Deezer, artwork, trigger crawl, cooldown)
-- [ ] A1-04 : remplacer les I/O synchrones (requests, MinIO) des endpoints async par httpx.AsyncClient / run_in_executor — a combiner avec A1-05 pour watchlist
-- [ ] A1-17 : `crawl_radar` lit les playlists actives en DB directe (via `workers/db.py`) au lieu de HTTP ; puis A6-10 (volet watchlist) : retirer `/api/watchlist/active` de `_OPEN_PREFIXES` et supprimer l'endpoint
-- [ ] A1-15 : deplacer `api/catalog.py` et `api/opinion_sync.py` vers `services/` (6 imports a mettre a jour)
-- [ ] A1-25 : `POST /sets/import` utilise `opinion_sync.sync_set_opinion` au lieu de sa reimplementation
-- [ ] A1-16 : API publique du cache pillars (`genre_service.ensure_pillar_cache()`) au lieu des imports de membres `_prives` par 3 routers
-- [ ] A1-18 + Q1b-2 : taxonomy (endpoints conserves, arbitrage Q1b) — smoke test 200 par endpoint + nettoyage SQL brut/camelCase sur le perimetre conserve
+- [x] A1-01 : extraire `services/search_service.py` depuis `routers/search.py` (365 LOC, 5 helpers metier) + verifier la non-regression du fix A1-02
+- [x] A6-06 : au passage dans search — helper `like_escape()` pour les metacaracteres `%`/`_` (~11 emplacements)
+- [x] A1-05 : extraire `services/watchlist_service.py` (metadonnees Deezer, artwork, trigger crawl, cooldown)
+- [x] A1-04 : remplacer les I/O synchrones (requests, MinIO) des endpoints async par httpx.AsyncClient / run_in_executor — a combiner avec A1-05 pour watchlist
+- [x] A1-17 : `crawl_radar` lit les playlists actives en DB directe (via `workers/db.py`) au lieu de HTTP ; puis A6-10 (volet watchlist) : retirer `/api/watchlist/active` de `_OPEN_PREFIXES` et supprimer l'endpoint
+- [x] A1-15 : deplacer `api/catalog.py` et `api/opinion_sync.py` vers `services/` (6 imports a mettre a jour)
+- [x] A1-25 : `POST /sets/import` utilise `opinion_sync.sync_set_opinion` au lieu de sa reimplementation
+- [x] A1-16 : API publique du cache pillars (`genre_service.ensure_pillar_cache()`) au lieu des imports de membres `_prives` par 3 routers
+- [x] A1-18 + Q1b-2 : taxonomy (endpoints conserves, arbitrage Q1b) — smoke test 200 par endpoint + nettoyage SQL brut/camelCase sur le perimetre conserve
 
 ### Definition of Done
 
