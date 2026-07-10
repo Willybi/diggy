@@ -16,6 +16,10 @@ logger = logging.getLogger("diggy")
 BUCKET_IMPORT = "import-jobs"
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
+# Lock TTL must cover the task's effective time_limit (global CELERY_TIME_LIMIT,
+# 3600s) so the lock cannot expire while a legitimate import is still running
+IMPORT_LOCK_TTL = 3700
+
 router = APIRouter(tags=["import"])
 
 
@@ -42,30 +46,39 @@ async def upload_rekordbox_xml(
             detail="Fichier invalide : ce n'est pas un export XML Rekordbox valide",
         )
 
+    task_id = str(uuid4())
+
+    # Atomic lock acquisition (SET NX) before any side effect: a concurrent
+    # upload for the same user must lose the race, not slip between check and set
     lock_key = f"import:lock:{user.id}"
-    if await redis.exists(lock_key):
+    if not await redis.set(lock_key, task_id, nx=True, ex=IMPORT_LOCK_TTL):
         raise HTTPException(
             status_code=409, detail="Un import est déjà en cours pour ce compte"
         )
 
-    task_id = str(uuid4())
+    try:
+        # Upload XML to MinIO (bucket import-jobs)
+        ImageService.ensure_bucket(BUCKET_IMPORT)
+        s3 = ImageService._get_s3()
+        s3.upload_fileobj(
+            io.BytesIO(content),
+            BUCKET_IMPORT,
+            f"{user.id}/{task_id}.xml",
+            ExtraArgs={"ContentType": "application/xml"},
+        )
 
-    # Upload XML to MinIO (bucket import-jobs)
-    ImageService.ensure_bucket(BUCKET_IMPORT)
-    s3 = ImageService._get_s3()
-    s3.upload_fileobj(
-        io.BytesIO(content),
-        BUCKET_IMPORT,
-        f"{user.id}/{task_id}.xml",
-        ExtraArgs={"ContentType": "application/xml"},
-    )
+        # Progress init (TTL 3600s)
+        progress = {"status": "queued", "total": 0, "inserted": 0, "updated": 0, "errors": [], "user_id": user.id}
+        await redis.set(f"import:{task_id}", json.dumps(progress), ex=3600)
 
-    # Redis lock (TTL 600s) + progress init (TTL 3600s)
-    await redis.set(lock_key, task_id, ex=600)
-    progress = {"status": "queued", "total": 0, "inserted": 0, "updated": 0, "errors": [], "user_id": user.id}
-    await redis.set(f"import:{task_id}", json.dumps(progress), ex=3600)
-
-    celery.send_task("workers.tasks.import_rekordbox_xml", args=[task_id, user.id])
+        celery.send_task("workers.tasks.import_rekordbox_xml", args=[task_id, user.id])
+    except Exception:
+        # The task will never run, so nothing else can release the lock:
+        # free it now (only if still ours) instead of blocking the user's
+        # imports for the full TTL
+        if await redis.get(lock_key) == task_id:
+            await redis.delete(lock_key)
+        raise
 
     return {"task_id": task_id, "status": "queued"}
 

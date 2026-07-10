@@ -47,10 +47,10 @@ testpaths = ["tests"]
 [tool.coverage.run]
 source = ["server"]
 omit = [
-    # tasks/* and source_clients.py: untested — leave the omit until they get
-    # real tests (tracked debt, AU4+)
+    # tasks/*: still too thinly tested to gate — leave the omit until they get
+    # real per-module coverage (tracked debt, AU5+).
+    # source_clients.py left the omit in AU4 (typed-error tests).
     "server/workers/tasks/*",
-    "server/workers/source_clients.py",
     "server/workers/celery_app.py",
     "server/workers/crawl_logger.py",
     "server/workers/db.py",

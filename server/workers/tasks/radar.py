@@ -104,7 +104,8 @@ def crawl_single_playlist(self, playlist_id: int):
     Uses direct DB access (bulk ops) + concurrent async enrichment.
     """
     r = redis_lib.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
-    lock = r.lock(f"crawl:playlist:{playlist_id}", timeout=900)
+    # Lock timeout must exceed the task's time_limit (4500s) so it cannot expire mid-run
+    lock = r.lock(f"crawl:playlist:{playlist_id}", timeout=4600)
     if not lock.acquire(blocking=False):
         logger.info("Crawl already running for playlist %s, skipping", playlist_id)
         return {"skipped": True, "playlist_id": playlist_id, "reason": "lock"}
@@ -131,7 +132,7 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
         bulk_insert_radar_tracks,
         get_engine,
     )
-    from workers.source_clients import get_fetchers
+    from workers.source_clients import PlaylistGoneError, get_fetchers
 
     engine = get_engine()
 
@@ -154,35 +155,34 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
     # 0. Fetch playlist metadata + update entity
     try:
         meta = fetch_meta(external_id)
-    except Exception as e:
-        err_str = str(e).lower()
-        if "not found" in err_str or "404" in err_str:
-            logger.warning(
-                "Playlist %s (%s) no longer exists on %s — removing",
-                playlist_id,
-                entity_title,
-                source,
+    except PlaylistGoneError:
+        # Source confirmed the playlist no longer exists; any other
+        # exception propagates and lets Celery autoretry the task.
+        logger.warning(
+            "Playlist %s (%s) no longer exists on %s — removing",
+            playlist_id,
+            entity_title,
+            source,
+        )
+        with Session(engine) as session:
+            session.execute(
+                sa_delete(RadarTrack).where(
+                    RadarTrack.watched_entity_id == playlist_id
+                )
             )
-            with Session(engine) as session:
-                session.execute(
-                    sa_delete(RadarTrack).where(
-                        RadarTrack.watched_entity_id == playlist_id
-                    )
-                )
-                session.execute(
-                    sa_delete(UserFollow).where(UserFollow.entity_id == playlist_id)
-                )
-                entity = session.get(WatchedEntity, playlist_id)
-                if entity:
-                    session.delete(entity)
-                session.commit()
-            return {
-                "deleted": True,
-                "playlist_id": playlist_id,
-                "source": source,
-                "reason": "not_found_on_source",
-            }
-        raise
+            session.execute(
+                sa_delete(UserFollow).where(UserFollow.entity_id == playlist_id)
+            )
+            entity = session.get(WatchedEntity, playlist_id)
+            if entity:
+                session.delete(entity)
+            session.commit()
+        return {
+            "deleted": True,
+            "playlist_id": playlist_id,
+            "source": source,
+            "reason": "not_found_on_source",
+        }
 
     # CrawlLogger wraps the main work
     from workers.crawl_logger import CrawlLogger
@@ -244,14 +244,18 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
 
             # 3 & 4. Async enrichment (Deezer + Beatport) — concurrent
             async def _async_enrich():
+                from datetime import datetime, timezone
+
                 from workers.async_http import HttpPool
                 from workers.enrichment import (
                     enrich_beatport_batch,
                     enrich_deezer_batch,
+                    not_recently_searched,
                 )
                 from workers.rate_limiter import RateLimiter
 
                 limiter = RateLimiter()
+                now = datetime.now(timezone.utc)
                 dz_stats = {"enriched": 0, "errors": 0}
                 bp_stats = {"enriched": 0, "not_found": 0, "errors": 0}
 
@@ -283,6 +287,9 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
                                 select(CatalogEntry).where(
                                     CatalogEntry.id.in_(catalog_ids),
                                     CatalogEntry.deezer_id.is_(None),
+                                    not_recently_searched(
+                                        CatalogEntry.deezer_searched_at, now
+                                    ),
                                 )
                             )
                             .scalars()
@@ -319,6 +326,9 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
                                 select(CatalogEntry).where(
                                     CatalogEntry.id.in_(catalog_ids),
                                     CatalogEntry.beatport_id.is_(None),
+                                    not_recently_searched(
+                                        CatalogEntry.beatport_searched_at, now
+                                    ),
                                 )
                             )
                             .scalars()

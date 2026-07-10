@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-10 (AU3 TERMINE ; ajout E1 — re-scan enrichissement + budget nightly, issu de l'analyse prod du 2026-07-10)
+> **Derniere mise a jour** : 2026-07-10 (AU7 TERMINE — filet de tests enrichissement + auth, gate coverage honnete)
 
 ---
 
@@ -44,7 +44,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU1  Quick Wins audit                      HAUT        1-2 jours    TERMINE (2026-07-09)
  AU2  Sauvegardes & deploiement             HAUT        1-2 jours    TERMINE (2026-07-10)
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    TERMINE (2026-07-10)
- AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    A FAIRE (avant/avec AU4)
+ AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    TERMINE (2026-07-10)
  AU4  Robustesse workers                    MOYEN       2 jours      A FAIRE
  AU5  Couche service backend                MOYEN       2-3 jours    A FAIRE
  AU6  Dette frontend                        MOYEN       1-2 jours    A FAIRE
@@ -82,6 +82,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU1  Quick Wins audit                  TERMINE
  AU2  Sauvegardes & deploiement         TERMINE
  AU3  Integrite donnees (migration 0031) TERMINE
+ AU7  Dette de tests (enrich + auth)    TERMINE
 ```
 
 ### Dependances
@@ -106,7 +107,7 @@ C3 (ouvert) = declenchement manuel, apres H0 (FAIT) + C1 + idealement C6
 AU1 ────────> Rien (demarrage immediat, parallelisable avec C6)      ✅ TERMINE
 AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + restore en AU2)   ✅ TERMINE
 AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md   ✅ TERMINE
-AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)
+AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)   ✅ TERMINE
 AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)
 E1 ─────────> AU7 imperatif (filet de tests enrichment.py avant modification) ; recommande avec ou juste apres AU4 (meme zone de code, coordonner avec A3-05 rate limiting partage)
 Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)
@@ -537,7 +538,7 @@ Purger le schema des elements morts prouves (arbitrage Q3), realigner modeles/mi
 **Priorite : HAUT**
 **Estimation : 1-2 jours**
 **Depend de : rien. IMPERATIF : s'execute AVANT ou AVEC AU4 (filet pour les modifications workers)**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-10) — code deploye et verifie en prod (db25832) : 17 tests enrichment.py (cascade Deezer + conflits ISRC sur vraie session SQLite), 4 tests Vitest LoginCallbackView, enrichment.py + async_http.py hors du omit (gate mesure a 68,9 %, seuil 55 ; tasks/* et source_clients.py restent omis, dette AU4+), test_check_sync.py supprime (M6)**
 
 ### Objectif
 
@@ -545,10 +546,10 @@ Perimetre reduit par l'arbitrage Q7 : tester le code le plus critique aujourd'hu
 
 ### Taches
 
-- [ ] A6-04 (prioritaire) : retirer progressivement `enrichment.py`, `source_clients.py`, `workers/tasks/*` du `omit` de `pyproject.toml` — un gate aveugle est pire que pas de gate
-- [ ] A6-04 : tests unitaires sur `enrichment.py` (mock HTTP) — en priorite la resolution de conflits ISRC et la cascade Deezer
-- [ ] A6-07 : tests Vitest sur `LoginCallbackView` (cookie valide -> persist + redirect, cookie absent, base64 malforme, `?error=`)
-- [ ] M6 (A6-09/A7-08) : supprimer la fausse couverture `test_check_sync.py` (helper mort visant un module supprime) — pointer sur `server/deezer/sync_checker.py` si la logique y vit, sinon archiver
+- [x] A6-04 (prioritaire) : retirer progressivement `enrichment.py`, `source_clients.py`, `workers/tasks/*` du `omit` de `pyproject.toml` — un gate aveugle est pire que pas de gate
+- [x] A6-04 : tests unitaires sur `enrichment.py` (mock HTTP) — en priorite la resolution de conflits ISRC et la cascade Deezer
+- [x] A6-07 : tests Vitest sur `LoginCallbackView` (cookie valide -> persist + redirect, cookie absent, base64 malforme, `?error=`)
+- [x] M6 (A6-09/A7-08) : supprimer la fausse couverture `test_check_sync.py` (helper mort visant un module supprime) — pointer sur `server/deezer/sync_checker.py` si la logique y vit, sinon archiver
 
 ### Definition of Done
 

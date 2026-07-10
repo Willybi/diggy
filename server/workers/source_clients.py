@@ -38,13 +38,47 @@ class SourceTrack:
     duration_ms: int | None = None
 
 
+class PlaylistGoneError(Exception):
+    """Raised only when the source confirms the playlist no longer exists."""
+
+    def __init__(self, source: str, external_id: str):
+        self.source = source
+        self.external_id = external_id
+        super().__init__(f"Playlist {external_id} no longer exists on {source}")
+
+
 # ──────────────────────────────────────────────────────────────
 # Deezer
 # ──────────────────────────────────────────────────────────────
 
+# Deezer "no data" error code — the resource does not exist (anymore)
+DEEZER_ERROR_NO_DATA = 800
+
+
+def _deezer_get(url: str, external_id: str) -> dict:
+    """GET a Deezer API URL, validating HTTP status and the JSON error payload.
+
+    Deezer signals most failures (including deleted playlists) as HTTP 200
+    with an {"error": ...} body, so both layers must be checked before any
+    response is treated as complete data.
+    """
+    resp = requests.get(url, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Deezer API returned {resp.status_code} on {url}")
+    data = resp.json()
+    error = data.get("error") if isinstance(data, dict) else None
+    if error:
+        if (
+            error.get("code") == DEEZER_ERROR_NO_DATA
+            or error.get("type") == "DataException"
+        ):
+            raise PlaylistGoneError("deezer", external_id)
+        raise RuntimeError(f"Deezer API error on {url}: {error}")
+    return data
+
 
 def fetch_deezer_meta(external_id: str) -> PlaylistMeta:
-    resp = requests.get(f"{DEEZER_API}/playlist/{external_id}", timeout=10).json()
+    resp = _deezer_get(f"{DEEZER_API}/playlist/{external_id}", external_id)
     creator = resp.get("creator")
     owner = (
         creator["name"] if isinstance(creator, dict) and creator.get("name") else None
@@ -62,7 +96,9 @@ def fetch_deezer_tracks(external_id: str) -> list[SourceTrack]:
     tracks = []
     url = f"{DEEZER_API}/playlist/{external_id}/tracks?limit=100&index=0"
     while url:
-        resp = requests.get(url, timeout=10).json()
+        # _deezer_get raises on any page failure: a partial tracklist must
+        # never be returned as complete (it would mark absent tracks removed)
+        resp = _deezer_get(url, external_id)
         for t in resp.get("data", []):
             artist = (
                 t.get("artist", {}).get("name")
@@ -86,7 +122,7 @@ def deezer_has_changed(external_id: str, last_crawled_at) -> bool:
     """Check if a Deezer playlist has been modified since last crawl."""
     from datetime import datetime, timezone
 
-    dz_meta = requests.get(f"{DEEZER_API}/playlist/{external_id}", timeout=10).json()
+    dz_meta = _deezer_get(f"{DEEZER_API}/playlist/{external_id}", external_id)
     dz_modification_date = dz_meta.get("time_mod") or dz_meta.get("creation_date")
 
     if not dz_modification_date or not last_crawled_at:
@@ -192,8 +228,9 @@ def _load_tidal_tokens_from_redis():
         tokens = r.hgetall("tidal:tokens")
         if tokens and tokens.get("access_token"):
             return tokens
-    except Exception:
-        pass
+    except Exception as e:
+        # Legitimate fallback: env vars / token file are tried next
+        logger.debug("Failed to load TIDAL tokens from Redis: %s", e)
     return None
 
 
@@ -269,9 +306,27 @@ def _get_tidal_session():
     )
 
 
+def _tidal_playlist(session, external_id: str):
+    """Load a TIDAL playlist, translating a confirmed 404 into PlaylistGoneError.
+
+    Only tidalapi's ObjectNotFound and a real HTTP 404 are translated;
+    anything else (auth, quota, 5xx) propagates unchanged.
+    """
+    from tidalapi.exceptions import ObjectNotFound
+
+    try:
+        return session.playlist(external_id)
+    except ObjectNotFound as e:
+        raise PlaylistGoneError("tidal", external_id) from e
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            raise PlaylistGoneError("tidal", external_id) from e
+        raise
+
+
 def fetch_tidal_meta(external_id: str) -> PlaylistMeta:
     session = _get_tidal_session()
-    playlist = session.playlist(external_id)
+    playlist = _tidal_playlist(session, external_id)
     return PlaylistMeta(
         title=playlist.name,
         track_count=playlist.num_tracks,
@@ -283,7 +338,7 @@ def fetch_tidal_meta(external_id: str) -> PlaylistMeta:
 
 def fetch_tidal_tracks(external_id: str) -> list[SourceTrack]:
     session = _get_tidal_session()
-    playlist = session.playlist(external_id)
+    playlist = _tidal_playlist(session, external_id)
     tidal_tracks = playlist.tracks()
 
     tracks = []
@@ -310,7 +365,7 @@ def tidal_has_changed(external_id: str, last_crawled_at) -> bool:
         return True
 
     session = _get_tidal_session()
-    playlist = session.playlist(external_id)
+    playlist = _tidal_playlist(session, external_id)
     last_updated = getattr(playlist, "last_updated", None)
     if not last_updated:
         return True

@@ -1,5 +1,6 @@
 """Shared import logic for TrackID.net audiostreams into Diggy DB."""
 
+import logging
 from datetime import datetime, timezone
 
 from models import Artist, ArtistAlias, DJSet, SetArtist, SetTrack
@@ -9,6 +10,8 @@ from utils import normalize
 
 from trackid.client import TrackIDClient
 from trackid.parsing import is_id_track, parse_timespan_to_ms, parse_trackid_date
+
+logger = logging.getLogger(__name__)
 
 SET_ARTWORK_BUCKET = "set-artworks"
 
@@ -122,7 +125,9 @@ async def import_audiostream(
             if ImageService.upload_from_url(artwork_url, SET_ARTWORK_BUCKET, f"{dj_set.id}.jpg"):
                 dj_set.has_artwork = True
         except Exception:
-            pass
+            logger.warning(
+                "artwork upload failed for set %s", dj_set.id, exc_info=True
+            )
 
     # Link artist if provided
     if artist_id:
@@ -175,6 +180,9 @@ async def import_audiostream(
             if pair_results or group_results:
                 await apply_match_results(db, dj_set.id, pair_results, group_results)
     except Exception:
-        pass  # matching failure must never abort import
+        # matching failure must never abort import
+        logger.warning(
+            "post-import dedup failed for set %s", dj_set.id, exc_info=True
+        )
 
     return dj_set, track_count

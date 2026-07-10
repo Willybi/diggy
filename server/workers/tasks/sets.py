@@ -11,6 +11,10 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# Lock TTL must cover the task's time_limit (7500s) so the lock cannot
+# expire while a legitimate run is still in progress
+RESOLVE_SET_TRACKS_LOCK_TTL = 7800
+
 
 def _should_skip_backfill(cursor_date: str, min_date: str) -> bool:
     """Return True if the backfill cursor has passed the minimum date."""
@@ -59,7 +63,32 @@ def resolve_set_tracks(self):
     """
     Résout les set_tracks sans catalog_id.
     Uses bulk catalog operations + concurrent async enrichment.
+    Single-instance: a Redis lock skips the run if another one is in flight
+    (three beat tasks and the API all dispatch this task fire-and-forget).
     """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:resolve_set_tracks"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=RESOLVE_SET_TRACKS_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning(
+            "resolve_set_tracks already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_resolve_set_tracks(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_resolve_set_tracks(task):
     from celery.exceptions import SoftTimeLimitExceeded
     from sqlalchemy import select
     from sqlalchemy.orm import Session
@@ -75,7 +104,7 @@ def resolve_set_tracks(self):
 
     with Session(engine) as log_session:
         with CrawlLogger(
-            log_session, task_type="resolve_set_tracks", celery_task_id=self.request.id
+            log_session, task_type="resolve_set_tracks", celery_task_id=task.request.id
         ) as clog:
             resolved = 0
 
@@ -117,14 +146,18 @@ def resolve_set_tracks(self):
 
             # Async enrichment for entries missing deezer_id or beatport_id
             async def _async_enrich():
+                from datetime import datetime, timezone
+
                 from workers.async_http import HttpPool
                 from workers.enrichment import (
                     enrich_beatport_batch,
                     enrich_deezer_batch,
+                    not_recently_searched,
                 )
                 from workers.rate_limiter import RateLimiter
 
                 limiter = RateLimiter()
+                now = datetime.now(timezone.utc)
                 async with HttpPool(limiter) as pool:
                     with Session(engine) as session:
                         existing_isrcs = {
@@ -140,6 +173,9 @@ def resolve_set_tracks(self):
                                 select(CatalogEntry).where(
                                     CatalogEntry.id.in_(resolved_ids),
                                     CatalogEntry.deezer_id.is_(None),
+                                    not_recently_searched(
+                                        CatalogEntry.deezer_searched_at, now
+                                    ),
                                 )
                             )
                             .scalars()
@@ -158,6 +194,9 @@ def resolve_set_tracks(self):
                                 select(CatalogEntry).where(
                                     CatalogEntry.id.in_(resolved_ids),
                                     CatalogEntry.beatport_id.is_(None),
+                                    not_recently_searched(
+                                        CatalogEntry.beatport_searched_at, now
+                                    ),
                                 )
                             )
                             .scalars()
@@ -326,121 +365,155 @@ def crawl_followed_sets(self):
 
     sys.path.insert(0, "/app")
     from models import DJSet, SetTrack, UserSetFollow
+    from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
     engine = get_engine()
 
-    sets_to_crawl = []
-    skipped_complete = 0
-    skipped_recent = 0
+    with Session(engine) as log_session:
+        with CrawlLogger(
+            log_session,
+            task_type="crawl_followed_sets",
+            celery_task_id=self.request.id,
+        ) as clog:
+            sets_to_crawl = []
+            skipped_complete = 0
+            skipped_recent = 0
 
-    with Session(engine) as session:
-        followed_ids = {
-            r[0] for r in session.execute(select(UserSetFollow.set_id).distinct()).all()
-        }
+            with Session(engine) as session:
+                followed_ids = {
+                    r[0]
+                    for r in session.execute(
+                        select(UserSetFollow.set_id).distinct()
+                    ).all()
+                }
 
-        if not followed_ids:
-            return {"crawled": 0, "skipped_complete": 0, "skipped_recent": 0}
+                if not followed_ids:
+                    result = {
+                        "crawled": 0,
+                        "skipped_complete": 0,
+                        "skipped_recent": 0,
+                    }
+                    clog.set_stats(result)
+                    return result
 
-        for sid in followed_ids:
-            dj_set = session.get(DJSet, sid)
-            if not dj_set or dj_set.source != "trackid" or dj_set.is_virtual:
-                continue
+                for sid in followed_ids:
+                    dj_set = session.get(DJSet, sid)
+                    if not dj_set or dj_set.source != "trackid" or dj_set.is_virtual:
+                        continue
 
-            total = (
-                session.execute(
-                    select(func.count(SetTrack.id)).where(SetTrack.set_id == sid)
-                ).scalar()
-                or 0
-            )
-            identified = (
-                session.execute(
-                    select(func.count(SetTrack.id)).where(
-                        SetTrack.set_id == sid,
-                        SetTrack.is_id.is_(False),
-                        SetTrack.catalog_id.isnot(None),
-                    )
-                ).scalar()
-                or 0
-            )
-
-            if total > 0 and identified >= total:
-                skipped_complete += 1
-                continue
-
-            if dj_set.last_crawled_at:
-                age_h = (
-                    datetime.now(timezone.utc) - dj_set.last_crawled_at
-                ).total_seconds() / 3600
-                if age_h < 12:
-                    skipped_recent += 1
-                    continue
-
-            sets_to_crawl.append(
-                {"ext_id": dj_set.external_id, "slug": dj_set.external_slug}
-            )
-
-    if not sets_to_crawl:
-        return {
-            "crawled": 0,
-            "skipped_complete": skipped_complete,
-            "skipped_recent": skipped_recent,
-        }
-
-    async def _crawl_all():
-        from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-        from sqlalchemy.orm import sessionmaker as async_sessionmaker
-        from trackid.client import TrackIDClient
-        from trackid.importer import import_audiostream
-        from workers.rate_limiter import RateLimiter
-
-        limiter = RateLimiter()
-        async_engine = create_async_engine(os.environ["DATABASE_URL"])
-        AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
-        crawled = 0
-
-        async with TrackIDClient() as client:
-            for info in sets_to_crawl:
-                if not info["slug"]:
-                    continue
-                try:
-                    async with limiter.acquire("trackid"):
-                        async with AsyncS() as db:
-                            audiostream = {"id": info["ext_id"], "slug": info["slug"]}
-                            result, track_count = await import_audiostream(
-                                db, client, audiostream, min_age_hours=0
+                    total = (
+                        session.execute(
+                            select(func.count(SetTrack.id)).where(
+                                SetTrack.set_id == sid
                             )
-                            if result and track_count > 0:
-                                crawled += 1
-                            parent_set_id = result.parent_set_id if result else None
-                            await db.commit()
-                            if parent_set_id is not None:
-                                from services.set_dedup_service import (
-                                    materialize_parent,
-                                )
-                                try:
-                                    await materialize_parent(db, parent_set_id)
-                                    await db.commit()
-                                except Exception:
-                                    pass  # ne pas bloquer le crawl
-                except Exception:
-                    logger.exception(
-                        "crawl_followed_sets: failed for set %s", info.get("slug")
+                        ).scalar()
+                        or 0
+                    )
+                    identified = (
+                        session.execute(
+                            select(func.count(SetTrack.id)).where(
+                                SetTrack.set_id == sid,
+                                SetTrack.is_id.is_(False),
+                                SetTrack.catalog_id.isnot(None),
+                            )
+                        ).scalar()
+                        or 0
                     )
 
-        await async_engine.dispose()
-        return crawled
+                    if total > 0 and identified >= total:
+                        skipped_complete += 1
+                        continue
 
-    crawled = asyncio.run(_crawl_all())
+                    if dj_set.last_crawled_at:
+                        age_h = (
+                            datetime.now(timezone.utc) - dj_set.last_crawled_at
+                        ).total_seconds() / 3600
+                        if age_h < 12:
+                            skipped_recent += 1
+                            continue
 
-    # Trigger track resolution for updated sets
-    resolve_set_tracks.delay()
+                    sets_to_crawl.append(
+                        {"ext_id": dj_set.external_id, "slug": dj_set.external_slug}
+                    )
 
-    return {
-        "crawled": crawled,
-        "skipped_complete": skipped_complete,
-        "skipped_recent": skipped_recent,
-    }
+            if not sets_to_crawl:
+                result = {
+                    "crawled": 0,
+                    "skipped_complete": skipped_complete,
+                    "skipped_recent": skipped_recent,
+                }
+                clog.set_stats(result)
+                return result
+
+            async def _crawl_all():
+                from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+                from sqlalchemy.orm import sessionmaker as async_sessionmaker
+                from trackid.client import TrackIDClient
+                from trackid.importer import import_audiostream
+                from workers.rate_limiter import RateLimiter
+
+                limiter = RateLimiter()
+                async_engine = create_async_engine(os.environ["DATABASE_URL"])
+                AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
+                crawled = 0
+
+                async with TrackIDClient() as client:
+                    for info in sets_to_crawl:
+                        if not info["slug"]:
+                            continue
+                        try:
+                            async with limiter.acquire("trackid"):
+                                async with AsyncS() as db:
+                                    audiostream = {
+                                        "id": info["ext_id"],
+                                        "slug": info["slug"],
+                                    }
+                                    result, track_count = await import_audiostream(
+                                        db, client, audiostream, min_age_hours=0
+                                    )
+                                    if result and track_count > 0:
+                                        crawled += 1
+                                    parent_set_id = (
+                                        result.parent_set_id if result else None
+                                    )
+                                    await db.commit()
+                                    if parent_set_id is not None:
+                                        from services.set_dedup_service import (
+                                            materialize_parent,
+                                        )
+                                        try:
+                                            await materialize_parent(db, parent_set_id)
+                                            await db.commit()
+                                        except Exception:
+                                            # ne pas bloquer le crawl
+                                            logger.warning(
+                                                "materialize_parent failed for set %s",
+                                                parent_set_id,
+                                                exc_info=True,
+                                            )
+                        except Exception:
+                            logger.exception(
+                                "crawl_followed_sets: failed for set %s",
+                                info.get("slug"),
+                            )
+
+                await async_engine.dispose()
+                return crawled
+
+            crawled = asyncio.run(_crawl_all())
+
+            # Trigger track resolution for updated sets
+            resolve_set_tracks.delay()
+
+            result = {
+                "crawled": crawled,
+                "skipped_complete": skipped_complete,
+                "skipped_recent": skipped_recent,
+            }
+            clog.set_stats(result)
+
+    return result
 
 
 @celery_app.task(
@@ -539,7 +612,12 @@ def crawl_trackid_latest(self):
                                         await materialize_parent(db, parent_set_id)
                                         await db.commit()
                                     except Exception:
-                                        pass  # ne pas bloquer le crawl
+                                        # ne pas bloquer le crawl
+                                        logger.warning(
+                                            "materialize_parent failed for set %s",
+                                            parent_set_id,
+                                            exc_info=True,
+                                        )
                         if result:
                             imported += 1
                         else:
@@ -695,7 +773,12 @@ def backfill_trackid_sets(self):
                                     await materialize_parent(db, parent_set_id)
                                     await db.commit()
                                 except Exception:
-                                    pass  # ne pas bloquer le backfill
+                                    # ne pas bloquer le backfill
+                                    logger.warning(
+                                        "materialize_parent failed for set %s",
+                                        parent_set_id,
+                                        exc_info=True,
+                                    )
                 except Exception:
                     logger.exception(
                         "backfill_trackid_sets: failed for set %s",

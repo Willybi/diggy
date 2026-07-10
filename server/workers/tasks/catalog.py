@@ -4,6 +4,7 @@ Celery tasks for catalog enrichment (Deezer and Beatport).
 
 import asyncio
 import logging
+import os
 import sys
 
 from workers.celery_app import celery_app
@@ -13,6 +14,14 @@ logger = logging.getLogger(__name__)
 # Lock TTL must cover the task's time_limit (28800s) so the lock cannot
 # expire while a legitimate run is still in progress
 BEATPORT_LOCK_TTL = 30000
+
+# Max catalog entries per nightly sweep (per source) — keeps the Beatport
+# sweep under its soft_time_limit and bounds external API usage
+DEFAULT_NIGHTLY_BUDGET = 6000
+
+
+def _nightly_budget() -> int:
+    return int(os.environ.get("ENRICH_NIGHTLY_BUDGET", str(DEFAULT_NIGHTLY_BUDGET)))
 
 
 @celery_app.task(
@@ -50,9 +59,16 @@ def enrich_catalog(self):
             celery_task_id=self.request.id,
         ) as clog:
 
+            budget = _nightly_budget()
+
             async def _async_enrich():
+                from datetime import datetime, timezone
+
                 from workers.async_http import HttpPool
-                from workers.enrichment import enrich_deezer_batch
+                from workers.enrichment import (
+                    enrich_deezer_batch,
+                    select_enrich_candidates,
+                )
                 from workers.rate_limiter import RateLimiter
 
                 limiter = RateLimiter()
@@ -67,17 +83,11 @@ def enrich_catalog(self):
                             ).all()
                         }
 
-                        entries = (
-                            session.execute(
-                                select(CatalogEntry)
-                                .where(
-                                    CatalogEntry.deezer_id.is_(None),
-                                    CatalogEntry.deezer_searched_at.is_(None),
-                                )
-                                .order_by(CatalogEntry.id)
-                            )
-                            .scalars()
-                            .all()
+                        entries = select_enrich_candidates(
+                            session,
+                            source="deezer",
+                            budget=budget,
+                            now=datetime.now(timezone.utc),
                         )
 
                         if not entries:
@@ -151,9 +161,7 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
 
 
 def _run_enrich_catalog_beatport(task, batch_size: int):
-    from models import CatalogEntry
     from services.image_service import BUCKET_CATALOG, ImageService
-    from sqlalchemy import select
     from sqlalchemy.orm import Session
     from workers.db import get_engine
 
@@ -170,9 +178,18 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
             celery_task_id=task.request.id,
         ) as clog:
 
+            # batch_size stays as a manual bound on top of the nightly budget
+            budget = _nightly_budget()
+            effective_budget = min(batch_size, budget) if batch_size > 0 else budget
+
             async def _async_enrich():
+                from datetime import datetime, timezone
+
                 from workers.async_http import HttpPool
-                from workers.enrichment import enrich_beatport_batch
+                from workers.enrichment import (
+                    enrich_beatport_batch,
+                    select_enrich_candidates,
+                )
                 from workers.rate_limiter import RateLimiter
 
                 limiter = RateLimiter()
@@ -182,17 +199,12 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
 
                 async with HttpPool(limiter) as pool:
                     with Session(engine) as session:
-                        query = (
-                            select(CatalogEntry)
-                            .where(
-                                CatalogEntry.beatport_id.is_(None),
-                                CatalogEntry.beatport_searched_at.is_(None),
-                            )
-                            .order_by(CatalogEntry.id)
+                        entries = select_enrich_candidates(
+                            session,
+                            source="beatport",
+                            budget=effective_budget,
+                            now=datetime.now(timezone.utc),
                         )
-                        if batch_size > 0:
-                            query = query.limit(batch_size)
-                        entries = session.execute(query).scalars().all()
                         total = len(entries)
 
                         if not entries:

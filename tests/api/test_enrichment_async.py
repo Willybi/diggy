@@ -49,6 +49,7 @@ def _make_entry(**overrides):
     entry.has_artwork = True
     entry.scope = "private"
     entry.owner_id = 42
+    entry.deezer_search_attempts = 0
     for key, value in overrides.items():
         setattr(entry, key, value)
     return entry
@@ -166,6 +167,53 @@ class TestEnrichOneSearchedAt:
 
         assert isinstance(entry.deezer_searched_at, datetime)
         assert stats == {"enriched": 0, "errors": 0}
+
+
+class TestSearchAttempts:
+    """E1: a completed search (empty 200 or success) increments
+    deezer_search_attempts; an HTTP error increments nothing — the entry
+    must not burn one of its 3 re-scan attempts on an outage (A3-04)."""
+
+    async def test_empty_200_increments_attempts(self):
+        entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(return_value={"data": []})
+
+        await enrich_deezer_batch(None, [entry], pool, None, set())
+
+        assert entry.deezer_search_attempts == 1
+
+    async def test_success_increments_attempts(self):
+        entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
+        pool = MagicMock()
+        hit = {"id": 123, "isrc": "US1234", "duration": 180, "preview": ""}
+        pool.deezer_get = AsyncMock(return_value={"data": [hit]})
+
+        await enrich_deezer_batch(None, [entry], pool, None, set())
+
+        assert entry.deezer_search_attempts == 1
+
+    async def test_track_lookup_empty_200_increments_attempts(self):
+        entry = _make_entry(deezer_searched_at=None)
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(return_value={})
+
+        await enrich_deezer_batch(
+            None, [entry], pool, None, set(), source="deezer", ext_id_map={1: "999"}
+        )
+
+        assert entry.deezer_search_attempts == 1
+
+    async def test_http_error_no_increment_no_searched_at(self):
+        entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(side_effect=DeezerHTTPError(500, "/search"))
+
+        stats = await enrich_deezer_batch(None, [entry], pool, None, set())
+
+        assert stats == {"enriched": 0, "errors": 1}
+        assert entry.deezer_searched_at is None
+        assert entry.deezer_search_attempts == 0
 
 
 class TestEnrichDeezerBatch:

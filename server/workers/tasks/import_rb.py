@@ -193,13 +193,23 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
             progress["status"] = "error"
             progress.setdefault("errors", []).append(str(e))
             _set_progress(r, task_id, progress)
-        except Exception:
-            pass
+        except Exception as pe:
+            logger.warning(
+                "Failed to record error progress for task %s (user %s): %s",
+                task_id, user_id, pe,
+            )
         raise
 
     finally:
         try:
             s3.delete_object(Bucket=BUCKET_IMPORT, Key=f"{user_id}/{task_id}.xml")
-        except Exception:
-            pass
-        r.delete(f"import:lock:{user_id}")
+        except Exception as ce:
+            logger.warning(
+                "Failed to delete import XML for task %s (user %s): %s",
+                task_id, user_id, ce,
+            )
+        # Release only if we still own it (TTL may have expired mid-run and the
+        # router may have granted the lock to a newer import)
+        lock_key = f"import:lock:{user_id}"
+        if r.get(lock_key) == task_id:
+            r.delete(lock_key)

@@ -21,6 +21,7 @@ class Artist(Base):
     real_name = Column(String(255), nullable=True)
     country = Column(String(2), nullable=True)
     deezer_id = Column(String(64), nullable=True)
+    deezer_searched_at = Column(DateTime(timezone=True), nullable=True)
     soundcloud_id = Column(String(64), nullable=True)
     trackid_id = Column(String(64), nullable=True)
     bio = Column(Text, nullable=True)

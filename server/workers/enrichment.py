@@ -15,10 +15,10 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import redis as redis_lib
-from sqlalchemy import text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 from workers.async_http import DeezerHTTPError
 
@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 DEEZER_API = "https://api.deezer.com"
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 _BEATPORT_CACHE_TTL = int(os.environ.get("BEATPORT_CACHE_TTL", "86400"))  # default 24h
+
+# E1 — re-scan backoff: a not-found entry is retried after 30 days, then 90,
+# then abandoned for good after 3 attempts.
+RESCAN_TIER2_DAYS = 30
+RESCAN_TIER3_DAYS = 90
+MAX_SEARCH_ATTEMPTS = 3
+# E1 — inline enrichment (sets/radar) skips entries searched within this window
+INLINE_SEARCH_COOLDOWN_HOURS = 24
 
 
 def _get_redis():
@@ -39,6 +47,109 @@ def _get_redis():
 def _cache_key(prefix: str, query: str) -> str:
     h = hashlib.md5(query.lower().strip().encode()).hexdigest()
     return f"bp:{prefix}:{h}"
+
+
+# ── Candidate selection (E1 re-scan with backoff) ──
+
+
+def _source_columns(source: str) -> tuple:
+    from models import CatalogEntry
+
+    if source == "deezer":
+        return (
+            CatalogEntry.deezer_id,
+            CatalogEntry.deezer_searched_at,
+            CatalogEntry.deezer_search_attempts,
+        )
+    if source == "beatport":
+        return (
+            CatalogEntry.beatport_id,
+            CatalogEntry.beatport_searched_at,
+            CatalogEntry.beatport_search_attempts,
+        )
+    raise ValueError(f"unknown enrichment source: {source}")
+
+
+def select_enrich_candidates(
+    session: Session, *, source: str, budget: int, now: datetime
+) -> list:
+    """Pick catalog entries missing a {source}_id to enrich, under a budget.
+
+    Tier 1: never searched, newest first (id DESC as freshness proxy).
+    Tier 2: 1 attempt, searched more than RESCAN_TIER2_DAYS ago.
+    Tier 3: 2 attempts, searched more than RESCAN_TIER3_DAYS ago.
+    MAX_SEARCH_ATTEMPTS and beyond: abandoned, never re-selected.
+    Retries (tiers 2-3, oldest search first) only consume the budget
+    left over by tier 1; total never exceeds ``budget``.
+    """
+    from models import CatalogEntry
+
+    id_col, searched_col, attempts_col = _source_columns(source)
+
+    if budget <= 0:
+        return []
+
+    fresh = (
+        session.execute(
+            select(CatalogEntry)
+            .where(id_col.is_(None), searched_col.is_(None))
+            .order_by(CatalogEntry.id.desc())
+            .limit(budget)
+        )
+        .scalars()
+        .all()
+    )
+
+    remaining = budget - len(fresh)
+    if remaining <= 0:
+        return list(fresh)
+
+    retries = (
+        session.execute(
+            select(CatalogEntry)
+            .where(
+                id_col.is_(None),
+                or_(
+                    and_(
+                        attempts_col == 1,
+                        searched_col < now - timedelta(days=RESCAN_TIER2_DAYS),
+                    ),
+                    and_(
+                        attempts_col == 2,
+                        searched_col < now - timedelta(days=RESCAN_TIER3_DAYS),
+                    ),
+                ),
+            )
+            .order_by(searched_col.asc())
+            .limit(remaining)
+        )
+        .scalars()
+        .all()
+    )
+
+    return list(fresh) + list(retries)
+
+
+def not_recently_searched(searched_col, now: datetime):
+    """SQL clause: never searched, or searched more than
+    INLINE_SEARCH_COOLDOWN_HOURS ago. Guards inline enrichment (sets/radar)
+    against re-searching entries the nightly sweep just covered."""
+    cutoff = now - timedelta(hours=INLINE_SEARCH_COOLDOWN_HOURS)
+    return or_(searched_col.is_(None), searched_col < cutoff)
+
+
+def _mark_searched(entry, source: str, now: datetime) -> None:
+    """Record a completed search attempt (found or not).
+
+    Never called on HTTP errors/exceptions: an outage is not an attempt
+    (A3-04), the entry must stay eligible for the next nightly run.
+    """
+    if source == "deezer":
+        entry.deezer_searched_at = now
+        entry.deezer_search_attempts = (entry.deezer_search_attempts or 0) + 1
+    else:
+        entry.beatport_searched_at = now
+        entry.beatport_search_attempts = (entry.beatport_search_attempts or 0) + 1
 
 
 # ── Deezer enrichment (async) ──
@@ -208,13 +319,13 @@ async def enrich_deezer_batch(
                     logger.debug(
                         "Deezer not found for catalog %s (track %s)", entry.id, ext_id
                     )
-                    entry.deezer_searched_at = now
+                    _mark_searched(entry, "deezer", now)
                     return
             else:
                 hit = await _search_deezer_async(pool, entry.artist, entry.title)
                 if not hit:
                     logger.debug("Deezer not found for catalog %s", entry.id)
-                    entry.deezer_searched_at = now
+                    _mark_searched(entry, "deezer", now)
                     return
 
             if await _enrich_entry_async(
@@ -227,8 +338,11 @@ async def enrich_deezer_batch(
 
                     link_catalog_artist_from_hit(session, entry.id, hit)
                 except Exception:
-                    pass  # non-critical, sync_artists will catch up
-            entry.deezer_searched_at = now
+                    # non-critical, sync_artists will catch up
+                    logger.warning(
+                        "artist link failed for catalog %s", entry.id, exc_info=True
+                    )
+            _mark_searched(entry, "deezer", now)
         except DeezerHTTPError as e:
             # Deezer outage, not a "not found": leave deezer_searched_at unset
             # so the entry is retried by the next nightly run.
@@ -463,7 +577,7 @@ async def enrich_beatport_batch(
                 enriched += 1
             else:
                 not_found += 1
-            entry.beatport_searched_at = datetime.now(timezone.utc)
+            _mark_searched(entry, "beatport", datetime.now(timezone.utc))
         except Exception as e:
             logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
             errors += 1

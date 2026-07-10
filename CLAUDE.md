@@ -1,14 +1,14 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-10 (AU3 code)
+> Last verified: 2026-07-10 (AU4+E1 code)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (31 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (33 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -67,6 +67,7 @@ Rule: new business logic goes in a service, routers stay thin. New Celery tasks 
 - `has_artwork` = file exists in MinIO. Never store external image URLs in DB.
 - Deezer sentinel: `deezer_id = "NOT_FOUND"` marks artists confirmed absent from Deezer.
 - Sets dedup (C6.0): `sets.parent_set_id` (self-referential FK, ON DELETE SET NULL) + `is_virtual` model virtual parents. Only roots (`parent_set_id IS NULL`) appear in listings and trend scoring. `set_flags` table tracks ambiguous pairs for admin review. Service: `services/set_dedup_service.py`.
+- Enrichment re-scan (E1): a not-found catalog entry is retried after 30 then 90 days, abandoned after 3 attempts (`deezer_search_attempts` / `beatport_search_attempts`). An HTTP failure never stamps `*_searched_at` (an outage is not an attempt). Nightly sweeps are capped by `ENRICH_NIGHTLY_BUDGET` (default 6000, per source). Same idea on `artists.deezer_searched_at` (30-day retry; the `NOT_FOUND` sentinel stays a human decision).
 
 → Before any model change, migration, or query joining 3+ tables: read `docs/database-schema.md`.
 
@@ -143,6 +144,12 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 - api/worker/worker_enrich/beat share ONE image built from context `./server` (`server/Dockerfile` copies `api/` + `workers/`). Prod runs the code baked into the image — hot reload only exists through the local override bind mounts.
 - `server/.dockerignore` excludes `frontend/`, `nginx/`, `scripts/`, `deezer/` from the build context: a new directory under `server/` needed at runtime must be removed from that file, or it silently won't ship.
 - The `backup` service mounts `/root/.config/rclone` read-write (VPS-only path): rclone rewrites its OAuth token on refresh — never make this mount `:ro`. Offsite = encrypted PG dumps only (MinIO mirror stays local by design).
+
+### Workers & Celery
+- Every long-running task holds a Redis lock: atomic `SET NX EX`, TTL strictly above the task's `time_limit`, release conditional on still owning the lock (reference pattern: `tasks/catalog.py`). Never check-then-set, never a TTL below the time_limit.
+- Deezer/Beatport rate limits are shared across worker processes via a Redis fixed window inside `rate_limiter.py` (fail-open to the local bucket if Redis is down). Instantiating `RateLimiter()` per task is fine — the global cap holds anyway.
+- Destructive cleanup of a watched playlist triggers ONLY on `PlaylistGoneError` (typed per source in `source_clients.py`), never on string-matching an exception message.
+- Never `result.get()` inside a task (blocks a worker slot for the whole run) — use a `chord` with a finalize callback + errback (pattern: `tasks/genres.py`).
 
 ### Database & Alembic
 - Since AU3 the API never runs `create_all`: the schema comes from Alembic ONLY (test harnesses keep their own `create_all` in `tests/*/conftest.py`). In local dev, the compose override runs `alembic upgrade head` before uvicorn.

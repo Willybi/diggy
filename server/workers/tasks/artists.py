@@ -5,10 +5,77 @@ Celery tasks for artist sync, artwork fetching, and set artist linking.
 import asyncio
 import logging
 import sys
+import unicodedata
+from datetime import datetime, timedelta, timezone
 
 from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# A3-12: retry window for Deezer artist searches — an artist with no match is
+# re-searched only after this many days. Never auto-set the NOT_FOUND sentinel:
+# "confirmed absent from Deezer" is a human decision.
+ARTIST_RESEARCH_DAYS = 30
+
+
+def _norm_artist_name(s):
+    s = unicodedata.normalize("NFKD", s.lower().strip())
+    return s.encode("ascii", "ignore").decode()
+
+
+def _artists_to_research(session, now):
+    """Artists eligible for a Deezer search: no deezer_id and never searched,
+    or last searched more than ARTIST_RESEARCH_DAYS ago."""
+    from models import Artist
+    from sqlalchemy import or_, select
+
+    threshold = now - timedelta(days=ARTIST_RESEARCH_DAYS)
+    return (
+        session.execute(
+            select(Artist).where(
+                Artist.deezer_id.is_(None),
+                or_(
+                    Artist.deezer_searched_at.is_(None),
+                    Artist.deezer_searched_at < threshold,
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def _link_artist_deezer(pool, artist, used_ids):
+    """Search Deezer for one artist and link it on an exact name match.
+
+    Returns True when a link was made. A completed search (matched or not)
+    stamps deezer_searched_at; a DeezerHTTPError is an outage, not a search
+    (same principle as the catalog A3-04 fix), so the stamp stays unset and
+    the artist is retried on the next run.
+    """
+    from workers.async_http import DeezerHTTPError
+
+    try:
+        data = await pool.deezer_get(
+            "/search/artist", params={"q": artist.name, "limit": 10}
+        )
+    except DeezerHTTPError as e:
+        logger.warning("Deezer artist search failed for %s: %s", artist.name, e)
+        return False
+    artist.deezer_searched_at = datetime.now(timezone.utc)
+    name_norm = _norm_artist_name(artist.name)
+    for hit in data.get("data", []):
+        dz_name = hit.get("name", "")
+        if (
+            dz_name.lower() == artist.name.lower()
+            or _norm_artist_name(dz_name) == name_norm
+        ):
+            dz_id = str(hit["id"])
+            if dz_id not in used_ids:
+                artist.deezer_id = dz_id
+                used_ids.add(dz_id)
+                return True
+    return False
 
 
 @celery_app.task(
@@ -441,8 +508,6 @@ def fetch_artist_artworks(self):
     Pass 1: link artists to Deezer (5 concurrent searches).
     Pass 2: download artworks (5 concurrent downloads).
     """
-    import unicodedata
-
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
@@ -466,10 +531,6 @@ def fetch_artist_artworks(self):
         from workers.async_http import DeezerHTTPError, HttpPool
         from workers.rate_limiter import RateLimiter
 
-        def _norm(s):
-            s = unicodedata.normalize("NFKD", s.lower().strip())
-            return s.encode("ascii", "ignore").decode()
-
         limiter = RateLimiter()
         linked = 0
         fetched = 0
@@ -477,11 +538,9 @@ def fetch_artist_artworks(self):
 
         async with HttpPool(limiter) as pool:
             with Session(engine) as session:
-                # Pass 1: link artists to Deezer
-                no_id_artists = (
-                    session.execute(select(Artist).where(Artist.deezer_id.is_(None)))
-                    .scalars()
-                    .all()
+                # Pass 1: link artists to Deezer (A3-12: skip recently searched)
+                no_id_artists = _artists_to_research(
+                    session, datetime.now(timezone.utc)
                 )
 
                 used_ids = set(
@@ -493,30 +552,10 @@ def fetch_artist_artworks(self):
 
                 async def _link_one(artist):
                     nonlocal linked, skipped
-                    try:
-                        data = await pool.deezer_get(
-                            "/search/artist", params={"q": artist.name, "limit": 10}
-                        )
-                    except DeezerHTTPError as e:
-                        logger.warning(
-                            "Deezer artist search failed for %s: %s", artist.name, e
-                        )
+                    if await _link_artist_deezer(pool, artist, used_ids):
+                        linked += 1
+                    else:
                         skipped += 1
-                        return
-                    name_norm = _norm(artist.name)
-                    for hit in data.get("data", []):
-                        dz_name = hit.get("name", "")
-                        if (
-                            dz_name.lower() == artist.name.lower()
-                            or _norm(dz_name) == name_norm
-                        ):
-                            dz_id = str(hit["id"])
-                            if dz_id not in used_ids:
-                                artist.deezer_id = dz_id
-                                used_ids.add(dz_id)
-                                linked += 1
-                                return
-                    skipped += 1
 
                 await asyncio.gather(*[_link_one(a) for a in no_id_artists])
                 session.commit()
@@ -605,73 +644,86 @@ def link_set_artists(self):
     sys.path.insert(0, "/app")
     from models import Artist, ArtistAlias, DJSet, SetArtist
     from utils import normalize
+    from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
     engine = get_engine()
 
-    # Build lookup: normalized name/alias → artist_id
-    with Session(engine) as session:
-        norm_to_id = {}
-        for a in session.execute(select(Artist)).scalars().all():
-            norm_to_id[normalize(a.name)] = a.id
-        for al in session.execute(select(ArtistAlias)).scalars().all():
-            if al.normalized_alias not in norm_to_id:
-                norm_to_id[al.normalized_alias] = al.artist_id
+    with Session(engine) as log_session:
+        with CrawlLogger(
+            log_session, task_type="link_set_artists", celery_task_id=self.request.id
+        ) as clog:
+            # Build lookup: normalized name/alias → artist_id
+            with Session(engine) as session:
+                norm_to_id = {}
+                for a in session.execute(select(Artist)).scalars().all():
+                    norm_to_id[normalize(a.name)] = a.id
+                for al in session.execute(select(ArtistAlias)).scalars().all():
+                    if al.normalized_alias not in norm_to_id:
+                        norm_to_id[al.normalized_alias] = al.artist_id
 
-        # Sort by name length DESC so "Fred again.." matches before "Fred"
-        sorted_names = sorted(norm_to_id.keys(), key=len, reverse=True)
+                # Sort by name length DESC so "Fred again.." matches before "Fred"
+                sorted_names = sorted(norm_to_id.keys(), key=len, reverse=True)
 
-        sets = session.execute(select(DJSet)).scalars().all()
-        linked = 0
-        skipped = 0
+                sets = session.execute(select(DJSet)).scalars().all()
+                linked = 0
+                skipped = 0
 
-        for dj_set in sets:
-            title = dj_set.title or ""
-            title_lower = title.lower()
+                for dj_set in sets:
+                    title = dj_set.title or ""
+                    title_lower = title.lower()
 
-            # Detect B2B
-            is_b2b = "b2b" in title_lower or "b2b" in title_lower.replace("_", " ")
-
-            # Find all artist names present in the title
-            matched_ids = set()
-            title_norm = normalize(title)
-            # Also normalize underscores (e.g. Busy_P_b2b_Erol_Alkan)
-            title_norm_clean = title_norm.replace("_", " ")
-
-            for norm_name in sorted_names:
-                if len(norm_name) < 3:
-                    continue  # skip very short names to avoid false positives
-                if norm_name in title_norm or norm_name in title_norm_clean:
-                    aid = norm_to_id[norm_name]
-                    if aid not in matched_ids:
-                        matched_ids.add(aid)
-
-            # Insert set_artists (skip existing)
-            existing = {
-                r[0]
-                for r in session.execute(
-                    select(SetArtist.artist_id).where(SetArtist.set_id == dj_set.id)
-                ).all()
-            }
-
-            for aid in matched_ids:
-                if aid in existing:
-                    skipped += 1
-                    continue
-                role = "b2b" if is_b2b else "dj"
-                session.add(
-                    SetArtist(
-                        set_id=dj_set.id,
-                        artist_id=aid,
-                        role=role,
-                        position=0,
+                    # Detect B2B
+                    is_b2b = (
+                        "b2b" in title_lower
+                        or "b2b" in title_lower.replace("_", " ")
                     )
-                )
-                linked += 1
 
-            session.commit()
+                    # Find all artist names present in the title
+                    matched_ids = set()
+                    title_norm = normalize(title)
+                    # Also normalize underscores (e.g. Busy_P_b2b_Erol_Alkan)
+                    title_norm_clean = title_norm.replace("_", " ")
 
-    return {"linked": linked, "skipped": skipped}
+                    for norm_name in sorted_names:
+                        if len(norm_name) < 3:
+                            continue  # skip very short names to avoid false positives
+                        if norm_name in title_norm or norm_name in title_norm_clean:
+                            aid = norm_to_id[norm_name]
+                            if aid not in matched_ids:
+                                matched_ids.add(aid)
+
+                    # Insert set_artists (skip existing)
+                    existing = {
+                        r[0]
+                        for r in session.execute(
+                            select(SetArtist.artist_id).where(
+                                SetArtist.set_id == dj_set.id
+                            )
+                        ).all()
+                    }
+
+                    for aid in matched_ids:
+                        if aid in existing:
+                            skipped += 1
+                            continue
+                        role = "b2b" if is_b2b else "dj"
+                        session.add(
+                            SetArtist(
+                                set_id=dj_set.id,
+                                artist_id=aid,
+                                role=role,
+                                position=0,
+                            )
+                        )
+                        linked += 1
+
+                    session.commit()
+
+            result = {"linked": linked, "skipped": skipped}
+            clog.set_stats(result)
+
+    return result
 
 
 @celery_app.task(

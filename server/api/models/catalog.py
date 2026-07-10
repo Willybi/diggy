@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     func,
@@ -56,6 +57,12 @@ class CatalogEntry(Base):
     needs_reconciliation = Column(Boolean, server_default="false", nullable=True)
     deezer_searched_at = Column(DateTime(timezone=True), nullable=True)
     beatport_searched_at = Column(DateTime(timezone=True), nullable=True)
+    deezer_search_attempts = Column(
+        SmallInteger, nullable=False, server_default="0", default=0
+    )
+    beatport_search_attempts = Column(
+        SmallInteger, nullable=False, server_default="0", default=0
+    )
 
     __table_args__ = (
         Index(
@@ -74,6 +81,16 @@ class CatalogEntry(Base):
             "ix_catalog_owner",
             "owner_id",
             postgresql_where=text("owner_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_catalog_deezer_searched_at",
+            "deezer_searched_at",
+            postgresql_where=text("deezer_id IS NULL"),
+        ),
+        Index(
+            "ix_catalog_beatport_searched_at",
+            "beatport_searched_at",
+            postgresql_where=text("beatport_id IS NULL"),
         ),
     )
 
