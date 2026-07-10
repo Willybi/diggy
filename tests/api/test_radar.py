@@ -25,8 +25,8 @@ async def client(auth_user):
 
 @pytest_asyncio.fixture
 async def watched_playlist_id(client, mocker):
-    mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 10, "owner": "willi"})
-    mocker.patch("routers.watchlist._trigger_crawl")
+    mocker.patch("services.watchlist_service._fetch_deezer_playlist", return_value={"title": "Selected House", "track_count": 10, "owner": "willi"})
+    mocker.patch("services.watchlist_service._trigger_crawl")
     r = await client.post("/api/watchlist/", json={
         "external_id": "1950581322",
         "source": "deezer",
@@ -80,8 +80,8 @@ class TestDeleteRadarRequiresAdmin:
         assert r.status_code == 403
 
     async def test_delete_radar_admin_succeeds(self, admin_client, db, mocker):
-        mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "PL"})
-        mocker.patch("routers.watchlist._trigger_crawl")
+        mocker.patch("services.watchlist_service._fetch_deezer_playlist", return_value={"title": "PL"})
+        mocker.patch("services.watchlist_service._trigger_crawl")
         r = await admin_client.post("/api/watchlist/", json={"external_id": "adm1", "source": "deezer"})
         we_id = r.json()["id"]
         rt = await _make_radar_track(db, we_id)

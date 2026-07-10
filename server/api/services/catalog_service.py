@@ -6,13 +6,13 @@ Services raise LookupError (404) or ValueError (400), never HTTPException.
 
 import json as _json
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.genre_service import _PILLAR_CACHE, _ensure_pillar_cache, genre_pillar
+from services.genre_service import ensure_pillar_cache, genre_pillar, pillar_map
 
 
 async def list_catalog(
@@ -185,7 +185,7 @@ async def list_catalog(
     if avis:
         query = query.where(avis_col == avis)
 
-    await _ensure_pillar_cache(db)
+    await ensure_pillar_cache(db)
 
     nb_radar_col = func.coalesce(radar_count.c.nb_playlists, 0)
     sort_col = None
@@ -211,7 +211,7 @@ async def list_catalog(
             "dnb": 3, "hardcore": 4, "harddance": 5, "autres": 6,
         }
         pillar_case = case(
-            *[(first_genre == g, pillar_rank.get(p, 6)) for g, (p, _d) in _PILLAR_CACHE.items()],
+            *[(first_genre == g, pillar_rank.get(p, 6)) for g, (p, _d) in pillar_map().items()],
             else_=6,
         )
 
@@ -588,7 +588,8 @@ async def update_avis(
     db: AsyncSession, catalog_id: int, user_id: int, avis: str | None
 ) -> dict:
     from models import CatalogEntry, UserTrack
-    from opinion_sync import sync_track_opinion
+
+    from services.opinion_sync import sync_track_opinion
 
     # Verify catalog entry exists
     cat = await db.execute(
@@ -659,3 +660,51 @@ async def get_crawl_logs(
         "page": page,
         "per_page": per_page,
     }
+
+
+async def get_or_create_catalog(
+    db: AsyncSession,
+    title: str,
+    artist: str | None,
+    isrc: str | None = None,
+    duration_ms: int | None = None,
+    genres: list[str] | None = None,
+    release_date=None,
+):
+    """Find a catalog entry by ISRC or normalized_key, or create it (flushed, not committed)."""
+    from models import CatalogEntry
+    from utils import make_normalized_key
+
+    # 1. Cherche par ISRC si dispo
+    if isrc:
+        result = await db.execute(select(CatalogEntry).where(CatalogEntry.isrc == isrc))
+        entry = result.scalar_one_or_none()
+        if entry:
+            return entry
+
+    # 2. Cherche par normalized_key
+    norm_key = make_normalized_key(title, artist)
+    result = await db.execute(
+        select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+    )
+    entry = result.scalar_one_or_none()
+    if entry:
+        # Met à jour l'ISRC si on l'a maintenant et qu'il manquait
+        if isrc and not entry.isrc:
+            entry.isrc = isrc
+        return entry
+
+    # 3. Crée une nouvelle entrée
+    new = CatalogEntry(
+        title=title,
+        artist=artist,
+        normalized_key=norm_key,
+        isrc=isrc or None,
+        duration_ms=duration_ms,
+        genres=genres or [],
+        release_date=release_date,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(new)
+    await db.flush()
+    return new

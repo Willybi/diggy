@@ -52,8 +52,8 @@ async def dj_set(db):
 
 @pytest_asyncio.fixture
 async def watched_playlist(db, mocker):
-    mocker.patch("routers.watchlist._fetch_deezer_playlist", return_value={"title": "Test PL"})
-    mocker.patch("routers.watchlist._trigger_crawl")
+    mocker.patch("services.watchlist_service._fetch_deezer_playlist", return_value={"title": "Test PL"})
+    mocker.patch("services.watchlist_service._trigger_crawl")
     entity = WatchedEntity(
         external_id="12345", source="deezer", title="Test PL",
     )

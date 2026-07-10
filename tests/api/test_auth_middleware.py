@@ -137,6 +137,13 @@ class TestProtectedEndpoints:
         r = await client.post("/api/admin/artists/sync")
         assert r.status_code == 401
 
+    async def test_watchlist_active_no_token_returns_401(self, mw_client):
+        # A6-10: the endpoint was removed (crawl_radar reads the DB directly)
+        # and its _OPEN_PREFIXES exemption with it — guests must get 401.
+        client, _ = mw_client
+        r = await client.get("/api/watchlist/active")
+        assert r.status_code == 401
+
 
 class TestOptionsPreflightAllowed:
     """CORS preflight (OPTIONS) should always pass through."""

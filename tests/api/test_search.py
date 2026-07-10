@@ -146,6 +146,49 @@ class TestSearch:
         assert data["items"][0]["title"] == "Cola"
 
 
+class TestSearchLikeEscape:
+    """A6-06: % and _ in the query match literally instead of acting as wildcards."""
+
+    async def test_percent_matches_literally(self, client, db):
+        db.add(CatalogEntry(title="100% Pure", artist="DJ", normalized_key="100% pure - dj"))
+        db.add(CatalogEntry(title="100 Degrees", artist="DJ", normalized_key="100 degrees - dj"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "100%", "scope": "track"})
+        data = r.json()
+        assert data["totals"]["track"] == 1
+        assert data["items"][0]["title"] == "100% Pure"
+
+    async def test_underscore_is_not_a_wildcard(self, client, db):
+        db.add(CatalogEntry(title="abc", artist="DJ", normalized_key="abc - dj"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "ab_", "scope": "track"})
+        data = r.json()
+        assert data["totals"]["track"] == 0
+        assert data["items"] == []
+
+    async def test_underscore_matches_literally(self, client, db):
+        db.add(CatalogEntry(title="ab_c", artist="DJ", normalized_key="ab_c - dj"))
+        db.add(CatalogEntry(title="abXc", artist="DJ", normalized_key="abxc - dj"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "ab_", "scope": "track"})
+        data = r.json()
+        assert data["totals"]["track"] == 1
+        assert data["items"][0]["title"] == "ab_c"
+
+    async def test_artist_scope_percent_literal(self, client, db):
+        db.add(Artist(name="100% Techno", normalized_name="100% techno"))
+        db.add(Artist(name="100 Grad", normalized_name="100 grad"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "100%", "scope": "artist"})
+        data = r.json()
+        assert data["totals"]["artist"] == 1
+        assert data["items"][0]["name"] == "100% Techno"
+
+
 class TestSearchPagination:
     """A1-02: LIMIT must be deterministic (ORDER BY) and single-scope offset real."""
 

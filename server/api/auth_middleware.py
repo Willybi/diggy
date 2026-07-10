@@ -26,7 +26,6 @@ _OPEN_PREFIXES = (
     "/api/health",
     "/api/docs",
     "/api/openapi.json",
-    "/api/watchlist/active",
 )
 
 # Module flag — disabled in tests where dependency overrides handle auth

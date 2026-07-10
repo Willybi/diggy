@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
-_ALL_PILLARS = ("house", "techno", "trance", "dnb", "hardcore", "harddance", "autres")
+ALL_PILLARS = ("house", "techno", "trance", "dnb", "hardcore", "harddance", "autres")
 
 _ROOT_TO_PILLAR = {
     "house music": "house",
@@ -35,6 +35,15 @@ _pillar_cache_attempted = False
 def genre_pillar(genre_name: str) -> tuple[str, int]:
     """Return (pillar, depth) for a genre. Fallback: ('autres', 0)."""
     return _PILLAR_CACHE.get(genre_name, ("autres", 0))
+
+
+def pillar_map() -> dict[str, tuple[str, int]]:
+    """Live view of the pillar cache: raw genre name -> (pillar, depth).
+
+    Read-only accessor for consumers that need to iterate the whole mapping;
+    mutations belong to this module only.
+    """
+    return _PILLAR_CACHE
 
 
 def _pillar_genre_names(pillar: str) -> list[str]:
@@ -98,7 +107,7 @@ async def _load_pillar_cache(db: AsyncSession) -> None:
     log.info("Pillar cache loaded: %d genres", len(cache))
 
 
-async def _ensure_pillar_cache(db: AsyncSession) -> None:
+async def ensure_pillar_cache(db: AsyncSession) -> None:
     global _pillar_cache_attempted
     if _PILLAR_CACHE or _pillar_cache_attempted:
         return
@@ -134,13 +143,13 @@ async def list_genres(
     limit: int,
     offset: int,
 ) -> dict:
-    await _ensure_pillar_cache(db)
+    await ensure_pillar_cache(db)
 
     family_genres: list[str] | None = None
-    if family and family in _ALL_PILLARS:
+    if family and family in ALL_PILLARS:
         family_genres = _pillar_genre_names(family)
         if not family_genres:
-            return {"items": [], "total": 0, "pillarCounts": {p: 0 for p in _ALL_PILLARS}}
+            return {"items": [], "total": 0, "pillarCounts": {p: 0 for p in ALL_PILLARS}}
 
     q_pattern = f"%{q.lower()}%" if q else ""
 
@@ -252,7 +261,7 @@ async def list_genres(
     """),
         {"q_filter": bool(q), "q_pattern": q_pattern},
     )
-    pillar_counts: dict[str, int] = {p: 0 for p in _ALL_PILLARS}
+    pillar_counts: dict[str, int] = {p: 0 for p in ALL_PILLARS}
     for fc_row in fc_result.fetchall():
         p, _d = genre_pillar(fc_row.genre)
         pillar_counts[p] += 1
@@ -262,7 +271,7 @@ async def list_genres(
 
 async def get_detail(db: AsyncSession, name: str, user_id: int | None) -> dict:
     genre = await resolve_genre(db, name)
-    await _ensure_pillar_cache(db)
+    await ensure_pillar_cache(db)
 
     s = (
         await db.execute(
@@ -542,7 +551,7 @@ async def list_genre_tracks(
 
 async def get_neighbors(db: AsyncSession, name: str, limit: int) -> dict:
     genre = await resolve_genre(db, name)
-    await _ensure_pillar_cache(db)
+    await ensure_pillar_cache(db)
     result = await db.execute(
         text("""
         WITH genre_artists AS (

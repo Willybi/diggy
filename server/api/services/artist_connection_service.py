@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.genre_service import _ensure_pillar_cache, genre_pillar
+from services.genre_service import ensure_pillar_cache, genre_pillar
 from services.similarity_service import (
     _expand_genre_nodes,
     _load_genre_context,
@@ -255,7 +255,7 @@ async def get_connections(
     artist_info = {r[0]: (r[1], r[2]) for r in artist_rows}
 
     # 7. Build response
-    await _ensure_pillar_cache(db)
+    await ensure_pillar_cache(db)
 
     results = []
     for cand_id, score, components, details in top:

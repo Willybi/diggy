@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-10 (AU4+E1 code)
+> Last verified: 2026-07-10 (AU5 code)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -30,12 +30,13 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 14 routers, 97 endpoints:
+│   ├── routers/             # 14 routers, 96 endpoints:
 │   │                        # tracks, catalog, radar, watchlist, artists, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin
 │   └── services/            # Business logic lives HERE, not in routers:
-│                            # genre, artist, catalog, radar, image, rekordbox_xml,
+│                            # genre, artist, catalog, radar, image, search, watchlist,
+│                            # similarity, artist_connection, opinion_sync, rekordbox_xml,
 │                            # set_dedup (normalize_set_title, match_set, materialize_parent)
 ├── workers/
 │   ├── celery_app.py        # Celery config + beat schedule

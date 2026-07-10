@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-10 (AU7 TERMINE — filet de tests enrichissement + auth, gate coverage honnete)
+> **Derniere mise a jour** : 2026-07-10 (AU4 + E1 TERMINES — robustesse workers + re-scan enrichissement sous budget nightly)
 
 ---
 
@@ -45,11 +45,11 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU2  Sauvegardes & deploiement             HAUT        1-2 jours    TERMINE (2026-07-10)
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    TERMINE (2026-07-10)
  AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    TERMINE (2026-07-10)
- AU4  Robustesse workers                    MOYEN       2 jours      A FAIRE
+ AU4  Robustesse workers                    MOYEN       2 jours      TERMINE (2026-07-10)
  AU5  Couche service backend                MOYEN       2-3 jours    A FAIRE
  AU6  Dette frontend                        MOYEN       1-2 jours    A FAIRE
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    A FAIRE
- E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       A FAIRE (apres AU7, avec/apres AU4)
+ E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
@@ -83,6 +83,8 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU2  Sauvegardes & deploiement         TERMINE
  AU3  Integrite donnees (migration 0031) TERMINE
  AU7  Dette de tests (enrich + auth)    TERMINE
+ AU4  Robustesse workers                TERMINE
+ E1   Re-scan enrichissement (backoff+budget) TERMINE
 ```
 
 ### Dependances
@@ -109,7 +111,7 @@ AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + re
 AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md   ✅ TERMINE
 AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)   ✅ TERMINE
 AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)
-E1 ─────────> AU7 imperatif (filet de tests enrichment.py avant modification) ; recommande avec ou juste apres AU4 (meme zone de code, coordonner avec A3-05 rate limiting partage)
+E1 ─────────> AU7 imperatif (filet de tests enrichment.py avant modification) ; recommande avec ou juste apres AU4 (meme zone de code, coordonner avec A3-05 rate limiting partage)   ✅ TERMINE
 Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)
 C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> C3 (apres ouverture)
@@ -566,7 +568,7 @@ Perimetre reduit par l'arbitrage Q7 : tester le code le plus critique aujourd'hu
 **Priorite : MOYEN**
 **Estimation : 2 jours**
 **Depend de : AU7 (volet enrichissement = filet de tests)**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-10) — code deploye et verifie en prod (0f12091) : locks SET NX EX avec TTL > time_limit partout (resolve_set_tracks, crawl playlist 4600s, import RB atomique), suppression de playlist uniquement sur PlaylistGoneError typee par source, 10 except:pass logges, CrawlLogger sur crawl_followed_sets + link_set_artists, reclassify en chord (plus de result.get), rate limiting deezer/beatport partage via fenetre Redis (fail-open logge), artists.deezer_searched_at + re-recherche 30j (migration 0032) ; sanity check des crawls nightly prevu le 2026-07-11 matin**
 **Renvoi : E1 (re-scan enrichissement + budget nightly) recommande dans la meme fenetre — meme zone de code, meme filet AU7 ; A3-05 (rate limiting partage) et le budget E1 se coordonnent.**
 
 ### Objectif
@@ -575,17 +577,17 @@ Erreurs typees, locks corrects, observabilite : que les crawls nocturnes echouen
 
 ### Taches
 
-- [ ] A3-03 : `reclassify_genres_chunk` — ne vider `entry.genres` qu'a l'affectation d'une nouvelle valeur ; distinguer "aucun genre trouve (200)" d'"erreur source"
-- [ ] A3-05 : rate limiting partage (token bucket Redis pour deezer/beatport, ou borner la concurrence de la queue crawl) — limites actuellement multipliees par la concurrence prefork
-- [ ] A3-06 : clients Deezer sync — verifier status 200 + absence de cle `error` du JSON, lever sinon (tracklist partielle => faux `removed_at`)
-- [ ] A3-07 : remplacer le matching de chaine "404" par une exception typee `PlaylistGoneError` par source (suppression destructive actuellement declenchable par un message d'erreur quelconque)
-- [ ] A3-08 : logger les 6 `except: pass` muets (materialize_parent x3, post-import dedup, artwork, link artist)
-- [ ] A3-09 : `CrawlLogger` sur `crawl_followed_sets` et `link_set_artists`
-- [ ] A3-10 : `chord` au lieu de `result.get()` dans `reclassify_all_genres` (slot worker bloque jusqu'a 7h)
-- [ ] A3-11 : lock Redis sur `resolve_set_tracks` (pattern `enrich_catalog_beatport`, TTL 7500s)
-- [ ] A3-12 : `deezer_searched_at` sur Artist (stop aux re-recherches des 226 memes artistes a chaque run)
-- [ ] A3-13 : lock `crawl_single_playlist` TTL 4600s (> time_limit, actuellement 900s)
-- [ ] A3-14 : lock import RB en `SET NX EX` + delete conditionnel a la valeur, TTL >= time_limit
+- [x] A3-03 : `reclassify_genres_chunk` — ne vider `entry.genres` qu'a l'affectation d'une nouvelle valeur ; distinguer "aucun genre trouve (200)" d'"erreur source"
+- [x] A3-05 : rate limiting partage (token bucket Redis pour deezer/beatport, ou borner la concurrence de la queue crawl) — limites actuellement multipliees par la concurrence prefork
+- [x] A3-06 : clients Deezer sync — verifier status 200 + absence de cle `error` du JSON, lever sinon (tracklist partielle => faux `removed_at`)
+- [x] A3-07 : remplacer le matching de chaine "404" par une exception typee `PlaylistGoneError` par source (suppression destructive actuellement declenchable par un message d'erreur quelconque)
+- [x] A3-08 : logger les 6 `except: pass` muets (materialize_parent x3, post-import dedup, artwork, link artist)
+- [x] A3-09 : `CrawlLogger` sur `crawl_followed_sets` et `link_set_artists`
+- [x] A3-10 : `chord` au lieu de `result.get()` dans `reclassify_all_genres` (slot worker bloque jusqu'a 7h)
+- [x] A3-11 : lock Redis sur `resolve_set_tracks` (pattern `enrich_catalog_beatport`, TTL 7500s)
+- [x] A3-12 : `deezer_searched_at` sur Artist (stop aux re-recherches des 226 memes artistes a chaque run)
+- [x] A3-13 : lock `crawl_single_playlist` TTL 4600s (> time_limit, actuellement 900s)
+- [x] A3-14 : lock import RB en `SET NX EX` + delete conditionnel a la valeur, TTL >= time_limit
 
 ### Definition of Done
 
@@ -711,7 +713,7 @@ Executer les decisions de rangement (Q2 import legacy, Q5 design clean, Q6 stack
 **Priorite : MOYEN**
 **Estimation : 1 jour**
 **Depend de : AU7 (IMPERATIF — filet de tests sur `enrichment.py` avant modification, meme contrainte que AU4). Recommande : execution avec ou juste apres AU4 (meme zone de code ; coordonner le budget avec A3-05 rate limiting partage).**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-10) — code deploye et verifie en prod (0f12091), execute AVEC AU4 : migration 0033 (compteurs attempts + backfill 23885 dz / 30542 bp + index partiels ; numerotee 0033 car 0032 = A3-12), selection par tiers sous ENRICH_NIGHTLY_BUDGET (defaut 6000, non pose dans le .env), increment uniquement sur recherche aboutie (distinction A3-04 preservee), garde 24h inline etendue a radar.py en plus de sets.py ; preuve nightly attendue le 2026-07-11 matin (sweep Beatport sans SoftTimeLimitExceeded)**
 **Origine : analyse prod du 2026-07-10 (saturation `enrich_catalog_beatport` + population not-found abandonnee) — hors perimetre audit 2026-07.**
 
 ### Objectif
@@ -740,13 +742,13 @@ Les retries ne consomment que le budget restant apres les nouveaux : pendant les
 
 ### Taches
 
-- [ ] Migration 0032 (additive) : `catalog.beatport_search_attempts` + `catalog.deezer_search_attempts` (SMALLINT NOT NULL DEFAULT 0) + backfill `attempts=1 WHERE searched_at IS NOT NULL` + index partiels `(beatport_searched_at) WHERE beatport_id IS NULL` (idem Deezer)
-- [ ] Modele `models/catalog.py` : 2 colonnes + index (autogenerate a blanc = diff vide)
-- [ ] `tasks/catalog.py` : les 2 requetes sweep (Deezer + Beatport) — WHERE 3 tiers + ORDER BY priorite + LIMIT budget
-- [ ] `enrichment.py` : incrementer `attempts` aux 2 points qui posent `searched_at` — CONSERVER la distinction A3-04 (echec HTTP != not found : pas de searched_at ni d'increment sur erreur reseau)
-- [ ] `tasks/sets.py` : garde `searched_at IS NULL OR searched_at < now() - 24h` sur les selections inline `dz_entries` / `bp_entries`
-- [ ] Tests : selection par tiers, increment du compteur, garde inline, respect du budget (s'appuie sur le filet AU7)
-- [ ] `/schema_doc` apres le changement de modele
+- [x] Migration 0032 (additive) : `catalog.beatport_search_attempts` + `catalog.deezer_search_attempts` (SMALLINT NOT NULL DEFAULT 0) + backfill `attempts=1 WHERE searched_at IS NOT NULL` + index partiels `(beatport_searched_at) WHERE beatport_id IS NULL` (idem Deezer)
+- [x] Modele `models/catalog.py` : 2 colonnes + index (autogenerate a blanc = diff vide)
+- [x] `tasks/catalog.py` : les 2 requetes sweep (Deezer + Beatport) — WHERE 3 tiers + ORDER BY priorite + LIMIT budget
+- [x] `enrichment.py` : incrementer `attempts` aux 2 points qui posent `searched_at` — CONSERVER la distinction A3-04 (echec HTTP != not found : pas de searched_at ni d'increment sur erreur reseau)
+- [x] `tasks/sets.py` : garde `searched_at IS NULL OR searched_at < now() - 24h` sur les selections inline `dz_entries` / `bp_entries`
+- [x] Tests : selection par tiers, increment du compteur, garde inline, respect du budget (s'appuie sur le filet AU7)
+- [x] `/schema_doc` apres le changement de modele
 - [ ] Hors scope (note pour plus tard) : bouton admin "forcer re-scan" (reset `searched_at` + `attempts`) — pattern existant dans `artist_service.py:606`
 
 ### Boutons de reglage lies (pas dans ce chantier)

@@ -11,12 +11,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
-from services.genre_service import _ALL_PILLARS, _PILLAR_CACHE, _pillar_genre_names, genre_pillar
+from services.genre_service import ALL_PILLARS, _pillar_genre_names, genre_pillar, pillar_map
 
 
 class TestAllPillars:
     def test_has_expected_pillars(self):
-        assert set(_ALL_PILLARS) == {
+        assert set(ALL_PILLARS) == {
             "house", "techno", "trance", "dnb", "hardcore", "harddance", "autres"
         }
 
@@ -26,11 +26,12 @@ class TestGenrePillar:
         assert genre_pillar("Unknown Genre XYZ") == ("autres", 0)
 
     def test_cached_genre(self):
-        _PILLAR_CACHE["Test Genre"] = ("house", 1)
+        cache = pillar_map()
+        cache["Test Genre"] = ("house", 1)
         try:
             assert genre_pillar("Test Genre") == ("house", 1)
         finally:
-            del _PILLAR_CACHE["Test Genre"]
+            del cache["Test Genre"]
 
 
 class TestPillarGenreNames:
@@ -39,15 +40,16 @@ class TestPillarGenreNames:
         assert names == []
 
     def test_returns_matching(self):
-        _PILLAR_CACHE["Foo"] = ("techno", 0)
-        _PILLAR_CACHE["Bar"] = ("techno", 1)
-        _PILLAR_CACHE["Baz"] = ("house", 0)
+        cache = pillar_map()
+        cache["Foo"] = ("techno", 0)
+        cache["Bar"] = ("techno", 1)
+        cache["Baz"] = ("house", 0)
         try:
             names = _pillar_genre_names("techno")
             assert "Foo" in names
             assert "Bar" in names
             assert "Baz" not in names
         finally:
-            del _PILLAR_CACHE["Foo"]
-            del _PILLAR_CACHE["Bar"]
-            del _PILLAR_CACHE["Baz"]
+            del cache["Foo"]
+            del cache["Bar"]
+            del cache["Baz"]

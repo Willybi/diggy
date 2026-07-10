@@ -2,17 +2,17 @@
 import pytest
 
 from services.genre_service import (
-    _ALL_PILLARS,
-    _PILLAR_CACHE,
+    ALL_PILLARS,
     _pillar_genre_names,
     genre_pillar,
     lookup_deezer_genres,
+    pillar_map,
 )
 
 
 class TestPillars:
     def test_all_pillars_set(self):
-        assert set(_ALL_PILLARS) == {
+        assert set(ALL_PILLARS) == {
             "house", "techno", "trance", "dnb", "hardcore", "harddance", "autres"
         }
 
@@ -33,18 +33,18 @@ class TestPillars:
 
     def test_pillar_genre_names_with_populated_cache(self):
         # Temporarily inject a value into the cache
-        _PILLAR_CACHE["Test House Genre"] = ("house", 1)
+        pillar_map()["Test House Genre"] = ("house", 1)
         try:
             result = _pillar_genre_names("house")
             assert "Test House Genre" in result
         finally:
-            _PILLAR_CACHE.pop("Test House Genre", None)
+            pillar_map().pop("Test House Genre", None)
 
     def test_pillar_genre_names_returns_list(self):
         assert isinstance(_pillar_genre_names("techno"), list)
 
     def test_all_pillars_is_tuple(self):
-        assert isinstance(_ALL_PILLARS, tuple)
+        assert isinstance(ALL_PILLARS, tuple)
 
 
 class TestLookupDeezerGenres:

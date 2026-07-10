@@ -184,14 +184,6 @@ class TestCrawlRadarOrchestration:
         assert result["errors"] == 1
         assert result["dispatched"] == 0
 
-    def test_api_non_list_response_raises_type_error(self):
-        """Validates that a non-list response is detected as invalid."""
-        response = {"error": "bad"}
-        assert not isinstance(response, list)
-        with pytest.raises(TypeError):
-            if not isinstance(response, list):
-                raise TypeError(f"Expected list, got {type(response).__name__}")
-
     def test_mixed_playlist_types(self):
         """Some playlists changed, some not, some unknown source."""
         playlists = [

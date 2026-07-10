@@ -1,5 +1,5 @@
-"""Tests for server/api/utils.py: normalize() and make_normalized_key()."""
-from utils import normalize, make_normalized_key
+"""Tests for server/api/utils.py: normalize(), make_normalized_key(), like_escape()."""
+from utils import like_escape, normalize, make_normalized_key
 
 
 class TestNormalize:
@@ -51,3 +51,28 @@ class TestMakeNormalizedKey:
         k1 = make_normalized_key("Cola", "CamelPhat")
         k2 = make_normalized_key("cola", "camelphat")
         assert k1 == k2
+
+
+class TestLikeEscape:
+    def test_no_metacharacters_unchanged(self):
+        assert like_escape("cola") == "cola"
+
+    def test_empty_string(self):
+        assert like_escape("") == ""
+
+    def test_percent_escaped(self):
+        assert like_escape("100%") == "100\\%"
+
+    def test_underscore_escaped(self):
+        assert like_escape("ab_c") == "ab\\_c"
+
+    def test_backslash_escaped(self):
+        assert like_escape("a\\b") == "a\\\\b"
+
+    def test_backslash_escaped_before_metacharacters(self):
+        # \% must become \\\% (escaped backslash + escaped percent),
+        # not \\\\% (double-escaped backslash swallowing the percent escape)
+        assert like_escape("\\%") == "\\\\\\%"
+
+    def test_all_metacharacters_combined(self):
+        assert like_escape("a%b_c\\d") == "a\\%b\\_c\\\\d"

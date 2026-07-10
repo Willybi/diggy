@@ -16,7 +16,7 @@ from schemas import (
     SimilarTrackOut,
 )
 from services import catalog_service, similarity_service
-from services.genre_service import _ensure_pillar_cache, genre_pillar
+from services.genre_service import ensure_pillar_cache, genre_pillar
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +42,7 @@ async def list_genres(db: AsyncSession = Depends(get_db)):
     """Return all distinct genres with track counts (unnested from arrays)."""
     from models import CatalogEntry
 
-    await _ensure_pillar_cache(db)
+    await ensure_pillar_cache(db)
     genre_col = func.unnest(CatalogEntry.genres).label("genre")
     result = await db.execute(
         select(genre_col, func.count())

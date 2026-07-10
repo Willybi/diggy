@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from services.genre_service import (
-    _ALL_PILLARS,
-    _ensure_pillar_cache,
+    ALL_PILLARS,
+    ensure_pillar_cache,
     genre_pillar,
 )
 
@@ -47,8 +47,8 @@ async def list_artists(
 ) -> dict:
     from models import Artist, CatalogArtist, CatalogEntry, UserRadarState, UserTrack
 
-    await _ensure_pillar_cache(db)
-    empty = {"items": [], "total": 0, "pillarCounts": {p: 0 for p in _ALL_PILLARS}}
+    await ensure_pillar_cache(db)
+    empty = {"items": [], "total": 0, "pillarCounts": {p: 0 for p in ALL_PILLARS}}
 
     lib_sub = (
         select(UserTrack.catalog_id, UserTrack.rating)
@@ -142,14 +142,14 @@ async def list_artists(
         genres = _artist_genres(artist_id)
         return genre_pillar(genres[0])[0] if genres else "autres"
 
-    pillar_counts: dict[str, int] = {p: 0 for p in _ALL_PILLARS}
+    pillar_counts: dict[str, int] = {p: 0 for p in ALL_PILLARS}
     pillar_by_id: dict[int, str] = {}
     for aid in all_artist_ids:
         pil = _artist_pillar_key(aid)
         pillar_by_id[aid] = pil
         pillar_counts[pil] += 1
 
-    if family and family in _ALL_PILLARS:
+    if family and family in ALL_PILLARS:
         filtered_ids = {aid for aid, pil in pillar_by_id.items() if pil == family}
         base_query = base_query.where(Artist.id.in_(filtered_ids))
 
@@ -248,7 +248,7 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
         GenreRef,
     )
 
-    await _ensure_pillar_cache(db)
+    await ensure_pillar_cache(db)
 
     result = await db.execute(
         select(Artist).options(selectinload(Artist.aliases)).where(Artist.id == artist_id)

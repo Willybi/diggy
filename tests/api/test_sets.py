@@ -13,9 +13,11 @@ from models import (
     SetArtist,
     SetTrack,
     User,
+    UserOpinion,
     UserSetFollow,
     UserTrack,
 )
+from sqlalchemy import select
 
 
 class TestListSets:
@@ -194,6 +196,64 @@ class TestImportSet:
         r = await auth_client.post("/api/sets/import", json={"slug": "test-set"})
         assert r.status_code == 200
         assert r.json()["title"] == "Test Set from TrackID"
+
+    async def test_import_with_existing_follow_but_no_opinion(
+        self, auth_client, db, auth_user, mocker
+    ):
+        """Follow already present but opinion missing: the auto-like must not
+        insert a duplicate follow (sync_set_opinion checks existence first)."""
+        fake_detail = {
+            "id": 54321,
+            "title": "Already Followed Set",
+            "slug": "already-followed",
+            "duration": "01:00:00.0000000",
+            "tracks": [],
+        }
+        mock_client_instance = AsyncMock()
+        mock_client_instance.get_set_detail = AsyncMock(return_value=fake_detail)
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        mocker.patch("trackid.client.TrackIDClient", return_value=mock_ctx)
+
+        dj_set = DJSet(source="trackid", title="Already Followed Set", external_id="54321")
+        db.add(dj_set)
+        await db.flush()
+        db.add(
+            UserSetFollow(
+                user_id=auth_user.id,
+                set_id=dj_set.id,
+                followed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+        await db.refresh(dj_set)
+
+        r = await auth_client.post("/api/sets/import", json={"slug": "already-followed"})
+        assert r.status_code == 200
+
+        follows = (
+            await db.execute(
+                select(UserSetFollow).where(
+                    UserSetFollow.user_id == auth_user.id,
+                    UserSetFollow.set_id == dj_set.id,
+                )
+            )
+        ).scalars().all()
+        assert len(follows) == 1
+
+        opinion = (
+            await db.execute(
+                select(UserOpinion).where(
+                    UserOpinion.user_id == auth_user.id,
+                    UserOpinion.entity_type == "set",
+                    UserOpinion.entity_key == str(dj_set.id),
+                )
+            )
+        ).scalar_one_or_none()
+        assert opinion is not None
+        assert opinion.opinion == "liked"
 
 
 class TestSetChildVisibility:

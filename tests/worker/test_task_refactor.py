@@ -21,6 +21,7 @@ from models import (
     SetArtist,
     SetTrack,
     User,
+    UserFollow,
     UserSetFollow,
     WatchedEntity,
 )
@@ -594,3 +595,76 @@ class TestResolveSetTracksAdditional:
         assert result["resolved"] == 1
         track = s.execute(select(SetTrack)).scalar_one()
         assert track.catalog_id == cat.id
+
+
+# ── _load_active_playlists (A1-17: DB read replacing GET /api/watchlist/active) ──
+
+
+class TestLoadActivePlaylists:
+    def _radar(self):
+        import workers.tasks.radar as radar_mod
+        return radar_mod
+
+    def _make_user(self, session):
+        u = User(email="x@x.com", username="x", google_id="gx", is_active=True)
+        session.add(u)
+        session.flush()
+        return u
+
+    def _make_entity(self, session, external_id="dz-1", last_crawled_at=None):
+        e = WatchedEntity(
+            external_id=external_id,
+            source="deezer",
+            title="PL",
+            last_crawled_at=last_crawled_at,
+        )
+        session.add(e)
+        session.flush()
+        return e
+
+    def test_followed_playlist_is_returned(self, sync_session):
+        s = sync_session
+        u = self._make_user(s)
+        e = self._make_entity(
+            s, last_crawled_at=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+        )
+        s.add(UserFollow(user_id=u.id, entity_id=e.id,
+                         followed_at=datetime.now(timezone.utc)))
+        s.commit()
+
+        playlists = self._radar()._load_active_playlists(s)
+
+        assert len(playlists) == 1
+        pl = playlists[0]
+        assert set(pl) == {"id", "source", "external_id", "last_crawled_at"}
+        assert pl["id"] == e.id
+        assert pl["source"] == "deezer"
+        assert pl["external_id"] == "dz-1"
+        # ISO string, same contract as the former HTTP JSON payload
+        assert isinstance(pl["last_crawled_at"], str)
+        assert pl["last_crawled_at"].startswith("2026-07-01T12:00:00")
+
+    def test_playlist_without_follower_is_excluded(self, sync_session):
+        s = sync_session
+        u = self._make_user(s)
+        followed = self._make_entity(s, external_id="dz-followed")
+        self._make_entity(s, external_id="dz-orphan")
+        s.add(UserFollow(user_id=u.id, entity_id=followed.id,
+                         followed_at=datetime.now(timezone.utc)))
+        s.commit()
+
+        playlists = self._radar()._load_active_playlists(s)
+
+        assert [pl["external_id"] for pl in playlists] == ["dz-followed"]
+
+    def test_never_crawled_playlist_has_none_last_crawled_at(self, sync_session):
+        s = sync_session
+        u = self._make_user(s)
+        e = self._make_entity(s, last_crawled_at=None)
+        s.add(UserFollow(user_id=u.id, entity_id=e.id,
+                         followed_at=datetime.now(timezone.utc)))
+        s.commit()
+
+        playlists = self._radar()._load_active_playlists(s)
+
+        assert playlists[0]["last_crawled_at"] is None

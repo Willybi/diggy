@@ -8,12 +8,46 @@ import os
 import sys
 
 import redis as redis_lib
-import requests
 from workers.celery_app import celery_app
 
-API_BASE = os.environ.get("DIGGY_API_URL", "http://api:8000")
-
 logger = logging.getLogger(__name__)
+
+
+def _load_active_playlists(session) -> list[dict]:
+    """
+    Playlists with at least 1 follower — direct-DB replacement for the
+    former GET /api/watchlist/active endpoint (same query).
+    """
+    from sqlalchemy import select
+
+    sys.path.insert(0, "/app")
+    from models import UserFollow, WatchedEntity
+
+    entities = (
+        session.execute(
+            select(WatchedEntity).where(
+                select(UserFollow.entity_id)
+                .where(UserFollow.entity_id == WatchedEntity.id)
+                .correlate(WatchedEntity)
+                .exists()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": e.id,
+            "source": e.source,
+            "external_id": e.external_id,
+            # has_changed() implementations parse ISO strings — keep the
+            # format the HTTP JSON payload used to carry (string or None)
+            "last_crawled_at": (
+                e.last_crawled_at.isoformat() if e.last_crawled_at else None
+            ),
+        }
+        for e in entities
+    ]
 
 
 @celery_app.task(
@@ -33,13 +67,8 @@ def crawl_radar(self):
     from workers.source_clients import get_fetchers
 
     engine = get_engine()
-    resp = requests.get(f"{API_BASE}/api/watchlist/active", timeout=10)
-    resp.raise_for_status()
-    playlists = resp.json()
-    if not isinstance(playlists, list):
-        raise TypeError(
-            f"Expected list from /api/watchlist/active, got {type(playlists).__name__}: {str(playlists)[:200]}"
-        )
+    with Session(engine) as session:
+        playlists = _load_active_playlists(session)
 
     with Session(engine) as log_session:
         from workers.crawl_logger import CrawlLogger

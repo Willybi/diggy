@@ -14,7 +14,6 @@ from models import (
     SetTrack,
     User,
     UserOpinion,
-    UserSetFollow,
     UserTrack,
 )
 from schemas import (
@@ -28,6 +27,7 @@ from schemas import (
     SetTrackDetailOut,
     TrackIDSearchResult,
 )
+from services.opinion_sync import sync_set_opinion
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -193,7 +193,7 @@ async def import_set_url(
         if not dj_set:
             raise HTTPException(status_code=500, detail="Import échoué")
 
-        # Auto-like (which also auto-follows via _sync_set_follow)
+        # Auto-like (which also auto-follows via sync_set_opinion)
         eo = await db.execute(
             select(UserOpinion).where(
                 UserOpinion.user_id == user.id,
@@ -211,13 +211,7 @@ async def import_set_url(
                     created_at=datetime.now(timezone.utc),
                 )
             )
-            db.add(
-                UserSetFollow(
-                    user_id=user.id,
-                    set_id=dj_set.id,
-                    followed_at=datetime.now(timezone.utc),
-                )
-            )
+            await sync_set_opinion(db, user.id, dj_set.id, "liked")
 
         await db.commit()
         await db.refresh(dj_set)

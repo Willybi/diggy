@@ -2,8 +2,12 @@ from database import get_db
 from dependencies import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from models import User, UserOpinion
-from opinion_sync import sync_playlist_opinion, sync_set_opinion, sync_track_opinion
 from schemas import OpinionSetResponse, OpinionUpdate
+from services.opinion_sync import (
+    sync_playlist_opinion,
+    sync_set_opinion,
+    sync_track_opinion,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

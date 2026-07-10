@@ -210,7 +210,8 @@ async def update_state(
     db: AsyncSession, user_id: int, catalog_id: int, status: str
 ) -> dict:
     from models import UserRadarState
-    from opinion_sync import RADAR_TO_OPINION, sync_track_opinion
+
+    from services.opinion_sync import RADAR_TO_OPINION, sync_track_opinion
 
     _STATUS_ALIAS = {"liked": "added", "disliked": "ignored"}
     resolved = _STATUS_ALIAS.get(status, status)
@@ -245,7 +246,8 @@ async def batch_update_state(
     db: AsyncSession, user_id: int, items: list[dict]
 ) -> dict:
     from models import UserRadarState
-    from opinion_sync import RADAR_TO_OPINION, sync_track_opinion
+
+    from services.opinion_sync import RADAR_TO_OPINION, sync_track_opinion
 
     _STATUS_ALIAS = {"liked": "added", "disliked": "ignored"}
     now = datetime.now(timezone.utc)
@@ -290,8 +292,9 @@ async def add_track(db: AsyncSession, user_id: int, body) -> object:
     """Create a radar track entry (or return existing). Returns RadarTrack ORM."""
     from datetime import datetime, timezone
 
-    from catalog import get_or_create_catalog
     from models import RadarTrack, WatchedEntity
+
+    from services.catalog_service import get_or_create_catalog
 
     entity = await db.execute(
         select(WatchedEntity).where(WatchedEntity.id == body.watched_playlist_id)

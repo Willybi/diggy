@@ -11,3 +11,14 @@ def normalize(s: str) -> str:
 
 def make_normalized_key(title: str, artist: str | None) -> str:
     return normalize(title) + " - " + normalize(artist or "")
+
+
+def like_escape(value: str) -> str:
+    """Escape SQL LIKE metacharacters so `value` matches literally.
+
+    Backslash must be escaped first (it is the escape character itself).
+    Callers must declare the escape char explicitly (`.ilike(..., escape="\\\\")`
+    or `ESCAPE '\\'` in raw SQL): SQLite has no default LIKE escape character,
+    unlike PostgreSQL, and tests run on SQLite.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
