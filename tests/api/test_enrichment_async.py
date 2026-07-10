@@ -17,8 +17,12 @@ sys.modules.setdefault("redis", MagicMock())
 _saved_curl = sys.modules.get("curl_cffi")
 sys.modules.setdefault("curl_cffi", MagicMock())
 
-from workers.async_http import DeezerHTTPError, HttpPool
-from workers.enrichment import _enrich_entry_async, enrich_deezer_batch
+from workers.async_http import DeezerHTTPError, HttpPool  # noqa: E402
+from workers.enrichment import (  # noqa: E402
+    _enrich_entry_async,
+    _search_deezer_async,
+    enrich_deezer_batch,
+)
 
 # Restore sys.modules immediately — we already imported what we need.
 # This prevents polluting other test files collected by pytest.
@@ -162,3 +166,188 @@ class TestEnrichOneSearchedAt:
 
         assert isinstance(entry.deezer_searched_at, datetime)
         assert stats == {"enriched": 0, "errors": 0}
+
+
+class TestEnrichDeezerBatch:
+    """A6-04: happy path and error accounting of enrich_deezer_batch."""
+
+    async def test_successful_search_enriches_and_marks_searched(self):
+        entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
+        pool = MagicMock()
+        hit = {"id": 123, "isrc": "US1234", "duration": 180, "preview": "http://p"}
+        pool.deezer_get = AsyncMock(return_value={"data": [hit]})
+
+        stats = await enrich_deezer_batch(None, [entry], pool, None, set())
+
+        assert stats == {"enriched": 1, "errors": 0}
+        assert entry.deezer_id == "123"
+        assert entry.isrc == "US1234"
+        assert entry.duration_ms == 180_000
+        assert entry.has_preview is True
+        assert isinstance(entry.deezer_searched_at, datetime)
+
+    async def test_unexpected_error_counts_error_and_leaves_unsearched(self):
+        entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(side_effect=ValueError("boom"))
+
+        stats = await enrich_deezer_batch(None, [entry], pool, None, set())
+
+        assert stats == {"enriched": 0, "errors": 1}
+        assert entry.deezer_searched_at is None
+
+    async def test_deezer_source_without_ext_id_skips_entry(self):
+        entry = _make_entry(deezer_searched_at=None)
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock()
+
+        stats = await enrich_deezer_batch(
+            None, [entry], pool, None, set(), source="deezer", ext_id_map={99: "1"}
+        )
+
+        assert stats == {"enriched": 0, "errors": 0}
+        pool.deezer_get.assert_not_called()
+        assert entry.deezer_searched_at is None
+
+    async def test_deezer_source_direct_lookup_enriches(self):
+        entry = _make_entry(deezer_searched_at=None)
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={"id": 555, "isrc": "US1", "duration": 60, "preview": ""}
+        )
+
+        stats = await enrich_deezer_batch(
+            None, [entry], pool, None, set(), source="deezer", ext_id_map={1: "555"}
+        )
+
+        assert stats == {"enriched": 1, "errors": 0}
+        assert entry.deezer_id == "555"
+        pool.deezer_get.assert_awaited_once_with("/track/555")
+
+
+def _make_cascade_pool(hits_by_query):
+    """Pool whose deezer_get resolves /search from a {query: hit} mapping.
+
+    Records every query string in pool.queries so tests can assert which
+    cascade steps ran and in what order.
+    """
+    pool = MagicMock()
+    pool.queries = []
+
+    async def _deezer_get(path, params=None):
+        q = params["q"]
+        pool.queries.append(q)
+        hit = hits_by_query.get(q)
+        return {"data": [hit] if hit else []}
+
+    pool.deezer_get = AsyncMock(side_effect=_deezer_get)
+    return pool
+
+
+class TestSearchDeezerCascade:
+    """A6-04: cascading search strategy of _search_deezer_async.
+
+    Each step must only fire when the previous ones found nothing:
+    1. original title → 2. safe-suffix strip → 3. non-remix parens strip
+    → 4. first artist only. Within a step: qualified search first, then
+    free query fallback.
+    """
+
+    async def test_none_title_returns_none_without_http(self):
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock()
+
+        assert await _search_deezer_async(pool, "Artist", None) is None
+        pool.deezer_get.assert_not_called()
+
+    async def test_qualified_search_hit_returned_as_is(self):
+        hit = {"id": 1, "title": "Track"}
+        pool = _make_cascade_pool({'artist:"Artist" track:"Track"': hit})
+
+        assert await _search_deezer_async(pool, "Artist", "Track") is hit
+        assert pool.queries == ['artist:"Artist" track:"Track"']
+
+    async def test_free_query_fallback_when_qualified_empty(self):
+        hit = {"id": 2}
+        pool = _make_cascade_pool({"Artist Track": hit})
+
+        assert await _search_deezer_async(pool, "Artist", "Track") is hit
+        assert pool.queries == ['artist:"Artist" track:"Track"', "Artist Track"]
+
+    async def test_no_artist_uses_free_query_only(self):
+        hit = {"id": 3}
+        pool = _make_cascade_pool({"Track": hit})
+
+        assert await _search_deezer_async(pool, None, "Track") is hit
+        assert pool.queries == ["Track"]
+
+    async def test_hit_after_safe_suffix_strip(self):
+        # Step 2: "(Extended Mix)" is a safe suffix, stripped after step 1 fails.
+        hit = {"id": 4}
+        pool = _make_cascade_pool({'artist:"Artist" track:"Track"': hit})
+
+        result = await _search_deezer_async(pool, "Artist", "Track (Extended Mix)")
+
+        assert result is hit
+        assert pool.queries == [
+            'artist:"Artist" track:"Track Extended Mix"',
+            "Artist Track Extended Mix",
+            'artist:"Artist" track:"Track"',
+        ]
+
+    async def test_hit_after_non_remix_paren_strip(self):
+        # Step 3: "(Vocal Mix)" is not a safe suffix (step 2 skipped) but only
+        # contains generic mixing terms, so it is stripped as a non-remix paren.
+        hit = {"id": 5}
+        pool = _make_cascade_pool({'artist:"Artist" track:"Track"': hit})
+
+        result = await _search_deezer_async(pool, "Artist", "Track (Vocal Mix)")
+
+        assert result is hit
+        assert pool.queries == [
+            'artist:"Artist" track:"Track Vocal Mix"',
+            "Artist Track Vocal Mix",
+            'artist:"Artist" track:"Track"',
+        ]
+
+    async def test_hit_with_first_artist_only(self):
+        # Step 4: multi-artist "A & B" fails everywhere, first artist "A" matches.
+        hit = {"id": 6}
+        pool = _make_cascade_pool({'artist:"A" track:"Song"': hit})
+
+        result = await _search_deezer_async(pool, "A & B", "Song")
+
+        assert result is hit
+        assert pool.queries == [
+            'artist:"A & B" track:"Song"',
+            "A & B Song",
+            'artist:"A" track:"Song"',
+        ]
+
+    async def test_full_cascade_failure_returns_none(self):
+        pool = _make_cascade_pool({})
+
+        result = await _search_deezer_async(pool, "A & B", "Track (Extended Mix)")
+
+        assert result is None
+        # Steps 1, 2 and 4 each ran qualified + free searches; step 3 was
+        # skipped because the parens strip equals the safe-suffix strip.
+        assert pool.queries == [
+            'artist:"A & B" track:"Track Extended Mix"',
+            "A & B Track Extended Mix",
+            'artist:"A & B" track:"Track"',
+            "A & B Track",
+            'artist:"A" track:"Track"',
+            "A Track",
+        ]
+
+    async def test_clean_strips_parens_and_brackets_from_params(self):
+        # Deezer returns 403 on parens/brackets in queries: _clean must drop
+        # the characters (keeping their content) from every outgoing query.
+        pool = _make_cascade_pool({})
+
+        await _search_deezer_async(pool, "DJ (FR)", "Track [VIP] (Dub)")
+
+        assert pool.queries[0] == 'artist:"DJ FR" track:"Track VIP Dub"'
+        for q in pool.queries:
+            assert not any(c in q for c in "()[]")

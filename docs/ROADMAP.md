@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-10 (AU2 TERMINE — offsite + restore teste + build/deploy fiabilises ; C6 EN COURS)
+> **Derniere mise a jour** : 2026-07-10 (AU3 TERMINE ; ajout E1 — re-scan enrichissement + budget nightly, issu de l'analyse prod du 2026-07-10)
 
 ---
 
@@ -43,12 +43,13 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 + C6.a TERMINES)
  AU1  Quick Wins audit                      HAUT        1-2 jours    TERMINE (2026-07-09)
  AU2  Sauvegardes & deploiement             HAUT        1-2 jours    TERMINE (2026-07-10)
- AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    A FAIRE
+ AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    TERMINE (2026-07-10)
  AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    A FAIRE (avant/avec AU4)
  AU4  Robustesse workers                    MOYEN       2 jours      A FAIRE
  AU5  Couche service backend                MOYEN       2-3 jours    A FAIRE
  AU6  Dette frontend                        MOYEN       1-2 jours    A FAIRE
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    A FAIRE
+ E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       A FAIRE (apres AU7, avec/apres AU4)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
@@ -80,6 +81,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  P1   Polish & Correctifs UI            TERMINE
  AU1  Quick Wins audit                  TERMINE
  AU2  Sauvegardes & deploiement         TERMINE
+ AU3  Integrite donnees (migration 0031) TERMINE
 ```
 
 ### Dependances
@@ -103,9 +105,10 @@ C3 (ouvert) = declenchement manuel, apres H0 (FAIT) + C1 + idealement C6
 --- serie AU (audit 2026-07 — findings dans docs/audit_2026-07/CONSOLIDATED.md, arbitrages dans DECISIONS.md) ---
 AU1 ────────> Rien (demarrage immediat, parallelisable avec C6)      ✅ TERMINE
 AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + restore en AU2)   ✅ TERMINE
-AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md
+AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md   ✅ TERMINE
 AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)
 AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)
+E1 ─────────> AU7 imperatif (filet de tests enrichment.py avant modification) ; recommande avec ou juste apres AU4 (meme zone de code, coordonner avec A3-05 rate limiting partage)
 Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)
 C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> C3 (apres ouverture)
@@ -259,7 +262,7 @@ Backfill      Crawl TrackID    Nouvelles tracks/j   Overhead Deezer   Overhead B
 3 000 sets/j  75 min           ~15 000              +25 min           +2h30
 ```
 
-> Beatport : `soft_time_limit=7h` dans `enrich_catalog_beatport`. A surveiller au-dela de 1000 sets/j.
+> Beatport : `soft_time_limit=7h` dans `enrich_catalog_beatport`. CONFIRME en prod (2026-07-10) : a 500 sets/j le sweep atteint deja ~7h (~6 500 tracks/nuit a 0.66 req/s) et depasse le soft limit (SoftTimeLimitExceeded + retry quotidiens). Traite par le chantier **E1** (budget nightly + re-scan backoff).
 
 **Cadence recommandee : 500 sets/jour**
 - 1 an d'historique (~55 000 sets) → rattrapé en ~110 jours
@@ -491,7 +494,7 @@ Rendre les backups reellement protecteurs (offsite + restauration testee) et fia
 **Priorite : HAUT**
 **Estimation : 1-2 jours**
 **Depend de : rien. Ordre interne impose : 0031 -> A2-04 -> /schema_doc -> passe doc CLAUDE.md**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-10) — code deploye et verifie en prod (2a17e12) : alembic_version=0031, colonnes/table mortes supprimees, champs retires des reponses API, flux preview live intact, autogenerate a blanc vide ; purge radar_trends effective au prochain compute_trends (07:00)**
 
 ### Objectif
 
@@ -499,25 +502,25 @@ Purger le schema des elements morts prouves (arbitrage Q3), realigner modeles/mi
 
 ### AU3.a — Migration 0031 (perimetre exact Q3)
 
-- [ ] A2-01 : `DROP TABLE watched_playlists` (dump de precaution deja en place)
-- [ ] A2-06 : drop `catalog.fingerprint` + son index unique
-- [ ] A2-07 : drop `catalog.preview_url` + retirer le champ des schemas API (`schemas/catalog.py:26`, `schemas/radar.py:94`) et des SELECT (radar, similarity, catalog detail). NE PAS toucher `PreviewUrlResponse` (endpoint live, utilise par audioPlayer — garde-fou verifie le 2026-07-09)
-- [ ] A2-09 : `server_default=func.now()` sur `user_tracks.created_at`
-- [ ] A2-11 : index `ix_user_tracks_catalog_id` + `ix_user_follows_entity_id` (les 4 autres FK differees a C3)
+- [x] A2-01 : `DROP TABLE watched_playlists` (dump de precaution deja en place)
+- [x] A2-06 : drop `catalog.fingerprint` + son index unique
+- [x] A2-07 : drop `catalog.preview_url` + retirer le champ des schemas API (`schemas/catalog.py:26`, `schemas/radar.py:94`) et des SELECT (radar, similarity, catalog detail). NE PAS toucher `PreviewUrlResponse` (endpoint live, utilise par audioPlayer — garde-fou verifie le 2026-07-09)
+- [x] A2-09 : `server_default=func.now()` sur `user_tracks.created_at`
+- [x] A2-11 : index `ix_user_tracks_catalog_id` + `ix_user_follows_entity_id` (les 4 autres FK differees a C3)
 
 ### AU3.b — Realignement schema
 
-- [ ] A2-05 : retirer `artists.bio/country/real_name/soundcloud_id` des schemas Pydantic (colonnes conservees)
-- [ ] A2-08 : retirer `sets.event/venue/description` de `DJSetDetailOut` (colonnes conservees) + documenter leur statut reserve dans le MANUAL block
-- [ ] A2-02 : reserver `create_all` au harnais de test ; en dev Docker, `alembic upgrade head` au demarrage (cause racine de la table orpheline)
-- [ ] A2-04 : declarer dans les modeles les ~10 index/contraintes existant uniquement en migration (0020/0028/0029/0030) + autogenerate a blanc = diff vide
-- [ ] M4 (A2-03/A7-06) : regenerer `docs/database-schema.md` via `/schema_doc` (APRES A2-04)
-- [ ] A7-05 + M5 (A1-22/A3-15) : passe doc CLAUDE.md — 5 compteurs, arborescence `deezer_enrich.py` sous workers/, docstring `image_service.py`, "weekly" -> "daily", date Last verified
+- [x] A2-05 : retirer `artists.bio/country/real_name/soundcloud_id` des schemas Pydantic (colonnes conservees)
+- [x] A2-08 : retirer `sets.event/venue/description` de `DJSetDetailOut` (colonnes conservees) + documenter leur statut reserve dans le MANUAL block
+- [x] A2-02 : reserver `create_all` au harnais de test ; en dev Docker, `alembic upgrade head` au demarrage (cause racine de la table orpheline)
+- [x] A2-04 : declarer dans les modeles les ~10 index/contraintes existant uniquement en migration (0020/0028/0029/0030) + autogenerate a blanc = diff vide
+- [x] M4 (A2-03/A7-06) : regenerer `docs/database-schema.md` via `/schema_doc` (APRES A2-04)
+- [x] A7-05 + M5 (A1-22/A3-15) : passe doc CLAUDE.md — 5 compteurs, arborescence `deezer_enrich.py` sous workers/, docstring `image_service.py`, "weekly" -> "daily", date Last verified
 
 ### AU3.c — Donnees servies perimees
 
-- [ ] A3-02 : purger `radar_trends` a chaque `compute_trends` (DELETE des lignes non touchees par le run, meme transaction) — 28% de lignes perimees servies aujourd'hui
-- [ ] A3-04 : distinguer echec HTTP Deezer de "not found" — ne poser `deezer_searched_at` que sur reponse 200 vide (sinon les entrees sortent definitivement du pipeline)
+- [x] A3-02 : purger `radar_trends` a chaque `compute_trends` (DELETE des lignes non touchees par le run, meme transaction) — 28% de lignes perimees servies aujourd'hui
+- [x] A3-04 : distinguer echec HTTP Deezer de "not found" — ne poser `deezer_searched_at` que sur reponse 200 vide (sinon les entrees sortent definitivement du pipeline)
 
 ### Definition of Done
 
@@ -563,6 +566,7 @@ Perimetre reduit par l'arbitrage Q7 : tester le code le plus critique aujourd'hu
 **Estimation : 2 jours**
 **Depend de : AU7 (volet enrichissement = filet de tests)**
 **Statut : A FAIRE**
+**Renvoi : E1 (re-scan enrichissement + budget nightly) recommande dans la meme fenetre — meme zone de code, meme filet AU7 ; A3-05 (rate limiting partage) et le budget E1 se coordonnent.**
 
 ### Objectif
 
@@ -697,6 +701,67 @@ Executer les decisions de rangement (Q2 import legacy, Q5 design clean, Q6 stack
 # Un tiers peut cloner, lire le README et lancer la stack sans instruction cassee
 # Plus de router tracks ; worker/import_rekordbox.py archive
 # .claude/commands/ versionne ; _design/ archive et deference de CLAUDE.md
+```
+
+---
+
+## E1 — Re-scan enrichissement (backoff + budget nightly)
+
+**Priorite : MOYEN**
+**Estimation : 1 jour**
+**Depend de : AU7 (IMPERATIF — filet de tests sur `enrichment.py` avant modification, meme contrainte que AU4). Recommande : execution avec ou juste apres AU4 (meme zone de code ; coordonner le budget avec A3-05 rate limiting partage).**
+**Statut : A FAIRE**
+**Origine : analyse prod du 2026-07-10 (saturation `enrich_catalog_beatport` + population not-found abandonnee) — hors perimetre audit 2026-07.**
+
+### Objectif
+
+Remplacer la politique "une recherche a vie" de l'enrichissement (Deezer + Beatport) par un re-scan borne avec backoff, et borner la duree des sweeps nightly. Deux problemes symetriques observes en prod :
+
+1. **Abandon definitif** : un track non trouve est marque `searched_at` et n'est JAMAIS re-cherche. Or les tracks detectees dans les sets DJ sont souvent des promos/unreleased qui sortent sur Beatport des semaines plus tard — la population qui a le plus besoin d'un re-check est precisement celle qu'on abandonne, alors que Beatport est l'autorite canonique BPM/key (principe 3 des Data Authority Principles).
+2. **Saturation du sweep** : aucune borne de volume par nuit. Avec le backfill C6.a.1 (500 sets/j), le sweep Beatport traite ~6 500 tracks/nuit et depasse son `soft_time_limit` de 7h — SoftTimeLimitExceeded + retry quasi quotidiens (les retries Celery servent de mecanisme de fonctionnement normal).
+
+### Constats (mesures prod 2026-07-10)
+
+- 2 844 tracks Beatport not-found abandonnees (croissance ~600-1000/j pendant le backfill), 1 537 cote Deezer
+- Sweep du 2026-07-10 : 6 580 tracks, 7h de run a rythme constant (~3.8s/track = rate limiter 0.66 req/s x ~2.5 req/track), soft limit atteint a ~530 tracks de la fin
+- Pipeline inline `resolve_set_tracks` SANS garde `searched_at` (`tasks/sets.py:156-165`) : re-cherche tout track sans `beatport_id` reapparaissant dans un set importe — retry accidentel non borne + re-recherches redondantes avec le sweep (~440 occurrences mesurees)
+
+### Design
+
+Selection par tiers sous un budget global par nuit (env `ENRICH_NIGHTLY_BUDGET`, defaut 6000 ~= 6h20 Beatport, sous le soft limit 7h). Le budget est un PLAFOND (nouveaux + retries confondus), pas un ajout au flux :
+
+1. Jamais cherches (`searched_at IS NULL`), tries du plus RECENT au plus ancien — les tracks fraiches passent devant la queue historique du backfill
+2. 1 tentative et `searched_at` > 30 j
+3. 2 tentatives et `searched_at` > 90 j
+4. 3 tentatives = abandon definitif (population morte plafonnee, pas de re-scan perpetuel)
+
+Les retries ne consomment que le budget restant apres les nouveaux : pendant les nuits chargees du backfill ils attendent, ils rattrapent quand ca se calme. Le delai de 30 j rend le deploiement neutre le jour J. Seuils 30/90/3 en code (ajustables sans migration).
+
+### Taches
+
+- [ ] Migration 0032 (additive) : `catalog.beatport_search_attempts` + `catalog.deezer_search_attempts` (SMALLINT NOT NULL DEFAULT 0) + backfill `attempts=1 WHERE searched_at IS NOT NULL` + index partiels `(beatport_searched_at) WHERE beatport_id IS NULL` (idem Deezer)
+- [ ] Modele `models/catalog.py` : 2 colonnes + index (autogenerate a blanc = diff vide)
+- [ ] `tasks/catalog.py` : les 2 requetes sweep (Deezer + Beatport) — WHERE 3 tiers + ORDER BY priorite + LIMIT budget
+- [ ] `enrichment.py` : incrementer `attempts` aux 2 points qui posent `searched_at` — CONSERVER la distinction A3-04 (echec HTTP != not found : pas de searched_at ni d'increment sur erreur reseau)
+- [ ] `tasks/sets.py` : garde `searched_at IS NULL OR searched_at < now() - 24h` sur les selections inline `dz_entries` / `bp_entries`
+- [ ] Tests : selection par tiers, increment du compteur, garde inline, respect du budget (s'appuie sur le filet AU7)
+- [ ] `/schema_doc` apres le changement de modele
+- [ ] Hors scope (note pour plus tard) : bouton admin "forcer re-scan" (reset `searched_at` + `attempts`) — pattern existant dans `artist_service.py:606`
+
+### Boutons de reglage lies (pas dans ce chantier)
+
+| Bouton | Effet |
+|---|---|
+| `ENRICH_NIGHTLY_BUDGET` (E1) | Plafond de duree du sweep ; a baisser apres la fin de la vague backfill |
+| `TRACKID_BACKFILL_SETS_PER_DAY` (C6.a.1) | Flux entrant ; 500 -> 400 aligne le flux sur le budget si les nuits de 6h20 genent encore |
+
+### Definition of Done
+
+```bash
+# Sweep Beatport nightly borne : duree <= ~6h30, plus de SoftTimeLimitExceeded recurrent
+# Track not-found re-eligible a +30j puis +90j, abandonne apres 3 tentatives
+# resolve_set_tracks ne re-cherche plus un track deja cherche il y a < 24h
+# alembic autogenerate a blanc = diff vide ; database-schema.md regenere
 ```
 
 ---
@@ -986,6 +1051,7 @@ TagsView est une vue morte, `/tags` redirige vers `/genres`.
 | AU5 | Couche service backend | Apres AU1 | AU1 (A1-02) |
 | AU6 | Dette frontend | Apres AU5 (ou parallele) | - |
 | AU8 | Hygiene repo & documentation | Fin de serie | Decisions Q2/Q5/Q6 (actees) |
+| E1 | Re-scan enrichissement (backoff + budget nightly) | Apres AU7, avec ou juste apres AU4 | AU7 (filet de tests enrichment) |
 | C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | H0 (FAIT) + C1 + serie AU + idealement C6 |
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
 | C5 | Collections v2 (items polymorphes + dossiers) | Apres ouverture | C1 |
