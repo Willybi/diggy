@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-09 (AU1 TERMINE — code + OPS VPS ; serie AU inseree — audit global 2026-07, voir `docs/audit_2026-07/` ; C6 EN COURS)
+> **Derniere mise a jour** : 2026-07-10 (AU2 TERMINE — offsite + restore teste + build/deploy fiabilises ; C6 EN COURS)
 
 ---
 
@@ -42,7 +42,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
  C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 + C6.a TERMINES)
  AU1  Quick Wins audit                      HAUT        1-2 jours    TERMINE (2026-07-09)
- AU2  Sauvegardes & deploiement             HAUT        1-2 jours    A FAIRE
+ AU2  Sauvegardes & deploiement             HAUT        1-2 jours    TERMINE (2026-07-10)
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    A FAIRE
  AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    A FAIRE (avant/avec AU4)
  AU4  Robustesse workers                    MOYEN       2 jours      A FAIRE
@@ -79,6 +79,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  H0   Hygiene & Solidification          TERMINE
  P1   Polish & Correctifs UI            TERMINE
  AU1  Quick Wins audit                  TERMINE
+ AU2  Sauvegardes & deploiement         TERMINE
 ```
 
 ### Dependances
@@ -101,7 +102,7 @@ C3 (ouvert) = declenchement manuel, apres H0 (FAIT) + C1 + idealement C6
 
 --- serie AU (audit 2026-07 — findings dans docs/audit_2026-07/CONSOLIDATED.md, arbitrages dans DECISIONS.md) ---
 AU1 ────────> Rien (demarrage immediat, parallelisable avec C6)      ✅ TERMINE
-AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + restore en AU2)
+AU2 ────────> AU1 (le cron backup est pose en AU1 ; offsite + restore en AU2)   ✅ TERMINE
 AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (index dans les modeles) -> /schema_doc -> passe doc CLAUDE.md
 AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)
 AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)
@@ -459,7 +460,7 @@ Les 8 QUICK WINS stricts (impact haute/critique x effort S) + les quick-wins can
 **Priorite : HAUT**
 **Estimation : 1-2 jours**
 **Depend de : AU1 (cron backup pose)**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-10) — code deploye et verifie en prod (643dc67, 51fa038) ; OPS VPS fait : offsite rclone actif (Google Drive, `gdrive:diggy-backups/postgres`), test de restauration reel sur DB jetable (docs/restore.md date), crontab nettoye (A5-14), symlinks latest.* orphelins purges**
 
 ### Objectif
 
@@ -467,13 +468,13 @@ Rendre les backups reellement protecteurs (offsite + restauration testee) et fia
 
 ### Taches
 
-- [ ] A5-02 : copie offsite des dumps chiffres (S3/B2/rclone hors Hostinger) + rétention >= 2 generations hors retention locale + verifier les snapshots dans le panel Hostinger
-- [ ] A5-03 : `docs/restore.md` (dechiffrement GPG + psql + re-mirror MinIO), cle GPG stockee hors VPS, test de restauration reel sur DB jetable, date
-- [ ] A5-06 : retirer `--force-recreate` du deploy (coupure DB/Redis a chaque push)
-- [ ] A5-07 : executer `alembic upgrade head` AVANT la bascule du nouveau code (meme bloc de script que A5-06)
-- [ ] A5-08 + A5-09 (Q9) : contexte de build `./server` + Dockerfile copiant api/ et workers/ + `.dockerignore` par contexte + suppression des bind mounts du compose de base. CONDITION : build local complet valide avant push
-- [ ] A5-14 : nettoyer le cron reload nginx redondant (apres A5-01)
-- [ ] A5-20 : healthchecks celery sur worker/worker_enrich + beat
+- [x] A5-02 : copie offsite des dumps chiffres (S3/B2/rclone hors Hostinger) + rétention >= 2 generations hors retention locale + verifier les snapshots dans le panel Hostinger
+- [x] A5-03 : `docs/restore.md` (dechiffrement GPG + psql + re-mirror MinIO), cle GPG stockee hors VPS, test de restauration reel sur DB jetable, date
+- [x] A5-06 : retirer `--force-recreate` du deploy (coupure DB/Redis a chaque push)
+- [x] A5-07 : executer `alembic upgrade head` AVANT la bascule du nouveau code (meme bloc de script que A5-06)
+- [x] A5-08 + A5-09 (Q9) : contexte de build `./server` + Dockerfile copiant api/ et workers/ + `.dockerignore` par contexte + suppression des bind mounts du compose de base. CONDITION : build local complet valide avant push
+- [x] A5-14 : nettoyer le cron reload nginx redondant (apres A5-01)
+- [x] A5-20 : healthchecks celery sur worker/worker_enrich + beat
 
 ### Definition of Done
 
