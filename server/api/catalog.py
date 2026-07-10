@@ -14,7 +14,6 @@ async def get_or_create_catalog(
     duration_ms: int | None = None,
     genres: list[str] | None = None,
     release_date=None,
-    preview_url: str | None = None,
 ) -> CatalogEntry:
     # 1. Cherche par ISRC si dispo
     if isrc:
@@ -44,7 +43,6 @@ async def get_or_create_catalog(
         duration_ms=duration_ms,
         genres=genres or [],
         release_date=release_date,
-        preview_url=preview_url,
         created_at=datetime.now(timezone.utc),
     )
     db.add(new)

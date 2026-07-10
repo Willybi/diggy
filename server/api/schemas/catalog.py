@@ -23,7 +23,6 @@ class CatalogEntryOut(BaseModel):
     duration_ms: Optional[int]
     genres: list[GenreRef] = []
     release_date: Optional[date]
-    preview_url: Optional[str]
     has_artwork: bool = False
     has_preview: bool = False
     created_at: Optional[datetime]

@@ -86,8 +86,6 @@ async def list_artists(
         select(
             Artist.id,
             Artist.name,
-            Artist.real_name,
-            Artist.country,
             Artist.has_artwork,
             nb_catalog_col.label("nb_catalog"),
             nb_lib_col.label("nb_lib"),
@@ -213,8 +211,6 @@ async def list_artists(
             {
                 "id": row.id,
                 "name": row.name,
-                "real_name": row.real_name,
-                "country": row.country,
                 "has_artwork": row.has_artwork,
                 "nb_catalog": row.nb_catalog,
                 "nb_lib": row.nb_lib,
@@ -332,7 +328,6 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
                     for g in (entry.genres or [])
                 ],
                 release_date=entry.release_date,
-                preview_url=entry.preview_url,
                 has_artwork=entry.has_artwork,
                 has_preview=entry.has_preview,
                 created_at=entry.created_at,
@@ -388,12 +383,8 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
         id=artist.id,
         name=artist.name,
         normalized_name=artist.normalized_name,
-        real_name=artist.real_name,
-        country=artist.country,
         deezer_id=artist.deezer_id,
-        soundcloud_id=artist.soundcloud_id,
         trackid_id=artist.trackid_id,
-        bio=artist.bio,
         has_artwork=artist.has_artwork,
         created_at=artist.created_at,
         aliases=[ArtistAliasOut.model_validate(a) for a in artist.aliases],

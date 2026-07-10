@@ -37,6 +37,19 @@ MAX_RETRIES = 3
 RETRY_BACKOFF = [1.0, 2.0, 4.0]
 
 
+class DeezerHTTPError(Exception):
+    """Deezer API returned a non-200 status (after retries).
+
+    Lets callers distinguish an API failure from a legitimate empty result,
+    so entries are not marked as searched during a Deezer outage.
+    """
+
+    def __init__(self, status_code: int, path: str):
+        self.status_code = status_code
+        self.path = path
+        super().__init__(f"Deezer API returned {status_code} on {path}")
+
+
 class HttpPool:
     """Async HTTP client pool with per-source rate limiting and retry."""
 
@@ -116,12 +129,16 @@ class HttpPool:
     # ── Deezer ──
 
     async def deezer_get(self, path: str, params: dict | None = None) -> dict:
-        """GET request to Deezer API, rate-limited + retrying. Returns parsed JSON."""
+        """GET request to Deezer API, rate-limited + retrying. Returns parsed JSON.
+
+        Raises DeezerHTTPError on any non-200 final response, so callers can
+        tell an API failure apart from a valid empty result.
+        """
         resp = await self._request_with_retry(
             "deezer", "GET", f"{DEEZER_API}{path}", params=params
         )
         if resp.status_code != 200:
-            return {}
+            raise DeezerHTTPError(resp.status_code, path)
         return resp.json()
 
     # ── Beatport ──

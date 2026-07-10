@@ -184,7 +184,7 @@ def sync_artists(self):
                 nonlocal created, flagged
                 import unicodedata
 
-                from workers.async_http import HttpPool
+                from workers.async_http import DeezerHTTPError, HttpPool
                 from workers.rate_limiter import RateLimiter
 
                 def _norm(s):
@@ -192,9 +192,13 @@ def sync_artists(self):
                     return s.encode("ascii", "ignore").decode()
 
                 async def _deezer_artist_id(pool, name):
-                    data = await pool.deezer_get(
-                        "/search/artist", params={"q": name, "limit": 10}
-                    )
+                    try:
+                        data = await pool.deezer_get(
+                            "/search/artist", params={"q": name, "limit": 10}
+                        )
+                    except DeezerHTTPError as e:
+                        logger.warning("Deezer artist search failed for %s: %s", name, e)
+                        return None
                     name_norm = _norm(name)
                     for hit in data.get("data", []):
                         dz_name = hit.get("name", "")
@@ -459,7 +463,7 @@ def fetch_artist_artworks(self):
     _clog.__enter__()
 
     async def _async_fetch():
-        from workers.async_http import HttpPool
+        from workers.async_http import DeezerHTTPError, HttpPool
         from workers.rate_limiter import RateLimiter
 
         def _norm(s):
@@ -489,9 +493,16 @@ def fetch_artist_artworks(self):
 
                 async def _link_one(artist):
                     nonlocal linked, skipped
-                    data = await pool.deezer_get(
-                        "/search/artist", params={"q": artist.name, "limit": 10}
-                    )
+                    try:
+                        data = await pool.deezer_get(
+                            "/search/artist", params={"q": artist.name, "limit": 10}
+                        )
+                    except DeezerHTTPError as e:
+                        logger.warning(
+                            "Deezer artist search failed for %s: %s", artist.name, e
+                        )
+                        skipped += 1
+                        return
                     name_norm = _norm(artist.name)
                     for hit in data.get("data", []):
                         dz_name = hit.get("name", "")
@@ -525,7 +536,14 @@ def fetch_artist_artworks(self):
 
                 async def _fetch_one(artist):
                     nonlocal fetched, skipped
-                    data = await pool.deezer_get(f"/artist/{artist.deezer_id}")
+                    try:
+                        data = await pool.deezer_get(f"/artist/{artist.deezer_id}")
+                    except DeezerHTTPError as e:
+                        logger.warning(
+                            "Deezer artist fetch failed for %s: %s", artist.deezer_id, e
+                        )
+                        skipped += 1
+                        return
                     pic_url = (
                         data.get("picture_xl")
                         or data.get("picture_big")

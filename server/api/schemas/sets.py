@@ -56,11 +56,8 @@ class DJSetOut(BaseModel):
     source: str
     source_url: Optional[str] = None
     title: str
-    event: Optional[str] = None
-    venue: Optional[str] = None
     played_date: Optional[date] = None
     duration_ms: Optional[int] = None
-    description: Optional[str] = None
     has_artwork: bool = False
     created_at: Optional[datetime] = None
     last_crawled_at: Optional[datetime] = None

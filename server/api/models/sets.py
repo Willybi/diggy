@@ -9,10 +9,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy import (
     Enum as SAEnum,
@@ -171,3 +173,14 @@ class SetFlag(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     group_key = Column(String(500), nullable=True, index=True)
     member_set_ids = Column(JSON, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("set_id_a", "set_id_b", name="uq_set_flag_pair"),
+        # Partial unique index created as-is in 0030, hence the uq_ name
+        Index(
+            "uq_set_flag_group_key",
+            "group_key",
+            unique=True,
+            postgresql_where=text("group_key IS NOT NULL"),
+        ),
+    )

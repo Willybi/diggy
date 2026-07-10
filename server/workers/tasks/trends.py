@@ -98,6 +98,22 @@ def _genre_to_family(genres, pillar_cache):
     return pillar_cache.get(genres[0])
 
 
+def _purge_stale_trends(session, run_computed_at):
+    """Delete radar_trends rows not touched by the current run.
+
+    All entries upserted by a run share the same computed_at timestamp;
+    anything older comes from a previous run and would otherwise be served
+    alongside fresh rows. Returns the number of deleted rows.
+    """
+    from models import RadarTrend
+    from sqlalchemy import delete
+
+    result = session.execute(
+        delete(RadarTrend).where(RadarTrend.computed_at < run_computed_at)
+    )
+    return result.rowcount
+
+
 @celery_app.task(
     name="workers.tasks.compute_trends",
     bind=True,
@@ -305,9 +321,14 @@ def compute_trends(self, window_days=30):
                 },
             )
             session.execute(stmt)
+            purged = _purge_stale_trends(session, now)
             session.commit()
 
-            logger.info("compute_trends v2: upserted %d entries", len(entries))
-            clog.set_stats({"upserted": len(entries)})
+            logger.info(
+                "compute_trends v2: upserted %d entries, purged %d stale",
+                len(entries),
+                purged,
+            )
+            clog.set_stats({"upserted": len(entries), "purged": purged})
 
-    return {"upserted": len(entries)}
+    return {"upserted": len(entries), "purged": purged}

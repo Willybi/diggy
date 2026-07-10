@@ -50,7 +50,7 @@ def _task_decorator(*args, **kwargs):
 _celery_mock.task.side_effect = _task_decorator
 sys.modules["workers.celery_app"] = MagicMock(celery_app=_celery_mock)
 
-from workers.tasks.trends import _genre_to_family, _ROOT_TO_PILLAR
+from workers.tasks.trends import _genre_to_family, _purge_stale_trends, _ROOT_TO_PILLAR
 
 # Restore sys.modules immediately — we already imported what we need.
 # This prevents polluting other test files collected by pytest.
@@ -253,3 +253,50 @@ class TestRemovedTracksExcluded:
 
         source = inspect.getsource(compute_trends)
         assert "removed_at IS NULL" in source
+
+
+class TestPurgeStaleTrends:
+    """A3-02: a run must delete radar_trends rows left over from previous runs."""
+
+    def _make_trend(self, catalog_id, computed_at):
+        from models import RadarTrend
+
+        return RadarTrend(
+            catalog_id=catalog_id,
+            trend_score=1.0,
+            window_days=30,
+            detection_count=1,
+            source_count=1,
+            computed_at=computed_at,
+        )
+
+    def test_purges_stale_keeps_current_run(self, sync_session):
+        from models import RadarTrend
+        from sqlalchemy import select
+
+        run_ts = datetime.now(timezone.utc)
+        sync_session.add(self._make_trend(1, run_ts - timedelta(days=2)))  # stale
+        sync_session.add(self._make_trend(2, run_ts))  # upserted by current run
+        sync_session.commit()
+
+        purged = _purge_stale_trends(sync_session, run_ts)
+        sync_session.commit()
+
+        assert purged == 1
+        remaining = sync_session.execute(select(RadarTrend.catalog_id)).scalars().all()
+        assert remaining == [2]
+
+    def test_purge_noop_when_all_fresh(self, sync_session):
+        from models import RadarTrend
+        from sqlalchemy import select
+
+        run_ts = datetime.now(timezone.utc)
+        sync_session.add(self._make_trend(1, run_ts))
+        sync_session.add(self._make_trend(2, run_ts))
+        sync_session.commit()
+
+        purged = _purge_stale_trends(sync_session, run_ts)
+        sync_session.commit()
+
+        assert purged == 0
+        assert len(sync_session.execute(select(RadarTrend)).scalars().all()) == 2

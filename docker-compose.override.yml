@@ -2,6 +2,8 @@ services:
   api:
     volumes:
       - ./server/api:/app
+    # Dev DBs are migrated, never create_all'd: same schema path as prod
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2"
 
   # Dev-only hot reload: prod runs the code baked into the image
   worker:

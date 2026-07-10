@@ -7,9 +7,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    func,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -31,7 +34,6 @@ class CatalogEntry(Base):
     duration_ms = Column(Integer, nullable=True)
     genres = Column(StringArray(), server_default="{}", default=list)
     release_date = Column(Date, nullable=True)
-    preview_url = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)
     has_preview = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
@@ -51,10 +53,29 @@ class CatalogEntry(Base):
     bpm_source = Column(String(20), nullable=True)
     key_source = Column(String(20), nullable=True)
     label = Column(String(255), nullable=True)
-    fingerprint = Column(String, unique=True, nullable=True)
     needs_reconciliation = Column(Boolean, server_default="false", nullable=True)
     deezer_searched_at = Column(DateTime(timezone=True), nullable=True)
     beatport_searched_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_catalog_deezer_id",
+            "deezer_id",
+            postgresql_where=text("deezer_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_catalog_beatport_id",
+            "beatport_id",
+            postgresql_where=text("beatport_id IS NOT NULL"),
+        ),
+        Index("ix_catalog_genres", "genres", postgresql_using="gin"),
+        Index("ix_catalog_scope", "scope"),
+        Index(
+            "ix_catalog_owner",
+            "owner_id",
+            postgresql_where=text("owner_id IS NOT NULL"),
+        ),
+    )
 
     artist_links = relationship(
         "CatalogArtist",
@@ -96,6 +117,7 @@ class UserTrack(Base):
         ForeignKey("catalog.id", ondelete="RESTRICT"),
         primary_key=True,
         nullable=False,
+        index=True,
     )
     rekordbox_id = Column(Integer, nullable=True)
     date_added = Column(DateTime(timezone=True), nullable=True)
@@ -112,7 +134,7 @@ class UserTrack(Base):
     rating = Column(Integer, nullable=True)
     avis = Column(String(20), nullable=True)
     has_artwork = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     catalog = relationship("CatalogEntry")
     user = relationship("User")

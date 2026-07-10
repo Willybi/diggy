@@ -5,10 +5,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -18,7 +20,7 @@ class WatchedEntity(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     external_id = Column(String(64), unique=True, nullable=False)
-    source = Column(String(64), nullable=False)
+    source = Column(String(64), nullable=False, index=True)
     type = Column(
         String(20), nullable=False, server_default="playlist", default="playlist"
     )
@@ -47,6 +49,7 @@ class UserFollow(Base):
         ForeignKey("watched_entities.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
+        index=True,
     )
     followed_at = Column(DateTime(timezone=True))
 
@@ -93,12 +96,17 @@ class RadarTrack(Base):
         Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True
     )
     removed_at = Column(DateTime(timezone=True), nullable=True)
-    is_initial_detection = Column(Boolean, default=False, server_default="false")
+    is_initial_detection = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     __table_args__ = (
         UniqueConstraint(
             "watched_entity_id", "external_track_id", name="uq_radar_playlist_track"
         ),
+        Index("ix_radar_tracks_watched_entity", "watched_entity_id"),
+        Index("ix_radar_tracks_catalog", "catalog_id"),
+        Index("ix_radar_tracks_source_detected", "source", text("detected_at DESC")),
     )
 
 

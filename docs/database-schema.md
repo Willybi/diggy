@@ -36,6 +36,19 @@ is auto-generated — do not edit it directly.
 - `radar_tracks.is_initial_detection`: `true` for tracks present at first crawl
   (avoids inflating trend scores).
 
+### Reserved columns (kept in DB, not exposed by the API)
+- `artists.bio` / `artists.country` / `artists.real_name` / `artists.soundcloud_id`:
+  never populated by any current source. Removed from the Pydantic schemas in AU3
+  (A2-05); columns kept for a future enrichment chantier.
+- `sets.event` / `sets.venue` / `sets.description`: no current source (TrackID.net)
+  provides them. Removed from the API responses in AU3 (A2-08); columns kept.
+
+### Prod-only index (to be realigned)
+- `uq_artists_deezer_id`: partial unique index on `artists.deezer_id`
+  (`WHERE deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'`), created directly
+  in prod outside any migration. Absent from models and migrations — declaring it
+  requires a model entry + an idempotent migration (follow-up noted in AU3 closing).
+
 ### Merge asymmetry
 - Duplicate rows (false negatives) are cheap storage debt.
 - Bad merges (false positives) are expensive data corruption.
@@ -77,7 +90,6 @@ PK: `id`
 | `duration_ms` | Integer | yes |  |  |  |
 | `genres` | TEXT[] | yes |  |  | server_default='{}', default=func |
 | `release_date` | Date | yes |  |  |  |
-| `preview_url` | Text | yes |  |  |  |
 | `has_artwork` | Boolean | yes |  |  | default=False |
 | `has_preview` | Boolean | yes |  |  | default=False |
 | `created_at` | DateTime(tz) | yes |  |  |  |
@@ -88,10 +100,16 @@ PK: `id`
 | `bpm_source` | String(20) | yes |  |  |  |
 | `key_source` | String(20) | yes |  |  |  |
 | `label` | String(255) | yes |  |  |  |
-| `fingerprint` | String | yes | yes |  |  |
 | `needs_reconciliation` | Boolean | yes |  |  | server_default='false' |
 | `deezer_searched_at` | DateTime(tz) | yes |  |  |  |
 | `beatport_searched_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_catalog_genres`: `genres`
+- `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_deezer_id`: `deezer_id`
+- `ix_catalog_scope`: `scope`
 
 ### `catalog_artists`
 
@@ -125,7 +143,10 @@ Composite PK: (`user_id`, `catalog_id`)
 | `rating` | Integer | yes |  |  |  |
 | `avis` | String(20) | yes |  |  |  |
 | `has_artwork` | Boolean | yes |  |  | default=False |
-| `created_at` | DateTime(tz) | yes |  |  |  |
+| `created_at` | DateTime(tz) | yes |  |  | server_default=now() |
+
+**Indexes:**
+- `ix_user_tracks_catalog_id`: `catalog_id`
 
 ## Users
 
@@ -156,6 +177,9 @@ Composite PK: (`user_id`, `entity_type`, `entity_key`)
 | `entity_key` **PK** | String(255) | no |  |  |  |
 | `opinion` | String(20) | no |  |  |  |
 | `created_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_user_opinions_user_opinion`: `user_id`, `opinion`
 
 ### `user_collections`
 
@@ -205,6 +229,9 @@ PK: `id`
 | `current_task_id` | String(255) | yes |  |  |  |
 | `crawl_started_at` | DateTime(tz) | yes |  |  |  |
 
+**Indexes:**
+- `ix_watched_entities_source`: `source`
+
 ### `user_follows`
 
 Composite PK: (`user_id`, `entity_id`)
@@ -214,6 +241,9 @@ Composite PK: (`user_id`, `entity_id`)
 | `user_id` **PK** | Integer | no |  | FK → users.id ON DELETE CASCADE |  |
 | `entity_id` **PK** | Integer | no |  | FK → watched_entities.id ON DELETE CASCADE |  |
 | `followed_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_user_follows_entity_id`: `entity_id`
 
 ### `radar_tracks`
 
@@ -231,7 +261,12 @@ PK: `id`
 | `detected_at` | DateTime(tz) | yes |  |  |  |
 | `catalog_id` | Integer | yes |  | FK → catalog.id ON DELETE SET NULL |  |
 | `removed_at` | DateTime(tz) | yes |  |  |  |
-| `is_initial_detection` | Boolean | yes |  |  | server_default='false', default=False |
+| `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
+
+**Indexes:**
+- `ix_radar_tracks_source_detected`: `source`
+- `ix_radar_tracks_watched_entity`: `watched_entity_id`
+- `ix_radar_tracks_catalog`: `catalog_id`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -341,6 +376,7 @@ PK: `id`
 | `platform` | String(32) | yes |  |  |  |
 | `normalized_title` | String(500) | yes |  |  |  |
 | `part_number` | Integer | yes |  |  |  |
+| `part_total` | Integer | yes |  |  |  |
 
 **Indexes:**
 - `ix_sets_parent_set_id`: `parent_set_id`
@@ -394,7 +430,7 @@ PK: `id`
 |--------|------|----------|--------|----|---------|
 | `id` **PK** | Integer | no |  |  |  |
 | `set_id_a` | Integer | no |  | FK → sets.id ON DELETE CASCADE |  |
-| `set_id_b` | Integer | no |  | FK → sets.id ON DELETE CASCADE |  |
+| `set_id_b` | Integer | yes |  | FK → sets.id ON DELETE CASCADE |  |
 | `flag_type` | Enum | no |  |  |  |
 | `confidence` | Float | yes |  |  |  |
 | `signals` | JSON | yes |  |  |  |
@@ -402,10 +438,14 @@ PK: `id`
 | `resolved_by` | Integer | yes |  | FK → users.id ON DELETE SET NULL |  |
 | `resolved_at` | DateTime(tz) | yes |  |  |  |
 | `created_at` | DateTime(tz) | no |  |  |  |
+| `group_key` | String(500) | yes |  |  |  |
+| `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_set_id_a`: `set_id_a`
+- `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_set_id_b`: `set_id_b`
+- `ix_set_flags_group_key`: `group_key`
+- `ix_set_flags_set_id_a`: `set_id_a`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)

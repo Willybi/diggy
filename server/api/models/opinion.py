@@ -1,5 +1,5 @@
 from database import Base
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String
 
 
 class UserOpinion(Base):
@@ -19,3 +19,5 @@ class UserOpinion(Base):
     )  # id as string, or genre name
     opinion = Column(String(20), nullable=False)  # liked | disliked
     created_at = Column(DateTime(timezone=True))
+
+    __table_args__ = (Index("ix_user_opinions_user_opinion", "user_id", "opinion"),)

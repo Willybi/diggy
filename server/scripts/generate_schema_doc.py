@@ -151,8 +151,12 @@ def _default_str(col) -> str:
         arg = col.server_default.arg
         if callable(arg):
             parts.append("server_default=func")
-        else:
+        elif isinstance(arg, str):
             parts.append(f"server_default={arg!r}")
+        else:
+            # ClauseElement (e.g. func.now()): str() compiles to stable SQL,
+            # repr() would embed a memory address and break diff stability
+            parts.append(f"server_default={arg}")
     if col.default is not None:
         arg = col.default.arg
         if callable(arg):

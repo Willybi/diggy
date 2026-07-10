@@ -6,7 +6,7 @@ Searches Deezer API by artist+title and fills:
 
 Used by:
   - resolve_set_tracks (inline enrichment on new entries)
-  - enrich_catalog Celery task (weekly backfill)
+  - enrich_catalog Celery task (daily backfill)
   - enrich_catalog_deezer.py one-shot script
 """
 

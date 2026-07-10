@@ -4,7 +4,7 @@ import time
 from contextlib import asynccontextmanager
 
 from auth_middleware import JWTAuthMiddleware
-from database import Base, engine
+from database import engine
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -67,9 +67,7 @@ def _docs_urls() -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.getenv("ENV") != "production":
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    # Schema is managed by Alembic only (create_all lives in the test harnesses)
     from services.image_service import BUCKET_ARTWORKS, ImageService
 
     ImageService.ensure_bucket(BUCKET_ARTWORKS)

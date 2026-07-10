@@ -1,14 +1,14 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-10 (AU2 code)
+> Last verified: 2026-07-10 (AU3 code)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (29 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (31 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -22,12 +22,11 @@
 server/
 ├── api/
 │   ├── main.py              # FastAPI entrypoint
-│   ├── models/              # SQLAlchemy models (27 classes, 10 modules):
+│   ├── models/              # SQLAlchemy models (28 classes, 11 modules):
 │   │                        # catalog, user, artist, radar, sets, genre,
 │   │                        # collection, opinion, admin (+ base, __init__)
 │   │                        # sets module gained: SetFlag, SetFlagType, SetFlagStatus
 │   ├── dependencies.py      # get_current_user, require_admin
-│   ├── deezer_enrich.py     # Deezer search + enrichment
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
@@ -40,6 +39,7 @@ server/
 │                            # set_dedup (normalize_set_title, match_set, materialize_parent)
 ├── workers/
 │   ├── celery_app.py        # Celery config + beat schedule
+│   ├── deezer_enrich.py     # Deezer search + enrichment
 │   ├── source_clients.py    # Multi-source abstraction (Deezer/TIDAL/Spotify)
 │   └── tasks/               # 7 modules: radar, catalog, artists, genres,
 │                            # import_rb, sets, trends
@@ -103,9 +103,10 @@ cd server/frontend && npx vitest run
 ruff check server/
 cd server/frontend && npm run lint
 
-# Alembic (alembic.ini lives in server/api/)
-cd server/api && python -m alembic revision --autogenerate -m "description"
-cd server/api && python -m alembic upgrade head
+# Alembic (alembic.ini lives in server/api/). Use the `alembic` binary: `python -m alembic`
+# breaks outside the container (the local alembic/ migrations dir shadows the package)
+cd server/api && alembic revision --autogenerate -m "description"
+cd server/api && alembic upgrade head
 # Prod: CI runs `alembic upgrade head` automatically on deploy
 
 # Local stack (override bind-mounts server/api + server/workers for hot reload; prod runs the image code)
@@ -142,6 +143,11 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 - api/worker/worker_enrich/beat share ONE image built from context `./server` (`server/Dockerfile` copies `api/` + `workers/`). Prod runs the code baked into the image — hot reload only exists through the local override bind mounts.
 - `server/.dockerignore` excludes `frontend/`, `nginx/`, `scripts/`, `deezer/` from the build context: a new directory under `server/` needed at runtime must be removed from that file, or it silently won't ship.
 - The `backup` service mounts `/root/.config/rclone` read-write (VPS-only path): rclone rewrites its OAuth token on refresh — never make this mount `:ro`. Offsite = encrypted PG dumps only (MinIO mirror stays local by design).
+
+### Database & Alembic
+- Since AU3 the API never runs `create_all`: the schema comes from Alembic ONLY (test harnesses keep their own `create_all` in `tests/*/conftest.py`). In local dev, the compose override runs `alembic upgrade head` before uvicorn.
+- The migration chain is NOT replayable from an empty database: 0001 assumes the pre-Alembic tables historically created by `create_all`. A fresh local PG volume must be seeded from a prod dump (`docs/restore.md`); an old dev volume created by `create_all` must be stamped once (`alembic stamp head`). A baseline/squash migration is a known follow-up.
+- `uq_artists_deezer_id` (partial unique on `artists.deezer_id`, sentinel-aware) exists ONLY in prod, created outside migrations — see the MANUAL block of `docs/database-schema.md` before touching artist deezer_id uniqueness.
 
 ### Frontend
 - Container queries everywhere; `@media` ONLY for `position: fixed` elements.

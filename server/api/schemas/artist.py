@@ -22,12 +22,8 @@ class ArtistOut(BaseModel):
     id: int
     name: str
     normalized_name: str
-    real_name: Optional[str] = None
-    country: Optional[str] = None
     deezer_id: Optional[str] = None
-    soundcloud_id: Optional[str] = None
     trackid_id: Optional[str] = None
-    bio: Optional[str] = None
     has_artwork: bool = False
     created_at: Optional[datetime] = None
 
@@ -37,8 +33,6 @@ class ArtistOut(BaseModel):
 class ArtistListOut(BaseModel):
     id: int
     name: str
-    real_name: Optional[str] = None
-    country: Optional[str] = None
     has_artwork: bool = False
     nb_catalog: int = 0
     nb_lib: int = 0

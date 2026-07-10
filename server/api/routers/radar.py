@@ -54,7 +54,6 @@ async def list_trends(
             CatalogEntry.artist,
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
-            CatalogEntry.preview_url,
             CatalogEntry.bpm,
             CatalogEntry.key,
         )
@@ -75,7 +74,6 @@ async def list_trends(
             artist=r.artist,
             has_artwork=r.has_artwork,
             has_preview=r.has_preview,
-            preview_url=r.preview_url,
             bpm=r.bpm,
             key=r.key,
             trend_score=r.trend_score,

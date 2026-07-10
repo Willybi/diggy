@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import redis as redis_lib
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from workers.async_http import DeezerHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -204,11 +205,15 @@ async def enrich_deezer_batch(
                     return
                 hit = await pool.deezer_get(f"/track/{ext_id}")
                 if not hit.get("id"):
+                    logger.debug(
+                        "Deezer not found for catalog %s (track %s)", entry.id, ext_id
+                    )
                     entry.deezer_searched_at = now
                     return
             else:
                 hit = await _search_deezer_async(pool, entry.artist, entry.title)
                 if not hit:
+                    logger.debug("Deezer not found for catalog %s", entry.id)
                     entry.deezer_searched_at = now
                     return
 
@@ -224,6 +229,11 @@ async def enrich_deezer_batch(
                 except Exception:
                     pass  # non-critical, sync_artists will catch up
             entry.deezer_searched_at = now
+        except DeezerHTTPError as e:
+            # Deezer outage, not a "not found": leave deezer_searched_at unset
+            # so the entry is retried by the next nightly run.
+            logger.warning("Deezer HTTP error for catalog %s: %s", entry.id, e)
+            errors += 1
         except Exception as e:
             logger.warning("Deezer enrich failed for catalog %s: %s", entry.id, e)
             errors += 1

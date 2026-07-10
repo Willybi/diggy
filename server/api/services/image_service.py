@@ -1,8 +1,9 @@
 """
 Unified S3/MinIO image service.
 
-Replaces the duplicated S3 code in storage.py and deezer_enrich.py.
-Used by: admin, tracks, watchlist, trackid/importer, workers/tasks/*.
+Single entry point for artwork storage: bucket creation (public-read policy),
+uploads from bytes/URL/file, object copy, and playlist artwork fetching.
+Used by routers, services, trackid/importer, scripts and workers/tasks/*.
 """
 
 import os

@@ -91,7 +91,6 @@ class TrendItem(BaseModel):
     artist: Optional[str] = None
     has_artwork: bool = False
     has_preview: bool = False
-    preview_url: Optional[str] = None
     bpm: Optional[float] = None
     key: Optional[str] = None
     trend_score: float = 0

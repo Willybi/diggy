@@ -476,7 +476,6 @@ async def get_similar_tracks(
                 "duration_ms": entry.duration_ms,
                 "genres": [gr.model_dump() for gr in genre_refs],
                 "release_date": entry.release_date,
-                "preview_url": entry.preview_url,
                 "has_artwork": entry.has_artwork,
                 "has_preview": entry.has_preview,
                 "created_at": entry.created_at,
