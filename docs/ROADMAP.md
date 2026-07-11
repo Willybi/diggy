@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-11 (AU8 TERMINE — hygiene repo & documentation : router tracks supprime, archives design, README reecrit. SERIE AU CLOSE)
+> **Derniere mise a jour** : 2026-07-11 (C6.b + C6.c TERMINES — re-crawl des sets incomplets + suivi d'artistes v1, deployes et verifies. Reste C6.e ; C6.d reporte)
 
 ---
 
@@ -40,7 +40,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   TERMINE (graphe D3 reporte)
  H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
- C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0 + C6.1 + C6.a TERMINES)
+ C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0/C6.1/C6.a/C6.b/C6.c TERMINES, reste C6.e)
  AU1  Quick Wins audit                      HAUT        1-2 jours    TERMINE (2026-07-09)
  AU2  Sauvegardes & deploiement             HAUT        1-2 jours    TERMINE (2026-07-10)
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    TERMINE (2026-07-10)
@@ -145,7 +145,7 @@ N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 **Priorite : HAUT**
 **Estimation : 7-10 jours**
 **Depend de : C1 (TERMINE). Parallelisable avec C2.**
-**Statut : EN COURS — C6.0 + C6.1 + C6.a TERMINES (2026-07-07 / 2026-07-08)**
+**Statut : EN COURS — C6.0 + C6.1 + C6.a TERMINES (2026-07-07 / 2026-07-08) ; C6.b + C6.c TERMINES (2026-07-11, commit e976e0d, deployes et verifies). Reste C6.e ; C6.d reporte apres validation de C6.c**
 **Renvois audit 2026-07** : rattaches a ce chantier (arbitrage Q8) — A1-10 (deplacer la logique attach/detach de `routers/admin.py` vers `set_dedup_service`), A1-11 (garde `is_virtual` avant suppression du parent dans `detach_set`), A2-12 (N+1 dans `match_set`, opportuniste). Voir `docs/audit_2026-07/CONSOLIDATED.md`.
 
 ### Objectif
@@ -299,10 +299,10 @@ Age du set           Frequence
 
 Sortie anticipee : si le % d'identification n'a pas bouge sur 3 re-crawls consecutifs → marque "final" immediatement, peu importe l'age.
 
-- [ ] Colonnes sur `sets` : `completion_pct` (float), `last_recrawl_at`, `recrawl_count`, `recrawl_status` (enum: active/final)
-- [ ] Task Celery : `recrawl_incomplete_sets`, schedule quotidien, selectionne les sets eligibles selon la cadence
-- [ ] Logique de sortie anticipee (3 crawls sans changement → final)
-- [ ] Mise a jour des tracklists au re-crawl (ajout des tracks nouvellement identifiees)
+- [x] Colonnes sur `sets` : `completion_pct` (float), `last_recrawl_at`, `recrawl_count`, `recrawl_status` (enum: active/final)
+- [x] Task Celery : `recrawl_incomplete_sets`, schedule quotidien, selectionne les sets eligibles selon la cadence
+- [x] Logique de sortie anticipee (3 crawls sans changement → final)
+- [x] Mise a jour des tracklists au re-crawl (ajout des tracks nouvellement identifiees)
 
 ### C6.c — Suivi d'artistes v1 (Deezer + TrackID)
 
@@ -313,14 +313,14 @@ Feature user-facing : "suivre" un artiste = surveillance active de son activite.
 | **Deezer** | Nouvelles releases (`/artist/{id}/albums?order=date`) | Trivial — `deezer_id` sur 99% des artistes |
 | **TrackID.net** | Nouveaux sets contenant l'artiste | Faisable — on scrape deja le site |
 
-- [ ] Migration : table `followed_artists` (user_id, artist_id, followed_at)
-- [ ] Migration : table `artist_activity` (id, artist_id, activity_type enum, source, title, external_url, catalog_id nullable, set_id nullable, detected_at, payload_json)
-- [ ] Bouton "Suivre" sur ArtistDetailView (distinct du like)
-- [ ] Task Celery Beat : `check_followed_artists`, quotidien, batch sur tous les artistes suivis par au moins 1 user
-- [ ] Check Deezer releases : comparer derniere release connue vs API, creer `artist_activity` si nouveau
-- [ ] Check TrackID.net : rechercher sets recents contenant l'artiste, croiser avec sets deja importes
-- [ ] Surface frontend : section "Nouveautes de tes artistes" (vue dediee ou shelf sur le Hub)
-- [ ] Badge/notification : indicateur de nouvelles activites non vues
+- [x] Migration : table `followed_artists` (user_id, artist_id, followed_at)
+- [x] Migration : table `artist_activity` (id, artist_id, activity_type enum, source, title, external_url, catalog_id nullable, set_id nullable, detected_at, payload_json)
+- [x] Bouton "Suivre" sur ArtistDetailView (distinct du like)
+- [x] Task Celery Beat : `check_followed_artists`, quotidien, batch sur tous les artistes suivis par au moins 1 user
+- [x] Check Deezer releases : comparer derniere release connue vs API, creer `artist_activity` si nouveau
+- [x] Check TrackID.net : rechercher sets recents contenant l'artiste, croiser avec sets deja importes
+- [x] Surface frontend : section "Nouveautes de tes artistes" (vue dediee ou shelf sur le Hub)
+- [x] Badge/notification : indicateur de nouvelles activites non vues
 
 ### C6.d — Suivi d'artistes v2 (Soundcloud) — futur
 
