@@ -210,7 +210,7 @@ services:
       resources:
         limits:
           cpus: '1'
-          memory: 512M
+          memory: 1G
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}

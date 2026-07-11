@@ -80,14 +80,16 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
 
         engine = get_engine()
 
-        # Snapshot of known rekordbox_ids before import (for inserted vs updated count)
+        # Snapshot of the user's catalog_ids before import (for inserted vs
+        # updated count). Keyed on catalog_id, NOT rekordbox_id: two XML entries
+        # sharing a normalized key collapse into one user_track whose
+        # rekordbox_id flip-flops between imports — counting on rekordbox_id
+        # reports them as "new" on every re-import.
         with Session(engine) as session:
             rows = session.execute(
-                select(UserTrack.rekordbox_id)
-                .where(UserTrack.user_id == user_id)
-                .where(UserTrack.rekordbox_id.isnot(None))
+                select(UserTrack.catalog_id).where(UserTrack.user_id == user_id)
             ).all()
-        known_rb_ids: set[int] = {row.rekordbox_id for row in rows}
+        known_catalog_ids: set[int] = {row.catalog_id for row in rows}
 
         inserted = 0
         updated = 0
@@ -159,11 +161,11 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                     )
                     conn.execute(stmt)
 
-                    if rb_id in known_rb_ids:
+                    if catalog_id in known_catalog_ids:
                         updated += 1
                     else:
                         inserted += 1
-                        known_rb_ids.add(rb_id)
+                        known_catalog_ids.add(catalog_id)
 
                 conn.commit()
 
