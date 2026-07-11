@@ -5,12 +5,12 @@ and import compatibility.
 """
 import sys
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch, call
 import importlib
 
 import pytest
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from models import (
@@ -22,7 +22,6 @@ from models import (
     SetTrack,
     User,
     UserFollow,
-    UserSetFollow,
     WatchedEntity,
 )
 from utils import make_normalized_key, normalize
@@ -91,7 +90,7 @@ class TestImportCompatibility:
         expected = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "crawl_followed_sets",
+            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres",
             "compute_trends",
@@ -106,7 +105,7 @@ class TestImportCompatibility:
         task_names = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "crawl_followed_sets",
+            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
         ]
@@ -152,7 +151,7 @@ class TestRetryPolicies:
         non_orchestrators = [
             "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "crawl_followed_sets",
+            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_set_artists",
             "reclassify_genres_chunk", "compute_trends",
         ]
@@ -170,7 +169,7 @@ class TestRetryPolicies:
         for tname in [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "crawl_followed_sets",
+            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
         ]:
@@ -182,7 +181,7 @@ class TestRetryPolicies:
         wt = self._get_tasks()
         expected_names = {
             "crawl_radar": "workers.tasks.crawl_radar",
-            "crawl_followed_sets": "workers.tasks.crawl_followed_sets",
+            "recrawl_incomplete_sets": "workers.tasks.recrawl_incomplete_sets",
             "enrich_catalog": "workers.tasks.enrich_catalog",
             "enrich_catalog_beatport": "workers.tasks.enrich_catalog_beatport",
             "compute_trends": "workers.tasks.compute_trends",
@@ -243,13 +242,18 @@ class TestTimeLimits:
         assert wt.enrich_catalog_beatport.soft_time_limit == 25200
         assert wt.enrich_catalog_beatport.time_limit == 28800
 
+    def test_recrawl_incomplete_sets_has_dedicated_limits(self):
+        wt = self._get_tasks()
+        assert wt.recrawl_incomplete_sets.soft_time_limit == 3600
+        assert wt.recrawl_incomplete_sets.time_limit == 3900
+
     def test_all_task_time_limits_below_visibility_timeout(self):
         visibility_timeout = _read_visibility_timeout()
         wt = self._get_tasks()
         task_names = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "crawl_followed_sets",
+            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
         ]
@@ -265,154 +269,8 @@ class TestTimeLimits:
             )
 
 
-# ── crawl_followed_sets eligibility logic ────────────────────────────
-
-
-def _find_eligible_sets(session):
-    """Replicate eligibility logic from crawl_followed_sets."""
-    followed_ids = {
-        r[0] for r in session.execute(
-            select(UserSetFollow.set_id).distinct()
-        ).all()
-    }
-    if not followed_ids:
-        return [], 0, 0
-
-    sets_to_crawl = []
-    skipped_complete = 0
-    skipped_recent = 0
-
-    for sid in followed_ids:
-        dj_set = session.get(DJSet, sid)
-        if not dj_set or dj_set.source != "trackid":
-            continue
-
-        total = session.execute(
-            select(func.count(SetTrack.id)).where(SetTrack.set_id == sid)
-        ).scalar() or 0
-        identified = session.execute(
-            select(func.count(SetTrack.id)).where(
-                SetTrack.set_id == sid,
-                SetTrack.is_id.is_(False),
-                SetTrack.catalog_id.isnot(None),
-            )
-        ).scalar() or 0
-
-        if total > 0 and identified >= total:
-            skipped_complete += 1
-            continue
-
-        if dj_set.last_crawled_at:
-            last = dj_set.last_crawled_at
-            if last.tzinfo is None:
-                last = last.replace(tzinfo=timezone.utc)
-            age_h = (datetime.now(timezone.utc) - last).total_seconds() / 3600
-            if age_h < 12:
-                skipped_recent += 1
-                continue
-
-        sets_to_crawl.append(dj_set.id)
-
-    return sets_to_crawl, skipped_complete, skipped_recent
-
-
-class TestCrawlFollowedSetsEligibility:
-    def _make_user(self, session):
-        u = User(email="x@x.com", username="x", google_id="gx", is_active=True)
-        session.add(u)
-        session.flush()
-        return u
-
-    def test_empty_follows_returns_empty(self, sync_session):
-        eligible, sc, sr = _find_eligible_sets(sync_session)
-        assert eligible == [] and sc == 0 and sr == 0
-
-    def test_skips_set_crawled_under_12h(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        dj = DJSet(source="trackid", title="S",
-                   last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=6))
-        s.add(dj)
-        s.flush()
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="T", is_id=False))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-        eligible, _, skipped_recent = _find_eligible_sets(s)
-        assert eligible == []
-        assert skipped_recent == 1
-
-    def test_includes_set_crawled_over_12h(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        dj = DJSet(source="trackid", title="S",
-                   last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=13))
-        s.add(dj)
-        s.flush()
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="T", is_id=False))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-        eligible, _, _ = _find_eligible_sets(s)
-        assert dj.id in eligible
-
-    def test_skips_fully_identified_set(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        cat = CatalogEntry(title="T", artist="A", normalized_key="t - a")
-        s.add(cat)
-        s.flush()
-        dj = DJSet(source="trackid", title="S",
-                   last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=48))
-        s.add(dj)
-        s.flush()
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="T", is_id=False, catalog_id=cat.id))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-        eligible, skipped_complete, _ = _find_eligible_sets(s)
-        assert eligible == []
-        assert skipped_complete == 1
-
-    def test_skips_non_trackid_sets(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        dj = DJSet(source="manual", title="S",
-                   last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=48))
-        s.add(dj)
-        s.flush()
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="T", is_id=False))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-        eligible, _, _ = _find_eligible_sets(s)
-        assert eligible == []
-
-    def test_set_never_crawled_is_eligible(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        dj = DJSet(source="trackid", title="S", last_crawled_at=None)
-        s.add(dj)
-        s.flush()
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="T", is_id=False))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-        eligible, _, _ = _find_eligible_sets(s)
-        assert dj.id in eligible
-
-    def test_mixed_sets_partial_identification(self, sync_session):
-        """A set with 2 tracks, 1 identified → eligible."""
-        s = sync_session
-        u = self._make_user(s)
-        cat = CatalogEntry(title="T", artist="A", normalized_key="t - a")
-        s.add(cat)
-        s.flush()
-        dj = DJSet(source="trackid", title="S",
-                   last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=48))
-        s.add(dj)
-        s.flush()
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="T", is_id=False, catalog_id=cat.id))
-        s.add(SetTrack(set_id=dj.id, position=2, raw_title="ID", is_id=True))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-        eligible, _, _ = _find_eligible_sets(s)
-        assert dj.id in eligible
+# crawl_followed_sets eligibility tests removed with the task (C6.b): the
+# replacement recrawl_incomplete_sets is covered in test_tasks_recrawl_sets.py
 
 
 # ── link_set_artists logic ────────────────────────────────────────────

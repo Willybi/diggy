@@ -1,5 +1,5 @@
 from database import get_db
-from dependencies import get_current_user_optional
+from dependencies import get_current_user, get_current_user_optional
 from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import User
@@ -7,9 +7,10 @@ from schemas import (
     ArtistConnectionOut,
     ArtistDetailOut,
     ArtistListResponse,
+    FollowStateResponse,
     RandomTrackResponse,
 )
-from services import artist_service
+from services import artist_service, following_service
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/artists", tags=["artists"])
@@ -64,8 +65,38 @@ async def get_artist_connections(
 
 
 @router.get("/{artist_id}", response_model=ArtistDetailOut)
-async def get_artist_detail(artist_id: int, db: AsyncSession = Depends(get_db)):
+async def get_artist_detail(
+    artist_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     try:
-        return await artist_service.get_detail(db, artist_id)
+        return await artist_service.get_detail(db, artist_id, _uid(user))
     except LookupError as e:
         raise HTTPException(404, str(e))
+
+
+@router.post("/{artist_id}/follow", response_model=FollowStateResponse)
+async def follow_artist(
+    artist_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        await following_service.follow_artist(db, user.id, artist_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return FollowStateResponse(following=True)
+
+
+@router.delete("/{artist_id}/follow", response_model=FollowStateResponse)
+async def unfollow_artist(
+    artist_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        await following_service.unfollow_artist(db, user.id, artist_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return FollowStateResponse(following=False)

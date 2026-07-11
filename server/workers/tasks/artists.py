@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 # "confirmed absent from Deezer" is a human decision.
 ARTIST_RESEARCH_DAYS = 30
 
+# C6.c — activity feed for followed artists.
+# A Deezer release counts as fresh activity when it was published within this
+# many days (one albums page is enough: we only keep recent releases).
+ARTIST_ACTIVITY_RELEASE_HORIZON_DAYS = 30
+# New imported sets are picked up within this window. It is wider than the daily
+# cadence on purpose so a late/skipped run still catches the previous day's
+# imports; the unique constraint on artist_activity dedups the overlap.
+ARTIST_ACTIVITY_SET_WINDOW_HOURS = 48
+# Single-instance lock: TTL must stay strictly above the task time_limit (3900s)
+# so the lock cannot expire while a legitimate run is still in progress (same
+# rule as resolve_set_tracks / recrawl_incomplete_sets).
+CHECK_FOLLOWED_ARTISTS_LOCK_TTL = 4200
+
 
 def _norm_artist_name(s):
     s = unicodedata.normalize("NFKD", s.lower().strip())
@@ -929,3 +942,285 @@ def backfill_multi_artists(self):
     _log_session.close()
 
     return result
+
+
+# ── C6.c: daily activity check for followed artists ──────────────────────────
+
+
+async def _fetch_artist_releases(pool, deezer_id):
+    """Fetch one page of an artist's Deezer albums (id, title, link, release_date,
+    record_type). A single page (limit 100, newest first) is enough — we only
+    keep recent releases. Raises DeezerHTTPError on an API failure so the caller
+    can count it and move on (an outage must not abort the whole run).
+    """
+    data = await pool.deezer_get(
+        f"/artist/{deezer_id}/albums", params={"limit": 100}
+    )
+    return data.get("data", []) or []
+
+
+def _activity_exists(session, artist_id, activity_type, source, external_id):
+    """True if an artist_activity row already matches the unique key
+    (artist_id, activity_type, source, external_id). The lock guarantees a
+    single instance, so a plain existence check is enough — no dialect-specific
+    ON CONFLICT needed (tests run on SQLite)."""
+    from models import ArtistActivity
+    from sqlalchemy import select
+
+    return (
+        session.execute(
+            select(ArtistActivity.id).where(
+                ArtistActivity.artist_id == artist_id,
+                ArtistActivity.activity_type == activity_type,
+                ArtistActivity.source == source,
+                ArtistActivity.external_id == external_id,
+            )
+        ).first()
+        is not None
+    )
+
+
+def _release_in_horizon(release_date, threshold):
+    """True if a Deezer release_date string ('YYYY-MM-DD') is on/after threshold.
+    Missing or malformed dates are treated as out of horizon (skipped)."""
+    from datetime import date
+
+    if not release_date:
+        return False
+    try:
+        rel = date.fromisoformat(str(release_date)[:10])
+    except ValueError:
+        return False
+    return rel >= threshold
+
+
+async def _check_releases(engine, followed_ids, now):
+    """Releases volet: for each followed artist with a valid Deezer id, fetch its
+    recent albums and record any new ones as artist_activity rows. A Deezer HTTP
+    error on one artist is logged and counted, never fatal."""
+    from datetime import timedelta
+
+    from models import Artist
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from workers.async_http import DeezerHTTPError, HttpPool
+    from workers.rate_limiter import RateLimiter
+
+    stats = {
+        "artists_checked": 0,
+        "artists_skipped_no_deezer": 0,
+        "releases_found": 0,
+        "errors": 0,
+    }
+    threshold = (now - timedelta(days=ARTIST_ACTIVITY_RELEASE_HORIZON_DAYS)).date()
+
+    limiter = RateLimiter()
+    async with HttpPool(limiter) as pool:
+        with Session(engine) as session:
+            artists = (
+                session.execute(
+                    select(Artist).where(Artist.id.in_(followed_ids))
+                )
+                .scalars()
+                .all()
+            )
+
+            for artist in artists:
+                dz_id = artist.deezer_id
+                if not dz_id or dz_id == "NOT_FOUND":
+                    stats["artists_skipped_no_deezer"] += 1
+                    continue
+                stats["artists_checked"] += 1
+
+                try:
+                    albums = await _fetch_artist_releases(pool, dz_id)
+                except DeezerHTTPError as e:
+                    stats["errors"] += 1
+                    logger.warning(
+                        "check_followed_artists: Deezer albums fetch failed for "
+                        "artist %s (deezer_id=%s): %s",
+                        artist.id,
+                        dz_id,
+                        e,
+                    )
+                    continue
+
+                for album in albums:
+                    album_id = album.get("id")
+                    if album_id is None:
+                        continue
+                    if not _release_in_horizon(album.get("release_date"), threshold):
+                        continue
+                    if _activity_exists(
+                        session, artist.id, "release", "deezer", str(album_id)
+                    ):
+                        continue
+                    from models import ArtistActivity
+
+                    # INVARIANT: never store an external image URL in payload —
+                    # artwork lives in MinIO (has_artwork), never as a DB URL.
+                    session.add(
+                        ArtistActivity(
+                            artist_id=artist.id,
+                            activity_type="release",
+                            source="deezer",
+                            external_id=str(album_id),
+                            title=album.get("title"),
+                            external_url=album.get("link"),
+                            payload={
+                                "release_date": album.get("release_date"),
+                                "record_type": album.get("record_type"),
+                            },
+                        )
+                    )
+                    stats["releases_found"] += 1
+
+                # Persist per artist so a mid-run failure keeps prior progress
+                session.commit()
+
+    return stats
+
+
+def _check_new_sets(engine, followed_ids, now):
+    """Sets volet (DB only, no external call): record an activity for every
+    recently-imported set that features a followed artist. The 48h window is
+    wider than the daily cadence; the unique constraint dedups the overlap."""
+    from datetime import timedelta
+
+    from models import DJSet, SetArtist
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    window_start = now - timedelta(hours=ARTIST_ACTIVITY_SET_WINDOW_HOURS)
+    sets_found = 0
+
+    with Session(engine) as session:
+        rows = session.execute(
+            select(SetArtist.artist_id, DJSet)
+            .join(DJSet, DJSet.id == SetArtist.set_id)
+            .where(
+                SetArtist.artist_id.in_(followed_ids),
+                DJSet.created_at.isnot(None),
+                DJSet.created_at >= window_start,
+            )
+        ).all()
+
+        for artist_id, dj_set in rows:
+            if _activity_exists(
+                session, artist_id, "set", "trackid", str(dj_set.id)
+            ):
+                continue
+            from models import ArtistActivity
+
+            session.add(
+                ArtistActivity(
+                    artist_id=artist_id,
+                    activity_type="set",
+                    source="trackid",
+                    external_id=str(dj_set.id),
+                    title=dj_set.title,
+                    external_url=dj_set.source_url,
+                    set_id=dj_set.id,
+                )
+            )
+            sets_found += 1
+
+        session.commit()
+
+    return sets_found
+
+
+@celery_app.task(
+    name="workers.tasks.check_followed_artists",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 60},
+    retry_backoff=True,
+    soft_time_limit=3600,
+    time_limit=3900,
+)
+def check_followed_artists(self):
+    """
+    Daily: detect new activity for every artist followed by ≥1 user.
+    Two volets — new Deezer releases and newly imported sets that feature the
+    artist. Single-instance: a Redis lock (SET NX EX, conditional release) keeps
+    overlapping runs from doubling external traffic, same pattern as
+    resolve_set_tracks.
+    """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:check_followed_artists"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(
+        lock_key, self.request.id, nx=True, ex=CHECK_FOLLOWED_ARTISTS_LOCK_TTL
+    ):
+        holder = r.get(lock_key)
+        logger.warning(
+            "check_followed_artists already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_check_followed_artists(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_check_followed_artists(task):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import FollowedArtist
+    from workers.crawl_logger import CrawlLogger
+    from workers.db import get_engine
+
+    engine = get_engine()
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as log_session:
+        with CrawlLogger(
+            log_session,
+            task_type="check_followed_artists",
+            celery_task_id=task.request.id,
+        ) as clog:
+            with Session(engine) as session:
+                followed_ids = [
+                    r[0]
+                    for r in session.execute(
+                        select(FollowedArtist.artist_id).distinct()
+                    ).all()
+                ]
+
+            stats = {
+                "artists_checked": 0,
+                "artists_skipped_no_deezer": 0,
+                "releases_found": 0,
+                "sets_found": 0,
+                "errors": 0,
+            }
+
+            if not followed_ids:
+                clog.set_stats(stats)
+                return stats
+
+            release_stats = asyncio.run(
+                _check_releases(engine, followed_ids, now)
+            )
+            stats["artists_checked"] = release_stats["artists_checked"]
+            stats["artists_skipped_no_deezer"] = release_stats[
+                "artists_skipped_no_deezer"
+            ]
+            stats["releases_found"] = release_stats["releases_found"]
+            stats["errors"] = release_stats["errors"]
+
+            stats["sets_found"] = _check_new_sets(engine, followed_ids, now)
+
+            clog.set_stats(stats)
+
+    return stats

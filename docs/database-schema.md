@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 25 tables across 7 domains.
+> 27 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -69,7 +69,7 @@ is auto-generated — do not edit it directly.
 **Catalog hub:** `catalog` · `catalog_artists` · `user_tracks`
 **Users:** `users` · `user_opinions` · `user_collections` · `collection_items`
 **Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
-**Artists:** `artists` · `artist_aliases` · `artist_flags`
+**Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity`
 **Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows`
 **Genres:** `genre_nodes` · `genre_edges` · `genre_mappings`
 **System:** `admin_audit_log` · `crawl_logs`
@@ -111,13 +111,13 @@ PK: `id`
 | `beatport_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 
 **Indexes:**
-- `ix_catalog_scope`: `scope`
-- `ix_catalog_deezer_searched_at`: `deezer_searched_at`
-- `ix_catalog_genres`: `genres`
-- `ix_catalog_deezer_id`: `deezer_id`
-- `ix_catalog_owner`: `owner_id`
 - `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_deezer_id`: `deezer_id`
+- `ix_catalog_deezer_searched_at`: `deezer_searched_at`
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_scope`: `scope`
 - `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_genres`: `genres`
 
 ### `catalog_artists`
 
@@ -272,9 +272,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
+- `ix_radar_tracks_source_detected`: `source`
 - `ix_radar_tracks_watched_entity`: `watched_entity_id`
 - `ix_radar_tracks_catalog`: `catalog_id`
-- `ix_radar_tracks_source_detected`: `source`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -361,6 +361,44 @@ PK: `id`
 | `created_at` | DateTime(tz) | yes |  |  |  |
 | `updated_at` | DateTime(tz) | yes |  |  |  |
 
+### `followed_artists`
+
+Composite PK: (`user_id`, `artist_id`)
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `user_id` **PK** | Integer | no |  | FK → users.id ON DELETE CASCADE |  |
+| `artist_id` **PK** | Integer | no |  | FK → artists.id ON DELETE CASCADE |  |
+| `followed_at` | DateTime(tz) | yes |  |  | server_default=now() |
+
+**Indexes:**
+- `ix_followed_artists_artist_id`: `artist_id`
+
+### `artist_activity`
+
+PK: `id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `id` **PK** | Integer | no |  |  |  |
+| `artist_id` | Integer | no |  | FK → artists.id ON DELETE CASCADE |  |
+| `activity_type` | String(16) | no |  |  |  |
+| `source` | String(32) | no |  |  |  |
+| `external_id` | String(64) | no |  |  |  |
+| `title` | String(500) | yes |  |  |  |
+| `external_url` | Text | yes |  |  |  |
+| `catalog_id` | Integer | yes |  | FK → catalog.id ON DELETE SET NULL |  |
+| `set_id` | Integer | yes |  | FK → sets.id ON DELETE SET NULL |  |
+| `detected_at` | DateTime(tz) | no |  |  | server_default=now() |
+| `payload` | JSON | yes |  |  |  |
+
+**Indexes:**
+- `ix_artist_activity_artist_id`: `artist_id`
+- `ix_artist_activity_detected_at`: `detected_at`
+
+**Unique constraints:**
+- `artist_id`, `activity_type`, `source`, `external_id` (`uq_artist_activity_ext`)
+
 ## Sets
 
 ### `sets`
@@ -389,6 +427,10 @@ PK: `id`
 | `normalized_title` | String(500) | yes |  |  |  |
 | `part_number` | Integer | yes |  |  |  |
 | `part_total` | Integer | yes |  |  |  |
+| `completion_pct` | Float | yes |  |  |  |
+| `last_recrawl_at` | DateTime(tz) | yes |  |  |  |
+| `recrawl_count` | Integer | no |  |  | server_default='0', default=0 |
+| `recrawl_status` | String(16) | no |  |  | server_default='active', default='active' |
 
 **Indexes:**
 - `ix_sets_parent_set_id`: `parent_set_id`
@@ -454,10 +496,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_set_id_a`: `set_id_a`
 - `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_set_id_b`: `set_id_b`
 - `ix_set_flags_group_key`: `group_key`
+- `ix_set_flags_set_id_a`: `set_id_a`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)

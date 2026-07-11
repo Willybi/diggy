@@ -2,13 +2,13 @@
 AU4-L3 observability tests.
 
 Runs the real Celery task functions (celery ecosystem mocked, same pattern as
-test_beatport_lock.py) against an in-memory SQLite engine to verify:
-  - crawl_followed_sets and link_set_artists write a crawl_logs row,
-    including on early returns (A3-09)
-  - a materialize_parent failure is logged with context and does not
-    interrupt the crawl (A3-08)
+test_beatport_lock.py) against an in-memory SQLite engine to verify that
+link_set_artists writes a crawl_logs row (A3-09).
+
+The crawl_followed_sets observability tests (crawl_logs on early return,
+materialize_parent failure logged and non-fatal, A3-08) moved to
+test_tasks_recrawl_sets.py with the replacement task (C6.b).
 """
-import logging
 import os
 import sys
 from types import SimpleNamespace
@@ -66,13 +66,9 @@ from sqlalchemy.orm import Session
 from database import Base
 from models import (
     Artist,
-    CatalogEntry,
     CrawlLog,
     DJSet,
     SetArtist,
-    SetTrack,
-    User,
-    UserSetFollow,
 )
 
 
@@ -120,54 +116,6 @@ def _get_crawl_log(engine, task_type):
         ).scalar_one()
 
 
-class TestCrawlFollowedSetsCrawlLog:
-    def test_no_followed_sets_writes_success_log(
-        self, tasks_env, task_engine, fake_self
-    ):
-        """Early return (nothing followed) must still leave a crawl_logs line."""
-        result = tasks_env.sets.crawl_followed_sets(fake_self)
-
-        assert result == {"crawled": 0, "skipped_complete": 0, "skipped_recent": 0}
-        log = _get_crawl_log(task_engine, "crawl_followed_sets")
-        assert log.status == "success"
-        assert log.stats == {"crawled": 0, "skipped_complete": 0, "skipped_recent": 0}
-        assert log.celery_task_id == "task-obs"
-
-    def test_all_sets_skipped_writes_success_log(
-        self, tasks_env, task_engine, fake_self
-    ):
-        """Early return (nothing to crawl) must still leave a crawl_logs line."""
-        with Session(task_engine) as s:
-            u = User(email="t@t.com", username="t", google_id="g", is_active=True)
-            s.add(u)
-            s.flush()
-            cat = CatalogEntry(title="T", artist="A", normalized_key="t - a")
-            s.add(cat)
-            s.flush()
-            # 1 track, fully identified -> skipped_complete
-            dj = DJSet(source="trackid", title="Complete Set")
-            s.add(dj)
-            s.flush()
-            s.add(
-                SetTrack(
-                    set_id=dj.id,
-                    position=1,
-                    raw_title="T",
-                    catalog_id=cat.id,
-                    is_id=False,
-                )
-            )
-            s.add(UserSetFollow(user_id=u.id, set_id=dj.id))
-            s.commit()
-
-        result = tasks_env.sets.crawl_followed_sets(fake_self)
-
-        assert result == {"crawled": 0, "skipped_complete": 1, "skipped_recent": 0}
-        log = _get_crawl_log(task_engine, "crawl_followed_sets")
-        assert log.status == "success"
-        assert log.stats == {"crawled": 0, "skipped_complete": 1, "skipped_recent": 0}
-
-
 class TestLinkSetArtistsCrawlLog:
     def test_run_writes_success_log(self, tasks_env, task_engine, fake_self):
         with Session(task_engine) as s:
@@ -184,74 +132,3 @@ class TestLinkSetArtistsCrawlLog:
         assert log.status == "success"
         assert log.stats == {"linked": 1, "skipped": 0}
         assert log.celery_task_id == "task-obs"
-
-
-class TestMaterializeParentLogging:
-    def test_failure_is_logged_and_does_not_interrupt_crawl(
-        self, tasks_env, task_engine, fake_self, monkeypatch, caplog
-    ):
-        """A3-08: materialize_parent raising must log a warning with the
-        parent_set_id and traceback, and the crawl must complete normally."""
-        with Session(task_engine) as s:
-            u = User(email="t@t.com", username="t", google_id="g", is_active=True)
-            s.add(u)
-            s.flush()
-            # Eligible: unresolved track, never crawled (last_crawled_at None)
-            dj = DJSet(
-                source="trackid",
-                title="Eligible Set",
-                external_id="ext-1",
-                external_slug="slug-1",
-            )
-            s.add(dj)
-            s.flush()
-            s.add(SetTrack(set_id=dj.id, position=1, raw_title="Unknown", is_id=False))
-            s.add(UserSetFollow(user_id=u.id, set_id=dj.id))
-            s.commit()
-
-        class FakeTrackIDClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-        async def fake_import_audiostream(db, client, audiostream, min_age_hours=168):
-            return SimpleNamespace(parent_set_id=99), 5
-
-        async def failing_materialize_parent(db, parent_set_id):
-            raise RuntimeError("boom")
-
-        monkeypatch.setitem(
-            sys.modules,
-            "trackid.client",
-            SimpleNamespace(TrackIDClient=FakeTrackIDClient),
-        )
-        monkeypatch.setitem(
-            sys.modules,
-            "trackid.importer",
-            SimpleNamespace(import_audiostream=fake_import_audiostream),
-        )
-        monkeypatch.setitem(
-            sys.modules,
-            "services.set_dedup_service",
-            SimpleNamespace(materialize_parent=failing_materialize_parent),
-        )
-
-        with caplog.at_level(logging.WARNING):
-            result = tasks_env.sets.crawl_followed_sets(fake_self)
-
-        # The crawl completed despite the materialize_parent failure
-        assert result == {"crawled": 1, "skipped_complete": 0, "skipped_recent": 0}
-
-        warnings = [
-            r
-            for r in caplog.records
-            if "materialize_parent failed for set 99" in r.getMessage()
-        ]
-        assert len(warnings) == 1
-        assert "RuntimeError" in caplog.text  # exc_info traceback attached
-
-        log = _get_crawl_log(task_engine, "crawl_followed_sets")
-        assert log.status == "success"
-        assert log.stats == {"crawled": 1, "skipped_complete": 0, "skipped_recent": 0}

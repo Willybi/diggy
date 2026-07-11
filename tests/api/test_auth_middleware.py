@@ -144,6 +144,18 @@ class TestProtectedEndpoints:
         r = await client.get("/api/watchlist/active")
         assert r.status_code == 401
 
+    async def test_artists_follow_post_no_token_returns_401(self, mw_client):
+        # /api/artists is public in GET only — non-GET (follow) requires a JWT.
+        client, _ = mw_client
+        r = await client.post("/api/artists/1/follow")
+        assert r.status_code == 401
+
+    async def test_following_no_token_returns_401(self, mw_client):
+        # /api/following is absent from the allowlists — protected by default.
+        client, _ = mw_client
+        r = await client.get("/api/following/")
+        assert r.status_code == 401
+
 
 class TestOptionsPreflightAllowed:
     """CORS preflight (OPTIONS) should always pass through."""

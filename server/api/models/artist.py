@@ -9,6 +9,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.orm import relationship
@@ -66,6 +68,64 @@ class ArtistAlias(Base):
     normalized_alias = Column(String(500), unique=True, nullable=False)
 
     artist = relationship("Artist", back_populates="aliases")
+
+
+class FollowedArtist(Base):
+    __tablename__ = "followed_artists"
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    artist_id = Column(
+        Integer,
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+        index=True,
+    )
+    followed_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ArtistActivity(Base):
+    __tablename__ = "artist_activity"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    artist_id = Column(
+        Integer,
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Application values: 'release' | 'set' (plain String, no PG enum)
+    activity_type = Column(String(16), nullable=False)
+    source = Column(String(32), nullable=False)  # 'deezer' | 'trackid'
+    # Deezer album id, or Diggy set id as string
+    external_id = Column(String(64), nullable=False)
+    title = Column(String(500))
+    external_url = Column(Text, nullable=True)
+    catalog_id = Column(
+        Integer, ForeignKey("catalog.id", ondelete="SET NULL"), nullable=True
+    )
+    set_id = Column(Integer, ForeignKey("sets.id", ondelete="SET NULL"), nullable=True)
+    detected_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    # Never store external image URLs here (has_artwork/MinIO only)
+    payload = Column(JSON, nullable=True)
+
+    # Idempotence guarantee for the activity worker
+    __table_args__ = (
+        UniqueConstraint(
+            "artist_id",
+            "activity_type",
+            "source",
+            "external_id",
+            name="uq_artist_activity_ext",
+        ),
+    )
 
 
 class ArtistFlag(Base):

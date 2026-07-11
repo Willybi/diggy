@@ -55,6 +55,13 @@ from .collections import (
     CollectionOut,
 )
 from .common import ArtistRef, GenreRef, OkResponse, RandomTrackResponse
+from .following import (
+    ActivityListResponse,
+    ArtistActivityOut,
+    FollowedArtistOut,
+    FollowingListResponse,
+    FollowStateResponse,
+)
 from .genres import (
     GenreArtistItem,
     GenreArtistListResponse,
@@ -168,6 +175,12 @@ __all__ = [
     "ArtistConnectionOut",
     "ArtistSetOut",
     "ArtistDetailOut",
+    # following
+    "FollowStateResponse",
+    "FollowedArtistOut",
+    "FollowingListResponse",
+    "ArtistActivityOut",
+    "ActivityListResponse",
     # radar
     "RadarStatus",
     "RadarTrackIn",

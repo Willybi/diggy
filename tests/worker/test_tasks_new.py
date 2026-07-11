@@ -4,7 +4,7 @@ Covers: failure scenarios, orchestration, retry behavior, task module structure.
 """
 import sys
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch, call
 
 import pytest
@@ -20,7 +20,6 @@ from models import (
     SetArtist,
     SetTrack,
     User,
-    UserSetFollow,
     WatchedEntity,
 )
 from utils import make_normalized_key, normalize
@@ -63,7 +62,7 @@ class TestModuleImports:
         expected_tasks = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "crawl_followed_sets",
+            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres",
             "compute_trends",
@@ -456,145 +455,5 @@ class TestLinkSetArtistsAdditional:
         assert fred_again.id in artist_ids
 
 
-# ── crawl_followed_sets eligibility additional cases ──────────────────────────
-
-
-class TestCrawlFollowedSetsAdditional:
-    def _make_user(self, session):
-        u = User(email="x@x.com", username="x", google_id="google-x", is_active=True)
-        session.add(u)
-        session.flush()
-        return u
-
-    def _find_eligible(self, session):
-        from sqlalchemy import func
-
-        followed_ids = {
-            r[0] for r in session.execute(
-                select(UserSetFollow.set_id).distinct()
-            ).all()
-        }
-        if not followed_ids:
-            return [], 0, 0
-
-        sets_to_crawl = []
-        skipped_complete = 0
-        skipped_recent = 0
-
-        for sid in followed_ids:
-            dj_set = session.get(DJSet, sid)
-            if not dj_set or dj_set.source != "trackid":
-                continue
-
-            total = session.execute(
-                select(func.count(SetTrack.id)).where(SetTrack.set_id == sid)
-            ).scalar() or 0
-            identified = session.execute(
-                select(func.count(SetTrack.id)).where(
-                    SetTrack.set_id == sid,
-                    SetTrack.is_id.is_(False),
-                    SetTrack.catalog_id.isnot(None),
-                )
-            ).scalar() or 0
-
-            if total > 0 and identified >= total:
-                skipped_complete += 1
-                continue
-
-            if dj_set.last_crawled_at:
-                last = dj_set.last_crawled_at
-                if last.tzinfo is None:
-                    last = last.replace(tzinfo=timezone.utc)
-                age_h = (datetime.now(timezone.utc) - last).total_seconds() / 3600
-                if age_h < 12:
-                    skipped_recent += 1
-                    continue
-
-            sets_to_crawl.append(dj_set.id)
-
-        return sets_to_crawl, skipped_complete, skipped_recent
-
-    def test_set_never_crawled_is_eligible(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        dj = DJSet(source="trackid", title="Never Crawled", last_crawled_at=None)
-        s.add(dj)
-        s.flush()
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="T", is_id=False))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-
-        eligible, sc, sr = self._find_eligible(s)
-        assert len(eligible) == 1
-        assert eligible[0] == dj.id
-
-    def test_partially_identified_set_is_eligible(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        cat = CatalogEntry(title="Known", artist="A", normalized_key="known - a")
-        s.add(cat)
-        s.flush()
-
-        dj = DJSet(source="trackid", title="Partial",
-                   last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=24))
-        s.add(dj)
-        s.flush()
-        # 2 tracks: 1 identified, 1 not
-        s.add(SetTrack(set_id=dj.id, position=1, raw_title="Known", catalog_id=cat.id, is_id=False))
-        s.add(SetTrack(set_id=dj.id, position=2, raw_title="Unknown", is_id=False))
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-
-        eligible, sc, sr = self._find_eligible(s)
-        assert len(eligible) == 1
-        assert sc == 0
-
-    def test_set_with_zero_tracks_is_eligible(self, sync_session):
-        """A set with 0 tracks (total=0) should be eligible (total > 0 check)."""
-        s = sync_session
-        u = self._make_user(s)
-        dj = DJSet(source="trackid", title="Empty Set",
-                   last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=24))
-        s.add(dj)
-        s.flush()
-        s.add(UserSetFollow(user_id=u.id, set_id=dj.id, followed_at=datetime.now(timezone.utc)))
-        s.commit()
-
-        eligible, sc, sr = self._find_eligible(s)
-        assert len(eligible) == 1
-        assert sc == 0
-
-    def test_multiple_sets_mixed_eligibility(self, sync_session):
-        s = sync_session
-        u = self._make_user(s)
-        cat = CatalogEntry(title="T", artist="A", normalized_key="t - a")
-        s.add(cat)
-        s.flush()
-
-        # complete set
-        complete = DJSet(source="trackid", title="Complete",
-                         last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=24))
-        # recent set
-        recent = DJSet(source="trackid", title="Recent",
-                       last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=1))
-        # eligible set
-        eligible_set = DJSet(source="trackid", title="Eligible",
-                             last_crawled_at=datetime.now(timezone.utc) - timedelta(hours=24))
-        s.add_all([complete, recent, eligible_set])
-        s.flush()
-
-        s.add(SetTrack(set_id=complete.id, position=1, catalog_id=cat.id, is_id=False))
-        s.add(SetTrack(set_id=recent.id, position=1, raw_title="T", is_id=False))
-        s.add(SetTrack(set_id=eligible_set.id, position=1, raw_title="T", is_id=False))
-
-        now = datetime.now(timezone.utc)
-        s.add(UserSetFollow(user_id=u.id, set_id=complete.id, followed_at=now))
-        s.add(UserSetFollow(user_id=u.id, set_id=recent.id, followed_at=now))
-        s.add(UserSetFollow(user_id=u.id, set_id=eligible_set.id, followed_at=now))
-        s.commit()
-
-        sets, sc, sr = self._find_eligible(s)
-        assert len(sets) == 1
-        assert sets[0] == eligible_set.id
-        assert sc == 1
-        assert sr == 1
+# crawl_followed_sets eligibility tests removed with the task (C6.b): the
+# replacement recrawl_incomplete_sets is covered in test_tasks_recrawl_sets.py

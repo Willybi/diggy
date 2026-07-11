@@ -47,6 +47,17 @@ class DJSet(Base):
     normalized_title = Column(String(500), nullable=True)
     part_number = Column(Integer, nullable=True)
     part_total = Column(Integer, nullable=True)
+    # C6.b re-crawl state — completion_pct is is_id-based (catalog_id is reset
+    # by re-imports and cannot back a stable metric)
+    completion_pct = Column(Float, nullable=True)
+    last_recrawl_at = Column(DateTime(timezone=True), nullable=True)
+    # Consecutive re-crawls WITHOUT progression; reset to 0 whenever
+    # completion_pct improves, 3 stale runs finalize the set
+    recrawl_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # 'active' | 'final' — plain String like platform, no PG enum
+    recrawl_status = Column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),

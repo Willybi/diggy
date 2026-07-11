@@ -91,3 +91,4 @@ class ArtistDetailOut(ArtistOut):
     catalog_tracks: list[CatalogEntryOut] = []
     sets: list[ArtistSetOut] = []
     stats: dict = {}
+    following: bool = False

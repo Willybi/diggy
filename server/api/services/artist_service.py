@@ -228,7 +228,9 @@ async def list_artists(
     return {"items": items, "total": total, "pillarCounts": pillar_counts}
 
 
-async def get_detail(db: AsyncSession, artist_id: int) -> dict:
+async def get_detail(
+    db: AsyncSession, artist_id: int, user_id: int | None = None
+) -> dict:
     import json
 
     from models import (
@@ -370,6 +372,10 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
         for r in sets_result.all()
     ]
 
+    from services import following_service
+
+    following = await following_service.is_following(db, user_id, artist_id)
+
     avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
     genre_counts: dict[str, int] = {}
     for row in cat_rows:
@@ -400,6 +406,7 @@ async def get_detail(db: AsyncSession, artist_id: int) -> dict:
             "nb_sets": len(sets),
             "avg_rating": avg_rating,
         },
+        following=following,
     )
 
 

@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 from workers.celery_app import celery_app
 
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Lock TTL must cover the task's time_limit (7500s) so the lock cannot
 # expire while a legitimate run is still in progress
 RESOLVE_SET_TRACKS_LOCK_TTL = 7800
+
+# Same rule for recrawl_incomplete_sets (time_limit 3900s)
+RECRAWL_INCOMPLETE_SETS_LOCK_TTL = 4200
 
 
 def _should_skip_backfill(cursor_date: str, min_date: str) -> bool:
@@ -344,104 +348,220 @@ def enrich_set_tracks(self):
     return result
 
 
+def _as_utc(dt):
+    """Normalize a naive datetime (SQLite test runs) to UTC; PG returns aware."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _completion_pct(total: int, unidentified: int) -> float:
+    """Share of identified tracks, based on is_id ONLY.
+
+    catalog_id is deliberately ignored: import_audiostream deletes and
+    re-inserts set_tracks, resetting catalog_id to NULL until the next
+    asynchronous resolve_set_tracks run — a catalog_id-based ratio would be
+    wrong between the two.
+    """
+    if total <= 0:
+        return 0.0
+    return (total - unidentified) / total
+
+
+def _recrawl_decision(now, created_at, reference) -> str:
+    """Age-tiered re-crawl backoff: returns 'crawl', 'wait' or 'final'.
+
+    Age counts from created_at (Diggy import date); reference is the last
+    (re-)crawl, COALESCE(last_recrawl_at, last_crawled_at). Tiers:
+    0-7d → re-crawl after 24h, 7-30d → after 7d, 30-90d → after 30d,
+    >90d → final (no more crawls).
+    """
+    age_days = 0.0
+    if created_at is not None:
+        age_days = (now - _as_utc(created_at)).total_seconds() / 86400
+    if age_days > 90:
+        return "final"
+    if age_days > 30:
+        min_days = 30.0
+    elif age_days > 7:
+        min_days = 7.0
+    else:
+        min_days = 1.0
+    if reference is None:
+        return "crawl"
+    ref_days = (now - _as_utc(reference)).total_seconds() / 86400
+    return "crawl" if ref_days > min_days else "wait"
+
+
+def _apply_recrawl_outcome(dj_set, old_pct, new_pct, now) -> str | None:
+    """Update a set's re-crawl state after a fresh import.
+
+    recrawl_count counts CONSECUTIVE re-crawls without progression and is
+    reset to 0 whenever completion_pct improves (old NULL counts as
+    progression). Returns 'complete' or 'stale' when the set is finalized,
+    None otherwise.
+    """
+    if old_pct is None or new_pct > old_pct:
+        dj_set.recrawl_count = 0
+    else:
+        dj_set.recrawl_count = (dj_set.recrawl_count or 0) + 1
+
+    finalized = None
+    if new_pct >= 1.0:
+        finalized = "complete"
+    elif dj_set.recrawl_count >= 3:
+        finalized = "stale"
+    if finalized:
+        dj_set.recrawl_status = "final"
+
+    dj_set.completion_pct = new_pct
+    dj_set.last_recrawl_at = now
+    return finalized
+
+
 @celery_app.task(
-    name="workers.tasks.crawl_followed_sets",
+    name="workers.tasks.recrawl_incomplete_sets",
     bind=True,
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3, "countdown": 60},
     retry_backoff=True,
+    soft_time_limit=3600,
+    time_limit=3900,
 )
-def crawl_followed_sets(self):
+def recrawl_incomplete_sets(self):
     """
-    Re-crawl followed sets whose tracklist is not 100% identified.
-    Skips sets crawled < 12h ago.
-    After re-import, resolves unlinked tracks via catalog matching + Deezer enrichment.
+    Re-crawl incomplete TrackID sets with an age-tiered backoff (TrackID
+    keeps identifying tracks for days after a set is first imported).
+    Single-instance: Redis lock, same pattern as resolve_set_tracks.
     """
-    import asyncio
-    from datetime import datetime, timezone
+    import redis as redis_lib
 
-    from sqlalchemy import func, select
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:recrawl_incomplete_sets"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(
+        lock_key, self.request.id, nx=True, ex=RECRAWL_INCOMPLETE_SETS_LOCK_TTL
+    ):
+        holder = r.get(lock_key)
+        logger.warning(
+            "recrawl_incomplete_sets already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_recrawl_incomplete_sets(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_recrawl_incomplete_sets(task):
+    from sqlalchemy import case, func, select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
-    from models import DJSet, SetTrack, UserSetFollow
+    from models import DJSet, SetTrack
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
     engine = get_engine()
+    max_sets = int(os.environ.get("RECRAWL_MAX_SETS_PER_RUN", "500"))
 
     with Session(engine) as log_session:
         with CrawlLogger(
             log_session,
-            task_type="crawl_followed_sets",
-            celery_task_id=self.request.id,
+            task_type="recrawl_incomplete_sets",
+            celery_task_id=task.request.id,
         ) as clog:
-            sets_to_crawl = []
-            skipped_complete = 0
-            skipped_recent = 0
+            now = datetime.now(timezone.utc)
+            finalized_complete = 0
+            finalized_age = 0
+            to_crawl = []
 
             with Session(engine) as session:
-                followed_ids = {
-                    r[0]
-                    for r in session.execute(
-                        select(UserSetFollow.set_id).distinct()
-                    ).all()
-                }
+                counts = (
+                    select(
+                        SetTrack.set_id.label("set_id"),
+                        func.count(SetTrack.id).label("total"),
+                        func.sum(
+                            case((SetTrack.is_id.is_(True), 1), else_=0)
+                        ).label("unidentified"),
+                    )
+                    .group_by(SetTrack.set_id)
+                    .subquery()
+                )
+                rows = session.execute(
+                    select(DJSet, counts.c.total, counts.c.unidentified)
+                    .outerjoin(counts, counts.c.set_id == DJSet.id)
+                    .where(
+                        DJSet.source == "trackid",
+                        DJSet.is_virtual.is_(False),
+                        DJSet.recrawl_status == "active",
+                    )
+                ).all()
 
-                if not followed_ids:
-                    result = {
-                        "crawled": 0,
-                        "skipped_complete": 0,
-                        "skipped_recent": 0,
-                    }
-                    clog.set_stats(result)
-                    return result
+                for dj_set, total, unidentified in rows:
+                    total = total or 0
+                    unidentified = unidentified or 0
 
-                for sid in followed_ids:
-                    dj_set = session.get(DJSet, sid)
-                    if not dj_set or dj_set.source != "trackid" or dj_set.is_virtual:
+                    # Bulk pre-pass: already fully identified → close it
+                    # without crawling
+                    if total > 0 and unidentified == 0:
+                        dj_set.completion_pct = 1.0
+                        dj_set.recrawl_status = "final"
+                        finalized_complete += 1
                         continue
 
-                    total = (
-                        session.execute(
-                            select(func.count(SetTrack.id)).where(
-                                SetTrack.set_id == sid
-                            )
-                        ).scalar()
-                        or 0
+                    decision = _recrawl_decision(
+                        now,
+                        dj_set.created_at,
+                        dj_set.last_recrawl_at or dj_set.last_crawled_at,
                     )
-                    identified = (
-                        session.execute(
-                            select(func.count(SetTrack.id)).where(
-                                SetTrack.set_id == sid,
-                                SetTrack.is_id.is_(False),
-                                SetTrack.catalog_id.isnot(None),
-                            )
-                        ).scalar()
-                        or 0
-                    )
+                    if decision == "final":
+                        dj_set.recrawl_status = "final"
+                        finalized_age += 1
+                    elif decision == "crawl":
+                        to_crawl.append(
+                            {
+                                "id": dj_set.id,
+                                "ext_id": dj_set.external_id,
+                                "slug": dj_set.external_slug,
+                                "old_pct": dj_set.completion_pct,
+                                "created_at": dj_set.created_at,
+                            }
+                        )
+                session.commit()
 
-                    if total > 0 and identified >= total:
-                        skipped_complete += 1
-                        continue
+            # Newest first, so the cap drops the oldest sets
+            to_crawl.sort(
+                key=lambda s: _as_utc(s["created_at"])
+                if s["created_at"]
+                else datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True,
+            )
+            eligible = len(to_crawl)
+            dropped_by_cap = 0
+            if eligible > max_sets:
+                dropped_by_cap = eligible - max_sets
+                to_crawl = to_crawl[:max_sets]
+                logger.warning(
+                    "recrawl_incomplete_sets: cap %d reached, dropping %d older sets",
+                    max_sets,
+                    dropped_by_cap,
+                )
 
-                    if dj_set.last_crawled_at:
-                        age_h = (
-                            datetime.now(timezone.utc) - dj_set.last_crawled_at
-                        ).total_seconds() / 3600
-                        if age_h < 12:
-                            skipped_recent += 1
-                            continue
-
-                    sets_to_crawl.append(
-                        {"ext_id": dj_set.external_id, "slug": dj_set.external_slug}
-                    )
-
-            if not sets_to_crawl:
+            if not to_crawl:
                 result = {
+                    "eligible": eligible,
                     "crawled": 0,
-                    "skipped_complete": skipped_complete,
-                    "skipped_recent": skipped_recent,
+                    "finalized_complete": finalized_complete,
+                    "finalized_age": finalized_age,
+                    "finalized_stale": 0,
+                    "errors": 0,
+                    "dropped_by_cap": dropped_by_cap,
                 }
                 clog.set_stats(result)
                 return result
@@ -457,9 +577,12 @@ def crawl_followed_sets(self):
                 async_engine = create_async_engine(os.environ["DATABASE_URL"])
                 AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
                 crawled = 0
+                completed = 0
+                stale = 0
+                errors = 0
 
                 async with TrackIDClient() as client:
-                    for info in sets_to_crawl:
+                    for info in to_crawl:
                         if not info["slug"]:
                             continue
                         try:
@@ -469,14 +592,43 @@ def crawl_followed_sets(self):
                                         "id": info["ext_id"],
                                         "slug": info["slug"],
                                     }
-                                    result, track_count = await import_audiostream(
+                                    result, _track_count = await import_audiostream(
                                         db, client, audiostream, min_age_hours=0
                                     )
-                                    if result and track_count > 0:
-                                        crawled += 1
-                                    parent_set_id = (
-                                        result.parent_set_id if result else None
+                                    if result is None:
+                                        # Detail fetch failed: an outage is
+                                        # not an attempt, leave the re-crawl
+                                        # state untouched
+                                        errors += 1
+                                        continue
+
+                                    total = (
+                                        await db.execute(
+                                            select(func.count(SetTrack.id)).where(
+                                                SetTrack.set_id == result.id
+                                            )
+                                        )
+                                    ).scalar() or 0
+                                    unidentified = (
+                                        await db.execute(
+                                            select(func.count(SetTrack.id)).where(
+                                                SetTrack.set_id == result.id,
+                                                SetTrack.is_id.is_(True),
+                                            )
+                                        )
+                                    ).scalar() or 0
+                                    finalized = _apply_recrawl_outcome(
+                                        result,
+                                        info["old_pct"],
+                                        _completion_pct(total, unidentified),
+                                        datetime.now(timezone.utc),
                                     )
+                                    if finalized == "complete":
+                                        completed += 1
+                                    elif finalized == "stale":
+                                        stale += 1
+                                    crawled += 1
+                                    parent_set_id = result.parent_set_id
                                     await db.commit()
                                     if parent_set_id is not None:
                                         from services.set_dedup_service import (
@@ -493,23 +645,30 @@ def crawl_followed_sets(self):
                                                 exc_info=True,
                                             )
                         except Exception:
+                            errors += 1
                             logger.exception(
-                                "crawl_followed_sets: failed for set %s",
+                                "recrawl_incomplete_sets: failed for set %s",
                                 info.get("slug"),
                             )
 
                 await async_engine.dispose()
-                return crawled
+                return crawled, completed, stale, errors
 
-            crawled = asyncio.run(_crawl_all())
+            crawled, completed, finalized_stale, errors = asyncio.run(_crawl_all())
+            finalized_complete += completed
 
             # Trigger track resolution for updated sets
-            resolve_set_tracks.delay()
+            if crawled > 0:
+                resolve_set_tracks.delay()
 
             result = {
+                "eligible": eligible,
                 "crawled": crawled,
-                "skipped_complete": skipped_complete,
-                "skipped_recent": skipped_recent,
+                "finalized_complete": finalized_complete,
+                "finalized_age": finalized_age,
+                "finalized_stale": finalized_stale,
+                "errors": errors,
+                "dropped_by_cap": dropped_by_cap,
             }
             clog.set_stats(result)
 

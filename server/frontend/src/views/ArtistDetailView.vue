@@ -53,6 +53,14 @@
               </svg>
               Écouter un aperçu
             </button>
+            <button
+              v-if="auth.isAuthenticated"
+              class="btn-ghost btn-follow"
+              :class="{ 'is-following': artist.following }"
+              @click="toggleFollow"
+            >
+              {{ artist.following ? 'Suivi' : 'Suivre' }}
+            </button>
             <a
               v-if="artist.deezer_id"
               class="btn-ghost"
@@ -272,6 +280,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
+import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
@@ -286,6 +295,7 @@ import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const player = useAudioPlayer()
 const artist = ref(null)
 const loading = ref(true)
@@ -336,6 +346,22 @@ function playTrack(t) {
 
 function goToTrack(id) {
   router.push(`/catalog/${id}`)
+}
+
+async function toggleFollow() {
+  if (!artist.value) return
+  // Optimistic update, rolled back if the API call fails
+  const prev = artist.value.following
+  artist.value.following = !prev
+  try {
+    if (prev) {
+      await api.delete(`/api/artists/${artist.value.id}/follow`)
+    } else {
+      await api.post(`/api/artists/${artist.value.id}/follow`)
+    }
+  } catch {
+    artist.value.following = prev
+  }
 }
 
 function onDzSearch() {
@@ -604,6 +630,18 @@ watch(() => route.params.id, (id) => {
 .btn-ghost:hover {
   background: var(--surface-2);
   color: var(--ink);
+}
+.btn-follow {
+  cursor: pointer;
+}
+.btn-follow.is-following {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.btn-follow.is-following:hover {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 
 /* Text blocks */

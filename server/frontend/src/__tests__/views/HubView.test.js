@@ -1,0 +1,167 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
+
+// Mutable holders shared with the hoisted mocks below.
+const { authState, apiMock } = vi.hoisted(() => ({
+  authState: { value: { isAuthenticated: false, user: null } },
+  apiMock: { get: vi.fn(), post: vi.fn() },
+}))
+
+vi.mock('../../utils/api.js', () => ({ default: apiMock }))
+
+vi.mock('../../stores/auth.js', () => ({
+  useAuthStore: () => authState.value,
+}))
+
+vi.mock('../../stores/toast.js', () => ({
+  useToast: () => ({ show: vi.fn() }),
+}))
+
+vi.mock('../../stores/audioPlayer', () => ({
+  useAudioPlayer: () => ({
+    track: null,
+    playing: false,
+    artistPlaying: null,
+    play: vi.fn(),
+    playRandomArtist: vi.fn(),
+  }),
+}))
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
+const RELEASE_ITEM = {
+  id: 1,
+  type: 'release',
+  title: 'New EP',
+  artist_name: 'Amelie Lens',
+  external_url: 'https://www.deezer.com/album/123',
+}
+const SET_ITEM = {
+  id: 2,
+  type: 'set',
+  title: 'Awakenings 2026',
+  artist_name: 'Amelie Lens',
+  set_id: 77,
+}
+
+function mockApiGet({ activityItems = [], newCount = 0 } = {}) {
+  apiMock.get.mockImplementation((url) => {
+    if (url === '/api/genres') return Promise.resolve({ data: { items: [] } })
+    if (url === '/api/radar/trends') {
+      return Promise.resolve({ data: { items: [], family_counts: {} } })
+    }
+    if (url === '/api/following/activity/new-count') {
+      return Promise.resolve({ data: { count: newCount } })
+    }
+    if (url === '/api/following/activity') {
+      return Promise.resolve({ data: { items: activityItems } })
+    }
+    return Promise.resolve({ data: {} })
+  })
+}
+
+async function mountHub() {
+  const { default: HubView } = await import('../../views/HubView.vue')
+  // vue-router is mocked, so <router-link> never resolves to a component and
+  // VTU `stubs` would not apply — register the stub as a global component.
+  const wrapper = mount(HubView, {
+    global: {
+      components: { RouterLink: RouterLinkStub },
+      stubs: { SegFilter: true, SourceBadge: true, FamilyChips: true },
+    },
+  })
+  await flushPromises()
+  return wrapper
+}
+
+describe('HubView followed-artists activity shelf', () => {
+  beforeEach(() => {
+    apiMock.get.mockReset()
+    apiMock.post.mockReset()
+    apiMock.post.mockResolvedValue({ data: {} })
+    authState.value = { isAuthenticated: false, user: null }
+  })
+
+  it('is not rendered and never hits the network for guests', async () => {
+    mockApiGet({ activityItems: [RELEASE_ITEM] })
+    const wrapper = await mountHub()
+    expect(wrapper.find('.discover--activity').exists()).toBe(false)
+    const followingCalls = apiMock.get.mock.calls.filter(([url]) =>
+      url.startsWith('/api/following'),
+    )
+    expect(followingCalls).toHaveLength(0)
+  })
+
+  it('is not rendered when the feed is empty', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ activityItems: [] })
+    const wrapper = await mountHub()
+    expect(wrapper.find('.discover--activity').exists()).toBe(false)
+    // Nothing displayed → nothing to mark as seen.
+    expect(apiMock.post).not.toHaveBeenCalled()
+  })
+
+  it('renders release and set cards when the feed has items', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ activityItems: [RELEASE_ITEM, SET_ITEM] })
+    const wrapper = await mountHub()
+
+    const shelf = wrapper.find('.discover--activity')
+    expect(shelf.exists()).toBe(true)
+    expect(shelf.find('.discover-title').text()).toContain('Nouveautés de tes artistes')
+
+    // Release card → external link with badge « Release »
+    const release = shelf.find('a.activity-card')
+    expect(release.exists()).toBe(true)
+    expect(release.attributes('href')).toBe(RELEASE_ITEM.external_url)
+    expect(release.attributes('target')).toBe('_blank')
+    expect(release.attributes('rel')).toBe('noopener')
+    expect(release.find('.ac-badge').text()).toBe('Release')
+    expect(release.text()).toContain('New EP')
+    expect(release.text()).toContain('Amelie Lens')
+
+    // Set card → internal RouterLink with badge « Set »
+    const setLink = shelf.findComponent(RouterLinkStub)
+    expect(setLink.exists()).toBe(true)
+    expect(setLink.props('to')).toBe('/set/77')
+    expect(setLink.find('.ac-badge').text()).toBe('Set')
+    expect(setLink.text()).toContain('Awakenings 2026')
+  })
+
+  it('shows the « N nouvelles » badge while items are not yet marked seen', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ activityItems: [RELEASE_ITEM], newCount: 3 })
+    // Keep the seen POST pending so the badge stays visible.
+    apiMock.post.mockReturnValue(new Promise(() => {}))
+    const wrapper = await mountHub()
+
+    const badge = wrapper.find('.ac-new-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('3 nouvelles')
+  })
+
+  it('POSTs seen after the feed is displayed and hides the badge', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ activityItems: [RELEASE_ITEM], newCount: 3 })
+    const wrapper = await mountHub()
+
+    expect(apiMock.post).toHaveBeenCalledTimes(1)
+    expect(apiMock.post).toHaveBeenCalledWith('/api/following/activity/seen')
+    expect(wrapper.find('.ac-new-badge').exists()).toBe(false)
+    // The shelf itself stays visible.
+    expect(wrapper.find('.discover--activity').exists()).toBe(true)
+  })
+
+  it('keeps the Hub alive when the activity endpoints fail', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    apiMock.get.mockImplementation((url) => {
+      if (url.startsWith('/api/following')) return Promise.reject(new Error('boom'))
+      return Promise.resolve({ data: { items: [] } })
+    })
+    const wrapper = await mountHub()
+    expect(wrapper.find('.discover--activity').exists()).toBe(false)
+    expect(wrapper.find('.searchwrap').exists()).toBe(true)
+  })
+})

@@ -3,7 +3,13 @@
 from database import Base  # noqa: F401
 
 from .admin import AdminAuditLog, CrawlLog  # noqa: F401
-from .artist import Artist, ArtistAlias, ArtistFlag  # noqa: F401
+from .artist import (  # noqa: F401
+    Artist,
+    ArtistActivity,
+    ArtistAlias,
+    ArtistFlag,
+    FollowedArtist,
+)
 from .base import StringArray  # noqa: F401
 from .catalog import CatalogArtist, CatalogEntry, UserTrack  # noqa: F401
 from .collection import CollectionItem, UserCollection  # noqa: F401

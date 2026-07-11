@@ -91,6 +91,8 @@ celery_app.conf.update(
         "workers.tasks.crawl_single_playlist": {"queue": "crawl"},
         "workers.tasks.enrich_catalog_beatport": {"queue": "enrich"},
         "workers.tasks.enrich_catalog": {"queue": "enrich"},
+        # Talks to the Deezer API (rate-limited) → dedicated enrich worker
+        "workers.tasks.check_followed_artists": {"queue": "enrich"},
     },
     # Dead letter queue — consumed by default queue list, inspectable via Redis
     task_default_queue="celery",
@@ -99,8 +101,8 @@ celery_app.conf.update(
             "task": "workers.tasks.crawl_radar",
             "schedule": crontab(hour=3, minute=0),  # tous les jours à 3h
         },
-        "crawl-followed-sets-daily": {
-            "task": "workers.tasks.crawl_followed_sets",
+        "recrawl-incomplete-sets-daily": {
+            "task": "workers.tasks.recrawl_incomplete_sets",
             "schedule": crontab(hour=4, minute=0),  # tous les jours à 4h
         },
         "enrich-catalog-daily": {
@@ -122,6 +124,10 @@ celery_app.conf.update(
         "backfill-trackid-sets-daily": {
             "task": "workers.tasks.backfill_trackid_sets",
             "schedule": crontab(hour=2, minute=0),  # tous les jours à 2h
+        },
+        "check-followed-artists-daily": {
+            "task": "workers.tasks.check_followed_artists",
+            "schedule": crontab(hour=4, minute=45),  # tous les jours à 4h45
         },
     },
 )

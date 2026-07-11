@@ -16,6 +16,7 @@ from routers import (
     auth,
     catalog,
     collections,
+    following,
     genres,
     import_rb,
     opinions,
@@ -103,6 +104,7 @@ app.include_router(watchlist.router, prefix="/api")
 app.include_router(radar.router, prefix="/api")
 app.include_router(catalog.router, prefix="/api")
 app.include_router(artists.router, prefix="/api")
+app.include_router(following.router, prefix="/api")
 app.include_router(sets.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(genres.router, prefix="/api/genres")

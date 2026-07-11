@@ -1,14 +1,14 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-11 (AU8 — Lot 3 : passe documentation d'entrée)
+> Last verified: 2026-07-11 (C6.b + C6.c — re-crawl sets incomplets + suivi d'artistes v1)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (33 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (36 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -22,23 +22,25 @@
 server/
 ├── api/
 │   ├── main.py              # FastAPI entrypoint
-│   ├── models/              # SQLAlchemy models (28 classes, 11 modules):
+│   ├── models/              # SQLAlchemy models (30 classes, 11 modules):
 │   │                        # catalog, user, artist, radar, sets, genre,
 │   │                        # collection, opinion, admin (+ base, __init__)
 │   │                        # sets module gained: SetFlag, SetFlagType, SetFlagStatus
+│   │                        # artist module gained: FollowedArtist, ArtistActivity (C6.c)
 │   ├── dependencies.py      # get_current_user, require_admin
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 13 routers, 91 endpoints:
-│   │                        # catalog, radar, watchlist, artists, sets, genres,
-│   │                        # taxonomy, search, collections, opinions, import_rb,
-│   │                        # auth, admin (taxonomy = 11 reserved endpoints, not
-│   │                        # wired to the frontend: future genre explorer)
+│   ├── routers/             # 14 routers, 97 endpoints:
+│   │                        # catalog, radar, watchlist, artists, following, sets,
+│   │                        # genres, taxonomy, search, collections, opinions,
+│   │                        # import_rb, auth, admin (taxonomy = 11 reserved endpoints,
+│   │                        # not wired to the frontend: future genre explorer)
 │   └── services/            # Business logic lives HERE, not in routers:
 │                            # genre, artist, catalog, radar, image, search, watchlist,
-│                            # similarity, artist_connection, opinion_sync, rekordbox_xml,
-│                            # set_dedup (normalize_set_title, match_set, materialize_parent)
+│                            # following, similarity, artist_connection, opinion_sync,
+│                            # rekordbox_xml, set_dedup (normalize_set_title, match_set,
+│                            # materialize_parent)
 ├── workers/
 │   ├── celery_app.py        # Celery config + beat schedule
 │   ├── deezer_enrich.py     # Deezer search + enrichment
@@ -73,6 +75,8 @@ Local tooling (A7-07): `worker/` (`relocate_tracks.py`) + `server/deezer/` (`ext
 - Deezer sentinel: `deezer_id = "NOT_FOUND"` marks artists confirmed absent from Deezer.
 - Sets dedup (C6.0): `sets.parent_set_id` (self-referential FK, ON DELETE SET NULL) + `is_virtual` model virtual parents. Only roots (`parent_set_id IS NULL`) appear in listings and trend scoring. `set_flags` table tracks ambiguous pairs for admin review. Service: `services/set_dedup_service.py`.
 - Enrichment re-scan (E1): a not-found catalog entry is retried after 30 then 90 days, abandoned after 3 attempts (`deezer_search_attempts` / `beatport_search_attempts`). An HTTP failure never stamps `*_searched_at` (an outage is not an attempt). Nightly sweeps are capped by `ENRICH_NIGHTLY_BUDGET` (default 6000, per source). Same idea on `artists.deezer_searched_at` (30-day retry; the `NOT_FOUND` sentinel stays a human decision).
+- Sets re-crawl (C6.b): `sets.completion_pct` is **is_id-based only** (`catalog_id` is reset by every re-import, it cannot back a stable metric); `recrawl_count` = CONSECUTIVE re-crawls without progression (3 stale runs or age > 90 days → `recrawl_status='final'`, no more crawls). Cap per run: `RECRAWL_MAX_SETS_PER_RUN` (default 500, newest first).
+- Artist follow (C6.c): `followed_artists` (composite PK user/artist) + `artist_activity` feed; unique `(artist_id, activity_type, source, external_id)` is the worker's idempotence guarantee. Per-user "seen" marker = `users.settings["artist_activity_seen_at"]`. Follow ≠ like: decorrelated by design (acted product decision), no sync with `user_opinions`.
 
 → Before any model change, migration, or query joining 3+ tables: read `docs/database-schema.md`.
 
@@ -132,7 +136,8 @@ Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`
 | `backfill_trackid_sets` | 02:00 | tasks/sets.py |
 | `crawl_radar` | 03:00 | tasks/radar.py |
 | `crawl_trackid_latest` | 03:30 | tasks/sets.py |
-| `crawl_followed_sets` | 04:00 | tasks/sets.py |
+| `recrawl_incomplete_sets` | 04:00 | tasks/sets.py |
+| `check_followed_artists` | 04:45 | tasks/artists.py |
 | `enrich_catalog` (Deezer) | 05:00 | tasks/catalog.py |
 | `enrich_catalog_beatport` | 06:00 | tasks/catalog.py |
 | `compute_trends` | 07:00 | tasks/trends.py |

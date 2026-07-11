@@ -151,6 +151,68 @@ class TestResolveSetTracksLock:
         assert sets_mod.RESOLVE_SET_TRACKS_LOCK_TTL > 7500
 
 
+class TestRecrawlIncompleteSetsLock:
+    """Same single-instance SET NX EX pattern as resolve_set_tracks (C6.b)."""
+
+    def test_skips_when_lock_held(self, sets_mod, fake_redis, fake_self, monkeypatch):
+        run = MagicMock()
+        monkeypatch.setattr(sets_mod, "_run_recrawl_incomplete_sets", run)
+        fake_redis.set.return_value = False  # nx=True: lock already held
+        fake_redis.get.return_value = "task-other"
+
+        result = sets_mod.recrawl_incomplete_sets(fake_self)
+
+        assert result == {"skipped": "already_running", "holder": "task-other"}
+        run.assert_not_called()
+        fake_redis.delete.assert_not_called()
+
+    def test_acquires_runs_and_releases(
+        self, sets_mod, fake_redis, fake_self, monkeypatch
+    ):
+        run = MagicMock(return_value={"crawled": 3})
+        monkeypatch.setattr(sets_mod, "_run_recrawl_incomplete_sets", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-abc"  # still owns the lock
+
+        result = sets_mod.recrawl_incomplete_sets(fake_self)
+
+        assert result == {"crawled": 3}
+        run.assert_called_once_with(fake_self)
+        _, kwargs = fake_redis.set.call_args
+        assert kwargs.get("nx") is True
+        assert kwargs.get("ex") == sets_mod.RECRAWL_INCOMPLETE_SETS_LOCK_TTL
+        fake_redis.delete.assert_called_once_with("lock:recrawl_incomplete_sets")
+
+    def test_releases_lock_on_failure(
+        self, sets_mod, fake_redis, fake_self, monkeypatch
+    ):
+        run = MagicMock(side_effect=RuntimeError("boom"))
+        monkeypatch.setattr(sets_mod, "_run_recrawl_incomplete_sets", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-abc"
+
+        with pytest.raises(RuntimeError):
+            sets_mod.recrawl_incomplete_sets(fake_self)
+
+        fake_redis.delete.assert_called_once_with("lock:recrawl_incomplete_sets")
+
+    def test_does_not_release_lock_it_no_longer_owns(
+        self, sets_mod, fake_redis, fake_self, monkeypatch
+    ):
+        run = MagicMock(return_value={"crawled": 1})
+        monkeypatch.setattr(sets_mod, "_run_recrawl_incomplete_sets", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-newer"  # someone else owns it now
+
+        sets_mod.recrawl_incomplete_sets(fake_self)
+
+        fake_redis.delete.assert_not_called()
+
+    def test_lock_ttl_covers_task_time_limit(self, sets_mod):
+        """The lock must not expire while a legitimate run is in progress."""
+        assert sets_mod.RECRAWL_INCOMPLETE_SETS_LOCK_TTL > 3900
+
+
 class TestImportLockConditionalRelease:
     """The import task's finally only deletes the lock it still owns."""
 

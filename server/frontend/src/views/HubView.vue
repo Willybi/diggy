@@ -145,6 +145,43 @@
         </div>
       </div>
 
+      <!-- discover: followed artists activity -->
+      <div
+        v-if="isEmpty && auth.isAuthenticated && activityItems.length"
+        class="discover discover--activity"
+      >
+        <h2 class="discover-title">
+          Nouveautés de tes artistes
+          <span v-if="activityNewCount > 0" class="ac-new-badge">
+            {{ activityNewCount }} nouvelle{{ activityNewCount > 1 ? 's' : '' }}
+          </span>
+        </h2>
+        <div class="trend-shelf">
+          <template v-for="item in activityItems" :key="activityKey(item)">
+            <a
+              v-if="item.type === 'release'"
+              class="trend-card activity-card"
+              :href="item.external_url"
+              target="_blank"
+              rel="noopener"
+            >
+              <div class="tc-info">
+                <span class="ac-badge">Release</span>
+                <div class="tc-title">{{ item.title }}</div>
+                <div class="tc-artist">{{ item.artist_name || '—' }}</div>
+              </div>
+            </a>
+            <RouterLink v-else class="trend-card activity-card" :to="`/set/${item.set_id}`">
+              <div class="tc-info">
+                <span class="ac-badge">Set</span>
+                <div class="tc-title">{{ item.title }}</div>
+                <div class="tc-artist">{{ item.artist_name || '—' }}</div>
+              </div>
+            </RouterLink>
+          </template>
+        </div>
+      </div>
+
       <!-- results -->
       <div v-if="!isEmpty" class="results" aria-live="polite">
         <div class="results-head">
@@ -373,6 +410,37 @@ async function loadTrends() {
 
 watch(trendFamily, loadTrends)
 
+// ── followed artists activity ──
+const activityItems = ref([])
+const activityNewCount = ref(0)
+
+async function loadActivity() {
+  // New-count first, so the badge reflects the state before items get marked seen.
+  try {
+    const { data } = await api.get('/api/following/activity/new-count')
+    activityNewCount.value = data.count ?? 0
+  } catch {
+    /* silent — the Hub must never break on this */
+  }
+  try {
+    const { data } = await api.get('/api/following/activity', { params: { limit: 12 } })
+    activityItems.value = data.items || []
+  } catch {
+    return /* silent */
+  }
+  if (!activityItems.value.length) return
+  try {
+    await api.post('/api/following/activity/seen')
+    activityNewCount.value = 0
+  } catch {
+    /* silent — badge stays, items remain unseen server-side */
+  }
+}
+
+function activityKey(item) {
+  return item.id ?? `${item.type}-${item.set_id || item.external_url || item.title}`
+}
+
 function openTrend(track) {
   if (!auth.isAuthenticated) {
     showToast('Connecte-toi pour ouvrir cette fiche.')
@@ -396,6 +464,7 @@ function playTrend(track) {
 onMounted(() => {
   loadTopGenres()
   loadTrends()
+  if (auth.isAuthenticated) loadActivity()
 })
 
 // ── search ──
@@ -1445,6 +1514,35 @@ const vClickOutside = {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── followed artists activity ── */
+.ac-new-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-2);
+  padding: var(--space-05) var(--space-15);
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
+  vertical-align: middle;
+}
+.activity-card {
+  text-decoration: none;
+  color: inherit;
+}
+.ac-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-05) var(--space-15);
+  border-radius: var(--r-xs);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 600 var(--fs-xs)/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  align-self: flex-start;
 }
 
 /* ── responsive ── */
