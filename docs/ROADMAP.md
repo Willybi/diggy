@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-11 (AU6 TERMINE — dette frontend : useTaskPoll + usePaginatedList, styles .state/spin globaux, refresh user au boot)
+> **Derniere mise a jour** : 2026-07-11 (AU8 TERMINE — hygiene repo & documentation : router tracks supprime, archives design, README reecrit. SERIE AU CLOSE)
 
 ---
 
@@ -48,7 +48,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU4  Robustesse workers                    MOYEN       2 jours      TERMINE (2026-07-10)
  AU5  Couche service backend                MOYEN       2-3 jours    TERMINE (2026-07-10)
  AU6  Dette frontend                        MOYEN       1-2 jours    TERMINE (2026-07-11)
- AU8  Hygiene repo & documentation          MOYEN       1-2 jours    A FAIRE
+ AU8  Hygiene repo & documentation          MOYEN       1-2 jours    TERMINE (2026-07-11)
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
@@ -87,6 +87,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  E1   Re-scan enrichissement (backoff+budget) TERMINE
  AU5  Couche service backend            TERMINE
  AU6  Dette frontend                    TERMINE
+ AU8  Hygiene repo & documentation      TERMINE
 ```
 
 ### Dependances
@@ -114,7 +115,7 @@ AU3 ────────> ordre interne impose : migration 0031 -> A2-04 (in
 AU7 ────────> AVANT ou AVEC AU4 (filet de tests sur l'enrichissement avant de le modifier)   ✅ TERMINE
 AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-regression en AU5)   ✅ TERMINE
 E1 ─────────> AU7 imperatif (filet de tests enrichment.py avant modification) ; recommande avec ou juste apres AU4 (meme zone de code, coordonner avec A3-05 rate limiting partage)   ✅ TERMINE
-Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)
+Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)   ✅ TERMINEE (2026-07-11)
 C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> C3 (apres ouverture)
 N1 ─────────> Rien (parallelisable avec tout, priorite basse)
@@ -670,7 +671,7 @@ Factoriser les patterns dupliques (pagination, polling, styles) et stopper les f
 **Priorite : MOYEN**
 **Estimation : 1-2 jours**
 **Depend de : AU1 (suppressions actees), decisions Q2/Q5/Q6**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-11) — code deploye et verifie en prod (b72d994, /deploy_verify SAIN — containers image ./server recrees, frontend intact, aucune migration). Router `tracks` supprime (API : 13 routers / 91 endpoints ; `TrackImport` conserve, consomme par le flux XML rekordbox_xml.py ; tests multi-user via /tracks/bulk supprimes avec le router, e2e reporte a C3.b), import_rekordbox.py archive, `.claude/commands/` versionne (5 fichiers), 39 .md de `_design/` archives dans docs/completed/design/, README reecrit + server/api/scripts/README.md (8 rejouables / 6 one-shot dates), passe CLAUDE.md (compteurs, outillage local, Q6 stack locale + realite du proxy Vite api:8000 injoignable depuis le host, taxonomy, curl admin). Sentry verifie FONCTIONNEL (reception d'evenements confirmee dans l'UI le 2026-07-11). Serie AU close.**
 
 ### Objectif
 
@@ -678,27 +679,27 @@ Executer les decisions de rangement (Q2 import legacy, Q5 design clean, Q6 stack
 
 ### AU8.a — Import legacy (Q2)
 
-- [ ] A7-07/A1-08 : archiver `worker/import_rekordbox.py` dans `docs/completed/` (pas de suppression seche)
-- [ ] A1-08 : supprimer le router `tracks` (5 endpoints, ~500 LOC) + ses tests dedies. Garde-fou deja verifie (2026-07-09) : 0 appel frontend, seule une redirection de route. A1-09 sans objet
-- [ ] A7-07 : documenter dans CLAUDE.md — `worker/` + `server/deezer/` = outillage local cote PC Rekordbox (relocate, sync-check), hors runtime serveur
+- [x] A7-07/A1-08 : archiver `worker/import_rekordbox.py` dans `docs/completed/` (pas de suppression seche)
+- [x] A1-08 : supprimer le router `tracks` (5 endpoints, ~500 LOC) + ses tests dedies. Garde-fou deja verifie (2026-07-09) : 0 appel frontend, seule une redirection de route. A1-09 sans objet
+- [x] A7-07 : documenter dans CLAUDE.md — `worker/` + `server/deezer/` = outillage local cote PC Rekordbox (relocate, sync-check), hors runtime serveur
 
 ### AU8.b — Design clean (Q5)
 
-- [ ] A7-09 : versionner `.claude/commands/` (retirer `.claude/` du .gitignore pour ce chemin)
-- [ ] A7-09 : archiver les .md de reference de `_design/` dans `docs/completed/design/` ; `_design/` cesse d'etre reference par CLAUDE.md (les futurs handoffs viennent du projet Claude Design)
-- [ ] A7-10 : deplacer `design-decisions.md` vers `docs/` (a cote de design-audit.md)
-- [ ] `.gitignore` : newline finale + slash sur `docs/prompts/` (reste ignore, convention conservee)
+- [x] A7-09 : versionner `.claude/commands/` (retirer `.claude/` du .gitignore pour ce chemin)
+- [x] A7-09 : archiver les .md de reference de `_design/` dans `docs/completed/design/` ; `_design/` cesse d'etre reference par CLAUDE.md (les futurs handoffs viennent du projet Claude Design) — 39 .md archives, arborescence preservee ; le dossier local `_design/` (gitignore) reste a nettoyer manuellement
+- [x] A7-10 : deplacer `design-decisions.md` vers `docs/` (a cote de design-audit.md)
+- [x] `.gitignore` : newline finale + slash sur `docs/prompts/` (reste ignore, convention conservee)
 
 ### AU8.c — Documentation d'entree
 
-- [ ] A7-04 : reecrire README.md (structure actuelle, quickstart `docker compose up` + `.env.example`, liens CLAUDE.md / database-schema.md) — il decrit un projet qui n'existe plus
-- [ ] Q6/A5-17 : documenter dans CLAUDE.md que le dev local full-stack n'est PAS supporte (flux = push -> CI -> prod) + verifier que `npm run dev` seul degrade proprement (pas de crash de page si l'API est absente)
-- [ ] Q1b-2 : documenter les 8 endpoints taxonomy dans CLAUDE.md comme "reserves, non branches, futur explorateur de genres"
-- [ ] Q1b-4 : documenter `GET /watchlist/`, `POST /reset-beatport`, `POST /artists/backfill-multi-artists` comme outillage curl admin (A1-07/A1-14)
-- [ ] A5-15 : corriger les notes internes "Sentry non configure" (DSN pose, SDK initialise) + verifier la reception des evenements dans l'UI Sentry
-- [ ] A7-11 : `server/api/scripts/README.md` — classer chaque script `rejouable` / `one-shot execute le X`
-- [ ] A7-12 : renommer `server/scripts/test_sources.py` -> `bootstrap_tidal_tokens.py` + docstring du role reel
-- [ ] A7-03 : deplacer `out/*.csv` vers `scripts/data/` (seed du graphe de genres — NE PAS supprimer) + `out/` au .gitignore
+- [x] A7-04 : reecrire README.md (structure actuelle, quickstart `docker compose up` + `.env.example`, liens CLAUDE.md / database-schema.md) — il decrit un projet qui n'existe plus
+- [x] Q6/A5-17 : documenter dans CLAUDE.md que le dev local full-stack n'est PAS supporte (flux = push -> CI -> prod) + verifier que `npm run dev` seul degrade proprement (pas de crash de page si l'API est absente) — verifie PASS (boot avale les erreurs reseau) ; constat en plus : le proxy Vite `/api` cible `api:8000`, injoignable depuis le host, meme stack lancee
+- [x] Q1b-2 : documenter les 8 endpoints taxonomy dans CLAUDE.md comme "reserves, non branches, futur explorateur de genres" — compte reel : 11 endpoints
+- [x] Q1b-4 : documenter `GET /watchlist/`, `POST /reset-beatport`, `POST /artists/backfill-multi-artists` comme outillage curl admin (A1-07/A1-14) — correction en session : GET /watchlist/ alimente WatchlistView (pas curl-only), c'est POST /api/watchlist/ qui est documente ; chemins reels /api/admin/reset-beatport et /api/admin/artists/backfill-multi-artists
+- [x] A5-15 : corriger les notes internes "Sentry non configure" (DSN pose, SDK initialise) + verifier la reception des evenements dans l'UI Sentry — reception CONFIRMEE le 2026-07-11 (evenements recus dans l'UI)
+- [x] A7-11 : `server/api/scripts/README.md` — classer chaque script `rejouable` / `one-shot execute le X`
+- [x] A7-12 : renommer `server/scripts/test_sources.py` -> `bootstrap_tidal_tokens.py` + docstring du role reel
+- [x] A7-03 : deplacer `out/*.csv` vers `scripts/data/` (seed du graphe de genres — NE PAS supprimer) + `out/` au .gitignore
 
 ### Definition of Done
 
@@ -835,7 +836,7 @@ Permettre a tout utilisateur connecte d'ajouter un track au catalog via une rech
 **Renvois audit 2026-07** (voir `docs/audit_2026-07/CONSOLIDATED.md` + `DECISIONS.md`) :
 - C3.a in_lib `GET /sets/{id}` : fixe en **AU1** (M1/A1-03) — la tache ci-dessous devient une simple verification.
 - C3.b : diagnostic corrige par l'audit (A3-01, R6) — les tracks private SONT enrichies (aucun filtre scope dans les queries), c'est la promotion `private -> shared` qui manquait dans le pipeline async. Fix + rattrapage des 235 lignes en **AU1**. Reste a C3.b : le test de bout en bout multi-user.
-- C3.c Sentry : deja configure en prod (A5-15 — DSN pose, SDK initialise API + workers). Reste : verifier la reception des evenements (AU8).
+- C3.c Sentry : deja configure en prod (A5-15 — DSN pose, SDK initialise API + workers). Reception des evenements verifiee dans l'UI le 2026-07-11 (AU8) — plus rien a faire.
 - A reprendre dans ce chantier : A2-11 (4 FK restantes sans index, a reevaluer avec la volumetrie), A2-14 (index `radar_trends (family, rank_in_family)` + `(rank_global)` — endpoint public le plus expose), A6-14 (branches d'echec OAuth + lifecycle radar en CI PG, opportuniste).
 - **Condition Q4** : si le repo est un jour ouvert (public ou contributeurs), la purge `git filter-repo` de l'historique (tokens TIDAL, A6-01) devient un prerequis BLOQUANT de cette ouverture.
 
