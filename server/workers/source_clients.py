@@ -302,7 +302,7 @@ def _get_tidal_session():
             return session
 
     raise RuntimeError(
-        "TIDAL: no valid session. Re-run test_sources.py tidal or set TIDAL env vars."
+        "TIDAL: no valid session. Re-run bootstrap_tidal_tokens.py tidal or set TIDAL env vars."
     )
 
 

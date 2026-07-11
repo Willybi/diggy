@@ -135,6 +135,83 @@ class TestEnrichEntry:
         assert result is False
 
 
+class TestScopePromotion:
+    """Scope promotion (private → shared) when enrich_entry matches on Deezer.
+
+    Moved here from the removed test_import_multiuser.py (AU8 Lot 1): these
+    exercise enrich_entry directly, not the retired tracks import router.
+    """
+
+    def test_enrich_promotes_private_to_shared(self):
+        """When enrich_entry sets deezer_id on a private entry, it should promote to shared."""
+        from workers.deezer_enrich import enrich_entry
+
+        class FakeEntry:
+            def __init__(self):
+                self.id = 1
+                self.deezer_id = None
+                self.isrc = None
+                self.duration_ms = None
+                self.has_preview = False
+                self.has_artwork = False
+                self.scope = "private"
+                self.owner_id = 42
+
+        entry = FakeEntry()
+        hit = {"id": 12345, "duration": 180, "preview": "http://preview.mp3"}
+
+        changed = enrich_entry(entry, hit, s3=None)
+        assert changed is True
+        assert entry.deezer_id == "12345"
+        assert entry.scope == "shared"
+        assert entry.owner_id is None
+
+    def test_enrich_shared_stays_shared(self):
+        """Enriching a shared entry should not change its scope."""
+        from workers.deezer_enrich import enrich_entry
+
+        class FakeEntry:
+            def __init__(self):
+                self.id = 1
+                self.deezer_id = None
+                self.isrc = None
+                self.duration_ms = None
+                self.has_preview = False
+                self.has_artwork = False
+                self.scope = "shared"
+                self.owner_id = None
+
+        entry = FakeEntry()
+        hit = {"id": 99999, "duration": 200, "preview": ""}
+
+        enrich_entry(entry, hit, s3=None)
+        assert entry.scope == "shared"
+        assert entry.owner_id is None
+
+    def test_no_promotion_without_deezer_match(self):
+        """If enrich_entry makes no changes (already enriched), no promotion."""
+        from workers.deezer_enrich import enrich_entry
+
+        class FakeEntry:
+            def __init__(self):
+                self.id = 1
+                self.deezer_id = "12345"
+                self.isrc = "USRC12345"
+                self.duration_ms = 180000
+                self.has_preview = True
+                self.has_artwork = True
+                self.scope = "private"
+                self.owner_id = 42
+
+        entry = FakeEntry()
+        hit = {"id": 12345, "duration": 180, "preview": "http://preview.mp3"}
+
+        changed = enrich_entry(entry, hit, s3=None)
+        assert changed is False
+        # Scope stays private because nothing changed
+        assert entry.scope == "private"
+
+
 class TestImageServiceUploadFromUrl:
     def test_returns_false_for_empty_url(self):
         assert ImageService.upload_from_url("", "bucket", "key.jpg") is False

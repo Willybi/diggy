@@ -122,7 +122,7 @@ from .taxonomy import (
     TaxonomyNodeList,
     TaxonomyStats,
 )
-from .tracks import BulkImportResult, TrackExisting, TrackImport, TrackList, TrackOut
+from .tracks import TrackImport
 from .watchlist import (
     CrawlQueuedResponse,
     CrawlStatusResponse,
@@ -143,11 +143,7 @@ __all__ = [
     "OkResponse",
     "RandomTrackResponse",
     # tracks
-    "TrackOut",
-    "TrackList",
-    "TrackExisting",
     "TrackImport",
-    "BulkImportResult",
     # catalog
     "CatalogEntryOut",
     "CatalogAvisUpdate",

@@ -1,6 +1,17 @@
 """
-Feasibility test script for TIDAL and Spotify playlist sources.
-Run locally: python server/scripts/test_sources.py
+Bootstrap TIDAL OAuth tokens for the playlist worker.
+
+Run this locally once to initialize a TIDAL session: it walks the OAuth device
+flow (open the printed URL, log in) and writes the resulting tokens to a local
+file (server/scripts/.tidal_tokens.json), which source_clients.py reads as its
+dev fallback when no TIDAL_* env vars are set.
+
+Also carries the original Spotify feasibility check (spotifyscraper, no auth).
+
+Run locally:
+    python server/scripts/bootstrap_tidal_tokens.py          # both sources
+    python server/scripts/bootstrap_tidal_tokens.py tidal    # TIDAL token bootstrap only
+    python server/scripts/bootstrap_tidal_tokens.py spotify  # Spotify feasibility check only
 """
 
 import json

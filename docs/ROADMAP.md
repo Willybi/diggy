@@ -867,7 +867,7 @@ Reste :
 
 - [ ] Onboarding minimal : que voit un nouvel utilisateur sans bibliotheque ? (reponse : le catalogue shared + le trend par famille = la reco par defaut, d'ou C1 avant C3)
 - [x] ~~Frontend build statique de prod~~ — FAIT (Nginx static build, voir reliquats)
-- [ ] Sentry DSN configure (monitoring minimal avant d'avoir des users reels)
+- [x] ~~Sentry DSN configure~~ — FAIT (A5-15 : DSN pose en prod + SDK initialise cote API et workers). Reste : verifier la reception effective des evenements dans l'UI Sentry (action humaine)
 
 ### Definition of Done
 

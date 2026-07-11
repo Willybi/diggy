@@ -12,16 +12,12 @@ paths that feed into / read from those layers.
 from datetime import date, datetime, timedelta, timezone
 
 import pytest_asyncio
-from dependencies import get_current_user, get_current_user_optional
-from httpx import ASGITransport, AsyncClient
-from main import app
 from models import (
     CatalogEntry,
     DJSet,
     RadarTrack,
     RadarTrend,
     SetTrack,
-    UserTrack,
     WatchedEntity,
 )
 from sqlalchemy import select
@@ -196,122 +192,6 @@ class TestIntegrationRadarPipeline:
         techno = [t for t in all_trends if t.family == "techno"]
         assert len(techno) == 1
         assert techno[0].rank_in_family == 1
-
-
-# ---------------------------------------------------------------------------
-# Test 2 — Rekordbox import via bulk API → catalog + user_tracks
-# ---------------------------------------------------------------------------
-
-
-class TestIntegrationRekordboxImport:
-    """Import tracks via POST /api/tracks/bulk and verify catalog + user_tracks."""
-
-    @pytest_asyncio.fixture
-    async def import_client(self, auth_user):
-        app.dependency_overrides[get_current_user] = lambda: auth_user
-        app.dependency_overrides[get_current_user_optional] = lambda: auth_user
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            yield c
-        app.dependency_overrides.pop(get_current_user, None)
-        app.dependency_overrides.pop(get_current_user_optional, None)
-
-    def _track(self, **overrides):
-        base = {
-            "id": 1,
-            "title": "Pump It Up",
-            "artist": "Endor",
-            "bpm": 124.0,
-            "key": "5A",
-            "duration": 180000,
-            "rating": 4,
-            "file_path": "C:/Music/Pump It Up.mp3",
-            "date_added": None,
-            "tags": [],
-            "image_base64": None,
-        }
-        base.update(overrides)
-        return base
-
-    async def test_full_import_pipeline(self, import_client, auth_user, db, mocker):
-        """Import 3 tracks → verify catalog + user_tracks + fields."""
-        mocker.patch("services.image_service.ImageService.ensure_bucket")
-        mocker.patch("services.image_service.ImageService.upload_file")
-
-        tracks = [
-            self._track(id=1, title="Body Funk", artist="Purple Disco Machine", bpm=126.0, key="6A"),
-            self._track(id=2, title="Losing It", artist="Fisher", bpm=127.0, key="7A"),
-            self._track(id=3, title="Cola", artist="CamelPhat", bpm=125.0, key="8A", rating=5),
-        ]
-
-        r = await import_client.post("/api/tracks/bulk", json=tracks)
-        assert r.status_code == 200
-        body = r.json()
-        assert body["inserted"] == 3
-        assert body["updated"] == 0
-
-        # Verify catalog entries created
-        result = await db.execute(select(CatalogEntry))
-        cats = result.scalars().all()
-        assert len(cats) == 3
-        titles = {c.title for c in cats}
-        assert titles == {"Body Funk", "Losing It", "Cola"}
-
-        # All new entries are private (no Deezer match yet)
-        for c in cats:
-            assert c.scope == "private"
-            assert c.owner_id == auth_user.id
-
-        # Verify user_tracks
-        result = await db.execute(
-            select(UserTrack).where(UserTrack.user_id == auth_user.id)
-        )
-        uts = result.scalars().all()
-        assert len(uts) == 3
-
-        # Check BPM/key/rating propagated
-        ut_by_rbid = {ut.rekordbox_id: ut for ut in uts}
-        assert ut_by_rbid[1].rb_bpm == 126.0
-        assert ut_by_rbid[1].rb_key == "6A"
-        assert ut_by_rbid[3].rating == 5
-
-    async def test_reimport_updates_existing(self, import_client, db, mocker):
-        """Re-importing same tracks updates instead of duplicating."""
-        mocker.patch("services.image_service.ImageService.ensure_bucket")
-        mocker.patch("services.image_service.ImageService.upload_file")
-
-        tracks = [self._track(id=10, title="Pump It Up", artist="Endor", rating=3)]
-
-        r1 = await import_client.post("/api/tracks/bulk", json=tracks)
-        assert r1.json()["inserted"] == 1
-
-        # Re-import with updated rating
-        tracks[0]["rating"] = 5
-        r2 = await import_client.post("/api/tracks/bulk", json=tracks)
-        assert r2.json()["updated"] == 1
-        assert r2.json()["inserted"] == 0
-
-        # Only one catalog entry exists
-        result = await db.execute(select(CatalogEntry))
-        assert len(result.scalars().all()) == 1
-
-    async def test_tracks_visible_in_library_after_import(
-        self, import_client, db, mocker
-    ):
-        """After import, tracks appear in /api/tracks/ for the user."""
-        mocker.patch("services.image_service.ImageService.ensure_bucket")
-        mocker.patch("services.image_service.ImageService.upload_file")
-
-        tracks = [
-            self._track(id=20, title="Test Track A", artist="DJ Test"),
-            self._track(id=21, title="Test Track B", artist="DJ Test"),
-        ]
-        await import_client.post("/api/tracks/bulk", json=tracks)
-
-        r = await import_client.get("/api/tracks/")
-        assert r.status_code == 200
-        assert r.json()["total"] == 2
 
 
 # ---------------------------------------------------------------------------

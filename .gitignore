@@ -1,14 +1,16 @@
-﻿.venv/
+.venv/
 __pycache__/
 *.pyc
 .env
 node_modules/
 server/frontend/dist/
-.claude/
+.claude/*
+!.claude/commands/
 
 _design/
+out/
 
-docs/prompts
+docs/prompts/
 
 # Coverage artifacts
 .coverage

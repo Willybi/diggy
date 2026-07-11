@@ -23,7 +23,6 @@ from routers import (
     search,
     sets,
     taxonomy,
-    tracks,
     watchlist,
 )
 
@@ -100,7 +99,6 @@ async def global_exception_handler(request, exc):
 
 
 app.include_router(auth.router, prefix="/api")
-app.include_router(tracks.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(radar.router, prefix="/api")
 app.include_router(catalog.router, prefix="/api")

@@ -88,24 +88,24 @@ class TestPublicEndpoints:
 class TestProtectedEndpoints:
     """Non-public endpoints should require a valid JWT."""
 
-    async def test_tracks_no_token_returns_401(self, mw_client):
+    async def test_collections_no_token_returns_401(self, mw_client):
         client, _ = mw_client
-        r = await client.get("/api/tracks/")
+        r = await client.get("/api/collections/")
         assert r.status_code == 401
         assert r.json()["detail"] == "Not authenticated"
 
-    async def test_tracks_invalid_token_returns_401(self, mw_client):
+    async def test_collections_invalid_token_returns_401(self, mw_client):
         client, _ = mw_client
-        r = await client.get("/api/tracks/", headers={
+        r = await client.get("/api/collections/", headers={
             "Authorization": "Bearer invalid.token.here",
         })
         assert r.status_code == 401
         assert r.json()["detail"] == "Invalid or expired token"
 
-    async def test_tracks_valid_token_passes_middleware(self, mw_client):
+    async def test_collections_valid_token_passes_middleware(self, mw_client):
         client, user = mw_client
         token = create_token(user.id)
-        r = await client.get("/api/tracks/", headers={
+        r = await client.get("/api/collections/", headers={
             "Authorization": f"Bearer {token}",
         })
         # Should pass middleware (200 from route handler)
@@ -150,7 +150,7 @@ class TestOptionsPreflightAllowed:
 
     async def test_options_no_token_ok(self, mw_client):
         client, _ = mw_client
-        r = await client.options("/api/tracks/")
+        r = await client.options("/api/collections/")
         # FastAPI returns 405 for OPTIONS on routes without explicit OPTIONS handler,
         # but the middleware should NOT block it with 401
         assert r.status_code != 401

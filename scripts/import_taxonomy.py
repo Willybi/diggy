@@ -1,7 +1,11 @@
 """Import genre taxonomy CSVs (nodes + edges) into the database.
 
+The CSVs under scripts/data/ are the initial seed of the genre graph
+(genre_nodes / genre_edges), already imported in the live database. They are
+kept here so the graph can be re-imported from scratch if ever needed.
+
 Usage:
-    python scripts/import_taxonomy.py out/canonical_nodes.csv out/canonical_edges.csv
+    python scripts/import_taxonomy.py scripts/data/canonical_nodes.csv scripts/data/canonical_edges.csv
 
 Idempotent: safe to re-run (upserts nodes, skips duplicate edges).
 """

@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-11 (AU6 code)
+> Last verified: 2026-07-11 (AU8 — Lot 3 : passe documentation d'entrée)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -30,10 +30,11 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 14 routers, 96 endpoints:
-│   │                        # tracks, catalog, radar, watchlist, artists, sets,
-│   │                        # genres, taxonomy, search, collections, opinions,
-│   │                        # import_rb, auth, admin
+│   ├── routers/             # 13 routers, 91 endpoints:
+│   │                        # catalog, radar, watchlist, artists, sets, genres,
+│   │                        # taxonomy, search, collections, opinions, import_rb,
+│   │                        # auth, admin (taxonomy = 11 reserved endpoints, not
+│   │                        # wired to the frontend: future genre explorer)
 │   └── services/            # Business logic lives HERE, not in routers:
 │                            # genre, artist, catalog, radar, image, search, watchlist,
 │                            # similarity, artist_connection, opinion_sync, rekordbox_xml,
@@ -55,6 +56,8 @@ server/
 ```
 
 Rule: new business logic goes in a service, routers stay thin. New Celery tasks go in the matching `tasks/` module.
+
+Local tooling (A7-07): `worker/` (`relocate_tracks.py`) + `server/deezer/` (`extractor.py`, `sync_checker.py`) run on the PC where Rekordbox is installed — they read the local Rekordbox library, outside the server runtime. `worker/import_rekordbox.py` is archived in `docs/completed/` (the official import flow is the web XML upload via the `import_rb` router).
 
 ## Database
 
@@ -90,6 +93,7 @@ These are project invariants. Never propose code that violates them.
 - This cookie flow exists because of Safari iOS: hash fragments are dropped on 302 redirects, CSP `script-src 'self'` blocks inline scripts, sessionStorage is lost on cross-origin navigation. Do not "simplify" it back to fragments or storage.
 - `uid()` returns `None` for guests. There is no `user_id=1` fallback anymore. Every user-conditional query must handle `None`.
 - Admin: `is_admin` flag + `require_admin` dependency. Destructive admin actions are logged in `admin_audit_log`.
+- Admin/ops endpoints with no UI (curl only, Q1b-4): `POST /api/admin/reset-beatport` (reset Beatport enrichment state), `POST /api/admin/artists/backfill-multi-artists` (re-split multi-artist strings), `POST /api/watchlist/` (register a new source playlist by URL — `GET /api/watchlist/` itself backs WatchlistView and is not admin-only).
 
 ## Dev Commands
 
@@ -116,6 +120,8 @@ cd server/api && alembic upgrade head
 docker compose up -d --build
 cd server/frontend && npm run dev     # frontend dev server
 ```
+
+Full-stack local dev is NOT a supported flow (Q6): the official path is push → CI → prod. `npm run dev` (port 5173) is frontend-only in ALL cases — its Vite `/api` proxy targets `http://api:8000` (a Docker-internal hostname, a leftover from the old containerized dev server) which does not resolve from the host, so API calls fail even with the Docker stack up. They fail cleanly: the page never crashes (the boot swallows network errors — `refreshUser()` and `opinions.load()` both catch). The full local app (static frontend + API + `/api/docs`) is served by nginx on http://localhost:8080.
 
 Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`, `DATABASE_URL`, `JWT_SECRET`, `MINIO_USER/PASSWORD`. Prod adds `COMPOSE_FILE=docker-compose.yml:docker-compose.ssl.yml` and `DOMAIN`. `ENV=production` disables permissive CORS and the API docs (`/api/docs`, `/api/redoc`, `/api/openapi.json` are not registered).
 
@@ -181,7 +187,7 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 | `/roadmap_update` | Updates roadmap statuses after a finished chantier (cross-checks session + git log) |
 | `/schema_doc` | Regenerates `docs/database-schema.md` from models and shows the diff |
 
-Prefer these over ad-hoc equivalents. Suggest them to the user when relevant.
+Prefer these over ad-hoc equivalents. Suggest them to the user when relevant. `.claude/commands/` is versioned in the repo (the command definitions ship with the code).
 
 ## Deploy
 
@@ -199,7 +205,7 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant.
 | Proposing features, choosing next work | `docs/ROADMAP.md` (or run `/roadmap_status`) |
 | Starting work on a chantier | Its agent prompt in `docs/prompts/` and its brief in `docs/`. If none exist yet for the target chantier, create them via `/work_manager`. |
 | Similarity/scoring work (C2) | `docs/similarity_calibration.ipynb` |
-| UI change on an existing view | `_design/PAGES_REFERENCE.md` (view→handoff index), then the matching handoff folder |
+| UI change on an existing view | Historical design handoffs are archived in `docs/completed/design/` (read-only, frozen); new handoffs come from the Claude Design project |
 | Backup/restore operation, data incident | `docs/restore.md` (GPG + psql + offsite fetch; keep the "last tested" date honest) |
 | Anything about past decisions | `docs/completed/` contains FROZEN archives: read-only, never treat as current state, NEVER modify |
 
