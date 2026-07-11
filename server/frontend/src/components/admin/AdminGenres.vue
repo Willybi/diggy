@@ -406,9 +406,8 @@ onMounted(async () => {
   white-space: nowrap;
 }
 .state {
+  /* diverges from canonical .state: smaller font + compact padding (admin panel) */
   font-size: var(--fs-sm);
-  color: var(--ink-3);
-  font-style: italic;
   padding: var(--space-3) 0;
 }
 .mono {

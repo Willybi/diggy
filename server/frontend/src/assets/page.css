@@ -6,3 +6,23 @@
   padding: var(--space-6) var(--page-px) var(--space-5);
   flex-wrap: wrap;
 }
+
+/* ── State line · shared empty / loading / error message for a view.
+   Canonical = the detail-view variant (most frequent). Views that diverge
+   (centered, mono, fs-sm, horizontal padding) keep a scoped override. ── */
+.state {
+  color: var(--ink-3);
+  font-size: var(--fs-base);
+  font-style: italic;
+  padding-top: var(--space-10);
+}
+
+/* ── Spinner keyframe · shared rotation for loading spinners.
+   Spinner classes stay scoped per component (size/border differ); only the
+   keyframe is global. A scoped `animation: spin …` resolves here as long as
+   no local @keyframes spin is defined in the same block. ── */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1123,8 +1123,9 @@ table.tt tbody tr.disliked:hover td:not(.c-avis) {
 
 /* ============ STATES ============ */
 .state {
-  font: 400 var(--fs-base) var(--font-mono);
-  color: var(--ink-3);
+  /* diverges from canonical .state: mono font, centered, no italic, vertical-only padding */
+  font-family: var(--font-mono);
+  font-style: normal;
   text-align: center;
   padding: var(--space-15x) 0;
 }

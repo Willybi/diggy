@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 
 // Mutable holders shared with the hoisted mocks below.
 const { authState, apiGet } = vi.hoisted(() => ({
@@ -21,8 +21,10 @@ vi.mock('vue-router', () => ({
 
 async function mountNav() {
   const { default: BottomNav } = await import('../../components/BottomNav.vue')
+  // vue-router is mocked, so <router-link> never resolves to a component and
+  // VTU `stubs` would not apply — register the stub as a global component.
   const wrapper = mount(BottomNav, {
-    global: { stubs: { RouterLink: true } },
+    global: { components: { RouterLink: RouterLinkStub } },
   })
   await flushPromises()
   return wrapper
@@ -46,5 +48,13 @@ describe('BottomNav new-count fetch', () => {
     await mountNav()
     expect(apiGet).toHaveBeenCalledTimes(1)
     expect(apiGet).toHaveBeenCalledWith('/api/radar/new-count')
+  })
+
+  it('renders the five base nav links through the RouterLink stub', async () => {
+    authState.value = { isAuthenticated: true, user: { is_admin: false } }
+    const wrapper = await mountNav()
+    const links = wrapper.findAllComponents(RouterLinkStub)
+    expect(links).toHaveLength(5)
+    expect(links.map((l) => l.props('to'))).toEqual(['/', '/catalog', '/artists', '/sets', '/genres'])
   })
 })

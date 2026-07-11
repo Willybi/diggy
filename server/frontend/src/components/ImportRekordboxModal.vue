@@ -112,9 +112,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useAuthStore } from '../stores/auth.js'
-import api from '../utils/api.js'
+import { useTaskPoll } from '../composables/useTaskPoll.js'
 
 const emit = defineEmits(['close', 'done'])
 
@@ -126,7 +126,6 @@ const dragOver = ref(false)
 const taskId = ref(null)
 const stats = ref({ inserted: 0, updated: 0, total: 0 })
 const errorMsg = ref('')
-let pollTimer = null
 
 const progressPct = computed(() => {
   const done = stats.value.inserted + stats.value.updated
@@ -134,14 +133,31 @@ const progressPct = computed(() => {
   return Math.min(100, Math.round((done / stats.value.total) * 100))
 })
 
-function stopPoll() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
+const importPoll = useTaskPoll((id) => `/api/import/status/${id}`, {
+  intervalMs: 2000,
+  onData(data, { stop }) {
+    if (data.total != null) stats.value.total = data.total
+    if (data.inserted != null) stats.value.inserted = data.inserted
+    if (data.updated != null) stats.value.updated = data.updated
 
-onUnmounted(stopPoll)
+    if (data.status === 'done') {
+      stop()
+      phase.value = 'done'
+    } else if (data.status === 'error') {
+      stop()
+      errorMsg.value = 'Erreur lors de l\'import, réessayez'
+      phase.value = 'error'
+    }
+  },
+  onError() {
+    errorMsg.value = 'Erreur lors de l\'import, réessayez'
+    phase.value = 'error'
+  },
+})
+
+function stopPoll() {
+  importPoll.stop()
+}
 
 function handleOverlayClick() {
   if (phase.value === 'idle') emit('close')
@@ -227,27 +243,7 @@ async function processFile(file) {
 }
 
 function startPoll() {
-  pollTimer = setInterval(async () => {
-    try {
-      const { data } = await api.get(`/api/import/status/${taskId.value}`)
-      if (data.total != null) stats.value.total = data.total
-      if (data.inserted != null) stats.value.inserted = data.inserted
-      if (data.updated != null) stats.value.updated = data.updated
-
-      if (data.status === 'done') {
-        stopPoll()
-        phase.value = 'done'
-      } else if (data.status === 'error') {
-        stopPoll()
-        errorMsg.value = 'Erreur lors de l\'import, réessayez'
-        phase.value = 'error'
-      }
-    } catch {
-      stopPoll()
-      errorMsg.value = 'Erreur lors de l\'import, réessayez'
-      phase.value = 'error'
-    }
-  }, 2000)
+  importPoll.start(taskId.value)
 }
 
 function handleDone() {
@@ -439,12 +435,6 @@ function reset() {
   border: 3px solid var(--line-2);
   border-top-color: var(--accent);
   animation: spin 0.75s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* ============ PROGRESS BAR ============ */

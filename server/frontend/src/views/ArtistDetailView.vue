@@ -843,13 +843,6 @@ watch(() => route.params.id, (id) => {
   flex: none;
 }
 
-.state {
-  color: var(--ink-3);
-  font-size: var(--fs-base);
-  font-style: italic;
-  padding-top: var(--space-10);
-}
-
 /* Admin card */
 .admin-header {
   display: flex;

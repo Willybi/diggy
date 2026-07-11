@@ -606,13 +606,6 @@ tr.playing td {
   color: var(--ink);
 }
 
-.state {
-  color: var(--ink-3);
-  font-size: var(--fs-base);
-  font-style: italic;
-  padding-top: var(--space-10);
-}
-
 /* Admin card */
 .set-artists-list {
   margin-bottom: var(--space-25);

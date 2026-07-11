@@ -36,11 +36,36 @@
 <script setup>
 import { ref } from 'vue'
 import api from '../../utils/api.js'
+import { useTaskPoll } from '../../composables/useTaskPoll.js'
 
 const enrichingBeatport = ref(false)
 const beatportBatchSize = ref(0)
 const beatportResult = ref(null)
 const beatportError = ref('')
+
+const beatportPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+  intervalMs: 5000,
+  maxAttempts: 300,
+  onData(st, { stop }) {
+    if (st.status === 'done') {
+      beatportResult.value = st.result
+      enrichingBeatport.value = false
+      stop()
+    } else if (st.status === 'error') {
+      beatportError.value = st.error || 'Erreur'
+      enrichingBeatport.value = false
+      stop()
+    }
+  },
+  onError(err) {
+    beatportError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+    enrichingBeatport.value = false
+  },
+  onMaxAttempts() {
+    beatportError.value = 'Timeout'
+    enrichingBeatport.value = false
+  },
+})
 
 async function runEnrichBeatport() {
   enrichingBeatport.value = true
@@ -49,32 +74,7 @@ async function runEnrichBeatport() {
   try {
     const params = beatportBatchSize.value > 0 ? `?batch_size=${beatportBatchSize.value}` : ''
     const { data } = await api.post(`/api/admin/enrich-beatport${params}`)
-    let attempts = 0
-    const timer = setInterval(async () => {
-      attempts++
-      if (attempts > 300) {
-        clearInterval(timer)
-        beatportError.value = 'Timeout'
-        enrichingBeatport.value = false
-        return
-      }
-      try {
-        const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
-        if (st.status === 'done') {
-          clearInterval(timer)
-          beatportResult.value = st.result
-          enrichingBeatport.value = false
-        } else if (st.status === 'error') {
-          clearInterval(timer)
-          beatportError.value = st.error || 'Erreur'
-          enrichingBeatport.value = false
-        }
-      } catch (err) {
-        clearInterval(timer)
-        beatportError.value = 'Erreur polling: ' + (err.message || 'inconnue')
-        enrichingBeatport.value = false
-      }
-    }, 5000)
+    beatportPoll.start(data.task_id)
   } catch (e) {
     beatportError.value = e.response?.data?.detail || 'Erreur'
     enrichingBeatport.value = false

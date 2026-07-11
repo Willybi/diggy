@@ -172,8 +172,9 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, computed, watch, onMounted, reactive } from 'vue'
 import api from '../utils/api.js'
+import { useTaskPoll } from '../composables/useTaskPoll.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from '../components/LikeDislike.vue'
 import SourceBadge from '../components/SourceBadge.vue'
@@ -223,7 +224,29 @@ function sortValue(p, key) {
   }
   return 0
 }
-const pollTimers = {}
+// One concurrent poll per playlist id, keyed by the id passed to start(id).
+const crawlPoll = useTaskPoll((playlistId) => `/api/watchlist/${playlistId}/crawl-status`, {
+  intervalMs: 4000,
+  async onData(data, { key: playlistId, stop }) {
+    if (data.status === 'done') {
+      stop()
+      crawlStatus[playlistId] = 'done'
+      await fetchPlaylists()
+      setTimeout(() => {
+        delete crawlStatus[playlistId]
+      }, 3000)
+    } else if (!data.status) {
+      stop()
+      delete crawlStatus[playlistId]
+      await fetchPlaylists()
+    } else {
+      crawlStatus[playlistId] = data.status
+    }
+  },
+  onError(_err, { key: playlistId }) {
+    delete crawlStatus[playlistId]
+  },
+})
 
 const filteredList = computed(() => {
   let list
@@ -331,43 +354,14 @@ async function addPlaylist() {
 }
 
 function startPolling(playlistId) {
-  stopPolling(playlistId)
   if (!crawlStatus[playlistId]) crawlStatus[playlistId] = 'queued'
-  pollTimers[playlistId] = setInterval(async () => {
-    try {
-      const { data } = await api.get(`/api/watchlist/${playlistId}/crawl-status`)
-      if (data.status === 'done') {
-        stopPolling(playlistId)
-        crawlStatus[playlistId] = 'done'
-        await fetchPlaylists()
-        setTimeout(() => {
-          delete crawlStatus[playlistId]
-        }, 3000)
-      } else if (!data.status) {
-        stopPolling(playlistId)
-        delete crawlStatus[playlistId]
-        await fetchPlaylists()
-      } else {
-        crawlStatus[playlistId] = data.status
-      }
-    } catch {
-      stopPolling(playlistId)
-      delete crawlStatus[playlistId]
-    }
-  }, 4000)
+  crawlPoll.start(playlistId)
 }
 
 function startPollingIfActive(pl) {
   if (pl.current_task_id) {
     crawlStatus[pl.id] = 'queued'
     startPolling(pl.id)
-  }
-}
-
-function stopPolling(playlistId) {
-  if (pollTimers[playlistId]) {
-    clearInterval(pollTimers[playlistId])
-    delete pollTimers[playlistId]
   }
 }
 
@@ -392,7 +386,6 @@ onMounted(async () => {
     startPollingIfActive(pl)
   }
 })
-onUnmounted(() => Object.keys(pollTimers).forEach(stopPolling))
 </script>
 
 <style scoped>
@@ -789,10 +782,10 @@ table.tt tbody tr.disliked:hover td:not(.td-avis) {
 }
 
 .state {
-  padding: var(--space-15x) var(--page-px);
-  color: var(--ink-3);
-  font: 400 var(--fs-base) var(--font-ui);
+  /* diverges from canonical .state: centered, no italic, vertical + page padding */
+  font-style: normal;
   text-align: center;
+  padding: var(--space-15x) var(--page-px);
 }
 
 /* ── responsive (container queries) ── */

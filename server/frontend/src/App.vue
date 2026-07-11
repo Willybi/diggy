@@ -31,11 +31,18 @@ const opinions = useOpinionsStore()
 
 // Guests get a 401 on /api/opinions/, and the OAuth callback is an SPA
 // navigation (no reload) — load on auth transitions, not once at startup.
+// refreshUser() runs on the same transitions so a stale persisted user
+// (e.g. is_admin flipped server-side) is corrected at boot and on login;
+// fire-and-forget so it never blocks the first render.
 watch(
   () => auth.isAuthenticated,
   (ok) => {
-    if (ok) opinions.load()
-    else opinions.reset()
+    if (ok) {
+      auth.refreshUser()
+      opinions.load()
+    } else {
+      opinions.reset()
+    }
   },
   { immediate: true },
 )

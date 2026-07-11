@@ -319,10 +319,8 @@ onMounted(async () => {
 
 /* ============ STATES ============ */
 .state {
+  /* diverges from canonical .state: horizontal page padding (listing view) */
   padding: var(--space-10) var(--page-px);
-  color: var(--ink-3);
-  font: 400 var(--fs-base) var(--font-ui);
-  font-style: italic;
 }
 
 /* ============ RESPONSIVE ============ */

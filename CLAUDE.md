@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-10 (AU5 code)
+> Last verified: 2026-07-11 (AU6 code)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -47,8 +47,9 @@ server/
 ├── frontend/src/
 │   ├── views/               # 17 views (all routed)
 │   ├── components/          # 33 components (27 shared + 6 admin)
-│   ├── composables/         # useInfiniteScroll, useStyleMap, useTheme
-│   ├── stores/              # Pinia: auth, audioPlayer, opinions
+│   ├── composables/         # useInfiniteScroll, usePaginatedList, useTaskPoll,
+│   │                        # useStyleMap, useTheme
+│   ├── stores/              # Pinia: auth, audioPlayer, opinions, toast
 │   └── styles/diggy-tokens.css  # ALL colors/spacing (zero hardcoded)
 └── nginx/                   # default.ssl.conf.template = active prod config
 ```
@@ -163,6 +164,9 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 - No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`): Prettier reformats them across lines, which breaks the Vue compiler. Extract to a method.
 - Responsive tables: columns hidden progressively across 6 breakpoints (CatalogView). At 375px only Play / Track / Key / InLib remain.
 - BottomNav (mobile <640px): 5 items + conditional Admin; PlayerBar repositions above it.
+- Celery task polling goes through `composables/useTaskPoll.js` (keyed timers, onUnmounted cleanup built in); paginated infinite-scroll lists through `usePaginatedList.js`. Never reintroduce an ad-hoc `setInterval` poll or a hand-rolled offset/hasMore fetch in a view.
+- The `.state` empty/loading message and `@keyframes spin` are global utilities in `assets/page.css`; views only keep scoped overrides for real divergences (mono, centered, fs-sm...). Don't redeclare the full block locally.
+- Vitest: when `vue-router` is mocked, `stubs: { RouterLink: true }` is a no-op (VTU ignores string-name stubs for unresolved components) — register `RouterLinkStub` via `global.components` (pattern: BottomNav.test.js, LoginCallbackView.test.js).
 
 ### Language
 - Code in English, UI text in French.

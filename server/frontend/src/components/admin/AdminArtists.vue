@@ -208,11 +208,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import api from '../../utils/api.js'
+import { useTaskPoll } from '../../composables/useTaskPoll.js'
 
 const syncing = ref(false)
 const syncResult = ref(null)
 const syncError = ref('')
-let pollTimer = null
 const fetchingArtworks = ref(false)
 const artworksResult = ref(null)
 const artworksError = ref('')
@@ -239,44 +239,63 @@ function selectArtistAndSearch(a) {
   onDeezerSearch()
 }
 
+// Sync poll: ignores network errors and keeps polling (stopOnError: false).
+const syncPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+  intervalMs: 2000,
+  maxAttempts: 300,
+  stopOnError: false,
+  onData(data, { stop }) {
+    if (data.status === 'done') {
+      syncResult.value = data.result
+      syncing.value = false
+      stop()
+    } else if (data.status === 'error') {
+      syncError.value = data.error || 'Erreur Celery'
+      syncing.value = false
+      stop()
+    }
+  },
+  onMaxAttempts() {
+    syncError.value = 'Timeout — vérifiez les logs Celery'
+    syncing.value = false
+  },
+})
+
 async function runSync() {
   syncing.value = true
   syncResult.value = null
   syncError.value = ''
   try {
     const { data } = await api.post('/api/admin/artists/sync')
-    pollStatus(data.task_id)
+    syncPoll.start(data.task_id)
   } catch (e) {
     syncError.value = e.response?.data?.detail || 'Erreur lors de la sync'
     syncing.value = false
   }
 }
 
-function pollStatus(taskId) {
-  let attempts = 0
-  const maxAttempts = 300
-  pollTimer = setInterval(async () => {
-    attempts++
-    if (attempts >= maxAttempts) {
-      clearInterval(pollTimer)
-      syncError.value = 'Timeout — vérifiez les logs Celery'
-      syncing.value = false
-      return
+const artworksPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+  intervalMs: 2000,
+  maxAttempts: 150,
+  onData(data, { stop }) {
+    if (data.status === 'done') {
+      artworksResult.value = data.result
+      fetchingArtworks.value = false
+      stop()
+    } else if (data.status === 'error') {
+      artworksError.value = data.error || 'Erreur Celery'
+      fetchingArtworks.value = false
+      stop()
     }
-    try {
-      const { data } = await api.get(`/api/admin/artists/sync/status/${taskId}`)
-      if (data.status === 'done') {
-        clearInterval(pollTimer)
-        syncResult.value = data.result
-        syncing.value = false
-      } else if (data.status === 'error') {
-        clearInterval(pollTimer)
-        syncError.value = data.error || 'Erreur Celery'
-        syncing.value = false
-      }
-    } catch {}
-  }, 2000)
-}
+  },
+  onError(err) {
+    artworksError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+    fetchingArtworks.value = false
+  },
+  onMaxAttempts() {
+    fetchingArtworks.value = false
+  },
+})
 
 async function runFetchArtworks() {
   fetchingArtworks.value = true
@@ -284,39 +303,11 @@ async function runFetchArtworks() {
   artworksError.value = ''
   try {
     const { data } = await api.post('/api/admin/artists/fetch-artworks')
-    pollArtworksStatus(data.task_id)
+    artworksPoll.start(data.task_id)
   } catch (e) {
     artworksError.value = e.response?.data?.detail || 'Erreur'
     fetchingArtworks.value = false
   }
-}
-
-function pollArtworksStatus(taskId) {
-  let attempts = 0
-  const timer = setInterval(async () => {
-    attempts++
-    if (attempts >= 150) {
-      clearInterval(timer)
-      fetchingArtworks.value = false
-      return
-    }
-    try {
-      const { data } = await api.get(`/api/admin/artists/sync/status/${taskId}`)
-      if (data.status === 'done') {
-        clearInterval(timer)
-        artworksResult.value = data.result
-        fetchingArtworks.value = false
-      } else if (data.status === 'error') {
-        clearInterval(timer)
-        artworksError.value = data.error || 'Erreur Celery'
-        fetchingArtworks.value = false
-      }
-    } catch (err) {
-      clearInterval(timer)
-      artworksError.value = 'Erreur polling: ' + (err.message || 'inconnue')
-      fetchingArtworks.value = false
-    }
-  }, 2000)
 }
 
 async function runFetchPlArtworks() {

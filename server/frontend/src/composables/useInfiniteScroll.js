@@ -2,7 +2,6 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 
 export function useInfiniteScroll(fetchMore, options = {}) {
   const sentinel = ref(null)
-  const loading = ref(false)
   let observer = null
 
   const observerOptions = {
@@ -24,5 +23,5 @@ export function useInfiniteScroll(fetchMore, options = {}) {
     observer?.disconnect()
   })
 
-  return { sentinel, loading }
+  return { sentinel }
 }

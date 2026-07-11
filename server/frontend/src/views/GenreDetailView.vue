@@ -1130,11 +1130,6 @@ onUnmounted(() => {
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .sentinel-spinner {
     animation: none;

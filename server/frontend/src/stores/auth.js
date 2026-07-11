@@ -48,5 +48,27 @@ export const useAuthStore = defineStore('auth', () => {
     _persist(null, null)
   }
 
-  return { token, user, isAuthenticated, loginWithGoogle, logout, _persist }
+  // Re-fetch the persisted user from the server so server-side changes
+  // (e.g. is_admin flipped) surface without a re-login. Uses raw fetch like
+  // loginWithGoogle: the api wrapper would recurse (it imports this store) and
+  // its interceptors would toast on 5xx / redirect on 401 — both unwanted here.
+  async function refreshUser() {
+    if (!isAuthenticated.value) return
+    try {
+      const res = await fetch(`${API}/me`, {
+        headers: { Authorization: `Bearer ${token.value}` },
+      })
+      if (res.status === 401) {
+        // Token rejected server-side: the persisted session is stale, drop it.
+        logout()
+        return
+      }
+      if (!res.ok) return // 5xx or other server hiccup: keep the user, stay silent
+      _persist(token.value, await res.json())
+    } catch {
+      // Network error: a transient outage must never evict the user.
+    }
+  }
+
+  return { token, user, isAuthenticated, loginWithGoogle, logout, refreshUser, _persist }
 })

@@ -163,9 +163,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
+import { useTaskPoll } from '../composables/useTaskPoll.js'
 import { useToast } from '../stores/toast.js'
 import PageHero from '../components/PageHero.vue'
 import StatStrip from '../components/StatStrip.vue'
@@ -186,7 +187,22 @@ const fetchingArt = ref(false)
 const artMsg = ref('')
 const artMsgType = ref('')
 const crawlState = ref(null) // 'queued' | 'running' | null
-let crawlPollTimer = null
+
+const crawlPoll = useTaskPoll(() => `/api/watchlist/${route.params.id}/crawl-status`, {
+  intervalMs: 3000,
+  async onData(data, { stop }) {
+    if (!data.status || data.status === 'done') {
+      stop()
+      crawlState.value = null
+      await fetchDetail()
+    } else {
+      crawlState.value = data.status
+    }
+  },
+  onError() {
+    crawlState.value = null
+  },
+})
 
 const heroSub = computed(() => {
   if (!playlist.value) return null
@@ -232,40 +248,14 @@ async function fetchDetail() {
   try {
     const { data } = await api.get(`/api/watchlist/${route.params.id}`)
     playlist.value = data
-    if (data.current_task_id && !crawlPollTimer) {
+    if (data.current_task_id && !crawlPoll.isActive()) {
       crawlState.value = 'queued'
-      startCrawlPoll()
+      crawlPoll.start()
     }
   } catch {
     playlist.value = null
   } finally {
     loading.value = false
-  }
-}
-
-function startCrawlPoll() {
-  stopCrawlPoll()
-  crawlPollTimer = setInterval(async () => {
-    try {
-      const { data } = await api.get(`/api/watchlist/${route.params.id}/crawl-status`)
-      if (!data.status || data.status === 'done') {
-        stopCrawlPoll()
-        crawlState.value = null
-        await fetchDetail()
-      } else {
-        crawlState.value = data.status
-      }
-    } catch {
-      stopCrawlPoll()
-      crawlState.value = null
-    }
-  }, 3000)
-}
-
-function stopCrawlPoll() {
-  if (crawlPollTimer) {
-    clearInterval(crawlPollTimer)
-    crawlPollTimer = null
   }
 }
 
@@ -312,7 +302,6 @@ function playTrack(t) {
 }
 
 onMounted(fetchDetail)
-onUnmounted(stopCrawlPoll)
 </script>
 
 <style scoped>
@@ -472,13 +461,6 @@ onUnmounted(stopCrawlPoll)
 .play-btn svg {
   width: 16px;
   height: 16px;
-}
-
-.state {
-  color: var(--ink-3);
-  font-size: var(--fs-base);
-  font-style: italic;
-  padding-top: var(--space-10);
 }
 
 /* Crawl status banner */

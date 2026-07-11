@@ -518,13 +518,6 @@ onMounted(() => loadTrack(route.params.id))
   margin-inline: auto;
   container-type: inline-size;
 }
-.state {
-  color: var(--ink-3);
-  font-size: var(--fs-base);
-  font-style: italic;
-  padding-top: var(--space-10);
-}
-
 /* T1: Artist chips */
 .artist-chip {
   display: inline-flex;

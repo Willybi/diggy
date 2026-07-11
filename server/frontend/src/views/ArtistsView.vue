@@ -63,23 +63,24 @@ import SearchBox from '../components/SearchBox.vue'
 import SegFilter from '../components/SegFilter.vue'
 import FamilyChips from '../components/FamilyChips.vue'
 import SkeletonGrid from '../components/SkeletonGrid.vue'
-import { useInfiniteScroll } from '../composables/useInfiniteScroll.js'
+import { usePaginatedList } from '../composables/usePaginatedList.js'
 import { fmtNum } from '../utils/format'
 
 const opinions = useOpinionsStore()
 
-const PAGE_SIZE = 24
-
-// -- State --
-const items = ref([])
-const total = ref(0)
-const familyCounts = ref({})
-const loading = ref(false)
+// -- Filters --
 const searchQuery = ref('')
 const sortBy = ref('catalog')
 const familyFilter = ref('all')
-const offset = ref(0)
-const hasMore = ref(false)
+
+// -- Paginated list (shared trunk) --
+const { items, total, familyCounts, loading, hasMore, sentinel, fetch } = usePaginatedList({
+  endpoint: '/api/artists/',
+  pageSize: 24,
+  sort: () => sortBy.value,
+  family: () => familyFilter.value,
+  query: () => searchQuery.value,
+})
 
 const totalUnfiltered = computed(() => {
   const fc = familyCounts.value
@@ -97,91 +98,53 @@ const isFiltered = computed(
 const displayItems = computed(() => items.value)
 
 // -- Fetch --
+// Normal sorts go through the shared paginated list; opinion filters
+// (liked/disliked) resolve matching IDs from the opinions store in one
+// non-paginated shot and write the shared refs directly.
 async function fetchArtists(reset = true) {
-  if (reset) {
-    offset.value = 0
-    items.value = []
-  }
-
   const isOpinionFilter = sortBy.value === 'liked' || sortBy.value === 'disliked'
+  if (!isOpinionFilter) return fetch(reset)
 
-  // Opinion-based filters: fetch only matching artist IDs from opinions store
-  if (isOpinionFilter) {
-    if (!reset) return // no pagination for opinion filters
-    loading.value = true
-    try {
-      await opinions.load()
-      const artistOpinions = opinions.data.artist || {}
-      const matchingIds = Object.entries(artistOpinions)
-        .filter(([, v]) => v === sortBy.value)
-        .map(([k]) => k)
-
-      if (!matchingIds.length) {
-        total.value = 0
-        hasMore.value = false
-        return
-      }
-
-      const params = {
-        sort: 'alpha',
-        limit: 100,
-        offset: 0,
-        ids: matchingIds.join(','),
-      }
-      if (familyFilter.value !== 'all') params.family = familyFilter.value
-      if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
-
-      const { data } = await api.get('/api/artists/', { params })
-      items.value = data.items
-      total.value = data.total
-      familyCounts.value = data.pillarCounts || {}
-      hasMore.value = false
-    } catch {
-      items.value = []
-    } finally {
-      loading.value = false
-    }
-    return
-  }
-
-  // Normal paginated fetch
+  if (!reset) return // no pagination for opinion filters
+  items.value = []
   loading.value = true
   try {
+    await opinions.load()
+    const artistOpinions = opinions.data.artist || {}
+    const matchingIds = Object.entries(artistOpinions)
+      .filter(([, v]) => v === sortBy.value)
+      .map(([k]) => k)
+
+    if (!matchingIds.length) {
+      total.value = 0
+      hasMore.value = false
+      return
+    }
+
     const params = {
-      sort: sortBy.value,
-      limit: PAGE_SIZE,
-      offset: offset.value,
+      sort: 'alpha',
+      limit: 100,
+      offset: 0,
+      ids: matchingIds.join(','),
     }
     if (familyFilter.value !== 'all') params.family = familyFilter.value
     if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
 
     const { data } = await api.get('/api/artists/', { params })
-    if (reset) {
-      items.value = data.items
-    } else {
-      items.value = [...items.value, ...data.items]
-    }
+    items.value = data.items
     total.value = data.total
     familyCounts.value = data.pillarCounts || {}
-    hasMore.value = items.value.length < data.total
+    hasMore.value = false
   } catch {
-    if (reset) items.value = []
+    items.value = []
   } finally {
     loading.value = false
   }
 }
 
-function loadMore() {
-  if (loading.value || !hasMore.value) return
-  offset.value = items.value.length
-  fetchArtists(false)
-}
-
 // -- Sort & family: immediate reload --
 watch(sortBy, () => fetchArtists(true))
 watch(familyFilter, () => fetchArtists(true))
-
-const { sentinel } = useInfiniteScroll(loadMore)
 
 onMounted(() => {
   fetchArtists()
@@ -253,11 +216,6 @@ onMounted(() => {
   border: 2px solid var(--line-2);
   border-top-color: var(--accent);
   animation: spin 0.7s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .spin {

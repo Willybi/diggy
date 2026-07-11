@@ -102,6 +102,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import api from '../../utils/api.js'
+import { useTaskPoll } from '../../composables/useTaskPoll.js'
 
 // --- Flags ---
 const flags = ref([])
@@ -169,43 +170,66 @@ const enrichingSets = ref(false)
 const enrichSetsResult = ref(null)
 const enrichSetsError = ref('')
 
+const linkSetsPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+  intervalMs: 2000,
+  maxAttempts: 150,
+  onData(st, { stop }) {
+    if (st.status === 'done') {
+      linkSetsResult.value = st.result
+      linkingSets.value = false
+      stop()
+    } else if (st.status === 'error') {
+      linkSetsError.value = st.error || 'Erreur'
+      linkingSets.value = false
+      stop()
+    }
+  },
+  onError(err) {
+    linkSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+    linkingSets.value = false
+  },
+  onMaxAttempts() {
+    linkSetsError.value = 'Timeout'
+    linkingSets.value = false
+  },
+})
+
 async function runLinkSets() {
   linkingSets.value = true
   linkSetsResult.value = null
   linkSetsError.value = ''
   try {
     const { data } = await api.post('/api/admin/sets/link-artists')
-    let attempts = 0
-    const timer = setInterval(async () => {
-      attempts++
-      if (attempts > 150) {
-        clearInterval(timer)
-        linkSetsError.value = 'Timeout'
-        linkingSets.value = false
-        return
-      }
-      try {
-        const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
-        if (st.status === 'done') {
-          clearInterval(timer)
-          linkSetsResult.value = st.result
-          linkingSets.value = false
-        } else if (st.status === 'error') {
-          clearInterval(timer)
-          linkSetsError.value = st.error || 'Erreur'
-          linkingSets.value = false
-        }
-      } catch (err) {
-        clearInterval(timer)
-        linkSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
-        linkingSets.value = false
-      }
-    }, 2000)
+    linkSetsPoll.start(data.task_id)
   } catch (e) {
     linkSetsError.value = e.response?.data?.detail || 'Erreur'
     linkingSets.value = false
   }
 }
+
+const enrichSetsPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+  intervalMs: 3000,
+  maxAttempts: 300,
+  onData(st, { stop }) {
+    if (st.status === 'done') {
+      enrichSetsResult.value = st.result
+      enrichingSets.value = false
+      stop()
+    } else if (st.status === 'error') {
+      enrichSetsError.value = st.error || 'Erreur'
+      enrichingSets.value = false
+      stop()
+    }
+  },
+  onError(err) {
+    enrichSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+    enrichingSets.value = false
+  },
+  onMaxAttempts() {
+    enrichSetsError.value = 'Timeout'
+    enrichingSets.value = false
+  },
+})
 
 async function runEnrichSets() {
   enrichingSets.value = true
@@ -213,32 +237,7 @@ async function runEnrichSets() {
   enrichSetsError.value = ''
   try {
     const { data } = await api.post('/api/admin/sets/enrich-tracks')
-    let attempts = 0
-    const timer = setInterval(async () => {
-      attempts++
-      if (attempts > 300) {
-        clearInterval(timer)
-        enrichSetsError.value = 'Timeout'
-        enrichingSets.value = false
-        return
-      }
-      try {
-        const { data: st } = await api.get(`/api/admin/artists/sync/status/${data.task_id}`)
-        if (st.status === 'done') {
-          clearInterval(timer)
-          enrichSetsResult.value = st.result
-          enrichingSets.value = false
-        } else if (st.status === 'error') {
-          clearInterval(timer)
-          enrichSetsError.value = st.error || 'Erreur'
-          enrichingSets.value = false
-        }
-      } catch (err) {
-        clearInterval(timer)
-        enrichSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
-        enrichingSets.value = false
-      }
-    }, 3000)
+    enrichSetsPoll.start(data.task_id)
   } catch (e) {
     enrichSetsError.value = e.response?.data?.detail || 'Erreur'
     enrichingSets.value = false

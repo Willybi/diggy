@@ -15,7 +15,7 @@
         <SearchBox
           v-model="searchQuery"
           placeholder="Rechercher un genre…"
-          @update:modelValue="fetchGenres(true)"
+          @update:modelValue="fetch(true)"
         />
         <SegFilter
           v-model="sortBy"
@@ -79,26 +79,29 @@ import SearchBox from '../components/SearchBox.vue'
 import SegFilter from '../components/SegFilter.vue'
 import FamilyChips from '../components/FamilyChips.vue'
 import SkeletonGrid from '../components/SkeletonGrid.vue'
-import { useInfiniteScroll } from '../composables/useInfiniteScroll.js'
+import { usePaginatedList } from '../composables/usePaginatedList.js'
 import { fmtNum, pl } from '../utils/format'
 
 const auth = useAuthStore()
 const opinions = useOpinionsStore()
 
-const PAGE_SIZE = 24
-
-// ── State ──
-const items = ref([])
-const total = ref(0)
-const familyCounts = ref({})
-const loading = ref(false)
+// ── Filters ──
 const searchQuery = ref('')
 const sortBy = ref('tracks')
 const familyFilter = ref('all')
-const offset = ref(0)
-const hasMore = ref(false)
 const unclassifiedCount = ref(0)
 const classifying = ref(false)
+
+// ── Paginated list (shared trunk) ──
+// liked/disliked are client-side facets over the 'tracks' ordering, so they map
+// to the same server sort; displayItems below applies the opinion filter.
+const { items, total, familyCounts, loading, hasMore, sentinel, fetch } = usePaginatedList({
+  endpoint: '/api/genres',
+  pageSize: 24,
+  sort: () => (sortBy.value === 'liked' || sortBy.value === 'disliked' ? 'tracks' : sortBy.value),
+  family: () => familyFilter.value,
+  query: () => searchQuery.value,
+})
 
 // Total unfiltered (for subtitle)
 const totalUnfiltered = computed(() => {
@@ -124,44 +127,6 @@ const displayItems = computed(() => {
   return items.value
 })
 
-// ── Fetch ──
-async function fetchGenres(reset = true) {
-  if (reset) {
-    offset.value = 0
-    items.value = []
-  }
-  loading.value = true
-  try {
-    const params = {
-      sort: sortBy.value === 'liked' || sortBy.value === 'disliked' ? 'tracks' : sortBy.value,
-      limit: PAGE_SIZE,
-      offset: offset.value,
-    }
-    if (familyFilter.value !== 'all') params.family = familyFilter.value
-    if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
-
-    const { data } = await api.get('/api/genres', { params })
-    if (reset) {
-      items.value = data.items
-    } else {
-      items.value = [...items.value, ...data.items]
-    }
-    total.value = data.total
-    familyCounts.value = data.pillarCounts || {}
-    hasMore.value = items.value.length < data.total
-  } catch {
-    if (reset) items.value = []
-  } finally {
-    loading.value = false
-  }
-}
-
-function loadMore() {
-  if (loading.value || !hasMore.value) return
-  offset.value = items.value.length
-  fetchGenres(false)
-}
-
 // ── Admin ──
 async function fetchUnclassifiedCount() {
   if (!auth.user?.is_admin) return
@@ -184,13 +149,11 @@ async function launchClassify() {
 }
 
 // ── Sort & family filter: immediate reload ──
-watch(sortBy, () => fetchGenres(true))
-watch(familyFilter, () => fetchGenres(true))
-
-const { sentinel } = useInfiniteScroll(loadMore)
+watch(sortBy, () => fetch(true))
+watch(familyFilter, () => fetch(true))
 
 onMounted(() => {
-  fetchGenres()
+  fetch()
   fetchUnclassifiedCount()
 })
 </script>
@@ -314,11 +277,6 @@ onMounted(() => {
   border: 2px solid var(--line-2);
   border-top-color: var(--accent);
   animation: spin 0.7s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .spin {
