@@ -28,6 +28,9 @@ class WatchedEntity(Base):
     description = Column(Text)
     created_at = Column(DateTime(timezone=True))
     last_crawled_at = Column(DateTime(timezone=True))
+    # C6.e: advances only when a crawl inserts or removes a track — feeds the
+    # adaptive crawl cadence (NULL falls back to created_at)
+    last_changed_at = Column(DateTime(timezone=True), nullable=True)
     has_artwork = Column(Boolean, default=False)
     track_count = Column(Integer, nullable=True)
     owner = Column(String(255), nullable=True)

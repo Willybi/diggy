@@ -6,35 +6,40 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 import redis as redis_lib
 from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# crawl_radar's beat fires every 24h sharp, but last_crawled_at is stamped at the
+# END of a crawl (+queue latency +run time). Without slack, a playlist crawled
+# last night reads ~23h55 < 1.0d at the next beat and would wait a whole extra
+# day (daily tier → every other day). The margin cannot cause over-crawling:
+# the decision is only evaluated at beat passes, which are 24h apart.
+CADENCE_SLACK_DAYS = 0.25  # 6h: queue latency + crawl duration + clock skew
 
-def _load_active_playlists(session) -> list[dict]:
+
+def _load_crawlable_playlists(session) -> list[dict]:
     """
-    Playlists with at least 1 follower — direct-DB replacement for the
-    former GET /api/watchlist/active endpoint (same query).
+    Every watched playlist (C6.e: crawl the whole watchlist — a follower is now
+    a crawl-priority signal, not a filter). has_followers / last_changed_at /
+    created_at feed the adaptive cadence applied in crawl_radar.
     """
     from sqlalchemy import select
 
     sys.path.insert(0, "/app")
     from models import UserFollow, WatchedEntity
 
-    entities = (
-        session.execute(
-            select(WatchedEntity).where(
-                select(UserFollow.entity_id)
-                .where(UserFollow.entity_id == WatchedEntity.id)
-                .correlate(WatchedEntity)
-                .exists()
-            )
-        )
-        .scalars()
-        .all()
+    has_followers_col = (
+        select(UserFollow.entity_id)
+        .where(UserFollow.entity_id == WatchedEntity.id)
+        .correlate(WatchedEntity)
+        .exists()
+        .label("has_followers")
     )
+    rows = session.execute(select(WatchedEntity, has_followers_col)).all()
     return [
         {
             "id": e.id,
@@ -45,9 +50,113 @@ def _load_active_playlists(session) -> list[dict]:
             "last_crawled_at": (
                 e.last_crawled_at.isoformat() if e.last_crawled_at else None
             ),
+            "has_followers": bool(followed),
+            # datetimes (not ISO): only _crawl_decision consumes these
+            "last_changed_at": e.last_changed_at,
+            "created_at": e.created_at,
         }
-        for e in entities
+        for e, followed in rows
     ]
+
+
+def _as_utc(dt):
+    """Normalize a naive datetime (SQLite test runs) to UTC; PG returns aware."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _crawl_decision(
+    now, has_followers, last_changed_at, created_at, last_crawled_at
+) -> str:
+    """Adaptive crawl cadence: returns 'crawl' or 'wait'.
+
+    No 'final' state — unlike a TrackID set, a playlist can always come back to
+    life, so it is never permanently abandoned. Followed playlists keep the
+    daily floor (the former unconditional behaviour). For the rest, a stability
+    age (now - last_changed_at, falling back to created_at) picks the backoff
+    tier: <14d → daily, 14-60d → weekly, >60d → monthly. A playlist never
+    crawled — or with no stability reference at all — is always due.
+    """
+    if has_followers:
+        min_days = 1.0
+    else:
+        reference = last_changed_at or created_at
+        if reference is None:
+            return "crawl"
+        stable_days = (now - _as_utc(reference)).total_seconds() / 86400
+        if stable_days > 60:
+            min_days = 30.0
+        elif stable_days > 14:
+            min_days = 7.0
+        else:
+            min_days = 1.0
+    if last_crawled_at is None:
+        return "crawl"
+    crawled_days = (now - _as_utc(last_crawled_at)).total_seconds() / 86400
+    return "crawl" if crawled_days > min_days - CADENCE_SLACK_DAYS else "wait"
+
+
+def _select_crawl_batch(playlists, now, max_dispatch):
+    """Pick the playlists due for a crawl this run (C6.e).
+
+    Drops those still inside their cadence window (skipped_cadence), then orders
+    the rest — followed playlists first, most-recently-changed next — and caps
+    the fan-out at max_dispatch so the cap sheds the lowest-priority playlists
+    (dropped_by_cap counts the overflow). Same sort+cap idiom as
+    recrawl_incomplete_sets. Returns (batch, skipped_cadence, dropped_by_cap).
+    """
+    eligible = []
+    skipped_cadence = 0
+    for pl in playlists:
+        lc_iso = pl.get("last_crawled_at")
+        last_crawled = datetime.fromisoformat(lc_iso) if lc_iso else None
+        decision = _crawl_decision(
+            now,
+            pl["has_followers"],
+            pl.get("last_changed_at"),
+            pl.get("created_at"),
+            last_crawled,
+        )
+        if decision == "crawl":
+            eligible.append(pl)
+        else:
+            skipped_cadence += 1
+
+    # Newest change first (recrawl cap idiom); then followed playlists ahead of
+    # the rest — the stable sort keeps the recency order within each group.
+    eligible.sort(
+        key=lambda pl: _as_utc(pl.get("last_changed_at") or pl.get("created_at"))
+        if (pl.get("last_changed_at") or pl.get("created_at"))
+        else datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    eligible.sort(key=lambda pl: not pl["has_followers"])
+
+    dropped_by_cap = 0
+    if len(eligible) > max_dispatch:
+        dropped_by_cap = len(eligible) - max_dispatch
+        logger.warning(
+            "crawl_radar: cap %d reached, dropping %d lower-priority playlists",
+            max_dispatch,
+            dropped_by_cap,
+        )
+        eligible = eligible[:max_dispatch]
+    return eligible, skipped_cadence, dropped_by_cap
+
+
+def _is_initial_crawl(last_crawled_at, now) -> bool:
+    """Whether a crawl's diff must be kept out of trend velocity (is_initial).
+
+    True when the playlist was never crawled or has been dormant for over 30
+    days — a reawakened playlist dumps its whole accumulated diff at once, which
+    must not count as a burst of activity.
+    """
+    from datetime import timedelta
+
+    if last_crawled_at is None:
+        return True
+    return _as_utc(last_crawled_at) < now - timedelta(days=30)
 
 
 @celery_app.task(
@@ -60,15 +169,23 @@ def _load_active_playlists(session) -> list[dict]:
 def crawl_radar(self):
     """
     Crawl toutes les playlists surveillées (Deezer, TIDAL, Spotify).
-    Fan-out: lance crawl_single_playlist en parallèle via Celery.
+    Cadence adaptative (C6.e) puis fan-out: lance crawl_single_playlist en
+    parallèle via Celery.
     """
     from sqlalchemy.orm import Session
     from workers.db import get_engine
     from workers.source_clients import get_fetchers
 
+    now = datetime.now(timezone.utc)
+    max_dispatch = int(os.environ.get("CRAWL_RADAR_MAX_DISPATCH", "200"))
+
     engine = get_engine()
     with Session(engine) as session:
-        playlists = _load_active_playlists(session)
+        playlists = _load_crawlable_playlists(session)
+
+    batch, skipped_cadence, dropped_by_cap = _select_crawl_batch(
+        playlists, now, max_dispatch
+    )
 
     with Session(engine) as log_session:
         from workers.crawl_logger import CrawlLogger
@@ -83,7 +200,7 @@ def crawl_radar(self):
             skipped = 0
             errors = 0
 
-            for pl in playlists:
+            for pl in batch:
                 source = pl.get("source")
                 try:
                     _, _, has_changed = get_fetchers(source)
@@ -112,10 +229,22 @@ def crawl_radar(self):
                     errors += 1
 
             clog.set_stats(
-                {"dispatched": dispatched, "skipped": skipped, "errors": errors}
+                {
+                    "dispatched": dispatched,
+                    "skipped": skipped,
+                    "skipped_cadence": skipped_cadence,
+                    "dropped_by_cap": dropped_by_cap,
+                    "errors": errors,
+                }
             )
 
-    return {"dispatched": dispatched, "skipped_playlists": skipped, "errors": errors}
+    return {
+        "dispatched": dispatched,
+        "skipped_playlists": skipped,
+        "skipped_cadence": skipped_cadence,
+        "dropped_by_cap": dropped_by_cap,
+        "errors": errors,
+    }
 
 
 @celery_app.task(
@@ -249,9 +378,12 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
 
             # 2. Bulk insert radar tracks (direct DB, replaces per-track HTTP POST)
             with Session(engine) as session:
-                # Detect initial crawl (last_crawled_at is None)
+                # C6.e: never crawled OR dormant >30d counts as an initial crawl
+                # so the accumulated diff stays out of trend velocity
                 entity_for_crawl = session.get(WatchedEntity, playlist_id)
-                is_initial = entity_for_crawl is not None and entity_for_crawl.last_crawled_at is None
+                is_initial = entity_for_crawl is not None and _is_initial_crawl(
+                    entity_for_crawl.last_crawled_at, datetime.now(timezone.utc)
+                )
 
                 track_dicts = [
                     {
@@ -381,11 +513,14 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
 
             # 5. Mark playlist as crawled
             with Session(engine) as session:
-                from datetime import datetime, timezone
-
                 entity = session.get(WatchedEntity, playlist_id)
                 if entity:
-                    entity.last_crawled_at = datetime.now(timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    entity.last_crawled_at = now
+                    # C6.e: only a real diff (insert or removal) advances the
+                    # cadence clock; a no-op crawl leaves last_changed_at alone
+                    if inserted or removed:
+                        entity.last_changed_at = now
                     session.commit()
 
             clog.set_stats(

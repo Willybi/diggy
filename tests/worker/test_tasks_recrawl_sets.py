@@ -274,8 +274,9 @@ class TestRecrawlDecision:
         assert self._decide(sets_mod, 2, None) == "crawl"
 
     def test_young_set_24h_tier(self, sets_mod):
-        assert self._decide(sets_mod, 2, 25 / 24) == "crawl"
-        assert self._decide(sets_mod, 2, 23 / 24) == "wait"
+        # daily tier, effective threshold 0.75d (1.0 − CADENCE_SLACK_DAYS)
+        assert self._decide(sets_mod, 2, 19 / 24) == "crawl"
+        assert self._decide(sets_mod, 2, 17 / 24) == "wait"
 
     def test_week_old_set_7d_tier(self, sets_mod):
         assert self._decide(sets_mod, 10, 8) == "crawl"
@@ -298,6 +299,12 @@ class TestRecrawlDecision:
         created = (self.NOW - timedelta(days=2)).replace(tzinfo=None)
         ref = (self.NOW - timedelta(hours=25)).replace(tzinfo=None)
         assert sets_mod._recrawl_decision(self.NOW, created, ref) == "crawl"
+
+    def test_nightly_beat_scenario_just_under_24h_is_due(self, sets_mod):
+        """Beat fires 24h apart but the reference is stamped during the prior
+        run: a set re-crawled last night (~23h55) must stay due, not skip a
+        day. Documents the CADENCE_SLACK_DAYS margin."""
+        assert self._decide(sets_mod, 2, 1 - 5 / 1440) == "crawl"
 
 
 class TestApplyRecrawlOutcome:

@@ -231,6 +231,7 @@ PK: `id`
 | `description` | Text | yes |  |  |  |
 | `created_at` | DateTime(tz) | yes |  |  |  |
 | `last_crawled_at` | DateTime(tz) | yes |  |  |  |
+| `last_changed_at` | DateTime(tz) | yes |  |  |  |
 | `has_artwork` | Boolean | yes |  |  | default=False |
 | `track_count` | Integer | yes |  |  |  |
 | `owner` | String(255) | yes |  |  |  |
@@ -496,8 +497,8 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_set_id_b`: `set_id_b`
+- `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_group_key`: `group_key`
 - `ix_set_flags_set_id_a`: `set_id_a`
 

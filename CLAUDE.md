@@ -1,14 +1,14 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-11 (C6.b + C6.c — re-crawl sets incomplets + suivi d'artistes v1)
+> Last verified: 2026-07-12 (C6.e — playlists auto-follow, crawl universel + cadence adaptative)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (36 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (37 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -77,6 +77,7 @@ Local tooling (A7-07): `worker/` (`relocate_tracks.py`) + `server/deezer/` (`ext
 - Enrichment re-scan (E1): a not-found catalog entry is retried after 30 then 90 days, abandoned after 3 attempts (`deezer_search_attempts` / `beatport_search_attempts`). An HTTP failure never stamps `*_searched_at` (an outage is not an attempt). Nightly sweeps are capped by `ENRICH_NIGHTLY_BUDGET` (default 6000, per source). Same idea on `artists.deezer_searched_at` (30-day retry; the `NOT_FOUND` sentinel stays a human decision).
 - Sets re-crawl (C6.b): `sets.completion_pct` is **is_id-based only** (`catalog_id` is reset by every re-import, it cannot back a stable metric); `recrawl_count` = CONSECUTIVE re-crawls without progression (3 stale runs or age > 90 days → `recrawl_status='final'`, no more crawls). Cap per run: `RECRAWL_MAX_SETS_PER_RUN` (default 500, newest first).
 - Artist follow (C6.c): `followed_artists` (composite PK user/artist) + `artist_activity` feed; unique `(artist_id, activity_type, source, external_id)` is the worker's idempotence guarantee. Per-user "seen" marker = `users.settings["artist_activity_seen_at"]`. Follow ≠ like: decorrelated by design (acted product decision), no sync with `user_opinions`.
+- Playlist auto-crawl (C6.e): `crawl_radar` crawls EVERY `watched_entities` row — a `user_follows` follower is a priority signal (daily floor + cap priority), NOT a filter. Adaptive cadence from `watched_entities.last_changed_at` (stamped only when a crawl inserts/removes tracks; fallback `created_at`): changed <14d → daily, 14-60d → weekly, >60d → monthly, never `final` (a playlist can always come back to life). Fan-out cap `CRAWL_RADAR_MAX_DISPATCH` (default 200, followed first then most recently changed). Reactivation guard: never crawled OR dormant >30d → inserts flagged `is_initial_detection` (excluded from trend velocity).
 
 → Before any model change, migration, or query joining 3+ tables: read `docs/database-schema.md`.
 
@@ -163,6 +164,7 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 - Deezer/Beatport rate limits are shared across worker processes via a Redis fixed window inside `rate_limiter.py` (fail-open to the local bucket if Redis is down). Instantiating `RateLimiter()` per task is fine — the global cap holds anyway.
 - Destructive cleanup of a watched playlist triggers ONLY on `PlaylistGoneError` (typed per source in `source_clients.py`), never on string-matching an exception message.
 - Never `result.get()` inside a task (blocks a worker slot for the whole run) — use a `chord` with a finalize callback + errback (pattern: `tasks/genres.py`).
+- A cadence gate compared against a daily beat needs slack: the beat fires every 24h sharp but the reference timestamp is stamped DURING the previous run, so a strict `elapsed > 1d` check skips every other run (daily tier → every other day). Subtract `CADENCE_SLACK_DAYS` (0.25) from the threshold — pattern: `tasks/radar.py` + `tasks/sets.py`.
 
 ### Database & Alembic
 - Since AU3 the API never runs `create_all`: the schema comes from Alembic ONLY (test harnesses keep their own `create_all` in `tests/*/conftest.py`). In local dev, the compose override runs `alembic upgrade head` before uvicorn.

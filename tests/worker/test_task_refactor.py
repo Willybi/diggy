@@ -5,7 +5,7 @@ and import compatibility.
 """
 import sys
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch, call
 import importlib
 
@@ -455,10 +455,10 @@ class TestResolveSetTracksAdditional:
         assert track.catalog_id == cat.id
 
 
-# ── _load_active_playlists (A1-17: DB read replacing GET /api/watchlist/active) ──
+# ── _load_crawlable_playlists (C6.e: crawl the whole watchlist, no follow filter) ──
 
 
-class TestLoadActivePlaylists:
+class TestLoadCrawlablePlaylists:
     def _radar(self):
         import workers.tasks.radar as radar_mod
         return radar_mod
@@ -490,19 +490,25 @@ class TestLoadActivePlaylists:
                          followed_at=datetime.now(timezone.utc)))
         s.commit()
 
-        playlists = self._radar()._load_active_playlists(s)
+        playlists = self._radar()._load_crawlable_playlists(s)
 
         assert len(playlists) == 1
         pl = playlists[0]
-        assert set(pl) == {"id", "source", "external_id", "last_crawled_at"}
+        assert set(pl) == {
+            "id", "source", "external_id", "last_crawled_at",
+            "has_followers", "last_changed_at", "created_at",
+        }
         assert pl["id"] == e.id
         assert pl["source"] == "deezer"
         assert pl["external_id"] == "dz-1"
+        assert pl["has_followers"] is True
         # ISO string, same contract as the former HTTP JSON payload
         assert isinstance(pl["last_crawled_at"], str)
         assert pl["last_crawled_at"].startswith("2026-07-01T12:00:00")
 
-    def test_playlist_without_follower_is_excluded(self, sync_session):
+    def test_unfollowed_playlist_is_returned_with_flag(self, sync_session):
+        """C6.e: an orphan playlist (no follower) is now crawled too, flagged
+        has_followers=False (used only as a crawl-priority signal)."""
         s = sync_session
         u = self._make_user(s)
         followed = self._make_entity(s, external_id="dz-followed")
@@ -511,18 +517,187 @@ class TestLoadActivePlaylists:
                          followed_at=datetime.now(timezone.utc)))
         s.commit()
 
-        playlists = self._radar()._load_active_playlists(s)
+        playlists = self._radar()._load_crawlable_playlists(s)
 
-        assert [pl["external_id"] for pl in playlists] == ["dz-followed"]
+        by_ext = {pl["external_id"]: pl for pl in playlists}
+        assert set(by_ext) == {"dz-followed", "dz-orphan"}
+        assert by_ext["dz-followed"]["has_followers"] is True
+        assert by_ext["dz-orphan"]["has_followers"] is False
 
     def test_never_crawled_playlist_has_none_last_crawled_at(self, sync_session):
         s = sync_session
-        u = self._make_user(s)
-        e = self._make_entity(s, last_crawled_at=None)
-        s.add(UserFollow(user_id=u.id, entity_id=e.id,
-                         followed_at=datetime.now(timezone.utc)))
+        self._make_entity(s, last_crawled_at=None)
         s.commit()
 
-        playlists = self._radar()._load_active_playlists(s)
+        playlists = self._radar()._load_crawlable_playlists(s)
 
+        # returned even without any follower, last_crawled_at kept as None
         assert playlists[0]["last_crawled_at"] is None
+        assert playlists[0]["has_followers"] is False
+
+
+# ── _crawl_decision (C6.e adaptive cadence) ─────────────────────────────────────
+
+
+class TestCrawlDecision:
+    NOW = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+
+    def _radar(self):
+        import workers.tasks.radar as radar_mod
+        return radar_mod
+
+    def _decide(
+        self, has_followers, changed_days_ago, crawled_days_ago,
+        created_days_ago=None,
+    ):
+        def _ago(days):
+            return self.NOW - timedelta(days=days) if days is not None else None
+
+        return self._radar()._crawl_decision(
+            self.NOW,
+            has_followers,
+            _ago(changed_days_ago),
+            _ago(created_days_ago),
+            _ago(crawled_days_ago),
+        )
+
+    def test_followed_stable_90d_keeps_daily_floor(self):
+        # followed → daily floor whatever the stability age; effective threshold
+        # is 0.75d (min_days 1.0 − CADENCE_SLACK_DAYS)
+        assert self._decide(True, 90, 19 / 24) == "crawl"
+        assert self._decide(True, 90, 17 / 24) == "wait"
+
+    def test_unfollowed_changed_5d_is_daily(self):
+        # daily tier, effective threshold 0.75d (1.0 − slack)
+        assert self._decide(False, 5, 19 / 24) == "crawl"
+        assert self._decide(False, 5, 17 / 24) == "wait"
+
+    def test_unfollowed_changed_30d_is_weekly(self):
+        assert self._decide(False, 30, 8) == "crawl"
+        assert self._decide(False, 30, 6) == "wait"
+
+    def test_unfollowed_changed_90d_is_monthly(self):
+        assert self._decide(False, 90, 31) == "crawl"
+        assert self._decide(False, 90, 29) == "wait"
+
+    def test_never_crawled_is_due(self):
+        assert self._decide(False, 5, None) == "crawl"
+        assert self._decide(True, None, None, created_days_ago=1) == "crawl"
+
+    def test_no_stability_reference_is_due(self):
+        # unfollowed, last_changed_at AND created_at both None → always crawl
+        assert self._decide(False, None, 100) == "crawl"
+
+    def test_created_at_used_when_never_changed(self):
+        # no last_changed_at → stability age falls back to created_at (weekly)
+        assert self._decide(False, None, 8, created_days_ago=30) == "crawl"
+        assert self._decide(False, None, 6, created_days_ago=30) == "wait"
+
+    def test_naive_datetimes_accepted(self):
+        """SQLite returns naive datetimes; they must be treated as UTC."""
+        changed = (self.NOW - timedelta(days=5)).replace(tzinfo=None)
+        crawled = (self.NOW - timedelta(days=2)).replace(tzinfo=None)
+        assert self._radar()._crawl_decision(
+            self.NOW, False, changed, None, crawled
+        ) == "crawl"
+
+    def test_nightly_beat_scenario_just_under_24h_is_due(self):
+        """Beat fires 24h apart but last_crawled_at is stamped at crawl END:
+        a playlist crawled last night (~23h55) must stay due, not wait a whole
+        extra day. This is exactly what CADENCE_SLACK_DAYS protects against."""
+        assert self._decide(True, 90, 1 - 5 / 1440) == "crawl"
+
+
+# ── _select_crawl_batch (C6.e cadence filter + priority sort + cap) ─────────────
+
+
+class TestSelectCrawlBatch:
+    NOW = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+
+    def _radar(self):
+        import workers.tasks.radar as radar_mod
+        return radar_mod
+
+    def _pl(
+        self, pid, *, has_followers=False, changed_days_ago=None,
+        created_days_ago=1.0, crawled_days_ago=None,
+    ):
+        def _ago(days):
+            return self.NOW - timedelta(days=days) if days is not None else None
+
+        crawled = _ago(crawled_days_ago)
+        return {
+            "id": pid,
+            "source": "deezer",
+            "external_id": f"ext-{pid}",
+            "last_crawled_at": crawled.isoformat() if crawled else None,
+            "has_followers": has_followers,
+            "last_changed_at": _ago(changed_days_ago),
+            "created_at": _ago(created_days_ago),
+        }
+
+    def test_wait_playlists_dropped_from_batch(self):
+        wait = self._pl(1, has_followers=True, crawled_days_ago=0.5)  # <1d → wait
+        due = self._pl(2, has_followers=True, crawled_days_ago=2.0)
+        batch, skipped_cadence, dropped = self._radar()._select_crawl_batch(
+            [wait, due], self.NOW, 200
+        )
+        assert [pl["id"] for pl in batch] == [2]
+        assert skipped_cadence == 1
+        assert dropped == 0
+
+    def test_cap_keeps_followed_over_recent_orphan(self):
+        # cap 1: a followed playlist wins the slot even though the unfollowed
+        # one changed more recently
+        followed = self._pl(
+            1, has_followers=True, changed_days_ago=10, crawled_days_ago=5
+        )
+        recent_orphan = self._pl(
+            2, has_followers=False, changed_days_ago=1, crawled_days_ago=5
+        )
+        batch, skipped_cadence, dropped = self._radar()._select_crawl_batch(
+            [recent_orphan, followed], self.NOW, 1
+        )
+        assert [pl["id"] for pl in batch] == [1]
+        assert dropped == 1
+        assert skipped_cadence == 0
+
+    def test_recency_orders_within_same_follower_status(self):
+        older = self._pl(
+            1, has_followers=False, changed_days_ago=10, crawled_days_ago=5
+        )
+        newer = self._pl(
+            2, has_followers=False, changed_days_ago=2, crawled_days_ago=5
+        )
+        batch, _, _ = self._radar()._select_crawl_batch(
+            [older, newer], self.NOW, 200
+        )
+        assert [pl["id"] for pl in batch] == [2, 1]
+
+
+# ── _is_initial_crawl (C6.e trend-velocity guard on reawakened playlists) ───────
+
+
+class TestIsInitialCrawl:
+    NOW = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+
+    def _radar(self):
+        import workers.tasks.radar as radar_mod
+        return radar_mod
+
+    def test_never_crawled_is_initial(self):
+        assert self._radar()._is_initial_crawl(None, self.NOW) is True
+
+    def test_dormant_over_30d_is_initial(self):
+        assert self._radar()._is_initial_crawl(
+            self.NOW - timedelta(days=40), self.NOW
+        ) is True
+
+    def test_recent_crawl_is_not_initial(self):
+        assert self._radar()._is_initial_crawl(
+            self.NOW - timedelta(days=10), self.NOW
+        ) is False
+
+    def test_naive_datetime_accepted(self):
+        naive = (self.NOW - timedelta(days=40)).replace(tzinfo=None)
+        assert self._radar()._is_initial_crawl(naive, self.NOW) is True

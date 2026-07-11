@@ -19,6 +19,14 @@ RESOLVE_SET_TRACKS_LOCK_TTL = 7800
 # Same rule for recrawl_incomplete_sets (time_limit 3900s)
 RECRAWL_INCOMPLETE_SETS_LOCK_TTL = 4200
 
+# recrawl_incomplete_sets' beat fires every 24h sharp, but the reference is
+# stamped during the previous run. Without slack, a set re-crawled last night
+# reads ~23h55 < 1.0d at the next beat and would wait a whole extra day (daily
+# tier → every other day). The margin cannot cause over-crawling: the decision
+# is only evaluated at beat passes, which are 24h apart. (>90d → 'final' is
+# untouched: it is not a cadence gate.)
+CADENCE_SLACK_DAYS = 0.25  # 6h: queue latency + crawl duration + clock skew
+
 
 def _should_skip_backfill(cursor_date: str, min_date: str) -> bool:
     """Return True if the backfill cursor has passed the minimum date."""
@@ -390,7 +398,7 @@ def _recrawl_decision(now, created_at, reference) -> str:
     if reference is None:
         return "crawl"
     ref_days = (now - _as_utc(reference)).total_seconds() / 86400
-    return "crawl" if ref_days > min_days else "wait"
+    return "crawl" if ref_days > min_days - CADENCE_SLACK_DAYS else "wait"
 
 
 def _apply_recrawl_outcome(dj_set, old_pct, new_pct, now) -> str | None:
