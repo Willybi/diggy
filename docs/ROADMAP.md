@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-10 (AU5 TERMINE — couche service backend : search + watchlist en services, crawl_radar en DB directe)
+> **Derniere mise a jour** : 2026-07-11 (AU6 TERMINE — dette frontend : useTaskPoll + usePaginatedList, styles .state/spin globaux, refresh user au boot)
 
 ---
 
@@ -47,7 +47,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU7  Dette de tests (enrich + auth)        HAUT        1-2 jours    TERMINE (2026-07-10)
  AU4  Robustesse workers                    MOYEN       2 jours      TERMINE (2026-07-10)
  AU5  Couche service backend                MOYEN       2-3 jours    TERMINE (2026-07-10)
- AU6  Dette frontend                        MOYEN       1-2 jours    A FAIRE
+ AU6  Dette frontend                        MOYEN       1-2 jours    TERMINE (2026-07-11)
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    A FAIRE
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
@@ -86,6 +86,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU4  Robustesse workers                TERMINE
  E1   Re-scan enrichissement (backoff+budget) TERMINE
  AU5  Couche service backend            TERMINE
+ AU6  Dette frontend                    TERMINE
 ```
 
 ### Dependances
@@ -638,7 +639,7 @@ Perimetre reduit par l'arbitrage Q8 : finir la couche service pour search et wat
 **Priorite : MOYEN**
 **Estimation : 1-2 jours**
 **Depend de : rien**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-07-11) — code deploye et verifie en prod (d07c272, /deploy_verify SAIN) : useTaskPoll (timers par cle, cleanup onUnmounted integre, 8 sites setInterval migres — l'audit en comptait 7 —, fuite des 5 polls admin corrigee), usePaginatedList adopte par ArtistsView + GenresView (ref `loading` mort retire d'useInfiniteScroll), `.state` canonique + `@keyframes spin` uniques dans assets/page.css (12 blocs + 4 keyframes dedupliques — l'audit en comptait 10 —, overrides scoped conserves pour les divergences reelles), refreshUser() au boot via GET /auth/me (401 -> logout, erreur reseau -> silencieux), stub RouterLink de BottomNav.test.js rendu effectif. A4-09 clos SANS decoupage : bundle principal mesure 191,9 kB (72,3 kB gzip), HubView en import statique = choix deliberate verrouille par a11y.test.js, gain (~5-8 kB gzip) non justifie. Tests frontend 32 -> 50 ; CLAUDE.md mis a jour (composables, stores, 3 pitfalls frontend)**
 
 ### Objectif
 
@@ -646,13 +647,13 @@ Factoriser les patterns dupliques (pagination, polling, styles) et stopper les f
 
 ### Taches
 
-- [ ] A4-07 : composable `useTaskPoll(statusUrlFn, {intervalMs, onDone, onError})` avec cleanup `onUnmounted` integre — migrer les 7 implementations (5 admin d'abord)
-- [ ] A4-06 : resolu par construction via A4-07 (verifier : plus aucun `setInterval` sans cleanup dans `components/admin/`)
-- [ ] A4-05 : composable `usePaginatedList({endpoint, pageSize})` — adopter dans ArtistsView + GenresView (CatalogView hors scope)
-- [ ] A4-08 : trancher le `loading` de `useInfiniteScroll` (le retirer ou y integrer le guard) — avec A4-05
-- [ ] A4-12 : classe utilitaire `.state` + keyframe `spin` dans `assets/page.css`, migration vue par vue validee contre /design-system
-- [ ] A1-23 (volet frontend) : appeler `GET /auth/me` au boot pour rafraichir `user` (un passage `is_admin` false->true n'est visible qu'au re-login aujourd'hui)
-- [ ] A4-09 (optionnel, mesure d'abord) : reduire ce que HubView embarque (sections lazy sous le fold) — `vite build` avant/apres
+- [x] A4-07 : composable `useTaskPoll(statusUrlFn, {intervalMs, onDone, onError})` avec cleanup `onUnmounted` integre — migrer les 7 implementations (5 admin d'abord)
+- [x] A4-06 : resolu par construction via A4-07 (verifier : plus aucun `setInterval` sans cleanup dans `components/admin/`)
+- [x] A4-05 : composable `usePaginatedList({endpoint, pageSize})` — adopter dans ArtistsView + GenresView (CatalogView hors scope)
+- [x] A4-08 : trancher le `loading` de `useInfiniteScroll` (le retirer ou y integrer le guard) — avec A4-05
+- [x] A4-12 : classe utilitaire `.state` + keyframe `spin` dans `assets/page.css`, migration vue par vue validee contre /design-system
+- [x] A1-23 (volet frontend) : appeler `GET /auth/me` au boot pour rafraichir `user` (un passage `is_admin` false->true n'est visible qu'au re-login aujourd'hui)
+- [ ] A4-09 (optionnel, mesure d'abord) : reduire ce que HubView embarque (sections lazy sous le fold) — `vite build` avant/apres — MESURE FAITE, decoupage non justifie (voir Statut), clos sans action
 
 ### Definition of Done
 
