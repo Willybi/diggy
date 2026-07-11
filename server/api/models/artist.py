@@ -5,9 +5,11 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -27,6 +29,21 @@ class Artist(Base):
     bio = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
+
+    # Partial unique index: one row per real Deezer artist, but the NOT_FOUND
+    # sentinel may repeat freely (many artists confirmed absent from Deezer).
+    # Prod already carries this index (created by hand outside migrations, AU3);
+    # migration 0034 declares it with IF NOT EXISTS. sqlite_where is mandatory so
+    # the test harness (create_all on SQLite) reproduces the constraint.
+    __table_args__ = (
+        Index(
+            "uq_artists_deezer_id",
+            "deezer_id",
+            unique=True,
+            postgresql_where=text("deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'"),
+            sqlite_where=text("deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'"),
+        ),
+    )
 
     aliases = relationship(
         "ArtistAlias", back_populates="artist", cascade="all, delete-orphan"

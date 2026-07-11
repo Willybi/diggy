@@ -43,11 +43,15 @@ is auto-generated — do not edit it directly.
 - `sets.event` / `sets.venue` / `sets.description`: no current source (TrackID.net)
   provides them. Removed from the API responses in AU3 (A2-08); columns kept.
 
-### Prod-only index (to be realigned)
-- `uq_artists_deezer_id`: partial unique index on `artists.deezer_id`
-  (`WHERE deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'`), created directly
-  in prod outside any migration. Absent from models and migrations — declaring it
-  requires a model entry + an idempotent migration (follow-up noted in AU3 closing).
+### `uq_artists_deezer_id` (partial unique index)
+- Partial unique index on `artists.deezer_id`
+  (`WHERE deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'`): one row per real
+  Deezer artist, while the `NOT_FOUND` sentinel may repeat freely.
+- Originally created directly in prod outside any migration (AU3 follow-up). Now
+  declared at the model (`Artist.__table_args__`, with `sqlite_where` so the test
+  harness reproduces it) and shipped by migration `0034_uq_artists_deezer_id`
+  (`CREATE UNIQUE INDEX IF NOT EXISTS`, a no-op against the identical prod index).
+  The auto-generated index list above reflects this declaration.
 
 ### Merge asymmetry
 - Duplicate rows (false negatives) are cheap storage debt.
@@ -107,13 +111,13 @@ PK: `id`
 | `beatport_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 
 **Indexes:**
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
-- `ix_catalog_owner`: `owner_id`
 - `ix_catalog_scope`: `scope`
-- `ix_catalog_beatport_id`: `beatport_id`
-- `ix_catalog_deezer_id`: `deezer_id`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
 - `ix_catalog_genres`: `genres`
+- `ix_catalog_deezer_id`: `deezer_id`
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_beatport_id`: `beatport_id`
 
 ### `catalog_artists`
 
@@ -268,9 +272,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
+- `ix_radar_tracks_watched_entity`: `watched_entity_id`
 - `ix_radar_tracks_catalog`: `catalog_id`
 - `ix_radar_tracks_source_detected`: `source`
-- `ix_radar_tracks_watched_entity`: `watched_entity_id`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -323,6 +327,9 @@ PK: `id`
 | `bio` | Text | yes |  |  |  |
 | `has_artwork` | Boolean | yes |  |  | default=False |
 | `created_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `uq_artists_deezer_id`: `deezer_id` (unique)
 
 ### `artist_aliases`
 
@@ -420,9 +427,9 @@ PK: `id`
 | `trackid_music_track_id` | Integer | yes |  |  |  |
 
 **Indexes:**
+- `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 - `ix_set_tracks_set_id`: `set_id`
 - `ix_set_tracks_catalog_id`: `catalog_id`
-- `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -447,10 +454,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_set_id_b`: `set_id_b`
-- `ix_set_flags_group_key`: `group_key`
 - `ix_set_flags_set_id_a`: `set_id_a`
 - `uq_set_flag_group_key`: `group_key` (unique)
+- `ix_set_flags_set_id_b`: `set_id_b`
+- `ix_set_flags_group_key`: `group_key`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
@@ -494,8 +501,8 @@ PK: `id`
 | `source` | String(50) | no |  |  |  |
 
 **Indexes:**
-- `ix_genre_edges_to_node_id`: `to_node_id`
 - `ix_genre_edges_from_node_id`: `from_node_id`
+- `ix_genre_edges_to_node_id`: `to_node_id`
 
 **Unique constraints:**
 - `from_node_id`, `to_node_id`, `type` (`uq_genre_edge`)

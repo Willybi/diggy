@@ -78,6 +78,35 @@ async def _link_artist_deezer(pool, artist, used_ids):
     return False
 
 
+def _assign_deezer_id(artist, dz_id, used_deezer_ids):
+    """Assign dz_id to artist only if it is still free.
+
+    Two distinct raw names can resolve to the same Deezer artist — e.g. the
+    diacritic pair "Åskar"/"Askar": the Deezer search strips accents (_norm)
+    while utils.normalize() keeps them, so both pass the local dedup check yet
+    map to the same Deezer id. Assigning blindly would violate the partial
+    unique index uq_artists_deezer_id. Err toward separation (project invariant):
+    on a collision the artist is left at deezer_id=NULL rather than merged.
+
+    Returns True when assigned, False when a truthy id was refused (collision),
+    None when there was no id to assign.
+    """
+    if not dz_id:
+        return None
+    if dz_id in used_deezer_ids:
+        logger.warning(
+            "sync_artists: refusing deezer_id %s for artist '%s' (id=%s) — "
+            "already held by another row; leaving deezer_id NULL",
+            dz_id,
+            artist.name,
+            artist.id,
+        )
+        return False
+    artist.deezer_id = dz_id
+    used_deezer_ids.add(dz_id)
+    return True
+
+
 @celery_app.task(
     name="workers.tasks.sync_artists",
     bind=True,
@@ -123,6 +152,7 @@ def sync_artists(self):
     flagged = 0
     skipped = 0
     linked = 0
+    dz_id_skipped = 0
 
     # Collect names needing Deezer disambiguation
     needs_deezer = []  # list of (raw_string, tokens, rule_type)
@@ -248,9 +278,10 @@ def sync_artists(self):
         if needs_deezer:
 
             async def _deezer_resolve():
-                nonlocal created, flagged
+                nonlocal created, flagged, dz_id_skipped
                 import unicodedata
 
+                from sqlalchemy.exc import IntegrityError
                 from workers.async_http import DeezerHTTPError, HttpPool
                 from workers.rate_limiter import RateLimiter
 
@@ -291,6 +322,19 @@ def sync_artists(self):
                                 select(ArtistAlias.normalized_alias)
                             ).all()
                         )
+                        # Deezer ids already assigned in the DB. Guards against
+                        # two distinct names resolving to the same Deezer artist
+                        # (e.g. "Åskar"/"Askar" — _norm strips diacritics but
+                        # normalize() keeps them), which would violate the partial
+                        # unique index uq_artists_deezer_id.
+                        used_deezer_ids = set(
+                            r[0]
+                            for r in session.execute(
+                                select(Artist.deezer_id).where(
+                                    Artist.deezer_id.isnot(None)
+                                )
+                            ).all()
+                        )
 
                         for raw, tokens, rule_type in needs_deezer:
                             deezer_ids = {}
@@ -318,8 +362,15 @@ def sync_artists(self):
                                             session.add(a)
                                             session.flush()
                                             known.add(norm)
-                                            if deezer_ids.get(name):
-                                                a.deezer_id = deezer_ids[name]
+                                            if (
+                                                _assign_deezer_id(
+                                                    a,
+                                                    deezer_ids.get(name),
+                                                    used_deezer_ids,
+                                                )
+                                                is False
+                                            ):
+                                                dz_id_skipped += 1
                                             created += 1
                                 else:
                                     session.add(
@@ -350,10 +401,16 @@ def sync_artists(self):
                                             normalized_name=norm,
                                             created_at=datetime.now(timezone.utc),
                                         )
-                                        a.deezer_id = deezer_full
                                         session.add(a)
                                         session.flush()
                                         known.add(norm)
+                                        if (
+                                            _assign_deezer_id(
+                                                a, deezer_full, used_deezer_ids
+                                            )
+                                            is False
+                                        ):
+                                            dz_id_skipped += 1
                                         created += 1
                                 elif tokens_found and not full_found:
                                     for name in tokens:
@@ -364,11 +421,18 @@ def sync_artists(self):
                                                 normalized_name=norm,
                                                 created_at=datetime.now(timezone.utc),
                                             )
-                                            if deezer_ids.get(name):
-                                                a.deezer_id = deezer_ids[name]
                                             session.add(a)
                                             session.flush()
                                             known.add(norm)
+                                            if (
+                                                _assign_deezer_id(
+                                                    a,
+                                                    deezer_ids.get(name),
+                                                    used_deezer_ids,
+                                                )
+                                                is False
+                                            ):
+                                                dz_id_skipped += 1
                                             created += 1
                                 else:
                                     reason = (
@@ -389,7 +453,21 @@ def sync_artists(self):
                                     )
                                     flagged += 1
 
-                            session.commit()
+                            try:
+                                session.commit()
+                            except IntegrityError:
+                                # The guard above is not atomic across processes:
+                                # a concurrent run may have claimed a deezer_id
+                                # between our in-memory check and this commit.
+                                # Roll back this batch and let the next run
+                                # reconcile — the task survives.
+                                session.rollback()
+                                logger.warning(
+                                    "sync_artists: Phase B commit hit "
+                                    "IntegrityError for '%s' — rolled back, "
+                                    "will retry next run",
+                                    raw,
+                                )
 
             try:
                 asyncio.run(_deezer_resolve())
@@ -484,6 +562,7 @@ def sync_artists(self):
             "flagged": flagged,
             "skipped": skipped,
             "linked": linked,
+            "dz_id_skipped": dz_id_skipped,
         }
         _clog.set_stats(result)
         if _clog_exc:
