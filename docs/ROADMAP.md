@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-12 (C6.e TERMINE — playlists auto-follow, crawl universel + cadence adaptative, deploye et verifie. C6 CLOS ; C6.d reporte)
+> **Derniere mise a jour** : 2026-07-12 (F5 TERMINE — import manuel via recherche externe Deezer/TIDAL, deploye et verifie, commit 001d3d5)
 
 ---
 
@@ -50,7 +50,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU6  Dette frontend                        MOYEN       1-2 jours    TERMINE (2026-07-11)
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    TERMINE (2026-07-11)
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
- F5   Import manuel (recherche externe)    MOYEN       2-3 jours    A FAIRE
+ F5   Import manuel (recherche externe)    MOYEN       2-3 jours    TERMINE (2026-07-12)
  C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
@@ -89,6 +89,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU6  Dette frontend                    TERMINE
  AU8  Hygiene repo & documentation      TERMINE
  C6   Veille elargie & Suivi artistes   TERMINE (C6.d Soundcloud reporte)
+ F5   Import manuel (recherche externe) TERMINE (2026-07-12)
 ```
 
 ### Dependances
@@ -778,7 +779,7 @@ Les retries ne consomment que le budget restant apres les nouveaux : pendant les
 **Priorite : MOYEN**
 **Estimation : 2-3 jours**
 **Depend de : rien (APIs Deezer/TIDAL deja accessibles)**
-**Statut : A FAIRE — parallelisable avec C6/P1**
+**Statut : TERMINE (2026-07-12) — deploye et verifie en prod (commit 001d3d5). GET /api/search/external (Deezer+TIDAL, dedup ISRC, flag catalog_id, degradation gracieuse TIDAL) + POST /api/catalog/import (deezer_id|tidal_id, get_or_create_catalog, scope=shared, liaison artiste async, dedup) + modal ExternalImportModal.vue + declencheur CatalogView + CSP img-src TIDAL (resources.tidal.com). Aucune migration. Checklist humaine validee (import Deezer+TIDAL, dedup, vignettes TIDAL). Anomalie deploiement : nginx non recree quand seul le template change → restart manuel effectue (pitfall a surveiller).**
 
 ### Objectif
 
@@ -794,25 +795,25 @@ Permettre a tout utilisateur connecte d'ajouter un track au catalog via une rech
 
 ### F5.a — Backend : endpoint recherche externe
 
-- [ ] `GET /api/search/external?q=...` : recherche parallele Deezer + TIDAL
-- [ ] Resultats fusionnes, dedupliques par ISRC (priorite Deezer si doublon)
-- [ ] Rate limiting Deezer (0.12s entre requetes, deja en place dans `deezer_enrich.py`)
-- [ ] Indiquer dans la reponse si le track existe deja dans le catalog (`catalog_id` si match ISRC/normalized_key)
+- [x] `GET /api/search/external?q=...` : recherche parallele Deezer + TIDAL
+- [x] Resultats fusionnes, dedupliques par ISRC (priorite Deezer si doublon)
+- [x] Rate limiting Deezer (0.12s entre requetes, deja en place dans `deezer_enrich.py`)
+- [x] Indiquer dans la reponse si le track existe deja dans le catalog (`catalog_id` si match ISRC/normalized_key)
 
 ### F5.b — Backend : endpoint import
 
-- [ ] `POST /api/catalog/import` : prend un `deezer_id` ou `tidal_id`
-- [ ] Enrichissement via `deezer_enrich.py` (flow existant : artwork, ISRC, duration, etc.)
-- [ ] Scope `shared` (source officielle = match confirme)
-- [ ] Dedup : verifier ISRC / `normalized_key` avant insertion, retourner l'entree existante si doublon
-- [ ] Creation artiste(s) via le flow existant (`get_or_create_artist`)
+- [x] `POST /api/catalog/import` : prend un `deezer_id` ou `tidal_id`
+- [x] Enrichissement via `deezer_enrich.py` (flow existant : artwork, ISRC, duration, etc.)
+- [x] Scope `shared` (source officielle = match confirme)
+- [x] Dedup : verifier ISRC / `normalized_key` avant insertion, retourner l'entree existante si doublon
+- [x] Creation artiste(s) via le flow existant (`get_or_create_artist`)
 
 ### F5.c — Frontend : barre de recherche + import
 
-- [ ] UI de recherche (vue dediee ou modale depuis le header)
-- [ ] Affichage resultats : artwork, titre, artiste, source (badge Deezer/TIDAL)
-- [ ] Badge "Deja dans le catalog" si le track existe
-- [ ] Bouton "Importer" par resultat, feedback immediat (track ajoutee, lien vers la fiche catalog)
+- [x] UI de recherche (vue dediee ou modale depuis le header)
+- [x] Affichage resultats : artwork, titre, artiste, source (badge Deezer/TIDAL)
+- [x] Badge "Deja dans le catalog" si le track existe
+- [x] Bouton "Importer" par resultat, feedback immediat (track ajoutee, lien vers la fiche catalog)
 
 ### Definition of Done
 
