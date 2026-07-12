@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-12 (F5 TERMINE — import manuel via recherche externe Deezer/TIDAL, deploye et verifie, commit 001d3d5)
+> **Derniere mise a jour** : 2026-07-12 (C3 EN COURS — etancheite scope prive livree et verifiee, commit 314763b ; fermeture des GET ecartee + /storage differe = decisions produit)
 
 ---
 
@@ -51,7 +51,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    TERMINE (2026-07-11)
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    TERMINE (2026-07-12)
- C3   Ouverture aux amis                    MOYEN       5-7 jours    DECLENCHEMENT MANUEL (apres H0)
+ C3   Ouverture aux amis                    MOYEN       5-7 jours    EN COURS (etancheite livree 2026-07-12)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
@@ -833,7 +833,7 @@ Permettre a tout utilisateur connecte d'ajouter un track au catalog via une rech
 **Estimation : 5-7 jours**
 **Depend de : C1 (TERMINE) + H0 (hygiene secu/infra) + idealement C6 (donnees)**
 **Declenchement : ta decision d'inviter, pas la roadmap**
-**Statut : A FAIRE — apres la serie AU**
+**Statut : EN COURS (partiel, 2026-07-12) — etancheite scope prive LIVREE et verifiee (commit 314763b, /deploy_verify SAIN) : predicat `catalog_visible()` / `catalog_visible_sql()` applique a TOUS les read-paths catalog (browse, detail, preview-url, avis, search, detail artiste, genre, similarite, radar/trends, watchlist, collections). DECISIONS PRODUIT divergeant du perimetre C3 initial : fermeture des GET publics ECARTEE (acces invite conserve — la decouverte reste ouverte) + guest cap conserve ; protection `/storage/*` DIFFEREE (documentee comme risque connu, pochettes seules, `<img>` ne porte pas de Bearer). RESIDUS assumes : comptes agreges genre/artiste + tracklist de set non filtres (non identifiants). RESTE : test e2e multi-user reel (2e lib Rekordbox), verif C3.b (private enrichies en prod), onboarding C3.c. Declenchement de l'ouverture = decision de William.**
 
 **Renvois audit 2026-07** (voir `docs/audit_2026-07/CONSOLIDATED.md` + `DECISIONS.md`) :
 - C3.a in_lib `GET /sets/{id}` : fixe en **AU1** (M1/A1-03) — la tache ci-dessous devient une simple verification.
@@ -851,8 +851,8 @@ Fermer l'application et garantir l'etancheite entre users. Regroupe le reliquat 
 L'audit invalide le "normalement deja traite" : le middleware laisse public tout GET sur catalog/artists/sets/genres/search/taxonomy.
 
 - [ ] Basculer les GET publics en auth obligatoire (`get_current_user_optional` -> `get_current_user`), exemptions restantes : `/api/auth/*`, `/api/health`, `/api/watchlist/active` (a securiser autrement : token interne ou appel direct DB par le worker)
-- [ ] **Filtrer `scope=private` d'autrui sur tous les endpoints catalog** (browse, detail, search, stats genres) : bloquant, sans ca la politique de scope est violee des le browse
-- [ ] `GET /api/sets/{id}` : filtre `user_id` sur le check in_lib (`sets.py:281`)
+- [x] **Filtrer `scope=private` d'autrui sur tous les endpoints catalog** (browse, detail, search, stats genres) : bloquant, sans ca la politique de scope est violee des le browse — FAIT (2026-07-12, commit 314763b : helper `catalog_visible()`, etendu a similarite/radar-trends/watchlist/collections)
+- [x] `GET /api/sets/{id}` : filtre `user_id` sur le check in_lib (`sets.py:281`) — FAIT en AU1 (verifie 2026-07-12)
 - [ ] `/storage/*` : proteger les artworks (auth au niveau Nginx via `auth_request` vers l'API, ou URLs signees MinIO) : IDs sequentiels enumerables aujourd'hui
 - [ ] Supprimer le guest cap (plus de visiteurs = plus besoin de cap)
 
