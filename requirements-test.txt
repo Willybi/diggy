@@ -12,7 +12,6 @@ fastapi
 sqlalchemy[asyncio]
 boto3
 python-jose[cryptography]
-bcrypt
 python-multipart
 pydantic[email]
 slowapi

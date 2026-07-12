@@ -44,18 +44,6 @@ class TestGetRealIp:
 
 
 class TestRateLimitConfig:
-    def test_login_rate_limit_defined(self):
-        assert "/api/auth/login" in RATE_LIMITS
-        max_req, window = RATE_LIMITS["/api/auth/login"]
-        assert max_req == 5
-        assert window == 60
-
-    def test_register_rate_limit_defined(self):
-        assert "/api/auth/register" in RATE_LIMITS
-        max_req, window = RATE_LIMITS["/api/auth/register"]
-        assert max_req == 3
-        assert window == 60
-
     def test_google_callback_rate_limit_defined(self):
         assert "/api/auth/google/callback" in RATE_LIMITS
         max_req, window = RATE_LIMITS["/api/auth/google/callback"]

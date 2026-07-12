@@ -16,8 +16,6 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 # path prefix -> (max_requests, window_seconds)
 RATE_LIMITS = {
-    "/api/auth/login": (5, 60),
-    "/api/auth/register": (3, 60),
     "/api/auth/google/callback": (5, 60),
     # Stricter than /api/search (external API calls). MUST precede /api/search:
     # matching is `path.startswith(prefix)`, first insertion-order match wins.
