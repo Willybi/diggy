@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-11 (C6.b + C6.c TERMINES — re-crawl des sets incomplets + suivi d'artistes v1, deployes et verifies. Reste C6.e ; C6.d reporte)
+> **Derniere mise a jour** : 2026-07-12 (C6.e TERMINE — playlists auto-follow, crawl universel + cadence adaptative, deploye et verifie. C6 CLOS ; C6.d reporte)
 
 ---
 
@@ -40,7 +40,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C2   Moteur de Similarite (absorbe F3)     MOYEN       7-10 jours   TERMINE (graphe D3 reporte)
  H0   Hygiene & Solidification              MOYEN       2 jours      TERMINE
  P1   Polish & Correctifs UI               MOYEN       1-2 jours    TERMINE
- C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   EN COURS (C6.0/C6.1/C6.a/C6.b/C6.c TERMINES, reste C6.e)
+ C6   Veille elargie & Suivi artistes       HAUT        7-10 jours   TERMINE (2026-07-12, C6.d reporte)
  AU1  Quick Wins audit                      HAUT        1-2 jours    TERMINE (2026-07-09)
  AU2  Sauvegardes & deploiement             HAUT        1-2 jours    TERMINE (2026-07-10)
  AU3  Integrite donnees (migration 0031)    HAUT        1-2 jours    TERMINE (2026-07-10)
@@ -88,6 +88,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU5  Couche service backend            TERMINE
  AU6  Dette frontend                    TERMINE
  AU8  Hygiene repo & documentation      TERMINE
+ C6   Veille elargie & Suivi artistes   TERMINE (C6.d Soundcloud reporte)
 ```
 
 ### Dependances
@@ -102,7 +103,7 @@ H0 ─────────> C3 (hygiene secu/infra avant ouverture)         
 P1 ─────────> Rien (parallelisable avec tout)                      ✅ TERMINE
 
 --- actif ---
-C6 (veille) ┬ C6.0 dedup prerequis avant C6.a crawl massif
+C6 (veille) ┬ C6.0 dedup prerequis avant C6.a crawl massif              ✅ TERMINE
              ├ parallele avec F5
              └ avant C3 idealement (plus de donnees = meilleure XP nouveaux users)
 F5 ─────────> Rien (parallelisable avec tout)
@@ -145,7 +146,7 @@ N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 **Priorite : HAUT**
 **Estimation : 7-10 jours**
 **Depend de : C1 (TERMINE). Parallelisable avec C2.**
-**Statut : EN COURS — C6.0 + C6.1 + C6.a TERMINES (2026-07-07 / 2026-07-08) ; C6.b + C6.c TERMINES (2026-07-11, commit e976e0d, deployes et verifies). Reste C6.e ; C6.d reporte apres validation de C6.c**
+**Statut : TERMINE (2026-07-12) — C6.0 + C6.1 + C6.a (2026-07-07 / 2026-07-08) ; C6.b + C6.c (2026-07-11, commit e976e0d) ; C6.e (2026-07-12, commit a65b9f3, deploye et verifie — premier run du crawl universel le 2026-07-12 a 03:00, a controler dans les crawl-logs). Seul reliquat : C6.d (Soundcloud), reporte**
 **Renvois audit 2026-07** : rattaches a ce chantier (arbitrage Q8) — A1-10 (deplacer la logique attach/detach de `routers/admin.py` vers `set_dedup_service`), A1-11 (garde `is_virtual` avant suppression du parent dans `detach_set`), A2-12 (N+1 dans `match_set`, opportuniste). Voir `docs/audit_2026-07/CONSOLIDATED.md`.
 
 ### Objectif
@@ -199,7 +200,7 @@ Avantages : un seul set dans le scoring, on garde les deux sources, on peut **me
 
 Taches :
 - [x] Normalisation titre : fonction `normalize_set_title()` (strip tags source, lowercase, trim, retirer "Official", "Full Set", etc.)
-- [ ] Migration : table `set_sources` (set_id, source, external_url, trackid_id, created_at)
+- [x] ~~Migration : table `set_sources` (set_id, source, external_url, trackid_id, created_at)~~ — ABANDONNEE : le rattachement multi-source passe par `parent_set_id` + `is_virtual` (C6.1)
 - [x] Migration : colonne `parent_set_id` (nullable FK vers `sets.id`) + `group_id` (nullable) sur `sets`
 - [x] Logique de detection de doublons a l'import (avant insertion)
 - [x] Merge tracklists entre sources d'un meme set (union ordonnee)
@@ -318,7 +319,7 @@ Feature user-facing : "suivre" un artiste = surveillance active de son activite.
 - [x] Bouton "Suivre" sur ArtistDetailView (distinct du like)
 - [x] Task Celery Beat : `check_followed_artists`, quotidien, batch sur tous les artistes suivis par au moins 1 user
 - [x] Check Deezer releases : comparer derniere release connue vs API, creer `artist_activity` si nouveau
-- [x] Check TrackID.net : rechercher sets recents contenant l'artiste, croiser avec sets deja importes
+- [x] Check TrackID.net : rechercher sets recents contenant l'artiste, croiser avec sets deja importes — realise en DB pure (sets deja importes des dernieres 48h), pas de recherche TrackID active (ecart assume)
 - [x] Surface frontend : section "Nouveautes de tes artistes" (vue dediee ou shelf sur le Hub)
 - [x] Badge/notification : indicateur de nouvelles activites non vues
 
@@ -344,9 +345,9 @@ Extensions futures possibles (non planifiees) :
 
 Toute playlist en base devrait etre surveillee a intervalle regulier, pas seulement les 29 "watched".
 
-- [ ] Supprimer la distinction rigide watched/non-watched : toute playlist connue = crawl periodique
-- [ ] Cadence adaptative (meme principe que C6.b : frequente au debut, decroissante si stable)
-- [ ] Ou a minima : elargir les criteres d'ajout automatique de playlists a surveiller
+- [x] Supprimer la distinction rigide watched/non-watched : toute playlist connue = crawl periodique
+- [x] Cadence adaptative (meme principe que C6.b : frequente au debut, decroissante si stable)
+- [ ] Ou a minima : elargir les criteres d'ajout automatique de playlists a surveiller — SANS OBJET (option complete retenue)
 
 ### Risques identifies
 
