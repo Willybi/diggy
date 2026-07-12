@@ -78,4 +78,9 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
                 entry.has_artwork = True
                 changed = True
 
+    # Promote private → shared when Beatport confirms the track exists
+    if changed and getattr(entry, "scope", None) == "private" and entry.beatport_id:
+        entry.scope = "shared"
+        entry.owner_id = None
+
     return changed

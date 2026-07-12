@@ -1,16 +1,23 @@
 """
 One-shot catch-up script: promotes to 'shared' the private tracks
-already confirmed by Deezer.
+already confirmed by an official source (Deezer or Beatport).
 
 Replays in the database the private → shared promotion that was lost in the
-async enrichment pipeline (A3-01). Any track whose scope is still 'private'
-while carrying a valid deezer_id should have been promoted.
+async enrichment pipeline (A3-01, then Lot A for Beatport). Any track whose
+scope is still 'private' while carrying a valid deezer_id OR a beatport_id
+should have been promoted — a match on either platform confirms the track
+exists on an official source.
 
     UPDATE catalog
        SET scope = 'shared', owner_id = NULL
      WHERE scope = 'private'
-       AND deezer_id IS NOT NULL
-       AND deezer_id != 'NOT_FOUND'
+       AND (
+             (deezer_id IS NOT NULL AND deezer_id != 'NOT_FOUND')
+          OR beatport_id IS NOT NULL
+       )
+
+Note: catalog.beatport_id has no 'NOT_FOUND' sentinel (that sentinel lives on
+artists.deezer_id), so a non-NULL beatport_id always means a confirmed match.
 
 Run ONCE on prod, after the enrichment fix has been deployed.
 Not idempotency-critical: the WHERE only targets rows still 'private',
@@ -34,8 +41,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 _WHERE = (
     "scope = 'private' "
-    "AND deezer_id IS NOT NULL "
-    "AND deezer_id != 'NOT_FOUND'"
+    "AND ("
+    "(deezer_id IS NOT NULL AND deezer_id != 'NOT_FOUND') "
+    "OR beatport_id IS NOT NULL"
+    ")"
 )
 
 
@@ -48,7 +57,7 @@ async def main(dry_run: bool):
             count = (
                 await db.execute(text(f"SELECT COUNT(*) FROM catalog WHERE {_WHERE}"))
             ).scalar_one()
-            print(f"{count} private tracks confirmed by Deezer to promote.")
+            print(f"{count} private tracks confirmed by Deezer/Beatport to promote.")
 
             if dry_run:
                 print("--dry-run: no changes applied.")

@@ -104,6 +104,8 @@ def _make_entry(**overrides):
     entry.genres = overrides.get("genres", [])
     entry.release_date = overrides.get("release_date", None)
     entry.has_artwork = overrides.get("has_artwork", False)
+    entry.scope = overrides.get("scope", None)
+    entry.owner_id = overrides.get("owner_id", None)
     return entry
 
 
@@ -202,6 +204,47 @@ class TestEnrichFromBeatport:
         entry = _make_entry()
         enrich_from_beatport(entry, track)
         assert entry.release_date is None
+
+
+class TestPromotePrivateToShared:
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
+    def test_promotes_private_on_beatport_match(self, mock_upload):
+        entry = _make_entry(scope="private", owner_id=42)
+        changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
+
+        assert changed is True
+        assert entry.beatport_id == "19431036"
+        assert entry.scope == "shared"
+        assert entry.owner_id is None
+
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
+    def test_keeps_shared_scope(self, mock_upload):
+        entry = _make_entry(scope="shared", owner_id=7)
+        changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
+
+        assert changed is True
+        assert entry.scope == "shared"
+        assert entry.owner_id == 7  # untouched: promotion only fires for 'private'
+
+    @patch("services.image_service.ImageService.upload_from_url", return_value=False)
+    def test_no_change_keeps_private(self, mock_upload):
+        # Entry already fully matches the track → changed=False → no promotion.
+        entry = _make_entry(
+            scope="private",
+            owner_id=42,
+            beatport_id="19431036",
+            bpm=128.0, bpm_source="beatport",
+            key="1A", key_source="beatport",
+            label="mau5trap",
+            genres=["Melodic House & Techno"],
+            release_date=date(2024, 9, 13),
+            has_artwork=True,
+        )
+        changed = enrich_from_beatport(entry, SAMPLE_BP_TRACK)
+
+        assert changed is False
+        assert entry.scope == "private"
+        assert entry.owner_id == 42
 
 
 # ── _normalize_track artists ──
