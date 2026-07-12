@@ -147,7 +147,7 @@ N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 **Priorite : HAUT**
 **Estimation : 7-10 jours**
 **Depend de : C1 (TERMINE). Parallelisable avec C2.**
-**Statut : TERMINE (2026-07-12) — C6.0 + C6.1 + C6.a (2026-07-07 / 2026-07-08) ; C6.b + C6.c (2026-07-11, commit e976e0d) ; C6.e (2026-07-12, commit a65b9f3, deploye et verifie — premier run du crawl universel le 2026-07-12 a 03:00, a controler dans les crawl-logs). Seul reliquat : C6.d (Soundcloud), reporte**
+**Statut : TERMINE (2026-07-12) — C6.0 + C6.1 + C6.a (2026-07-07 / 2026-07-08) ; C6.b + C6.c (2026-07-11, commit e976e0d) ; C6.e (2026-07-12, commit a65b9f3, deploye et verifie — premier run du crawl universel CONTROLE dans les crawl-logs le 2026-07-12 : SAIN, 10/10 taches success 0 erreur. 56 playlists considerees, dispatched 7 = uniquement celles reellement modifiees (court-circuit `has_changed`), skipped_cadence 2, dropped_by_cap 0 ; le "~40+ attendu" etait une surestimation ignorant `has_changed`. recrawl_incomplete_sets finalized_complete 2585 / crawled 84 ; check_followed_artists artists_checked 2 + 1 release au feed. is_initial_detection pas encore exerce (aucune dormante >30j)). Seul reliquat : C6.d (Soundcloud), reporte**
 **Renvois audit 2026-07** : rattaches a ce chantier (arbitrage Q8) — A1-10 (deplacer la logique attach/detach de `routers/admin.py` vers `set_dedup_service`), A1-11 (garde `is_virtual` avant suppression du parent dans `detach_set`), A2-12 (N+1 dans `match_set`, opportuniste). Voir `docs/audit_2026-07/CONSOLIDATED.md`.
 
 ### Objectif
