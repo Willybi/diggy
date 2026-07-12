@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-12 (C3.b — etancheite import multi-user livree : `catalog_visible()` gagne une clause `user_track`, l'importeur voit un track en collision avec le prive d'un autre user via son propre user_track SANS promouvoir ni muter la ligne d'autrui ; design « promotion a la collision » REJETE en review (fuite cross-user). C3.a fermeture GET + guest cap ECARTEES, /storage DIFFERE = decisions produit. Test e2e multi-user reel VERIFIE en prod (import compte B user 7, ligne d'autrui 7402 intacte, 0 fuite) : reliquat technique C3 CLOS ; declenchement de l'ouverture = decision William)
+> **Derniere mise a jour** : 2026-07-13 (N1.a — residus de l'ancien flow auth email/password purges : entrees RATE_LIMITS mortes /api/auth/login + /api/auth/register retirees, 2 tests obsoletes supprimes, dependance de test bcrypt retiree ; le coeur de N1.a etait deja solde par F3/migration 0024 — colonne hashed_password droppee, routes login/register absentes de auth.py. N1 TERMINE. Deploye 4ccb916, /deploy_verify SAIN)
 
 ---
 
@@ -55,7 +55,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
- N1   Nettoyage residus                     BAS         1 jour       A FAIRE (partiel : N1.b fait, reste N1.a)
+ N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
 ```
 
 ### Chantiers termines (reference)
@@ -90,6 +90,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU8  Hygiene repo & documentation      TERMINE
  C6   Veille elargie & Suivi artistes   TERMINE (C6.d Soundcloud reporte)
  F5   Import manuel (recherche externe) TERMINE (2026-07-12)
+ N1   Nettoyage residus                 TERMINE (2026-07-13)
 ```
 
 ### Dependances
@@ -986,7 +987,7 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 **Priorite : BAS**
 **Estimation : 1 jour**
 **Depend de : rien (parallelisable avec tout)**
-**Statut : A FAIRE (partiel — N1.b execute via AU1 le 2026-07-09 ; reste N1.a residus auth email/password)**
+**Statut : TERMINE (2026-07-13) — N1.b (TagsView) execute via AU1 le 2026-07-09 ; N1.a purge des residus de l'ancien flow auth email/password (deploye 4ccb916, /deploy_verify SAIN) : le coeur etait deja solde par F3 (routes login/register absentes de auth.py, colonne hashed_password droppee en migration 0024, aucune var d'env legacy) ; reliquat retire ce jour = 2 entrees RATE_LIMITS mortes (/api/auth/login + /api/auth/register), 2 tests obsoletes, dependance de test bcrypt**
 
 ### Objectif
 
@@ -996,10 +997,10 @@ Supprimer le code mort et les residus de fonctionnalites supprimees. Reduction d
 
 L'auth est Google OAuth only depuis F3, mais des restes de l'ancien login email/password subsistent probablement :
 
-- [ ] Routes mortes dans `server/api/routers/auth.py` (login/register email/password)
-- [ ] Variables d'env avec defaults liees a l'ancien flow
-- [ ] Colonne `hashed_password` eventuelle sur `users` (verifier `models.py`, prevoir migration de drop si elle existe)
-- [ ] Tests obsoletes couvrant l'ancien flow
+- [x] Routes mortes dans `server/api/routers/auth.py` (login/register email/password) — DEJA solde par F3 : `auth.py` est OAuth-only (login/callback/me), aucune route login/register
+- [x] Variables d'env avec defaults liees a l'ancien flow — SANS OBJET : aucune var d'env legacy (SECRET_KEY -> JWT_SECRET deja fait en AU1)
+- [x] Colonne `hashed_password` eventuelle sur `users` (verifier `models.py`, prevoir migration de drop si elle existe) — DEJA droppee par la migration 0024 (F3) ; absente de `models/user.py`, aucune nouvelle migration
+- [x] Tests obsoletes couvrant l'ancien flow — FAIT (2026-07-13, commit 4ccb916) : reliquat reel retire = 2 entrees RATE_LIMITS mortes (/api/auth/login + /api/auth/register), leurs 2 tests obsoletes, et la dependance de test `bcrypt`
 
 ### N1.b — Suppression TagsView
 
