@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-12 (C3 EN COURS — etancheite scope prive + C3.b promotion Beatport livrees et verifiees, commits 314763b + f8b43c0 ; rattrapage prod fait ; fermeture des GET ecartee + /storage differe = decisions produit)
+> **Derniere mise a jour** : 2026-07-12 (C3.b — etancheite import multi-user livree : `catalog_visible()` gagne une clause `user_track`, l'importeur voit un track en collision avec le prive d'un autre user via son propre user_track SANS promouvoir ni muter la ligne d'autrui ; design « promotion a la collision » REJETE en review (fuite cross-user). C3.a fermeture GET + guest cap ECARTEES, /storage DIFFERE = decisions produit. Reste : test e2e reel 2e lib Rekordbox = tache humaine)
 
 ---
 
@@ -51,7 +51,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    TERMINE (2026-07-11)
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    TERMINE (2026-07-12)
- C3   Ouverture aux amis                    MOYEN       5-7 jours    EN COURS (etancheite + C3.b enrich 2026-07-12)
+ C3   Ouverture aux amis                    MOYEN       5-7 jours    EN COURS (etancheite multi-user livree 2026-07-12 ; reste test e2e humain)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
@@ -833,7 +833,7 @@ Permettre a tout utilisateur connecte d'ajouter un track au catalog via une rech
 **Estimation : 5-7 jours**
 **Depend de : C1 (TERMINE) + H0 (hygiene secu/infra) + idealement C6 (donnees)**
 **Declenchement : ta decision d'inviter, pas la roadmap**
-**Statut : EN COURS (partiel, 2026-07-12) — etancheite scope prive LIVREE et verifiee (commit 314763b, /deploy_verify SAIN) : predicat `catalog_visible()` / `catalog_visible_sql()` applique a TOUS les read-paths catalog (browse, detail, preview-url, avis, search, detail artiste, genre, similarite, radar/trends, watchlist, collections). DECISIONS PRODUIT divergeant du perimetre C3 initial : fermeture des GET publics ECARTEE (acces invite conserve — la decouverte reste ouverte) + guest cap conserve ; protection `/storage/*` DIFFEREE (documentee comme risque connu, pochettes seules, `<img>` ne porte pas de Bearer). RESIDUS assumes : comptes agreges genre/artiste + tracklist de set non filtres (non identifiants). C3.b enrichissement private CLOS (2026-07-12, commit f8b43c0, /deploy_verify SAIN) : promotion Beatport livree + rattrapage prod (4 promues, 3 faux positifs du matcher Beatport ecartes). Onboarding C3.c acte suffisant (Hub existant). RESTE : test e2e multi-user reel (2e lib Rekordbox) + verif funnel match ambigu. Declenchement de l'ouverture = decision de William.**
+**Statut : EN COURS (partiel, 2026-07-12) — etancheite scope prive LIVREE et verifiee (commit 314763b, /deploy_verify SAIN) : predicat `catalog_visible()` / `catalog_visible_sql()` applique a TOUS les read-paths catalog (browse, detail, preview-url, avis, search, detail artiste, genre, similarite, radar/trends, watchlist, collections). DECISIONS PRODUIT divergeant du perimetre C3 initial : fermeture des GET publics ECARTEE (acces invite conserve — la decouverte reste ouverte) + guest cap conserve ; protection `/storage/*` DIFFEREE (documentee comme risque connu, pochettes seules, `<img>` ne porte pas de Bearer). RESIDUS assumes : comptes agreges genre/artiste + tracklist de set non filtres (non identifiants). C3.b enrichissement private CLOS (2026-07-12, commit f8b43c0, /deploy_verify SAIN) : promotion Beatport livree + rattrapage prod (4 promues, 3 faux positifs du matcher Beatport ecartes). Onboarding C3.c acte suffisant (Hub existant). C3.b etancheite import multi-user LIVREE (2026-07-12) : sur collision `normalized_key` avec le prive d'un autre user, l'importeur est lie via `user_track` a la ligne existante et la voit par la nouvelle clause `user_track` de `catalog_visible()` — la ligne d'autrui n'est JAMAIS promue ni mutee (design « promotion a la collision » rejete en review : fuite cross-user vers invites + tous les users). Funnel match ambigu OK par construction (jamais de promotion sur collision de nom). C3.a fermeture GET + guest cap ECARTEES, /storage DIFFERE (decisions produit). RESTE : test e2e reel avec une 2e bibliotheque Rekordbox = tache humaine (compte de test sur prod/staging). Declenchement de l'ouverture = decision de William.**
 
 **Renvois audit 2026-07** (voir `docs/audit_2026-07/CONSOLIDATED.md` + `DECISIONS.md`) :
 - C3.a in_lib `GET /sets/{id}` : fixe en **AU1** (M1/A1-03) — la tache ci-dessous devient une simple verification.
@@ -850,11 +850,11 @@ Fermer l'application et garantir l'etancheite entre users. Regroupe le reliquat 
 
 L'audit invalide le "normalement deja traite" : le middleware laisse public tout GET sur catalog/artists/sets/genres/search/taxonomy.
 
-- [ ] Basculer les GET publics en auth obligatoire (`get_current_user_optional` -> `get_current_user`), exemptions restantes : `/api/auth/*`, `/api/health`, `/api/watchlist/active` (a securiser autrement : token interne ou appel direct DB par le worker)
+- [ ] ~~Basculer les GET publics en auth obligatoire~~ — ECARTEE (decision produit William, 2026-07-12) : l'acces invite reste ouvert, la decouverte reste publique ; l'etancheite est assuree par le scope (`catalog_visible`), pas par un mur d'auth
 - [x] **Filtrer `scope=private` d'autrui sur tous les endpoints catalog** (browse, detail, search, stats genres) : bloquant, sans ca la politique de scope est violee des le browse — FAIT (2026-07-12, commit 314763b : helper `catalog_visible()`, etendu a similarite/radar-trends/watchlist/collections)
 - [x] `GET /api/sets/{id}` : filtre `user_id` sur le check in_lib (`sets.py:281`) — FAIT en AU1 (verifie 2026-07-12)
-- [ ] `/storage/*` : proteger les artworks (auth au niveau Nginx via `auth_request` vers l'API, ou URLs signees MinIO) : IDs sequentiels enumerables aujourd'hui
-- [ ] Supprimer le guest cap (plus de visiteurs = plus besoin de cap)
+- [ ] `/storage/*` : proteger les artworks (auth au niveau Nginx via `auth_request` vers l'API, ou URLs signees MinIO) : IDs sequentiels enumerables aujourd'hui — DIFFERE (risque connu documente : pochettes seules, `<img>` ne porte pas de Bearer ; travail futur)
+- [ ] ~~Supprimer le guest cap~~ — ECARTEE (decision produit, 2026-07-12) : guest cap conserve, l'acces invite reste
 
 ### C3.b — Import multi-user (verification Phase 7, audit largement OK)
 
@@ -863,8 +863,9 @@ L'audit confirme : chaine user_id propre de bout en bout, lock Redis per-user, c
 Reste :
 - [x] **Corriger le perimetre d'enrichissement** : le check SQL montre 0/259 tracks private enrichies, preuve que les tasks d'enrichissement excluent `scope=private`. La mecanique de promotion existe (`deezer_enrich.py`) mais ne s'execute jamais sur les private. Inclure explicitement le scope private dans les passes d'enrichissement (tache Celery Beat dediee ou extension de `enrich_catalog`), sinon une track mal taguee ou un unreleased qui sort officiellement reste private a vie — SANS OBJET (2026-07-12) : diagnostic PERIME depuis AU4/E1. Plus aucun chemin d'enrichissement ne filtre le scope (sweep nightly `select_enrich_candidates`, inline sets/radar selectionnent sur `{source}_id IS NULL` seul) ; la promotion Deezer existait deja. Aucun code de selection a changer
 - [x] Etendre le test d'admission a Beatport (pas seulement Deezer) si pertinent — FAIT (2026-07-12, commit f8b43c0) : promotion `private -> shared` ajoutee sur match Beatport dans `enrich_from_beatport` (miroir de Deezer) + script `promote_private_shared` etendu aux deux sources ; rattrapage prod = 4 promues, 3 faux positifs neutralises (meme `beatport_id` colle a 3 bootlegs par le matcher)
-- [ ] Test reel de bout en bout : import d'une deuxieme bibliotheque Rekordbox (compte de test), verification dedup ISRC/normalized_key, scopes, non-regression sur ta lib
-- [ ] Verifier le comportement funnel en cas de match ambigu : rester private (acte : en cas de doute, on ne matche pas)
+- [x] **Etancheite import multi-user (fix emergent de la cloture C3.b, 2026-07-12)** : l'import RB liait le `user_track` de l'importeur a la ligne privee d'un AUTRE user (dedup `normalized_key` globalement UNIQUE) qui restait invisible pour lui — trou de bibliotheque. Corrige au read-layer : `catalog_visible()` / `catalog_visible_sql()` gagnent une clause `EXISTS(user_track du viewer)` ; l'importeur voit la ligne via son propre user_track, la ligne d'autrui reste `private`/`owner` INTACTE. Design alternatif « promotion a shared sur collision » REJETE en review (aurait rendu le prive d'autrui visible aux invites + tous les users sur simple collision de nom — l'inverse de l'etancheite C3). Tests : test_import_rb_scope.py + test_scope_visibility.py, suite 1114 verte
+- [ ] Test reel de bout en bout : import d'une deuxieme bibliotheque Rekordbox (compte de test), verification dedup normalized_key, scopes, non-regression sur ta lib — TACHE HUMAINE (le XML Rekordbox n'a pas d'ISRC : dedup RB = normalized_key seul ; non automatisable par agent)
+- [x] Verifier le comportement funnel en cas de match ambigu : rester private — FAIT (2026-07-12) : l'import RB dedup exact `normalized_key` uniquement (pas de fuzzy) ; une collision inter-user ne promeut ni ne mute la ligne d'autrui. « En cas de doute on ne matche pas » = jamais de promotion sur collision de nom
 
 ### C3.c — Accueil
 

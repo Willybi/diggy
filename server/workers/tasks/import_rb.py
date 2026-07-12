@@ -72,6 +72,7 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
 
         # Import tracks via sync SQLAlchemy
         from models import CatalogEntry, UserTrack
+        from services.catalog_service import resolve_import_catalog_entry
         from sqlalchemy import select
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         from sqlalchemy.orm import Session
@@ -103,10 +104,23 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
             with Session(engine) as session:
                 for t in batch:
                     norm_key = make_normalized_key(t.title or "", t.artist or "")
-                    cat_entry = session.execute(
+                    existing = session.execute(
                         select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
                     ).scalar_one_or_none()
 
+                    # Resolve which catalog row this track binds to, honouring
+                    # scope/ownership: reuse a shared row, refresh the importer's
+                    # own private row, or bind to another user's private row
+                    # WITHOUT mutating it — never promote, that would leak their
+                    # private track to guests and every other user. normalized_key
+                    # is UNIQUE, so a second private row is impossible; the
+                    # importer's blindness is fixed at the read layer instead
+                    # (catalog_visible's user_track clause), thanks to the
+                    # user_track bound in phase 2 below. Shared with the test suite
+                    # via services.catalog_service.resolve_import_catalog_entry.
+                    cat_entry = resolve_import_catalog_entry(
+                        existing, user_id, t.title, t.artist
+                    )
                     if cat_entry is None:
                         cat_entry = CatalogEntry(
                             title=t.title or "",
@@ -118,9 +132,6 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                         )
                         session.add(cat_entry)
                         session.flush()
-                    elif cat_entry.scope == "private":
-                        cat_entry.title = t.title or cat_entry.title
-                        cat_entry.artist = t.artist or cat_entry.artist
 
                     catalog_ids[norm_key] = cat_entry.id
 

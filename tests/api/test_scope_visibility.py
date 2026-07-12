@@ -5,7 +5,7 @@ visible only to its owner: never to guests, never to other authenticated users.
 ``shared`` rows stay visible to everyone.
 """
 import pytest
-from models import CatalogEntry, User
+from models import CatalogEntry, User, UserTrack
 from services import catalog_service, search_service
 
 
@@ -35,6 +35,13 @@ async def _mk_entry(db, title, artist, scope="shared", owner_id=None) -> Catalog
     await db.commit()
     await db.refresh(c)
     return c
+
+
+async def _mk_user_track(db, user_id, catalog_id) -> UserTrack:
+    ut = UserTrack(user_id=user_id, catalog_id=catalog_id, source="rekordbox_import")
+    db.add(ut)
+    await db.commit()
+    return ut
 
 
 async def _list_titles(db, user_id):
@@ -150,3 +157,61 @@ class TestSearchScope:
         titles = await self._search_titles(db, owner.id, is_guest=False)
         assert "Track Shared" in titles
         assert "Track Private" in titles
+
+
+class TestUserTrackVisibility:
+    """A viewer sees a private row they hold a ``user_track`` for, even when they
+    are neither its owner nor is it shared (Rekordbox import collision, C3.b L1).
+    Guests and third parties without a user_track stay blind to it."""
+
+    async def test_user_track_holder_sees_foreign_private(self, db):
+        owner = await _mk_user(db, "owner@test.com")
+        holder = await _mk_user(db, "holder@test.com")
+        third = await _mk_user(db, "third@test.com")
+        priv = await _mk_entry(db, "Held Private", "X", scope="private", owner_id=owner.id)
+        await _mk_user_track(db, holder.id, priv.id)
+
+        # Owner sees it (owner_id); the user_track holder sees it (user_track clause).
+        assert "Held Private" in await _list_titles(db, owner.id)
+        assert "Held Private" in await _list_titles(db, holder.id)
+        # A guest and a third user (neither owner nor user_track holder) do not.
+        assert "Held Private" not in await _list_titles(db, None)
+        assert "Held Private" not in await _list_titles(db, third.id)
+
+    async def test_owner_still_sees_own_private_without_user_track(self, db):
+        # The user_track clause is additive: an owner with no user_track still sees
+        # their private row via owner_id — no regression on the owner path.
+        owner = await _mk_user(db, "owner@test.com")
+        await _mk_entry(db, "Owned No UT", "Y", scope="private", owner_id=owner.id)
+        assert "Owned No UT" in await _list_titles(db, owner.id)
+        assert "Owned No UT" not in await _list_titles(db, None)
+
+
+class TestCatalogVisibleSqlTwin:
+    """Lock the raw-SQL twin ``catalog_visible_sql`` against the ORM twin: its 6
+    call sites are Postgres-only (unnest/LATERAL/ARRAY_AGG) and never run on the
+    SQLite harness, so a silent divergence (dropped EXISTS, mistyped ``utv``
+    columns, broken OR grouping, or a guest-branch leak) would otherwise pass the
+    whole suite green. These dialect-free string assertions catch that."""
+
+    def test_auth_fragment_carries_user_track_exists(self):
+        frag = catalog_service.catalog_visible_sql(7)
+        assert "c.scope = 'shared'" in frag
+        assert "c.owner_id = :viewer_id" in frag
+        assert "EXISTS (SELECT 1 FROM user_tracks utv" in frag
+        assert "utv.catalog_id = c.id" in frag
+        assert "utv.user_id = :viewer_id" in frag
+
+    def test_auth_fragment_honours_alias(self):
+        frag = catalog_service.catalog_visible_sql(7, alias="catalog")
+        assert "catalog.scope = 'shared'" in frag
+        assert "catalog.owner_id = :viewer_id" in frag
+        assert "utv.catalog_id = catalog.id" in frag
+
+    def test_guest_fragment_is_shared_only(self):
+        # A guest holds no user_track, so the guest branch must never gain the
+        # clause nor reference :viewer_id.
+        frag = catalog_service.catalog_visible_sql(None)
+        assert frag == "c.scope = 'shared'"
+        assert "user_tracks" not in frag
+        assert ":viewer_id" not in frag

@@ -25,27 +25,95 @@ def catalog_visible(user_id: int | None):
     """SQLAlchemy predicate limiting catalog rows to those visible to a viewer.
 
     A guest (``user_id is None``) sees only shared rows. An authenticated user
-    sees shared rows plus their own private rows. We branch explicitly on
+    sees shared rows, their own private rows, plus any row they hold a
+    ``user_track`` for (their imported library). We branch explicitly on
     ``user_id is None`` rather than matching ``owner_id IS NULL`` for guests, so a
     private row mistagged with a NULL owner never leaks.
+
+    The ``user_track`` clause is what un-blinds a Rekordbox importer whose track,
+    deduped on the globally-UNIQUE ``normalized_key``, already points at another
+    user's private row: the importer sees it through their own ``user_track``
+    without that foreign row ever being mutated or promoted.
     """
-    from models import CatalogEntry
+    from models import CatalogEntry, UserTrack
     from sqlalchemy import or_
 
     if user_id is None:
         return CatalogEntry.scope == "shared"
-    return or_(CatalogEntry.scope == "shared", CatalogEntry.owner_id == user_id)
+    return or_(
+        CatalogEntry.scope == "shared",
+        CatalogEntry.owner_id == user_id,
+        select(UserTrack.user_id)
+        .where(
+            UserTrack.catalog_id == CatalogEntry.id,
+            UserTrack.user_id == user_id,
+        )
+        .exists(),
+    )
 
 
 def catalog_visible_sql(user_id: int | None, alias: str = "c") -> str:
     """Raw-SQL twin of :func:`catalog_visible` for ``text()`` queries.
 
     Returns a boolean SQL fragment scoping the catalog rows of table ``alias``.
-    When ``user_id`` is not None the caller must bind ``:viewer_id`` to it.
+    When ``user_id`` is not None the caller must bind ``:viewer_id`` to it — the
+    same bind is reused by the ``user_track`` EXISTS clause, so no extra parameter
+    is introduced. The subquery's internal alias ``utv`` is chosen to avoid any
+    collision with the catalog aliases used at the call sites (``c`` / ``catalog``).
     """
     if user_id is None:
         return f"{alias}.scope = 'shared'"
-    return f"({alias}.scope = 'shared' OR {alias}.owner_id = :viewer_id)"
+    return (
+        f"({alias}.scope = 'shared' OR {alias}.owner_id = :viewer_id"
+        f" OR EXISTS (SELECT 1 FROM user_tracks utv"
+        f" WHERE utv.catalog_id = {alias}.id AND utv.user_id = :viewer_id))"
+    )
+
+
+def resolve_import_catalog_entry(existing, user_id: int, title, artist):
+    """Bind an incoming Rekordbox track to a catalog row, honouring scope.
+
+    ``existing`` is the row matched on ``normalized_key`` (globally UNIQUE, so at
+    most one) or ``None``. Returns the row the importer's ``user_track`` should
+    point at — or ``None`` when the caller must create a fresh ``private`` row
+    owned by ``user_id``. Kept free of any session so the sync import worker and
+    the async test suite share one decision.
+
+    Rules:
+
+    * no match           -> ``None`` (caller creates a private row, owner = importer)
+    * ``shared`` match     -> reuse as-is; a shared canonical row is never mutated
+      by an import
+    * own ``private``      -> reuse and refresh its title/artist
+    * foreign ``private``  -> reuse as-is, WITHOUT any mutation
+
+    ``normalized_key`` is globally UNIQUE, so two users cannot each hold a private
+    row for the same track: we cannot "separate" the importer onto a second
+    private row. We also never mutate another user's row — not scope, not
+    ``owner_id``, not title/artist: promoting it would leak A's private track to
+    guests and every other user. The importer's blindness is fixed at the read
+    layer instead — :func:`catalog_visible` grants sight of any row the viewer
+    holds a ``user_track`` for, so the importer sees the track through their own
+    ``user_track`` while the row stays ``private`` and owned by A. This honours
+    "err toward separation": the foreign row is left completely untouched.
+    """
+    if existing is None:
+        return None
+
+    if existing.scope == "shared":
+        return existing  # shared canonical row: never mutated by an import
+
+    # existing.scope == "private"
+    if existing.owner_id != user_id:
+        # Another user's private row. Never mutate it (no promotion, no field
+        # write) — that would leak their track. The importer sees it through
+        # their own user_track via catalog_visible's user_track clause.
+        return existing
+
+    # The importer's own private row: refresh its title/artist.
+    existing.title = title or existing.title
+    existing.artist = artist or existing.artist
+    return existing
 
 
 async def list_catalog(
