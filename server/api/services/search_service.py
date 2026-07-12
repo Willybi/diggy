@@ -21,6 +21,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import like_escape
 
+from services.catalog_service import catalog_visible
 from services.genre_service import ensure_pillar_cache, genre_pillar
 
 GUEST_CAP = 6
@@ -70,6 +71,7 @@ async def _search_tracks(
             CatalogEntry.title.ilike(pattern, escape="\\")
             | CatalogEntry.artist.ilike(pattern, escape="\\")
         )
+        .where(catalog_visible(user_id))
         .order_by(CatalogEntry.title, CatalogEntry.id)
     )
 

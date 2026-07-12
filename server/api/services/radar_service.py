@@ -37,6 +37,8 @@ async def list_full(
     )
     from schemas import ArtistRef, RadarFullList, RadarFullOut
 
+    from services.catalog_service import catalog_visible
+
     _STATUS_ALIAS = {"liked": "added", "disliked": "ignored"}
 
     urs = aliased(UserRadarState)
@@ -99,7 +101,7 @@ async def list_full(
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
         .outerjoin(urs, and_(urs.user_id == user_id, urs.catalog_id == CatalogEntry.id))
         .outerjoin(rt, rt.catalog_id == CatalogEntry.id)
-        .where(RadarTrack.catalog_id.isnot(None))
+        .where(RadarTrack.catalog_id.isnot(None), catalog_visible(user_id))
         .group_by(
             CatalogEntry.id, urs.status, rt.trend_score,
             rt.rank_global, rt.family, rt.rank_in_family, rt.velocity, rt.source_count,
@@ -135,7 +137,7 @@ async def list_full(
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
         .outerjoin(urs, and_(urs.user_id == user_id, urs.catalog_id == CatalogEntry.id))
-        .where(RadarTrack.catalog_id.isnot(None))
+        .where(RadarTrack.catalog_id.isnot(None), catalog_visible(user_id))
         .group_by("st")
     )
     counts_result = await db.execute(counts_base)
@@ -189,6 +191,8 @@ async def list_full(
 async def new_count(db: AsyncSession, user_id: int) -> dict:
     from models import CatalogEntry, RadarTrack, UserRadarState
 
+    from services.catalog_service import catalog_visible
+
     urs = aliased(UserRadarState)
     q = (
         select(func.count(func.distinct(RadarTrack.catalog_id)))
@@ -200,6 +204,7 @@ async def new_count(db: AsyncSession, user_id: int) -> dict:
         .where(
             RadarTrack.catalog_id.isnot(None),
             func.coalesce(urs.status, literal("new")) == "new",
+            catalog_visible(user_id),
         )
     )
     count = (await db.execute(q)).scalar() or 0

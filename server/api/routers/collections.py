@@ -11,6 +11,7 @@ from schemas import (
     CollectionItemOut,
     CollectionOut,
 )
+from services.catalog_service import catalog_visible
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,7 +86,7 @@ async def get_collection(
             CatalogEntry.has_preview,
         )
         .join(CatalogEntry, CollectionItem.catalog_id == CatalogEntry.id)
-        .where(CollectionItem.collection_id == collection_id)
+        .where(CollectionItem.collection_id == collection_id, catalog_visible(user.id))
         .order_by(CollectionItem.position)
     )
     result = await db.execute(items_q)
@@ -112,9 +113,11 @@ async def add_item(
 ):
     await _get_user_collection(db, collection_id, user.id)
 
-    # Check catalog entry exists
+    # Check catalog entry exists and is visible to this user
     cat = await db.execute(
-        select(CatalogEntry).where(CatalogEntry.id == body.catalog_id)
+        select(CatalogEntry).where(
+            CatalogEntry.id == body.catalog_id, catalog_visible(user.id)
+        )
     )
     if not cat.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Catalog entry not found")

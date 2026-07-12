@@ -134,10 +134,14 @@ async def get_catalog_detail(
 
 
 @router.get("/{catalog_id}/preview-url", response_model=PreviewUrlResponse)
-async def get_preview_url(catalog_id: int, db: AsyncSession = Depends(get_db)):
+async def get_preview_url(
+    catalog_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     """Retourne une preview URL fraîche depuis l'API Deezer."""
     try:
-        return await catalog_service.get_preview_url(db, catalog_id)
+        return await catalog_service.get_preview_url(db, catalog_id, _uid(user))
     except LookupError as e:
         raise HTTPException(404, str(e))
 

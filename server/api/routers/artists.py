@@ -40,10 +40,11 @@ async def random_artist_track(
     artist_id: int = Query(...),
     exclude: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     """Return a random previewable catalog entry for the given artist."""
     try:
-        return await artist_service.random_track(db, artist_id, exclude)
+        return await artist_service.random_track(db, artist_id, exclude, _uid(user))
     except LookupError as e:
         raise HTTPException(404, str(e))
 

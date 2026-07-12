@@ -11,6 +11,7 @@ from sqlalchemy import Float, Numeric, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from services.catalog_service import catalog_visible, catalog_visible_sql
 from services.genre_service import (
     ALL_PILLARS,
     ensure_pillar_cache,
@@ -180,7 +181,7 @@ async def list_artists(
     if page_ids:
         try:
             aw_result = await db.execute(
-                text("""
+                text(f"""
                 WITH matched AS (
                     SELECT ca.artist_id, c.id AS catalog_id,
                            ROW_NUMBER() OVER (PARTITION BY ca.artist_id ORDER BY c.id DESC) AS rn
@@ -188,6 +189,7 @@ async def list_artists(
                     JOIN catalog c ON c.id = ca.catalog_id
                     WHERE ca.artist_id = ANY(:ids)
                       AND c.has_artwork = true
+                      AND {catalog_visible_sql(user_id)}
                 )
                 SELECT artist_id,
                        COUNT(*)::int AS total_with_artwork,
@@ -195,7 +197,10 @@ async def list_artists(
                 FROM matched
                 GROUP BY artist_id
             """),
-                {"ids": page_ids},
+                {
+                    "ids": page_ids,
+                    **({"viewer_id": user_id} if user_id is not None else {}),
+                },
             )
             for r in aw_result.fetchall():
                 artwork_count_map[r.artist_id] = r.total_with_artwork
@@ -278,17 +283,18 @@ async def get_detail(
         )
         .join(CatalogArtist, CatalogArtist.catalog_id == CatalogEntry.id)
         .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
-        .where(CatalogArtist.artist_id == artist_id)
+        .where(CatalogArtist.artist_id == artist_id, catalog_visible(user_id))
         .order_by(lib_sub.c.rating.desc().nulls_last(), CatalogEntry.title)
         .limit(200)
     )
     cat_rows = cat_result.all()
 
-    # True total count (may exceed limit)
+    # True total count (may exceed limit) — scoped to visible rows for consistency
     total_count_result = await db.execute(
         select(func.count())
         .select_from(CatalogArtist)
-        .where(CatalogArtist.artist_id == artist_id)
+        .join(CatalogEntry, CatalogEntry.id == CatalogArtist.catalog_id)
+        .where(CatalogArtist.artist_id == artist_id, catalog_visible(user_id))
     )
     nb_catalog_total = total_count_result.scalar() or len(cat_rows)
 
@@ -410,13 +416,16 @@ async def get_detail(
     )
 
 
-async def random_track(db: AsyncSession, artist_id: int, exclude_id: int | None) -> dict:
+async def random_track(
+    db: AsyncSession, artist_id: int, exclude_id: int | None, user_id: int | None = None
+) -> dict:
     result = await db.execute(
-        text("""
+        text(f"""
         SELECT c.id, c.title, c.artist, c.bpm, c.key FROM catalog c
         JOIN catalog_artists ca ON ca.catalog_id = c.id
         WHERE ca.artist_id = :artist_id
           AND c.has_preview = true
+          AND {catalog_visible_sql(user_id)}
           AND (:has_exclude = false OR c.id != :exclude_id)
         ORDER BY random()
         LIMIT 1
@@ -425,6 +434,7 @@ async def random_track(db: AsyncSession, artist_id: int, exclude_id: int | None)
             "artist_id": artist_id,
             "has_exclude": exclude_id is not None,
             "exclude_id": exclude_id or 0,
+            **({"viewer_id": user_id} if user_id is not None else {}),
         },
     )
     row = result.fetchone()

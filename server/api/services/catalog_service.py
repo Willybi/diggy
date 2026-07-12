@@ -21,6 +21,33 @@ logger = logging.getLogger(__name__)
 DEEZER_API = "https://api.deezer.com"
 
 
+def catalog_visible(user_id: int | None):
+    """SQLAlchemy predicate limiting catalog rows to those visible to a viewer.
+
+    A guest (``user_id is None``) sees only shared rows. An authenticated user
+    sees shared rows plus their own private rows. We branch explicitly on
+    ``user_id is None`` rather than matching ``owner_id IS NULL`` for guests, so a
+    private row mistagged with a NULL owner never leaks.
+    """
+    from models import CatalogEntry
+    from sqlalchemy import or_
+
+    if user_id is None:
+        return CatalogEntry.scope == "shared"
+    return or_(CatalogEntry.scope == "shared", CatalogEntry.owner_id == user_id)
+
+
+def catalog_visible_sql(user_id: int | None, alias: str = "c") -> str:
+    """Raw-SQL twin of :func:`catalog_visible` for ``text()`` queries.
+
+    Returns a boolean SQL fragment scoping the catalog rows of table ``alias``.
+    When ``user_id`` is not None the caller must bind ``:viewer_id`` to it.
+    """
+    if user_id is None:
+        return f"{alias}.scope = 'shared'"
+    return f"({alias}.scope = 'shared' OR {alias}.owner_id = :viewer_id)"
+
+
 async def list_catalog(
     db: AsyncSession,
     user_id: int | None,
@@ -162,6 +189,7 @@ async def list_catalog(
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
         .outerjoin(uo_sub, uo_sub.c.entity_key == cast(CatalogEntry.id, String))
         .outerjoin(trend_sub, CatalogEntry.id == trend_sub.c.catalog_id)
+        .where(catalog_visible(user_id))
     )
 
     if is_radar:
@@ -359,7 +387,11 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
         SetAppearanceOut,
     )
 
-    result = await db.execute(select(CatalogEntry).where(CatalogEntry.id == catalog_id))
+    result = await db.execute(
+        select(CatalogEntry).where(
+            CatalogEntry.id == catalog_id, catalog_visible(user_id)
+        )
+    )
     entry = result.scalar_one_or_none()
     if not entry:
         raise LookupError("Catalog entry not found")
@@ -479,6 +511,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
             )
             .outerjoin(sa_ut_sub, CatalogEntry.id == sa_ut_sub.c.catalog_id)
             .where(CatalogEntry.id.in_(select(shared_catalog_ids.c.catalog_id)))
+            .where(catalog_visible(user_id))
             .order_by(sa_ut_sub.c.rating.desc().nulls_last())
             .limit(10)
         )
@@ -557,8 +590,17 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
     )
 
 
-async def get_preview_url(db: AsyncSession, catalog_id: int) -> dict:
+async def get_preview_url(db: AsyncSession, catalog_id: int, user_id: int | None) -> dict:
     from models import CatalogEntry, RadarTrack
+
+    # Visibility guard: a private entry owned by someone else is "not found".
+    vis = await db.execute(
+        select(CatalogEntry.id).where(
+            CatalogEntry.id == catalog_id, catalog_visible(user_id)
+        )
+    )
+    if not vis.scalar_one_or_none():
+        raise LookupError("Catalog entry not found")
 
     r = await db.execute(
         select(RadarTrack.external_track_id)
@@ -597,9 +639,11 @@ async def update_avis(
 
     from services.opinion_sync import sync_track_opinion
 
-    # Verify catalog entry exists
+    # Verify catalog entry exists and is visible to this user
     cat = await db.execute(
-        select(CatalogEntry.id).where(CatalogEntry.id == catalog_id)
+        select(CatalogEntry.id).where(
+            CatalogEntry.id == catalog_id, catalog_visible(user_id)
+        )
     )
     if not cat.scalar_one_or_none():
         raise LookupError("Catalog entry not found")

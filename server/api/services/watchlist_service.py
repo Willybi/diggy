@@ -118,6 +118,8 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
     from models import CatalogEntry, RadarTrack, UserFollow, WatchedEntity
     from schemas import PlaylistTrackOut, WatchedEntityDetailOut
 
+    from services.catalog_service import catalog_visible
+
     result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
     entity = result.scalar_one_or_none()
     if not entity:
@@ -148,7 +150,9 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
         .select_from(RadarTrack)
         .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
         .where(
-            RadarTrack.watched_entity_id == entry_id, RadarTrack.catalog_id.isnot(None)
+            RadarTrack.watched_entity_id == entry_id,
+            RadarTrack.catalog_id.isnot(None),
+            catalog_visible(user_id),
         )
         .group_by(CatalogEntry.id)
         .order_by(func.max(RadarTrack.detected_at).desc())

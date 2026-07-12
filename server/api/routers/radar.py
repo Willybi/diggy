@@ -2,7 +2,8 @@ from datetime import datetime
 from typing import Literal
 
 from database import get_db
-from dependencies import get_current_user, require_admin
+from dependencies import get_current_user, get_current_user_optional, require_admin
+from dependencies import uid as _uid
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from models import CatalogEntry, RadarTrack, RadarTrend, User
 from schemas import (
@@ -32,7 +33,10 @@ async def list_trends(
     family: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
+    from services.catalog_service import catalog_visible
+
     # Family counts
     count_q = (
         select(RadarTrend.family, func.count())
@@ -58,6 +62,7 @@ async def list_trends(
             CatalogEntry.key,
         )
         .join(CatalogEntry, CatalogEntry.id == RadarTrend.catalog_id)
+        .where(catalog_visible(_uid(user)))
     )
     if family:
         q = q.where(RadarTrend.family == family)

@@ -191,16 +191,22 @@ async def list_genres(
 
     artworks_map: dict[str, list[str]] = {g: [] for g in genre_names}
     if genre_names:
+        from services.catalog_service import catalog_visible_sql
+
         aw_result = await db.execute(
-            text("""
+            text(f"""
             SELECT genre, id FROM (
                 SELECT g AS genre, c.id,
                        ROW_NUMBER() OVER (PARTITION BY g ORDER BY c.id DESC) AS rn
                 FROM catalog c CROSS JOIN LATERAL unnest(c.genres) AS g
                 WHERE g = ANY(:genres) AND c.has_artwork = true
+                  AND {catalog_visible_sql(user_id)}
             ) sub WHERE rn <= 4
         """),
-            {"genres": genre_names},
+            {
+                "genres": genre_names,
+                **({"viewer_id": user_id} if user_id is not None else {}),
+            },
         )
         for row in aw_result.fetchall():
             artworks_map[row.genre].append(f"/storage/catalog-artworks/{row.id}.jpg")
@@ -314,16 +320,22 @@ async def get_detail(db: AsyncSession, name: str, user_id: int | None) -> dict:
         )
     ).scalar()
 
+    from services.catalog_service import catalog_visible_sql
+
     aw_result = await db.execute(
-        text("""
+        text(f"""
         SELECT id FROM (
             SELECT c.id,
                    ROW_NUMBER() OVER (ORDER BY c.id DESC) AS rn
             FROM catalog c
             WHERE :genre = ANY(c.genres) AND c.has_artwork = true
+              AND {catalog_visible_sql(user_id)}
         ) sub WHERE rn <= 6
     """),
-        {"genre": genre},
+        {
+            "genre": genre,
+            **({"viewer_id": user_id} if user_id is not None else {}),
+        },
     )
     artworks = [f"/storage/catalog-artworks/{r.id}.jpg" for r in aw_result.fetchall()]
 
@@ -487,6 +499,8 @@ async def list_genre_tracks(
     limit: int,
     offset: int,
 ) -> dict:
+    from services.catalog_service import catalog_visible_sql
+
     genre = await resolve_genre(db, name)
     order_clauses = {
         "recent": "c.created_at DESC NULLS LAST",
@@ -510,6 +524,7 @@ async def list_genre_tracks(
         FROM catalog c
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
         WHERE :genre = ANY(c.genres)
+          AND {catalog_visible_sql(user_id)}
           AND (:q_filter = false OR (LOWER(c.title) LIKE :q_pattern OR LOWER(c.artist) LIKE :q_pattern))
           AND (:lib_filter = false OR
                (:in_lib = 1 AND ut.catalog_id IS NOT NULL) OR
@@ -526,6 +541,7 @@ async def list_genre_tracks(
             "in_lib": in_lib if in_lib is not None else -1,
             "limit": limit,
             "offset": offset,
+            **({"viewer_id": user_id} if user_id is not None else {}),
         },
     )
     rows = result.fetchall()
@@ -587,12 +603,17 @@ async def get_neighbors(db: AsyncSession, name: str, limit: int) -> dict:
     return {"items": items}
 
 
-async def random_track(db: AsyncSession, genre: str, exclude_id: int | None) -> dict:
+async def random_track(
+    db: AsyncSession, genre: str, exclude_id: int | None, user_id: int | None = None
+) -> dict:
+    from services.catalog_service import catalog_visible_sql
+
     result = await db.execute(
-        text("""
+        text(f"""
         SELECT id, title, artist, bpm, key FROM catalog
         WHERE :genre = ANY(genres)
           AND has_preview = true
+          AND {catalog_visible_sql(user_id, alias="catalog")}
           AND (:has_exclude = false OR id != :exclude_id)
         ORDER BY random()
         LIMIT 1
@@ -601,6 +622,7 @@ async def random_track(db: AsyncSession, genre: str, exclude_id: int | None) -> 
             "genre": genre,
             "has_exclude": exclude_id is not None,
             "exclude_id": exclude_id or 0,
+            **({"viewer_id": user_id} if user_id is not None else {}),
         },
     )
     row = result.fetchone()

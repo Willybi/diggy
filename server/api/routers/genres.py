@@ -34,10 +34,11 @@ async def random_genre_track(
     genre: str = Query(..., max_length=100),
     exclude: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     """Return a random previewable catalog entry for the given genre."""
     try:
-        return await genre_service.random_track(db, genre, exclude)
+        return await genre_service.random_track(db, genre, exclude, _uid(user))
     except LookupError as e:
         raise HTTPException(404, str(e))
 

@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-12 (F5 — manual external import: GET /search/external + POST /catalog/import)
+> Last verified: 2026-07-12 (C3 — private-scope read visibility: catalog_visible() on all catalog read paths; /storage protection deferred)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -99,6 +99,8 @@ These are project invariants. Never propose code that violates them.
 - Token delivery: temporary `auth_callback` cookie (base64url no padding, 60s TTL, Secure, SameSite=Lax, httponly=False). Backend 302s to `/login/callback`, frontend reads then deletes the cookie.
 - This cookie flow exists because of Safari iOS: hash fragments are dropped on 302 redirects, CSP `script-src 'self'` blocks inline scripts, sessionStorage is lost on cross-origin navigation. Do not "simplify" it back to fragments or storage.
 - `uid()` returns `None` for guests. There is no `user_id=1` fallback anymore. Every user-conditional query must handle `None`.
+- Catalog read visibility (C3): every query returning `catalog` rows to a reader MUST apply `catalog_service.catalog_visible(user_id)` (ORM predicate) or `catalog_visible_sql(user_id[, alias])` (raw `text()` fragment — bind `:viewer_id` ONLY when `user_id is not None`). Guests see `scope='shared'` only; an authenticated user also sees their own `owner_id` private rows, never another user's private. Guests keep browsing (no login wall — deliberate: discovery stays open); only *foreign private* rows are hidden. NOT filtered (accepted residual, non-identifying or disproportionate): aggregate-only counts (genre stats, artist `nb_catalog`) and set tracklists (ORM `set_track.catalog` traversal). Any new catalog read path must add the predicate.
+- `/storage/*` artworks are served unauthenticated by nginx (proxied MinIO), IDs sequentially enumerable — a deliberate C3 deferral: cover images only, enumeration reveals existence, not private data. `<img :src>` cannot carry a Bearer header, so protecting them needs a cookie `auth_request` or signed MinIO URLs (future work).
 - Admin: `is_admin` flag + `require_admin` dependency. Destructive admin actions are logged in `admin_audit_log`.
 - Admin/ops endpoints with no UI (curl only, Q1b-4): `POST /api/admin/reset-beatport` (reset Beatport enrichment state), `POST /api/admin/artists/backfill-multi-artists` (re-split multi-artist strings), `POST /api/watchlist/` (register a new source playlist by URL — `GET /api/watchlist/` itself backs WatchlistView and is not admin-only).
 

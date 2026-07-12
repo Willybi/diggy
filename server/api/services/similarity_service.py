@@ -284,11 +284,16 @@ async def get_similar_tracks(
     from models import CatalogArtist, CatalogEntry, UserTrack
     from schemas import ArtistRef, GenreRef, SimilarityBlock, SimilarityComponents
 
+    from services.catalog_service import catalog_visible
     from services.genre_service import genre_pillar
 
-    # 1. Fetch reference track
+    # 1. Fetch reference track (respecting private-scope visibility)
     ref = (
-        await db.execute(select(CatalogEntry).where(CatalogEntry.id == catalog_id))
+        await db.execute(
+            select(CatalogEntry).where(
+                CatalogEntry.id == catalog_id, catalog_visible(user_id)
+            )
+        )
     ).scalar_one_or_none()
     if ref is None:
         raise LookupError(f"Catalog entry {catalog_id} not found")
@@ -308,7 +313,9 @@ async def get_similar_tracks(
     ref_sets = set_map.get(catalog_id, frozenset())
 
     # 3. Build candidate set — union(BPM window, co-occurrence)
-    q = select(CatalogEntry).where(CatalogEntry.id != catalog_id)
+    q = select(CatalogEntry).where(
+        CatalogEntry.id != catalog_id, catalog_visible(user_id)
+    )
 
     bpm_filter_ids: set[int] | None = None
     if ref.bpm is not None:
@@ -341,7 +348,9 @@ async def get_similar_tracks(
     extra_ids = cooc_ids - bpm_filter_ids
     extra_candidates: list[CatalogEntry] = []
     if extra_ids:
-        extra_q = select(CatalogEntry).where(CatalogEntry.id.in_(extra_ids))
+        extra_q = select(CatalogEntry).where(
+            CatalogEntry.id.in_(extra_ids), catalog_visible(user_id)
+        )
         extra_candidates = (await db.execute(extra_q)).scalars().all()
 
     # Combine, preserving bpm_candidates list (already fetched)
