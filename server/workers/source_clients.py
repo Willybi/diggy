@@ -357,6 +357,94 @@ def fetch_tidal_tracks(external_id: str) -> list[SourceTrack]:
     return tracks
 
 
+def search_tidal(query: str, limit: int = 20) -> list[dict]:
+    """Search TIDAL for tracks matching `query`, newest-relevance first.
+
+    Synchronous (tidalapi blocks). Returns normalized track dicts. Any failure
+    to obtain a session or run the search propagates unchanged — graceful
+    degradation is the caller's responsibility (mirrors the fetch_* contract).
+    """
+    session = _get_tidal_session()
+    results = session.search(query)
+    tidal_tracks = results.get("tracks", []) if isinstance(results, dict) else []
+
+    items: list[dict] = []
+    for t in tidal_tracks[:limit]:
+        artist_name = t.artist.name if getattr(t, "artist", None) else None
+        artwork_url = None
+        album = getattr(t, "album", None)
+        if album is not None and hasattr(album, "image"):
+            try:
+                artwork_url = album.image(320)
+            except Exception:
+                artwork_url = None
+        items.append(
+            {
+                "source": "tidal",
+                "external_id": str(t.id),
+                "title": t.name,
+                "artist": artist_name,
+                "isrc": getattr(t, "isrc", None) or None,
+                "duration_ms": (getattr(t, "duration", None) or 0) * 1000 or None,
+                "artwork_url": artwork_url,
+            }
+        )
+    return items
+
+
+def fetch_tidal_track(track_id: str) -> dict:
+    """Fetch a single TIDAL track's detail for a manual import.
+
+    Synchronous (tidalapi blocks) — the async API calls this via
+    run_in_threadpool. TIDAL exposes neither a deezer_id nor rich contributor
+    roles, so artists are returned as a plain name list with role "primary".
+    A confirmed absence becomes LookupError; other failures propagate.
+    """
+    from tidalapi.exceptions import ObjectNotFound
+
+    session = _get_tidal_session()
+    try:
+        t = session.track(track_id)
+    except ObjectNotFound as e:
+        raise LookupError(f"TIDAL track {track_id} not found") from e
+    if t is None:
+        raise LookupError(f"TIDAL track {track_id} not found")
+
+    raw_artists = getattr(t, "artists", None) or (
+        [t.artist] if getattr(t, "artist", None) else []
+    )
+    # tidal_artist_id is deliberately NOT called "id": it is a TIDAL id and must
+    # never be mistaken for (and written into) Artist.deezer_id downstream.
+    artists = [
+        {
+            "name": a.name,
+            "tidal_artist_id": str(a.id) if getattr(a, "id", None) else None,
+        }
+        for a in raw_artists
+        if a and getattr(a, "name", None)
+    ]
+
+    artwork_url = None
+    album = getattr(t, "album", None)
+    if album is not None and hasattr(album, "image"):
+        try:
+            artwork_url = album.image(640)
+        except Exception:
+            artwork_url = None
+
+    return {
+        "title": t.name,
+        "artist": artists[0]["name"] if artists else None,
+        "artists": artists,
+        "isrc": getattr(t, "isrc", None) or None,
+        "duration_ms": (getattr(t, "duration", None) or 0) * 1000 or None,
+        "cover_url": artwork_url,
+        "release_date": None,
+        "preview": None,
+        "contributors": [],
+    }
+
+
 def tidal_has_changed(external_id: str, last_crawled_at) -> bool:
     """Check if a TIDAL playlist has been modified since last crawl."""
     from datetime import datetime, timezone

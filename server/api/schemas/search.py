@@ -43,3 +43,20 @@ class SearchResponse(BaseModel):
     items: list[SearchItem]
     total: int
     totals: SearchTotals
+
+
+class ExternalSearchItem(BaseModel):
+    source: str  # "deezer" | "tidal"
+    external_id: str
+    title: str
+    artist: str | None = None
+    isrc: str | None = None
+    duration_ms: int | None = None
+    # External URL, for display only — never stored in DB.
+    artwork_url: str | None = None
+    # Set when a catalog entry already matches this track (by ISRC or normalized key).
+    catalog_id: int | None = None
+
+
+class ExternalSearchResponse(BaseModel):
+    items: list[ExternalSearchItem]

@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-12 (C6.e — playlists auto-follow, crawl universel + cadence adaptative)
+> Last verified: 2026-07-12 (F5 — manual external import: GET /search/external + POST /catalog/import)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -31,16 +31,18 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 14 routers, 97 endpoints:
+│   ├── routers/             # 14 routers, 99 endpoints:
 │   │                        # catalog, radar, watchlist, artists, following, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin (taxonomy = 11 reserved endpoints,
-│   │                        # not wired to the frontend: future genre explorer)
+│   │                        # not wired to the frontend: future genre explorer.
+│   │                        # search gained GET /search/external, catalog gained
+│   │                        # POST /import — manual external import, F5)
 │   └── services/            # Business logic lives HERE, not in routers:
 │                            # genre, artist, catalog, radar, image, search, watchlist,
 │                            # following, similarity, artist_connection, opinion_sync,
 │                            # rekordbox_xml, set_dedup (normalize_set_title, match_set,
-│                            # materialize_parent)
+│                            # materialize_parent), external_search (Deezer+TIDAL manual import)
 ├── workers/
 │   ├── celery_app.py        # Celery config + beat schedule
 │   ├── deezer_enrich.py     # Deezer search + enrichment
@@ -49,7 +51,7 @@ server/
 │                            # import_rb, sets, trends
 ├── frontend/src/
 │   ├── views/               # 17 views (all routed)
-│   ├── components/          # 33 components (27 shared + 6 admin)
+│   ├── components/          # 34 components (28 shared + 6 admin)
 │   ├── composables/         # useInfiniteScroll, usePaginatedList, useTaskPoll,
 │   │                        # useStyleMap, useTheme
 │   ├── stores/              # Pinia: auth, audioPlayer, opinions, toast

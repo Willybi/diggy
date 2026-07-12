@@ -5,14 +5,20 @@ Services raise LookupError (404) or ValueError (400), never HTTPException.
 """
 
 import json as _json
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from services.genre_service import ensure_pillar_cache, genre_pillar, pillar_map
+
+logger = logging.getLogger(__name__)
+
+DEEZER_API = "https://api.deezer.com"
 
 
 async def list_catalog(
@@ -708,3 +714,250 @@ async def get_or_create_catalog(
     db.add(new)
     await db.flush()
     return new
+
+
+# ── Manual import (POST /catalog/import) ──────────────────────────────────────
+
+# Deezer contributor role → CatalogArtist role (mirrors deezer_enrich._DEEZER_ROLE_MAP)
+_DEEZER_ROLE_MAP = {"Main": "primary", "Featured": "featured"}
+
+
+def _parse_release_date(value):
+    """Parse Deezer's 'YYYY-MM-DD' release_date into a date, or None."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+async def _fetch_deezer_track(deezer_id: str) -> dict:
+    """Fetch a Deezer track's full detail. Raises LookupError if it doesn't exist.
+
+    Deezer answers an unknown id with HTTP 200 + an {"error": ...} body, so the
+    payload must be inspected, not just the status code.
+    """
+    async with httpx.AsyncClient(timeout=8) as client:
+        resp = await client.get(f"{DEEZER_API}/track/{deezer_id}")
+        resp.raise_for_status()
+        data = resp.json()
+
+    if not isinstance(data, dict) or data.get("error"):
+        raise LookupError("Track not found on Deezer")
+
+    artist = data.get("artist") if isinstance(data.get("artist"), dict) else None
+    album = data.get("album") if isinstance(data.get("album"), dict) else None
+    duration = data.get("duration")
+    cover = None
+    if album:
+        cover = (
+            album.get("cover_xl")
+            or album.get("cover_big")
+            or album.get("cover_medium")
+        )
+    return {
+        "deezer_id": str(data.get("id") or deezer_id),
+        "title": data.get("title", ""),
+        "artist": artist.get("name") if artist else None,
+        "artists": [],
+        "isrc": data.get("isrc") or None,
+        "duration_ms": (duration or 0) * 1000 or None,
+        "cover_url": cover,
+        "release_date": _parse_release_date(data.get("release_date")),
+        "preview": (data.get("preview") or "").strip() or None,
+        "contributors": data.get("contributors") or [],
+    }
+
+
+async def _fetch_tidal_track(tidal_id: str) -> dict:
+    """Fetch a TIDAL track's detail off the event loop (tidalapi is blocking)."""
+    from workers import source_clients
+
+    return await run_in_threadpool(source_clients.fetch_tidal_track, tidal_id)
+
+
+async def _resolve_or_create_artist_async(db, name: str, deezer_id: str | None = None):
+    """Async twin of deezer_enrich._resolve_or_create_artist.
+
+    Lookup order — deezer_id FIRST (this is what keeps us from violating the
+    partial-unique uq_artists_deezer_id), then normalized_name, then alias, then
+    create (with deezer_id only when supplied).
+    """
+    from models import Artist, ArtistAlias
+    from utils import normalize
+
+    if deezer_id:
+        result = await db.execute(select(Artist).where(Artist.deezer_id == deezer_id))
+        artist = result.scalar_one_or_none()
+        if artist:
+            return artist
+
+    norm = normalize(name)
+    result = await db.execute(
+        select(Artist).where(Artist.normalized_name == norm)
+    )
+    artist = result.scalar_one_or_none()
+
+    if not artist:
+        result = await db.execute(
+            select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
+        )
+        alias = result.scalar_one_or_none()
+        if alias:
+            artist = await db.get(Artist, alias.artist_id)
+
+    if not artist:
+        artist = Artist(
+            name=name,
+            normalized_name=norm,
+            created_at=datetime.now(timezone.utc),
+        )
+        if deezer_id:
+            artist.deezer_id = deezer_id
+        db.add(artist)
+        await db.flush()
+
+    return artist
+
+
+async def _link_artist_async(
+    db, catalog_id: int, artist_id: int, role: str, position: int
+):
+    """Insert a CatalogArtist link if it doesn't already exist (async)."""
+    from models import CatalogArtist
+
+    result = await db.execute(
+        select(CatalogArtist).where(
+            CatalogArtist.catalog_id == catalog_id,
+            CatalogArtist.artist_id == artist_id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        db.add(
+            CatalogArtist(
+                catalog_id=catalog_id,
+                artist_id=artist_id,
+                role=role,
+                position=position,
+            )
+        )
+
+
+async def import_external(db: AsyncSession, *, deezer_id=None, tidal_id=None):
+    """Import a track from an external source into the shared catalog.
+
+    Dedups by ISRC then normalized_key: an already-present track is returned as-is
+    (created=False) without re-enriching or downgrading it. A newly created entry
+    is enriched (scope, deezer_id, artwork, preview) and gets its artist links.
+    Raises ValueError (bad input) or LookupError (track absent on the source).
+    """
+    from models import CatalogEntry
+    from schemas import CatalogImportOut
+    from utils import make_normalized_key
+
+    if bool(deezer_id) == bool(tidal_id):
+        raise ValueError("Provide exactly one of deezer_id or tidal_id")
+
+    detail = (
+        await _fetch_deezer_track(deezer_id)
+        if deezer_id
+        else await _fetch_tidal_track(tidal_id)
+    )
+
+    title = detail["title"]
+    artist = detail.get("artist")
+    isrc = detail.get("isrc")
+
+    # Determine existence BEFORE create so `created` is accurate. Mirrors the
+    # get_or_create_catalog lookup order (ISRC first, then normalized_key).
+    existing = None
+    if isrc:
+        result = await db.execute(
+            select(CatalogEntry).where(CatalogEntry.isrc == isrc)
+        )
+        existing = result.scalar_one_or_none()
+    if not existing:
+        norm_key = make_normalized_key(title, artist)
+        result = await db.execute(
+            select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+        )
+        existing = result.scalar_one_or_none()
+
+    if existing:
+        # Never re-enrich or downgrade an entry that already exists.
+        return CatalogImportOut(
+            catalog_id=existing.id,
+            created=False,
+            title=existing.title,
+            artist=existing.artist,
+        )
+
+    entry = await get_or_create_catalog(
+        db,
+        title,
+        artist,
+        isrc=isrc,
+        duration_ms=detail.get("duration_ms"),
+        release_date=detail.get("release_date"),
+    )
+
+    entry.scope = "shared"
+    entry.owner_id = None
+    if deezer_id:
+        entry.deezer_id = detail.get("deezer_id") or str(deezer_id)
+    if detail.get("preview"):
+        entry.has_preview = True
+
+    # Artwork upload is best-effort — a failure must never abort the import.
+    cover_url = detail.get("cover_url")
+    if cover_url:
+        try:
+            from services.image_service import BUCKET_CATALOG, ImageService
+
+            await run_in_threadpool(ImageService.ensure_bucket, BUCKET_CATALOG)
+            if await run_in_threadpool(
+                ImageService.upload_from_url,
+                cover_url,
+                BUCKET_CATALOG,
+                f"{entry.id}.jpg",
+            ):
+                entry.has_artwork = True
+        except Exception:
+            logger.warning(
+                "catalog artwork upload failed for %s", entry.id, exc_info=True
+            )
+
+    # Link artists: Deezer contributors carry roles/positions; TIDAL (and Deezer
+    # tracks with no contributor list) fall back to a plain artist-name list.
+    contributors = detail.get("contributors") or []
+    if contributors:
+        seen_ids = set()
+        for position, contrib in enumerate(contributors):
+            name = contrib.get("name")
+            dz_id = str(contrib["id"]) if contrib.get("id") else None
+            if not name or (dz_id and dz_id in seen_ids):
+                continue
+            if dz_id:
+                seen_ids.add(dz_id)
+            art = await _resolve_or_create_artist_async(db, name, dz_id)
+            role = _DEEZER_ROLE_MAP.get(contrib.get("role", ""), "primary")
+            await _link_artist_async(db, entry.id, art.id, role, position)
+    else:
+        # TIDAL fallback: no deezer_id available on this path — resolve by name
+        # only. Passing the TIDAL artist id as deezer_id would corrupt the
+        # enrichment lookup and could violate uq_artists_deezer_id.
+        for position, a in enumerate(detail.get("artists") or []):
+            name = a.get("name")
+            if not name:
+                continue
+            art = await _resolve_or_create_artist_async(db, name, None)
+            await _link_artist_async(db, entry.id, art.id, "primary", position)
+
+    await db.commit()
+    return CatalogImportOut(
+        catalog_id=entry.id,
+        created=True,
+        title=entry.title,
+        artist=entry.artist,
+    )

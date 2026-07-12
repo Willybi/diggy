@@ -19,7 +19,12 @@ RATE_LIMITS = {
     "/api/auth/login": (5, 60),
     "/api/auth/register": (3, 60),
     "/api/auth/google/callback": (5, 60),
+    # Stricter than /api/search (external API calls). MUST precede /api/search:
+    # matching is `path.startswith(prefix)`, first insertion-order match wins.
+    "/api/search/external": (10, 60),
     "/api/search": (30, 60),
+    # Manual import triggers external API calls (Deezer/TIDAL fetch + artwork).
+    "/api/catalog/import": (20, 60),
     "/api/import/rekordbox": (3, 300),
     "/api/admin": (10, 60),
 }

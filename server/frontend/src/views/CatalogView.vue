@@ -13,6 +13,12 @@
         <button class="chip" :class="{ on: notInLib }" @click="toggleNotInLib">
           <span class="sw"></span>Pas dans RB
         </button>
+        <button v-if="mode === 'catalog'" class="chip chip--import" @click="showExternalImportModal = true">
+          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chip-icon">
+            <path d="M9 4v10M4 9h10" />
+          </svg>
+          Ajouter un track
+        </button>
         <button v-if="mode === 'catalog'" class="chip chip--import" @click="showImportModal = true">
           <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chip-icon">
             <path d="M9 2v10M5 8l4 4 4-4" />
@@ -342,6 +348,12 @@
     @close="showImportModal = false"
     @done="onImportDone"
   />
+
+  <ExternalImportModal
+    v-if="showExternalImportModal"
+    @close="showExternalImportModal = false"
+    @imported="onExternalImportDone"
+  />
 </template>
 
 <script setup>
@@ -351,6 +363,7 @@ import api from '../utils/api.js'
 import { useToast } from '../stores/toast.js'
 import SearchBox from '../components/SearchBox.vue'
 import ImportRekordboxModal from '../components/ImportRekordboxModal.vue'
+import ExternalImportModal from '../components/ExternalImportModal.vue'
 import ScorePill from '../components/ScorePill.vue'
 import LibDot from '../components/LibDot.vue'
 import LikeDislike from '../components/LikeDislike.vue'
@@ -366,6 +379,7 @@ const router = useRouter()
 const player = useAudioPlayer()
 
 const showImportModal = ref(false)
+const showExternalImportModal = ref(false)
 
 const items = ref([])
 const total = ref(0)
@@ -540,6 +554,13 @@ async function setAvis(entry, avis) {
 
 function onImportDone() {
   showImportModal.value = false
+  fetchPage()
+  fetchNLib()
+}
+
+// Fired on every successful external import; the modal stays open so the user
+// can add several tracks in a row. Refresh the listing behind it each time.
+function onExternalImportDone() {
   fetchPage()
   fetchNLib()
 }

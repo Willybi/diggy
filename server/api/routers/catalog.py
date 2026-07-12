@@ -11,6 +11,8 @@ from schemas import (
     CatalogAvisUpdate,
     CatalogDetailOut,
     CatalogGenreItem,
+    CatalogImportIn,
+    CatalogImportOut,
     CatalogList,
     PreviewUrlResponse,
     SimilarTrackOut,
@@ -80,6 +82,23 @@ async def list_catalog(
         sort=sort, order=order or "desc", view=view,
         detected_after=detected_after, avis=avis,
     )
+
+
+@router.post("/import", response_model=CatalogImportOut)
+async def import_track(
+    body: CatalogImportIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Import an external (Deezer/TIDAL) track into the shared catalog."""
+    try:
+        return await catalog_service.import_external(
+            db, deezer_id=body.deezer_id, tidal_id=body.tidal_id
+        )
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/{catalog_id}/similar", response_model=list[SimilarTrackOut])

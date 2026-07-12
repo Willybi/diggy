@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from .common import ArtistRef, GenreRef
 
@@ -126,3 +126,23 @@ class PreviewUrlResponse(BaseModel):
 class AvisResponse(BaseModel):
     catalog_id: int
     avis: str | None = None
+
+
+class CatalogImportIn(BaseModel):
+    """Manual import request: exactly one source id must be provided."""
+
+    deezer_id: Optional[str] = None
+    tidal_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self):
+        if bool(self.deezer_id) == bool(self.tidal_id):
+            raise ValueError("Provide exactly one of deezer_id or tidal_id")
+        return self
+
+
+class CatalogImportOut(BaseModel):
+    catalog_id: int
+    created: bool
+    title: str
+    artist: Optional[str] = None

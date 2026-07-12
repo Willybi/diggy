@@ -38,6 +38,8 @@ from .catalog import (
     CatalogDetailOut,
     CatalogEntryOut,
     CatalogGenreItem,
+    CatalogImportIn,
+    CatalogImportOut,
     CatalogList,
     PreviewUrlResponse,
     RadarAppearanceOut,
@@ -97,7 +99,13 @@ from .radar import (
     TrendItem,
     TrendList,
 )
-from .search import SearchItem, SearchResponse, SearchTotals
+from .search import (
+    ExternalSearchItem,
+    ExternalSearchResponse,
+    SearchItem,
+    SearchResponse,
+    SearchTotals,
+)
 from .sets import (
     DJSetDetailOut,
     DJSetList,
@@ -157,6 +165,8 @@ __all__ = [
     "CatalogList",
     "CatalogDetailOut",
     "CatalogGenreItem",
+    "CatalogImportIn",
+    "CatalogImportOut",
     "PreviewUrlResponse",
     "AvisResponse",
     "SimilarityComponents",
@@ -274,6 +284,8 @@ __all__ = [
     "SearchItem",
     "SearchTotals",
     "SearchResponse",
+    "ExternalSearchItem",
+    "ExternalSearchResponse",
     # taxonomy
     "TaxonomyNode",
     "TaxonomyNodeList",
