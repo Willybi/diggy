@@ -190,16 +190,48 @@
           </span>
         </h2>
         <div class="trend-shelf">
-          <template v-for="item in activityItems" :key="activityKey(item)">
+          <template v-for="item in activityShelf" :key="activityKey(item)">
+            <!-- crawled release → full track card (cover, preview, release age) -->
+            <div
+              v-if="item.type === 'release' && item.catalog_id"
+              class="trend-card activity-card"
+              @click="openActivityTrack(item)"
+            >
+              <div class="tc-art">
+                <img
+                  v-if="item.has_artwork"
+                  :src="`/storage/catalog-artworks/${item.catalog_id}.jpg`"
+                  alt=""
+                  loading="lazy"
+                  @error="(e) => (e.target.style.display = 'none')"
+                />
+                <div
+                  v-if="item.has_preview"
+                  class="tc-play"
+                  @click.stop="playActivityTrack(item)"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                </div>
+              </div>
+              <div class="tc-info">
+                <span class="ac-badge">Nouveauté</span>
+                <div class="tc-title">{{ item.title }}</div>
+                <div class="tc-artist">{{ item.artist || item.artist_name || '—' }}</div>
+                <div v-if="relativeAge(item.release_date)" class="ac-age">
+                  Sorti {{ relativeAge(item.release_date) }}
+                </div>
+              </div>
+            </div>
+            <!-- release we could not crawl → external Deezer link fallback -->
             <a
-              v-if="item.type === 'release'"
+              v-else-if="item.type === 'release'"
               class="trend-card activity-card"
               :href="item.external_url"
               target="_blank"
               rel="noopener"
             >
               <div class="tc-info">
-                <span class="ac-badge">Release</span>
+                <span class="ac-badge">Nouveauté</span>
                 <div class="tc-title">{{ item.title }}</div>
                 <div class="tc-artist">{{ item.artist_name || '—' }}</div>
               </div>
@@ -472,6 +504,49 @@ async function loadActivity() {
 
 function activityKey(item) {
   return item.id ?? `${item.type}-${item.set_id || item.external_url || item.title}`
+}
+
+// Same track can surface via two followed artists (a collab) → dedup the shelf
+// on catalog_id so it shows once. Link-only / set items (no catalog_id) pass through.
+const activityShelf = computed(() => {
+  const seen = new Set()
+  return activityItems.value.filter((item) => {
+    if (!item.catalog_id) return true
+    if (seen.has(item.catalog_id)) return false
+    seen.add(item.catalog_id)
+    return true
+  })
+})
+
+// "Sorti il y a 2 j / 1 sem" — release recency at day granularity (horizon ≤ 30 j).
+function relativeAge(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ''
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+  if (days <= 0) return "aujourd'hui"
+  if (days === 1) return 'hier'
+  if (days < 7) return `il y a ${days} j`
+  const weeks = Math.floor(days / 7)
+  if (days < 30) return weeks === 1 ? 'il y a 1 sem' : `il y a ${weeks} sem`
+  const months = Math.max(1, Math.floor(days / 30))
+  return months === 1 ? 'il y a 1 mois' : `il y a ${months} mois`
+}
+
+function openActivityTrack(item) {
+  router.push(`/catalog/${item.catalog_id}`)
+}
+
+function playActivityTrack(item) {
+  player.play({
+    id: item.catalog_id,
+    catalog_id: item.catalog_id,
+    title: item.title,
+    artist: item.artist || item.artist_name,
+    artist_id: item.artist_id,
+    bpm: item.bpm,
+    key: item.key,
+  })
 }
 
 // ── personalized recommendations ──
@@ -1607,6 +1682,11 @@ const vClickOutside = {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   align-self: flex-start;
+}
+.ac-age {
+  font: 400 var(--fs-xs) var(--font-ui);
+  color: var(--ink-3);
+  margin-top: var(--space-05);
 }
 
 /* ── responsive ── */

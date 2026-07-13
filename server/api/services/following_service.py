@@ -119,14 +119,31 @@ async def get_activity(
 
     The response field is named `type` (frontend contract) and maps the
     DB column activity_type.
+
+    A `release` activity whose track was crawled (C6.c v2) carries a
+    `catalog_id`: the catalog entry is LEFT JOINed (through the C3 visibility
+    predicate — these crawled tracks are always `shared`, so it is effectively
+    always-true, but the invariant that every catalog read applies the predicate
+    is honoured) so the feed can render it as a full track card (cover, preview,
+    bpm/key, release age) instead of a bare external link.
     """
-    from models import Artist, ArtistActivity, FollowedArtist
+    from models import Artist, ArtistActivity, CatalogEntry, FollowedArtist
     from schemas import ActivityListResponse, ArtistActivityOut
+    from sqlalchemy import and_
+
+    from services.catalog_service import catalog_visible
 
     result = await db.execute(
-        select(ArtistActivity, Artist.name)
+        select(ArtistActivity, Artist.name, CatalogEntry)
         .join(FollowedArtist, FollowedArtist.artist_id == ArtistActivity.artist_id)
         .join(Artist, Artist.id == ArtistActivity.artist_id)
+        .outerjoin(
+            CatalogEntry,
+            and_(
+                CatalogEntry.id == ArtistActivity.catalog_id,
+                catalog_visible(user_id),
+            ),
+        )
         .where(FollowedArtist.user_id == user_id)
         .order_by(ArtistActivity.detected_at.desc(), ArtistActivity.id.desc())
         .offset(offset)
@@ -145,8 +162,15 @@ async def get_activity(
             set_id=activity.set_id,
             detected_at=activity.detected_at,
             payload=activity.payload,
+            has_artwork=bool(cat.has_artwork) if cat is not None else False,
+            has_preview=bool(cat.has_preview) if cat is not None else False,
+            bpm=cat.bpm if cat is not None else None,
+            key=cat.key if cat is not None else None,
+            duration_ms=cat.duration_ms if cat is not None else None,
+            artist=cat.artist if cat is not None else None,
+            release_date=cat.release_date if cat is not None else None,
         )
-        for activity, artist_name in result.all()
+        for activity, artist_name, cat in result.all()
     ]
     return ActivityListResponse(items=items)
 

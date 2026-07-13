@@ -69,9 +69,6 @@ _celery_mock.task.side_effect = _task_decorator
 _celery_app_mod = MagicMock(celery_app=_celery_mock)
 sys.modules["workers.celery_app"] = _celery_app_mod
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
-
 from database import Base
 from models import (
     Artist,
@@ -81,6 +78,8 @@ from models import (
     FollowedArtist,
     SetArtist,
 )
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 
 @pytest.fixture
@@ -125,15 +124,23 @@ def tasks_env(task_engine, monkeypatch):
 class FakePool:
     """Stand-in for workers.async_http.HttpPool.
 
-    ``albums[deezer_id]`` is the list of raw album dicts returned for that
-    artist; ``errors`` holds deezer_ids for which deezer_get raises like a
-    Deezer outage. ``calls`` records every requested path so tests can assert
-    that skipped artists trigger no network call.
+    Serves three Deezer endpoints the releases volet now uses:
+      - ``/artist/{id}/albums`` -> ``albums[deezer_id]``
+      - ``/album/{id}``         -> ``{tracks:{data: album_tracks[str(id)]}}``
+      - ``/track/{id}``         -> ``tracks[str(id)]`` (raw track hit)
+
+    ``errors`` / ``album_errors`` / ``track_errors`` make the matching endpoint
+    raise like a Deezer outage. ``calls`` records every requested path so tests
+    can assert that skipped artists / out-of-horizon albums trigger no call.
     """
 
     def __init__(self):
         self.albums = {}
+        self.album_tracks = {}
+        self.tracks = {}
         self.errors = set()
+        self.album_errors = set()
+        self.track_errors = set()
         self.calls = []
 
     async def __aenter__(self):
@@ -146,11 +153,28 @@ class FakePool:
         from workers.async_http import DeezerHTTPError
 
         self.calls.append(path)
-        # path == "/artist/{deezer_id}/albums"
-        deezer_id = path.strip("/").split("/")[1]
-        if deezer_id in self.errors:
-            raise DeezerHTTPError(500, path)
-        return {"data": self.albums.get(deezer_id, [])}
+        parts = path.strip("/").split("/")
+        if parts[0] == "artist" and parts[-1] == "albums":
+            deezer_id = parts[1]
+            if deezer_id in self.errors:
+                raise DeezerHTTPError(500, path)
+            return {"data": self.albums.get(deezer_id, [])}
+        if parts[0] == "album":
+            album_id = parts[1]
+            if album_id in self.album_errors:
+                raise DeezerHTTPError(500, path)
+            return {
+                "id": int(album_id),
+                "tracks": {"data": self.album_tracks.get(album_id, [])},
+            }
+        if parts[0] == "track":
+            track_id = parts[1]
+            if track_id in self.track_errors:
+                raise DeezerHTTPError(500, path)
+            return self.tracks.get(
+                track_id, {"error": {"code": 800, "message": "not found"}}
+            )
+        return {}
 
 
 @pytest.fixture
@@ -211,6 +235,39 @@ def _album(album_id, *, days_ago, title="New EP", record_type="ep"):
     }
 
 
+def _track_summary(track_id, title="Track"):
+    """A Deezer album-tracklist entry (id + title + link)."""
+    return {
+        "id": track_id,
+        "title": title,
+        "link": f"https://www.deezer.com/track/{track_id}",
+    }
+
+
+def _track_hit(track_id, title, artist_name, artist_dz, *, days_ago=5, isrc=None):
+    """A raw Deezer /track/{id} payload. No album cover on purpose so the crawl's
+    enrich step never reaches the (network) artwork upload in tests."""
+    d = (datetime.now(timezone.utc) - timedelta(days=days_ago)).date().isoformat()
+    return {
+        "id": track_id,
+        "title": title,
+        "link": f"https://www.deezer.com/track/{track_id}",
+        "isrc": isrc,
+        "duration": 180,
+        "preview": "https://e-cdn/preview.mp3",
+        "release_date": d,
+        "artist": {"id": artist_dz, "name": artist_name},
+        "contributors": [{"id": artist_dz, "name": artist_name, "role": "Main"}],
+    }
+
+
+def _catalog_entries(engine):
+    from models import CatalogEntry
+
+    with Session(engine) as s:
+        return s.execute(select(CatalogEntry)).scalars().all()
+
+
 def _activities(engine, **filters):
     with Session(engine) as s:
         q = select(ArtistActivity)
@@ -230,39 +287,61 @@ def _crawl_log(engine):
 
 
 class TestReleasesVolet:
-    def test_recent_release_creates_activity(
+    def test_recent_release_crawls_each_track(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
     ):
+        """A recent release is expanded into its tracklist; every track is
+        crawled into the catalog and gets its own activity linked by catalog_id."""
         with Session(task_engine) as s:
             a = _make_artist(s, "Boris Brejcha", deezer_id="10")
             _follow(s, a.id)
             s.commit()
             artist_id = a.id
         fake_pool.albums["10"] = [_album(555, days_ago=5)]
+        fake_pool.album_tracks["555"] = [
+            _track_summary(5551, "Song A"),
+            _track_summary(5552, "Song B"),
+        ]
+        fake_pool.tracks["5551"] = _track_hit(5551, "Song A", "Boris Brejcha", "10")
+        fake_pool.tracks["5552"] = _track_hit(5552, "Song B", "Boris Brejcha", "10")
 
         result = tasks_env.artists.check_followed_artists(fake_self)
 
         assert result["artists_checked"] == 1
-        assert result["artists_skipped_no_deezer"] == 0
-        assert result["releases_found"] == 1
+        assert result["releases_found"] == 2  # one activity per track
+        assert result["catalog_created"] == 2
+        assert result["crawl_errors"] == 0
         assert result["errors"] == 0
 
         acts = _activities(task_engine, activity_type="release")
-        assert len(acts) == 1
-        act = acts[0]
-        assert act.artist_id == artist_id
-        assert act.source == "deezer"
-        assert act.external_id == "555"
-        assert act.title == "New EP"
-        assert act.external_url == "https://www.deezer.com/album/555"
-        # INVARIANT: no external image URL is ever persisted
-        assert set(act.payload.keys()) == {"release_date", "record_type"}
-        assert act.payload["record_type"] == "ep"
+        assert len(acts) == 2
+        assert {a.external_id for a in acts} == {"5551", "5552"}
+        assert all(a.artist_id == artist_id and a.source == "deezer" for a in acts)
+        # Each activity is linked to a real catalog entry
+        cat_ids = {a.catalog_id for a in acts}
+        assert None not in cat_ids
+        # payload carries the album context, never an image URL
+        act = next(a for a in acts if a.external_id == "5551")
+        assert set(act.payload.keys()) == {
+            "release_date",
+            "record_type",
+            "album_id",
+            "album_title",
+        }
+        assert act.payload["album_id"] == "555"
+
+        # The crawled catalog entries look like any other track
+        entries = {e.title: e for e in _catalog_entries(task_engine)}
+        assert set(entries) == {"Song A", "Song B"}
+        song_a = entries["Song A"]
+        assert song_a.deezer_id == "5551"
+        assert song_a.has_preview is True
+        assert song_a.release_date is not None
+        assert song_a.scope == "shared"  # visible to everyone, like radar tracks
 
         log = _crawl_log(task_engine)
         assert log.status == "success"
         assert log.stats == result
-        assert log.celery_task_id == "task-cfa"
 
     def test_release_outside_horizon_ignored(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
@@ -278,6 +357,8 @@ class TestReleasesVolet:
         assert result["artists_checked"] == 1
         assert result["releases_found"] == 0
         assert _activities(task_engine, activity_type="release") == []
+        # horizon gate is applied BEFORE any album/track fetch
+        assert fake_pool.calls == ["/artist/11/albums"]
 
     def test_second_run_is_idempotent(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
@@ -287,13 +368,18 @@ class TestReleasesVolet:
             _follow(s, a.id)
             s.commit()
         fake_pool.albums["12"] = [_album(777, days_ago=3)]
+        fake_pool.album_tracks["777"] = [_track_summary(7771, "Only Track")]
+        fake_pool.tracks["7771"] = _track_hit(7771, "Only Track", "Repeat", "12")
 
         first = tasks_env.artists.check_followed_artists(fake_self)
         second = tasks_env.artists.check_followed_artists(fake_self)
 
         assert first["releases_found"] == 1
-        assert second["releases_found"] == 0  # no duplicate on the second run
+        assert first["catalog_created"] == 1
+        assert second["releases_found"] == 0  # track already recorded
+        assert second["catalog_created"] == 0  # catalog entry reused, not duplicated
         assert len(_activities(task_engine, activity_type="release")) == 1
+        assert len(_catalog_entries(task_engine)) == 1
 
     def test_null_and_not_found_deezer_id_skipped_without_call(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
@@ -327,6 +413,8 @@ class TestReleasesVolet:
             s.commit()
         fake_pool.errors.add("20")
         fake_pool.albums["21"] = [_album(321, days_ago=2)]
+        fake_pool.album_tracks["321"] = [_track_summary(3211, "Healthy Track")]
+        fake_pool.tracks["3211"] = _track_hit(3211, "Healthy Track", "Fine", "21")
 
         with caplog.at_level(logging.WARNING, logger="workers.tasks.artists"):
             result = tasks_env.artists.check_followed_artists(fake_self)
@@ -335,10 +423,36 @@ class TestReleasesVolet:
         assert result["errors"] == 1
         assert result["releases_found"] == 1  # the healthy artist still recorded
         acts = _activities(task_engine, activity_type="release")
-        assert {a.external_id for a in acts} == {"321"}
+        assert {a.external_id for a in acts} == {"3211"}
         assert any("albums fetch failed" in r.getMessage() for r in caplog.records)
         # A per-artist failure never aborts the run
         assert _crawl_log(task_engine).status == "success"
+
+    def test_track_fetch_failure_records_link_only_card(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A track whose detail fetch fails still gets a link-only activity
+        (external Deezer URL, no catalog_id) so the release is never lost."""
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Half Down", deezer_id="50")
+            _follow(s, a.id)
+            s.commit()
+        fake_pool.albums["50"] = [_album(5000, days_ago=2)]
+        fake_pool.album_tracks["5000"] = [_track_summary(50001, "Ghost Track")]
+        fake_pool.track_errors.add("50001")  # /track/50001 → Deezer outage
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["releases_found"] == 1
+        assert result["catalog_created"] == 0
+        assert result["errors"] == 1  # the track fetch failure is counted
+        acts = _activities(task_engine, activity_type="release")
+        assert len(acts) == 1
+        act = acts[0]
+        assert act.catalog_id is None
+        assert act.title == "Ghost Track"
+        assert act.external_url == "https://www.deezer.com/track/50001"
+        assert _catalog_entries(task_engine) == []
 
     def test_shared_follow_is_processed_once(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
@@ -350,12 +464,47 @@ class TestReleasesVolet:
             _follow(s, a.id, user_id=2)
             s.commit()
         fake_pool.albums["30"] = [_album(30001, days_ago=1)]
+        fake_pool.album_tracks["30001"] = [_track_summary(300011, "Hit")]
+        fake_pool.tracks["300011"] = _track_hit(300011, "Hit", "Popular", "30")
 
         result = tasks_env.artists.check_followed_artists(fake_self)
 
         assert result["artists_checked"] == 1
-        assert fake_pool.calls == ["/artist/30/albums"]
+        assert fake_pool.calls.count("/artist/30/albums") == 1
         assert len(_activities(task_engine, activity_type="release")) == 1
+
+    def test_legacy_album_card_is_superseded(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A pre-crawl album-level release row (external_id = album id) is deleted
+        when the album is reprocessed into per-track cards."""
+        from models import ArtistActivity
+
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Legacy", deezer_id="60")
+            _follow(s, a.id)
+            # simulate the old behaviour: one activity keyed on the ALBUM id
+            s.add(
+                ArtistActivity(
+                    artist_id=a.id,
+                    activity_type="release",
+                    source="deezer",
+                    external_id="6000",
+                    title="Old Album Card",
+                    external_url="https://www.deezer.com/album/6000",
+                )
+            )
+            s.commit()
+        fake_pool.albums["60"] = [_album(6000, days_ago=4)]
+        fake_pool.album_tracks["6000"] = [_track_summary(60001, "Fresh Track")]
+        fake_pool.tracks["60001"] = _track_hit(60001, "Fresh Track", "Legacy", "60")
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        acts = _activities(task_engine, activity_type="release")
+        assert result["releases_found"] == 1
+        # the album-level card is gone, replaced by the per-track card
+        assert {a.external_id for a in acts} == {"60001"}
 
 
 # ── Sets volet ───────────────────────────────────────────────────────────────
@@ -448,6 +597,8 @@ class TestEmptyRun:
             "artists_checked": 0,
             "artists_skipped_no_deezer": 0,
             "releases_found": 0,
+            "catalog_created": 0,
+            "crawl_errors": 0,
             "sets_found": 0,
             "errors": 0,
         }

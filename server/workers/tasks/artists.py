@@ -6,7 +6,7 @@ import asyncio
 import logging
 import sys
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from workers.celery_app import celery_app
 
@@ -25,6 +25,13 @@ ARTIST_ACTIVITY_RELEASE_HORIZON_DAYS = 30
 # cadence on purpose so a late/skipped run still catches the previous day's
 # imports; the unique constraint on artist_activity dedups the overlap.
 ARTIST_ACTIVITY_SET_WINDOW_HOURS = 48
+# C6.c v2 — a detected release is now fully crawled into the catalog (one catalog
+# track per Deezer track), so the "Nouveautés" feed renders it like any other
+# track (cover, title, preview) instead of a bare external link. A Deezer release
+# is an *album*: it is expanded into its tracklist and each track becomes its own
+# feed card linked to a catalog entry. Safety cap so a pathological compilation
+# cannot fan out unbounded (logged when hit — never silently truncated).
+ARTIST_ACTIVITY_MAX_TRACKS_PER_RELEASE = 40
 # Single-instance lock: TTL must stay strictly above the task time_limit (3900s)
 # so the lock cannot expire while a legitimate run is still in progress (same
 # rule as resolve_set_tracks / recrawl_incomplete_sets).
@@ -983,8 +990,6 @@ def _activity_exists(session, artist_id, activity_type, source, external_id):
 def _release_in_horizon(release_date, threshold):
     """True if a Deezer release_date string ('YYYY-MM-DD') is on/after threshold.
     Missing or malformed dates are treated as out of horizon (skipped)."""
-    from datetime import date
-
     if not release_date:
         return False
     try:
@@ -994,14 +999,94 @@ def _release_in_horizon(release_date, threshold):
     return rel >= threshold
 
 
+def _parse_release_date(value):
+    """Parse a Deezer 'YYYY-MM-DD' release_date into a date, or None."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+async def _fetch_album_tracks(pool, album_id):
+    """Fetch a Deezer album's tracklist (track summaries: id, title, link).
+    Raises DeezerHTTPError on an API failure so the caller can count it and move
+    on (an outage on one album must not abort the whole run)."""
+    data = await pool.deezer_get(f"/album/{album_id}")
+    if not isinstance(data, dict) or data.get("error"):
+        return []
+    return (data.get("tracks") or {}).get("data") or []
+
+
+def _crawl_track(session, hit):
+    """Create/enrich a catalog entry from a Deezer /track/{id} hit and link its
+    artists. Returns (entry, created).
+
+    Reuses the shared sync enrichment helpers (deezer_id, isrc, duration,
+    has_preview, cover upload + multi-artist linking) so a crawled release track
+    is indistinguishable from any other catalog track. New entries default to
+    scope='shared' / origin='deezer' (model defaults) — visible to everyone, as
+    with radar/enrichment tracks. Raises IntegrityError (norm_key race or the
+    partial-unique artist deezer_id guard) so the caller can roll back and fall
+    back to a link-only activity card.
+    """
+    from models import CatalogEntry
+    from sqlalchemy import select as sa_select
+    from utils import make_normalized_key
+    from workers.deezer_enrich import enrich_entry, link_catalog_artist_from_hit
+
+    title = (hit.get("title") or "").strip()
+    if not title:
+        return None, False
+    artist_obj = hit.get("artist") if isinstance(hit.get("artist"), dict) else {}
+    artist_name = artist_obj.get("name")
+    isrc = hit.get("isrc") or None
+    norm_key = make_normalized_key(title, artist_name)
+
+    entry = None
+    if isrc:
+        entry = session.execute(
+            sa_select(CatalogEntry).where(CatalogEntry.isrc == isrc)
+        ).scalar_one_or_none()
+    if entry is None:
+        entry = session.execute(
+            sa_select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
+        ).scalar_one_or_none()
+
+    created = False
+    if entry is None:
+        entry = CatalogEntry(
+            title=title,
+            artist=artist_name,
+            normalized_key=norm_key,
+            isrc=isrc,
+            release_date=_parse_release_date(hit.get("release_date")),
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(entry)
+        session.flush()
+        created = True
+
+    enrich_entry(entry, hit, session=session)
+    if entry.release_date is None:
+        entry.release_date = _parse_release_date(hit.get("release_date"))
+    link_catalog_artist_from_hit(session, entry.id, hit)
+    return entry, created
+
+
 async def _check_releases(engine, followed_ids, now):
     """Releases volet: for each followed artist with a valid Deezer id, fetch its
-    recent albums and record any new ones as artist_activity rows. A Deezer HTTP
-    error on one artist is logged and counted, never fatal."""
-    from datetime import timedelta
-
-    from models import Artist
+    recent albums, expand every in-horizon album into its tracklist, and CRAWL
+    each new track into the catalog (cover, preview, artists) — recording one
+    artist_activity per track, linked to its catalog entry. A Deezer HTTP error
+    on one artist / album / track is logged and counted, never fatal; a track
+    that fails to crawl still gets a link-only activity card (external Deezer
+    URL, catalog_id NULL) so the release is never lost."""
+    from models import Artist, ArtistActivity
+    from sqlalchemy import delete as sa_delete
     from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
     from sqlalchemy.orm import Session
     from workers.async_http import DeezerHTTPError, HttpPool
     from workers.rate_limiter import RateLimiter
@@ -1010,6 +1095,8 @@ async def _check_releases(engine, followed_ids, now):
         "artists_checked": 0,
         "artists_skipped_no_deezer": 0,
         "releases_found": 0,
+        "catalog_created": 0,
+        "crawl_errors": 0,
         "errors": 0,
     }
     threshold = (now - timedelta(days=ARTIST_ACTIVITY_RELEASE_HORIZON_DAYS)).date()
@@ -1051,32 +1138,144 @@ async def _check_releases(engine, followed_ids, now):
                         continue
                     if not _release_in_horizon(album.get("release_date"), threshold):
                         continue
-                    if _activity_exists(
-                        session, artist.id, "release", "deezer", str(album_id)
-                    ):
-                        continue
-                    from models import ArtistActivity
 
-                    # INVARIANT: never store an external image URL in payload —
-                    # artwork lives in MinIO (has_artwork), never as a DB URL.
-                    session.add(
-                        ArtistActivity(
-                            artist_id=artist.id,
-                            activity_type="release",
-                            source="deezer",
-                            external_id=str(album_id),
-                            title=album.get("title"),
-                            external_url=album.get("link"),
-                            payload={
-                                "release_date": album.get("release_date"),
-                                "record_type": album.get("record_type"),
-                            },
+                    try:
+                        tracks = await _fetch_album_tracks(pool, album_id)
+                    except DeezerHTTPError as e:
+                        stats["errors"] += 1
+                        logger.warning(
+                            "check_followed_artists: Deezer album fetch failed for "
+                            "album %s (artist %s): %s",
+                            album_id,
+                            artist.id,
+                            e,
+                        )
+                        continue
+
+                    if not tracks:
+                        continue
+
+                    if len(tracks) > ARTIST_ACTIVITY_MAX_TRACKS_PER_RELEASE:
+                        logger.warning(
+                            "check_followed_artists: album %s has %d tracks > cap "
+                            "%d — only the first %d are crawled",
+                            album_id,
+                            len(tracks),
+                            ARTIST_ACTIVITY_MAX_TRACKS_PER_RELEASE,
+                            ARTIST_ACTIVITY_MAX_TRACKS_PER_RELEASE,
+                        )
+                        tracks = tracks[:ARTIST_ACTIVITY_MAX_TRACKS_PER_RELEASE]
+
+                    # Supersede any legacy album-level release card (external_id =
+                    # album id, from the pre-crawl behaviour) now that we record
+                    # per-track cards. Scoped + self-healing: only the album being
+                    # reprocessed is touched; committed before the track loop so a
+                    # later per-track rollback can't resurrect it.
+                    superseded = session.execute(
+                        sa_delete(ArtistActivity).where(
+                            ArtistActivity.artist_id == artist.id,
+                            ArtistActivity.activity_type == "release",
+                            ArtistActivity.source == "deezer",
+                            ArtistActivity.external_id == str(album_id),
                         )
                     )
-                    stats["releases_found"] += 1
+                    if superseded.rowcount:
+                        session.commit()
 
-                # Persist per artist so a mid-run failure keeps prior progress
-                session.commit()
+                    record_type = album.get("record_type")
+                    for track in tracks:
+                        track_id = track.get("id")
+                        if track_id is None:
+                            continue
+                        ext_id = str(track_id)
+                        if _activity_exists(
+                            session, artist.id, "release", "deezer", ext_id
+                        ):
+                            continue
+
+                        # Fetch the full track detail, then crawl it into the
+                        # catalog. Async HTTP first, sync DB work second.
+                        entry = None
+                        created = False
+                        hit = None
+                        try:
+                            hit = await pool.deezer_get(f"/track/{track_id}")
+                        except DeezerHTTPError as e:
+                            stats["errors"] += 1
+                            logger.warning(
+                                "check_followed_artists: Deezer track fetch failed "
+                                "for track %s (album %s): %s",
+                                track_id,
+                                album_id,
+                                e,
+                            )
+
+                        if isinstance(hit, dict) and not hit.get("error"):
+                            try:
+                                entry, created = _crawl_track(session, hit)
+                                session.flush()
+                            except IntegrityError:
+                                session.rollback()
+                                entry, created = None, False
+                                stats["crawl_errors"] += 1
+                                logger.warning(
+                                    "check_followed_artists: crawl IntegrityError "
+                                    "for track %s — recording link-only card",
+                                    track_id,
+                                )
+                            except Exception:
+                                session.rollback()
+                                entry, created = None, False
+                                stats["crawl_errors"] += 1
+                                logger.warning(
+                                    "check_followed_artists: crawl failed for track "
+                                    "%s — recording link-only card",
+                                    track_id,
+                                    exc_info=True,
+                                )
+
+                        # INVARIANT: never store an external image URL — artwork
+                        # lives in MinIO (has_artwork on the catalog entry).
+                        session.add(
+                            ArtistActivity(
+                                artist_id=artist.id,
+                                activity_type="release",
+                                source="deezer",
+                                external_id=ext_id,
+                                title=(
+                                    hit.get("title")
+                                    if isinstance(hit, dict)
+                                    else None
+                                )
+                                or track.get("title"),
+                                external_url=(
+                                    hit.get("link")
+                                    if isinstance(hit, dict)
+                                    else None
+                                )
+                                or track.get("link"),
+                                catalog_id=entry.id if entry else None,
+                                payload={
+                                    "release_date": album.get("release_date"),
+                                    "record_type": record_type,
+                                    "album_id": str(album_id),
+                                    "album_title": album.get("title"),
+                                },
+                            )
+                        )
+                        # Commit per track so the catalog entry, its artist links
+                        # and the activity land atomically; a mid-run failure keeps
+                        # all prior progress.
+                        try:
+                            session.commit()
+                            stats["releases_found"] += 1
+                            if created:
+                                stats["catalog_created"] += 1
+                        except IntegrityError:
+                            # Rare activity-unique race under the single-instance
+                            # lock — discard this track and move on.
+                            session.rollback()
+                            stats["crawl_errors"] += 1
 
     return stats
 
@@ -1201,6 +1400,8 @@ def _run_check_followed_artists(task):
                 "artists_checked": 0,
                 "artists_skipped_no_deezer": 0,
                 "releases_found": 0,
+                "catalog_created": 0,
+                "crawl_errors": 0,
                 "sets_found": 0,
                 "errors": 0,
             }
@@ -1217,6 +1418,8 @@ def _run_check_followed_artists(task):
                 "artists_skipped_no_deezer"
             ]
             stats["releases_found"] = release_stats["releases_found"]
+            stats["catalog_created"] = release_stats["catalog_created"]
+            stats["crawl_errors"] = release_stats["crawl_errors"]
             stats["errors"] = release_stats["errors"]
 
             stats["sets_found"] = _check_new_sets(engine, followed_ids, now)

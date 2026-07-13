@@ -31,10 +31,25 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 
+// A crawled release track: linked to a catalog entry, renders as a track card.
 const RELEASE_ITEM = {
   id: 1,
   type: 'release',
-  title: 'New EP',
+  title: 'Song A',
+  artist: 'Amelie Lens',
+  artist_name: 'Amelie Lens',
+  catalog_id: 909,
+  has_artwork: true,
+  has_preview: true,
+  bpm: 138,
+  key: '11A',
+  release_date: '2026-07-11',
+}
+// A release we could not crawl: falls back to an external Deezer link.
+const RELEASE_LINK_ITEM = {
+  id: 3,
+  type: 'release',
+  title: 'Uncrawled EP',
   artist_name: 'Amelie Lens',
   external_url: 'https://www.deezer.com/album/123',
 }
@@ -118,7 +133,7 @@ describe('HubView followed-artists activity shelf', () => {
     expect(apiMock.post).not.toHaveBeenCalled()
   })
 
-  it('renders release and set cards when the feed has items', async () => {
+  it('renders a crawled release as a track card and a set as a RouterLink', async () => {
     authState.value = { isAuthenticated: true, user: { username: 'will' } }
     mockApiGet({ activityItems: [RELEASE_ITEM, SET_ITEM] })
     const wrapper = await mountHub()
@@ -127,15 +142,17 @@ describe('HubView followed-artists activity shelf', () => {
     expect(shelf.exists()).toBe(true)
     expect(shelf.find('.discover-title').text()).toContain('Nouveautés de tes artistes')
 
-    // Release card → external link with badge « Release »
-    const release = shelf.find('a.activity-card')
-    expect(release.exists()).toBe(true)
-    expect(release.attributes('href')).toBe(RELEASE_ITEM.external_url)
-    expect(release.attributes('target')).toBe('_blank')
-    expect(release.attributes('rel')).toBe('noopener')
-    expect(release.find('.ac-badge').text()).toBe('Release')
-    expect(release.text()).toContain('New EP')
+    // Crawled release → clickable track card (div): cover keyed on catalog_id,
+    // play button, badge « Nouveauté », relative release age.
+    const cards = shelf.findAll('.activity-card')
+    const release = cards.find((c) => c.text().includes('Song A'))
+    expect(release).toBeTruthy()
+    expect(release.element.tagName).toBe('DIV')
+    expect(release.find('.ac-badge').text()).toBe('Nouveauté')
+    expect(release.find('img').attributes('src')).toBe('/storage/catalog-artworks/909.jpg')
+    expect(release.find('.tc-play').exists()).toBe(true)
     expect(release.text()).toContain('Amelie Lens')
+    expect(release.text()).toContain('Sorti')
 
     // Set card → internal RouterLink with badge « Set »
     const setLink = shelf.findComponent(RouterLinkStub)
@@ -143,6 +160,20 @@ describe('HubView followed-artists activity shelf', () => {
     expect(setLink.props('to')).toBe('/set/77')
     expect(setLink.find('.ac-badge').text()).toBe('Set')
     expect(setLink.text()).toContain('Awakenings 2026')
+  })
+
+  it('renders an uncrawled release as an external Deezer link', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ activityItems: [RELEASE_LINK_ITEM] })
+    const wrapper = await mountHub()
+
+    const link = wrapper.find('a.activity-card')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('href')).toBe(RELEASE_LINK_ITEM.external_url)
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener')
+    expect(link.find('.ac-badge').text()).toBe('Nouveauté')
+    expect(link.text()).toContain('Uncrawled EP')
   })
 
   it('shows the « N nouvelles » badge while items are not yet marked seen', async () => {

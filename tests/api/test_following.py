@@ -1,9 +1,8 @@
 """Tests for artist following: /api/artists/{id}/follow + /api/following."""
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
-
 from models import Artist, ArtistActivity, FollowedArtist, User
+from sqlalchemy import func, select
 
 
 async def _make_artist(db, name="CamelPhat", normalized=None):
@@ -12,6 +11,29 @@ async def _make_artist(db, name="CamelPhat", normalized=None):
     await db.commit()
     await db.refresh(artist)
     return artist
+
+
+async def _make_catalog(db, *, title, artist, normalized_key, **kw):
+    from datetime import date
+
+    from models import CatalogEntry
+
+    entry = CatalogEntry(
+        title=title,
+        artist=artist,
+        normalized_key=normalized_key,
+        scope="shared",
+        has_artwork=kw.get("has_artwork", True),
+        has_preview=kw.get("has_preview", True),
+        bpm=kw.get("bpm", 128.0),
+        key=kw.get("key", "8A"),
+        duration_ms=kw.get("duration_ms", 210000),
+        release_date=kw.get("release_date", date(2026, 7, 10)),
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
 
 
 async def _follow_count(db, user_id, artist_id):
@@ -187,8 +209,63 @@ class TestActivityFeed:
         assert items[0]["source"] == "trackid"
         assert items[1]["title"] == "New EP"
         assert items[1]["external_url"] == "https://www.deezer.com/album/1"
+        # A link-only release (no crawled catalog track) leaves the track fields
+        # at their defaults.
+        assert items[1]["catalog_id"] is None
+        assert items[1]["has_artwork"] is False
+        assert items[1]["bpm"] is None
+        assert items[1]["release_date"] is None
         # No DB column name leaking into the contract
         assert "activity_type" not in items[0]
+
+    async def test_feed_release_with_catalog_returns_track_fields(
+        self, auth_client, auth_user, db
+    ):
+        from datetime import date
+
+        followed = await _make_artist(db, name="Crawler", normalized="crawler")
+        entry = await _make_catalog(
+            db,
+            title="Fresh Cut",
+            artist="Crawler",
+            normalized_key="crawler|fresh cut",
+            release_date=date(2026, 7, 10),
+        )
+        db.add(
+            FollowedArtist(
+                user_id=auth_user.id,
+                artist_id=followed.id,
+                followed_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            ArtistActivity(
+                artist_id=followed.id,
+                activity_type="release",
+                source="deezer",
+                external_id="track-9",
+                title="Fresh Cut",
+                external_url="https://www.deezer.com/track/9",
+                catalog_id=entry.id,
+                detected_at=datetime(2026, 7, 11, 12, 0, tzinfo=timezone.utc),
+            )
+        )
+        await db.commit()
+
+        r = await auth_client.get("/api/following/activity")
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert len(items) == 1
+        it = items[0]
+        assert it["type"] == "release"
+        assert it["catalog_id"] == entry.id
+        assert it["has_artwork"] is True
+        assert it["has_preview"] is True
+        assert it["bpm"] == 128.0
+        assert it["key"] == "8A"
+        assert it["duration_ms"] == 210000
+        assert it["artist"] == "Crawler"
+        assert it["release_date"] == "2026-07-10"
 
     async def test_feed_pagination(self, auth_client, auth_user, db):
         await _seed_activity(db, auth_user)
