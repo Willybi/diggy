@@ -345,10 +345,15 @@ function onDeezerSearch() {
     return
   }
   linkDeezerTimer = setTimeout(async () => {
-    const { data } = await api.get('/api/admin/artists/search-deezer', {
-      params: { q: linkDeezerQuery.value.trim() },
-    })
-    deezerHits.value = data
+    try {
+      const { data } = await api.get('/api/admin/artists/search-deezer', {
+        params: { q: linkDeezerQuery.value.trim() },
+      })
+      deezerHits.value = data
+    } catch {
+      // 429 / network errors are surfaced by the api interceptor toast.
+      deezerHits.value = []
+    }
   }, 300)
 }
 

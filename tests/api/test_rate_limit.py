@@ -56,6 +56,14 @@ class TestRateLimitConfig:
             max_req, window = config
             assert max_req > 0 and window > 0
 
+    def test_search_deezer_bucket_precedes_admin(self):
+        """The dedicated search-deezer limit must be matched before /api/admin
+        (startswith, first insertion-order match wins) — otherwise the generous
+        bucket is shadowed by the general admin cap."""
+        keys = list(RATE_LIMITS)
+        assert "/api/admin/artists/search-deezer" in keys
+        assert keys.index("/api/admin/artists/search-deezer") < keys.index("/api/admin")
+
 
 class TestRateLimitMiddleware:
     def test_non_rate_limited_route_passes_through(self):

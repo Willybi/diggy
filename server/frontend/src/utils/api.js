@@ -16,15 +16,24 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Auto-logout on 401, toast on 5xx / network error
+// Auto-logout on 401, toast on 429 / 5xx / network error
 api.interceptors.response.use(undefined, (error) => {
-  if (error.response?.status === 401) {
+  const status = error.response?.status
+  if (status === 401) {
     const auth = useAuthStore()
     if (auth.token) {
       auth.logout()
       router.push('/login')
     }
-  } else if (!error.response || error.response.status >= 500) {
+  } else if (status === 429) {
+    const toast = useToast()
+    const retry = error.response?.headers?.['retry-after']
+    toast.show(
+      retry
+        ? `Trop de requêtes, réessayez dans ${retry}s.`
+        : 'Trop de requêtes, réessayez dans un instant.',
+    )
+  } else if (!error.response || status >= 500) {
     const toast = useToast()
     const msg = error.response?.data?.detail || error.message || 'Erreur réseau'
     toast.show(msg)

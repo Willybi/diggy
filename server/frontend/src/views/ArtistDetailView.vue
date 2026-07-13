@@ -372,10 +372,15 @@ function onDzSearch() {
     return
   }
   dzTimer = setTimeout(async () => {
-    const { data } = await api.get('/api/admin/artists/search-deezer', {
-      params: { q: dzQuery.value.trim() },
-    })
-    dzHits.value = data
+    try {
+      const { data } = await api.get('/api/admin/artists/search-deezer', {
+        params: { q: dzQuery.value.trim() },
+      })
+      dzHits.value = data
+    } catch {
+      // 429 / network errors are surfaced by the api interceptor toast.
+      dzHits.value = []
+    }
   }, 300)
 }
 

@@ -24,7 +24,14 @@ RATE_LIMITS = {
     # Manual import triggers external API calls (Deezer/TIDAL fetch + artwork).
     "/api/catalog/import": (20, 60),
     "/api/import/rekordbox": (3, 300),
-    "/api/admin": (10, 60),
+    # Manual Deezer linking clicks through many artists, one external search per
+    # click. Give it its own generous bucket, ahead of /api/admin (startswith
+    # match, first insertion-order match wins). Admin-only, and 60/60s stays
+    # well under Deezer's own limit (~50 req / 5s).
+    "/api/admin/artists/search-deezer": (60, 60),
+    # Interactive admin workflows fire GET+PATCH sequences (link, flag, split);
+    # 10/60s throttled real cleanup sessions. Admin-gated, so a high cap is safe.
+    "/api/admin": (60, 60),
     # Personalised reco can trigger a full on-the-fly similarity compute on a
     # cache miss (bounded by SEED_CAP), so keep it modestly capped.
     "/api/recommendations": (30, 60),
