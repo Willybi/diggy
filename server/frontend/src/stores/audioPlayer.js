@@ -1,8 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '../utils/api.js'
+import { useToast } from './toast.js'
 
 const VOLUME_KEY = 'diggy:volume'
+
+// A 503 on the preview endpoint is transient (Deezer throttled us): retry once
+// after a short backoff instead of closing the player on a phantom failure.
+const PREVIEW_RETRY_MAX = 1
+const PREVIEW_RETRY_BACKOFF_MS = 800
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const useAudioPlayer = defineStore('audioPlayer', () => {
   // --- reactive state ---
@@ -82,16 +89,41 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     artistPlaying.value = null
     loading.value = true
 
-    try {
-      const { data } = await api.get(`/api/catalog/${trackObj.catalog_id}/preview-url`)
-      const el = ensureAudio()
-      el.src = data.preview_url
-      await el.play()
-      loading.value = false
-    } catch (e) {
-      console.warn('[audioPlayer] preview failed:', e)
-      close()
+    // Capture the target: a fast track switch mid-retry must not let a stale
+    // attempt hijack the (single, shared) audio element.
+    const targetId = trackObj.catalog_id
+    let lastError = null
+
+    for (let attempt = 0; attempt <= PREVIEW_RETRY_MAX; attempt++) {
+      if (attempt > 0) {
+        await sleep(PREVIEW_RETRY_BACKOFF_MS)
+        if (!isCurrent(targetId)) return // track switched during the backoff
+      }
+      try {
+        const { data } = await api.get(`/api/catalog/${targetId}/preview-url`, {
+          suppressErrorToast: true,
+        })
+        if (!isCurrent(targetId)) return // user switched tracks while loading
+        const el = ensureAudio()
+        el.src = data.preview_url
+        await el.play()
+        if (isCurrent(targetId)) loading.value = false
+        return
+      } catch (e) {
+        if (!isCurrent(targetId)) return // stale attempt (track switched) — ignore
+        lastError = e
+        // Retry only a transient 503 (Deezer quota); anything else is final.
+        if (e.response?.status !== 503) break
+      }
     }
+
+    // Retries exhausted (or a non-retryable failure): on a transient 503 tell the
+    // user it's temporary rather than silently closing on a dead-looking track.
+    if (lastError?.response?.status === 503) {
+      useToast().show('Preview temporairement indisponible, réessayez.')
+    }
+    console.warn('[audioPlayer] preview failed:', lastError)
+    close()
   }
 
   function toggle() {

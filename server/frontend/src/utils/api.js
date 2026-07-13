@@ -34,9 +34,13 @@ api.interceptors.response.use(undefined, (error) => {
         : 'Trop de requêtes, réessayez dans un instant.',
     )
   } else if (!error.response || status >= 500) {
-    const toast = useToast()
-    const msg = error.response?.data?.detail || error.message || 'Erreur réseau'
-    toast.show(msg)
+    // Callers can opt out of the auto-toast (e.g. the audio player runs its own
+    // transient-503 retry and messages the user itself).
+    if (!error.config?.suppressErrorToast) {
+      const toast = useToast()
+      const msg = error.response?.data?.detail || error.message || 'Erreur réseau'
+      toast.show(msg)
+    }
   }
   return Promise.reject(error)
 })
