@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global inchange : series AU + C6 + F5 + C3 + C4 + N1 TERMINE ; restent C5 (apres ouverture) et D4 (bloque briefs))
+> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global : series AU + C6 + F5 + C3 + C4 + N1 TERMINE. **Mise a jour 2026-07-13 (2)** : les deux derniers chantiers, C5 (Collections v2) et D4 (Pages Detail), sont desormais STANDALONE et prets a demarrer — retrait des statuts 'apres ouverture' (C5) et 'bloque briefs' (D4). Plus aucune dependance ni condition bloquante : leur lancement est un choix de priorite (William), pas un blocage. D4 = a demarrer en binome avec Claude Design (briefs Track/Playlist co-produits dans le chantier) ; C5 = gros refacto de la feature Collections.)
 
 ---
 
@@ -23,7 +23,7 @@ Avant l'ouverture aux amis (5-10 DJs), Diggy doit offrir :
 
 Apres l'ouverture : la recommandation personnalisee (croisement similarite x likes), utile des un seul user et enrichie par chaque nouvel utilisateur.
 
-**Sequence verrouillee** : ~~C0 -> R1 -> C1 -> C2~~ (TERMINE) -> ~~H0 + P1~~ (TERMINE) -> F5 + C6 (paralleles) -> **serie AU (audit 2026-07)** -> C3 (ouverture) -> C4 -> C5. L'ordre des chantiers est fixe et ne doit pas etre modifie.
+**Sequence verrouillee (historique — soldee)** : ~~C0 -> R1 -> C1 -> C2 -> H0 + P1 -> F5 + C6 -> serie AU -> C3 -> C4~~ (TOUT TERMINE). Restent **C5** et **D4** : hors sequence, deux chantiers STANDALONE sans ordre impose ni dependance bloquante, lancables au choix.
 
 **Sequencement interne serie AU** (arbitre dans `docs/audit_2026-07/DECISIONS.md`) : AU1 -> AU2 -> AU3 -> AU7 -> AU4 -> AU5 -> AU6 -> AU8. Contrainte imperative : le volet enrichissement de AU7 s'execute AVANT ou AVEC AU4.
 
@@ -53,8 +53,8 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    TERMINE (2026-07-12)
  C3   Ouverture aux amis                    MOYEN       5-7 jours    TERMINE (2026-07-13 ; ouverture effective = decision William)
  C4   Reco personnalisee                    BAS         3-5 jours    TERMINE (2026-07-13)
- C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
- D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
+ C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE — standalone
+ D4   Pages Detail (Vague 3)               BAS         5-7 jours    A FAIRE — standalone
  N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
 ```
 
@@ -122,7 +122,8 @@ AU5 ────────> apres AU1 (A1-02 fixe en AU1, verification de non-
 E1 ─────────> AU7 imperatif (filet de tests enrichment.py avant modification) ; recommande avec ou juste apres AU4 (meme zone de code, coordonner avec A3-05 rate limiting partage)   ✅ TERMINE
 Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs briefs respectifs)   ✅ TERMINEE (2026-07-11)
 C4 ─────────> C2 + C3 (similarite + likes + users)
-C5 ─────────> C3 (apres ouverture)
+C5 ─────────> Rien — C1 (TERMINE). Refacto standalone, pret a demarrer, aucun blocage
+D4 ─────────> Rien — D5 (TERMINE). Standalone, briefs Track/Playlist co-produits en binome avec Claude Design
 N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 ```
 
@@ -917,8 +918,8 @@ Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des
 
 **Priorite : BAS**
 **Estimation : 3-5 jours**
-**Depend de : C1 (TERMINE)**
-**Statut : A FAIRE — après ouverture**
+**Depend de : C1 (TERMINE) — aucune dependance bloquante**
+**Statut : A FAIRE — pret a demarrer (STANDALONE). Gros refacto de la feature Collections (items polymorphes + dossiers). Aucune condition d'ouverture, aucun blocage. Declenchement = choix de priorite (William).**
 
 ### Objectif
 
@@ -972,15 +973,15 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 
 **Priorite : BAS**
 **Estimation : 5-7 jours**
-**Depend de : D5 (composants partages)**
-**Statut : BLOQUE — en attente briefs designer pour Track/Playlist detail**
+**Depend de : D5 (composants partages) — TERMINE, aucune dependance bloquante**
+**Statut : A FAIRE — pret a demarrer (STANDALONE). A lancer en binome avec Claude Design : les briefs Track/Playlist sont co-produits DANS le chantier, ce n'est plus un blocage externe. Declenchement = choix de priorite (William).**
 
 ### Taches
 
 - [ ] **Verifier FIX appliques** sur Artist Detail et Set Detail
-- [ ] **Track Detail** `/catalog/:id` (quand brief livre) : Hero + StatStrip + blocs relationnels
-- [ ] **Playlist Detail** `/playlists/:id` (quand brief livre) : Hero square + StatStrip + table tracks
-- [ ] **Vague 5 — Admin panel** `/admin` (quand brief livre) : Refonte visuelle selon DA Wildflower
+- [ ] **Track Detail** `/catalog/:id` (brief co-produit avec Claude Design) : Hero + StatStrip + blocs relationnels
+- [ ] **Playlist Detail** `/playlists/:id` (brief co-produit avec Claude Design) : Hero square + StatStrip + table tracks
+- [ ] **Vague 5 — Admin panel** `/admin` (brief co-produit avec Claude Design) : Refonte visuelle selon DA Wildflower
 
 ---
 
@@ -1068,7 +1069,8 @@ TagsView est une vue morte, `/tags` redirige vers `/genres`.
 | E1 | Re-scan enrichissement (backoff + budget nightly) | Apres AU7, avec ou juste apres AU4 | AU7 (filet de tests enrichment) |
 | C3 | Ouverture (fermeture app + import multi-user + accueil) | Ta decision d'inviter | H0 (FAIT) + C1 + serie AU + idealement C6 |
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
-| C5 | Collections v2 (items polymorphes + dossiers) | Apres ouverture | C1 |
+| C5 | Collections v2 (items polymorphes + dossiers) | Au choix (standalone) | C1 (TERMINE) |
+| D4 | Pages Detail (Track/Playlist, binome Claude Design) | Au choix (standalone) | D5 (TERMINE) |
 | N1 | Nettoyage residus (auth legacy + TagsView morte) | Opportuniste | Rien |
 
 Notes :
