@@ -34,13 +34,16 @@ ARTIST_MAX_SEARCH_ATTEMPTS = 3
 # under soft_time_limit (1500 searches ÷ 10 req/s ≈ 150s) so the run finishes in
 # minutes and the timeout that triggered the retry storm never fires.
 ARTIST_LINK_DEFAULT_BUDGET = 1500
-# Max artist artwork downloads per run — same loop-guard role.
-ARTIST_ARTWORK_DEFAULT_BUDGET = 2000
+# Max artist artwork downloads per nightly run — same loop-guard role. Sized to
+# drain the linked-without-artwork backlog in ~2 nights (~10 req/s Deezer →
+# ~1000s for 10000), then trivial in steady state (only new artists remain).
+# Overridable per call (budget arg) for an ad-hoc bigger drain.
+ARTIST_ARTWORK_DEFAULT_BUDGET = 10000
 
-# Single-instance locks: TTL strictly above each task's time_limit (1500s) so the
-# lock cannot expire while a legitimate run is still in progress.
-LINK_ARTISTS_LOCK_TTL = 1800
-FETCH_ARTIST_ARTWORKS_LOCK_TTL = 1800
+# Single-instance locks: TTL strictly above each task's time_limit so the lock
+# cannot expire while a legitimate run is still in progress.
+LINK_ARTISTS_LOCK_TTL = 1800  # > link time_limit (1500)
+FETCH_ARTIST_ARTWORKS_LOCK_TTL = 3600  # > artwork time_limit (3300)
 
 # Batch commit size: a kill after any chunk keeps the committed chunks (the old
 # single final commit lost everything on a timeout).
@@ -856,19 +859,21 @@ def sync_artists(self):
 @celery_app.task(
     name="workers.tasks.fetch_artist_artworks",
     bind=True,
-    soft_time_limit=1200,
-    time_limit=1500,
+    soft_time_limit=3000,
+    time_limit=3300,
 )
-def fetch_artist_artworks(self):
+def fetch_artist_artworks(self, budget=None):
     """Download Deezer artist images for linked artists missing artwork.
 
     Artwork-only since the backlog loop-safe chantier: the Deezer *linking* pass
     moved to link_artists_deezer. Loop-safe by construction (the 2026-07-13
-    incident) — a per-run budget (ARTIST_ARTWORK_NIGHTLY_BUDGET), batch commits,
-    a Redis single-instance lock, and NO autoretry_for=(Exception,) (the decorator
-    that turned the old soft timeout into an infinite re-download loop). Manual
-    trigger only (no beat) — a full drain of the ~24 800-row backlog is a separate
-    deferred step.
+    incident) — a per-run budget (ARTIST_ARTWORK_NIGHTLY_BUDGET, default 10000),
+    batch commits, a Redis single-instance lock, and NO autoretry_for=(Exception,)
+    (the decorator that turned the old soft timeout into an infinite re-download
+    loop). Runs nightly at 05:20 (Paris); ``budget`` overrides the default for an
+    ad-hoc bigger drain. The limits (soft 3000 / time 3300) stay well above the
+    budget runtime (10000 ÷ 10 req/s ≈ 1000s), so the timeout never fires — the
+    budget is the primary guard.
     """
     import redis as redis_lib
 
@@ -887,14 +892,14 @@ def fetch_artist_artworks(self):
         return {"skipped": "already_running", "holder": holder}
 
     try:
-        return _run_fetch_artist_artworks(self)
+        return _run_fetch_artist_artworks(self, budget)
     finally:
         # Release only if we still own it (TTL may have expired mid-run)
         if r.get(lock_key) == self.request.id:
             r.delete(lock_key)
 
 
-def _run_fetch_artist_artworks(task):
+def _run_fetch_artist_artworks(task, budget=None):
     from sqlalchemy import func, select
     from sqlalchemy.orm import Session
 
@@ -905,7 +910,7 @@ def _run_fetch_artist_artworks(task):
 
     engine = get_engine()
     ImageService.ensure_bucket(BUCKET_ARTIST)
-    budget = _artwork_budget()
+    budget = _artwork_budget() if budget is None else int(budget)
 
     from workers.crawl_logger import CrawlLogger
 

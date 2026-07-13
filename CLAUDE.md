@@ -149,10 +149,14 @@ Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`
 | `recrawl_incomplete_sets` | 04:00 | tasks/sets.py |
 | `check_followed_artists` | 04:45 | tasks/artists.py |
 | `enrich_catalog` (Deezer) | 05:00 | tasks/catalog.py |
+| `link_artists_deezer` | 05:10 | tasks/artists.py |
+| `fetch_artist_artworks` | 05:20 | tasks/artists.py |
 | `enrich_catalog_beatport` | 06:00 | tasks/catalog.py |
 | `compute_trends` | 07:00 | tasks/trends.py |
 
 Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited external APIs); everything else on `diggy_worker`. Keep that separation when adding tasks.
+
+Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NIGHTLY_BUDGET`=1500) and `fetch_artist_artworks` (budget `ARTIST_ARTWORK_NIGHTLY_BUDGET`=10000, `budget` kwarg overrides for an ad-hoc drain) are budget-capped, batch-committing and Redis-locked, with **NO `autoretry_for=(Exception,)`** — that decorator turned the 2026-07-13 soft timeout into an infinite re-download loop (`SoftTimeLimitExceeded` IS an `Exception`). The budget cap (dimensioned well under the soft limit) is the primary loop guard; both are placed at 05:10/05:20 in the Deezer-idle window (enrich_catalog finishes in seconds, enrich_beatport uses the separate Beatport rate window).
 
 ## Known Pitfalls
 

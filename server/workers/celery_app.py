@@ -131,6 +131,18 @@ celery_app.conf.update(
             "task": "workers.tasks.check_followed_artists",
             "schedule": crontab(hour=4, minute=45),  # tous les jours à 4h45
         },
+        # Artist backlog drain (loop-safe, budget-capped) — placed in the
+        # Deezer-idle window: enrich_catalog (05:00) finishes in seconds and
+        # enrich_beatport (06:00) uses the separate Beatport rate window, so
+        # these have the shared 10 req/s Deezer limit to themselves.
+        "link-artists-deezer-daily": {
+            "task": "workers.tasks.link_artists_deezer",
+            "schedule": crontab(hour=5, minute=10),  # tous les jours à 5h10
+        },
+        "fetch-artist-artworks-daily": {
+            "task": "workers.tasks.fetch_artist_artworks",
+            "schedule": crontab(hour=5, minute=20),  # tous les jours à 5h20
+        },
     },
 )
 

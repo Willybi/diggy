@@ -180,14 +180,28 @@ class TestRetryPolicies:
                 f"Task {task.name} must NOT autoretry on Exception (loop footgun)"
             )
 
-    def test_backlog_tasks_have_short_limits(self):
-        """The budget-capped backlog tasks finish in minutes; short limits keep
-        them well under the broker visibility_timeout."""
+    def test_backlog_tasks_limits_stay_above_budget_runtime(self):
+        """The budget cap is the primary loop guard: the limits must stay above
+        the worst-case budget runtime (budget ÷ 10 req/s) so the timeout never
+        fires, and below the broker visibility_timeout so it isn't re-delivered.
+        link: 1500 ÷ 10 ≈ 150s. artwork: default 10000 ÷ 10 ≈ 1000s, and the
+        24000 ad-hoc drain ≈ 2400s — hence the wider 3000/3300 window."""
         wt = self._get_tasks()
-        for tname in ("fetch_artist_artworks", "link_artists_deezer"):
-            task = getattr(wt, tname)
-            assert task.soft_time_limit == 1200
-            assert task.time_limit == 1500
+        assert wt.link_artists_deezer.soft_time_limit == 1200
+        assert wt.link_artists_deezer.time_limit == 1500
+        assert wt.fetch_artist_artworks.soft_time_limit == 3000
+        assert wt.fetch_artist_artworks.time_limit == 3300
+
+    def test_backlog_tasks_scheduled_in_beat(self):
+        """Lot C: both backlog tasks now run nightly (celery_app is mocked here,
+        so read the beat schedule from source, like _read_visibility_timeout)."""
+        path = os.path.join(_SERVER_PATH, "workers", "celery_app.py")
+        with open(path, encoding="utf-8") as f:
+            source = f.read()
+        assert "workers.tasks.link_artists_deezer" in source
+        assert "workers.tasks.fetch_artist_artworks" in source
+        assert "link-artists-deezer-daily" in source
+        assert "fetch-artist-artworks-daily" in source
 
     def test_all_tasks_are_bound(self):
         wt = self._get_tasks()

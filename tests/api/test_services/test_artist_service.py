@@ -1,6 +1,5 @@
 """Tests for services/artist_service.py."""
 import pytest
-
 from services import artist_service
 
 
@@ -66,6 +65,102 @@ class TestGetDetail:
 
         result = await artist_service.get_detail(db, a.id)
         assert result.name == "Test Artist"
+
+
+class TestLinkToDeezer:
+    @staticmethod
+    def _stub_requests(monkeypatch, name="Canonical"):
+        """Avoid the real Deezer call (returns a name, no picture)."""
+        import requests
+
+        class _Resp:
+            def json(self):
+                return {"name": name}
+
+        monkeypatch.setattr(requests, "get", lambda *a, **k: _Resp())
+
+    async def _catalog_entry(self, db, key):
+        from datetime import datetime, timezone
+
+        from models import CatalogEntry
+
+        entry = CatalogEntry(
+            title=f"Track {key}",
+            artist="X",
+            normalized_key=key,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(entry)
+        await db.flush()
+        return entry
+
+    async def test_merge_reassigns_catalog_links(self, db, monkeypatch):
+        """Regression: merging into a canonical artist must move catalog_artists
+        instead of orphaning them — leaving the row behind made the ORM try to
+        NULL the PK column artist_id → AssertionError → HTTP 500."""
+        from models import Artist, CatalogArtist
+        from sqlalchemy import select
+
+        self._stub_requests(monkeypatch)
+
+        dup = Artist(name="Dup Name", normalized_name="dup name")
+        canonical = Artist(
+            name="Canonical", normalized_name="canonical", deezer_id="777"
+        )
+        db.add_all([dup, canonical])
+        await db.flush()
+
+        entry = await self._catalog_entry(db, "dup|track")
+        db.add(CatalogArtist(catalog_id=entry.id, artist_id=dup.id, role="main"))
+        await db.commit()
+        dup_id = dup.id
+
+        result = await artist_service.link_to_deezer(db, dup_id, "777")
+
+        assert result["merged"] is True
+        assert result["id"] == canonical.id
+        # The old artist is gone (no crash), the catalog link now points to canonical.
+        assert (await db.get(Artist, dup_id)) is None
+        links = (
+            await db.execute(
+                select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+            )
+        ).scalars().all()
+        assert len(links) == 1
+        assert links[0].artist_id == canonical.id
+
+    async def test_merge_dedups_shared_catalog_link(self, db, monkeypatch):
+        """When both artists already link the same track, the duplicate is
+        dropped (composite PK) and a single link to canonical remains."""
+        from models import Artist, CatalogArtist
+        from sqlalchemy import select
+
+        self._stub_requests(monkeypatch)
+
+        dup = Artist(name="Dup2", normalized_name="dup2")
+        canonical = Artist(name="Canon2", normalized_name="canon2", deezer_id="888")
+        db.add_all([dup, canonical])
+        await db.flush()
+
+        entry = await self._catalog_entry(db, "shared|track")
+        db.add_all([
+            CatalogArtist(catalog_id=entry.id, artist_id=dup.id, role="main"),
+            CatalogArtist(catalog_id=entry.id, artist_id=canonical.id, role="main"),
+        ])
+        await db.commit()
+        dup_id = dup.id
+
+        result = await artist_service.link_to_deezer(db, dup_id, "888")
+
+        assert result["merged"] is True
+        assert (await db.get(Artist, dup_id)) is None
+        links = (
+            await db.execute(
+                select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+            )
+        ).scalars().all()
+        assert len(links) == 1
+        assert links[0].artist_id == canonical.id
 
 
 class TestResolveFlag:

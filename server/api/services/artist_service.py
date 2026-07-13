@@ -454,7 +454,7 @@ async def link_to_deezer(
 ) -> dict:
     """Manually link a deezer_id to an artist (fetch name + artwork, merge if duplicate)."""
     import requests as req
-    from models import Artist, SetArtist
+    from models import Artist, CatalogArtist, SetArtist
     from sqlalchemy import delete as sa_delete
     from sqlalchemy import update as sa_update
     from utils import normalize
@@ -508,6 +508,29 @@ async def link_to_deezer(
         await db.execute(
             sa_update(SetArtist)
             .where(SetArtist.artist_id == artist_id)
+            .values(artist_id=canonical.id)
+            .execution_options(synchronize_session=False)
+        )
+        # Reassign catalog links the same way. catalog_artists.artist_id is a PK
+        # column, so leaving rows behind makes the ORM try to NULL it out on
+        # db.delete(artist) → AssertionError (500). Drop rows for catalogs the
+        # canonical already links, then move the rest.
+        conflict_catalogs = await db.execute(
+            select(CatalogArtist.catalog_id).where(
+                CatalogArtist.artist_id == canonical.id
+            )
+        )
+        conflict_catalog_ids = {r[0] for r in conflict_catalogs.all()}
+        if conflict_catalog_ids:
+            await db.execute(
+                sa_delete(CatalogArtist).where(
+                    CatalogArtist.artist_id == artist_id,
+                    CatalogArtist.catalog_id.in_(conflict_catalog_ids),
+                )
+            )
+        await db.execute(
+            sa_update(CatalogArtist)
+            .where(CatalogArtist.artist_id == artist_id)
             .values(artist_id=canonical.id)
             .execution_options(synchronize_session=False)
         )

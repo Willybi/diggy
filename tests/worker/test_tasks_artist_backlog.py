@@ -428,6 +428,23 @@ class TestFetchArtistArtworks:
         assert result["fetched"] == 1
         assert result["dropped_by_budget"] == 1
 
+    def test_budget_arg_overrides_default(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, monkeypatch
+    ):
+        """The per-call budget arg (used by the one-off drain) overrides the
+        env/default — here it caps a 2-artist backlog to 1."""
+        monkeypatch.setenv("ARTIST_ARTWORK_NIGHTLY_BUDGET", "9999")
+        with Session(task_engine) as s:
+            _add_artist(s, "A", deezer_id="30", has_artwork=False)
+            _add_artist(s, "B", deezer_id="31", has_artwork=False)
+        fake_pool.artist_pics["30"] = {"picture_xl": "https://cdn/30.jpg"}
+        fake_pool.artist_pics["31"] = {"picture_xl": "https://cdn/31.jpg"}
+
+        result = tasks_env.artists.fetch_artist_artworks(fake_self, budget=1)
+
+        assert result["fetched"] == 1
+        assert result["dropped_by_budget"] == 1
+
     def test_missing_picture_is_skipped(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
     ):
@@ -495,4 +512,6 @@ class TestFetchArtworksLock:
         fake_redis.delete.assert_called_once_with("lock:fetch_artist_artworks")
 
     def test_lock_ttl_covers_task_time_limit(self, tasks_env):
-        assert tasks_env.artists.FETCH_ARTIST_ARTWORKS_LOCK_TTL > 1500
+        # lock TTL must exceed the artwork time_limit (3300) so it cannot expire
+        # mid-run — otherwise a concurrent run could start during a long drain
+        assert tasks_env.artists.FETCH_ARTIST_ARTWORKS_LOCK_TTL > 3300
