@@ -34,11 +34,14 @@ class RecommendationConfig:
     W_DISLIKE: float = 0.7     # a disliked track SUBTRACTS from the score
     # Seed caps — bound the cost (the library can hold thousands of tracks).
     # Likes come first, then a slice of the library up to SEED_CAP total.
-    SEED_CAP: int = 80
-    DISLIKE_CAP: int = 80
+    # caps volontairement bas — le calcul est on-the-fly derrière un timeout
+    # nginx de 60s ; à revoir avec le fix durable (candidate pooling ou
+    # précalcul nightly).
+    SEED_CAP: int = 12
+    DISLIKE_CAP: int = 12
     # Per-seed candidate retrieval: broad pool, low floor — the aggregation
     # (and the final ranking) is where relevance is decided.
-    CAND_PER_SEED: int = 100
+    CAND_PER_SEED: int = 40
     SEED_SCORE_FLOOR: float = 0.02
     # How many ranked candidates to keep cached (>= the endpoint's max limit,
     # so a single cache entry serves every limit).
