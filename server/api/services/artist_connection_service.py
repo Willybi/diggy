@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import math
 from collections import defaultdict
 from dataclasses import dataclass
@@ -181,15 +180,14 @@ async def get_connections(
     if ref is None:
         raise LookupError(f"Artist {artist_id} not found")
 
-    # 1. Load co-occurrence counts + genre context in parallel
-    collab_counts, set_counts, playlist_counts, (name_to_node, parent_map) = (
-        await asyncio.gather(
-            _load_collab_counts(db, artist_id),
-            _load_set_counts(db, artist_id),
-            _load_playlist_counts(db, artist_id),
-            _load_genre_context(db),
-        )
-    )
+    # 1. Load co-occurrence counts + genre context.
+    # Sequential awaits on one AsyncSession: concurrent db.execute over a single
+    # session wedges an asyncpg connection under PostgreSQL (SQLite masks it) —
+    # see load_similarity_context. Order-independent, each loader is standalone.
+    collab_counts = await _load_collab_counts(db, artist_id)
+    set_counts = await _load_set_counts(db, artist_id)
+    playlist_counts = await _load_playlist_counts(db, artist_id)
+    name_to_node, parent_map = await _load_genre_context(db)
 
     # 2. Union of candidate artist IDs
     candidate_ids = set(collab_counts) | set(set_counts) | set(playlist_counts)

@@ -178,6 +178,7 @@ Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited 
 - Since AU3 the API never runs `create_all`: the schema comes from Alembic ONLY (test harnesses keep their own `create_all` in `tests/*/conftest.py`). In local dev, the compose override runs `alembic upgrade head` before uvicorn.
 - The migration chain is NOT replayable from an empty database: 0001 assumes the pre-Alembic tables historically created by `create_all`. A fresh local PG volume must be seeded from a prod dump (`docs/restore.md`); an old dev volume created by `create_all` must be stamped once (`alembic stamp head`). A baseline/squash migration is a known follow-up.
 - `uq_artists_deezer_id` (partial unique on `artists.deezer_id`, sentinel-aware) exists ONLY in prod, created outside migrations — see the MANUAL block of `docs/database-schema.md` before touching artist deezer_id uniqueness.
+- NEVER `asyncio.gather` several `db.execute` on the SAME `AsyncSession`: a session is not safe for concurrent access. SQLite masks it, but asyncpg (PostgreSQL/CI) wedges a connection ("non-checked-in connection … will be terminated") and the suite HANGS. Await DB loaders sequentially on one session; if you truly need parallel DB reads, use separate sessions/connections. Bit us in C4 (`load_similarity_context`, `get_connections` — both since serialized).
 
 ### Frontend
 - Container queries everywhere; `@media` ONLY for `position: fixed` elements.

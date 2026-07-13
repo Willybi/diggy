@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import math
 import re
 from dataclasses import dataclass
@@ -286,13 +285,17 @@ class SimilarityContext:
 
 
 async def load_similarity_context(db: AsyncSession) -> SimilarityContext:
-    """Load the 4 seed-agnostic maps once (genre, label, playlist, set)."""
-    (name_to_node, parent_map), label_counts, playlist_map, set_map = await asyncio.gather(
-        _load_genre_context(db),
-        _load_label_counts(db),
-        _load_playlist_map(db),
-        _load_set_map(db),
-    )
+    """Load the 4 seed-agnostic maps once (genre, label, playlist, set).
+
+    Sequential awaits on the same session: an ``AsyncSession`` cannot be accessed
+    concurrently. ``asyncio.gather`` here left an asyncpg connection wedged under
+    PostgreSQL (the "non-checked-in connection ... will be terminated" hang);
+    SQLite masks it. Order-independent — each loader hits disjoint tables.
+    """
+    name_to_node, parent_map = await _load_genre_context(db)
+    label_counts = await _load_label_counts(db)
+    playlist_map = await _load_playlist_map(db)
+    set_map = await _load_set_map(db)
     return SimilarityContext(
         name_to_node=name_to_node,
         parent_map=parent_map,
