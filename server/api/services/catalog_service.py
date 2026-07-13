@@ -4,13 +4,14 @@ Catalog service: list, detail, preview URL, avis update, crawl logs.
 Services raise LookupError (404) or ValueError (400), never HTTPException.
 """
 
+import asyncio
 import json as _json
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import String, case, cast, func, select
+from sqlalchemy import String, case, cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -19,6 +20,30 @@ from services.genre_service import ensure_pillar_cache, genre_pillar, pillar_map
 logger = logging.getLogger(__name__)
 
 DEEZER_API = "https://api.deezer.com"
+
+# Deezer signals failures (quota, gone resource) as HTTP 200 + {"error": ...}.
+# Code 800 / type "DataException" is a *genuine* absence; every other error
+# (quota code 4, "service busy" 700, ...) is transient. Mirror of
+# workers/source_clients._deezer_get so this live endpoint stops treating a
+# throttled response as "no preview" (intermittent 404s in prod).
+DEEZER_ERROR_NO_DATA = 800
+
+# One retry with a small backoff before surfacing a 503 on a transient failure.
+# Module-level so tests can zero it (no real sleep).
+_PREVIEW_RETRY_BACKOFF = 0.5  # seconds
+
+# Resolved preview URLs are cached in Redis, keyed by Deezer track id: it takes
+# the per-IP Deezer quota off the hot play path. TTL well under the ~1h exp that
+# Deezer bakes into the preview URL itself. Fail-open (Redis down → recompute).
+_PREVIEW_CACHE_PREFIX = "preview"
+_PREVIEW_CACHE_TTL = 1800  # 30 min
+
+
+class PreviewUnavailableError(Exception):
+    """A preview could not be resolved for a *transient* reason (Deezer quota,
+    5xx, network). Distinct from ``LookupError`` (genuine absence → 404): the
+    router maps this to 503 so the client retries instead of the player treating
+    the track as preview-less and closing."""
 
 
 def catalog_visible(user_id: int | None):
@@ -658,7 +683,72 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
     )
 
 
-async def get_preview_url(db: AsyncSession, catalog_id: int, user_id: int | None) -> dict:
+async def _preview_cache_get(redis, deezer_track_id: str) -> str | None:
+    if redis is None:
+        return None
+    try:
+        return await redis.get(f"{_PREVIEW_CACHE_PREFIX}:{deezer_track_id}")
+    except Exception as exc:  # fail-open: Redis down/unsupported → recompute
+        logger.warning("preview cache read skipped (Redis unavailable): %s", exc)
+        return None
+
+
+async def _preview_cache_set(redis, deezer_track_id: str, url: str) -> None:
+    if redis is None:
+        return
+    try:
+        await redis.setex(f"{_PREVIEW_CACHE_PREFIX}:{deezer_track_id}", _PREVIEW_CACHE_TTL, url)
+    except Exception as exc:  # fail-open
+        logger.warning("preview cache write skipped (Redis unavailable): %s", exc)
+
+
+async def _fetch_deezer_preview(deezer_track_id: str) -> str:
+    """One live fetch of a track's preview URL from Deezer.
+
+    Both the HTTP status *and* the JSON error payload are inspected, because
+    Deezer reports failures as HTTP 200 + ``{"error": ...}`` (mirror of
+    ``workers/source_clients._deezer_get``). Raises ``PreviewUnavailableError``
+    on a transient failure (quota / 5xx / network) and ``LookupError`` on a
+    genuine absence (DataException / code 800). Returns the preview URL string
+    otherwise (possibly empty when the track simply has none)."""
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get(f"{DEEZER_API}/track/{deezer_track_id}")
+        if resp.status_code != 200:
+            raise PreviewUnavailableError(f"Deezer HTTP {resp.status_code}")
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:  # network/timeout/bad JSON → transient
+        raise PreviewUnavailableError(str(exc)) from exc
+
+    error = data.get("error") if isinstance(data, dict) else None
+    if error:
+        if error.get("code") == DEEZER_ERROR_NO_DATA or error.get("type") == "DataException":
+            raise LookupError("No preview available")  # confirmed gone
+        raise PreviewUnavailableError(f"Deezer error {error}")  # quota / busy / ...
+
+    return (data.get("preview") or "").strip()
+
+
+async def _mark_no_preview(db: AsyncSession, catalog_id: int) -> None:
+    """Best-effort self-heal: Deezer confirmed the track has no preview, so drop
+    ``has_preview`` and stop the UI offering Play. Never fails the request."""
+    from models import CatalogEntry
+
+    try:
+        await db.execute(
+            update(CatalogEntry)
+            .where(CatalogEntry.id == catalog_id)
+            .values(has_preview=False)
+        )
+        await db.commit()
+    except Exception as exc:
+        logger.warning("could not stamp has_preview=False for %s: %s", catalog_id, exc)
+        await db.rollback()
+
+
+async def get_preview_url(
+    db: AsyncSession, catalog_id: int, user_id: int | None, redis=None
+) -> dict:
     from models import CatalogEntry, RadarTrack
 
     # Visibility guard: a private entry owned by someone else is "not found".
@@ -688,15 +778,31 @@ async def get_preview_url(db: AsyncSession, catalog_id: int, user_id: int | None
     if not deezer_track_id:
         raise LookupError("No Deezer source for this entry")
 
-    async with httpx.AsyncClient(timeout=8) as client:
-        resp = await client.get(f"https://api.deezer.com/track/{deezer_track_id}")
-        resp.raise_for_status()
-        data = resp.json()
+    deezer_track_id = str(deezer_track_id)
 
-    preview = data.get("preview", "").strip()
+    cached = await _preview_cache_get(redis, deezer_track_id)
+    if cached:
+        return {"preview_url": cached}
+
+    try:
+        try:
+            preview = await _fetch_deezer_preview(deezer_track_id)
+        except PreviewUnavailableError:
+            # Transient (quota / 5xx / network): one retry with a small backoff
+            # before surfacing 503. A genuine absence (LookupError) is not retried.
+            await asyncio.sleep(_PREVIEW_RETRY_BACKOFF)
+            preview = await _fetch_deezer_preview(deezer_track_id)
+    except LookupError:
+        # Deezer authoritatively reports the track gone (DataException/800).
+        await _mark_no_preview(db, catalog_id)
+        raise
+
     if not preview:
+        # HTTP 200, no error, but no preview field: a genuine absence for this
+        # request. Not stamped — it can be region-scoped rather than permanent.
         raise LookupError("No preview available")
 
+    await _preview_cache_set(redis, deezer_track_id, preview)
     return {"preview_url": preview}
 
 

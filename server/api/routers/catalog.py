@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 
 from database import get_db
-from dependencies import get_current_user, get_current_user_optional
+from dependencies import get_current_user, get_current_user_optional, get_redis
 from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import User
@@ -137,11 +137,19 @@ async def get_catalog_detail(
 async def get_preview_url(
     catalog_id: int,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
     user: User | None = Depends(get_current_user_optional),
 ):
     """Retourne une preview URL fraîche depuis l'API Deezer."""
     try:
-        return await catalog_service.get_preview_url(db, catalog_id, _uid(user))
+        return await catalog_service.get_preview_url(db, catalog_id, _uid(user), redis=redis)
+    except catalog_service.PreviewUnavailableError as e:
+        # Deezer throttled/failed transiently — 503 (not 404) so the player retries.
+        raise HTTPException(
+            503,
+            "Preview temporairement indisponible, réessayez.",
+            headers={"Retry-After": "3"},
+        ) from e
     except LookupError as e:
         raise HTTPException(404, str(e))
 
