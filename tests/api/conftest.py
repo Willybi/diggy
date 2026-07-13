@@ -99,6 +99,9 @@ class FakeRedis:
     def __init__(self):
         self._store = {}
 
+    async def get(self, key):
+        return self._store.get(key)
+
     async def setex(self, key, ttl, value):
         self._store[key] = value
 
@@ -131,6 +134,9 @@ async def setup_db():
 @pytest_asyncio.fixture(autouse=True)
 async def clean_db(setup_db):
     yield
+    # The shared FakeRedis persists across tests; clear it so a cached value
+    # (e.g. reco:{user_id}) never leaks into the next test reusing the same id.
+    _fake_redis._store.clear()
     async with test_engine.begin() as conn:
         if _is_postgres:
             table_names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)

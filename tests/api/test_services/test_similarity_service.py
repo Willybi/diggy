@@ -445,3 +445,154 @@ class TestGetSimilarTracks:
         )
         assert len(result) == 1
         assert result[0]["title"] == "InLib"
+
+
+# ---------------------------------------------------------------------------
+# L1: shared context + reusable per-seed primitive
+# ---------------------------------------------------------------------------
+
+
+class TestSimilarityContext:
+    async def _create_tracks(self, db, tracks):
+        from models import CatalogEntry
+
+        entries = []
+        for i, data in enumerate(tracks):
+            entry = CatalogEntry(
+                title=data.get("title", f"Track {i}"),
+                artist=data.get("artist", "Artist"),
+                normalized_key=data.get("normalized_key", f"artist|ctx{i}"),
+                bpm=data.get("bpm"),
+                key=data.get("key"),
+                label=data.get("label"),
+                release_date=data.get("release_date"),
+                genres=data.get("genres", []),
+            )
+            db.add(entry)
+            entries.append(entry)
+        await db.commit()
+        for e in entries:
+            await db.refresh(e)
+        return entries
+
+    async def _seed_dataset(self, db):
+        """Ref + candidates + one playlist co-occurrence + one set co-occurrence."""
+        from models import DJSet, RadarTrack, SetTrack, WatchedEntity
+
+        entries = await self._create_tracks(db, [
+            {"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|ctx-ref",
+             "label": "Drumcode", "release_date": date(2025, 1, 1)},
+            {"title": "Close", "bpm": 129.0, "key": "8A", "normalized_key": "a|ctx-close",
+             "label": "Drumcode", "release_date": date(2025, 2, 1)},
+            {"title": "Mid", "bpm": 131.0, "key": "9A", "normalized_key": "a|ctx-mid",
+             "release_date": date(2023, 1, 1)},
+            {"title": "CoocPl", "bpm": 200.0, "key": "3B", "normalized_key": "a|ctx-coocpl",
+             "release_date": date(2020, 1, 1)},
+            {"title": "CoocSet", "bpm": 205.0, "key": "5A", "normalized_key": "a|ctx-coocset",
+             "release_date": date(2019, 1, 1)},
+        ])
+        ref = entries[0]
+
+        # Playlist co-occurrence: ref + CoocPl share a radar playlist
+        entity = WatchedEntity(external_id="ctx-pl", source="deezer", type="playlist", title="P")
+        db.add(entity)
+        await db.commit()
+        await db.refresh(entity)
+        db.add(RadarTrack(watched_entity_id=entity.id, external_track_id="ctx-r-ref",
+                          source="deezer", title="Ref", catalog_id=ref.id))
+        db.add(RadarTrack(watched_entity_id=entity.id, external_track_id="ctx-r-pl",
+                          source="deezer", title="CoocPl", catalog_id=entries[3].id))
+
+        # Set co-occurrence: ref + CoocSet share a set
+        dj_set = DJSet(source="trackid", title="S", external_id="ctx-set")
+        db.add(dj_set)
+        await db.commit()
+        await db.refresh(dj_set)
+        db.add(SetTrack(set_id=dj_set.id, catalog_id=ref.id, position=1))
+        db.add(SetTrack(set_id=dj_set.id, catalog_id=entries[4].id, position=2))
+        await db.commit()
+
+        return entries
+
+    async def test_load_context_returns_usable_maps(self, db):
+        # (a) load_similarity_context returns an exploitable context
+        from services.similarity_service import (
+            SimilarityContext,
+            load_similarity_context,
+        )
+
+        entries = await self._seed_dataset(db)
+        ref = entries[0]
+
+        ctx = await load_similarity_context(db)
+        assert isinstance(ctx, SimilarityContext)
+        # co-occurrence maps carry the seeded refs
+        assert ref.id in ctx.playlist_map
+        assert entries[3].id in ctx.playlist_map
+        assert ref.id in ctx.set_map
+        assert entries[4].id in ctx.set_map
+        # label counts aggregate the (lowercased) "drumcode" rows
+        assert ctx.label_counts.get("drumcode") == 2
+
+    async def test_from_context_matches_get_similar_tracks(self, db):
+        # (b) equivalence: same seed → identical result as get_similar_tracks
+        from services import similarity_service
+        from services.similarity_service import (
+            load_similarity_context,
+            similar_from_context,
+        )
+
+        entries = await self._seed_dataset(db)
+        ref = entries[0]
+
+        # limit >= top_n so get_similar_tracks does not truncate below top_n
+        expected = await similarity_service.get_similar_tracks(
+            db, ref.id, limit=20, top_n=20, score_floor=0.0,
+        )
+        ctx = await load_similarity_context(db)
+        actual = await similar_from_context(
+            db, ctx, ref.id, top_n=20, score_floor=0.0,
+        )
+        assert len(actual) >= 1
+        assert actual == expected
+
+    async def test_context_reusable_across_seeds(self, db):
+        # (c) one context reused on several successive seeds, results coherent
+        from services import similarity_service
+        from services.similarity_service import (
+            load_similarity_context,
+            similar_from_context,
+        )
+
+        entries = await self._seed_dataset(db)
+        seed_a, seed_b = entries[0], entries[1]
+
+        ctx = await load_similarity_context(db)
+
+        # Same context object, two successive seeds — no reload.
+        res_a = await similar_from_context(db, ctx, seed_a.id, top_n=20, score_floor=0.0)
+        res_b = await similar_from_context(db, ctx, seed_b.id, top_n=20, score_floor=0.0)
+
+        # Each seed's result equals a standalone (context-reloading) call.
+        exp_a = await similarity_service.get_similar_tracks(
+            db, seed_a.id, limit=20, top_n=20, score_floor=0.0,
+        )
+        exp_b = await similarity_service.get_similar_tracks(
+            db, seed_b.id, limit=20, top_n=20, score_floor=0.0,
+        )
+        assert res_a == exp_a
+        assert res_b == exp_b
+        # Re-running seed A on the same context stays stable.
+        res_a2 = await similar_from_context(db, ctx, seed_a.id, top_n=20, score_floor=0.0)
+        assert res_a2 == res_a
+
+    async def test_from_context_raises_for_missing_seed(self, db):
+        from services.similarity_service import (
+            load_similarity_context,
+            similar_from_context,
+        )
+
+        await self._seed_dataset(db)
+        ctx = await load_similarity_context(db)
+        with pytest.raises(LookupError):
+            await similar_from_context(db, ctx, 999999)

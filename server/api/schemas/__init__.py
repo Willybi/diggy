@@ -99,6 +99,7 @@ from .radar import (
     TrendItem,
     TrendList,
 )
+from .recommendations import RecommendationItem, RecommendationList
 from .search import (
     ExternalSearchItem,
     ExternalSearchResponse,
@@ -204,6 +205,9 @@ __all__ = [
     "NewCountResponse",
     "RadarStateResponse",
     "RadarBatchResponse",
+    # recommendations
+    "RecommendationItem",
+    "RecommendationList",
     # sets
     "SetListItemOut",
     "SetListResponse",

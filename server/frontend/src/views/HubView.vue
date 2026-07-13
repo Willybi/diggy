@@ -145,6 +145,39 @@
         </div>
       </div>
 
+      <!-- discover: personalized recommendations -->
+      <div
+        v-if="isEmpty && auth.isAuthenticated && recoItems.length"
+        class="discover discover--foryou"
+      >
+        <h2 class="discover-title">Pour toi</h2>
+        <div class="trend-shelf">
+          <div
+            v-for="track in recoItems"
+            :key="track.id"
+            class="trend-card"
+            @click="openReco(track)"
+          >
+            <div class="tc-art">
+              <img
+                v-if="track.has_artwork"
+                :src="`/storage/catalog-artworks/${track.id}.jpg`"
+                alt=""
+                loading="lazy"
+                @error="(e) => (e.target.style.display = 'none')"
+              />
+              <div v-if="track.has_preview" class="tc-play" @click.stop="playReco(track)">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              </div>
+            </div>
+            <div class="tc-info">
+              <div class="tc-title">{{ track.title }}</div>
+              <div class="tc-artist">{{ track.artist || '—' }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- discover: followed artists activity -->
       <div
         v-if="isEmpty && auth.isAuthenticated && activityItems.length"
@@ -441,6 +474,34 @@ function activityKey(item) {
   return item.id ?? `${item.type}-${item.set_id || item.external_url || item.title}`
 }
 
+// ── personalized recommendations ──
+const recoItems = ref([])
+
+async function loadReco() {
+  try {
+    const { data } = await api.get('/api/recommendations', { params: { limit: 12 } })
+    recoItems.value = data.items || []
+  } catch {
+    /* silent — the Hub must never break on this */
+  }
+}
+
+function openReco(track) {
+  router.push(`/catalog/${track.id}`)
+}
+
+function playReco(track) {
+  player.play({
+    id: track.id,
+    catalog_id: track.id,
+    title: track.title,
+    artist: track.artist,
+    artist_id: track.artist_id,
+    bpm: track.bpm,
+    key: track.key,
+  })
+}
+
 function openTrend(track) {
   if (!auth.isAuthenticated) {
     showToast('Connecte-toi pour ouvrir cette fiche.')
@@ -464,7 +525,10 @@ function playTrend(track) {
 onMounted(() => {
   loadTopGenres()
   loadTrends()
-  if (auth.isAuthenticated) loadActivity()
+  if (auth.isAuthenticated) {
+    loadActivity()
+    loadReco()
+  }
 })
 
 // ── search ──

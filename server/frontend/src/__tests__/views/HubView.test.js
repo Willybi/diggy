@@ -46,7 +46,7 @@ const SET_ITEM = {
   set_id: 77,
 }
 
-function mockApiGet({ activityItems = [], newCount = 0 } = {}) {
+function mockApiGet({ activityItems = [], newCount = 0, recoItems = [] } = {}) {
   apiMock.get.mockImplementation((url) => {
     if (url === '/api/genres') return Promise.resolve({ data: { items: [] } })
     if (url === '/api/radar/trends') {
@@ -58,8 +58,23 @@ function mockApiGet({ activityItems = [], newCount = 0 } = {}) {
     if (url === '/api/following/activity') {
       return Promise.resolve({ data: { items: activityItems } })
     }
+    if (url === '/api/recommendations') {
+      return Promise.resolve({ data: { items: recoItems } })
+    }
     return Promise.resolve({ data: {} })
   })
+}
+
+const RECO_ITEM = {
+  id: 42,
+  title: 'Strobe',
+  artist: 'Deadmau5',
+  bpm: 128,
+  key: '8A',
+  has_artwork: true,
+  has_preview: true,
+  in_lib: false,
+  reco_score: 0.91,
 }
 
 async function mountHub() {
@@ -162,6 +177,59 @@ describe('HubView followed-artists activity shelf', () => {
     })
     const wrapper = await mountHub()
     expect(wrapper.find('.discover--activity').exists()).toBe(false)
+    expect(wrapper.find('.searchwrap').exists()).toBe(true)
+  })
+})
+
+describe('HubView « Pour toi » recommendations shelf', () => {
+  beforeEach(() => {
+    apiMock.get.mockReset()
+    apiMock.post.mockReset()
+    apiMock.post.mockResolvedValue({ data: {} })
+    authState.value = { isAuthenticated: false, user: null }
+  })
+
+  it('is not rendered and never hits the network for guests', async () => {
+    mockApiGet({ recoItems: [RECO_ITEM] })
+    const wrapper = await mountHub()
+    expect(wrapper.find('.discover--foryou').exists()).toBe(false)
+    const recoCalls = apiMock.get.mock.calls.filter(([url]) => url === '/api/recommendations')
+    expect(recoCalls).toHaveLength(0)
+  })
+
+  it('is not rendered when the feed is empty', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ recoItems: [] })
+    const wrapper = await mountHub()
+    expect(wrapper.find('.discover--foryou').exists()).toBe(false)
+  })
+
+  it('renders reco cards when the feed has items', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ recoItems: [RECO_ITEM] })
+    const wrapper = await mountHub()
+
+    const shelf = wrapper.find('.discover--foryou')
+    expect(shelf.exists()).toBe(true)
+    expect(shelf.find('.discover-title').text()).toBe('Pour toi')
+
+    const cards = shelf.findAll('.trend-card')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].text()).toContain('Strobe')
+    expect(cards[0].text()).toContain('Deadmau5')
+    // Artwork keyed on `id` (not catalog_id).
+    expect(shelf.find('.tc-art img').attributes('src')).toBe('/storage/catalog-artworks/42.jpg')
+  })
+
+  it('keeps the Hub alive when the recommendations endpoint fails', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    apiMock.get.mockImplementation((url) => {
+      if (url === '/api/recommendations') return Promise.reject(new Error('boom'))
+      if (url === '/api/following/activity/new-count') return Promise.resolve({ data: { count: 0 } })
+      return Promise.resolve({ data: { items: [] } })
+    })
+    const wrapper = await mountHub()
+    expect(wrapper.find('.discover--foryou').exists()).toBe(false)
     expect(wrapper.find('.searchwrap').exists()).toBe(true)
   })
 })

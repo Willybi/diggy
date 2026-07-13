@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-12 (C3.b — catalog_visible() gains a `user_track` clause: a Rekordbox importer sees a track colliding with another user's private row via their own user_track, without promoting/mutating the foreign row; /storage protection deferred)
+> Last verified: 2026-07-13 (C4 — personalized reco: GET /api/recommendations (JWT-only) crosses the user's likes/library with the C2 similarity engine, on-the-fly + Redis cache; similarity_service gained a shared-context multi-seed primitive; "Pour toi" shelf on the Hub. Same day: C3 closed, /storage protection dropped as accepted risk)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -31,18 +31,22 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 14 routers, 99 endpoints:
+│   ├── routers/             # 15 routers, 100 endpoints:
 │   │                        # catalog, radar, watchlist, artists, following, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
-│   │                        # import_rb, auth, admin (taxonomy = 11 reserved endpoints,
-│   │                        # not wired to the frontend: future genre explorer.
-│   │                        # search gained GET /search/external, catalog gained
-│   │                        # POST /import — manual external import, F5)
+│   │                        # import_rb, auth, admin, recommendations (taxonomy = 11
+│   │                        # reserved endpoints, not wired to the frontend: future genre
+│   │                        # explorer. search gained GET /search/external, catalog gained
+│   │                        # POST /import — manual external import, F5. recommendations =
+│   │                        # GET /api/recommendations, JWT-only, personalized reco, C4)
 │   └── services/            # Business logic lives HERE, not in routers:
 │                            # genre, artist, catalog, radar, image, search, watchlist,
-│                            # following, similarity, artist_connection, opinion_sync,
-│                            # rekordbox_xml, set_dedup (normalize_set_title, match_set,
-│                            # materialize_parent), external_search (Deezer+TIDAL manual import)
+│                            # following, similarity (C4: load_similarity_context +
+│                            # similar_from_context multi-seed primitive), artist_connection,
+│                            # opinion_sync, rekordbox_xml, set_dedup (normalize_set_title,
+│                            # match_set, materialize_parent), external_search (Deezer+TIDAL
+│                            # manual import), recommendation (C4: reco perso = likes/lib ×
+│                            # similarity, on-the-fly + Redis cache)
 ├── workers/
 │   ├── celery_app.py        # Celery config + beat schedule
 │   ├── deezer_enrich.py     # Deezer search + enrichment

@@ -21,6 +21,7 @@ from routers import (
     import_rb,
     opinions,
     radar,
+    recommendations,
     search,
     sets,
     taxonomy,
@@ -109,6 +110,7 @@ app.include_router(sets.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(genres.router, prefix="/api/genres")
 app.include_router(opinions.router, prefix="/api")
+app.include_router(recommendations.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(taxonomy.router, prefix="/api/taxonomy")
 app.include_router(collections.router, prefix="/api")

@@ -268,19 +268,60 @@ async def _load_set_map(db: AsyncSession) -> dict[int, frozenset[int]]:
 
 
 # ---------------------------------------------------------------------------
-# Main entry point
+# Shared context (pre-loaded maps, reusable across seeds)
 # ---------------------------------------------------------------------------
 
-async def get_similar_tracks(
+@dataclass(frozen=True)
+class SimilarityContext:
+    """Seed-agnostic maps loaded once and reused across many similarity seeds.
+
+    Carries the 4 full-table loads (genre resolution, label counts, playlist and
+    set co-occurrence maps) so scoring a batch of seeds pays the loading cost once.
+    """
+    name_to_node: dict[str, int]
+    parent_map: dict[int, set[int]]
+    label_counts: dict[str, int]
+    playlist_map: dict[int, frozenset[int]]
+    set_map: dict[int, frozenset[int]]
+
+
+async def load_similarity_context(db: AsyncSession) -> SimilarityContext:
+    """Load the 4 seed-agnostic maps once (genre, label, playlist, set)."""
+    (name_to_node, parent_map), label_counts, playlist_map, set_map = await asyncio.gather(
+        _load_genre_context(db),
+        _load_label_counts(db),
+        _load_playlist_map(db),
+        _load_set_map(db),
+    )
+    return SimilarityContext(
+        name_to_node=name_to_node,
+        parent_map=parent_map,
+        label_counts=label_counts,
+        playlist_map=playlist_map,
+        set_map=set_map,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scoring core + public entry points
+# ---------------------------------------------------------------------------
+
+async def _similar_core(
     db: AsyncSession,
-    catalog_id: int,
-    user_id: int | None = None,
+    ctx: SimilarityContext,
+    seed_catalog_id: int,
+    user_id: int | None,
     *,
-    limit: int = 10,
-    top_n: int = CFG.TOP_N,
-    score_floor: float = CFG.SCORE_FLOOR,
-    in_lib: bool | None = None,
+    top_n: int,
+    score_floor: float,
+    in_lib: bool | None,
 ) -> list[dict]:
+    """Score candidates for one seed against ``ctx`` (no ``limit`` applied).
+
+    Shared body behind :func:`similar_from_context` (in_lib=None) and
+    :func:`get_similar_tracks`. Applies ``catalog_visible(user_id)`` on every
+    catalog read and raises ``LookupError`` if the seed is absent/invisible.
+    """
     from models import CatalogArtist, CatalogEntry, UserTrack
     from schemas import ArtistRef, GenreRef, SimilarityBlock, SimilarityComponents
 
@@ -291,30 +332,29 @@ async def get_similar_tracks(
     ref = (
         await db.execute(
             select(CatalogEntry).where(
-                CatalogEntry.id == catalog_id, catalog_visible(user_id)
+                CatalogEntry.id == seed_catalog_id, catalog_visible(user_id)
             )
         )
     ).scalar_one_or_none()
     if ref is None:
-        raise LookupError(f"Catalog entry {catalog_id} not found")
+        raise LookupError(f"Catalog entry {seed_catalog_id} not found")
 
-    # 2. Load context in parallel (genre/label + co-occurrence maps)
-    (name_to_node, parent_map), label_counts, playlist_map, set_map = await asyncio.gather(
-        _load_genre_context(db),
-        _load_label_counts(db),
-        _load_playlist_map(db),
-        _load_set_map(db),
-    )
+    # 2. Read pre-loaded context (genre/label + co-occurrence maps)
+    name_to_node = ctx.name_to_node
+    parent_map = ctx.parent_map
+    label_counts = ctx.label_counts
+    playlist_map = ctx.playlist_map
+    set_map = ctx.set_map
 
     ref_genres = _expand_genre_nodes(ref.genres or [], name_to_node, parent_map)
     ref_label = (ref.label or "").strip().lower()
     ref_label_valid = ref_label and label_counts.get(ref_label, 0) >= CFG.LABEL_MIN_TRACKS
-    ref_playlists = playlist_map.get(catalog_id, frozenset())
-    ref_sets = set_map.get(catalog_id, frozenset())
+    ref_playlists = playlist_map.get(seed_catalog_id, frozenset())
+    ref_sets = set_map.get(seed_catalog_id, frozenset())
 
     # 3. Build candidate set — union(BPM window, co-occurrence)
     q = select(CatalogEntry).where(
-        CatalogEntry.id != catalog_id, catalog_visible(user_id)
+        CatalogEntry.id != seed_catalog_id, catalog_visible(user_id)
     )
 
     bpm_filter_ids: set[int] | None = None
@@ -337,11 +377,11 @@ async def get_similar_tracks(
     cooc_ids: set[int] = set()
     if ref_playlists:
         for cid, playlists in playlist_map.items():
-            if cid != catalog_id and playlists & ref_playlists:
+            if cid != seed_catalog_id and playlists & ref_playlists:
                 cooc_ids.add(cid)
     if ref_sets:
         for cid, sets in set_map.items():
-            if cid != catalog_id and sets & ref_sets:
+            if cid != seed_catalog_id and sets & ref_sets:
                 cooc_ids.add(cid)
 
     # Union: BPM candidates + co-occurrence candidates not already included
@@ -422,9 +462,9 @@ async def get_similar_tracks(
 
         scored.append((cand, score_pct, components, available))
 
-    # 5. Sort, top_n, then limit
+    # 5. Sort, top_n (the caller applies limit)
     scored.sort(key=lambda x: x[1], reverse=True)
-    top = scored[:top_n][:limit]
+    top = scored[:top_n]
 
     if not top:
         return []
@@ -508,3 +548,47 @@ async def get_similar_tracks(
         )
 
     return results
+
+
+async def similar_from_context(
+    db: AsyncSession,
+    ctx: SimilarityContext,
+    seed_catalog_id: int,
+    user_id: int | None = None,
+    *,
+    top_n: int = CFG.TOP_N,
+    score_floor: float = 0.0,
+) -> list[dict]:
+    """Reusable primitive: score one seed against a pre-loaded context.
+
+    Same candidate generation, scoring and return shape as
+    :func:`get_similar_tracks`, but consuming ``ctx`` instead of re-reading the 4
+    maps. Raises ``LookupError`` if the seed is absent/invisible.
+    """
+    return await _similar_core(
+        db, ctx, seed_catalog_id, user_id,
+        top_n=top_n, score_floor=score_floor, in_lib=None,
+    )
+
+
+async def get_similar_tracks(
+    db: AsyncSession,
+    catalog_id: int,
+    user_id: int | None = None,
+    *,
+    limit: int = 10,
+    top_n: int = CFG.TOP_N,
+    score_floor: float = CFG.SCORE_FLOOR,
+    in_lib: bool | None = None,
+) -> list[dict]:
+    """Similar tracks for one seed (public contract unchanged).
+
+    Loads a fresh :class:`SimilarityContext`, scores via the shared core, then
+    applies ``limit``.
+    """
+    ctx = await load_similarity_context(db)
+    results = await _similar_core(
+        db, ctx, catalog_id, user_id,
+        top_n=top_n, score_floor=score_floor, in_lib=in_lib,
+    )
+    return results[:limit]

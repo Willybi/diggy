@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-13 (N1.a — residus de l'ancien flow auth email/password purges : entrees RATE_LIMITS mortes /api/auth/login + /api/auth/register retirees, 2 tests obsoletes supprimes, dependance de test bcrypt retiree ; le coeur de N1.a etait deja solde par F3/migration 0024 — colonne hashed_password droppee, routes login/register absentes de auth.py. N1 TERMINE. Deploye 4ccb916, /deploy_verify SAIN)
+> **Derniere mise a jour** : 2026-07-13 (C3 SOLDE DEFINITIVEMENT — protection `/storage/*` ECARTEE (risque assume, decision produit William : pochettes seules, non identifiant) ; C3.a (scope) + C3.b (import multi-user) + C3.c (accueil) clos ; chantier C3 TERMINE, seule l'ouverture effective reste une decision produit. Meme jour : N1.a — residus auth email/password purges, N1 TERMINE, deploye 4ccb916, /deploy_verify SAIN)
 
 ---
 
@@ -51,7 +51,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AU8  Hygiene repo & documentation          MOYEN       1-2 jours    TERMINE (2026-07-11)
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    TERMINE (2026-07-12)
- C3   Ouverture aux amis                    MOYEN       5-7 jours    EN COURS (reliquat technique clos 2026-07-12 ; ouverture = decision William)
+ C3   Ouverture aux amis                    MOYEN       5-7 jours    TERMINE (2026-07-13 ; ouverture effective = decision William)
  C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
@@ -91,6 +91,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C6   Veille elargie & Suivi artistes   TERMINE (C6.d Soundcloud reporte)
  F5   Import manuel (recherche externe) TERMINE (2026-07-12)
  N1   Nettoyage residus                 TERMINE (2026-07-13)
+ C3   Ouverture aux amis              TERMINE (2026-07-13 ; ouverture = decision William)
 ```
 
 ### Dependances
@@ -834,13 +835,13 @@ Permettre a tout utilisateur connecte d'ajouter un track au catalog via une rech
 **Estimation : 5-7 jours**
 **Depend de : C1 (TERMINE) + H0 (hygiene secu/infra) + idealement C6 (donnees)**
 **Declenchement : ta decision d'inviter, pas la roadmap**
-**Statut : EN COURS (reliquat technique clos 2026-07-12 ; ouverture = decision produit William) — etancheite scope prive LIVREE et verifiee (commit 314763b, /deploy_verify SAIN) : predicat `catalog_visible()` / `catalog_visible_sql()` applique a TOUS les read-paths catalog (browse, detail, preview-url, avis, search, detail artiste, genre, similarite, radar/trends, watchlist, collections). DECISIONS PRODUIT divergeant du perimetre C3 initial : fermeture des GET publics ECARTEE (acces invite conserve — la decouverte reste ouverte) + guest cap conserve ; protection `/storage/*` DIFFEREE (documentee comme risque connu, pochettes seules, `<img>` ne porte pas de Bearer). RESIDUS assumes : comptes agreges genre/artiste + tracklist de set non filtres (non identifiants). C3.b enrichissement private CLOS (2026-07-12, commit f8b43c0, /deploy_verify SAIN) : promotion Beatport livree + rattrapage prod (4 promues, 3 faux positifs du matcher Beatport ecartes). Onboarding C3.c acte suffisant (Hub existant). C3.b etancheite import multi-user LIVREE (2026-07-12) : sur collision `normalized_key` avec le prive d'un autre user, l'importeur est lie via `user_track` a la ligne existante et la voit par la nouvelle clause `user_track` de `catalog_visible()` — la ligne d'autrui n'est JAMAIS promue ni mutee (design « promotion a la collision » rejete en review : fuite cross-user vers invites + tous les users). Funnel match ambigu OK par construction (jamais de promotion sur collision de nom). C3.a fermeture GET + guest cap ECARTEES, /storage DIFFERE (decisions produit). Test e2e multi-user reel VERIFIE EN PROD (2026-07-12, compte B user 7 en collision avec la ligne privee 7402 : ligne d'autrui intacte, user_track cree, 0 fuite) : reliquat technique C3 CLOS. Declenchement de l'ouverture = decision de William.**
+**Statut : TERMINE (2026-07-13 — reliquat technique CLOS, protection /storage ECARTEE ce jour ; ouverture effective = decision produit William) — etancheite scope prive LIVREE et verifiee (commit 314763b, /deploy_verify SAIN) : predicat `catalog_visible()` / `catalog_visible_sql()` applique a TOUS les read-paths catalog (browse, detail, preview-url, avis, search, detail artiste, genre, similarite, radar/trends, watchlist, collections). DECISIONS PRODUIT divergeant du perimetre C3 initial : fermeture des GET publics ECARTEE (acces invite conserve — la decouverte reste ouverte) + guest cap conserve ; protection `/storage/*` ECARTEE le 2026-07-13 (risque assume, non bloquant : pochettes seules, l'enumeration revele l'existence pas la donnee privee, `<img>` ne porte pas de Bearer). RESIDUS assumes : comptes agreges genre/artiste + tracklist de set non filtres (non identifiants). C3.b enrichissement private CLOS (2026-07-12, commit f8b43c0, /deploy_verify SAIN) : promotion Beatport livree + rattrapage prod (4 promues, 3 faux positifs du matcher Beatport ecartes). Onboarding C3.c acte suffisant (Hub existant). C3.b etancheite import multi-user LIVREE (2026-07-12) : sur collision `normalized_key` avec le prive d'un autre user, l'importeur est lie via `user_track` a la ligne existante et la voit par la nouvelle clause `user_track` de `catalog_visible()` — la ligne d'autrui n'est JAMAIS promue ni mutee (design « promotion a la collision » rejete en review : fuite cross-user vers invites + tous les users). Funnel match ambigu OK par construction (jamais de promotion sur collision de nom). C3.a fermeture GET + guest cap + protection /storage ECARTEES (decisions produit). Test e2e multi-user reel VERIFIE EN PROD (2026-07-12, compte B user 7 en collision avec la ligne privee 7402 : ligne d'autrui intacte, user_track cree, 0 fuite) : reliquat technique C3 CLOS. Declenchement de l'ouverture = decision de William.**
 
 **Renvois audit 2026-07** (voir `docs/audit_2026-07/CONSOLIDATED.md` + `DECISIONS.md`) :
 - C3.a in_lib `GET /sets/{id}` : fixe en **AU1** (M1/A1-03) — la tache ci-dessous devient une simple verification.
 - C3.b : diagnostic corrige par l'audit (A3-01, R6) — les tracks private SONT enrichies (aucun filtre scope dans les queries), c'est la promotion `private -> shared` qui manquait dans le pipeline async. Fix + rattrapage des 235 lignes en **AU1**. Reste a C3.b : le test de bout en bout multi-user.
 - C3.c Sentry : deja configure en prod (A5-15 — DSN pose, SDK initialise API + workers). Reception des evenements verifiee dans l'UI le 2026-07-11 (AU8) — plus rien a faire.
-- A reprendre dans ce chantier : A2-11 (4 FK restantes sans index, a reevaluer avec la volumetrie), A2-14 (index `radar_trends (family, rank_in_family)` + `(rank_global)` — endpoint public le plus expose), A6-14 (branches d'echec OAuth + lifecycle radar en CI PG, opportuniste).
+- Hardening non bloquant DEPLACE vers « Reliquats hors chantiers » (C3 clos sans eux, purement opportunistes) : A2-11 (4 FK restantes sans index, a reevaluer avec la volumetrie), A2-14 (index `radar_trends (family, rank_in_family)` + `(rank_global)`), A6-14 (branches d'echec OAuth + lifecycle radar en CI PG).
 - **Condition Q4** : si le repo est un jour ouvert (public ou contributeurs), la purge `git filter-repo` de l'historique (tokens TIDAL, A6-01) devient un prerequis BLOQUANT de cette ouverture.
 
 ### Objectif
@@ -854,7 +855,7 @@ L'audit invalide le "normalement deja traite" : le middleware laisse public tout
 - [ ] ~~Basculer les GET publics en auth obligatoire~~ — ECARTEE (decision produit William, 2026-07-12) : l'acces invite reste ouvert, la decouverte reste publique ; l'etancheite est assuree par le scope (`catalog_visible`), pas par un mur d'auth
 - [x] **Filtrer `scope=private` d'autrui sur tous les endpoints catalog** (browse, detail, search, stats genres) : bloquant, sans ca la politique de scope est violee des le browse — FAIT (2026-07-12, commit 314763b : helper `catalog_visible()`, etendu a similarite/radar-trends/watchlist/collections)
 - [x] `GET /api/sets/{id}` : filtre `user_id` sur le check in_lib (`sets.py:281`) — FAIT en AU1 (verifie 2026-07-12)
-- [ ] `/storage/*` : proteger les artworks (auth au niveau Nginx via `auth_request` vers l'API, ou URLs signees MinIO) : IDs sequentiels enumerables aujourd'hui — DIFFERE (risque connu documente : pochettes seules, `<img>` ne porte pas de Bearer ; travail futur)
+- [x] `/storage/*` : protection ECARTEE (decision produit William, 2026-07-13) — risque assume et non bloquant : pochettes seules, les IDs enumerables revelent l'existence d'une image, pas de donnee privee ; `<img>` ne porte pas de Bearer. Solutions futures possibles si ouverture large (`auth_request` Nginx ou URLs signees MinIO)
 - [ ] ~~Supprimer le guest cap~~ — ECARTEE (decision produit, 2026-07-12) : guest cap conserve, l'acces invite reste
 
 ### C3.b — Import multi-user (verification Phase 7, audit largement OK)
@@ -877,9 +878,9 @@ Reste :
 ### Definition of Done
 
 ```bash
-# Tout GET sans token -> 401 (sauf /api/auth/*, /api/health)
+# Acces invite conserve (fermeture des GET publics ECARTEE, decision produit) ; etancheite garantie par le scope (catalog_visible)
 # scope=private d'un autre user invisible dans catalog/search/genres
-# /storage/* protege (pas d'acces anonyme)
+# /storage/* : protection ECARTEE (risque assume, decision produit 2026-07-13 — pochettes seules, non identifiant)
 # Import d'une 2e lib Rekordbox : dedup OK, scopes OK
 # Build frontend statique (pas Vite dev server)
 ```
@@ -1032,6 +1033,8 @@ TagsView est une vue morte, `/tags` redirige vers `/genres`.
 | Websocket progression import | Jamais peut-etre : le polling 2s suffit |
 | Tests composants frontend | Au fil de l'eau (tests integration backend dans H0.f) |
 | Tests import RB + branches OAuth (A6-08, A6-14 — arbitrage Q7) | Opportuniste, au fil des chantiers touchant ces zones |
+| Index `radar_trends` A2-14 (family, rank_in_family) + (rank_global) — endpoint public expose | Opportuniste (issu de C3 clos, non bloquant) |
+| Index 4 FK restantes A2-11 — a reevaluer avec la volumetrie | Opportuniste (issu de C3 clos, non bloquant) |
 | Batch upsert import RB (A2-13) | Opportuniste, meme zone que A6-08 |
 | ~~Auto-migration au deploy~~ | FAIT — `alembic upgrade head` dans deploy.yml |
 | ~~`/api/radar/full` crash genres sort~~ | FAIT — `literal_column` au lieu de `StringArray[1]` |

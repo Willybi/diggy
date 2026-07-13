@@ -25,6 +25,9 @@ RATE_LIMITS = {
     "/api/catalog/import": (20, 60),
     "/api/import/rekordbox": (3, 300),
     "/api/admin": (10, 60),
+    # Personalised reco can trigger a full on-the-fly similarity compute on a
+    # cache miss (bounded by SEED_CAP), so keep it modestly capped.
+    "/api/recommendations": (30, 60),
 }
 
 _redis = None

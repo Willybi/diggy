@@ -1,8 +1,9 @@
 from database import get_db
-from dependencies import get_current_user
+from dependencies import get_current_user, get_redis
 from fastapi import APIRouter, Depends, HTTPException
 from models import User, UserOpinion
 from schemas import OpinionSetResponse, OpinionUpdate
+from services import recommendation_service
 from services.opinion_sync import (
     sync_playlist_opinion,
     sync_set_opinion,
@@ -36,6 +37,7 @@ async def get_opinions(
 async def set_opinion(
     body: OpinionUpdate,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
     user: User = Depends(get_current_user),
 ):
     """Set, update, or remove an opinion on an entity."""
@@ -91,6 +93,14 @@ async def set_opinion(
             await sync_track_opinion(db, uid, entity_id, body.opinion)
 
     await db.commit()
+
+    # Invalidate the reco cache AFTER the commit: doing it before opens a race
+    # where a concurrent GET recomputes and re-caches the pre-commit state for
+    # the whole TTL. Track opinions only (they are the reco seeds).
+    # Best-effort / fail-open.
+    if body.entity_type == "track":
+        await recommendation_service.invalidate_user(redis, uid)
+
     return {
         "entity_type": body.entity_type,
         "entity_key": body.entity_key,
