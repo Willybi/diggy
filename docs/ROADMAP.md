@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-13 (C3 SOLDE DEFINITIVEMENT — protection `/storage/*` ECARTEE (risque assume, decision produit William : pochettes seules, non identifiant) ; C3.a (scope) + C3.b (import multi-user) + C3.c (accueil) clos ; chantier C3 TERMINE, seule l'ouverture effective reste une decision produit. Meme jour : N1.a — residus auth email/password purges, N1 TERMINE, deploye 4ccb916, /deploy_verify SAIN)
+> **Derniere mise a jour** : 2026-07-13 (C4 TERMINE — reco personnalisee "Pour toi" livree, deployee, /deploy_verify SAIN : GET /api/recommendations JWT-only croisant likes/bibliotheque x similarite C2, calcul on-the-fly + cache Redis, shelf Hub. 2 correctifs post-deploy : hotfix hang CI (asyncio.gather sur AsyncSession serialise, 2b91bb4) + stop-gap 504 (SEED_CAP cappe sous le timeout nginx 60s, c288cc6) ; fix durable candidate pooling en suivi. Commits 7fd64c4/2b91bb4/c288cc6. Meme jour : C3 SOLDE (protection `/storage/*` ECARTEE, C3.a/b/c clos) + N1 TERMINE)
 
 ---
 
@@ -52,7 +52,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  E1   Re-scan enrichissement (backoff+budget) MOYEN     1 jour       TERMINE (2026-07-10)
  F5   Import manuel (recherche externe)    MOYEN       2-3 jours    TERMINE (2026-07-12)
  C3   Ouverture aux amis                    MOYEN       5-7 jours    TERMINE (2026-07-13 ; ouverture effective = decision William)
- C4   Reco personnalisee                    BAS         3-5 jours    APRES OUVERTURE
+ C4   Reco personnalisee                    BAS         3-5 jours    TERMINE (2026-07-13)
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    APRES OUVERTURE
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    BLOQUE (briefs)
  N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
@@ -92,6 +92,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  F5   Import manuel (recherche externe) TERMINE (2026-07-12)
  N1   Nettoyage residus                 TERMINE (2026-07-13)
  C3   Ouverture aux amis              TERMINE (2026-07-13 ; ouverture = decision William)
+ C4   Reco personnalisee              TERMINE (2026-07-13 ; fix durable pooling en suivi)
 ```
 
 ### Dependances
@@ -892,15 +893,15 @@ Reste :
 **Priorite : BAS**
 **Estimation : 3-5 jours**
 **Depend de : C2 + C3**
-**Statut : APRES OUVERTURE**
+**Statut : TERMINE (2026-07-13) — reco "Pour toi" livree, deployee, /deploy_verify SAIN (commit 7fd64c4 + hotfix hang CI 2b91bb4 + stop-gap 504 c288cc6). Calcul on-the-fly + cache Redis (pas de precalcul/table). Fix durable candidate pooling EN SUIVI : SEED_CAP cappe a 12 en stop-gap pour tenir sous le timeout nginx 60s ; le pooling permettra de le remonter.**
 
 ### Objectif
 
 Croiser le moteur de similarite (C2) avec les likes (`user_opinions`). Utile des un seul user (toi), mais volontairement place apres l'ouverture : chaque nouvel utilisateur enrichit le signal.
 
-- [ ] Profil de gout par user : agregation des scores de similarite (C2) des tracks likees (penalisation des dislikees)
-- [ ] Reco = scoring C2 (metadonnees + co-occurrence) pondere par le profil, filtre par famille/BPM, excluant la lib existante
-- [ ] Surface : section "Pour toi" distincte de la section trend (les deux recos coexistent, decorrelees)
+- [x] Profil de gout par user : agregation des scores de similarite (C2) des tracks likees (penalisation des dislikees)
+- [x] Reco = scoring C2 (metadonnees + co-occurrence) pondere par le profil, filtre par famille/BPM, excluant la lib existante
+- [x] Surface : section "Pour toi" distincte de la section trend (les deux recos coexistent, decorrelees)
 - [ ] Long terme (parque, inchange) : track2vec sur tracklists de sets, pgvector si embeddings necessaires, audio features, LLM normalisation
 
 ### Definition of Done
