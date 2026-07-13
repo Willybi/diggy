@@ -28,6 +28,19 @@ class TestFetchArtworks:
         assert r.json()["status"] == "queued"
 
 
+class TestLinkArtistsDeezerTask:
+    async def test_fires_task(self, admin_client):
+        r = await admin_client.post("/api/admin/artists/link-deezer")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "queued"
+        assert "task_id" in data
+
+    async def test_requires_admin(self, client):
+        r = await client.post("/api/admin/artists/link-deezer")
+        assert r.status_code == 401
+
+
 class TestLinkDeezer:
     async def test_link_artist(self, admin_client, db, mocker):
         a = Artist(name="Test Artist", normalized_name="test artist")

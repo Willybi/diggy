@@ -93,6 +93,8 @@ celery_app.conf.update(
         "workers.tasks.enrich_catalog": {"queue": "enrich"},
         # Talks to the Deezer API (rate-limited) → dedicated enrich worker
         "workers.tasks.check_followed_artists": {"queue": "enrich"},
+        "workers.tasks.link_artists_deezer": {"queue": "enrich"},
+        "workers.tasks.fetch_artist_artworks": {"queue": "enrich"},
     },
     # Dead letter queue — consumed by default queue list, inspectable via Redis
     task_default_queue="celery",

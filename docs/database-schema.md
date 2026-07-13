@@ -111,13 +111,13 @@ PK: `id`
 | `beatport_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 
 **Indexes:**
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
-- `ix_catalog_deezer_id`: `deezer_id`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
-- `ix_catalog_owner`: `owner_id`
 - `ix_catalog_scope`: `scope`
-- `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_deezer_id`: `deezer_id`
 - `ix_catalog_genres`: `genres`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_owner`: `owner_id`
 
 ### `catalog_artists`
 
@@ -273,9 +273,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
-- `ix_radar_tracks_source_detected`: `source`
 - `ix_radar_tracks_watched_entity`: `watched_entity_id`
 - `ix_radar_tracks_catalog`: `catalog_id`
+- `ix_radar_tracks_source_detected`: `source`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -323,6 +323,7 @@ PK: `id`
 | `country` | String(2) | yes |  |  |  |
 | `deezer_id` | String(64) | yes |  |  |  |
 | `deezer_searched_at` | DateTime(tz) | yes |  |  |  |
+| `deezer_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 | `soundcloud_id` | String(64) | yes |  |  |  |
 | `trackid_id` | String(64) | yes |  |  |  |
 | `bio` | Text | yes |  |  |  |
@@ -331,6 +332,7 @@ PK: `id`
 
 **Indexes:**
 - `uq_artists_deezer_id`: `deezer_id` (unique)
+- `ix_artists_deezer_searched_at`: `deezer_searched_at`
 
 ### `artist_aliases`
 
@@ -470,9 +472,9 @@ PK: `id`
 | `trackid_music_track_id` | Integer | yes |  |  |  |
 
 **Indexes:**
+- `ix_set_tracks_catalog_id`: `catalog_id`
 - `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 - `ix_set_tracks_set_id`: `set_id`
-- `ix_set_tracks_catalog_id`: `catalog_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -497,10 +499,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
+- `ix_set_flags_set_id_a`: `set_id_a`
 - `ix_set_flags_set_id_b`: `set_id_b`
 - `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_group_key`: `group_key`
-- `ix_set_flags_set_id_a`: `set_id_a`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)

@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -26,6 +27,12 @@ class Artist(Base):
     country = Column(String(2), nullable=True)
     deezer_id = Column(String(64), nullable=True)
     deezer_searched_at = Column(DateTime(timezone=True), nullable=True)
+    # E1-style re-scan accounting for the Deezer link search (mirror of
+    # catalog.deezer_search_attempts): a no-match artist is retried after 30
+    # then 90 days and abandoned for good after 3 attempts. Backlog loop-safe.
+    deezer_search_attempts = Column(
+        SmallInteger, nullable=False, server_default="0", default=0
+    )
     soundcloud_id = Column(String(64), nullable=True)
     trackid_id = Column(String(64), nullable=True)
     bio = Column(Text, nullable=True)
@@ -44,6 +51,14 @@ class Artist(Base):
             unique=True,
             postgresql_where=text("deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'"),
             sqlite_where=text("deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'"),
+        ),
+        # Backs the link-candidate tier queries (unlinked artists, by searched_at).
+        # postgresql_where ONLY — a non-unique perf index, so the test harness may
+        # create it as a full index on SQLite (precedent: ix_catalog_deezer_searched_at).
+        Index(
+            "ix_artists_deezer_searched_at",
+            "deezer_searched_at",
+            postgresql_where=text("deezer_id IS NULL"),
         ),
     )
 

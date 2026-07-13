@@ -90,9 +90,17 @@ async def sync_status(task_id: str, _: User = Depends(require_admin)):
     return SyncStatus(status="running")
 
 
+@router.post("/artists/link-deezer", response_model=SyncQueued)
+async def link_artists_deezer(_: User = Depends(require_admin)):
+    """Fire-and-forget: link artists with no deezer_id to Deezer (budget-capped,
+    loop-safe). Returns task_id for polling via /artists/sync/status."""
+    result = celery.send_task("workers.tasks.link_artists_deezer")
+    return SyncQueued(status="queued", task_id=result.id)
+
+
 @router.post("/artists/fetch-artworks", response_model=SyncQueued)
 async def fetch_artworks(_: User = Depends(require_admin)):
-    """Fire-and-forget: fetch Deezer images for all artists with deezer_id."""
+    """Fire-and-forget: download Deezer images for linked artists missing artwork."""
     result = celery.send_task("workers.tasks.fetch_artist_artworks")
     return SyncQueued(status="queued", task_id=result.id)
 

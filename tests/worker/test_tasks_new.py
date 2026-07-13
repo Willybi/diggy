@@ -63,7 +63,8 @@ class TestModuleImports:
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
             "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
-            "sync_artists", "fetch_artist_artworks", "link_set_artists",
+            "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
+            "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres",
             "compute_trends",
         ]

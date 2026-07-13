@@ -85,13 +85,14 @@ class TestImportCompatibility:
         import workers.tasks as wt
         return wt
 
-    def test_package_has_all_13_tasks(self):
+    def test_package_has_all_tasks(self):
         wt = self._import_tasks()
         expected = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
             "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
-            "sync_artists", "fetch_artist_artworks", "link_set_artists",
+            "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
+            "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres",
             "compute_trends",
         ]
@@ -106,7 +107,8 @@ class TestImportCompatibility:
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
             "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
-            "sync_artists", "fetch_artist_artworks", "link_set_artists",
+            "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
+            "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
         ]
         for tname in task_names:
@@ -148,11 +150,13 @@ class TestRetryPolicies:
 
     def test_non_orchestrators_have_autoretry(self):
         wt = self._get_tasks()
+        # fetch_artist_artworks + link_artists_deezer are deliberately EXCLUDED:
+        # see test_backlog_tasks_have_no_exception_autoretry.
         non_orchestrators = [
             "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
             "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
-            "sync_artists", "fetch_artist_artworks", "link_set_artists",
+            "sync_artists", "link_set_artists",
             "reclassify_genres_chunk", "compute_trends",
         ]
         for tname in non_orchestrators:
@@ -164,13 +168,35 @@ class TestRetryPolicies:
                 f"Task {task.name} should autoretry on Exception"
             )
 
+    def test_backlog_tasks_have_no_exception_autoretry(self):
+        """Regression for the 2026-07-13 loop: the artist backlog tasks must NOT
+        carry autoretry_for=(Exception,). SoftTimeLimitExceeded IS an Exception,
+        so that decorator turned a soft timeout into an infinite re-download loop.
+        These tasks rely on their budget cap + batch commits + a Redis lock."""
+        wt = self._get_tasks()
+        for tname in ("fetch_artist_artworks", "link_artists_deezer"):
+            task = getattr(wt, tname)
+            assert Exception not in (task.autoretry_for or ()), (
+                f"Task {task.name} must NOT autoretry on Exception (loop footgun)"
+            )
+
+    def test_backlog_tasks_have_short_limits(self):
+        """The budget-capped backlog tasks finish in minutes; short limits keep
+        them well under the broker visibility_timeout."""
+        wt = self._get_tasks()
+        for tname in ("fetch_artist_artworks", "link_artists_deezer"):
+            task = getattr(wt, tname)
+            assert task.soft_time_limit == 1200
+            assert task.time_limit == 1500
+
     def test_all_tasks_are_bound(self):
         wt = self._get_tasks()
         for tname in [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
             "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
-            "sync_artists", "fetch_artist_artworks", "link_set_artists",
+            "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
+            "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
         ]:
             task = getattr(wt, tname)
@@ -254,7 +280,8 @@ class TestTimeLimits:
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
             "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
-            "sync_artists", "fetch_artist_artworks", "link_set_artists",
+            "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
+            "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
         ]
         for tname in task_names:

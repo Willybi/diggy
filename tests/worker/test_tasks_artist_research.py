@@ -1,9 +1,13 @@
 """
-Tests for A3-12 — artists.deezer_searched_at re-search window.
-Covers the extracted Pass 1 helpers of workers/tasks/artists.py:
-  - _artists_to_research(session, now): 30-day retry window selection
-  - _link_artist_deezer(pool, artist, used_ids): stamp on completed searches
-    only, never on a Deezer outage (same principle as the catalog A3-04 fix)
+Tests for the artist Deezer link backlog helpers of workers/tasks/artists.py
+(loop-safe refactor, mirror of the catalog E1 re-scan pattern):
+  - select_link_candidates: budget cap, oldest-id-first tier 1, 30/90-day
+    backoff tiers, abandonment after 3 attempts.
+  - count_link_candidates: total eligible across tiers (drives dropped_by_budget).
+  - _mark_link_searched: stamp + increment together.
+  - _link_artist_deezer(pool, artist, used_ids, now): marks on a completed
+    search only (match or no-match), never on a Deezer outage (an outage is not
+    an attempt, E1 invariant / catalog A3-04).
 """
 
 import importlib.util
@@ -55,104 +59,228 @@ _artists_mod = importlib.util.module_from_spec(_spec)
 sys.modules["workers.tasks.artists"] = _artists_mod
 _spec.loader.exec_module(_artists_mod)
 
-ARTIST_RESEARCH_DAYS = _artists_mod.ARTIST_RESEARCH_DAYS
-_artists_to_research = _artists_mod._artists_to_research
+select_link_candidates = _artists_mod.select_link_candidates
+count_link_candidates = _artists_mod.count_link_candidates
+_mark_link_searched = _artists_mod._mark_link_searched
 _link_artist_deezer = _artists_mod._link_artist_deezer
 
-
-def _artist(name, **kw):
-    return Artist(name=name, normalized_name=name.lower(), **kw)
+NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
 
 
-class TestArtistsToResearch:
-    """Pass 1 selection: only unlinked artists outside the 30-day window."""
+def _days_ago(days):
+    return NOW - timedelta(days=days)
 
-    def test_excludes_recently_searched(self, sync_session):
-        now = datetime.now(timezone.utc)
-        sync_session.add(
-            _artist("Recent", deezer_searched_at=now - timedelta(days=10))
+
+def _add_artist(session, name, **kw):
+    a = Artist(name=name, normalized_name=name.lower(), **kw)
+    session.add(a)
+    session.commit()
+    return a
+
+
+class TestSelectLinkCandidatesTiers:
+    def test_never_searched_selected_oldest_first(self, sync_session):
+        first = _add_artist(sync_session, "Alpha")
+        second = _add_artist(sync_session, "Beta")
+
+        result = select_link_candidates(sync_session, 10, NOW)
+
+        # OLDEST id first so the backlog tail is not starved by new artists
+        assert [a.id for a in result] == [first.id, second.id]
+
+    def test_linked_artist_never_selected(self, sync_session):
+        _add_artist(sync_session, "Linked", deezer_id="123")
+
+        assert select_link_candidates(sync_session, 10, NOW) == []
+
+    def test_not_found_sentinel_excluded(self, sync_session):
+        # NOT_FOUND keeps deezer_id non-NULL → excluded (human decision)
+        _add_artist(sync_session, "Absent", deezer_id="NOT_FOUND")
+
+        assert select_link_candidates(sync_session, 10, NOW) == []
+
+    def test_attempt1_within_30_days_excluded(self, sync_session):
+        _add_artist(
+            sync_session, "Recent",
+            deezer_searched_at=_days_ago(20), deezer_search_attempts=1,
         )
-        sync_session.commit()
 
-        assert _artists_to_research(sync_session, now) == []
+        assert select_link_candidates(sync_session, 10, NOW) == []
 
-    def test_includes_searched_long_ago(self, sync_session):
-        now = datetime.now(timezone.utc)
-        sync_session.add(
-            _artist("Stale", deezer_searched_at=now - timedelta(days=40))
+    def test_attempt1_after_30_days_included(self, sync_session):
+        a = _add_artist(
+            sync_session, "Stale",
+            deezer_searched_at=_days_ago(40), deezer_search_attempts=1,
         )
-        sync_session.commit()
 
-        selected = _artists_to_research(sync_session, now)
-        assert [a.name for a in selected] == ["Stale"]
+        result = select_link_candidates(sync_session, 10, NOW)
+        assert [x.id for x in result] == [a.id]
 
-    def test_includes_never_searched(self, sync_session):
-        now = datetime.now(timezone.utc)
-        sync_session.add(_artist("Never"))
-        sync_session.commit()
+    def test_attempt2_within_90_days_excluded(self, sync_session):
+        _add_artist(
+            sync_session, "Mid",
+            deezer_searched_at=_days_ago(40), deezer_search_attempts=2,
+        )
 
-        selected = _artists_to_research(sync_session, now)
-        assert [a.name for a in selected] == ["Never"]
+        assert select_link_candidates(sync_session, 10, NOW) == []
 
-    def test_excludes_already_linked(self, sync_session):
-        now = datetime.now(timezone.utc)
-        sync_session.add(_artist("Linked", deezer_id="123"))
-        sync_session.commit()
+    def test_attempt2_after_90_days_included(self, sync_session):
+        a = _add_artist(
+            sync_session, "VeryStale",
+            deezer_searched_at=_days_ago(100), deezer_search_attempts=2,
+        )
 
-        assert _artists_to_research(sync_session, now) == []
+        result = select_link_candidates(sync_session, 10, NOW)
+        assert [x.id for x in result] == [a.id]
+
+    def test_attempt3_abandoned_forever(self, sync_session):
+        _add_artist(
+            sync_session, "Abandoned",
+            deezer_searched_at=_days_ago(400), deezer_search_attempts=3,
+        )
+
+        assert select_link_candidates(sync_session, 10, NOW) == []
+
+
+class TestSelectLinkCandidatesBudget:
+    def test_budget_caps_tier1_oldest_first(self, sync_session):
+        a1 = _add_artist(sync_session, "One")
+        a2 = _add_artist(sync_session, "Two")
+        _add_artist(sync_session, "Three")
+
+        result = select_link_candidates(sync_session, 2, NOW)
+
+        assert [a.id for a in result] == [a1.id, a2.id]
+
+    def test_retries_only_consume_leftover_budget(self, sync_session):
+        oldest_retry = _add_artist(
+            sync_session, "OldRetry",
+            deezer_searched_at=_days_ago(60), deezer_search_attempts=1,
+        )
+        _add_artist(
+            sync_session, "NewerRetry",
+            deezer_searched_at=_days_ago(40), deezer_search_attempts=1,
+        )
+        fresh = [_add_artist(sync_session, f"Fresh{n}") for n in range(3)]
+
+        result = select_link_candidates(sync_session, 4, NOW)
+
+        # tier 1 first (oldest ids), then the single leftover slot goes to the
+        # oldest-searched retry
+        assert len(result) == 4
+        assert [a.id for a in result[:3]] == [a.id for a in fresh]
+        assert result[3].id == oldest_retry.id
+
+    def test_budget_exhausted_by_tier1_skips_retries(self, sync_session):
+        _add_artist(
+            sync_session, "Retry",
+            deezer_searched_at=_days_ago(60), deezer_search_attempts=1,
+        )
+        fresh = [_add_artist(sync_session, f"F{n}") for n in range(2)]
+
+        result = select_link_candidates(sync_session, 2, NOW)
+
+        assert [a.id for a in result] == [a.id for a in fresh]
+
+    def test_zero_budget_selects_nothing(self, sync_session):
+        _add_artist(sync_session, "One")
+
+        assert select_link_candidates(sync_session, 0, NOW) == []
+
+
+class TestCountLinkCandidates:
+    def test_counts_all_tiers(self, sync_session):
+        _add_artist(sync_session, "Fresh")  # tier 1
+        _add_artist(
+            sync_session, "Retry2",
+            deezer_searched_at=_days_ago(40), deezer_search_attempts=1,
+        )  # tier 2
+        _add_artist(
+            sync_session, "Retry3",
+            deezer_searched_at=_days_ago(100), deezer_search_attempts=2,
+        )  # tier 3
+        _add_artist(sync_session, "Linked", deezer_id="9")  # excluded
+        _add_artist(
+            sync_session, "Abandoned",
+            deezer_searched_at=_days_ago(400), deezer_search_attempts=3,
+        )  # excluded
+
+        assert count_link_candidates(sync_session, NOW) == 3
+
+
+class TestMarkLinkSearched:
+    def test_sets_timestamp_and_increments(self):
+        artist = Artist(name="x", normalized_name="x", deezer_search_attempts=1)
+
+        _mark_link_searched(artist, NOW)
+
+        assert artist.deezer_searched_at == NOW
+        assert artist.deezer_search_attempts == 2
+
+    def test_none_attempts_becomes_one(self):
+        artist = Artist(name="x", normalized_name="x")
+        artist.deezer_search_attempts = None
+
+        _mark_link_searched(artist, NOW)
+
+        assert artist.deezer_search_attempts == 1
 
 
 class TestLinkArtistDeezer:
-    """deezer_searched_at is stamped by completed searches only."""
+    """A completed search (match or no-match) is marked; a Deezer outage is not."""
 
-    async def test_empty_search_marks_searched(self):
-        artist = _artist("Unknown DJ")
+    def _artist(self, name):
+        return Artist(name=name, normalized_name=name.lower(), deezer_search_attempts=0)
+
+    async def test_no_match_marks_and_increments(self):
+        artist = self._artist("Unknown DJ")
         pool = MagicMock()
         pool.deezer_get = AsyncMock(return_value={"data": []})
 
-        linked = await _link_artist_deezer(pool, artist, set())
+        status = await _link_artist_deezer(pool, artist, set(), NOW)
 
-        assert linked is False
-        assert isinstance(artist.deezer_searched_at, datetime)
-        # No match must never auto-set the NOT_FOUND sentinel (human decision)
-        assert artist.deezer_id is None
+        assert status == "searched"
+        assert artist.deezer_id is None  # no-match must never set NOT_FOUND
+        assert artist.deezer_searched_at == NOW
+        assert artist.deezer_search_attempts == 1
 
-    async def test_http_error_leaves_unsearched(self):
-        artist = _artist("Unknown DJ")
+    async def test_http_error_leaves_unsearched_and_no_increment(self):
+        artist = self._artist("Flaky DJ")
         pool = MagicMock()
-        pool.deezer_get = AsyncMock(
-            side_effect=DeezerHTTPError(500, "/search/artist")
-        )
+        pool.deezer_get = AsyncMock(side_effect=DeezerHTTPError(500, "/search/artist"))
 
-        linked = await _link_artist_deezer(pool, artist, set())
+        status = await _link_artist_deezer(pool, artist, set(), NOW)
 
-        assert linked is False
+        assert status == "error"
         assert artist.deezer_searched_at is None
+        assert artist.deezer_search_attempts == 0
 
-    async def test_match_links_and_marks_searched(self):
-        artist = _artist("Boris Brejcha")
+    async def test_match_links_and_marks(self):
+        artist = self._artist("Boris Brejcha")
         pool = MagicMock()
         pool.deezer_get = AsyncMock(
             return_value={"data": [{"id": 42, "name": "Boris Brejcha"}]}
         )
         used_ids = set()
 
-        linked = await _link_artist_deezer(pool, artist, used_ids)
+        status = await _link_artist_deezer(pool, artist, used_ids, NOW)
 
-        assert linked is True
+        assert status == "linked"
         assert artist.deezer_id == "42"
         assert "42" in used_ids
-        assert isinstance(artist.deezer_searched_at, datetime)
+        assert artist.deezer_searched_at == NOW
+        assert artist.deezer_search_attempts == 1
 
-    async def test_taken_id_not_linked_but_marks_searched(self):
-        artist = _artist("Duplicate Name")
+    async def test_taken_id_not_linked_but_marks(self):
+        artist = self._artist("Duplicate Name")
         pool = MagicMock()
         pool.deezer_get = AsyncMock(
             return_value={"data": [{"id": 42, "name": "Duplicate Name"}]}
         )
 
-        linked = await _link_artist_deezer(pool, artist, {"42"})
+        status = await _link_artist_deezer(pool, artist, {"42"}, NOW)
 
-        assert linked is False
+        assert status == "searched"
         assert artist.deezer_id is None
-        assert isinstance(artist.deezer_searched_at, datetime)
+        assert artist.deezer_searched_at == NOW
+        assert artist.deezer_search_attempts == 1

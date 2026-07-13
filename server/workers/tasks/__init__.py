@@ -3,6 +3,7 @@ from workers.tasks.artists import (
     backfill_multi_artists,
     check_followed_artists,
     fetch_artist_artworks,
+    link_artists_deezer,
     link_set_artists,
     sync_artists,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "backfill_trackid_sets",
     "sync_artists",
     "fetch_artist_artworks",
+    "link_artists_deezer",
     "link_set_artists",
     "reclassify_genres_chunk",
     "reclassify_all_genres",

@@ -4,6 +4,7 @@ Celery tasks for artist sync, artwork fetching, and set artist linking.
 
 import asyncio
 import logging
+import os
 import sys
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
@@ -12,10 +13,38 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-# A3-12: retry window for Deezer artist searches — an artist with no match is
-# re-searched only after this many days. Never auto-set the NOT_FOUND sentinel:
-# "confirmed absent from Deezer" is a human decision.
-ARTIST_RESEARCH_DAYS = 30
+# ── Artist Deezer link backlog (loop-safe, mirror of the catalog enrich pattern)
+# The 2026-07-13 incident: the old fetch_artist_artworks selected every
+# linked-without-artwork artist in one asyncio.gather with a single final
+# commit, blew past the 30-min soft limit, and — being decorated with
+# autoretry_for=(Exception,) — retried the SoftTimeLimitExceeded forever,
+# re-downloading everything and committing nothing. The link and artwork passes
+# are now two separate budget-capped, batch-committing, Redis-locked tasks with
+# NO autoretry_for=(Exception,) (that decorator is what made the timeout loop).
+
+# E1-style re-scan backoff for artist Deezer link searches (mirror of the
+# catalog tiers in workers/enrichment.py): a no-match artist is retried after 30
+# then 90 days, then abandoned for good after 3 attempts.
+ARTIST_RESCAN_TIER2_DAYS = 30
+ARTIST_RESCAN_TIER3_DAYS = 90
+ARTIST_MAX_SEARCH_ATTEMPTS = 3
+
+# Max artist link searches per run. Code-defaulted (not in .env), env-overridable
+# like ENRICH_NIGHTLY_BUDGET. The cap is the PRIMARY loop guard: dimensioned well
+# under soft_time_limit (1500 searches ÷ 10 req/s ≈ 150s) so the run finishes in
+# minutes and the timeout that triggered the retry storm never fires.
+ARTIST_LINK_DEFAULT_BUDGET = 1500
+# Max artist artwork downloads per run — same loop-guard role.
+ARTIST_ARTWORK_DEFAULT_BUDGET = 2000
+
+# Single-instance locks: TTL strictly above each task's time_limit (1500s) so the
+# lock cannot expire while a legitimate run is still in progress.
+LINK_ARTISTS_LOCK_TTL = 1800
+FETCH_ARTIST_ARTWORKS_LOCK_TTL = 1800
+
+# Batch commit size: a kill after any chunk keeps the committed chunks (the old
+# single final commit lost everything on a timeout).
+ARTIST_BACKLOG_BATCH = 100
 
 # C6.c — activity feed for followed artists.
 # A Deezer release counts as fresh activity when it was published within this
@@ -43,35 +72,132 @@ def _norm_artist_name(s):
     return s.encode("ascii", "ignore").decode()
 
 
-def _artists_to_research(session, now):
-    """Artists eligible for a Deezer search: no deezer_id and never searched,
-    or last searched more than ARTIST_RESEARCH_DAYS ago."""
-    from models import Artist
-    from sqlalchemy import or_, select
+def _link_budget():
+    return int(
+        os.environ.get("ARTIST_LINK_NIGHTLY_BUDGET", str(ARTIST_LINK_DEFAULT_BUDGET))
+    )
 
-    threshold = now - timedelta(days=ARTIST_RESEARCH_DAYS)
-    return (
+
+def _artwork_budget():
+    return int(
+        os.environ.get(
+            "ARTIST_ARTWORK_NIGHTLY_BUDGET", str(ARTIST_ARTWORK_DEFAULT_BUDGET)
+        )
+    )
+
+
+def _link_tiers(now):
+    """SQLAlchemy predicates for artist Deezer link selection (mirror of the
+    catalog tiers in workers.enrichment.select_enrich_candidates).
+
+    Returns (tier1, retry):
+      - tier1: unlinked AND never searched.
+      - retry: unlinked AND E1 backoff — 1 attempt searched >30d ago, or
+        2 attempts searched >90d ago.
+    ``deezer_search_attempts >= ARTIST_MAX_SEARCH_ATTEMPTS`` matches neither, so
+    an artist is abandoned after 3 attempts. The NOT_FOUND sentinel keeps
+    deezer_id non-NULL, so confirmed-absent artists are excluded from both tiers
+    (a human decision, never auto-retried).
+    """
+    from models import Artist
+    from sqlalchemy import and_, or_
+
+    tier1 = and_(Artist.deezer_id.is_(None), Artist.deezer_searched_at.is_(None))
+    retry = and_(
+        Artist.deezer_id.is_(None),
+        or_(
+            and_(
+                Artist.deezer_search_attempts == 1,
+                Artist.deezer_searched_at
+                < now - timedelta(days=ARTIST_RESCAN_TIER2_DAYS),
+            ),
+            and_(
+                Artist.deezer_search_attempts == 2,
+                Artist.deezer_searched_at
+                < now - timedelta(days=ARTIST_RESCAN_TIER3_DAYS),
+            ),
+        ),
+    )
+    return tier1, retry
+
+
+def select_link_candidates(session, budget, now):
+    """Pick artists missing a deezer_id to Deezer-search, under a budget.
+
+    Tier 1 (never searched) drains OLDEST id first: an id-DESC order would
+    starve the long backlog tail under the constant influx of freshly created
+    artists. Retries (tiers 2/3, oldest search first) only consume the budget
+    tier 1 leaves; the total never exceeds ``budget``.
+    """
+    from models import Artist
+    from sqlalchemy import select
+
+    if budget <= 0:
+        return []
+
+    tier1, retry = _link_tiers(now)
+
+    fresh = (
         session.execute(
-            select(Artist).where(
-                Artist.deezer_id.is_(None),
-                or_(
-                    Artist.deezer_searched_at.is_(None),
-                    Artist.deezer_searched_at < threshold,
-                ),
-            )
+            select(Artist).where(tier1).order_by(Artist.id.asc()).limit(budget)
         )
         .scalars()
         .all()
     )
 
+    remaining = budget - len(fresh)
+    if remaining <= 0:
+        return list(fresh)
 
-async def _link_artist_deezer(pool, artist, used_ids):
+    retries = (
+        session.execute(
+            select(Artist)
+            .where(retry)
+            .order_by(Artist.deezer_searched_at.asc())
+            .limit(remaining)
+        )
+        .scalars()
+        .all()
+    )
+
+    return list(fresh) + list(retries)
+
+
+def count_link_candidates(session, now):
+    """Total artists eligible for a link search (all tiers), ignoring the budget.
+    Drives the dropped_by_budget stat so a capped run never reads as complete."""
+    from models import Artist
+    from sqlalchemy import func, or_, select
+
+    tier1, retry = _link_tiers(now)
+    return session.execute(
+        select(func.count(Artist.id)).where(or_(tier1, retry))
+    ).scalar_one()
+
+
+def _mark_link_searched(artist, now):
+    """Record a completed Deezer link search (matched or not): stamp the time and
+    bump the attempt counter together. Never called on a DeezerHTTPError — an
+    outage is not an attempt (E1 invariant / catalog A3-04), the artist stays
+    eligible for the next run. Mirror of workers.enrichment._mark_searched."""
+    artist.deezer_searched_at = now
+    artist.deezer_search_attempts = (artist.deezer_search_attempts or 0) + 1
+
+
+async def _link_artist_deezer(pool, artist, used_ids, now):
     """Search Deezer for one artist and link it on an exact name match.
 
-    Returns True when a link was made. A completed search (matched or not)
-    stamps deezer_searched_at; a DeezerHTTPError is an outage, not a search
-    (same principle as the catalog A3-04 fix), so the stamp stays unset and
-    the artist is retried on the next run.
+    Returns a status string:
+      - "linked":   a Deezer id was matched and assigned (search marked).
+      - "searched": the search completed but nothing was assigned — no exact
+                    match, or every matching id was already claimed by another
+                    row (the uq_artists_deezer_id guard, e.g. the "Åskar"/"Askar"
+                    diacritic pair). The search is still marked.
+      - "error":    a Deezer outage (DeezerHTTPError). NOT marked, so the artist
+                    stays eligible next run (an outage is not an attempt).
+
+    A completed search (linked or searched) stamps deezer_searched_at and bumps
+    deezer_search_attempts together via _mark_link_searched.
     """
     from workers.async_http import DeezerHTTPError
 
@@ -81,8 +207,9 @@ async def _link_artist_deezer(pool, artist, used_ids):
         )
     except DeezerHTTPError as e:
         logger.warning("Deezer artist search failed for %s: %s", artist.name, e)
-        return False
-    artist.deezer_searched_at = datetime.now(timezone.utc)
+        return "error"
+
+    _mark_link_searched(artist, now)
     name_norm = _norm_artist_name(artist.name)
     for hit in data.get("data", []):
         dz_name = hit.get("name", "")
@@ -94,8 +221,140 @@ async def _link_artist_deezer(pool, artist, used_ids):
             if dz_id not in used_ids:
                 artist.deezer_id = dz_id
                 used_ids.add(dz_id)
-                return True
-    return False
+                return "linked"
+    return "searched"
+
+
+@celery_app.task(
+    name="workers.tasks.link_artists_deezer",
+    bind=True,
+    soft_time_limit=1200,
+    time_limit=1500,
+)
+def link_artists_deezer(self):
+    """Link artists with no deezer_id to Deezer, loop-safe by construction.
+
+    Extracted from the old fetch_artist_artworks Pass 1. Single-instance: a Redis
+    lock (SET NX EX, conditional release) makes overlapping runs (beat vs admin,
+    or broker re-delivery) a no-op. NO autoretry_for=(Exception,) — that decorator
+    is exactly what turned the 2026-07-13 soft timeout into an infinite loop
+    (SoftTimeLimitExceeded IS an Exception, impossible to exclude). We rely on the
+    budget cap + batch commits instead.
+    """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:link_artists"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=LINK_ARTISTS_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning(
+            "link_artists_deezer already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_link_artists_deezer(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_link_artists_deezer(task):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import Artist
+    from workers.crawl_logger import CrawlLogger
+    from workers.db import get_engine
+
+    engine = get_engine()
+    budget = _link_budget()
+
+    with Session(engine) as log_session:
+        with CrawlLogger(
+            log_session,
+            task_type="link_artists",
+            source="deezer",
+            celery_task_id=task.request.id,
+        ) as clog:
+
+            async def _async_link():
+                from workers.async_http import HttpPool
+                from workers.rate_limiter import RateLimiter
+
+                now = datetime.now(timezone.utc)
+                stats = {
+                    "linked": 0,
+                    "searched": 0,
+                    "abandoned": 0,
+                    "errors": 0,
+                    "dropped_by_budget": 0,
+                }
+
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        candidates = select_link_candidates(session, budget, now)
+                        stats["dropped_by_budget"] = max(
+                            0, count_link_candidates(session, now) - len(candidates)
+                        )
+                        if not candidates:
+                            return stats
+
+                        used_ids = set(
+                            row[0]
+                            for row in session.execute(
+                                select(Artist.deezer_id).where(
+                                    Artist.deezer_id.isnot(None)
+                                )
+                            ).all()
+                        )
+
+                        async def _link_one(artist):
+                            status = await _link_artist_deezer(
+                                pool, artist, used_ids, now
+                            )
+                            if status == "error":
+                                stats["errors"] += 1
+                                return
+                            stats["searched"] += 1
+                            if status == "linked":
+                                stats["linked"] += 1
+                            elif (
+                                artist.deezer_search_attempts
+                                >= ARTIST_MAX_SEARCH_ATTEMPTS
+                            ):
+                                # This no-match search hit the abandonment cap:
+                                # the artist will never be re-selected.
+                                stats["abandoned"] += 1
+
+                        for i in range(0, len(candidates), ARTIST_BACKLOG_BATCH):
+                            batch = candidates[i : i + ARTIST_BACKLOG_BATCH]
+                            await asyncio.gather(*[_link_one(a) for a in batch])
+                            session.commit()
+                            logger.info(
+                                "link_artists_deezer progress: %d/%d (linked=%d)",
+                                min(i + ARTIST_BACKLOG_BATCH, len(candidates)),
+                                len(candidates),
+                                stats["linked"],
+                            )
+
+                        return stats
+
+            try:
+                stats = asyncio.run(_async_link())
+            except Exception:
+                logger.exception("link_artists_deezer failed")
+                raise
+
+            clog.set_stats(stats)
+
+    return stats
 
 
 def _assign_deezer_id(artist, dz_id, used_deezer_ids):
@@ -597,130 +856,158 @@ def sync_artists(self):
 @celery_app.task(
     name="workers.tasks.fetch_artist_artworks",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    soft_time_limit=1200,
+    time_limit=1500,
 )
 def fetch_artist_artworks(self):
+    """Download Deezer artist images for linked artists missing artwork.
+
+    Artwork-only since the backlog loop-safe chantier: the Deezer *linking* pass
+    moved to link_artists_deezer. Loop-safe by construction (the 2026-07-13
+    incident) — a per-run budget (ARTIST_ARTWORK_NIGHTLY_BUDGET), batch commits,
+    a Redis single-instance lock, and NO autoretry_for=(Exception,) (the decorator
+    that turned the old soft timeout into an infinite re-download loop). Manual
+    trigger only (no beat) — a full drain of the ~24 800-row backlog is a separate
+    deferred step.
     """
-    Fetch Deezer artist images concurrently.
-    Pass 1: link artists to Deezer (5 concurrent searches).
-    Pass 2: download artworks (5 concurrent downloads).
-    """
-    from sqlalchemy import select
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:fetch_artist_artworks"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(
+        lock_key, self.request.id, nx=True, ex=FETCH_ARTIST_ARTWORKS_LOCK_TTL
+    ):
+        holder = r.get(lock_key)
+        logger.warning(
+            "fetch_artist_artworks already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_fetch_artist_artworks(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_fetch_artist_artworks(task):
+    from sqlalchemy import func, select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import Artist
     from services.image_service import BUCKET_ARTIST, ImageService
-    from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
-    ARTIST_BUCKET = BUCKET_ARTIST
     engine = get_engine()
-    ImageService.ensure_bucket(ARTIST_BUCKET)
+    ImageService.ensure_bucket(BUCKET_ARTIST)
+    budget = _artwork_budget()
 
-    _log_session = Session(engine)
-    _clog = CrawlLogger(
-        _log_session, task_type="fetch_artworks", celery_task_id=self.request.id
-    )
-    _clog.__enter__()
+    from workers.crawl_logger import CrawlLogger
 
-    async def _async_fetch():
-        from workers.async_http import DeezerHTTPError, HttpPool
-        from workers.rate_limiter import RateLimiter
+    with Session(engine) as log_session:
+        with CrawlLogger(
+            log_session,
+            task_type="fetch_artworks",
+            source="deezer",
+            celery_task_id=task.request.id,
+        ) as clog:
 
-        limiter = RateLimiter()
-        linked = 0
-        fetched = 0
-        skipped = 0
+            async def _async_fetch():
+                from workers.async_http import DeezerHTTPError, HttpPool
+                from workers.rate_limiter import RateLimiter
 
-        async with HttpPool(limiter) as pool:
-            with Session(engine) as session:
-                # Pass 1: link artists to Deezer (A3-12: skip recently searched)
-                no_id_artists = _artists_to_research(
-                    session, datetime.now(timezone.utc)
-                )
+                stats = {
+                    "fetched": 0,
+                    "skipped": 0,
+                    "errors": 0,
+                    "dropped_by_budget": 0,
+                }
 
-                used_ids = set(
-                    row[0]
-                    for row in session.execute(
-                        select(Artist.deezer_id).where(Artist.deezer_id.isnot(None))
-                    ).all()
-                )
-
-                async def _link_one(artist):
-                    nonlocal linked, skipped
-                    if await _link_artist_deezer(pool, artist, used_ids):
-                        linked += 1
-                    else:
-                        skipped += 1
-
-                await asyncio.gather(*[_link_one(a) for a in no_id_artists])
-                session.commit()
-
-                # Pass 2: download artworks
-                artists_needing_art = (
-                    session.execute(
-                        select(Artist).where(
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        # has_artwork is nullable with no server_default, so use
+                        # IS NOT TRUE (not == False): three-valued logic keeps the
+                        # NULL rows in, which == False would silently drop.
+                        base = (
                             Artist.deezer_id.isnot(None),
                             Artist.deezer_id != "NOT_FOUND",
-                            Artist.has_artwork == False,  # noqa: E712
+                            Artist.has_artwork.isnot(True),
                         )
-                    )
-                    .scalars()
-                    .all()
-                )
-
-                async def _fetch_one(artist):
-                    nonlocal fetched, skipped
-                    try:
-                        data = await pool.deezer_get(f"/artist/{artist.deezer_id}")
-                    except DeezerHTTPError as e:
-                        logger.warning(
-                            "Deezer artist fetch failed for %s: %s", artist.deezer_id, e
+                        total_missing = session.execute(
+                            select(func.count(Artist.id)).where(*base)
+                        ).scalar_one()
+                        artists = (
+                            session.execute(
+                                select(Artist)
+                                .where(*base)
+                                .order_by(Artist.id.asc())
+                                .limit(budget)
+                            )
+                            .scalars()
+                            .all()
                         )
-                        skipped += 1
-                        return
-                    pic_url = (
-                        data.get("picture_xl")
-                        or data.get("picture_big")
-                        or data.get("picture")
-                    )
-                    if not pic_url:
-                        skipped += 1
-                        return
-                    img_data = await pool.download_image(pic_url)
-                    if img_data:
-                        if ImageService.upload_bytes(
-                            img_data, ARTIST_BUCKET, f"{artist.id}.jpg"
-                        ):
-                            artist.has_artwork = True
-                            fetched += 1
-                        else:
-                            skipped += 1
-                    else:
-                        skipped += 1
+                        stats["dropped_by_budget"] = max(
+                            0, total_missing - len(artists)
+                        )
+                        if not artists:
+                            return stats
 
-                await asyncio.gather(*[_fetch_one(a) for a in artists_needing_art])
-                session.commit()
+                        async def _fetch_one(artist):
+                            try:
+                                data = await pool.deezer_get(
+                                    f"/artist/{artist.deezer_id}"
+                                )
+                            except DeezerHTTPError as e:
+                                logger.warning(
+                                    "Deezer artist fetch failed for %s: %s",
+                                    artist.deezer_id,
+                                    e,
+                                )
+                                stats["errors"] += 1
+                                return
+                            pic_url = (
+                                data.get("picture_xl")
+                                or data.get("picture_big")
+                                or data.get("picture")
+                            )
+                            if not pic_url:
+                                stats["skipped"] += 1
+                                return
+                            img_data = await pool.download_image(pic_url)
+                            if img_data and ImageService.upload_bytes(
+                                img_data, BUCKET_ARTIST, f"{artist.id}.jpg"
+                            ):
+                                artist.has_artwork = True
+                                stats["fetched"] += 1
+                            else:
+                                stats["skipped"] += 1
 
-        return {"linked": linked, "fetched": fetched, "skipped": skipped}
+                        for i in range(0, len(artists), ARTIST_BACKLOG_BATCH):
+                            batch = artists[i : i + ARTIST_BACKLOG_BATCH]
+                            await asyncio.gather(*[_fetch_one(a) for a in batch])
+                            session.commit()
+                            logger.info(
+                                "fetch_artist_artworks progress: %d/%d (fetched=%d)",
+                                min(i + ARTIST_BACKLOG_BATCH, len(artists)),
+                                len(artists),
+                                stats["fetched"],
+                            )
 
-    try:
-        result = asyncio.run(_async_fetch())
-    except Exception:
-        logger.exception("fetch_artist_artworks failed")
-        _clog.set_stats({"linked": 0, "fetched": 0, "skipped": 0})
-        import sys as _sys
+                        return stats
 
-        _clog.__exit__(*_sys.exc_info())
-        _log_session.close()
-        raise
+            try:
+                result = asyncio.run(_async_fetch())
+            except Exception:
+                logger.exception("fetch_artist_artworks failed")
+                raise
 
-    _clog.set_stats(result)
-    _clog.__exit__(None, None, None)
-    _log_session.close()
+            clog.set_stats(result)
 
     return result
 

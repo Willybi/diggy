@@ -18,6 +18,34 @@
     </div>
   </section>
 
+  <!-- Liaison Deezer (artistes) -->
+  <section class="admin-section">
+    <h2 class="section-title">Liaison Deezer (artistes)</h2>
+    <p class="section-sub">
+      Cherche sur Deezer les artistes sans deezer_id et les lie sur un match exact.
+      Borné par run (budget) et sûr contre les boucles. Idempotent.
+    </p>
+    <div class="sync-row">
+      <button class="btn-sync" :disabled="linkingArtists" @click="runLinkArtists">
+        {{ linkingArtists ? 'Liaison en cours…' : 'Lier artistes (Deezer)' }}
+      </button>
+      <div v-if="linkArtistsResult" class="sync-result">
+        <span class="result-item ok">🔗 {{ linkArtistsResult.linked }} liés</span>
+        <span class="result-item muted">🔎 {{ linkArtistsResult.searched }} cherchés</span>
+        <span v-if="linkArtistsResult.abandoned" class="result-item warn"
+          >⌀ {{ linkArtistsResult.abandoned }} abandonnés</span
+        >
+        <span v-if="linkArtistsResult.errors" class="result-item warn"
+          >⚠ {{ linkArtistsResult.errors }} erreurs</span
+        >
+        <span v-if="linkArtistsResult.dropped_by_budget" class="result-item muted"
+          >↷ {{ linkArtistsResult.dropped_by_budget }} en attente</span
+        >
+      </div>
+      <span v-if="linkArtistsError" class="sync-error">{{ linkArtistsError }}</span>
+    </div>
+  </section>
+
   <!-- Fetch artworks -->
   <section class="admin-section">
     <h2 class="section-title">Artworks artistes</h2>
@@ -30,10 +58,13 @@
       </button>
       <div v-if="artworksResult" class="sync-result">
         <span class="result-item ok">✓ {{ artworksResult.fetched }} artworks</span>
-        <span v-if="artworksResult.linked != null" class="result-item ok"
-          >🔗 {{ artworksResult.linked }} liés Deezer</span
-        >
         <span class="result-item muted">↷ {{ artworksResult.skipped }} skippés</span>
+        <span v-if="artworksResult.errors" class="result-item warn"
+          >⚠ {{ artworksResult.errors }} erreurs</span
+        >
+        <span v-if="artworksResult.dropped_by_budget" class="result-item muted"
+          >↷ {{ artworksResult.dropped_by_budget }} en attente</span
+        >
       </div>
       <span v-if="artworksError" class="sync-error">{{ artworksError }}</span>
     </div>
@@ -216,6 +247,9 @@ const syncError = ref('')
 const fetchingArtworks = ref(false)
 const artworksResult = ref(null)
 const artworksError = ref('')
+const linkingArtists = ref(false)
+const linkArtistsResult = ref(null)
+const linkArtistsError = ref('')
 const fetchingPlArtworks = ref(false)
 const plArtworksResult = ref(null)
 const plArtworksError = ref('')
@@ -307,6 +341,42 @@ async function runFetchArtworks() {
   } catch (e) {
     artworksError.value = e.response?.data?.detail || 'Erreur'
     fetchingArtworks.value = false
+  }
+}
+
+const linkArtistsPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+  intervalMs: 2000,
+  maxAttempts: 150,
+  onData(data, { stop }) {
+    if (data.status === 'done') {
+      linkArtistsResult.value = data.result
+      linkingArtists.value = false
+      stop()
+    } else if (data.status === 'error') {
+      linkArtistsError.value = data.error || 'Erreur Celery'
+      linkingArtists.value = false
+      stop()
+    }
+  },
+  onError(err) {
+    linkArtistsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
+    linkingArtists.value = false
+  },
+  onMaxAttempts() {
+    linkingArtists.value = false
+  },
+})
+
+async function runLinkArtists() {
+  linkingArtists.value = true
+  linkArtistsResult.value = null
+  linkArtistsError.value = ''
+  try {
+    const { data } = await api.post('/api/admin/artists/link-deezer')
+    linkArtistsPoll.start(data.task_id)
+  } catch (e) {
+    linkArtistsError.value = e.response?.data?.detail || 'Erreur'
+    linkingArtists.value = false
   }
 }
 
