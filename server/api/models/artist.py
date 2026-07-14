@@ -65,8 +65,22 @@ class Artist(Base):
     aliases = relationship(
         "ArtistAlias", back_populates="artist", cascade="all, delete-orphan"
     )
-    set_links = relationship("SetArtist", back_populates="artist")
-    catalog_links = relationship("CatalogArtist", back_populates="artist")
+    # set_artists.artist_id / catalog_artists.artist_id are PK columns with a
+    # DB-level ON DELETE CASCADE. passive_deletes="all" makes the ORM defer that
+    # cascade entirely to the DB and NEVER try to NULL the child FK on artist
+    # delete — nulling a PK column raises AssertionError ("tried to blank-out
+    # primary key column"), and it is always wrong here. "all" (not True) is
+    # required because True still nulls out an *already-loaded* collection; only
+    # "all" leaves loaded children untouched too. The merge in
+    # artist_service.link_to_deezer still reassigns these rows to the canonical
+    # artist first (the DB cascade would delete them, not move them); this flag
+    # just makes the delete crash-proof regardless of session state.
+    set_links = relationship(
+        "SetArtist", back_populates="artist", passive_deletes="all"
+    )
+    catalog_links = relationship(
+        "CatalogArtist", back_populates="artist", passive_deletes="all"
+    )
 
 
 class ArtistAlias(Base):
@@ -117,7 +131,8 @@ class ArtistActivity(Base):
     # Application values: 'release' | 'set' (plain String, no PG enum)
     activity_type = Column(String(16), nullable=False)
     source = Column(String(32), nullable=False)  # 'deezer' | 'trackid'
-    # Deezer album id, or Diggy set id as string
+    # For 'release': Deezer TRACK id (since C6.c v2 albums are exploded per-track;
+    # album id/title live in `payload`). For 'set': Diggy set id as string.
     external_id = Column(String(64), nullable=False)
     title = Column(String(500))
     external_url = Column(Text, nullable=True)

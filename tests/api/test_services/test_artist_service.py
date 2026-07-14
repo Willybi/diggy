@@ -162,6 +162,46 @@ class TestLinkToDeezer:
         assert len(links) == 1
         assert links[0].artist_id == canonical.id
 
+    async def test_merge_survives_preloaded_catalog_links(self, db, monkeypatch):
+        """Regression: even when the artist's catalog_links collection is already
+        loaded in the session, deleting the merged artist must not try to NULL the
+        composite-PK artist_id. passive_deletes=True on the relationship makes the
+        ORM defer to the DB ON DELETE CASCADE instead of blanking the PK (500)."""
+        from models import Artist, CatalogArtist
+        from sqlalchemy import select
+
+        self._stub_requests(monkeypatch)
+
+        dup = Artist(name="DupPre", normalized_name="duppre")
+        canonical = Artist(name="CanonPre", normalized_name="canonpre", deezer_id="999")
+        db.add_all([dup, canonical])
+        await db.flush()
+
+        entry = await self._catalog_entry(db, "pre|track")
+        db.add(CatalogArtist(catalog_id=entry.id, artist_id=dup.id, role="main"))
+        await db.commit()
+        dup_id = dup.id
+
+        # Force the relationship into the session identity map BEFORE the merge —
+        # this is what the bulk-reassign guard alone does not neutralize.
+        preloaded = (
+            await db.execute(select(Artist).where(Artist.id == dup_id))
+        ).scalar_one()
+        await db.refresh(preloaded, ["catalog_links"])
+        assert len(preloaded.catalog_links) == 1
+
+        result = await artist_service.link_to_deezer(db, dup_id, "999")
+
+        assert result["merged"] is True
+        assert (await db.get(Artist, dup_id)) is None
+        links = (
+            await db.execute(
+                select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
+            )
+        ).scalars().all()
+        assert len(links) == 1
+        assert links[0].artist_id == canonical.id
+
 
 class TestResolveFlag:
     async def test_raises_lookup_error_for_missing_flag(self, db):
