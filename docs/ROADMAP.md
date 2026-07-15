@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global : series AU + C6 + F5 + C3 + C4 + N1 TERMINE. **Mise a jour 2026-07-13 (2)** : les deux derniers chantiers, C5 (Collections v2) et D4 (Pages Detail), sont desormais STANDALONE et prets a demarrer — retrait des statuts 'apres ouverture' (C5) et 'bloque briefs' (D4). Plus aucune dependance ni condition bloquante : leur lancement est un choix de priorite (William), pas un blocage. D4 = a demarrer en binome avec Claude Design (briefs Track/Playlist co-produits dans le chantier) ; C5 = gros refacto de la feature Collections.) **Mise a jour 2026-07-14** : ajout de 4 nouveaux items backlog issus d'une revue produit/technique (aucun statut de chantier existant modifie) — **P2** (lot correctifs UX/admin : affichage sortie album Hub, loading "Pour toi", compteurs vrai total x3, Beatport skip-lock, chips trend familles vides), **N2** (fix split artiste multi + separateur "|"), **C7** (entite Album + M2M catalog_albums), **C8** (fiabilite des sets TrackID : flag hidden + exclusion des calculs de proximite). Deux divergences CLAUDE.md corrigees le meme jour : la similarite consomme les sets (via `_load_set_map`, PAS catalog-only) ; commentaire `external_id` dans `models/artist.py` (track id Deezer depuis C6.c v2, plus album id).
+> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global : series AU + C6 + F5 + C3 + C4 + N1 TERMINE. **Mise a jour 2026-07-13 (2)** : les deux derniers chantiers, C5 (Collections v2) et D4 (Pages Detail), sont desormais STANDALONE et prets a demarrer — retrait des statuts 'apres ouverture' (C5) et 'bloque briefs' (D4). Plus aucune dependance ni condition bloquante : leur lancement est un choix de priorite (William), pas un blocage. D4 = a demarrer en binome avec Claude Design (briefs Track/Playlist co-produits dans le chantier) ; C5 = gros refacto de la feature Collections.) **Mise a jour 2026-07-14** : ajout de 4 nouveaux items backlog issus d'une revue produit/technique (aucun statut de chantier existant modifie) — **P2** (lot correctifs UX/admin : affichage sortie album Hub, loading "Pour toi", compteurs vrai total x3, Beatport skip-lock, chips trend familles vides), **N2** (fix split artiste multi + separateur "|"), **C7** (entite Album + M2M catalog_albums), **C8** (fiabilite des sets TrackID : flag hidden + exclusion des calculs de proximite). Deux divergences CLAUDE.md corrigees le meme jour : la similarite consomme les sets (via `_load_set_map`, PAS catalog-only) ; commentaire `external_id` dans `models/artist.py` (track id Deezer depuis C6.c v2, plus album id). **Mise a jour 2026-07-16** : **N2** et **P2** TERMINES (commit d11f28e + follow-ups, deployes, /deploy_verify SAIN). Le **fix durable pooling de C4** est LIVRE (commits 58c91b0 + 3fae063) : contexte de similarite cache in-process + candidate pooling (pool construit 1x, scoring en memoire) + `_load_set_map` roots-only ; optimisation PURE (byte-identique, ancree par test golden), reco a froid mesuree ~60s -> ~6.6s en prod, SEED_CAP reste a 12. Corriges hors chantier le meme jour (bugs prod emergents, pas de nouveau chantier) : pillar-count `list_artists` via sous-requete (cap asyncpg 32767 bind params sur GET /api/artists une fois la table artistes > 32767 lignes, commit 383588d) et le separateur "|" sans espaces "A|B".
 
 ---
 
@@ -56,8 +56,8 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE — standalone
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    A FAIRE — standalone
  N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
- P2   Correctifs UX/admin (revue 07-14)     MOYEN       1 jour       A FAIRE — lot quick-wins
- N2   Split artiste multi + separateur "|"  MOYEN       1-2 jours    A FAIRE
+ P2   Correctifs UX/admin (revue 07-14)     MOYEN       1 jour       TERMINE (2026-07-16)
+ N2   Split artiste multi + separateur "|"  MOYEN       1-2 jours    TERMINE (2026-07-16)
  C7   Entite Album (M2M catalog_albums)     BAS         5-7 jours    A FAIRE
  C8   Fiabilite des sets TrackID            BAS         3-4 jours    A FAIRE
 ```
@@ -96,7 +96,9 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  F5   Import manuel (recherche externe) TERMINE (2026-07-12)
  N1   Nettoyage residus                 TERMINE (2026-07-13)
  C3   Ouverture aux amis              TERMINE (2026-07-13 ; ouverture = decision William)
- C4   Reco personnalisee              TERMINE (2026-07-13 ; fix durable pooling en suivi)
+ C4   Reco personnalisee              TERMINE (2026-07-13 ; fix durable pooling LIVRE 2026-07-16)
+ P2   Correctifs UX/admin (revue 07-14) TERMINE (2026-07-16)
+ N2   Split artiste multi + separateur "|" TERMINE (2026-07-16)
 ```
 
 ### Dependances
@@ -904,7 +906,7 @@ Reste :
 **Priorite : BAS**
 **Estimation : 3-5 jours**
 **Depend de : C2 + C3**
-**Statut : TERMINE (2026-07-13) — reco "Pour toi" livree, deployee, /deploy_verify SAIN (commit 7fd64c4 + hotfix hang CI 2b91bb4 + stop-gap 504 c288cc6). Calcul on-the-fly + cache Redis (pas de precalcul/table). Fix durable candidate pooling EN SUIVI : SEED_CAP cappe a 12 en stop-gap pour tenir sous le timeout nginx 60s ; le pooling permettra de le remonter.**
+**Statut : TERMINE (2026-07-13) — reco "Pour toi" livree, deployee, /deploy_verify SAIN (commit 7fd64c4 + hotfix hang CI 2b91bb4 + stop-gap 504 c288cc6). Calcul on-the-fly + cache Redis (pas de precalcul/table). Fix durable candidate pooling LIVRE le 2026-07-16 (commits 58c91b0 + 3fae063, /deploy_verify SAIN) : (1) load_similarity_context cache in-process (TTL 6h) — le contexte user/seed-agnostic n'est plus reconstruit a chaque requete ; (2) candidate pooling — pool candidats construit 1x (projection legere + genres/label precalcules) + scoring en memoire, plus les lignes ORM completes que pour les ~20 gagnants ; (3) _load_set_map roots-only (fin du double-comptage parents virtuels + enfants). Optimisation PURE (resultats byte-identiques, ancres par test golden). Mesure prod : reco a froid ~60s -> ~6.6s, endpoint /similar ~2.5s -> ~1.9s. SEED_CAP reste a 12. Precalcul nocturne non necessaire (garde en reserve).**
 
 ### Objectif
 
@@ -1052,7 +1054,7 @@ TagsView est une vue morte, `/tags` redirige vers `/genres`.
 **Priorite : MOYEN**
 **Estimation : 1 jour**
 **Depend de : rien (parallelisable). P2.a partage la surface du Hub avec C7 mais ne le bloque pas.**
-**Statut : A FAIRE — lot de 4 correctifs front, groupables en une PR. Aucun changement backend (les totaux sont deja renvoyes par l'API).**
+**Statut : TERMINE (2026-07-16, commit d11f28e, deploye, /deploy_verify SAIN) — P2.a (regroupement activite par album via ActivityAlbumCard), P2.b (skeleton "Pour toi"), P2.c (compteurs total DB : Sets + Watchlist front ; compteur admin "sans deezer_id" fondu dans N2 avec AdminArtists), P2.d (Beatport skip-lock "deja en cours"), P2.e (FamilyChips masque les familles vides + bloc trend decouple). Front only (radar.py family_counts+catalog_visible non pris, stretch). Tests +13 vitest.**
 
 ### Objectif
 
@@ -1111,7 +1113,7 @@ Le shelf trend du Hub propose des familles STATIQUES (`PILLAR_ORDER`) : une fami
 **Priorite : MOYEN**
 **Estimation : 1-2 jours**
 **Depend de : rien**
-**Statut : A FAIRE — deux sujets distincts (bug de fond + ajout separateur).**
+**Statut : TERMINE (2026-07-16, commits d11f28e + bare-pipe follow-up, deploye, /deploy_verify SAIN). N2.a : resolve_flag(split) dispose la ligne combinee (deezer_id NULL) apres fan-out 1->2 des liens catalog_artists (role/position, dedup PK) ; set_artists droppes par cascade (passive_deletes='all') ; fin du rebond dans la liste admin. N2.b : separateur "|" reconnu de bout en bout (Phase A/B/C worker + populate_artists + front SEPARATORS), route rule_type "ampersand" ; logique de dispatch extraite en helpers purs classify_artist_string/split_artist_parts (source unique, DRY Phase A/C) ; "/" reste front-only (AC/DC). Bare pipe "A|B" (sans espaces) reconnu (follow-up post-deploy sur cas reel "Oliver Ho|James Ruskin"). Compteur admin "sans deezer_id" = total DB (ex-P2.c) fondu ici. Tests +12 pytest.**
 
 ### Objectif
 
