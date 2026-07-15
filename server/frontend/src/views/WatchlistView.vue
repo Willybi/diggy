@@ -4,7 +4,7 @@
       <div class="titles">
         <h1>Playlists</h1>
         <div class="sub">
-          {{ browsePlaylists.length }} playlist{{ browsePlaylists.length !== 1 ? 's' : '' }}
+          {{ total }} playlist{{ total !== 1 ? 's' : '' }}
           <span v-if="mode !== 'all'" class="muted"
             >· {{ filteredList.length }}
             {{
@@ -184,6 +184,7 @@ const opinions = useOpinionsStore()
 const COOLDOWN_MS = 12 * 3600 * 1000
 
 const browsePlaylists = ref([])
+const total = ref(0)
 const loading = ref(false)
 const showForm = ref(false)
 const inputValue = ref('')
@@ -323,6 +324,8 @@ async function fetchPlaylists() {
   try {
     const { data } = await api.get('/api/watchlist/browse')
     browsePlaylists.value = data.items
+    // Header count = true DB total (backend), not the number of rows loaded.
+    total.value = data.total ?? data.items.length
   } finally {
     loading.value = false
   }

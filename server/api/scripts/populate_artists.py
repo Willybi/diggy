@@ -81,6 +81,10 @@ def _split_ampersand(raw: str) -> list[str]:
     return [p.strip() for p in raw.split(" & ") if p.strip()]
 
 
+def _split_pipe(raw: str) -> list[str]:
+    return [p.strip() for p in raw.split(" | ") if p.strip()]
+
+
 async def run_sync(db) -> dict:
     """
     Main sync logic. Returns {"created": N, "flagged": M, "skipped": K}.
@@ -200,6 +204,67 @@ async def run_sync(db) -> dict:
 
             if full_found and not tokens_found:
                 # Established duo (e.g. "Polo & Pan")
+                artist = await get_or_create_artist(db, raw)
+                if not artist.deezer_id:
+                    artist.deezer_id = deezer_full
+                known_norms.add(artist.normalized_name)
+                await db.commit()
+                created += 1
+            elif tokens_found and not full_found:
+                # Collab, split
+                for name in tokens:
+                    artist = await get_or_create_artist(db, name)
+                    if not artist.deezer_id and deezer_ids.get(name):
+                        artist.deezer_id = deezer_ids[name]
+                    known_norms.add(artist.normalized_name)
+                    created += 1
+                await db.commit()
+            else:
+                reason = (
+                    "ampersand_ambiguous"
+                    if (full_found and tokens_found)
+                    else "ampersand_unknown"
+                )
+                flag = ArtistFlag(
+                    raw_artist_string=raw,
+                    reason=reason,
+                    tokens=tokens,
+                    deezer_ids=deezer_ids,
+                    status="pending",
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                )
+                db.add(flag)
+                already_flagged.add(raw)
+                await db.commit()
+                flagged += 1
+            continue
+
+        # --- Rule 3b: pipe (mirror of ampersand — "|" reads like a duo/collab) ---
+        if " | " in raw:
+            tokens = _split_pipe(raw)
+            if any(_name_in_db_sync(t, known_norms) for t in tokens):
+                # At least one token known → it's a collab, split
+                for name in tokens:
+                    artist = await get_or_create_artist(db, name)
+                    known_norms.add(artist.normalized_name)
+                    created += 1
+                await db.commit()
+                continue
+
+            # Check Deezer for full string + each token
+            deezer_full = _deezer_artist_id(raw)
+            time.sleep(RATE_LIMIT)
+            deezer_ids = {raw: deezer_full}
+            for t in tokens:
+                deezer_ids[t] = _deezer_artist_id(t)
+                time.sleep(RATE_LIMIT)
+
+            full_found = deezer_full is not None
+            tokens_found = all(deezer_ids[t] is not None for t in tokens)
+
+            if full_found and not tokens_found:
+                # Established duo
                 artist = await get_or_create_artist(db, raw)
                 if not artist.deezer_id:
                     artist.deezer_id = deezer_full

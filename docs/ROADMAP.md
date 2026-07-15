@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global : series AU + C6 + F5 + C3 + C4 + N1 TERMINE. **Mise a jour 2026-07-13 (2)** : les deux derniers chantiers, C5 (Collections v2) et D4 (Pages Detail), sont desormais STANDALONE et prets a demarrer — retrait des statuts 'apres ouverture' (C5) et 'bloque briefs' (D4). Plus aucune dependance ni condition bloquante : leur lancement est un choix de priorite (William), pas un blocage. D4 = a demarrer en binome avec Claude Design (briefs Track/Playlist co-produits dans le chantier) ; C5 = gros refacto de la feature Collections.)
+> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global : series AU + C6 + F5 + C3 + C4 + N1 TERMINE. **Mise a jour 2026-07-13 (2)** : les deux derniers chantiers, C5 (Collections v2) et D4 (Pages Detail), sont desormais STANDALONE et prets a demarrer — retrait des statuts 'apres ouverture' (C5) et 'bloque briefs' (D4). Plus aucune dependance ni condition bloquante : leur lancement est un choix de priorite (William), pas un blocage. D4 = a demarrer en binome avec Claude Design (briefs Track/Playlist co-produits dans le chantier) ; C5 = gros refacto de la feature Collections.) **Mise a jour 2026-07-14** : ajout de 4 nouveaux items backlog issus d'une revue produit/technique (aucun statut de chantier existant modifie) — **P2** (lot correctifs UX/admin : affichage sortie album Hub, loading "Pour toi", compteurs vrai total x3, Beatport skip-lock, chips trend familles vides), **N2** (fix split artiste multi + separateur "|"), **C7** (entite Album + M2M catalog_albums), **C8** (fiabilite des sets TrackID : flag hidden + exclusion des calculs de proximite). Deux divergences CLAUDE.md corrigees le meme jour : la similarite consomme les sets (via `_load_set_map`, PAS catalog-only) ; commentaire `external_id` dans `models/artist.py` (track id Deezer depuis C6.c v2, plus album id).
 
 ---
 
@@ -56,6 +56,10 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE — standalone
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    A FAIRE — standalone
  N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
+ P2   Correctifs UX/admin (revue 07-14)     MOYEN       1 jour       A FAIRE — lot quick-wins
+ N2   Split artiste multi + separateur "|"  MOYEN       1-2 jours    A FAIRE
+ C7   Entite Album (M2M catalog_albums)     BAS         5-7 jours    A FAIRE
+ C8   Fiabilite des sets TrackID            BAS         3-4 jours    A FAIRE
 ```
 
 ### Chantiers termines (reference)
@@ -125,6 +129,12 @@ C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> Rien — C1 (TERMINE). Refacto standalone, pret a demarrer, aucun blocage
 D4 ─────────> Rien — D5 (TERMINE). Standalone, briefs Track/Playlist co-produits en binome avec Claude Design
 N1 ─────────> Rien (parallelisable avec tout, priorite basse)
+
+--- revue 2026-07-14 (nouveaux items backlog) ---
+P2 ─────────> Rien (lot correctifs front ; P2.a partage la surface Hub avec C7, non bloquant)
+N2 ─────────> Rien
+C7 ─────────> Rien de bloquant — complementaire de P2.a (Album justifie par reco/linking, pas l'affichage)
+C8 ─────────> Rien — touche le moteur de similarite (_load_set_map), pas qu'un filtre d'affichage
 ```
 
 ### Decisions produit actees
@@ -1022,6 +1032,199 @@ TagsView est une vue morte, `/tags` redirige vers `/genres`.
 # Pas de TagsView.vue dans le frontend
 # Pas de route /tags dans le router
 # Tests CI passent (pytest + vitest + lint)
+```
+
+---
+
+# Revue high-level 2026-07-14 — nouveaux items backlog
+
+> Issus d'une revue produit/technique du 2026-07-14 (William + agent). Ce ne sont PAS des chantiers termines :
+> ce sont de nouveaux items backlog. Aucun statut de chantier existant n'a change.
+> Deux divergences CLAUDE.md relevees pendant la revue ont ete corrigees le jour meme :
+> (1) la similarite consomme la co-occurrence des sets via `similarity_service._load_set_map` (PAS catalog-only,
+> contrairement au cadrage du doc) ; (2) le commentaire `external_id` de `models/artist.py` (= track id Deezer
+> depuis C6.c v2, l'album id/title vivent dans `payload`).
+
+---
+
+## P2 — Correctifs UX/admin (lot quick-wins)
+
+**Priorite : MOYEN**
+**Estimation : 1 jour**
+**Depend de : rien (parallelisable). P2.a partage la surface du Hub avec C7 mais ne le bloque pas.**
+**Statut : A FAIRE — lot de 4 correctifs front, groupables en une PR. Aucun changement backend (les totaux sont deja renvoyes par l'API).**
+
+### Objectif
+
+Quatre correctifs front independants et peu risques, issus de la revue.
+
+### P2.a — Affichage d'une sortie d'album sur le Hub (motivation 1, quick-win)
+
+Depuis C6.c v2, un album suivi est eclate en N `artist_activity` (une par titre) → le shelf "Nouveautes de tes artistes" affiche N cartes-titres quasi identiques, et un seul album (cap 40 titres, shelf `limit=12`) peut remplir tout le shelf et enterrer les autres artistes suivis.
+
+- [ ] Regrouper les cartes du shelf par `payload.album_id` au lieu de `catalog_id` (HubView `activityShelf`) → 1 carte album depliable en titres
+- [ ] `payload.album_id` / `album_title` sont DEJA ecrits (`_check_releases`) et DEJA renvoyes par `get_activity` — aucun modele, aucune migration
+- [ ] Fallback : les activites `set` et les releases sans `album_id` restent des cartes unitaires
+
+### P2.b — Loading "Pour toi"
+
+- [ ] Etat loading/skeleton sur le shelf "Pour toi" tant que `GET /api/recommendations` n'a pas repondu (aujourd'hui : rien pendant le chargement)
+
+### P2.c — Compteurs "vrai total" (x3)
+
+Trois endroits affichent le nombre de lignes CHARGEES, pas le total DB. Le backend renvoie DEJA `total` dans les trois cas → fix purement front (lire `data.total`).
+
+- [ ] `/sets` (SetsView) : afficher `data.total` de `GET /api/sets/` au lieu de `sets.length`
+- [ ] `/playlists` (WatchlistView) : afficher `data.total` de `GET /api/watchlist/browse` au lieu de `browsePlaylists.length`
+- [ ] Admin "Artistes sans deezer_id (N)" (AdminArtists) : afficher `data.total` de `GET /api/artists/?no_deezer=true` au lieu de `dbArtistResults.length`
+- [ ] NOTE : WatchlistView pagine cote client sur <=50 lignes chargees (6/56 playlists jamais chargees) → vraie pagination serveur = decision separee, hors perimetre de ce fix
+
+### P2.d — Beatport "vide" (enveloppe skip-lock)
+
+L'admin "Enrichissement Beatport" affiche 3 champs BLANCS (pas `0/0/0`) quand un sweep tourne deja : la tache renvoie `{skipped: "already_running"}` (lock Redis, TTL ~8h) dont les cles ne matchent pas le template.
+
+- [ ] Le front detecte `result.skipped` et affiche "deja en cours" au lieu des champs blancs (AdminBeatport)
+- [ ] Optionnel : rendre le contrat de retour explicite (skip vs stats)
+
+### P2.e — "Ca sort en ce moment" : familles vides + bloc defensif
+
+Le shelf trend du Hub propose des familles STATIQUES (`PILLAR_ORDER`) : une famille sans titre (ex. "hardcore") est proposee, et la selectionner vide `trendTracks` → le garde `v-if="isEmpty && trendTracks.length"` (HubView L117) demonte TOUT le bloc, chips comprises → l'utilisateur est coince (plus aucun controle pour revenir).
+
+- [ ] (a) Filtrer les chips sur `counts[k] > 0` (garder toujours `all` + la famille active) — `family_counts` est DEJA renvoye par `/api/radar/trends` (GROUP BY family : les familles a 0 ligne n'y sont pas) → touche uniquement `FamilyChips.vue`
+- [ ] (b) Defensif : decoupler la visibilite du bloc du compte de la famille courante — garder les chips montees + etat vide "aucune sortie dans ce style" (HubView). NECESSAIRE car `family_counts` n'applique PAS `catalog_visible` : une famille peut avoir `count>0` mais 0 titre VISIBLE (invite / titres prives) → (a) seule re-declencherait le bug
+- [ ] (Optionnel) coherence back : appliquer `catalog_visible` a `family_counts` (`radar.py`)
+
+### Definition of Done
+
+```bash
+# Un album suivi = 1 carte sur le Hub (depliable), plus N doublons
+# Shelf "Pour toi" : loading visible pendant le fetch reco
+# /sets, /playlists, admin deezer : compteur = total DB
+# Beatport deja en cours : message clair, plus de champs blancs
+# Trend : familles vides non proposees ; le bloc ne disparait jamais (etat vide si 0 titre)
+```
+
+---
+
+## N2 — Fix split artiste multi + separateur "|"
+
+**Priorite : MOYEN**
+**Estimation : 1-2 jours**
+**Depend de : rien**
+**Statut : A FAIRE — deux sujets distincts (bug de fond + ajout separateur).**
+
+### Objectif
+
+L'admin "Lier un artiste a Deezer" liste les artistes sans `deezer_id`, dont beaucoup sont des chaines multi-artistes ("A & B", "A | B"). Le split manuel ne cloture pas ces lignes : elles reviennent a chaque refresh.
+
+### N2.a — Bug : la ligne combinee orpheline
+
+`resolve_flag(action='split')` cree les artistes tokens mais ne DISPOSE JAMAIS de la ligne combinee d'origine (`deezer_id NULL`) → elle re-apparait dans `WHERE deezer_id IS NULL`, et les 2 tokens (aussi NULL) s'ajoutent → la liste grossit.
+
+- [ ] `resolve_flag(split)` : reassigner les liens `catalog_artists` / `set_artists` de la ligne combinee vers les tokens (fan-out 1→2, avec role/position), puis SUPPRIMER la ligne combinee
+- [ ] Reassignation en SQL bulk AVANT `db.delete` (piege ORM delete blank-out PK composite — deja gere dans `link_to_deezer`, voir memoire projet)
+- [ ] Corriger le splitter manuel du front (AdminArtists) qui ne coupe que sur les espaces (`name.split(' ')`) → couper sur le separateur detecte / offrir un vrai point de coupe
+
+### N2.b — Ajouter le separateur "|"
+
+- [ ] Poser ` | ` (avec espaces, comme ` & `) en front `SEPARATORS` (AdminArtists) ET back `sync_artists` Phase A + Phase C (`workers/tasks/artists.py`)
+- [ ] (Optionnel) script one-shot `populate_artists.py`
+- [ ] Unifier les listes de separateurs front/back, aujourd'hui DESYNCHRONISEES (front a `/` sans `vs`, back a `vs`/`,`/`&`/feat sans `/` ni `|`)
+- [ ] NOTE : un separateur reste une heuristique de MISE EN REVUE, jamais un merge auto (un `|` peut faire partie d'un nom legitime)
+
+### Definition of Done
+
+```bash
+# Split manuel d'une chaine multi-artiste : la ligne combinee disparait definitivement de la liste
+# Les liens catalog/set du track pointent vers les vrais artistes splittes
+# "|" reconnu comme separateur (front + sync nocturne), listes front/back alignees
+```
+
+---
+
+## C7 — Entite Album (M2M catalog_albums)
+
+**Priorite : BAS**
+**Estimation : 5-7 jours**
+**Depend de : rien de bloquant. Complementaire de P2.a (le regroupement Hub peut vivre sans C7).**
+**Statut : A FAIRE — chantier de fond, justifie par la reco/linking (PAS par l'affichage, deja traite en P2.a avec la base actuelle).**
+
+### Objectif
+
+Introduire un objet Album premiere classe. Aujourd'hui AUCUNE notion d'album n'existe : `catalog` n'a pas de regroupement, la similarite/reco n'ont aucune conscience d'album — seul `artist_activity.payload` porte `album_id`/`album_title`, non requetable ni joignable.
+
+### C7.a — Modele + relation
+
+- [ ] Modele `Album` (title, `deezer_album_id` unique, release_date, record_type, label?, has_artwork, relation artiste)
+- [ ] M2M `catalog_albums` — M2M OBLIGATOIRE (pas de FK `catalog.album_id`) : asymetrie de merge, un titre vit sur single + album + compil
+- [ ] Migration Alembic + bucket MinIO `album-artworks` (invariant : has_artwork = fichier present dans MinIO, jamais d'URL externe en DB ; retirer `album-artworks` de `.dockerignore` si un dossier runtime est ajoute)
+- [ ] Point d'insertion : `_crawl_track` et les chemins d'enrichissement recoivent DEJA l'objet album Deezer (aujourd'hui seule la cover est extraite) → upsert de l'Album a cet endroit
+
+### C7.b — Integration reco / similarite
+
+- [ ] Similarite : empecher de recommander N titres du meme album ; affiner le contexte era/label via l'identite d'album (`similarity_service`)
+- [ ] Reco : signal "nouvel album d'un artiste proche/suivi"
+- [ ] (Lie C8) `_load_set_map` double-compte aujourd'hui parents virtuels + enfants — a corriger dans la meme passe similarite
+
+### C7.c — Frontend
+
+- [ ] Carte album sur le Hub (resume N titres + age) — au-dela du simple regroupement P2.a
+- [ ] `AlbumView` + route + `/storage/album-artworks/{id}.jpg`
+- [ ] Scope de recherche "album" (aujourd'hui : track/artist/set/playlist/genre)
+
+### Definition of Done
+
+```bash
+# Tables albums + catalog_albums peuplees a l'enrichissement/crawl
+# Reco : plus de N titres du meme album dans une meme sortie
+# AlbumView accessible, recherche par album
+```
+
+---
+
+## C8 — Fiabilite des sets TrackID (flag + exclusion des calculs)
+
+**Priorite : BAS**
+**Estimation : 3-4 jours**
+**Depend de : rien**
+**Statut : A FAIRE — chantier + INFO (voir note "statut source" ci-dessous).**
+
+### Objectif
+
+TOUS les sets viennent de TrackID.net (audiostreams communautaires : captures radio/livestream/sets soumises par des users). Certains sont peu fiables (cover placeholder, pas de `source_url`, majoritairement `ID - ID`). But : les FLAGGER, les CACHER partout, et les EXCLURE des calculs de proximite — sans supprimer les titres sous-jacents (qui restent une bonne source de donnees au niveau catalog).
+
+### INFO — statut "source peu fiable" (decision produit)
+
+Les audiostreams TrackID sont une source COMMUNAUTAIRE peu fiable, retenue comme telle. Ce chantier pose un flag pour ne plus polluer les calculs ; le RETRAITEMENT en profondeur (classification propre de cette classe de contenu, distinction capture radio vs set propre) est repousse a tres long terme.
+
+IMPORTANT : "exclure des calculs" touche REELLEMENT le moteur de similarite — `_load_set_map` injecte la co-occurrence des sets dans la similarite ET (transitivement) la reco, ce n'est PAS qu'un filtre d'affichage. Cacher un set ne retire PAS ses titres du catalog : ils y restent (resolus scope=shared) ; on ne coupe que le lien DERIVE du set (co-occurrence, poids x3 trend, comptes "artiste vu dans N sets"). Si c'etait le seul lien d'un titre, il reste dans le catalog sans ce signal.
+
+### C8.a — Detection + flag persistant
+
+Aucune colonne de statut/hidden/quality n'existe sur `sets` aujourd'hui. Signaux, par ordre de force :
+
+- [ ] Migration : colonne `reliability` / `hidden` sur `sets`, MATERIALISEE (calculee a l'import + au recrawl — le ratio d'ID n'est fiable qu'a l'ingestion, `completion_pct` est NULL pour les sets jamais recrawles)
+- [ ] Signal 1 (le plus fort) : ratio d'identification base `is_id` (`completion_pct` si present, sinon `(total - is_id)/total`) — "majoritairement ID" = faible valeur, stable au re-import (contrairement a tout ce qui est base sur `catalog_id`)
+- [ ] Signal 2 : `source_url IS NULL` (pas de provenance)
+- [ ] Signal 3 (piste William, retenue) : placeholder artwork = MATCH EXACT — les images placeholder TrackID sont byte-identiques (md5 partage `6e4c7dc9...`). Ingestion : comparer `artworkUrl` a l'URL placeholder connue avant upload ; backfill : match md5/bytes de l'image stockee (l'`artworkUrl` n'est pas persiste aujourd'hui)
+- [ ] Bonus provenance : backfill `source_url` depuis `external_slug` (`https://trackid.net/audiostream/{slug}`) pour rendre la provenance cliquable meme quand `url` etait NULL
+
+### C8.b — Application du flag (cacher + exclure)
+
+Ajouter le predicat d'exclusion aux sites recenses (enquete 2026-07-14) :
+
+- [ ] Scoring (~4 sites) : `compute_trends` (branche set, poids x3), `similarity_service._load_set_map`, `artist_connection_service._load_set_counts`, `catalog_service` (`nb_sets`)
+- [ ] Affichage (~11 sites) : liste/detail sets, search, page artiste (+ `nb_sets`), genres, follow-feed (`_check_new_sets`), track detail (`set_appearances`)
+- [ ] Corriger au passage le double-comptage parents virtuels/enfants dans `_load_set_map` (bug latent releve)
+- [ ] Decider par politique : dedup, `link_set_artists`, UI de review admin (probablement garder visibles)
+
+### Definition of Done
+
+```bash
+# Sets peu fiables flagges (ratio ID + source_url + placeholder), calcules a l'import/recrawl
+# Sets flagges absents des listings, search, pages, follow-feed
+# compute_trends / similarite / connexions / nb_sets excluent les sets flagges
+# Les titres sous-jacents restent dans le catalog (non supprimes)
 ```
 
 ---

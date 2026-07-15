@@ -4,7 +4,7 @@
       <div class="titles">
         <h1>Sets</h1>
         <div class="sub">
-          {{ sets.length }} set{{ sets.length !== 1 ? 's' : '' }}
+          {{ total }} set{{ total !== 1 ? 's' : '' }}
           <span v-if="mode !== 'all'" class="muted"
             >· {{ displayList.length }}
             {{ mode === 'liked' ? 'likés' : mode === 'disliked' ? 'dislikés' : 'à explorer' }}</span
@@ -233,6 +233,7 @@ const router = useRouter()
 const opinions = useOpinionsStore()
 
 const sets = ref([])
+const total = ref(0)
 const loading = ref(false)
 const search = ref('')
 const mode = ref('all')
@@ -310,6 +311,8 @@ async function fetchSets() {
     if (search.value.trim()) params.q = search.value.trim()
     const { data } = await api.get('/api/sets/', { params })
     sets.value = data.items
+    // Header count = true DB total (backend), not the number of rows loaded.
+    total.value = data.total ?? data.items.length
   } finally {
     loading.value = false
   }

@@ -131,6 +131,31 @@ class TestFlags:
         assert r.json()["status"] == "skipped"
 
     async def test_resolve_flag_split(self, admin_client, db):
+        # N2.a — a split must dispose of the combined row and fan its catalog
+        # links out to the two tokens. Set up the combined artist + a catalog
+        # link so we can assert both.
+        from datetime import datetime, timezone
+
+        from models import CatalogArtist, CatalogEntry
+        from sqlalchemy import select
+        from utils import normalize
+
+        combined = Artist(
+            name="X feat Y", normalized_name=normalize("X feat Y")
+        )
+        entry = CatalogEntry(
+            title="Song",
+            artist="X feat Y",
+            normalized_key="song - x feat y",
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add_all([combined, entry])
+        await db.flush()
+        db.add(
+            CatalogArtist(
+                catalog_id=entry.id, artist_id=combined.id, role="primary", position=0
+            )
+        )
         flag = ArtistFlag(
             raw_artist_string="X feat Y",
             reason="feat",
@@ -141,12 +166,38 @@ class TestFlags:
         db.add(flag)
         await db.commit()
         await db.refresh(flag)
+        combined_id = combined.id
+        entry_id = entry.id
 
         r = await admin_client.post(f"/api/admin/artists/flags/{flag.id}/resolve", json={"action": "split"})
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "validated"
         assert len(data["resolved_artist_ids"]) == 2
+
+        # The combined row no longer shows in the no-deezer admin list (endpoint
+        # call first — it shares the in-memory connection, so the local `db`
+        # reads below must come last to avoid holding a transaction on it).
+        list_r = await admin_client.get("/api/artists/?no_deezer=true")
+        names = [a["name"] for a in list_r.json()["items"]]
+        assert "X feat Y" not in names
+
+        # It is gone from the DB (see the endpoint's committed state) …
+        db.expire_all()
+        assert (
+            await db.execute(select(Artist).where(Artist.id == combined_id))
+        ).scalar_one_or_none() is None
+        # … and both tokens now link the catalog row.
+        linked = set(
+            (
+                await db.execute(
+                    select(CatalogArtist.artist_id).where(
+                        CatalogArtist.catalog_id == entry_id
+                    )
+                )
+            ).scalars().all()
+        )
+        assert set(data["resolved_artist_ids"]).issubset(linked)
 
 
 class TestSetArtists:

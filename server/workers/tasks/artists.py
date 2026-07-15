@@ -5,6 +5,7 @@ Celery tasks for artist sync, artwork fetching, and set artist linking.
 import asyncio
 import logging
 import os
+import re
 import sys
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
@@ -12,6 +13,82 @@ from datetime import date, datetime, timedelta, timezone
 from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# Artist-string separators — one canonical source, shared by sync_artists
+# Phase A (classify_artist_string) and Phase C (split_artist_parts). Keep the
+# order feat → comma → ampersand → pipe: it is significant (a "A feat B & C"
+# name resolves on feat first). "|" reads like "&" (duo / collab). This regex is
+# scoped to the sync task only — do NOT unify it with deezer_enrich._first_artist,
+# beatport._ARTIST_SEPARATORS or migration 0023 (different jobs).
+FEAT_RE = re.compile(r"\s+(?:feat\.?|featuring|ft\.?|vs\.?)\s+", flags=re.IGNORECASE)
+
+
+def classify_artist_string(raw, known_norms):
+    """Pure Phase A dispatch for a catalog `artist` string — no I/O, no session.
+
+    Mirrors sync_artists Phase A exactly (feat → comma → ampersand → pipe).
+    Returns one of:
+      ("split", tokens)               — resolve locally, create each token
+      ("needs_deezer", tokens, rule)  — defer to Deezer (rule 'comma'/'ampersand')
+      ("single", [raw])               — no known separator, create the string as-is
+    `known_norms` is the live set of normalized artist/alias names; a comma/
+    ampersand/pipe pair with at least one already-known token is treated as a
+    collab and split locally, otherwise it is deferred to Deezer.
+    """
+    from utils import normalize
+
+    raw = raw.strip()
+    if FEAT_RE.search(raw):
+        return ("split", [p.strip() for p in FEAT_RE.split(raw) if p.strip()])
+    if "," in raw:
+        tokens = [p.strip() for p in raw.split(",") if p.strip()]
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        return ("needs_deezer", tokens, "comma")
+    if " & " in raw:
+        tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        return ("needs_deezer", tokens, "ampersand")
+    if " | " in raw:
+        tokens = [p.strip() for p in raw.split(" | ") if p.strip()]
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        # "|" reads like "&": route it through the same rule_type so Phase B
+        # disambiguates it full-string-vs-tokens instead of dropping it.
+        return ("needs_deezer", tokens, "ampersand")
+    return ("single", [raw])
+
+
+def split_artist_parts(raw):
+    """Pure Phase C part-building — no I/O, no session.
+
+    Mirrors sync_artists Phase C exactly. Returns [(token, role, position), ...]
+    with role 'featured' for feat contributors after the first, 'primary'
+    otherwise (comma / ampersand / pipe / no-separator are all 'primary').
+    """
+    raw = raw.strip()
+    parts = []
+    if FEAT_RE.search(raw):
+        tokens = [p.strip() for p in FEAT_RE.split(raw) if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary" if i == 0 else "featured", i))
+    elif "," in raw:
+        tokens = [p.strip() for p in raw.split(",") if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary", i))
+    elif " & " in raw:
+        tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary", i))
+    elif " | " in raw:
+        tokens = [p.strip() for p in raw.split(" | ") if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary", i))
+    else:
+        parts.append((raw, "primary", 0))
+    return parts
+
 
 # ── Artist Deezer link backlog (loop-safe, mirror of the catalog enrich pattern)
 # The 2026-07-13 incident: the old fetch_artist_artworks selected every
@@ -405,7 +482,6 @@ def sync_artists(self):
     Phase B: Deezer disambiguation for ambiguous names (concurrent).
     Artwork deferred to fetch_artist_artworks task.
     """
-    import re
     from datetime import datetime, timezone
 
     from sqlalchemy import select
@@ -417,9 +493,9 @@ def sync_artists(self):
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
-    FEAT_RE = re.compile(
-        r"\s+(?:feat\.?|featuring|ft\.?|vs\.?)\s+", flags=re.IGNORECASE
-    )
+    # Phase A / Phase C separator logic lives in the module-level pure helpers
+    # classify_artist_string() / split_artist_parts() (single source of truth,
+    # unit-tested directly). FEAT_RE is now module-level too.
     engine = get_engine()
 
     # Start crawl log (running) — manual enter/exit to avoid re-indenting the entire body
@@ -517,39 +593,16 @@ def sync_artists(self):
                     skipped += 1
                     continue
 
-                if FEAT_RE.search(raw):
-                    for name in [p.strip() for p in FEAT_RE.split(raw) if p.strip()]:
-                        _get_or_create(name)
-                    batch_count += 1
-                    if batch_count % 50 == 0:
-                        session.commit()
+                decision = classify_artist_string(raw, known_norms)
+                if decision[0] == "needs_deezer":
+                    # Deferred to Phase B — no local creation, no commit cadence.
+                    needs_deezer.append((raw, decision[1], decision[2]))
                     continue
 
-                if "," in raw:
-                    tokens = [p.strip() for p in raw.split(",") if p.strip()]
-                    if any(normalize(t) in known_norms for t in tokens):
-                        for name in tokens:
-                            _get_or_create(name)
-                        batch_count += 1
-                        if batch_count % 50 == 0:
-                            session.commit()
-                    else:
-                        needs_deezer.append((raw, tokens, "comma"))
-                    continue
-
-                if " & " in raw:
-                    tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
-                    if any(normalize(t) in known_norms for t in tokens):
-                        for name in tokens:
-                            _get_or_create(name)
-                        batch_count += 1
-                        if batch_count % 50 == 0:
-                            session.commit()
-                        continue
-                    needs_deezer.append((raw, tokens, "ampersand"))
-                    continue
-
-                _get_or_create(raw)
+                # "split" (create each token) or "single" (create the string):
+                # both create locally and share the same batch-commit cadence.
+                for name in decision[1]:
+                    _get_or_create(name)
                 batch_count += 1
                 if batch_count % 50 == 0:
                     session.commit()
@@ -621,6 +674,9 @@ def sync_artists(self):
                         for raw, tokens, rule_type in needs_deezer:
                             deezer_ids = {}
                             names_to_search = list(tokens)
+                            # "|"-separated names are routed with rule_type
+                            # "ampersand" (Phase A), so they resolve here too:
+                            # search the full string AND the tokens.
                             if rule_type == "ampersand":
                                 names_to_search = [raw] + list(tokens)
 
@@ -799,21 +855,7 @@ def sync_artists(self):
                 if not raw or not raw.strip():
                     continue
                 raw = raw.strip()
-                parts = []
-                if FEAT_RE.search(raw):
-                    tokens = [p.strip() for p in FEAT_RE.split(raw) if p.strip()]
-                    for i, token in enumerate(tokens):
-                        parts.append((token, "primary" if i == 0 else "featured", i))
-                elif "," in raw:
-                    tokens = [p.strip() for p in raw.split(",") if p.strip()]
-                    for i, token in enumerate(tokens):
-                        parts.append((token, "primary", i))
-                elif " & " in raw:
-                    tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
-                    for i, token in enumerate(tokens):
-                        parts.append((token, "primary", i))
-                else:
-                    parts.append((raw, "primary", 0))
+                parts = split_artist_parts(raw)
 
                 for name, role, position in parts:
                     artist_id = lookup.get(normalize(name))

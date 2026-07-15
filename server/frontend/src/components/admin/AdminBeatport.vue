@@ -2,8 +2,8 @@
   <section class="admin-section">
     <h2 class="section-title">Enrichissement Beatport</h2>
     <p class="section-sub">
-      Enrichit le catalogue via Beatport : BPM, key (Camelot), label, genre, artwork. ISRC
-      d'abord, fallback titre+artiste.
+      Enrichit le catalogue via Beatport : BPM, key (Camelot), label, genre, artwork. ISRC d'abord,
+      fallback titre+artiste.
     </p>
     <div class="sync-row">
       <label class="batch-label">
@@ -28,6 +28,7 @@
         >
         <span class="result-item muted">/ {{ beatportResult.total }} traités</span>
       </div>
+      <span v-if="beatportSkipped" class="sync-info">Enrichissement déjà en cours</span>
       <span v-if="beatportError" class="sync-error">{{ beatportError }}</span>
     </div>
   </section>
@@ -41,6 +42,7 @@ import { useTaskPoll } from '../../composables/useTaskPoll.js'
 const enrichingBeatport = ref(false)
 const beatportBatchSize = ref(0)
 const beatportResult = ref(null)
+const beatportSkipped = ref(false)
 const beatportError = ref('')
 
 const beatportPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
@@ -48,7 +50,14 @@ const beatportPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${t
   maxAttempts: 300,
   onData(st, { stop }) {
     if (st.status === 'done') {
-      beatportResult.value = st.result
+      const result = st.result || {}
+      // A sweep already holds the lock → the task returns {skipped:'already_running'}
+      // (no result counters). Surface a clear message instead of blank fields.
+      if (result.skipped || result.total == null) {
+        beatportSkipped.value = true
+      } else {
+        beatportResult.value = result
+      }
       enrichingBeatport.value = false
       stop()
     } else if (st.status === 'error') {
@@ -70,6 +79,7 @@ const beatportPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${t
 async function runEnrichBeatport() {
   enrichingBeatport.value = true
   beatportResult.value = null
+  beatportSkipped.value = false
   beatportError.value = ''
   try {
     const params = beatportBatchSize.value > 0 ? `?batch_size=${beatportBatchSize.value}` : ''
@@ -156,5 +166,9 @@ async function runEnrichBeatport() {
 .sync-error {
   font-size: var(--fs-sm);
   color: var(--neg-ink);
+}
+.sync-info {
+  font: 400 var(--fs-sm)/1 var(--font-mono);
+  color: var(--ink-3);
 }
 </style>

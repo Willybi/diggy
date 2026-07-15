@@ -7,7 +7,7 @@ Services raise LookupError (404) or ValueError (400/409), never HTTPException.
 
 from collections import defaultdict
 
-from sqlalchemy import Float, Numeric, func, select, text, update
+from sqlalchemy import Float, Numeric, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -580,7 +580,8 @@ async def resolve_flag(db: AsyncSession, flag_id: int, action: str) -> object:
     """Resolve an artist flag (split/keep/skip). Returns the ArtistFlag ORM object."""
     from datetime import datetime, timezone
 
-    from models import ArtistFlag, CatalogArtist, CatalogEntry
+    from models import Artist, ArtistFlag, CatalogArtist, CatalogEntry
+    from utils import normalize
 
     result = await db.execute(select(ArtistFlag).where(ArtistFlag.id == flag_id))
     flag = result.scalar_one_or_none()
@@ -632,6 +633,63 @@ async def resolve_flag(db: AsyncSession, flag_id: int, action: str) -> object:
                         position=pos,
                     )
                 )
+
+    # N2.a — On a manual split, dispose of the original combined row (e.g.
+    # "A | B", deezer_id NULL). Left in place it reappears in the admin
+    # "artists without deezer_id" list on every refresh. Fan the combined row's
+    # REAL catalog links out to both tokens (robust against the casing/spacing
+    # differences the exact-string relink above misses), then delete it. Its own
+    # catalog_artists / set_artists rows are removed by the DB ON DELETE CASCADE
+    # (accepted drop for set_artists); passive_deletes="all" makes db.delete
+    # crash-proof — no PK blank-out (see models/artist.py).
+    if action == "split":
+        combined = (
+            await db.execute(
+                select(Artist).where(
+                    Artist.normalized_name == normalize(flag.raw_artist_string)
+                )
+            )
+        ).scalar_one_or_none()
+        # Never delete a row that is itself one of the tokens we just created.
+        if combined is not None and combined.id not in created_ids:
+            combined_links = (
+                await db.execute(
+                    select(
+                        CatalogArtist.catalog_id,
+                        CatalogArtist.role,
+                        CatalogArtist.position,
+                    ).where(CatalogArtist.artist_id == combined.id)
+                )
+            ).all()
+            if combined_links:
+                existing_pairs = {
+                    (r[0], r[1])
+                    for r in (
+                        await db.execute(
+                            select(
+                                CatalogArtist.catalog_id, CatalogArtist.artist_id
+                            ).where(CatalogArtist.artist_id.in_(created_ids))
+                        )
+                    ).all()
+                }
+                new_links = []
+                for cat_id, role, position in combined_links:
+                    for token_id in created_ids:
+                        if (cat_id, token_id) in existing_pairs:
+                            continue
+                        existing_pairs.add((cat_id, token_id))
+                        new_links.append(
+                            {
+                                "catalog_id": cat_id,
+                                "artist_id": token_id,
+                                "role": role,
+                                "position": position,
+                            }
+                        )
+                if new_links:
+                    await db.execute(insert(CatalogArtist), new_links)
+            await db.delete(combined)
+            await db.flush()
 
     await db.commit()
     await db.refresh(flag)

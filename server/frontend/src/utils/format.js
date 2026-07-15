@@ -68,3 +68,21 @@ export function fmtNum(n) {
 export function pl(n, one, many) {
   return n === 1 ? one : many
 }
+
+/**
+ * "YYYY-MM-DD" -> "aujourd'hui / hier / il y a N j / N sem / N mois"
+ * Release recency at day granularity (horizon <= 30 j). '' if unparseable.
+ */
+export function relativeAge(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ''
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+  if (days <= 0) return "aujourd'hui"
+  if (days === 1) return 'hier'
+  if (days < 7) return `il y a ${days} j`
+  const weeks = Math.floor(days / 7)
+  if (days < 30) return weeks === 1 ? 'il y a 1 sem' : `il y a ${weeks} sem`
+  const months = Math.max(1, Math.floor(days / 30))
+  return months === 1 ? 'il y a 1 mois' : `il y a ${months} mois`
+}

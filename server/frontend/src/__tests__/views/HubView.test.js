@@ -60,6 +60,32 @@ const SET_ITEM = {
   artist_name: 'Amelie Lens',
   set_id: 77,
 }
+// Two crawled tracks of the SAME release: a followed album is fanned out into
+// one artist_activity per track, so they must collapse into a single card.
+const ALBUM_TRACK_A = {
+  id: 10,
+  type: 'release',
+  title: 'Track One',
+  artist: 'Charlotte de Witte',
+  artist_name: 'Charlotte de Witte',
+  catalog_id: 501,
+  has_artwork: true,
+  has_preview: true,
+  release_date: '2026-07-12',
+  payload: { album_id: '9001', album_title: 'Formula EP' },
+}
+const ALBUM_TRACK_B = {
+  id: 11,
+  type: 'release',
+  title: 'Track Two',
+  artist: 'Charlotte de Witte',
+  artist_name: 'Charlotte de Witte',
+  catalog_id: 502,
+  has_artwork: true,
+  has_preview: false,
+  release_date: '2026-07-12',
+  payload: { album_id: '9001', album_title: 'Formula EP' },
+}
 
 function mockApiGet({ activityItems = [], newCount = 0, recoItems = [] } = {}) {
   apiMock.get.mockImplementation((url) => {
@@ -256,11 +282,88 @@ describe('HubView « Pour toi » recommendations shelf', () => {
     authState.value = { isAuthenticated: true, user: { username: 'will' } }
     apiMock.get.mockImplementation((url) => {
       if (url === '/api/recommendations') return Promise.reject(new Error('boom'))
-      if (url === '/api/following/activity/new-count') return Promise.resolve({ data: { count: 0 } })
+      if (url === '/api/following/activity/new-count')
+        return Promise.resolve({ data: { count: 0 } })
       return Promise.resolve({ data: { items: [] } })
     })
     const wrapper = await mountHub()
     expect(wrapper.find('.discover--foryou').exists()).toBe(false)
     expect(wrapper.find('.searchwrap').exists()).toBe(true)
+  })
+
+  it('shows a skeleton while the recommendations are still loading', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    apiMock.get.mockImplementation((url) => {
+      if (url === '/api/recommendations') return new Promise(() => {}) // never resolves
+      if (url === '/api/following/activity/new-count')
+        return Promise.resolve({ data: { count: 0 } })
+      if (url === '/api/following/activity') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: { items: [], family_counts: {} } })
+    })
+    const wrapper = await mountHub()
+    const shelf = wrapper.find('.discover--foryou')
+    expect(shelf.exists()).toBe(true)
+    expect(shelf.attributes('aria-busy')).toBe('true')
+    expect(shelf.findAll('.trend-card.is-skeleton').length).toBeGreaterThan(0)
+    // No real reco cards yet.
+    expect(shelf.find('.tc-title').exists()).toBe(false)
+  })
+})
+
+describe('HubView activity album grouping', () => {
+  beforeEach(() => {
+    apiMock.get.mockReset()
+    apiMock.post.mockReset()
+    apiMock.post.mockResolvedValue({ data: {} })
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+  })
+
+  it('collapses tracks sharing an album_id into one expandable album card', async () => {
+    mockApiGet({ activityItems: [ALBUM_TRACK_A, ALBUM_TRACK_B] })
+    const wrapper = await mountHub()
+
+    const shelf = wrapper.find('.discover--activity')
+    const albumCards = shelf.findAll('.album-card')
+    expect(albumCards).toHaveLength(1)
+    // One card, not two near-identical track cards.
+    expect(shelf.findAll('.activity-card')).toHaveLength(1)
+
+    const card = albumCards[0]
+    expect(card.text()).toContain('Formula EP')
+    expect(card.text()).toContain('2 titres')
+    // Cover keyed on the first artwork-bearing track's catalog_id.
+    expect(card.find('.tc-art img').attributes('src')).toBe('/storage/catalog-artworks/501.jpg')
+
+    // Collapsed by default → track titles hidden until expanded.
+    expect(card.find('.ac-list').exists()).toBe(false)
+    await card.find('.ac-toggle').trigger('click')
+    expect(card.find('.ac-list').exists()).toBe(true)
+    expect(card.text()).toContain('Track One')
+    expect(card.text()).toContain('Track Two')
+  })
+
+  it('renders a lone release with an album_id as a single track card (no collapse)', async () => {
+    mockApiGet({
+      activityItems: [{ ...RELEASE_ITEM, payload: { album_id: '7', album_title: 'Solo' } }],
+    })
+    const wrapper = await mountHub()
+
+    const shelf = wrapper.find('.discover--activity')
+    expect(shelf.find('.album-card').exists()).toBe(false)
+    const card = shelf.find('.activity-card')
+    expect(card.element.tagName).toBe('DIV')
+    expect(card.text()).toContain('Song A')
+    expect(card.find('img').attributes('src')).toBe('/storage/catalog-artworks/909.jpg')
+  })
+
+  it('dedups a collab track surfaced via two followed artists', async () => {
+    // Same catalog_id, no album grouping → shown once (collab dedup preserved).
+    const collabA = { ...RELEASE_ITEM, id: 20 }
+    const collabB = { ...RELEASE_ITEM, id: 21 }
+    mockApiGet({ activityItems: [collabA, collabB] })
+    const wrapper = await mountHub()
+
+    const shelf = wrapper.find('.discover--activity')
+    expect(shelf.findAll('.activity-card')).toHaveLength(1)
   })
 })

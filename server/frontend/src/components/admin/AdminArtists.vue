@@ -113,7 +113,7 @@
     </div>
     <div class="link-results">
       <div class="link-col">
-        <p class="col-label">Artistes sans deezer_id ({{ dbArtistResults.length }})</p>
+        <p class="col-label">Artistes sans deezer_id ({{ noDeezerTotal }})</p>
         <div class="link-list">
           <div
             v-for="a in dbArtistResults"
@@ -142,7 +142,7 @@
               <button
                 v-if="hasSpaces(a.name)"
                 class="btn-row-action split"
-                title="Splitter manuellement sur un espace"
+                title="Découper manuellement en plusieurs artistes"
                 @click="openManualSplit(a)"
               >
                 Splitter
@@ -211,7 +211,7 @@
           <button
             v-if="i < splitWords.length - 1"
             class="split-sep"
-            :title="`Couper ici : « ${splitWords.slice(0, i + 1).join(' ')} » + « ${splitWords.slice(i + 1).join(' ')} »`"
+            :title="`Couper ici : « ${splitWords.slice(0, i + 1).join(splitSep || ' ')} » + « ${splitWords.slice(i + 1).join(splitSep || ' ')} »`"
             @click="chooseSplit(i)"
           >
             ·
@@ -258,6 +258,8 @@ const plArtworksError = ref('')
 const linkArtistQuery = ref('')
 const linkDeezerQuery = ref('')
 const dbArtistResults = ref([])
+// True DB total for the current filter (may exceed the page shown in dbArtistResults).
+const noDeezerTotal = ref(0)
 const deezerHits = ref([])
 const selectedDbArtist = ref(null)
 const selectedDeezerHit = ref(null)
@@ -399,6 +401,8 @@ async function fetchNoDeezerArtists(q = '') {
   if (q) params.q = q
   const { data } = await api.get('/api/artists/', { params })
   dbArtistResults.value = data.items || data
+  noDeezerTotal.value =
+    typeof data.total === 'number' ? data.total : dbArtistResults.value.length
 }
 
 function onLinkSearch() {
@@ -454,10 +458,27 @@ async function markNoDeezer(artist) {
   try {
     await api.patch(`/api/admin/artists/${artist.id}/no-deezer`)
     dbArtistResults.value = dbArtistResults.value.filter((a) => a.id !== artist.id)
+    noDeezerTotal.value = Math.max(0, noDeezerTotal.value - 1)
   } catch {}
 }
 
-const SEPARATORS = ['/', ' & ', ', ', ' feat. ', ' feat ', ' ft. ', ' ft ']
+// Kept in parity with the backend sync detection (tasks/artists.py: FEAT_RE +
+// " & " + " | "), with more specific variants first so detectSeparator picks
+// the longest match. Exception: '/' stays FRONT-ONLY — it is a human-review
+// hint here, never a backend auto-split ("AC/DC" is a legit name, not a collab).
+const SEPARATORS = [
+  '/',
+  ' & ',
+  ' | ',
+  ', ',
+  ' feat. ',
+  ' featuring ',
+  ' feat ',
+  ' ft. ',
+  ' ft ',
+  ' vs. ',
+  ' vs ',
+]
 
 function detectSeparator(name) {
   return SEPARATORS.find((sep) => name.includes(sep)) || null
@@ -469,19 +490,30 @@ const splitIndex = ref(null)
 const splitting = ref(false)
 const splitError = ref('')
 
+// When the name carries a recognised separator (" & ", " | ", " feat "…), cut
+// on it so the two halves are clean; otherwise fall back to spaces so the admin
+// can still pick any word boundary. Rejoin with the same delimiter to
+// reconstruct each side losslessly.
+const splitSep = computed(() =>
+  splitArtist.value ? detectSeparator(splitArtist.value.name) : null,
+)
+
 const splitWords = computed(() => {
   if (!splitArtist.value) return []
-  return splitArtist.value.name.split(' ').filter(Boolean)
+  return splitArtist.value.name
+    .split(splitSep.value || ' ')
+    .map((w) => w.trim())
+    .filter(Boolean)
 })
 
 const splitLeft = computed(() => {
   if (splitIndex.value === null) return ''
-  return splitWords.value.slice(0, splitIndex.value + 1).join(' ')
+  return splitWords.value.slice(0, splitIndex.value + 1).join(splitSep.value || ' ')
 })
 
 const splitRight = computed(() => {
   if (splitIndex.value === null) return ''
-  return splitWords.value.slice(splitIndex.value + 1).join(' ')
+  return splitWords.value.slice(splitIndex.value + 1).join(splitSep.value || ' ')
 })
 
 function hasSpaces(name) {
@@ -517,6 +549,7 @@ async function confirmManualSplit() {
     dbArtistResults.value = dbArtistResults.value.filter(
       (a) => a.id !== splitArtist.value.id,
     )
+    noDeezerTotal.value = Math.max(0, noDeezerTotal.value - 1)
     splitArtist.value = null
     splitIndex.value = null
   } catch (e) {
@@ -540,6 +573,7 @@ async function flagArtist(artist) {
       reason: 'manual',
     })
     dbArtistResults.value = dbArtistResults.value.filter((a) => a.id !== artist.id)
+    noDeezerTotal.value = Math.max(0, noDeezerTotal.value - 1)
   } catch {}
 }
 

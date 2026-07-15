@@ -207,3 +207,161 @@ class TestResolveFlag:
     async def test_raises_lookup_error_for_missing_flag(self, db):
         with pytest.raises(LookupError):
             await artist_service.resolve_flag(db, 9999999, "approve")
+
+
+class TestResolveFlagSplitDisposal:
+    """N2.a — on a manual split the combined row must be disposed of and its
+    catalog links fanned out to both tokens."""
+
+    @staticmethod
+    async def _catalog_entry(db, artist, key):
+        from datetime import datetime, timezone
+
+        from models import CatalogEntry
+
+        entry = CatalogEntry(
+            title=f"Track {key}",
+            artist=artist,
+            normalized_key=key,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(entry)
+        await db.flush()
+        return entry
+
+    @staticmethod
+    def _flag(raw, tokens):
+        from datetime import datetime, timezone
+
+        from models import ArtistFlag
+
+        now = datetime.now(timezone.utc)
+        return ArtistFlag(
+            raw_artist_string=raw,
+            reason="manual",
+            tokens=tokens,
+            deezer_ids={},
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+
+    async def test_disposes_combined_and_links_both_tokens(self, db):
+        from models import Artist, CatalogArtist
+        from sqlalchemy import select
+        from utils import normalize
+
+        combined = Artist(name="A | B", normalized_name=normalize("A | B"))
+        db.add(combined)
+        await db.flush()
+        entry = await self._catalog_entry(db, "A | B", "a | b|track")
+        db.add(
+            CatalogArtist(
+                catalog_id=entry.id, artist_id=combined.id, role="primary", position=0
+            )
+        )
+        flag = self._flag("A | B", ["A", "B"])
+        db.add(flag)
+        await db.commit()
+        combined_id, entry_id = combined.id, entry.id
+
+        result = await artist_service.resolve_flag(db, flag.id, "split")
+
+        assert result.status == "validated"
+        assert len(result.resolved_artist_ids) == 2
+        # Combined row is gone — no 500, no PK blank-out.
+        assert (await db.get(Artist, combined_id)) is None
+        # Both tokens now link the catalog row.
+        linked = set(
+            (
+                await db.execute(
+                    select(CatalogArtist.artist_id).where(
+                        CatalogArtist.catalog_id == entry_id
+                    )
+                )
+            ).scalars().all()
+        )
+        assert set(result.resolved_artist_ids).issubset(linked)
+
+    async def test_fanout_covers_nonexact_rows_preserving_role_position(self, db):
+        """The fan-out is driven by the combined row's REAL links, so it reaches
+        catalog rows whose `artist` string differs (casing) from the flag —
+        which the exact-string relink cannot — and preserves role/position."""
+        from models import Artist, CatalogArtist
+        from sqlalchemy import select
+        from utils import normalize
+
+        combined = Artist(name="A | B", normalized_name=normalize("A | B"))
+        db.add(combined)
+        await db.flush()
+        # entry.artist ("a | b") != flag.raw_artist_string ("A | B") on casing.
+        entry = await self._catalog_entry(db, "a | b", "nonexact|track")
+        db.add(
+            CatalogArtist(
+                catalog_id=entry.id,
+                artist_id=combined.id,
+                role="featured",
+                position=3,
+            )
+        )
+        flag = self._flag("A | B", ["A", "B"])
+        db.add(flag)
+        await db.commit()
+        entry_id = entry.id
+
+        result = await artist_service.resolve_flag(db, flag.id, "split")
+
+        rows = (
+            await db.execute(
+                select(
+                    CatalogArtist.artist_id,
+                    CatalogArtist.role,
+                    CatalogArtist.position,
+                ).where(
+                    CatalogArtist.catalog_id == entry_id,
+                    CatalogArtist.artist_id.in_(result.resolved_artist_ids),
+                )
+            )
+        ).all()
+        assert len(rows) == 2
+        for _aid, role, position in rows:
+            assert role == "featured"
+            assert position == 3
+
+    async def test_guard_keeps_combined_when_it_is_a_created_token(self, db):
+        """If a split token resolves back to the combined row itself, the guard
+        must NOT delete it (id ∈ resolved_artist_ids)."""
+        from models import Artist
+        from utils import normalize
+
+        combined = Artist(name="Solo Duo", normalized_name=normalize("Solo Duo"))
+        db.add(combined)
+        await db.flush()
+        # Degenerate split: the only token normalizes back to the combined row.
+        flag = self._flag("Solo Duo", ["Solo Duo"])
+        db.add(flag)
+        await db.commit()
+        combined_id = combined.id
+
+        result = await artist_service.resolve_flag(db, flag.id, "split")
+
+        assert combined_id in result.resolved_artist_ids
+        assert (await db.get(Artist, combined_id)) is not None
+
+    async def test_split_without_combined_row_is_noop(self, db):
+        """No combined Artist row exists → nothing to dispose of, no crash."""
+        from models import Artist
+        from sqlalchemy import select
+
+        flag = self._flag("Ghost | Phantom", ["Ghost", "Phantom"])
+        db.add(flag)
+        await db.commit()
+
+        result = await artist_service.resolve_flag(db, flag.id, "split")
+
+        assert result.status == "validated"
+        assert len(result.resolved_artist_ids) == 2
+        names = set(
+            (await db.execute(select(Artist.name))).scalars().all()
+        )
+        assert {"Ghost", "Phantom"}.issubset(names)

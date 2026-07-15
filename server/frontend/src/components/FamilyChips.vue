@@ -27,15 +27,17 @@ const emit = defineEmits(['update:modelValue'])
 
 const chips = computed(() => {
   const allCount = Object.values(props.counts).reduce((s, v) => s + v, 0)
-  return [
-    { key: 'all', label: 'Tous', fam: null, count: allCount },
-    ...PILLAR_ORDER.map((k) => ({
-      key: k,
-      label: PILLAR_LABELS[k],
-      fam: k,
-      count: props.counts[k] || 0,
-    })),
-  ]
+  // Hide empty families, but always keep the active one so the selected chip
+  // never vanishes (and the user can always switch back).
+  const pillars = PILLAR_ORDER.filter(
+    (k) => (props.counts[k] || 0) > 0 || props.modelValue === k,
+  ).map((k) => ({
+    key: k,
+    label: PILLAR_LABELS[k],
+    fam: k,
+    count: props.counts[k] || 0,
+  }))
+  return [{ key: 'all', label: 'Tous', fam: null, count: allCount }, ...pillars]
 })
 </script>
 

@@ -114,10 +114,13 @@
       </div>
 
       <!-- discover: trend shelves -->
-      <div v-if="isEmpty && trendTracks.length" class="discover">
+      <!-- Block stays mounted (chips included) whenever there are trends OR a
+           family is selected, so a family with 0 visible tracks never traps the
+           user — they can always switch back via the chips. -->
+      <div v-if="isEmpty && (trendTracks.length || trendFamily !== 'all')" class="discover">
         <h2 class="discover-title">Ca sort en ce moment</h2>
         <FamilyChips v-model="trendFamily" :counts="trendFamilyCounts" />
-        <div class="trend-shelf">
+        <div v-if="trendTracks.length" class="trend-shelf">
           <div
             v-for="track in trendTracks"
             :key="track.catalog_id"
@@ -140,6 +143,25 @@
               <span class="tc-rank">#{{ track.rank }}</span>
               <div class="tc-title">{{ track.title }}</div>
               <div class="tc-artist">{{ track.artist || '—' }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="discover-empty">Aucune sortie dans ce style pour l'instant.</div>
+      </div>
+
+      <!-- discover: personalized recommendations — skeleton while loading -->
+      <div
+        v-if="isEmpty && auth.isAuthenticated && recoLoading && !recoItems.length"
+        class="discover discover--foryou"
+        aria-busy="true"
+      >
+        <h2 class="discover-title">Pour toi</h2>
+        <div class="trend-shelf">
+          <div v-for="n in 6" :key="n" class="trend-card is-skeleton" aria-hidden="true">
+            <div class="tc-art sk-block"></div>
+            <div class="tc-info">
+              <div class="sk-line sk-line--title"></div>
+              <div class="sk-line sk-line--sub"></div>
             </div>
           </div>
         </div>
@@ -190,57 +212,66 @@
           </span>
         </h2>
         <div class="trend-shelf">
-          <template v-for="item in activityShelf" :key="activityKey(item)">
+          <template v-for="entry in activityShelf" :key="activityKey(entry)">
+            <!-- grouped release (2+ tracks share an album) → one expandable card -->
+            <ActivityAlbumCard
+              v-if="entry.kind === 'album'"
+              :album="entry"
+              @play="playActivityTrack"
+              @open="openActivityTrack"
+            />
             <!-- crawled release → full track card (cover, preview, release age) -->
             <div
-              v-if="item.type === 'release' && item.catalog_id"
+              v-else-if="entry.item.type === 'release' && entry.item.catalog_id"
               class="trend-card activity-card"
-              @click="openActivityTrack(item)"
+              @click="openActivityTrack(entry.item)"
             >
               <div class="tc-art">
                 <img
-                  v-if="item.has_artwork"
-                  :src="`/storage/catalog-artworks/${item.catalog_id}.jpg`"
+                  v-if="entry.item.has_artwork"
+                  :src="`/storage/catalog-artworks/${entry.item.catalog_id}.jpg`"
                   alt=""
                   loading="lazy"
                   @error="(e) => (e.target.style.display = 'none')"
                 />
                 <div
-                  v-if="item.has_preview"
+                  v-if="entry.item.has_preview"
                   class="tc-play"
-                  @click.stop="playActivityTrack(item)"
+                  @click.stop="playActivityTrack(entry.item)"
                 >
                   <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                 </div>
               </div>
               <div class="tc-info">
                 <span class="ac-badge">Nouveauté</span>
-                <div class="tc-title">{{ item.title }}</div>
-                <div class="tc-artist">{{ item.artist || item.artist_name || '—' }}</div>
-                <div v-if="relativeAge(item.release_date)" class="ac-age">
-                  Sorti {{ relativeAge(item.release_date) }}
+                <div class="tc-title">{{ entry.item.title }}</div>
+                <div class="tc-artist">
+                  {{ entry.item.artist || entry.item.artist_name || '—' }}
+                </div>
+                <div v-if="relativeAge(entry.item.release_date)" class="ac-age">
+                  Sorti {{ relativeAge(entry.item.release_date) }}
                 </div>
               </div>
             </div>
             <!-- release we could not crawl → external Deezer link fallback -->
             <a
-              v-else-if="item.type === 'release'"
+              v-else-if="entry.item.type === 'release'"
               class="trend-card activity-card"
-              :href="item.external_url"
+              :href="entry.item.external_url"
               target="_blank"
               rel="noopener"
             >
               <div class="tc-info">
                 <span class="ac-badge">Nouveauté</span>
-                <div class="tc-title">{{ item.title }}</div>
-                <div class="tc-artist">{{ item.artist_name || '—' }}</div>
+                <div class="tc-title">{{ entry.item.title }}</div>
+                <div class="tc-artist">{{ entry.item.artist_name || '—' }}</div>
               </div>
             </a>
-            <RouterLink v-else class="trend-card activity-card" :to="`/set/${item.set_id}`">
+            <RouterLink v-else class="trend-card activity-card" :to="`/set/${entry.item.set_id}`">
               <div class="tc-info">
                 <span class="ac-badge">Set</span>
-                <div class="tc-title">{{ item.title }}</div>
-                <div class="tc-artist">{{ item.artist_name || '—' }}</div>
+                <div class="tc-title">{{ entry.item.title }}</div>
+                <div class="tc-artist">{{ entry.item.artist_name || '—' }}</div>
               </div>
             </RouterLink>
           </template>
@@ -355,7 +386,6 @@
         </div>
       </div>
     </div>
-
   </div>
 </template>
 
@@ -367,10 +397,11 @@ import { useAuthStore } from '../stores/auth'
 import { useToast } from '../stores/toast.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { styleTone } from '../composables/useStyleMap.js'
-import { fmtMs, fmtBpm } from '../utils/format.js'
+import { fmtMs, fmtBpm, relativeAge } from '../utils/format.js'
 import SegFilter from '../components/SegFilter.vue'
 import SourceBadge from '../components/SourceBadge.vue'
 import FamilyChips from '../components/FamilyChips.vue'
+import ActivityAlbumCard from '../components/ActivityAlbumCard.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -502,36 +533,65 @@ async function loadActivity() {
   }
 }
 
-function activityKey(item) {
+function activityKey(entry) {
+  if (entry.kind === 'album') return `album-${entry.album_id}`
+  const item = entry.item
   return item.id ?? `${item.type}-${item.set_id || item.external_url || item.title}`
 }
 
-// Same track can surface via two followed artists (a collab) → dedup the shelf
-// on catalog_id so it shows once. Link-only / set items (no catalog_id) pass through.
+// Build the shelf entries:
+//  - Releases sharing `payload.album_id` collapse into ONE expandable album card
+//    (a followed release is fanned out into N per-track activities upstream).
+//  - Everything else (set, external-link fallback, releases with no album_id) and
+//    single-track "albums" stay unit cards, keeping their cover/preview/age.
+//  - Collab dedup preserved: the same crawled track surfaced via two followed
+//    artists (same catalog_id) is shown once.
 const activityShelf = computed(() => {
-  const seen = new Set()
-  return activityItems.value.filter((item) => {
-    if (!item.catalog_id) return true
-    if (seen.has(item.catalog_id)) return false
-    seen.add(item.catalog_id)
-    return true
-  })
-})
+  const groups = new Map()
+  const order = []
+  const seenCatalog = new Set()
 
-// "Sorti il y a 2 j / 1 sem" — release recency at day granularity (horizon ≤ 30 j).
-function relativeAge(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(`${dateStr}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return ''
-  const days = Math.floor((Date.now() - d.getTime()) / 86400000)
-  if (days <= 0) return "aujourd'hui"
-  if (days === 1) return 'hier'
-  if (days < 7) return `il y a ${days} j`
-  const weeks = Math.floor(days / 7)
-  if (days < 30) return weeks === 1 ? 'il y a 1 sem' : `il y a ${weeks} sem`
-  const months = Math.max(1, Math.floor(days / 30))
-  return months === 1 ? 'il y a 1 mois' : `il y a ${months} mois`
-}
+  for (const item of activityItems.value) {
+    if (item.catalog_id != null) {
+      if (seenCatalog.has(item.catalog_id)) continue
+      seenCatalog.add(item.catalog_id)
+    }
+    const albumId = item.payload?.album_id
+    if (albumId) {
+      let group = groups.get(albumId)
+      if (!group) {
+        group = {
+          kind: 'album',
+          album_id: albumId,
+          album_title: item.payload?.album_title || '',
+          artist_name: item.artist || item.artist_name || '',
+          release_date: item.release_date || '',
+          cover_id: null,
+          tracks: [],
+        }
+        groups.set(albumId, group)
+        order.push(group)
+      }
+      group.tracks.push(item)
+      if (!group.cover_id && item.catalog_id && item.has_artwork) group.cover_id = item.catalog_id
+      if (!group.release_date && item.release_date) group.release_date = item.release_date
+      if (!group.artist_name) group.artist_name = item.artist || item.artist_name || ''
+      if (!group.album_title && item.payload?.album_title) {
+        group.album_title = item.payload.album_title
+      }
+    } else {
+      order.push({ kind: 'unit', item })
+    }
+  }
+
+  // A single-track album is just a track: render it as a unit card so it keeps
+  // its cover/preview/age instead of an expandable list of one.
+  return order.map((entry) =>
+    entry.kind === 'album' && entry.tracks.length === 1
+      ? { kind: 'unit', item: entry.tracks[0] }
+      : entry,
+  )
+})
 
 function openActivityTrack(item) {
   router.push(`/catalog/${item.catalog_id}`)
@@ -551,13 +611,17 @@ function playActivityTrack(item) {
 
 // ── personalized recommendations ──
 const recoItems = ref([])
+const recoLoading = ref(false)
 
 async function loadReco() {
+  recoLoading.value = true
   try {
     const { data } = await api.get('/api/recommendations', { params: { limit: 12 } })
     recoItems.value = data.items || []
   } catch {
     /* silent — the Hub must never break on this */
+  } finally {
+    recoLoading.value = false
   }
 }
 
@@ -1567,6 +1631,12 @@ const vClickOutside = {
   color: var(--ink);
   margin: 0 0 var(--space-4);
 }
+.discover-empty {
+  padding: var(--space-6) 0;
+  text-align: center;
+  color: var(--ink-3);
+  font: 500 var(--fs-sm) var(--font-mono);
+}
 .discover :deep(.fam-chips) {
   padding: 0 0 var(--space-4);
 }
@@ -1585,7 +1655,9 @@ const vClickOutside = {
   background: var(--surface);
   border: 1px solid var(--line);
   cursor: pointer;
-  transition: background 0.13s, border-color 0.13s;
+  transition:
+    background 0.13s,
+    border-color 0.13s;
 }
 .trend-card:hover {
   background: var(--surface-2);
@@ -1653,6 +1725,41 @@ const vClickOutside = {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── skeleton (Pour toi, loading) ── */
+.trend-card.is-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+.sk-block,
+.sk-line {
+  background: var(--surface-3);
+  border-radius: var(--r-xs);
+}
+.sk-line {
+  height: 12px;
+}
+.sk-line--title {
+  width: 70%;
+}
+.sk-line--sub {
+  width: 45%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sk-block,
+  .sk-line {
+    animation: sk-pulse 1.2s ease-in-out infinite;
+  }
+}
+@keyframes sk-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* ── followed artists activity ── */

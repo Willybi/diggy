@@ -42,7 +42,10 @@ server/
 │   └── services/            # Business logic lives HERE, not in routers:
 │                            # genre, artist, catalog, radar, image, search, watchlist,
 │                            # following, similarity (C4: load_similarity_context +
-│                            # similar_from_context multi-seed primitive), artist_connection,
+│                            # similar_from_context multi-seed primitive — NB: NOT catalog-only,
+│                            # also consumes DJ-set co-occurrence via _load_set_map, so sets are
+│                            # a similarity/reco input; that loader also double-counts virtual
+│                            # parents + their children, latent bug), artist_connection,
 │                            # opinion_sync, rekordbox_xml, set_dedup (normalize_set_title,
 │                            # match_set, materialize_parent), external_search (Deezer+TIDAL
 │                            # manual import), recommendation (C4: reco perso = likes/lib ×
