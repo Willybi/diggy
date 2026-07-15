@@ -135,30 +135,6 @@ async def _lib_ids(db: AsyncSession, user_id: int) -> list[int]:
     return [r[0] for r in rows]
 
 
-async def _similar(db: AsyncSession, ctx, seed_id: int, user_id: int) -> list[dict]:
-    """Candidates similar to one seed, scored against a pre-loaded C2 context.
-
-    Consumes the similarity engine's ``similar_from_context`` primitive with the
-    context ``ctx`` (the 4 maps) loaded ONCE per compute — no per-seed full-table
-    reload. ``catalog_visible`` is applied there (candidate read side), so
-    private rows never leak. A seed that became invisible/deleted raises
-    LookupError → we skip it rather than failing the whole recommendation.
-    """
-    from services.similarity_service import similar_from_context
-
-    try:
-        return await similar_from_context(
-            db,
-            ctx,
-            seed_id,
-            user_id,
-            top_n=CFG.CAND_PER_SEED,
-            score_floor=CFG.SEED_SCORE_FLOOR,
-        )
-    except LookupError:
-        return []
-
-
 # ---------------------------------------------------------------------------
 # Core computation
 # ---------------------------------------------------------------------------
@@ -175,11 +151,19 @@ async def _compute(db: AsyncSession, user_id: int):
     if not likes and not lib:
         return RecommendationList(items=[])
 
-    from services.similarity_service import load_similarity_context
+    from services.similarity_service import (
+        _build_result_items,
+        _score_seed_against_pool,
+        load_candidate_pool,
+        load_similarity_context,
+    )
 
-    # Load the 4 similarity maps ONCE and reuse across every seed (only past the
-    # cold-start guard, so we never pay it for a user with no taste profile).
+    # Load the 4 similarity maps ONCE, then build the candidate pool ONCE and
+    # score every seed against it IN MEMORY — no per-seed DB fetch, no per-seed
+    # genre re-expansion (both were re-run ~24× on the cold path). Full ORM data
+    # is fetched only for the final ranked winners, via _build_result_items.
     ctx = await load_similarity_context(db)
+    pool = await load_candidate_pool(db, user_id, ctx)
 
     # Never recommend what the user already owns or has rated.
     excluded = set(likes) | set(dislikes) | set(lib)
@@ -201,25 +185,41 @@ async def _compute(db: AsyncSession, user_id: int):
                 break
 
     reco_score: dict[int, float] = {}
-    track_by_id: dict[int, dict] = {}
+    # Similarity (score_pct, components, available) from the FIRST positive seed
+    # that surfaced each candidate — mirrors the old ``track_by_id.setdefault``,
+    # which kept the first seed's full result dict.
+    first_sim: dict[int, tuple[float, dict, list]] = {}
 
     for seed_id, weight in positive_seeds:
-        for cand in await _similar(db, ctx, seed_id, user_id):
-            cid = cand["id"]
+        seed = pool.get(seed_id)
+        if seed is None:  # deleted/invisible seed → skip (was LookupError→[])
+            continue
+        scored = _score_seed_against_pool(
+            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR
+        )[: CFG.CAND_PER_SEED]
+        for cid, score_pct, components, available in scored:
             if cid in excluded:
                 continue
-            reco_score[cid] = reco_score.get(cid, 0.0) + weight * cand["similarity"]["score"]
-            track_by_id.setdefault(cid, cand)
+            # Weight the ROUNDED per-seed score: the pre-pool path summed
+            # ``cand["similarity"]["score"]``, which was already round(_, 4).
+            reco_score[cid] = reco_score.get(cid, 0.0) + weight * round(score_pct, 4)
+            if cid not in first_sim:
+                first_sim[cid] = (score_pct, components, available)
 
     # Dislikes penalise candidates that a positive seed already surfaced. A
     # candidate reachable only through a dislike would be purely negative and is
     # dropped by the ``> 0`` filter below anyway, so we don't materialise it.
     for seed_id in dislikes[: CFG.DISLIKE_CAP]:
-        for cand in await _similar(db, ctx, seed_id, user_id):
-            cid = cand["id"]
+        seed = pool.get(seed_id)
+        if seed is None:
+            continue
+        scored = _score_seed_against_pool(
+            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR
+        )[: CFG.CAND_PER_SEED]
+        for cid, score_pct, components, available in scored:
             if cid in excluded or cid not in reco_score:
                 continue
-            reco_score[cid] -= CFG.W_DISLIKE * cand["similarity"]["score"]
+            reco_score[cid] -= CFG.W_DISLIKE * round(score_pct, 4)
 
     ranked = sorted(
         ((cid, sc) for cid, sc in reco_score.items() if sc > 0.0),
@@ -227,11 +227,12 @@ async def _compute(db: AsyncSession, user_id: int):
         reverse=True,
     )[: CFG.MAX_ITEMS]
 
-    items = []
-    for cid, sc in ranked:
-        item = dict(track_by_id[cid])
-        item["reco_score"] = round(sc, 4)
-        items.append(item)
+    # Heavy fetch for the ranked winners only; then stamp reco_score by id (no
+    # positional zip — robust to any missing entry).
+    winners = [(cid, *first_sim[cid]) for cid, _ in ranked]
+    items = await _build_result_items(db, winners, user_id)
+    for item in items:
+        item["reco_score"] = round(reco_score[item["id"]], 4)
 
     return RecommendationList.model_validate({"items": items})
 

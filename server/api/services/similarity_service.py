@@ -8,6 +8,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import date
+from typing import NamedTuple
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -354,139 +355,184 @@ async def load_similarity_context(
 
 
 # ---------------------------------------------------------------------------
+# Candidate pool (built once per compute, scored in memory across many seeds)
+# ---------------------------------------------------------------------------
+
+class PooledCandidate(NamedTuple):
+    """One catalog row reduced to the fields scoring needs, with the
+    seed-INDEPENDENT terms precomputed once.
+
+    ``expanded_genres`` (the genre-node resolution) and ``label_valid`` (the
+    label-count threshold) used to be recomputed for EVERY candidate on EVERY
+    seed inside the scoring loop, even though they do not depend on the seed.
+    Precomputing them once per pool turns per-seed scoring into pure in-memory
+    arithmetic: no per-seed DB fetch, no per-candidate genre re-expansion — the
+    two costs that made the reco cold path re-read ~55k rows and re-expand
+    genres once per seed.
+    """
+    id: int
+    bpm: float | None
+    label: str | None
+    label_valid: bool
+    release_date: date | None
+    expanded_genres: dict[int, float]
+    playlists: frozenset[int]
+    sets: frozenset[int]
+
+
+async def load_candidate_pool(
+    db: AsyncSession, user_id: int | None, ctx: SimilarityContext
+) -> dict[int, PooledCandidate]:
+    """Build the id-keyed candidate pool for one viewer, ONCE per compute.
+
+    ONE projected query (id, bpm, label, release_date, genres) under
+    ``catalog_visible(user_id)`` — NOT full ORM entities — enriched with the
+    context's seed-agnostic maps. The pool IS the viewer's visible catalog, so a
+    seed lookup and every candidate-membership test is O(1) against it.
+
+    User-scoped (visibility is per-user), so it is built per compute and NEVER
+    globally cached — unlike :class:`SimilarityContext`. Insertion order follows
+    the DB's natural (unordered) scan, the same row order the pre-pool per-seed
+    queries returned, so score-tie ordering is preserved.
+    """
+    from models import CatalogEntry
+
+    from services.catalog_service import catalog_visible
+
+    rows = (
+        await db.execute(
+            select(
+                CatalogEntry.id,
+                CatalogEntry.bpm,
+                CatalogEntry.label,
+                CatalogEntry.release_date,
+                CatalogEntry.genres,
+            ).where(catalog_visible(user_id))
+        )
+    ).all()
+
+    pool: dict[int, PooledCandidate] = {}
+    for cid, bpm, label, release_date, genres in rows:
+        label_lower = (label or "").strip().lower()
+        label_valid = bool(label_lower) and (
+            ctx.label_counts.get(label_lower, 0) >= CFG.LABEL_MIN_TRACKS
+        )
+        pool[cid] = PooledCandidate(
+            id=cid,
+            bpm=bpm,
+            label=label,
+            label_valid=label_valid,
+            release_date=release_date,
+            expanded_genres=_expand_genre_nodes(
+                genres or [], ctx.name_to_node, ctx.parent_map
+            ),
+            playlists=ctx.playlist_map.get(cid, frozenset()),
+            sets=ctx.set_map.get(cid, frozenset()),
+        )
+    return pool
+
+
+# ---------------------------------------------------------------------------
 # Scoring core + public entry points
 # ---------------------------------------------------------------------------
 
-async def _similar_core(
-    db: AsyncSession,
-    ctx: SimilarityContext,
-    seed_catalog_id: int,
-    user_id: int | None,
+def _score_seed_against_pool(
+    pool: dict[int, PooledCandidate],
+    seed: PooledCandidate,
     *,
-    top_n: int,
     score_floor: float,
-    in_lib: bool | None,
-) -> list[dict]:
-    """Score candidates for one seed against ``ctx`` (no ``limit`` applied).
+    restrict_ids: set[int] | None = None,
+) -> list[tuple[int, float, dict[str, float], list[str]]]:
+    """Score every candidate in ``pool`` against one ``seed``, purely in memory.
 
-    Shared body behind :func:`similar_from_context` (in_lib=None) and
-    :func:`get_similar_tracks`. Applies ``catalog_visible(user_id)`` on every
-    catalog read and raises ``LookupError`` if the seed is absent/invisible.
+    Replicates the EXACT 4-segment math and candidate SET of the pre-pool
+    ``_similar_core`` loop:
+
+    * membership = union(BPM-window-or-null rows, co-occurrence rows) — the same
+      union the two SQL queries produced (BPM window incl. ``bpm IS NULL``, plus
+      rows sharing >=1 playlist or set with the seed);
+    * candidate ORDER = BPM members first (pool order) then co-occurrence-only
+      members (pool order), reproducing ``bpm_candidates + extra_candidates`` so
+      the stable score-descending sort breaks exact ties identically;
+    * ``restrict_ids`` (when not None) reproduces the ``in_lib`` pre-filter:
+      only library rows are scored.
+
+    Returns ``(cand_id, score_pct, components, available)`` sorted by RAW
+    ``score_pct`` descending, floor-filtered, NOT truncated (the caller applies
+    ``top_n``). ``score_pct`` stays raw (rounding only at output), so the sort
+    order matches the pre-pool behavior exactly.
     """
-    from models import CatalogArtist, CatalogEntry, UserTrack
-    from schemas import ArtistRef, GenreRef, SimilarityBlock, SimilarityComponents
+    seed_id = seed.id
+    seed_bpm = seed.bpm
+    seed_genres = seed.expanded_genres
+    seed_label = seed.label
+    seed_label_valid = seed.label_valid
+    seed_release = seed.release_date
+    seed_playlists = seed.playlists
+    seed_sets = seed.sets
+    w = CFG.BPM_PREFILTER_WINDOW
 
-    from services.catalog_service import catalog_visible
-    from services.genre_service import genre_pillar
+    # Reproduce ``bpm_candidates + extra_candidates`` ordering: BPM-window (or
+    # null-bpm) members first, then co-occurrence-only members, both in pool
+    # (natural DB scan) order.
+    bpm_members: list[PooledCandidate] = []
+    cooc_only: list[PooledCandidate] = []
+    for cand in pool.values():
+        if cand.id == seed_id:
+            continue
+        if restrict_ids is not None and cand.id not in restrict_ids:
+            continue
+        if seed_bpm is None or cand.bpm is None:
+            bpm_members.append(cand)
+            continue
+        cb = cand.bpm
+        if (
+            (seed_bpm - w) <= cb <= (seed_bpm + w)
+            or (seed_bpm / 2 - w) <= cb <= (seed_bpm / 2 + w)
+            or (seed_bpm * 2 - w) <= cb <= (seed_bpm * 2 + w)
+        ):
+            bpm_members.append(cand)
+        elif (seed_playlists and (cand.playlists & seed_playlists)) or (
+            seed_sets and (cand.sets & seed_sets)
+        ):
+            cooc_only.append(cand)
 
-    # 1. Fetch reference track (respecting private-scope visibility)
-    ref = (
-        await db.execute(
-            select(CatalogEntry).where(
-                CatalogEntry.id == seed_catalog_id, catalog_visible(user_id)
-            )
+    scored: list[tuple[int, float, dict[str, float], list[str]]] = []
+    for cand in (*bpm_members, *cooc_only):
+        # Genre (candidate genres pre-expanded once in the pool)
+        gj = (
+            sim_genre(seed_genres, cand.expanded_genres)
+            if (seed_genres and cand.expanded_genres)
+            else 0.0
         )
-    ).scalar_one_or_none()
-    if ref is None:
-        raise LookupError(f"Catalog entry {seed_catalog_id} not found")
-
-    # 2. Read pre-loaded context (genre/label + co-occurrence maps)
-    name_to_node = ctx.name_to_node
-    parent_map = ctx.parent_map
-    label_counts = ctx.label_counts
-    playlist_map = ctx.playlist_map
-    set_map = ctx.set_map
-
-    ref_genres = _expand_genre_nodes(ref.genres or [], name_to_node, parent_map)
-    ref_label = (ref.label or "").strip().lower()
-    ref_label_valid = ref_label and label_counts.get(ref_label, 0) >= CFG.LABEL_MIN_TRACKS
-    ref_playlists = playlist_map.get(seed_catalog_id, frozenset())
-    ref_sets = set_map.get(seed_catalog_id, frozenset())
-
-    # 3. Build candidate set — union(BPM window, co-occurrence)
-    q = select(CatalogEntry).where(
-        CatalogEntry.id != seed_catalog_id, catalog_visible(user_id)
-    )
-
-    bpm_filter_ids: set[int] | None = None
-    if ref.bpm is not None:
-        bpm = ref.bpm
-        w = CFG.BPM_PREFILTER_WINDOW
-        bpm_q = q.where(
-            (CatalogEntry.bpm.is_(None))
-            | (CatalogEntry.bpm.between(bpm - w, bpm + w))
-            | (CatalogEntry.bpm.between(bpm / 2 - w, bpm / 2 + w))
-            | (CatalogEntry.bpm.between(bpm * 2 - w, bpm * 2 + w))
-        )
-        bpm_candidates = (await db.execute(bpm_q)).scalars().all()
-        bpm_filter_ids = {c.id for c in bpm_candidates}
-    else:
-        bpm_candidates = (await db.execute(q)).scalars().all()
-        bpm_filter_ids = {c.id for c in bpm_candidates}
-
-    # Co-occurrence candidate IDs (share >=1 playlist or set with ref)
-    cooc_ids: set[int] = set()
-    if ref_playlists:
-        for cid, playlists in playlist_map.items():
-            if cid != seed_catalog_id and playlists & ref_playlists:
-                cooc_ids.add(cid)
-    if ref_sets:
-        for cid, sets in set_map.items():
-            if cid != seed_catalog_id and sets & ref_sets:
-                cooc_ids.add(cid)
-
-    # Union: BPM candidates + co-occurrence candidates not already included
-    extra_ids = cooc_ids - bpm_filter_ids
-    extra_candidates: list[CatalogEntry] = []
-    if extra_ids:
-        extra_q = select(CatalogEntry).where(
-            CatalogEntry.id.in_(extra_ids), catalog_visible(user_id)
-        )
-        extra_candidates = (await db.execute(extra_q)).scalars().all()
-
-    # Combine, preserving bpm_candidates list (already fetched)
-    all_candidates = list(bpm_candidates) + extra_candidates
-
-    if in_lib is True and user_id is not None:
-        lib_ids_rows = (
-            await db.execute(
-                select(UserTrack.catalog_id).where(UserTrack.user_id == user_id)
-            )
-        ).all()
-        lib_ids = {r[0] for r in lib_ids_rows}
-        all_candidates = [c for c in all_candidates if c.id in lib_ids]
-
-    # 4. Score each candidate (4-segment additive)
-    scored: list[tuple[CatalogEntry, float, dict[str, float], list[str]]] = []
-
-    for cand in all_candidates:
-        # Genre
-        cand_genres = _expand_genre_nodes(cand.genres or [], name_to_node, parent_map)
-        gj = sim_genre(ref_genres, cand_genres) if (ref_genres and cand_genres) else 0.0
 
         # BPM factor
-        if ref.bpm is not None and cand.bpm is not None:
-            bf = bpm_factor(ref.bpm, cand.bpm)
+        if seed_bpm is not None and cand.bpm is not None:
+            bf = bpm_factor(seed_bpm, cand.bpm)
         else:
             bf = CFG.BPM_FACTOR_FLOOR
 
         # Style
         s_style = score_style(gj, bf)
 
-        # Context
-        cand_label = (cand.label or "").strip().lower()
-        cand_label_valid = cand_label and label_counts.get(cand_label, 0) >= CFG.LABEL_MIN_TRACKS
-        lm = sim_label(ref.label, cand.label) if (ref_label_valid and cand_label_valid) else 0.0
-        es = sim_era(ref.release_date, cand.release_date) if (ref.release_date and cand.release_date) else 0.0
+        # Context (label validity pre-checked once in the pool)
+        lm = (
+            sim_label(seed_label, cand.label)
+            if (seed_label_valid and cand.label_valid)
+            else 0.0
+        )
+        es = (
+            sim_era(seed_release, cand.release_date)
+            if (seed_release and cand.release_date)
+            else 0.0
+        )
         s_context = score_context(lm, es)
 
         # Co-occurrence
-        cand_playlists = playlist_map.get(cand.id, frozenset())
-        n_pl = len(ref_playlists & cand_playlists)
+        n_pl = len(seed_playlists & cand.playlists)
         s_playlists = score_cooc(n_pl, CFG.K_PLAYLISTS, CFG.CAP_PLAYLISTS)
 
-        cand_sets = set_map.get(cand.id, frozenset())
-        n_st = len(ref_sets & cand_sets)
+        n_st = len(seed_sets & cand.sets)
         s_sets = score_cooc(n_st, CFG.K_SETS, CFG.CAP_SETS)
 
         total_pts = s_sets + s_playlists + s_style + s_context
@@ -495,7 +541,7 @@ async def _similar_core(
         if score_pct < score_floor:
             continue
 
-        available = []
+        available: list[str] = []
         components = {
             "sets": round(s_sets, 4),
             "playlists": round(s_playlists, 4),
@@ -511,24 +557,53 @@ async def _similar_core(
         if lm > 0 or es > 0:
             available.append("context")
 
-        scored.append((cand, score_pct, components, available))
+        scored.append((cand.id, score_pct, components, available))
 
-    # 5. Sort, top_n (the caller applies limit)
     scored.sort(key=lambda x: x[1], reverse=True)
-    top = scored[:top_n]
+    return scored
 
-    if not top:
+
+async def _build_result_items(
+    db: AsyncSession,
+    winners: list[tuple[int, float, dict[str, float], list[str]]],
+    user_id: int | None,
+) -> list[dict]:
+    """Fetch full ORM data for the WINNERS only and build the response dicts.
+
+    ``winners`` is the final ordered list of ``(cand_id, score_pct, components,
+    available)``. Full ``CatalogEntry`` rows, artists and ``in_lib`` flags are
+    fetched here — for the handful of ranked winners, never for the whole
+    candidate pool. Produces the SAME response dict, field for field, as the
+    pre-pool core built. Shared by the single-seed and reco paths.
+    """
+    from models import Artist, CatalogArtist, CatalogEntry, UserTrack
+    from schemas import ArtistRef, GenreRef, SimilarityBlock, SimilarityComponents
+
+    from services.genre_service import genre_pillar
+
+    if not winners:
         return []
 
-    # 6. Load artists for result tracks
-    top_ids = [entry.id for entry, *_ in top]
-    from models import Artist
+    winner_ids = [w[0] for w in winners]
+
+    entry_rows = (
+        (await db.execute(select(CatalogEntry).where(CatalogEntry.id.in_(winner_ids))))
+        .scalars()
+        .all()
+    )
+    entries_by_id = {e.id: e for e in entry_rows}
 
     artist_rows = (
         await db.execute(
-            select(CatalogArtist.catalog_id, Artist.id, Artist.name, CatalogArtist.role, Artist.has_artwork)
+            select(
+                CatalogArtist.catalog_id,
+                Artist.id,
+                Artist.name,
+                CatalogArtist.role,
+                Artist.has_artwork,
+            )
             .join(Artist, CatalogArtist.artist_id == Artist.id)
-            .where(CatalogArtist.catalog_id.in_(top_ids))
+            .where(CatalogArtist.catalog_id.in_(winner_ids))
             .order_by(CatalogArtist.position)
         )
     ).all()
@@ -538,22 +613,23 @@ async def _similar_core(
             ArtistRef(id=art_id, name=art_name, role=role, has_artwork=has_art)
         )
 
-    # 7. Check in_lib status
     in_lib_ids: set[int] = set()
     if user_id is not None:
         lib_rows = (
             await db.execute(
                 select(UserTrack.catalog_id).where(
                     UserTrack.user_id == user_id,
-                    UserTrack.catalog_id.in_(top_ids),
+                    UserTrack.catalog_id.in_(winner_ids),
                 )
             )
         ).all()
         in_lib_ids = {r[0] for r in lib_rows}
 
-    # 8. Build response
-    results = []
-    for entry, score, components, available in top:
+    results: list[dict] = []
+    for cand_id, score, components, available in winners:
+        entry = entries_by_id.get(cand_id)
+        if entry is None:
+            continue
         entry_artists = artists_by_catalog.get(entry.id, [])
         genre_refs = []
         for g in entry.genres or []:
@@ -599,6 +675,54 @@ async def _similar_core(
         )
 
     return results
+
+async def _similar_core(
+    db: AsyncSession,
+    ctx: SimilarityContext,
+    seed_catalog_id: int,
+    user_id: int | None,
+    *,
+    top_n: int,
+    score_floor: float,
+    in_lib: bool | None,
+) -> list[dict]:
+    """Score candidates for one seed against ``ctx`` (no ``limit`` applied).
+
+    Builds the candidate pool ONCE (one projected, visibility-scoped query),
+    looks the seed up in it, scores in memory, then fetches full ORM data for
+    the ``top_n`` winners only. Shared body behind :func:`similar_from_context`
+    (in_lib=None) and :func:`get_similar_tracks`. Applies
+    ``catalog_visible(user_id)`` (via the pool) and raises ``LookupError`` if the
+    seed is absent/invisible.
+    """
+    from models import UserTrack
+
+    # 1. Build the visible candidate pool and locate the seed within it. The
+    #    pool is catalog_visible-scoped, so a missing seed == invisible/deleted.
+    pool = await load_candidate_pool(db, user_id, ctx)
+    seed = pool.get(seed_catalog_id)
+    if seed is None:
+        raise LookupError(f"Catalog entry {seed_catalog_id} not found")
+
+    # 2. in_lib pre-filter: restrict candidates to the user's library (the same
+    #    filter the pre-pool path applied to the union before scoring).
+    restrict_ids: set[int] | None = None
+    if in_lib is True and user_id is not None:
+        lib_ids_rows = (
+            await db.execute(
+                select(UserTrack.catalog_id).where(UserTrack.user_id == user_id)
+            )
+        ).all()
+        restrict_ids = {r[0] for r in lib_ids_rows}
+
+    # 3. Score every candidate in memory, sort, keep top_n.
+    scored = _score_seed_against_pool(
+        pool, seed, score_floor=score_floor, restrict_ids=restrict_ids
+    )
+    top = scored[:top_n]
+
+    # 4. Heavy fetch (artists, in_lib, full fields) for the winners only.
+    return await _build_result_items(db, top, user_id)
 
 
 async def similar_from_context(
