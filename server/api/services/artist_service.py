@@ -116,14 +116,18 @@ async def list_artists(
     if not all_artist_ids:
         return empty
 
-    # Genres per artist via catalog_artists
+    # Genres per artist via catalog_artists.
+    # Filter through the id_filter_query SUBQUERY, not the materialized
+    # all_artist_ids list: asyncpg caps bind parameters at 32767 and the full
+    # artist set now exceeds that (a plain IN-list of ~30k ids raises
+    # InterfaceError "the number of query arguments cannot exceed 32767").
     genre_col = func.unnest(CatalogEntry.genres).label("genre")
     genre_result = await db.execute(
         select(CatalogArtist.artist_id, genre_col, func.count().label("cnt"))
         .join(CatalogEntry, CatalogEntry.id == CatalogArtist.catalog_id)
         .where(
             func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) > 0,
-            CatalogArtist.artist_id.in_(all_artist_ids),
+            CatalogArtist.artist_id.in_(id_filter_query),
         )
         .group_by(CatalogArtist.artist_id, genre_col)
     )
