@@ -596,3 +596,81 @@ class TestSimilarityContext:
         ctx = await load_similarity_context(db)
         with pytest.raises(LookupError):
             await similar_from_context(db, ctx, 999999)
+
+
+# ---------------------------------------------------------------------------
+# In-process context cache
+# ---------------------------------------------------------------------------
+
+
+class TestContextCache:
+    async def test_cache_returns_same_object(self, db):
+        from services.similarity_service import (
+            load_similarity_context,
+            reset_similarity_context_cache,
+        )
+
+        reset_similarity_context_cache()
+        c1 = await load_similarity_context(db)
+        c2 = await load_similarity_context(db)
+        assert c1 is c2  # second call served from cache, no rebuild
+
+    async def test_reset_forces_rebuild(self, db):
+        from services.similarity_service import (
+            load_similarity_context,
+            reset_similarity_context_cache,
+        )
+
+        reset_similarity_context_cache()
+        c1 = await load_similarity_context(db)
+        reset_similarity_context_cache()
+        c2 = await load_similarity_context(db)
+        assert c1 is not c2  # rebuilt after reset
+
+    async def test_use_cache_false_rebuilds(self, db):
+        from services.similarity_service import (
+            load_similarity_context,
+            reset_similarity_context_cache,
+        )
+
+        reset_similarity_context_cache()
+        c1 = await load_similarity_context(db)
+        c2 = await load_similarity_context(db, use_cache=False)
+        assert c1 is not c2  # explicit fresh build bypasses the cache
+
+
+# ---------------------------------------------------------------------------
+# _load_set_map: root sets only (no virtual-parent / children double-count)
+# ---------------------------------------------------------------------------
+
+
+class TestSetMapRootsOnly:
+    async def test_child_set_excluded_from_set_map(self, db):
+        # A track present in BOTH a root set and one of its children must count
+        # the ROOT set only — never both, which would double-count one logical set.
+        from models import CatalogEntry, DJSet, SetTrack
+        from services.similarity_service import _load_set_map
+
+        entry = CatalogEntry(title="T", artist="A", normalized_key="a|setroot")
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+
+        root = DJSet(source="trackid", title="Root", external_id="root-set")
+        db.add(root)
+        await db.commit()
+        await db.refresh(root)
+        child = DJSet(
+            source="trackid", title="Child", external_id="child-set",
+            parent_set_id=root.id,
+        )
+        db.add(child)
+        await db.commit()
+        await db.refresh(child)
+
+        db.add(SetTrack(set_id=root.id, catalog_id=entry.id, position=1))
+        db.add(SetTrack(set_id=child.id, catalog_id=entry.id, position=1))
+        await db.commit()
+
+        set_map = await _load_set_map(db)
+        assert set_map[entry.id] == frozenset({root.id})  # child excluded

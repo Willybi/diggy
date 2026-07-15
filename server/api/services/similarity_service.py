@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import date
 
@@ -250,13 +252,22 @@ async def _load_playlist_map(db: AsyncSession) -> dict[int, frozenset[int]]:
 
 
 async def _load_set_map(db: AsyncSession) -> dict[int, frozenset[int]]:
-    """catalog_id -> frozenset[set_id]."""
-    from models import SetTrack
+    """catalog_id -> frozenset[set_id], ROOT sets only.
+
+    Only root sets (``parent_set_id IS NULL``) enter the co-occurrence map. A
+    virtual parent carries the merged tracklist of its children, so counting the
+    parent AND its children would count the SAME logical set 2-3× and inflate the
+    co-occurrence weight — same "roots only" rule as trend scoring.
+    """
+    from models import DJSet, SetTrack
 
     rows = (
         await db.execute(
-            select(SetTrack.catalog_id, SetTrack.set_id).where(
+            select(SetTrack.catalog_id, SetTrack.set_id)
+            .join(DJSet, DJSet.id == SetTrack.set_id)
+            .where(
                 SetTrack.catalog_id.isnot(None),
+                DJSet.parent_set_id.is_(None),
             )
         )
     ).all()
@@ -284,25 +295,62 @@ class SimilarityContext:
     set_map: dict[int, frozenset[int]]
 
 
-async def load_similarity_context(db: AsyncSession) -> SimilarityContext:
-    """Load the 4 seed-agnostic maps once (genre, label, playlist, set).
+# In-process cache for the seed-agnostic context. The 4 maps are user- AND
+# seed-independent (they change only when the nightly jobs mutate catalog / sets
+# / playlists / genres), yet load_similarity_context was rebuilt on EVERY request
+# — 4 sequential full-table scans, the dominant cost of the reco cold path and
+# the C2 "similar tracks" endpoint once the catalog passed ~60k rows. Cache the
+# built context with a TTL so both consumers reuse it. Reset between tests via
+# reset_similarity_context_cache() (autouse fixture in tests/api/conftest.py).
+_CONTEXT_TTL_S: float = float(os.getenv("SIMILARITY_CONTEXT_TTL_S", "21600"))  # 6h
+_context_cache: SimilarityContext | None = None
+_context_built_at: float = 0.0
+
+
+def reset_similarity_context_cache() -> None:
+    """Drop the cached context (test isolation + forced refresh)."""
+    global _context_cache, _context_built_at
+    _context_cache = None
+    _context_built_at = 0.0
+
+
+async def load_similarity_context(
+    db: AsyncSession, *, use_cache: bool = True
+) -> SimilarityContext:
+    """Load the 4 seed-agnostic maps (genre, label, playlist, set), cached in-process.
+
+    The context is user- and seed-independent, so it is built once and reused for
+    ``SIMILARITY_CONTEXT_TTL_S`` seconds (default 6h). Pass ``use_cache=False`` to
+    force a fresh build (e.g. right after mutating the underlying data).
 
     Sequential awaits on the same session: an ``AsyncSession`` cannot be accessed
     concurrently. ``asyncio.gather`` here left an asyncpg connection wedged under
     PostgreSQL (the "non-checked-in connection ... will be terminated" hang);
     SQLite masks it. Order-independent — each loader hits disjoint tables.
     """
+    global _context_cache, _context_built_at
+    if (
+        use_cache
+        and _context_cache is not None
+        and (time.monotonic() - _context_built_at) < _CONTEXT_TTL_S
+    ):
+        return _context_cache
+
     name_to_node, parent_map = await _load_genre_context(db)
     label_counts = await _load_label_counts(db)
     playlist_map = await _load_playlist_map(db)
     set_map = await _load_set_map(db)
-    return SimilarityContext(
+    ctx = SimilarityContext(
         name_to_node=name_to_node,
         parent_map=parent_map,
         label_counts=label_counts,
         playlist_map=playlist_map,
         set_map=set_map,
     )
+    if use_cache:
+        _context_cache = ctx
+        _context_built_at = time.monotonic()
+    return ctx
 
 
 # ---------------------------------------------------------------------------

@@ -234,8 +234,13 @@ class TestRecommendationCache:
         )
         assert {i.id for i in r2.items} == {b.id}  # served from cache
 
-        # Invalidate → recompute picks up C.
+        # Invalidate the reco cache AND drop the in-process similarity context:
+        # C's set co-occurrence is *context* data (cached ~6h in prod, refreshed
+        # nightly), so a recompute only surfaces C once the context is rebuilt —
+        # invalidating the per-user reco cache alone is not enough anymore.
         await recommendation_service.invalidate_user(redis, auth_user.id)
+        from services.similarity_service import reset_similarity_context_cache
+        reset_similarity_context_cache()
         r3 = await recommendation_service.get_recommendations(
             db, auth_user.id, redis=redis
         )

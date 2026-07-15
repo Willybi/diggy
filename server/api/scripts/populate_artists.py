@@ -82,7 +82,8 @@ def _split_ampersand(raw: str) -> list[str]:
 
 
 def _split_pipe(raw: str) -> list[str]:
-    return [p.strip() for p in raw.split(" | ") if p.strip()]
+    # Bare "|" (spaces optional): source strings use both "A | B" and "A|B".
+    return [p.strip() for p in raw.split("|") if p.strip()]
 
 
 async def run_sync(db) -> dict:
@@ -241,7 +242,7 @@ async def run_sync(db) -> dict:
             continue
 
         # --- Rule 3b: pipe (mirror of ampersand — "|" reads like a duo/collab) ---
-        if " | " in raw:
+        if "|" in raw:
             tokens = _split_pipe(raw)
             if any(_name_in_db_sync(t, known_norms) for t in tokens):
                 # At least one token known → it's a collab, split

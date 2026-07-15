@@ -79,6 +79,15 @@ class TestClassifyPipe:
         result = classify_artist_string("A |  | B", known_norms={normalize("A")})
         assert result == ("split", ["A", "B"])
 
+    def test_bare_pipe_no_spaces_is_recognised(self):
+        # Real-world data: "Oliver Ho|James Ruskin" (no spaces around the pipe).
+        result = classify_artist_string("Oliver Ho|James Ruskin", known_norms=set())
+        assert result == ("needs_deezer", ["Oliver Ho", "James Ruskin"], "ampersand")
+
+    def test_bare_pipe_splits_locally_with_known_token(self):
+        result = classify_artist_string("A|B", known_norms={normalize("A")})
+        assert result == ("split", ["A", "B"])
+
     def test_plain_name_is_single(self):
         # Regression: a name without a recognised separator is untouched.
         assert classify_artist_string("Solo", known_norms=set()) == ("single", ["Solo"])
@@ -93,6 +102,12 @@ class TestSplitArtistPartsPipe:
 
     def test_pipe_mirrors_ampersand_parts(self):
         assert split_artist_parts("X | Y") == split_artist_parts("X & Y")
+
+    def test_bare_pipe_no_spaces_builds_parts(self):
+        assert split_artist_parts("Oliver Ho|James Ruskin") == [
+            ("Oliver Ho", "primary", 0),
+            ("James Ruskin", "primary", 1),
+        ]
 
     def test_non_pipe_name_unaffected(self):
         assert split_artist_parts("Solo") == [("Solo", "primary", 0)]

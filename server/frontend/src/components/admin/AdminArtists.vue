@@ -463,13 +463,14 @@ async function markNoDeezer(artist) {
 }
 
 // Kept in parity with the backend sync detection (tasks/artists.py: FEAT_RE +
-// " & " + " | "), with more specific variants first so detectSeparator picks
-// the longest match. Exception: '/' stays FRONT-ONLY — it is a human-review
-// hint here, never a backend auto-split ("AC/DC" is a legit name, not a collab).
+// " & " + bare "|"), with more specific variants first so detectSeparator picks
+// the longest match. "|" is bare (no surrounding spaces) — source strings use
+// both "A | B" and "A|B", and a pipe is never part of a real name. Exception:
+// '/' stays FRONT-ONLY — human-review hint, never a backend auto-split ("AC/DC").
 const SEPARATORS = [
   '/',
   ' & ',
-  ' | ',
+  '|',
   ', ',
   ' feat. ',
   ' featuring ',

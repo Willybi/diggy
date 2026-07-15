@@ -50,8 +50,11 @@ def classify_artist_string(raw, known_norms):
         if any(normalize(t) in known_norms for t in tokens):
             return ("split", tokens)
         return ("needs_deezer", tokens, "ampersand")
-    if " | " in raw:
-        tokens = [p.strip() for p in raw.split(" | ") if p.strip()]
+    if "|" in raw:
+        # Bare "|" — no surrounding spaces required: source strings use both
+        # "A | B" and "A|B". Unlike "&"/","/space, a pipe is never part of a real
+        # artist name, so splitting on it directly is safe.
+        tokens = [p.strip() for p in raw.split("|") if p.strip()]
         if any(normalize(t) in known_norms for t in tokens):
             return ("split", tokens)
         # "|" reads like "&": route it through the same rule_type so Phase B
@@ -81,8 +84,8 @@ def split_artist_parts(raw):
         tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
         for i, token in enumerate(tokens):
             parts.append((token, "primary", i))
-    elif " | " in raw:
-        tokens = [p.strip() for p in raw.split(" | ") if p.strip()]
+    elif "|" in raw:
+        tokens = [p.strip() for p in raw.split("|") if p.strip()]
         for i, token in enumerate(tokens):
             parts.append((token, "primary", i))
     else:

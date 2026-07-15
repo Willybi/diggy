@@ -137,6 +137,10 @@ async def clean_db(setup_db):
     # The shared FakeRedis persists across tests; clear it so a cached value
     # (e.g. reco:{user_id}) never leaks into the next test reusing the same id.
     _fake_redis._store.clear()
+    # The similarity context is cached in-process (seed-agnostic maps); drop it so
+    # a prior test's dataset never leaks into another's similarity/reco results.
+    from services.similarity_service import reset_similarity_context_cache
+    reset_similarity_context_cache()
     async with test_engine.begin() as conn:
         if _is_postgres:
             table_names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
