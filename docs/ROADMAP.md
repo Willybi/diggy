@@ -1246,6 +1246,7 @@ Ajouter le predicat d'exclusion aux sites recenses (enquete 2026-07-14) :
 | Index `radar_trends` A2-14 (family, rank_in_family) + (rank_global) — endpoint public expose | Opportuniste (issu de C3 clos, non bloquant) |
 | Index 4 FK restantes A2-11 — a reevaluer avec la volumetrie | Opportuniste (issu de C3 clos, non bloquant) |
 | Batch upsert import RB (A2-13) | Opportuniste, meme zone que A6-08 |
+| Logos plateformes DEFINITIFS : remplacer les traces placeholders de `PlatformLink.vue` (map `platform → path`, poses au chantier refonte Track Detail 2026-07) par les SVG officiels monochromes | Quand William fournit les SVG officiels — un seul fichier a toucher |
 | ~~Auto-migration au deploy~~ | FAIT — `alembic upgrade head` dans deploy.yml |
 | ~~`/api/radar/full` crash genres sort~~ | FAIT — `literal_column` au lieu de `StringArray[1]` |
 | ~~CSP bloque requetes API~~ | FAIT — `upgrade-insecure-requests` + location priority `^~` sur `/api/` et `/storage/` |

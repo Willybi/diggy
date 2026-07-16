@@ -127,7 +127,9 @@
         <button class="btn" disabled>Disabled</button>
       </div>
 
-      <h3 class="ds-h3 mono">buttons.css · état hover forcé <span class="ds-tag">.is-hover</span></h3>
+      <h3 class="ds-h3 mono">
+        buttons.css · état hover forcé <span class="ds-tag">.is-hover</span>
+      </h3>
       <div class="comp-row">
         <button class="btn is-hover">Ghost</button>
         <button class="btn btn--accent is-hover">Accent</button>
@@ -165,6 +167,51 @@
         </div>
       </div>
     </section>
+
+    <!-- 7 · COMPOSANTS TRANSVERSES (refonte D4) -->
+    <section class="ds-section">
+      <h2 class="ds-h2">7 · Composants transverses <span class="mono ds-tag">refonte D4</span></h2>
+
+      <h3 class="ds-h3 mono">Artwork · tailles &amp; indicateur in-lib</h3>
+      <div class="comp-row comp-row--wide">
+        <div class="ds-aw ds-aw--hero"><Artwork size="hero" :in-lib="true" /></div>
+        <div class="ds-aw ds-aw--card"><Artwork size="card" :in-lib="false" /></div>
+        <Artwork size="row" :in-lib="true" />
+        <Artwork size="row" :in-lib="false" />
+        <Artwork size="row" />
+      </div>
+
+      <h3 class="ds-h3 mono">TrackCard · ligne (repos · artiste · playing · slot end)</h3>
+      <div class="ds-stack">
+        <TrackCard :track="demoTrack" />
+        <TrackCard :track="demoTrack" :show-artist="true" />
+        <TrackCard :track="demoTrack" :show-artist="true" :playing="true" />
+        <TrackCard :track="{ ...demoTrack, has_preview: false }" :show-artist="true">
+          <template #end><ScoreRing :score="0.86" size="sm" /></template>
+        </TrackCard>
+      </div>
+
+      <h3 class="ds-h3 mono">ScoreRing · sm &amp; md</h3>
+      <div class="comp-row">
+        <ScoreRing :score="0" />
+        <ScoreRing :score="0.3" />
+        <ScoreRing :score="0.86" />
+        <ScoreRing :score="1" />
+        <ScoreRing :score="0.86" size="md" label="Similarité 9 /10" />
+        <ScoreRing :score="1" size="md" />
+      </div>
+
+      <h3 class="ds-h3 mono">PlatformLink · button (md / sm) &amp; glyph</h3>
+      <div class="comp-row">
+        <PlatformLink v-for="p in demoPlatforms" :key="p" :platform="p" href="#" />
+      </div>
+      <div class="comp-row">
+        <PlatformLink v-for="p in demoPlatforms" :key="p" :platform="p" href="#" size="sm" />
+      </div>
+      <div class="comp-row">
+        <PlatformLink v-for="p in demoPlatforms" :key="p" :platform="p" variant="glyph" />
+      </div>
+    </section>
   </div>
 </template>
 
@@ -176,6 +223,31 @@ import InLibBadge from '../components/InLibBadge.vue'
 import SourceBadge from '../components/SourceBadge.vue'
 import ScorePill from '../components/ScorePill.vue'
 import StyleTag from '../components/StyleTag.vue'
+import Artwork from '../components/Artwork.vue'
+import TrackCard from '../components/TrackCard.vue'
+import ScoreRing from '../components/ScoreRing.vue'
+import PlatformLink from '../components/PlatformLink.vue'
+
+const demoTrack = {
+  id: 0,
+  title: 'Strobe (Club Mix)',
+  artist: 'deadmau5',
+  bpm: 128,
+  key: '9A',
+  has_artwork: false,
+  has_preview: true,
+  in_lib: true,
+}
+const demoPlatforms = [
+  'beatport',
+  'deezer',
+  'tidal',
+  'soundcloud',
+  'youtube',
+  'spotify',
+  'trackid',
+  '1001tl',
+]
 
 const mk = (names) => names.map((n) => ({ name: n, value: `var(${n})` }))
 
@@ -206,23 +278,43 @@ const colorGroups = [
       '--accent-wash',
     ]),
   },
-  { title: 'Positif · in-lib', swatches: mk(['--pos', '--pos-soft', '--pos-ink', '--pos-wash', '--pos-wash-2']) },
+  {
+    title: 'Positif · in-lib',
+    swatches: mk(['--pos', '--pos-soft', '--pos-ink', '--pos-wash', '--pos-wash-2']),
+  },
   { title: 'Négatif · dislike', swatches: mk(['--neg', '--neg-soft', '--neg-ink']) },
   { title: 'Warning', swatches: mk(['--warn', '--warn-soft', '--warn-ink']) },
   { title: 'Erreur', swatches: mk(['--error']) },
   {
     title: 'Tuiles genre',
-    swatches: mk(['--genre-tile-ink', '--genre-tile-scrim', '--genre-tile-shadow', '--genre-tile-border-dark']),
+    swatches: mk([
+      '--genre-tile-ink',
+      '--genre-tile-scrim',
+      '--genre-tile-shadow',
+      '--genre-tile-border-dark',
+    ]),
   },
   {
     title: 'Hero scrim (composé aux alphas d’usage)',
     swatches: [
-      { name: '--hero-scrim / 0.7', value: 'oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.7)' },
-      { name: '--hero-scrim / 0.6', value: 'oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.6)' },
-      { name: '--hero-scrim / 0.3', value: 'oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.3)' },
+      {
+        name: '--hero-scrim / 0.7',
+        value: 'oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.7)',
+      },
+      {
+        name: '--hero-scrim / 0.6',
+        value: 'oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.6)',
+      },
+      {
+        name: '--hero-scrim / 0.3',
+        value: 'oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.3)',
+      },
     ],
   },
-  { title: 'Overlays (invariants)', swatches: mk(['--overlay-modal', '--overlay-soft', '--overlay-text']) },
+  {
+    title: 'Overlays (invariants)',
+    swatches: mk(['--overlay-modal', '--overlay-soft', '--overlay-text']),
+  },
 ]
 
 const spaceTokens = [
@@ -562,6 +654,24 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+}
+.comp-row--wide {
+  align-items: flex-end;
+  gap: var(--space-5);
+}
+
+/* 7 · transverse components showcase */
+.ds-aw--hero {
+  width: 216px;
+}
+.ds-aw--card {
+  width: 120px;
+}
+.ds-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
 }
 .ds-pagehead {
   background: var(--surface);

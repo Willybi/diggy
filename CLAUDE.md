@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-13 (C4 — personalized reco: GET /api/recommendations (JWT-only) crosses the user's likes/library with the C2 similarity engine, on-the-fly + Redis cache; similarity_service gained a shared-context multi-seed primitive; "Pour toi" shelf on the Hub. Same day: C3 closed, /storage protection dropped as accepted risk)
+> Last verified: 2026-07-17 (refonte UI D4 page 1 — Track Detail rebuilt from the Claude Design handoff (docs/refonte-ui/handoff-track-detail/); 4 new shared components Artwork/TrackCard/ScoreRing/PlatformLink — PlatformLink ships PLACEHOLDER logos (map platform→path, TODO official SVGs, see ROADMAP reliquats); component count fixed 34→39)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -58,7 +58,7 @@ server/
 │                            # import_rb, sets, trends
 ├── frontend/src/
 │   ├── views/               # 17 views (all routed)
-│   ├── components/          # 34 components (28 shared + 6 admin)
+│   ├── components/          # 39 components (33 shared + 6 admin)
 │   ├── composables/         # useInfiniteScroll, usePaginatedList, useTaskPoll,
 │   │                        # useStyleMap, useTheme
 │   ├── stores/              # Pinia: auth, audioPlayer, opinions, toast

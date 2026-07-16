@@ -56,25 +56,25 @@ Statut : ✅ figé  |  Vue : `views/TrackDetailView.vue`
 - **Bloc Admin** → pas supprimé mais **restreint `is_admin`** (reste sur la page, invisible aux users).
 - Rien à déplacer vers d'autres pages.
 
-## 5. Décisions figées
-- **Structure** : Hero → « Où on l'entend » (sobre) → Découverte (Du même artiste + Similaires) → Admin (`is_admin`).
-- **Rating** : retiré partout (StatStrip + étoiles des mini-lignes).
-- **Bloc Admin** : réservé aux admins (`is_admin`).
-- **`<Artwork>` in-lib** partout ; mini-lignes « même artiste / similaires » → **`<TrackCard>` compact** partagé.
-- **Score des similaires** : **`<ScoreRing>` /10** (cohérence Radar).
-- **« Où on l'entend » sobre** : sets (timecode + date) + playlists (source + date) + compteur ; pas de DJ / 1re-dernière / résumé.
+## 5. Décisions figées *(mises à jour 2026-07-17 — handoff Design round 2, validé William)*
+- **Structure** : Hero → **Découverte** (Du même artiste + Similaires) → « Où on l'entend » (sobre) → Admin (`is_admin`). *(Ordre Découverte/Où-on-l'entend inversé au round 2 : le rebond d'abord, le contexte radar ensuite.)*
+- **Rating** : retiré partout (stats + étoiles des mini-lignes).
+- **Bloc Admin** : réservé aux admins (`is_admin`), tout en bas.
+- **StatStrip SUPPRIMÉE** (round 2, D1/D2) : les 4 stats musicales **BPM · Key · Durée · Année** intègrent le hero (data-row mono) ; les compteurs Radar (`nb_radar_playlists`/`nb_radar_sets`) deviennent les compteurs d'en-tête des blocs « Où on l'entend ».
+- **`<Artwork>` in-lib** partout (plus d'InLibBadge ni LibDot) ; mini-lignes « même artiste / similaires » → **`<TrackCard>` ligne** partagé.
+- **Score des similaires** : **`<ScoreRing>` /10** (cohérence Radar), jamais le float ni le %.
+- **« Où on l'entend » sobre** : sets (chip timecode + date) + playlists (**glyphe source** `<PlatformLink variant="glyph">` au lieu du badge texte + date) + compteur en en-tête ; pas de DJ / 1re-dernière / résumé. **Troncature 5 lignes** + « Afficher plus (n) ».
+- **« Du même artiste » tronqué à 6** + « Afficher plus (n) » ; similaires non tronqués (8 max API).
+- **Liens externes en logos** : `<PlatformLink>` Beatport/Deezer, monochromes `currentColor` (D6 — jamais les couleurs de marque). Logos temporaires (tracés simplifiés) centralisés dans `PlatformLink.vue` en attendant les SVG officiels.
 - **Écarté** : bloc « Souvent joué avec » (co-occurrence déjà un facteur de similarité).
-- **Conserve** : hero (cover/artistes/actions), collection, like/dislike, liens externes (label/Beatport/Deezer), tags Rekordbox, StatStrip (BPM/Key/Durée/Année + Radar/Radar sets, **sans Rating**).
+- **Conserve** : hero (cover/artistes/actions), collection, like/dislike, label texte, tags Rekordbox.
 
 ## 6. Sortie next-step
-**Handoff Design**
-- [ ] Hero poli (cover `<Artwork>` + in-lib, actions).
-- [ ] Mini-lignes → `<TrackCard>` compact ; score similaire en `<ScoreRing>`.
-- [ ] « Où on l'entend » sobre.
+**Handoff Design** — ✅ LIVRÉ (2026-07-17) : `docs/refonte-ui/handoff-track-detail/` (BRIEF-track-detail + BRIEF-composants-transverses + maquette pilote).
 
 **Chantier work_manager**
-- **Front** : retrait Rating (StatStrip + mini-rows) ; **garde `is_admin`** sur l'AdminCard ; `<Artwork>` in-lib ; mini-rows → `<TrackCard>` compact ; `<ScoreRing>` sur similaires.
-- **Back** : rien de neuf (données déjà servies par `GET /api/catalog/{id}` + `/similar`) ; Rating retiré côté schéma via le chantier transverse Rating.
-- **Transverse** : `<Artwork>`, `<TrackCard>`, `<ScoreRing>`, suppression Rating.
+- **Lot 1 (transverse)** : créer `<Artwork>`, `<TrackCard>` ligne, `<ScoreRing>`, `<PlatformLink>` + tests Vitest.
+- **Lot 2 (page)** : refonte `TrackDetailView` — StatStrip retirée (stats dans le hero), Découverte avant « Où on l'entend », troncatures, glyphes source, retrait Rating de la page, **garde `is_admin`** sur l'AdminCard.
+- **Back** : rien (données déjà servies par `GET /api/catalog/{id}` + `/similar`) ; le drop colonne Rating reste au chantier transverse Rating.
 
-**Dépend de** : composants partagés (transverse). Sinon autonome.
+**Dépend de** : rien — première page implémentée de la refonte, elle CRÉE les composants partagés.

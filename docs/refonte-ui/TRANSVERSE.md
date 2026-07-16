@@ -15,9 +15,9 @@
 ## Composants de découverte mutualisés (reco A — ✅ validé)
 - `<TrackCard>` : artwork + titre + artiste + méta compacte `BPM · KEY · âge` (dégradée pour genre/artiste, sans BPM/KEY).
 - `<DiscoveryShelf>` (aperçu Hub) + `<DiscoveryList>` (page pleine).
-- `<ScoreRing>` : jauge circulaire + note entière /10 (float conservé pour le tri). Issu de Radar (scores Tendance / Pour toi), réutilisable pour tout score affiché.
+- `<ScoreRing>` : jauge circulaire + note entière /10 (float conservé pour le tri). Issu de Radar (scores Tendance / Pour toi), réutilisable pour tout score affiché. **Unifie et remplace `ScorePill`** (texte %) ; `RingPct` (proportion d'un tout) migrera vers la même géométrie en mode %.
 - **Consommés par** : aperçus Hub (Ça sort / Pour toi / Nouveautés) ET les pages destinations (Radar, `/for-you`, `/new-releases`).
-- **Objectif** : « une page par étagère » sans dupliquer l'UI ni la maintenance. Statut : 🟡 à cadrer.
+- **Objectif** : « une page par étagère » sans dupliquer l'UI ni la maintenance. Statut : 🟡 — spec de `<Artwork>` / `<TrackCard>` ligne / `<ScoreRing>` LIVRÉE (2026-07-17, `docs/refonte-ui/handoff-track-detail/BRIEF-composants-transverses.md`) ; 1re implémentation = chantier Track Detail ; la variante card verticale (`<DiscoveryShelf>`/`<DiscoveryList>`) reste à cadrer.
 
 ## Composant Artwork + indicateur in-lib (issu du Catalog)
 - `<Artwork>` (ou `<Cover>`) : gère la cover réelle **et** le placeholder rayé, avec un **indicateur in-lib optionnel** en coin : point vert plein = dans la bib / cercle pointillé vide = pas dans RB. Petit, discret, lisible même sur le placeholder.
@@ -32,7 +32,9 @@
 ## Boutons plateformes externes → logos (issu de Set detail)
 - Tous les liens vers des plateformes tierces (**SoundCloud, YouTube, Deezer, Beatport, TrackID, 1001Tracklists, Spotify…**) affichent le **logo** de la plateforme, pas son **nom** en texte.
 - → composant `<PlatformLink>` (logo + href + `aria-label`), réutilisé sur Set detail (« Voir sur… »), Artist detail (Deezer/SoundCloud/TrackID), Track detail (Beatport/Deezer), etc.
-- Contrainte CSP : logos en **SVG inline / data-URI** (pas de CDN). Statut : 🔲.
+- **Variante `glyph`** (handoff Track Detail, 2026-07-17) : logo seul non cliquable (~13 px, `--ink-2`) pour marquer une **source** dans une liste dense (ex. « Détecté dans ») — remplace les badges texte DEEZER/TIDAL/SPOTIFY (`SourceBadge` à terme).
+- **Monochrome `currentColor` partout** (décision D6) : jamais les couleurs de marque — l'accent mauve reste le seul signal coloré.
+- Contrainte CSP : logos en **SVG inline / data-URI** (pas de CDN). **Logos temporaires** : tracés simplifiés de la maquette, centralisés dans la map `platform → path` de `PlatformLink.vue` (`TODO logos officiels` — remplacement = un seul fichier). Statut : 🟡 spec livrée (`docs/refonte-ui/handoff-track-detail/BRIEF-composants-transverses.md`), 1re implémentation = chantier Track Detail.
 
 ## Rating (étoiles Rekordbox) — à SUPPRIMER du projet
 - **Décision** : le rating vient de l'import XML Rekordbox (`rekordbox_xml.py`) = étoiles que l'utilisateur met dans **son** Rekordbox, interprétation 100 % personnelle → **aucune valeur partagée**. Retiré de **tout** le projet (colonne, API, UI, agrégat artiste).

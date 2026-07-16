@@ -1,19 +1,43 @@
 <template>
   <div class="detail-view">
     <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="!track" class="state">Track introuvable.</div>
+    <div v-else-if="!track" class="state state--empty">
+      <span>Track introuvable.</span>
+      <RouterLink to="/catalog" class="btn">Retour au catalog</RouterLink>
+    </div>
     <template v-else>
-      <PageHero
-        variant="square"
-        :image-src="coverSrc"
-        :title="track.title"
-        :fallback-letter="(track.title || '?')[0]"
-      >
-        <!-- T1: artist-chip(s) with round avatar -->
-        <template #subtitle>
-          <template v-for="(a, i) in track.artists" :key="a.id">
-            <span v-if="i > 0" class="chip-sep">, </span>
-            <RouterLink :to="`/artist/${a.id}`" class="artist-chip">
+      <!-- Back link -->
+      <RouterLink to="/catalog" class="dv-back">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+        Catalog
+      </RouterLink>
+
+      <!-- Hero -->
+      <section class="hero">
+        <div class="hero-cover">
+          <Artwork size="hero" :src="coverSrc" :alt="track.title" :in-lib="track.in_lib" />
+        </div>
+
+        <div class="hero-main">
+          <h1 class="hero-title">{{ track.title }}</h1>
+
+          <!-- Artist chip(s) — one pill per artist -->
+          <div v-if="track.artists?.length" class="hero-artists">
+            <RouterLink
+              v-for="a in track.artists"
+              :key="a.id"
+              :to="`/artist/${a.id}`"
+              class="artist-chip"
+            >
               <img
                 v-if="a.has_artwork"
                 class="chip-av"
@@ -23,247 +47,241 @@
               <span v-else class="chip-av"></span>
               {{ a.name }}
             </RouterLink>
-          </template>
-        </template>
+          </div>
 
-        <template #badges>
-          <InLibBadge :in-lib="track.in_lib" />
-          <template v-if="track.genres?.length">
-            <RouterLink
-              v-for="g in track.genres"
-              :key="g.name"
-              :to="`/style/${encodeURIComponent(g.name)}`"
-              style="text-decoration: none"
-            >
-              <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
-            </RouterLink>
-          </template>
-          <StyleTag v-else-if="track.style" :name="track.style" />
-          <!-- T2: Rekordbox tags -->
-          <span v-for="tag in track.tags" :key="tag" class="rb-tag">{{ tag }}</span>
-        </template>
-
-        <!-- T3: LikeDislike + HeroPlayer + Add to collection -->
-        <template #actions>
-          <HeroPlayer
-            v-if="track.has_preview"
-            :catalog-id="track.id"
-            :title="track.title"
-            :artist="track.artist"
-            :artist-id="track.artist_id"
-            :bpm="track.bpm"
-            :track-key="track.key"
-          />
-          <LikeDislike v-model="opinion" />
-          <div class="coll-add-wrap">
-            <button class="btn-coll" @click="toggleCollDropdown">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="5" width="18" height="16" rx="2" />
-                <path d="M12 10v6M9 13h6" />
-              </svg>
-              <span>Collection</span>
-            </button>
-            <div v-if="showCollDropdown" class="coll-dropdown">
-              <div v-if="collLoading" class="coll-dd-state">Chargement…</div>
-              <div v-else-if="!userCollections.length" class="coll-dd-state">Aucune collection</div>
-              <button
-                v-for="c in userCollections"
-                :key="c.id"
-                class="coll-dd-item"
-                :disabled="c._added"
-                @click="addToCollection(c)"
+          <!-- Genres + Rekordbox tags -->
+          <div v-if="track.genres?.length || track.style || track.tags?.length" class="hero-tags">
+            <template v-if="track.genres?.length">
+              <RouterLink
+                v-for="g in track.genres"
+                :key="g.name"
+                :to="`/style/${encodeURIComponent(g.name)}`"
+                class="tag-link"
               >
-                {{ c.name }}
-                <span v-if="c._added" class="coll-dd-check">✓</span>
-              </button>
+                <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+              </RouterLink>
+            </template>
+            <StyleTag v-else-if="track.style" :name="track.style" />
+            <span v-for="tag in track.tags" :key="tag" class="rb-tag">{{ tag }}</span>
+          </div>
+
+          <!-- Musical stats integrated in the hero (D1) -->
+          <div class="hero-stats">
+            <div class="stat-cell">
+              <span class="stat-label">BPM</span>
+              <span class="stat-val">{{ fmtBpm(track.bpm) }}</span>
+            </div>
+            <div class="stat-cell">
+              <span class="stat-label">Key</span>
+              <span class="stat-val stat-val--key">{{ track.key || '—' }}</span>
+            </div>
+            <div class="stat-cell">
+              <span class="stat-label">Durée</span>
+              <span class="stat-val">{{ fmtMs(track.duration_ms) }}</span>
+            </div>
+            <div class="stat-cell">
+              <span class="stat-label">Année</span>
+              <span class="stat-val">{{ releaseYear }}</span>
             </div>
           </div>
-        </template>
-      </PageHero>
 
-      <StatStrip :stats="stats" />
+          <!-- Actions -->
+          <div class="hero-actions">
+            <HeroPlayer
+              v-if="track.has_preview"
+              :catalog-id="track.id"
+              :title="track.title"
+              :artist="track.artist"
+              :artist-id="track.artist_id"
+              :bpm="track.bpm"
+              :track-key="track.key"
+            />
+            <LikeDislike v-model="opinion" />
+            <div class="coll-add-wrap">
+              <button class="btn-coll" @click="toggleCollDropdown">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="3" y="5" width="18" height="16" rx="2" />
+                  <path d="M12 10v6M9 13h6" />
+                </svg>
+                <span>Collection</span>
+              </button>
+              <div v-if="showCollDropdown" class="coll-dropdown">
+                <div v-if="collLoading" class="coll-dd-state">Chargement…</div>
+                <div v-else-if="!userCollections.length" class="coll-dd-state">
+                  Aucune collection
+                </div>
+                <button
+                  v-for="c in userCollections"
+                  :key="c.id"
+                  class="coll-dd-item"
+                  :disabled="c._added"
+                  @click="addToCollection(c)"
+                >
+                  {{ c.name }}
+                  <span v-if="c._added" class="coll-dd-check">✓</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
-      <div v-if="track.label || track.beatport_id" class="track-meta">
-        <span v-if="track.label" class="meta-label">{{ track.label }}</span>
-        <a
-          v-if="track.beatport_id"
-          :href="`https://www.beatport.com/track/-/${track.beatport_id}`"
-          target="_blank"
-          rel="noopener"
-          class="meta-link beatport-link"
-          >Beatport ↗</a
-        >
+          <!-- External links + label -->
+          <div v-if="track.beatport_id || track.deezer_id || track.label" class="hero-links">
+            <PlatformLink v-if="track.beatport_id" platform="beatport" :href="beatportUrl" />
+            <PlatformLink v-if="track.deezer_id" platform="deezer" :href="deezerUrl" />
+            <span v-if="track.label" class="hero-label">
+              <span class="hero-label-tag">Label</span>
+              <span class="hero-label-name">{{ track.label }}</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Découverte -->
+      <div class="discovery">
+        <!-- Du même artiste — TrackCard without artist, truncated to 6 -->
+        <section v-if="track.same_artist_tracks.length" class="disc-block">
+          <header class="disc-head">
+            <h2 class="disc-title">Du même artiste</h2>
+            <span class="disc-count">{{ track.same_artist_tracks.length }}</span>
+          </header>
+          <div class="mini-grid">
+            <TrackCard
+              v-for="t in sameArtistShown"
+              :key="t.id"
+              :track="t"
+              :playing="rowPlaying(t.id)"
+              @play="playTrack(t)"
+              @click="goTrack(t.id)"
+            />
+          </div>
+          <div v-if="track.same_artist_tracks.length > SAME_ARTIST_LIMIT" class="disc-more">
+            <button class="btn btn--sm" @click="sameArtistExpanded = !sameArtistExpanded">
+              {{ sameArtistExpanded ? 'Afficher moins' : `Afficher plus (${sameArtistHidden})` }}
+            </button>
+          </div>
+        </section>
+
+        <!-- Tracks similaires — TrackCard with artist + ScoreRing -->
+        <section v-if="similarLoading || similarTracks.length" class="disc-block">
+          <header class="disc-head">
+            <h2 class="disc-title">Tracks similaires</h2>
+            <span v-if="similarTracks.length" class="disc-count">{{ similarTracks.length }}</span>
+          </header>
+          <div v-if="similarLoading" class="sim-skeleton">
+            <div v-for="n in 4" :key="n" class="skel-row">
+              <span class="skel-art"></span>
+              <span class="skel-lines">
+                <span class="skel-bar skel-bar--1"></span>
+                <span class="skel-bar skel-bar--2"></span>
+              </span>
+            </div>
+          </div>
+          <div v-else class="mini-grid">
+            <TrackCard
+              v-for="t in similarTracks"
+              :key="t.id"
+              :track="t"
+              show-artist
+              :playing="rowPlaying(t.id)"
+              @play="playTrack(t)"
+              @click="goTrack(t.id)"
+            >
+              <template #end>
+                <ScoreRing
+                  size="sm"
+                  :score="t.similarity.score"
+                  :label="simLabel(t.similarity.score)"
+                />
+              </template>
+            </TrackCard>
+          </div>
+        </section>
       </div>
 
-      <!-- STRUCTURAL: 2-column layout for Détecté + Apparaît -->
-      <div
-        v-if="track.radar_appearances.length || track.set_appearances.length"
-        class="rel-cols"
-      >
-        <!-- T6: Détecté dans — source badge + date -->
-        <RelBlock
-          v-if="track.radar_appearances.length"
-          title="Détecté dans"
-          :count="track.radar_appearances.length"
-        >
-          <RouterLink
-            v-for="r in track.radar_appearances"
-            :key="r.playlist_id"
-            :to="`/playlists/${r.playlist_id}`"
-            class="appear appear--link"
-          >
-            <span class="ap-tx">
-              <span class="appear-title">{{ r.playlist_title || 'Playlist' }}</span>
-              <span class="appear-sub">
-                <SourceBadge :source="r.playlist_source" />
-                <span>détecté le {{ fmtDate(r.detected_at) }}</span>
-              </span>
+      <!-- Où on l'entend — 2-column layout (D3) -->
+      <div v-if="track.set_appearances.length || track.radar_appearances.length" class="rel-cols">
+        <!-- Apparaît dans (sets) — clickable timecode -->
+        <section v-if="track.set_appearances.length" class="rel-card">
+          <header class="rel-head">
+            <h2 class="rel-title">Apparaît dans</h2>
+            <span class="rel-count">
+              {{ track.set_appearances.length }}
+              {{ pl(track.set_appearances.length, 'set', 'sets') }}
             </span>
-            <span class="appear-arrow">›</span>
-          </RouterLink>
-        </RelBlock>
-
-        <!-- T7: Apparaît dans — timecode cliquable -->
-        <RelBlock
-          v-if="track.set_appearances.length"
-          title="Apparaît dans"
-          :count="track.set_appearances.length"
-        >
+          </header>
           <RouterLink
-            v-for="s in track.set_appearances"
+            v-for="s in setsShown"
             :key="s.set_id"
             :to="`/set/${s.set_id}`"
-            class="appear appear--link"
+            class="rel-row"
           >
-            <span class="ap-tx">
-              <span class="appear-title">{{ s.set_title }}</span>
-              <span class="appear-sub">
-                <span v-if="s.timecode_ms != null" class="timecode">▶ {{ fmtCue(s.timecode_ms) }}</span>
-                <template v-if="s.played_date">
-                  <span class="sep">·</span>{{ fmtDate(s.played_date) }}
-                </template>
+            <span class="rel-tx">
+              <span class="rel-row-title">{{ s.set_title }}</span>
+              <span class="rel-meta">
+                <span v-if="s.timecode_ms != null" class="timecode"
+                  >▶ {{ fmtCue(s.timecode_ms) }}</span
+                >
+                <span v-if="s.played_date" class="rel-date">{{ fmtDate(s.played_date) }}</span>
               </span>
             </span>
-            <span class="appear-arrow">›</span>
+            <span class="rel-chevron">›</span>
           </RouterLink>
-        </RelBlock>
+          <button
+            v-if="track.set_appearances.length > REL_LIMIT"
+            class="rel-more"
+            @click="setsExpanded = !setsExpanded"
+          >
+            {{ setsExpanded ? 'Afficher moins' : `Afficher plus (${setsHidden})` }}
+          </button>
+        </section>
+
+        <!-- Détecté dans (playlists) — source glyph + date -->
+        <section v-if="track.radar_appearances.length" class="rel-card">
+          <header class="rel-head">
+            <h2 class="rel-title">Détecté dans</h2>
+            <span class="rel-count">
+              {{ track.radar_appearances.length }}
+              {{ pl(track.radar_appearances.length, 'playlist', 'playlists') }}
+            </span>
+          </header>
+          <RouterLink
+            v-for="r in playlistsShown"
+            :key="r.playlist_id"
+            :to="`/playlists/${r.playlist_id}`"
+            class="rel-row"
+          >
+            <span class="rel-tx">
+              <span class="rel-row-title">{{ r.playlist_title || 'Playlist' }}</span>
+              <span class="rel-meta">
+                <PlatformLink variant="glyph" :platform="(r.playlist_source || '').toLowerCase()" />
+                <span class="rel-date">{{ fmtDate(r.detected_at) }}</span>
+              </span>
+            </span>
+            <span class="rel-chevron">›</span>
+          </RouterLink>
+          <button
+            v-if="track.radar_appearances.length > REL_LIMIT"
+            class="rel-more"
+            @click="playlistsExpanded = !playlistsExpanded"
+          >
+            {{ playlistsExpanded ? 'Afficher moins' : `Afficher plus (${playlistsHidden})` }}
+          </button>
+        </section>
       </div>
 
-      <!-- T8: Du même artiste — compact 2-col grid -->
-      <RelBlock
-        v-if="track.same_artist_tracks.length"
-        :title="`Du même artiste`"
-        :count="track.same_artist_tracks.length"
-      >
-        <div class="mini-grid">
-          <div
-            v-for="t in track.same_artist_tracks"
-            :key="t.id"
-            class="mini-row"
-            :class="{ playing: player.isCurrent(t.id) }"
-            @click="$router.push(`/catalog/${t.id}`)"
-          >
-            <img
-              v-if="t.has_artwork"
-              class="mr-cover"
-              :src="`/storage/catalog-artworks/${t.id}.jpg`"
-              alt=""
-            />
-            <span v-else class="mr-cover mr-cover--empty"></span>
-            <span class="mini-tx">
-              <span class="mr-title">{{ t.title }}</span>
-            </span>
-            <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
-            <span class="m-key mono">{{ t.key || '' }}</span>
-            <span class="m-play" @click.stop>
-              <button
-                v-if="t.has_preview"
-                class="play-btn"
-                :class="{ playing: player.isCurrent(t.id) && player.playing }"
-                @click="playTrack(t)"
-              >
-                <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="5" width="4" height="14" />
-                  <rect x="14" y="5" width="4" height="14" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
-            </span>
-            <span class="m-rating">
-              <span v-if="t.rating" class="rating">
-                <span
-                  v-for="n in 5"
-                  :key="n"
-                  class="star"
-                  :class="{ 'is-on': n <= t.rating }"
-                  >★</span
-                >
-              </span>
-            </span>
-            <span class="m-lib"><LibDot :in-lib="!!t.in_lib" /></span>
-          </div>
-        </div>
-      </RelBlock>
-
-      <!-- T9: Tracks similaires -->
-      <RelBlock
-        v-if="similarLoading || similarTracks.length"
-        title="Tracks similaires"
-        :count="similarTracks.length || undefined"
-      >
-        <div v-if="similarLoading" class="state state--inline">Chargement…</div>
-        <div v-else class="mini-grid">
-          <div
-            v-for="t in similarTracks"
-            :key="t.id"
-            class="mini-row mini-row--sim"
-            :class="{ playing: player.isCurrent(t.id) }"
-            @click="$router.push(`/catalog/${t.id}`)"
-          >
-            <img
-              v-if="t.has_artwork"
-              class="mr-cover"
-              :src="`/storage/catalog-artworks/${t.id}.jpg`"
-              alt=""
-            />
-            <span v-else class="mr-cover mr-cover--empty"></span>
-            <span class="mini-tx">
-              <span class="mr-title">{{ t.title }}</span>
-              <span class="mr-artist">{{ t.artist }}</span>
-            </span>
-            <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
-            <span class="m-key mono">{{ t.key || '' }}</span>
-            <span class="m-play" @click.stop>
-              <button
-                v-if="t.has_preview"
-                class="play-btn"
-                :class="{ playing: player.isCurrent(t.id) && player.playing }"
-                @click="playTrack(t)"
-              >
-                <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="5" width="4" height="14" />
-                  <rect x="14" y="5" width="4" height="14" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
-            </span>
-            <span class="m-sim-score">{{ Math.round(t.similarity.score * 100) }}%</span>
-            <span class="m-lib"><LibDot :in-lib="!!t.in_lib" /></span>
-          </div>
-        </div>
-      </RelBlock>
-
-      <!-- STRUCTURAL: AdminCard moved to bottom -->
-      <!-- T5: ISRC added -->
+      <!-- AdminCard — unchanged, gated is_admin, at the bottom -->
       <AdminCard variant="warn">
         <div class="admin-header">
           <span class="mono muted"
-            >beatport_id: {{ track.beatport_id || '—' }} · deezer_id:
-            {{ track.deezer_id || '—' }} · isrc: {{ track.isrc || '—' }}</span
+            >beatport_id: {{ track.beatport_id || '—' }} · deezer_id: {{ track.deezer_id || '—' }} ·
+            isrc: {{ track.isrc || '—' }}</span
           >
         </div>
 
@@ -312,22 +330,24 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
-import PageHero from '../components/PageHero.vue'
-import StatStrip from '../components/StatStrip.vue'
-import RelBlock from '../components/RelBlock.vue'
-import InLibBadge from '../components/InLibBadge.vue'
+import Artwork from '../components/Artwork.vue'
+import TrackCard from '../components/TrackCard.vue'
+import ScoreRing from '../components/ScoreRing.vue'
+import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
 import HeroPlayer from '../components/HeroPlayer.vue'
 import AdminCard from '../components/AdminCard.vue'
 import LikeDislike from '../components/LikeDislike.vue'
-import SourceBadge from '../components/SourceBadge.vue'
-import LibDot from '../components/LibDot.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import { fmtMs, fmtBpm, fmtDate, fmtCue } from '../utils/format'
+import { fmtMs, fmtBpm, fmtDate, fmtCue, pl } from '../utils/format'
+
+const SAME_ARTIST_LIMIT = 6
+const REL_LIMIT = 5
 
 const route = useRoute()
+const router = useRouter()
 const player = useAudioPlayer()
 const track = ref(null)
 const loading = ref(true)
@@ -341,6 +361,9 @@ const userCollections = ref([])
 const collLoading = ref(false)
 const similarTracks = ref([])
 const similarLoading = ref(false)
+const sameArtistExpanded = ref(false)
+const setsExpanded = ref(false)
+const playlistsExpanded = ref(false)
 
 function playTrack(t) {
   player.play({
@@ -353,29 +376,64 @@ function playTrack(t) {
   })
 }
 
+function goTrack(id) {
+  router.push(`/catalog/${id}`)
+}
+
+// A row is "playing" only while the audio is actually running (drives both the
+// TrackCard tint and its pause icon).
+function rowPlaying(id) {
+  return player.isCurrent(id) && player.playing
+}
+
+function simLabel(score) {
+  return `Similarité ${Math.round(score * 10)} /10`
+}
+
 const coverSrc = computed(() => {
-  if (!track.value) return null
+  if (!track.value) return undefined
   const t = track.value
   if (t.lib_track_id && t.has_artwork) return `/storage/artworks/${t.lib_track_id}.jpg`
   if (t.has_artwork) return `/storage/catalog-artworks/${t.id}.jpg`
-  return null
+  return undefined
 })
 
-const stats = computed(() => {
-  if (!track.value) return []
-  const t = track.value
-  return [
-    { label: 'BPM', value: fmtBpm(t.bpm) },
-    { label: 'Key', value: t.key || '—' },
-    { label: 'Durée', value: fmtMs(t.duration_ms) },
-    { label: 'Année', value: t.release_date ? new Date(t.release_date).getFullYear() : '—' },
-    { label: 'Rating', value: t.rating ? '★'.repeat(t.rating) : '—' },
-    { label: 'Radar', value: t.nb_radar_playlists || '—' },
-    { label: 'Radar sets', value: t.nb_radar_sets || '—' },
-  ]
-})
+const releaseYear = computed(() =>
+  track.value?.release_date ? new Date(track.value.release_date).getFullYear() : '—',
+)
 
-// T3: persist opinion (canonical avis endpoint, same as CatalogView)
+const beatportUrl = computed(() =>
+  track.value?.beatport_id ? `https://www.beatport.com/track/-/${track.value.beatport_id}` : '',
+)
+const deezerUrl = computed(() =>
+  track.value?.deezer_id ? `https://www.deezer.com/track/${track.value.deezer_id}` : '',
+)
+
+const sameArtistShown = computed(() => {
+  const all = track.value?.same_artist_tracks ?? []
+  return sameArtistExpanded.value ? all : all.slice(0, SAME_ARTIST_LIMIT)
+})
+const sameArtistHidden = computed(() =>
+  Math.max(0, (track.value?.same_artist_tracks?.length ?? 0) - SAME_ARTIST_LIMIT),
+)
+
+const setsShown = computed(() => {
+  const all = track.value?.set_appearances ?? []
+  return setsExpanded.value ? all : all.slice(0, REL_LIMIT)
+})
+const setsHidden = computed(() =>
+  Math.max(0, (track.value?.set_appearances?.length ?? 0) - REL_LIMIT),
+)
+
+const playlistsShown = computed(() => {
+  const all = track.value?.radar_appearances ?? []
+  return playlistsExpanded.value ? all : all.slice(0, REL_LIMIT)
+})
+const playlistsHidden = computed(() =>
+  Math.max(0, (track.value?.radar_appearances?.length ?? 0) - REL_LIMIT),
+)
+
+// Persist opinion (canonical avis endpoint, same as CatalogView)
 watch(opinion, async (val) => {
   if (!track.value) return
   try {
@@ -495,6 +553,10 @@ async function loadTrack(id) {
   similarTracks.value = []
   enrichResult.value = null
   dzGenreResult.value = null
+  sameArtistExpanded.value = false
+  setsExpanded.value = false
+  playlistsExpanded.value = false
+  showCollDropdown.value = false
   try {
     const { data } = await api.get(`/api/catalog/${id}`)
     track.value = data
@@ -507,7 +569,12 @@ async function loadTrack(id) {
   }
 }
 
-watch(() => route.params.id, (id) => { if (id) loadTrack(id) })
+watch(
+  () => route.params.id,
+  (id) => {
+    if (id) loadTrack(id)
+  },
+)
 onMounted(() => loadTrack(route.params.id))
 </script>
 
@@ -518,39 +585,113 @@ onMounted(() => loadTrack(route.params.id))
   margin-inline: auto;
   container-type: inline-size;
 }
-/* T1: Artist chips */
+
+/* Not-found state — stacked message + return button */
+.state--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+/* Back link */
+.dv-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+  text-decoration: none;
+  color: var(--ink-2);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  transition: color 0.12s;
+}
+.dv-back:hover {
+  color: var(--ink);
+}
+.dv-back svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============ HERO ============ */
+.hero {
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  gap: var(--space-8);
+  align-items: start;
+}
+.hero-cover {
+  width: 216px;
+  max-width: 100%;
+}
+.hero-cover :deep(.artwork--hero) {
+  width: 100%;
+}
+.hero-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.hero-title {
+  margin: 0;
+  font: 700 var(--fs-xl)/1.12 var(--font-ui);
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+/* Artist chips */
+.hero-artists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
 .artist-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  padding: var(--space-05) var(--space-25) var(--space-05) var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
   text-decoration: none;
   color: var(--ink-2);
-  font: 500 var(--fs-base) var(--font-ui);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.artist-chip:hover {
+  background: var(--surface-2);
+  color: var(--ink);
 }
 .chip-av {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   flex: none;
   border: 1px solid var(--line);
   background: var(--surface-3);
   object-fit: cover;
 }
-.artist-chip:hover {
-  color: var(--accent-ink);
-}
-.artist-chip:hover .chip-av {
-  border-color: var(--accent);
-}
-.chip-sep {
-  color: var(--ink-3);
-}
 
-/* T2: Rekordbox tags */
+/* Genres + Rekordbox tags */
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-15);
+}
+.tag-link {
+  display: inline-flex;
+  max-width: 100%;
+  text-decoration: none;
+}
 .rb-tag {
   display: inline-flex;
   align-items: center;
-  font: 500 var(--fs-label)/1 var(--font-mono);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.03em;
   color: var(--ink-2);
   background: var(--surface-2);
@@ -560,7 +701,42 @@ onMounted(() => loadTrack(route.params.id))
   white-space: nowrap;
 }
 
-/* Collection add button */
+/* Musical stats (D1) */
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-top: var(--space-1);
+}
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.stat-label {
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+.stat-val {
+  font: 600 var(--fs-md)/1 var(--font-mono);
+  color: var(--ink);
+}
+.stat-val--key {
+  color: var(--accent-ink);
+}
+
+/* Actions */
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+/* Collection add button + dropdown */
 .coll-add-wrap {
   position: relative;
 }
@@ -577,7 +753,9 @@ onMounted(() => loadTrack(route.params.id))
   font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.12s, border-color 0.12s;
+  transition:
+    color 0.12s,
+    border-color 0.12s;
 }
 .btn-coll:hover {
   color: var(--ink);
@@ -633,194 +811,252 @@ onMounted(() => loadTrack(route.params.id))
   font-weight: 600;
 }
 
-/* Track meta (label + external links) */
-.track-meta {
+/* External links + label */
+.hero-links {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  margin: var(--space-3) 0 var(--space-1);
-  font: 400 var(--fs-sm)/1 var(--font-ui);
+}
+.hero-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.hero-label-tag {
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   color: var(--ink-3);
 }
-.meta-label {
+.hero-label-name {
+  font: 500 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-2);
 }
-.meta-link {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-}
-.meta-link:hover {
-  text-decoration: underline;
-}
 
-/* STRUCTURAL: 2-column layout */
-.rel-cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-6) var(--space-8);
-  align-items: start;
-}
-.rel-cols > :deep(.rel-block) {
-  margin-top: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-@container (max-width: 720px) {
-  .rel-cols {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* T6/T7: Appear rows (custom) */
-.appear {
-  display: flex;
-  align-items: center;
-  gap: var(--space-25);
-  padding: var(--space-25) var(--space-3);
-  border-bottom: 1px solid var(--line);
-  text-decoration: none;
-  color: inherit;
-  transition: background 0.1s;
-  min-width: 0;
-}
-.appear:last-child {
-  border-bottom: none;
-}
-.appear--link:hover {
-  background: var(--surface-2);
-}
-.ap-tx {
-  flex: 1;
-  min-width: 0;
+/* ============ DÉCOUVERTE ============ */
+.discovery {
+  margin-top: var(--space-8);
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
+  gap: var(--space-8);
 }
-.appear-title {
-  display: block;
-  font: 500 var(--fs-sm)/1.3 var(--font-ui);
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.disc-block {
+  min-width: 0;
 }
-.appear-sub {
+.disc-head {
   display: flex;
   align-items: center;
-  gap: var(--space-15);
-  font: 400 var(--fs-sm)/1.3 var(--font-mono);
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.disc-title {
+  margin: 0;
+  font: 600 var(--fs-title)/1 var(--font-ui);
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.disc-count {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
 }
-.sep {
-  opacity: 0.5;
-}
-.appear-arrow {
-  flex: none;
-  font-size: var(--fs-md);
-  color: var(--ink-3);
-}
-.timecode {
-  color: var(--accent-ink);
-  font-family: var(--font-mono);
+.disc-more {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-3);
 }
 
-/* T8: Same artist — compact 2-col grid with fixed columns */
 .mini-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-05);
+  gap: var(--space-2);
 }
 /* grid items must shrink below min-content for equal 1fr columns */
-.mini-grid > .mini-row {
+.mini-grid > * {
   min-width: 0;
-  overflow: hidden;
 }
 @container (max-width: 720px) {
   .mini-grid {
     grid-template-columns: 1fr;
   }
 }
-.mini-row {
+
+/* Similar loading skeleton — 4 rows, pulse on opacity */
+.sim-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.skel-row {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 30px 72px 16px;
+  grid-template-columns: 36px 1fr;
+  gap: var(--space-3);
   align-items: center;
-  gap: var(--space-25);
-  padding: var(--space-2) var(--space-25);
-  text-decoration: none;
-  color: inherit;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  transition: background 0.1s;
-  min-width: 0;
-  cursor: pointer;
+  background: var(--surface);
 }
-.mini-row:hover {
-  background: var(--surface-2);
-}
-.mr-cover {
+.skel-art {
   width: 36px;
   height: 36px;
   border-radius: var(--r-xs);
-  object-fit: cover;
-  border: 1px solid var(--line);
+  background: var(--surface-2);
+  animation: pulse 1.2s ease-in-out infinite;
 }
-.mr-cover--empty {
-  background: var(--surface-3);
+.skel-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-15);
 }
-.mini-tx {
+.skel-bar {
+  height: 9px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.skel-bar--1 {
+  width: 60%;
+}
+.skel-bar--2 {
+  width: 35%;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ============ OÙ ON L'ENTEND ============ */
+.rel-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+  margin-top: var(--space-8);
+}
+@container (max-width: 720px) {
+  .rel-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.rel-card {
   min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
-.mr-title {
-  display: block;
-  max-width: 100%;
-  font: 500 var(--fs-sm)/1.2 var(--font-ui);
+.rel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.rel-title {
+  margin: 0;
+  font: 600 var(--fs-title)/1 var(--font-ui);
+  color: var(--ink);
+}
+.rel-count {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.rel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s;
+}
+.rel-row:first-of-type {
+  border-top: none;
+}
+.rel-row:hover {
+  background: var(--surface-2);
+}
+.rel-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.rel-row-title {
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mini-row:hover .mr-title {
-  color: var(--accent-ink);
-}
-.m-bpm {
-  text-align: right;
-  font: 500 var(--fs-sm)/1 var(--font-mono);
-  color: var(--ink-2);
-}
-.m-key {
-  text-align: center;
-  font: 500 var(--fs-sm)/1 var(--font-mono);
-  color: var(--accent-ink);
-}
-.m-rating {
-  text-align: center;
-}
-.m-lib {
+.rel-meta {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  font: 400 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-3);
 }
-.mono {
-  font-family: var(--font-mono);
-  color: var(--ink-2);
+.rel-date {
+  color: var(--ink-3);
 }
-.rating {
+.rel-chevron {
+  flex: none;
+  font-size: var(--fs-md);
+  line-height: 1;
+  color: var(--ink-3);
+}
+.timecode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-05);
+  padding: var(--space-05) var(--space-15);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-radius: var(--r-xs);
+  font: 500 var(--fs-xs)/1 var(--font-mono);
   white-space: nowrap;
 }
-.star {
-  color: var(--ink-3);
-  font-size: var(--fs-xs);
-}
-.star.is-on {
+.rel-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-top: 1px solid var(--line);
+  background: transparent;
   color: var(--accent-ink);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.rel-more:hover {
+  background: var(--surface-2);
 }
 
-/* Admin card */
+/* ============ ADMIN ============ */
 .admin-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--space-25);
+}
+.mono {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
 }
 .muted {
   color: var(--ink-3);
@@ -861,77 +1097,23 @@ onMounted(() => loadTrack(route.params.id))
   color: var(--ink-3);
 }
 
-/* T9: Similar tracks */
-.mini-row--sim {
-  grid-template-columns: 38px minmax(0, 1fr) 34px 30px 30px 36px 16px;
-}
-.mr-artist {
-  display: block;
-  font: 400 var(--fs-xs)/1.2 var(--font-ui);
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.m-sim-score {
-  text-align: right;
-  font: 600 var(--fs-xs)/1 var(--font-mono);
-  color: var(--accent-ink);
-  opacity: 0.75;
-}
-.state--inline {
-  padding: 0 var(--space-4) var(--space-3);
-  font-size: var(--fs-sm);
-}
-
-/* Play button */
-.m-play {
-  display: flex;
-  justify-content: center;
-  min-height: 30px;
-  align-items: center;
-}
-.play-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
-  color: var(--ink-3);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.play-btn svg {
-  width: 14px;
-  height: 14px;
-}
-.mini-row:hover .play-btn {
-  opacity: 1;
-}
-.play-btn:hover {
-  color: var(--ink);
-  background: var(--surface-2);
-}
-.play-btn.playing {
-  opacity: 1;
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-  border-color: transparent;
-}
-.mini-row.playing {
-  background: var(--accent-soft);
-}
-
 /* ============ RESPONSIVE ============ */
 @container (max-width: 640px) {
   .detail-view {
     padding: var(--page-px-mobile);
   }
-  .play-btn {
-    opacity: 1;
+  .hero {
+    grid-template-columns: 1fr;
+    gap: var(--space-5);
+  }
+  .hero-cover {
+    width: 160px;
+  }
+  .hero-title {
+    font-size: var(--fs-lg);
+  }
+  .rel-chevron {
+    display: none;
   }
 }
 </style>
