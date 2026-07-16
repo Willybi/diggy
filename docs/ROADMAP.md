@@ -296,9 +296,12 @@ Backfill      Crawl TrackID    Nouvelles tracks/j   Overhead Deezer   Overhead B
 Taches :
 - [x] Task Celery Beat : `backfill_trackid_sets`, schedule quotidien (02:00, avant prospectif)
 - [x] Curseur Redis `trackid_backfill_cursor` init a `today` au premier run
-- [x] Env var `TRACKID_BACKFILL_SETS_PER_DAY` (defaut : 500) + `TRACKID_BACKFILL_MIN_DATE` (defaut : today - 730j)
+- [x] Env var `TRACKID_BACKFILL_SETS_PER_DAY` (defaut : 500, releve a 1000 le 2026-07-16) + `TRACKID_BACKFILL_MIN_DATE` (defaut : today - 730j)
 - [x] Condition d'arret : curseur < min_date ou reponse vide → marquer backfill termine dans Redis
 - [x] Log du curseur courant a chaque run (monitoring progression)
+
+> Backfill : CONSTATE en prod (2026-07-16) : stall total depuis ~mi-juin — soft limit global 1800s + `autoretry_for=(Exception,)` (4 timeouts/nuit puis DLQ, curseur fige a 2026-06-10) + curseur date-only qui sautait definitivement les sets same-day aux frontieres de batch (~10-20% de l'historique) + re-paging integral croissant. CORRIGE par deux fixes deployes le 2026-07-16 : c52fcc4 (limites propres 3600/3900, curseur incremental, catch SoftTimeLimitExceeded, lock Redis, no autoretry) + 56c17b6 (curseur addedOn ISO8601 complet, reprise pagination via `trackid_backfill_page` persiste sur batch complet uniquement, budget 1000/j). Curseur reinitialise a `2026-06-15T00:00:00` pour re-balayer la fenetre trouee 10-15 juin (idempotent).
+> **CHECK A FAIRE le 2026-07-17 au matin** (verdict du 1er run) : curseur en timestamp complet et < 2026-06-15 (`redis-cli GET trackid_backfill_cursor`), cle `trackid_backfill_page` creee (entier), log worker `status:running imported~1000 new cursor=... page=...`, DLQ `dead_letter` vide. Nuit 2 (18/07) : run rapide (~30-35 min) et `page` quasi stable = taxe de re-paging morte.
 
 ### C6.b — Re-crawl decroissant des sets incomplets
 
