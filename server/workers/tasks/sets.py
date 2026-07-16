@@ -43,23 +43,58 @@ def _collect_backfill_batch(
 ) -> tuple[list[dict], str | None]:
     """Filter audiostreams to those with addedOn < cursor_date, capped at max_sets.
 
-    Returns (batch, oldest_added_on) where oldest_added_on is the YYYY-MM-DD date
-    of the last (oldest) item in the batch, or None if the batch is empty.
-    Audiostreams missing addedOn are skipped.
+    Returns (batch, oldest_added_on) where oldest_added_on is the FULL addedOn
+    timestamp of the last (oldest) item in the batch, or None if the batch is
+    empty. Audiostreams missing addedOn are skipped.
+
+    The filter compares the FULL ISO8601 addedOn (lexicographically), not just
+    its date: two sets added the same day either side of the cursor are split
+    correctly, where the old date-only truncation dropped the whole tail of the
+    cursor's day. Legacy compatibility needs no shim — a date-only cursor left
+    by an older build ("2026-06-10") is a lexicographic prefix of every
+    timestamp that day, so any "2026-06-10T..." item still satisfies
+    >= "2026-06-10" and is skipped, exactly the previous semantics; the cursor
+    turns into a full timestamp on its first rewrite.
     """
     batch = []
     for a in audiostreams:
         added_on = a.get("addedOn")
         if not added_on:
             continue
-        added_date = added_on[:10]  # YYYY-MM-DD
-        if added_date >= cursor_date:
+        if added_on >= cursor_date:
             continue
         batch.append(a)
         if len(batch) >= max_sets:
             break
-    oldest = batch[-1].get("addedOn", "")[:10] if batch else None
+    oldest = batch[-1].get("addedOn", "") if batch else None
     return batch, oldest
+
+
+def _resume_page_decision(
+    start_page: int,
+    first_added_on: str | None,
+    cursor_date: str,
+) -> int:
+    """Decide which listing page to start collecting from when resuming.
+
+    Inputs: the persisted offset (start_page), the addedOn of the FIRST
+    audiostream fetched at that offset (None when the page came back empty),
+    and the current cursor. Returns:
+      - start_page for a normal resume — the offset still sits at or above the
+        cursor (its first item is newer-or-equal, older content lies below);
+      - 0 to force a full re-page when the offset is stale (Guard 1: empty page,
+        sets were deleted upstream and the offset points past the end) or has
+        overshot (Guard 2: first item already older than the cursor, so content
+        moved up and untreated sets may sit between the cursor and this offset).
+    start_page <= 0 always returns 0: there is nothing to validate.
+    """
+    if start_page <= 0:
+        return 0
+    if not first_added_on:
+        return 0  # Guard 1: empty page at the saved offset → re-page from top
+    if first_added_on < cursor_date:
+        return 0  # Guard 2: overshoot → re-page from top
+    return start_page
 
 
 @celery_app.task(
@@ -829,7 +864,7 @@ def crawl_trackid_latest(self):
 @celery_app.task(
     name="workers.tasks.backfill_trackid_sets",
     bind=True,
-    # A batch of up to 500 inline set imports (rate-limited detail fetch per
+    # A batch of up to 1000 inline set imports (rate-limited detail fetch per
     # set) never fits in the global 1800s limit, so give this task its own
     # budget, kept under the broker visibility_timeout (30000s) to avoid
     # duplicate deliveries. Deliberately NO autoretry_for=(Exception,):
@@ -843,7 +878,10 @@ def crawl_trackid_latest(self):
 def backfill_trackid_sets(self):
     """
     Rattrapage historique progressif de sets TrackID.net.
-    Remonte dans le temps depuis le curseur Redis trackid_backfill_cursor (YYYY-MM-DD).
+    Remonte dans le temps depuis le curseur Redis trackid_backfill_cursor
+    (timestamp ISO8601 complet ; les anciennes valeurs date-only restent
+    compatibles par comparaison lexicographique) et reprend la pagination à
+    l'offset persisté trackid_backfill_page.
     S'arrête quand le curseur dépasse TRACKID_BACKFILL_MIN_DATE ou que le batch est vide.
     Single-instance: a Redis lock skips the run if another one is still in
     flight (a slow run can overlap the next daily beat), same pattern as
@@ -892,8 +930,11 @@ def _run_backfill_trackid_sets(task):
     if r.get("trackid_backfill_done"):
         return {"status": "done"}
 
-    # Config
-    sets_per_day = int(os.environ.get("TRACKID_BACKFILL_SETS_PER_DAY", "500"))
+    # Config. 1000 sets/night matches the downstream capacity: Beatport
+    # enrichment handles ~6000 tracks/night and a set yields ~5 new tracks, so
+    # ~750-1400 new tracks/day here stays within that budget while draining the
+    # ~100k-set historical backlog meaningfully faster than the old 500.
+    sets_per_day = int(os.environ.get("TRACKID_BACKFILL_SETS_PER_DAY", "1000"))
     default_min = (date.today() - timedelta(days=730)).isoformat()
     min_date = os.environ.get("TRACKID_BACKFILL_MIN_DATE") or default_min
 
@@ -930,7 +971,19 @@ def _run_backfill_trackid_sets(task):
         AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
 
         batch: list[dict] = []
-        page = 0
+        # Resume paging from the persisted offset instead of re-scanning from
+        # page 0 every night: the listing keeps growing at the top, so a fixed
+        # start would push the skip-scan (items newer than the cursor) ever
+        # deeper. start_page is validated on the first fetch before it is
+        # trusted (see _resume_page_decision).
+        start_page = int(r.get("trackid_backfill_page") or 0)
+        page = start_page
+        # Page index of the last page that actually contributed sets to the
+        # batch — where the oldest (cursor) set lives. Persisted only on a
+        # complete batch, so the saved offset always sits at or above (newer
+        # than) the cursor position.
+        last_collected_page = start_page
+        resume_checked = False
 
         async with TrackIDClient() as client:
             # Collect up to sets_per_day audiostreams with addedOn < cursor_date.
@@ -945,19 +998,48 @@ def _run_backfill_trackid_sets(task):
                         page_size=20,
                         current_page=page,
                     )
+
+                # First fetch of a resumed run: validate the saved offset. A
+                # stale/overshot offset falls back to a full re-page — it must
+                # NOT be read as "empty → no more sets → done".
+                if not resume_checked:
+                    resume_checked = True
+                    if start_page > 0:
+                        first_added = (
+                            audiostreams[0].get("addedOn", "")
+                            if audiostreams
+                            else None
+                        )
+                        if (
+                            _resume_page_decision(start_page, first_added, cursor_date)
+                            != start_page
+                        ):
+                            logger.warning(
+                                "backfill_trackid_sets: saved page %d unusable "
+                                "(first=%s cursor=%s), restarting from page 0",
+                                start_page,
+                                first_added,
+                                cursor_date,
+                            )
+                            page = 0
+                            last_collected_page = 0
+                            continue
+
                 if not audiostreams:
                     break
                 new_items, _ = _collect_backfill_batch(
                     audiostreams, cursor_date, sets_per_day - len(batch)
                 )
-                batch.extend(new_items)
+                if new_items:
+                    batch.extend(new_items)
+                    last_collected_page = page
                 if len(audiostreams) < 20:
                     break
                 page += 1
 
             if not batch:
                 await async_engine.dispose()
-                return 0, 0, None
+                return 0, 0, None, None
 
             imported = 0
             skipped = 0
@@ -997,11 +1079,12 @@ def _run_backfill_trackid_sets(task):
                     # newest→oldest (addedOn desc), so the cursor decreases
                     # monotonically: a soft-timeout mid-batch leaves it on the
                     # last set handled and the next run resumes from there. The
-                    # date-only semantics (YYYY-MM-DD of the oldest processed
-                    # set) are unchanged — only the write cadence is.
-                    added_date = audiostream.get("addedOn", "")[:10]
-                    if added_date:
-                        r.set("trackid_backfill_cursor", added_date)
+                    # cursor stores the FULL addedOn timestamp so sets sharing
+                    # the oldest processed day are not dropped next run (the
+                    # date-only truncation was the historical data-loss bug).
+                    added_on = audiostream.get("addedOn", "")
+                    if added_on:
+                        r.set("trackid_backfill_cursor", added_on)
                 except SoftTimeLimitExceeded:
                     # Re-raise BEFORE the generic handler: SoftTimeLimitExceeded
                     # IS an Exception, so without this clause it would be
@@ -1016,9 +1099,9 @@ def _run_backfill_trackid_sets(task):
                     )
                     skipped += 1
 
-        new_cursor = batch[-1].get("addedOn", "")[:10]
+        new_cursor = batch[-1].get("addedOn", "")
         await async_engine.dispose()
-        return imported, skipped, new_cursor
+        return imported, skipped, new_cursor, last_collected_page
 
     with Session(engine) as log_session:
         with CrawlLogger(
@@ -1027,12 +1110,18 @@ def _run_backfill_trackid_sets(task):
             celery_task_id=task.request.id,
         ) as clog:
             try:
-                imported, skipped, new_cursor = asyncio.run(_backfill_all())
+                imported, skipped, new_cursor, end_page = asyncio.run(_backfill_all())
             except SoftTimeLimitExceeded:
                 # The cursor was advanced inline in the import loop, so progress
                 # is already persisted; kick off resolution of what was imported
                 # and return normally. Re-raising would route the task to the
                 # DLQ (no autoretry is present to absorb it) and lose nothing.
+                # The page offset is deliberately NOT persisted on this path:
+                # collection ran further (older) than the import reached, so the
+                # end-of-collection page sits below the cursor — saving it would
+                # skip the un-imported tail. The next run resumes from the
+                # previous offset (re-scanning a batch's worth of pages is the
+                # accepted cost).
                 logger.warning(
                     "backfill_trackid_sets: cut by soft time limit, cursor=%s "
                     "(progress persisted, next run resumes)",
@@ -1045,11 +1134,21 @@ def _run_backfill_trackid_sets(task):
 
             if new_cursor is None:
                 r.set("trackid_backfill_done", "1")
+                r.delete("trackid_backfill_page")
                 logger.info("backfill_trackid_sets: empty batch, marking done")
                 result = {"status": "done", "reason": "no_more_sets"}
             else:
                 r.set("trackid_backfill_cursor", new_cursor)
-                logger.info("backfill_trackid_sets: new cursor=%s", new_cursor)
+                # Persist the paging offset ONLY here, next to the cursor, on a
+                # complete batch: end_page is the page of the oldest imported set
+                # and is guaranteed at or above (newer than) the cursor.
+                if end_page is not None:
+                    r.set("trackid_backfill_page", end_page)
+                logger.info(
+                    "backfill_trackid_sets: new cursor=%s page=%s",
+                    new_cursor,
+                    end_page,
+                )
                 if imported > 0:
                     resolve_set_tracks.delay()
                 result = {
@@ -1057,6 +1156,7 @@ def _run_backfill_trackid_sets(task):
                     "imported": imported,
                     "skipped": skipped,
                     "new_cursor": new_cursor,
+                    "page": end_page,
                 }
 
             clog.set_stats(result)
