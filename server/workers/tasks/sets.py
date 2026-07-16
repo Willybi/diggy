@@ -19,6 +19,9 @@ RESOLVE_SET_TRACKS_LOCK_TTL = 7800
 # Same rule for recrawl_incomplete_sets (time_limit 3900s)
 RECRAWL_INCOMPLETE_SETS_LOCK_TTL = 4200
 
+# Same rule for backfill_trackid_sets (time_limit 3900s)
+BACKFILL_TRACKID_SETS_LOCK_TTL = 4200
+
 # recrawl_incomplete_sets' beat fires every 24h sharp, but the reference is
 # stamped during the previous run. Without slack, a set re-crawled last night
 # reads ~23h55 < 1.0d at the next beat and would wait a whole extra day (daily
@@ -826,20 +829,56 @@ def crawl_trackid_latest(self):
 @celery_app.task(
     name="workers.tasks.backfill_trackid_sets",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    # A batch of up to 500 inline set imports (rate-limited detail fetch per
+    # set) never fits in the global 1800s limit, so give this task its own
+    # budget, kept under the broker visibility_timeout (30000s) to avoid
+    # duplicate deliveries. Deliberately NO autoretry_for=(Exception,):
+    # SoftTimeLimitExceeded IS an Exception, so autoretry would spawn four
+    # 30-min timeouts then DLQ every night. Progress is instead made resumable
+    # by advancing the Redis cursor inline and catching SoftTimeLimitExceeded
+    # gracefully (see below), so a re-raise/retry is neither needed nor wanted.
+    soft_time_limit=3600,
+    time_limit=3900,
 )
 def backfill_trackid_sets(self):
     """
     Rattrapage historique progressif de sets TrackID.net.
     Remonte dans le temps depuis le curseur Redis trackid_backfill_cursor (YYYY-MM-DD).
     S'arrête quand le curseur dépasse TRACKID_BACKFILL_MIN_DATE ou que le batch est vide.
+    Single-instance: a Redis lock skips the run if another one is still in
+    flight (a slow run can overlap the next daily beat), same pattern as
+    resolve_set_tracks / recrawl_incomplete_sets.
     """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:backfill_trackid_sets"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(
+        lock_key, self.request.id, nx=True, ex=BACKFILL_TRACKID_SETS_LOCK_TTL
+    ):
+        holder = r.get(lock_key)
+        logger.warning(
+            "backfill_trackid_sets already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_backfill_trackid_sets(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_backfill_trackid_sets(task):
     import asyncio
     from datetime import date, timedelta
 
     import redis as redis_lib
+    from celery.exceptions import SoftTimeLimitExceeded
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
@@ -894,7 +933,10 @@ def backfill_trackid_sets(self):
         page = 0
 
         async with TrackIDClient() as client:
-            # Collect up to sets_per_day audiostreams with addedOn < cursor_date
+            # Collect up to sets_per_day audiostreams with addedOn < cursor_date.
+            # No except swallows a soft-timeout here, so it propagates cleanly to
+            # the task-level handler; nothing is imported yet, so no progress is
+            # lost and the next run resumes from the unchanged cursor.
             while len(batch) < sets_per_day:
                 async with limiter.acquire("trackid"):
                     audiostreams, _ = await client.search_sets(
@@ -939,6 +981,11 @@ def backfill_trackid_sets(self):
                                 try:
                                     await materialize_parent(db, parent_set_id)
                                     await db.commit()
+                                except SoftTimeLimitExceeded:
+                                    # Never let the soft limit be mistaken for a
+                                    # materialize failure — it must reach the
+                                    # per-set handler below and stop the loop.
+                                    raise
                                 except Exception:
                                     # ne pas bloquer le backfill
                                     logger.warning(
@@ -946,6 +993,22 @@ def backfill_trackid_sets(self):
                                         parent_set_id,
                                         exc_info=True,
                                     )
+                    # Advance the cursor after each processed set. The batch is
+                    # newest→oldest (addedOn desc), so the cursor decreases
+                    # monotonically: a soft-timeout mid-batch leaves it on the
+                    # last set handled and the next run resumes from there. The
+                    # date-only semantics (YYYY-MM-DD of the oldest processed
+                    # set) are unchanged — only the write cadence is.
+                    added_date = audiostream.get("addedOn", "")[:10]
+                    if added_date:
+                        r.set("trackid_backfill_cursor", added_date)
+                except SoftTimeLimitExceeded:
+                    # Re-raise BEFORE the generic handler: SoftTimeLimitExceeded
+                    # IS an Exception, so without this clause it would be
+                    # swallowed and the loop would run to the hard time_limit
+                    # SIGKILL. The cursor is already persisted up to the last
+                    # fully-processed set.
+                    raise
                 except Exception:
                     logger.exception(
                         "backfill_trackid_sets: failed for set %s",
@@ -961,9 +1024,24 @@ def backfill_trackid_sets(self):
         with CrawlLogger(
             log_session,
             task_type="backfill_trackid_sets",
-            celery_task_id=self.request.id,
+            celery_task_id=task.request.id,
         ) as clog:
-            imported, skipped, new_cursor = asyncio.run(_backfill_all())
+            try:
+                imported, skipped, new_cursor = asyncio.run(_backfill_all())
+            except SoftTimeLimitExceeded:
+                # The cursor was advanced inline in the import loop, so progress
+                # is already persisted; kick off resolution of what was imported
+                # and return normally. Re-raising would route the task to the
+                # DLQ (no autoretry is present to absorb it) and lose nothing.
+                logger.warning(
+                    "backfill_trackid_sets: cut by soft time limit, cursor=%s "
+                    "(progress persisted, next run resumes)",
+                    r.get("trackid_backfill_cursor"),
+                )
+                resolve_set_tracks.delay()
+                result = {"status": "interrupted"}
+                clog.set_stats(result)
+                return result
 
             if new_cursor is None:
                 r.set("trackid_backfill_done", "1")
