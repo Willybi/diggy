@@ -785,6 +785,19 @@ onMounted(() => loadTrack(route.params.id))
   gap: var(--space-3);
   margin-top: var(--space-1);
 }
+/* Uniform 38px action height across the hero row: LikeDislike and HeroPlayer
+   match the 38px Collection button. Heights are lifted here via :deep() —
+   the components themselves are not modified. */
+.hero-actions :deep(.ld-btn) {
+  width: 38px;
+  height: 38px;
+}
+.hero-actions :deep(.hero-play) {
+  height: 38px;
+  padding-top: 0;
+  padding-bottom: 0;
+  align-items: center;
+}
 
 /* Collection add button + dropdown */
 .coll-add-wrap {
