@@ -112,7 +112,7 @@
                   <span class="ins-bar" :data-fam="g.pillar" :style="`--d:${g.depth}`">
                     <i :style="`width:${g.pct}%`"></i>
                   </span>
-                  <span class="ins-pct">{{ g.pct }}%</span>
+                  <span class="ins-pct">{{ g.pct }}&#8239;%</span>
                 </div>
               </div>
             </template>
@@ -678,7 +678,7 @@ onMounted(fetchDetail)
   --th: var(--hue-harddance);
 }
 .ins-bar[data-fam='autres'] i {
-  background: var(--ink-3);
+  background: oklch(var(--tag-dot-l) 0 0);
 }
 .ins-pct {
   font: 500 var(--fs-xs)/1 var(--font-mono);
@@ -769,7 +769,7 @@ onMounted(fetchDetail)
 }
 @container (max-width: 640px) {
   .detail-view {
-    padding: var(--page-px-mobile);
+    padding-inline: var(--page-px-mobile);
   }
   .hero {
     grid-template-columns: 1fr;

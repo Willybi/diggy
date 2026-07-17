@@ -217,7 +217,8 @@ describe('PlaylistDetailView', () => {
     expect(wrapper.find('.insights').exists()).toBe(true)
     expect(wrapper.findAll('.ins-artist')).toHaveLength(1)
     expect(wrapper.findAll('.ins-genre')).toHaveLength(1)
-    expect(wrapper.find('.ins-pct').text()).toBe('42%')
+    // Narrow no-break space (U+202F) before % — French typography (FIX round).
+    expect(wrapper.find('.ins-pct').text()).toBe('42 %')
   })
 
   it('hides « Dans cette playlist » when both top_artists and top_genres are empty', async () => {
