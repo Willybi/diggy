@@ -18,6 +18,7 @@
 - `<ScoreRing>` : jauge circulaire + note entière /10 (float conservé pour le tri). Issu de Radar (scores Tendance / Pour toi), réutilisable pour tout score affiché. **Unifie et remplace `ScorePill`** (texte %) ; `RingPct` (proportion d'un tout) migrera vers la même géométrie en mode %.
 - **Consommés par** : aperçus Hub (Ça sort / Pour toi / Nouveautés) ET les pages destinations (Radar, `/for-you`, `/new-releases`).
 - **Objectif** : « une page par étagère » sans dupliquer l'UI ni la maintenance. Statut : 🟡 — spec de `<Artwork>` / `<TrackCard>` ligne / `<ScoreRing>` LIVRÉE (2026-07-17, `docs/refonte-ui/handoff-track-detail/BRIEF-composants-transverses.md`) ; 1re implémentation = chantier Track Detail ; la variante card verticale (`<DiscoveryShelf>`/`<DiscoveryList>`) reste à cadrer.
+- **Extension `<TrackCard>` ligne (2026-07-17, chantier Playlist Detail)** : spec ADDITIVE livrée (`docs/refonte-ui/handoff-playlist-detail/BRIEF-trackcard-extension.md`) — `showDuration` (colonne mono m:ss, masquée < 640 px) + `artists[]` structurés cliquables (fallback chaîne plate). Contrainte dure : sans les nouvelles props, rendu bit-à-bit identique (Track Detail en prod dessus).
 
 ## Composant Artwork + indicateur in-lib (issu du Catalog)
 - `<Artwork>` (ou `<Cover>`) : gère la cover réelle **et** le placeholder rayé, avec un **indicateur in-lib optionnel** en coin : point vert plein = dans la bib / cercle pointillé vide = pas dans RB. Petit, discret, lisible même sur le placeholder.

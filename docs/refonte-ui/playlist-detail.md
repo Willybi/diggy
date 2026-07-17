@@ -19,7 +19,7 @@ C'est le détail d'une **playlist surveillée** (watchlist / radar) — un **obj
 
 **Note** : « Tracks » = total dans la source ; « Tracks radar » = ce qu'on a détecté/catalogué. La liste n'affiche que les tracks **détectées**.
 
-**Dette** : table tracks bespoke (≠ Explorer) · colonne LibDot (→ `<Artwork>` in-lib) · bouton « Voir sur » en **texte** (→ `<PlatformLink>` logo) · Admin fetch-artwork non gardé (`is_admin`).
+**Dette** : table tracks bespoke (≠ Explorer) · colonne LibDot (→ `<Artwork>` in-lib) · bouton « Voir sur » en **texte** (→ `<PlatformLink>` logo) · ~~Admin fetch-artwork non gardé (`is_admin`)~~ — **OBSOLÈTE** (vérifié 2026-07-17) : le gate `is_admin` est intégré à `AdminCard.vue` depuis le chantier Track Detail, et l'endpoint back est `require_admin`. Reste seulement à **déplacer** la card en bas de page.
 
 ## 2. Vision (William)
 
@@ -56,15 +56,31 @@ C'est le détail d'une **playlist surveillée** (watchlist / radar) — un **obj
 - **Admin** (fetch artwork) : **tout en bas**, `is_admin`.
 - **Playlists similaires** : **écarté**.
 
+## 5bis. Décisions des rounds Design (handoff reçu 2026-07-17)
+
+Handoff versionné dans `docs/refonte-ui/handoff-playlist-detail/` (BRIEF page + BRIEF extension TrackCard + pilote). Évolutions actées pendant les rounds William × Claude Design — complètent les décisions figées §5 :
+
+- **StatStrip supprimée** : stats **Tracks · Dernier crawl** intégrées au hero en data-row mono (même patron que Track Detail) ; « Ajoutée le » retiré.
+- **Lien source** : `<PlatformLink>` 38 px + micro-label `SOURCE` + nom de plateforme en texte — unique action du hero.
+- **« Dans cette playlist »** : une seule carte 2 colonnes (top **6** artistes | top **5** genres), avatars fallback initiales, barres % via la mécanique piliers existante.
+- **Titre absent → `external_id` en mono** ; owner masqué si absent ou redondant avec la source.
+- **État vide « jamais crawlée »** : carte engageante (« La playlist est surveillée — les tracks apparaîtront après le premier crawl »), bannière crawl possiblement active au-dessus.
+- **Durée = 5ᵉ colonne du TrackCard étendu** (grille `36px 1fr 42px 30px 44px [auto]`), masquée < 640 px ; artistes cliquables avec `stopPropagation` et fallback chaîne plate.
+
 ## 6. Sortie next-step
+
+> **Arbitrages pré-vol 2026-07-17 (William)** — corrige la version antérieure de ce § qui affirmait « Back : rien de neuf » (contradictoire avec §5, invalidé par vérification code) :
+> 1. **Lot 0 back = câblage complet** : `top_artists[]` (id/name/has_artwork/count, calculés depuis les tracks détectées, `catalog_visible` appliqué), `top_genres[]` (name/pillar/depth/pct, pattern `artist_service._artist_genres`), `in_lib` par track (EXISTS `user_tracks` du viewer), `artists[]` peuplés (bulk-load `catalog_artists`, le champ schéma existe déjà mais n'est jamais rempli) + fix du champ `genre` mort (le service sélectionne `genres` TEXT[], le schéma attend `genre` str → toujours None).
+> 2. **Rangées tracks = évolution transverse ADDITIVE de `<TrackCard>`** (props optionnelles : durée, `artists[]` cliquables) spécifiée par Claude Design, implémentée en lot dédié avec tests + vitrine DS — zéro changement de comportement pour les consommateurs existants (TrackDetailView).
+
 **Handoff Design**
 - [ ] Hero « cover + infos à côté » (cover agrandie, infos latérales, source logo).
-- [ ] Tracks = rangées Explorer + `<Artwork>` in-lib.
-- [ ] `<PlatformLink>` (logo) — transverse.
+- [ ] Tracks = rangées `<TrackCard>` étendu (durée + artistes cliquables, spec transverse) + `<Artwork>` in-lib.
+- [ ] `<PlatformLink>` (logo) — existe (variants button/glyph), rien à créer.
 
 **Chantier work_manager**
-- **Front** : hero cover+infos ; tracks → composant Explorer partagé + `<Artwork>` ; source → `<PlatformLink>` ; Admin en bas + `is_admin` ; garder la **bannière crawl** (`useTaskPoll`).
-- **Back** : rien de neuf (endpoint watchlist déjà complet).
-- **Transverse** : composant rangée Explorer / `<TrackCard>`, `<Artwork>`, `<PlatformLink>`.
+- **Lot 0 back** : contrat `GET /api/watchlist/{id}` — cf. arbitrage ci-dessus.
+- **Lot 1 transverse** : extension additive `<TrackCard>` (durée + artistes cliquables optionnels) + tests Vitest + vitrine DesignSystemView.
+- **Lot 2 front** : hero cover+infos ; tracks → `<TrackCard>` étendu ; source → `<PlatformLink>` ; retrait boutons Suivre ; AdminCard déplacée en bas (gate déjà intégré au composant) ; garder la **bannière crawl** (`useTaskPoll`).
 
-**Dépend de** : composants partagés (Explorer, `<PlatformLink>`).
+**Dépend de** : composants partagés Track Detail (`Artwork`, `TrackCard`, `PlatformLink`) — TOUS livrés le 2026-07-17.

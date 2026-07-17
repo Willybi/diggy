@@ -10,7 +10,7 @@
 |---|---|
 | `BRIEF-track-detail.md` | Handoff de la page : ordre vertical, hero, Découverte, « Où on l'entend », états, responsive, décisions DA D1-D6 |
 | `BRIEF-composants-transverses.md` | Spec réutilisable des 4 composants partagés : `<Artwork>`, `<TrackCard>` ligne, `<ScoreRing>`, `<PlatformLink>` |
-| `Track Detail (pilote).html` | Maquette interactive (à déposer ici par William — fichier lourd, toggles thème/viewport + panneau Tweaks + nuancier) |
+| `Track Detail (pilote).html` | Maquette interactive autonome (déposée le 2026-07-17, récupérée via l'export zip du round Playlist Detail — toggles thème/viewport + panneau Tweaks + nuancier) |
 
 ## Notes d'implémentation
 

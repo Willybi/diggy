@@ -1,0 +1,8 @@
+/* ── Page header · shared header row for listing views ── */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--page-px) var(--space-5);
+  flex-wrap: wrap;
+}

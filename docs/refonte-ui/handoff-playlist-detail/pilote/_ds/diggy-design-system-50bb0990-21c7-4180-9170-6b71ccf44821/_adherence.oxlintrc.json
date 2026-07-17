@@ -1,0 +1,346 @@
+{
+  "plugins": [
+    "react",
+    "import"
+  ],
+  "rules": {
+    "react/forbid-elements": [
+      "warn",
+      {
+        "forbid": []
+      }
+    ],
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": [
+              "components/badges/**",
+              "components/buttons/**",
+              "components/page/**",
+              "components/table/**",
+              "components/tags/**",
+              "ui_kits/diggy/**"
+            ],
+            "message": "Import design-system components from 'index.js', not component internals."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
+        "message": "Raw hex color — use a design-system color token via var()."
+      },
+      {
+        "selector": "Literal[value=/\\b\\d+px\\b/]",
+        "message": "Raw px value — use a design-system spacing token via var()."
+      },
+      {
+        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:Space Grotesk|JetBrains Mono))/i]",
+        "message": "Font not provided by the design system. Available: Space Grotesk, JetBrains Mono."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Badge'] > JSXAttribute > JSXIdentifier[name!=/^(?:variant|children|key|ref|className|style|children)$/]",
+        "message": "<Badge> doesn't accept that prop. Declared props: variant, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Badge'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:in-lib|not-in-lib|platform|rating|neutral)$/]",
+        "message": "<Badge> variant must be one of 'in-lib' | 'not-in-lib' | 'platform' | 'rating' | 'neutral'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute > JSXIdentifier[name!=/^(?:variant|size|disabled|icon|children|onClick|key|ref|className|style|children)$/]",
+        "message": "<Button> doesn't accept that prop. Declared props: variant, size, disabled, icon, children, onClick."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:ghost|accent|ghost-accent|danger)$/]",
+        "message": "<Button> variant must be one of 'ghost' | 'accent' | 'ghost-accent' | 'danger'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute[name.name='size'] > Literal[value!=/^(?:sm)$/]",
+        "message": "<Button> size must be one of 'sm'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='PageHead'] > JSXAttribute > JSXIdentifier[name!=/^(?:title|count|actions|key|ref|className|style|children)$/]",
+        "message": "<PageHead> doesn't accept that prop. Declared props: title, count, actions."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='StyleTag'] > JSXAttribute > JSXIdentifier[name!=/^(?:pillar|depth|children|key|ref|className|style|children)$/]",
+        "message": "<StyleTag> doesn't accept that prop. Declared props: pillar, depth, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='StyleTag'] > JSXAttribute[name.name='pillar'] > Literal[value!=/^(?:house|techno|trance|dnb|hardcore|harddance|autres)$/]",
+        "message": "<StyleTag> pillar must be one of 'house' | 'techno' | 'trance' | 'dnb' | 'hardcore' | 'harddance' | 'autres'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='TrackTableColumn'] > JSXAttribute > JSXIdentifier[name!=/^(?:key|label|align|mono|dim|key|ref|className|style|children)$/]",
+        "message": "<TrackTableColumn> doesn't accept that prop. Declared props: key, label, align, mono, dim."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='TrackTableColumn'] > JSXAttribute[name.name='align'] > Literal[value!=/^(?:left|right|center)$/]",
+        "message": "<TrackTableColumn> align must be one of 'left' | 'right' | 'center'."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/index.js"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ],
+  "x-omelette": {
+    "components": {
+      "Badge": {
+        "replaces": []
+      },
+      "Button": {
+        "replaces": []
+      },
+      "PageHead": {
+        "replaces": []
+      },
+      "StyleTag": {
+        "replaces": []
+      },
+      "TrackTableColumn": {
+        "replaces": []
+      }
+    },
+    "tokens": [
+      "--accent",
+      "--accent-c",
+      "--accent-h",
+      "--accent-hover",
+      "--accent-ink",
+      "--accent-l",
+      "--accent-soft",
+      "--accent-soft-2",
+      "--accent-wash",
+      "--bg",
+      "--bottom-nav-h",
+      "--ct-c",
+      "--ct-l",
+      "--ct-line",
+      "--detail-max-w",
+      "--error",
+      "--fb-c1",
+      "--fb-c2",
+      "--fb-l1",
+      "--fb-l2",
+      "--font-mono",
+      "--font-ui",
+      "--fs-base",
+      "--fs-display",
+      "--fs-fallback",
+      "--fs-hero",
+      "--fs-input",
+      "--fs-label",
+      "--fs-lg",
+      "--fs-md",
+      "--fs-nano",
+      "--fs-sm",
+      "--fs-table",
+      "--fs-table-sm",
+      "--fs-title",
+      "--fs-xl",
+      "--fs-xs",
+      "--genre-tile-border-dark",
+      "--genre-tile-ink",
+      "--genre-tile-scrim",
+      "--genre-tile-shadow",
+      "--hero-scrim-c",
+      "--hero-scrim-h",
+      "--hero-scrim-l",
+      "--hue-dnb",
+      "--hue-hardcore",
+      "--hue-harddance",
+      "--hue-house",
+      "--hue-techno",
+      "--hue-trance",
+      "--ink",
+      "--ink-2",
+      "--ink-3",
+      "--line",
+      "--line-2",
+      "--neg",
+      "--neg-h",
+      "--neg-ink",
+      "--neg-soft",
+      "--on-accent",
+      "--overlay-modal",
+      "--overlay-soft",
+      "--overlay-text",
+      "--pad",
+      "--page-max-w",
+      "--page-px",
+      "--page-px-mobile",
+      "--pos",
+      "--pos-c",
+      "--pos-h",
+      "--pos-ink",
+      "--pos-l",
+      "--pos-soft",
+      "--pos-wash",
+      "--pos-wash-2",
+      "--r-lg",
+      "--r-md",
+      "--r-pill",
+      "--r-sm",
+      "--r-xl",
+      "--r-xs",
+      "--row-h",
+      "--shadow-lg",
+      "--shadow-md",
+      "--shadow-sm",
+      "--sidebar-w",
+      "--space-05",
+      "--space-1",
+      "--space-10",
+      "--space-15",
+      "--space-15x",
+      "--space-2",
+      "--space-25",
+      "--space-3",
+      "--space-4",
+      "--space-5",
+      "--space-6",
+      "--space-8",
+      "--surface",
+      "--surface-2",
+      "--surface-3",
+      "--tag-bg-c",
+      "--tag-bg-l",
+      "--tag-dot-c",
+      "--tag-dot-l",
+      "--tag-fg-c",
+      "--tag-fg-l",
+      "--touch-min",
+      "--warn",
+      "--warn-ink",
+      "--warn-soft"
+    ],
+    "tokenKinds": {
+      "--font-ui": "font",
+      "--font-mono": "font",
+      "--fs-nano": "spacing",
+      "--fs-label": "spacing",
+      "--fs-xs": "spacing",
+      "--fs-table-sm": "spacing",
+      "--fs-sm": "spacing",
+      "--fs-base": "spacing",
+      "--fs-table": "spacing",
+      "--fs-title": "spacing",
+      "--fs-input": "spacing",
+      "--fs-md": "spacing",
+      "--fs-lg": "spacing",
+      "--fs-xl": "spacing",
+      "--fs-fallback": "spacing",
+      "--fs-display": "spacing",
+      "--fs-hero": "spacing",
+      "--bg": "color",
+      "--surface": "color",
+      "--surface-2": "color",
+      "--surface-3": "color",
+      "--ink": "color",
+      "--ink-2": "color",
+      "--ink-3": "color",
+      "--line": "color",
+      "--line-2": "color",
+      "--accent-h": "other",
+      "--accent-l": "other",
+      "--accent-c": "other",
+      "--accent": "color",
+      "--accent-hover": "color",
+      "--accent-soft": "color",
+      "--accent-soft-2": "color",
+      "--accent-ink": "color",
+      "--on-accent": "color",
+      "--accent-wash": "color",
+      "--pos-h": "other",
+      "--pos-l": "other",
+      "--pos-c": "other",
+      "--pos": "color",
+      "--pos-soft": "color",
+      "--pos-ink": "color",
+      "--pos-wash": "color",
+      "--pos-wash-2": "color",
+      "--neg-h": "other",
+      "--neg": "color",
+      "--neg-soft": "color",
+      "--neg-ink": "color",
+      "--warn": "color",
+      "--warn-soft": "color",
+      "--warn-ink": "color",
+      "--error": "color",
+      "--tag-bg-l": "other",
+      "--tag-bg-c": "other",
+      "--tag-fg-l": "other",
+      "--tag-fg-c": "other",
+      "--tag-dot-l": "other",
+      "--tag-dot-c": "other",
+      "--ct-l": "other",
+      "--ct-c": "other",
+      "--ct-line": "color",
+      "--fb-l1": "other",
+      "--fb-c1": "other",
+      "--fb-l2": "other",
+      "--fb-c2": "other",
+      "--genre-tile-ink": "color",
+      "--genre-tile-scrim": "color",
+      "--genre-tile-shadow": "shadow",
+      "--genre-tile-border-dark": "color",
+      "--hero-scrim-l": "other",
+      "--hero-scrim-c": "other",
+      "--hero-scrim-h": "other",
+      "--hue-house": "other",
+      "--hue-techno": "other",
+      "--hue-trance": "other",
+      "--hue-dnb": "other",
+      "--hue-hardcore": "other",
+      "--hue-harddance": "other",
+      "--r-xs": "spacing",
+      "--r-sm": "spacing",
+      "--r-md": "spacing",
+      "--r-lg": "spacing",
+      "--r-xl": "spacing",
+      "--r-pill": "spacing",
+      "--shadow-sm": "shadow",
+      "--shadow-md": "shadow",
+      "--shadow-lg": "shadow",
+      "--space-05": "spacing",
+      "--space-1": "spacing",
+      "--space-15": "spacing",
+      "--space-2": "spacing",
+      "--space-25": "spacing",
+      "--space-3": "spacing",
+      "--space-4": "spacing",
+      "--space-5": "spacing",
+      "--space-6": "spacing",
+      "--space-8": "spacing",
+      "--space-10": "spacing",
+      "--space-15x": "spacing",
+      "--row-h": "spacing",
+      "--pad": "spacing",
+      "--page-max-w": "spacing",
+      "--detail-max-w": "spacing",
+      "--sidebar-w": "spacing",
+      "--bottom-nav-h": "spacing",
+      "--page-px": "spacing",
+      "--page-px-mobile": "spacing",
+      "--touch-min": "spacing",
+      "--overlay-modal": "color",
+      "--overlay-soft": "color",
+      "--overlay-text": "font"
+    },
+    "fontFamilies": [
+      "JetBrains Mono",
+      "Space Grotesk"
+    ]
+  }
+}

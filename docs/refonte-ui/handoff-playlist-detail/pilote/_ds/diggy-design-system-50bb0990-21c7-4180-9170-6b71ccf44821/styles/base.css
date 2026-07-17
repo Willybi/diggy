@@ -1,0 +1,15 @@
+/* Diggy base — minimal resets reading tokens only */
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 var(--fs-base) / 1.45 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--accent);
+}

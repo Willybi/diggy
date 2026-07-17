@@ -21,6 +21,7 @@ Rédige `docs/refonte-ui/prompts/PROMPT-claude-design-$ARGUMENTS.md`, sur le mod
 - décisions FIGÉES de la fiche verrouillées (« à respecter, pas à rediscuter ») ; la latitude DA explicite là où la fiche en laisse ;
 - **données disponibles EXHAUSTIVES** (champs exacts des endpoints — « ne rien inventer au-delà ») ;
 - livrables : `BRIEF-$ARGUMENTS.md` + spec autonome des composants transverses NOUVEAUX si la page en crée + maquette pilote HTML (toggles thème/viewport) ;
+- **livraison : exiger EXPLICITEMENT une archive zip téléchargeable (un seul lien) contenant tous les livrables** — sans cette consigne Claude Design ne la génère pas et le transfert des fichiers devient manuel (leçon playlist-detail, 2026-07-17) ;
 - contraintes DS : tokens only, container queries, CSP (SVG inline, zéro CDN), UI en français, pas d'état invité sur les pages internes ;
 - pièces que je dois joindre : `diggy-tokens.css`, la fiche, TRANSVERSE.md, un brief récent en **référence de FORMAT uniquement** (avertir Claude Design que son contenu peut contredire les décisions actuelles).
 

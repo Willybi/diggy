@@ -1,0 +1,258 @@
+/* ============================================================
+   DIGGY — Design Tokens  ·  v1 "Wildflower"
+   ------------------------------------------------------------
+   Drop this file in your app and import it ONCE at the root
+   (e.g. main.js: `import './styles/diggy-tokens.css'`).
+   Everything else reads from these CSS custom properties, so
+   re-theming = changing values here, never in components.
+
+   Dark mode: add `data-theme="dark"` on <html> (or <body>).
+   Density:   add `data-density="compact" | "comfy"` (default regular).
+   Light can be forced locally via `data-theme="light"` (mirrors :root)
+   — used e.g. by the /design-system showcase to render both themes.
+
+   Fonts (add to index.html <head>):
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+   ============================================================ */
+
+:root,
+[data-theme='light'] {
+  /* ---- type ---- */
+  --font-ui: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* ---- font-size scale (design-decisions.md §2 + §2bis), ordonnée par valeur ---- */
+  --fs-nano: 9px; /* badges/clés nano, uppercase mono (§2bis) — absorbe 8.5/9.5 */
+  --fs-label: 10.5px; /* en-têtes de table, micro-labels (§2bis) */
+  --fs-xs: 11px; /* absorbe 10, 11.5 */
+  --fs-table-sm: 12.5px; /* RÉSERVÉ tables */
+  --fs-sm: 13px; /* absorbe 12, 13.5 */
+  --fs-base: 14px; /* absorbe 14.5 hors table */
+  --fs-table: 14.5px; /* RÉSERVÉ tables (table.css + vues à table) */
+  --fs-title: 15px; /* titres section/carte/valeur stat (§2bis) — absorbe 16 */
+  --fs-input: 16px; /* inputs — minimum 16px : iOS zoome au focus sous ce seuil (§2bis) */
+  --fs-md: 18px; /* absorbe 17, 19 */
+  --fs-lg: 22px; /* view titles (§2bis, ex-24) — absorbe 23 */
+  --fs-xl: 28px;
+  --fs-fallback: 32px; /* initiales avatar/hero fallback (§2bis) — absorbe 30 */
+  --fs-display: 36px;
+  --fs-hero: 46px; /* mot display Hub (§2bis) */
+
+  /* ---- neutrals (warm ivory + warm greys) — INVARIANT across palettes ---- */
+  --bg: oklch(0.974 0.008 92);
+  --surface: oklch(0.995 0.004 92);
+  --surface-2: oklch(0.955 0.009 92);
+  --surface-3: oklch(0.935 0.01 92);
+  --ink: oklch(0.255 0.012 70);
+  --ink-2: oklch(0.455 0.012 70);
+  --ink-3: oklch(0.615 0.01 70);
+  --line: oklch(0.905 0.008 88);
+  --line-2: oklch(0.875 0.009 88);
+
+  /* ---- accent (Wildflower mauve) — hue-driven ---- */
+  --accent-h: 328; /* @kind other */
+  --accent-l: 0.615; /* @kind other */
+  --accent-c: 0.132; /* @kind other */
+  --accent: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
+  --accent-hover: oklch(0.565 0.138 var(--accent-h));
+  --accent-soft: oklch(0.94 0.046 var(--accent-h));
+  --accent-soft-2: oklch(0.9 0.062 var(--accent-h));
+  --accent-ink: oklch(0.47 0.122 var(--accent-h));
+  --on-accent: oklch(0.987 0.01 var(--accent-h));
+  --accent-wash: oklch(
+    0.962 0.022 var(--accent-h)
+  ); /* row tint is-playing, plus discret que hover */
+
+  /* ---- in-lib / positive (Wildflower prairie) — duo partner of accent ---- */
+  --pos-h: 138; /* @kind other */
+  --pos-l: 0.58; /* @kind other */
+  --pos-c: 0.098; /* @kind other */
+  --pos: oklch(var(--pos-l) var(--pos-c) var(--pos-h));
+  --pos-soft: oklch(0.94 0.046 var(--pos-h));
+  --pos-ink: oklch(0.46 0.098 var(--pos-h));
+  /* pos washes — teinte de ligne "liked". Composition alpha sur --pos-l/c/h,
+     donc theme-adaptive automatiquement (contrairement à --accent-wash, qui est
+     solide avec un override dark explicite). --pos-wash (0.06) = repos light ;
+     --pos-wash-2 (0.1) = hover light + repos dark. À terme --accent-wash
+     pourrait migrer vers cette même mécanique. */
+  --pos-wash: oklch(
+    var(--pos-l) var(--pos-c) var(--pos-h) / 0.06
+  );
+  --pos-wash-2: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
+
+  /* ---- negative / dislike (Wildflower terracotta, hue 28) ---- */
+  --neg-h: 28; /* @kind other */
+  --neg: oklch(0.585 0.132 var(--neg-h));
+  --neg-soft: oklch(0.942 0.04 var(--neg-h));
+  --neg-ink: oklch(0.49 0.13 var(--neg-h));
+
+  /* ---- warning (ambre) ---- */
+  --warn: oklch(0.7 0.13 70);
+  --warn-soft: oklch(0.94 0.052 70);
+  --warn-ink: oklch(0.52 0.11 70);
+
+  /* ---- error ---- */
+  --error: oklch(0.55 0.18 25);
+
+  /* ---- style-tag chip lightness/chroma (hue+shade set per chip) ---- */
+  --tag-bg-l: 0.94; /* @kind other */
+  --tag-bg-c: 0.06; /* @kind other */
+  --tag-fg-l: 0.46; /* @kind other */
+  --tag-fg-c: 0.13; /* @kind other */
+  --tag-dot-l: 0.65; /* @kind other */
+  --tag-dot-c: 0.152; /* @kind other */
+
+  /* ---- card body tint (Genre + Artist cards) — hue set per card via --th ---- */
+  --ct-l: 0.965; /* @kind other */
+  --ct-c: 0.03; /* @kind other */
+  --ct-line: oklch(0.3 0.02 70 / 0.1);
+
+  /* ---- artist card fallback gradient (no track covers) ---- */
+  --fb-l1: 0.92; /* @kind other */
+  --fb-c1: 0.07; /* @kind other */
+  --fb-l2: 0.97; /* @kind other */
+  --fb-c2: 0.03; /* @kind other */
+
+  /* ---- genre tile colors (sur image, theme-indep.) ---- */
+  --genre-tile-ink: oklch(0.99 0.004 92); /* near-white : anneau avatar + label */
+  --genre-tile-scrim: oklch(0.2 0.02 70 / 0.42); /* gradient bas de tuile */
+  --genre-tile-shadow: oklch(0.2 0.02 70 / 0.6); /* text-shadow label */
+  --genre-tile-border-dark: oklch(0.28 0.012 262); /* anneau avatar en dark */
+
+  /* ---- artist hero scrim (noir chaud, composé avec alpha au point d'usage) ---- */
+  --hero-scrim-l: 0.11; /* @kind other */
+  --hero-scrim-c: 0.015; /* @kind other */
+  --hero-scrim-h: 70; /* @kind other */
+
+  /* ============================================================
+     GENRE PILLARS  ·  v2 "taxonomy" — 6 piliers + Autres (gris)
+     Chaque pilier = un hue. Tout descendant hérite du hue de sa
+     RACINE (résolu via API taxonomy → ROOT_TO_PILLAR).
+     La PROFONDEUR dans l'arbre baisse le chroma du chip — sans
+     jamais bouger le hue (cf. StyleTag.vue) :
+       fond : chroma × (1 − 0.17·d)
+       dot  : L +0.04·d · chroma × (1 − 0.19·d)
+     Roue retenue : "Évocateur" (couleur = vibe).
+     Logique : diggy-style-map.js
+     ============================================================ */
+  --hue-house: 72; /* @kind other */ /* groovy · club · disco roots          */
+  --hue-techno: 242; /* @kind other */ /* brut · industriel · hypnotique       */
+  --hue-trance: 292; /* @kind other */ /* euphorique · psyché · éthéré         */
+  --hue-dnb: 162; /* @kind other */ /* rapide · jungle · liquide (+Dubstep, Breakbeat) */
+  --hue-hardcore: 28; /* @kind other */ /* dur · gabber · distorsion            */
+  --hue-harddance: 338; /* @kind other */ /* hardstyle · jumpstyle · rave         */
+  /* Autres = chroma 0 (gris) — appliqué via [data-fam="autres"] */
+
+  /* ---- shape ---- */
+  --r-xs: 6px;
+  --r-sm: 9px;
+  --r-md: 13px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* ---- depth ---- */
+  --shadow-sm: 0 1px 2px oklch(0.4 0.02 70 / 0.06), 0 1px 1px oklch(0.4 0.02 70 / 0.04);
+  --shadow-md: 0 4px 14px oklch(0.4 0.02 70 / 0.07), 0 2px 5px oklch(0.4 0.02 70 / 0.05);
+  --shadow-lg: 0 18px 48px oklch(0.4 0.02 70 / 0.12), 0 6px 16px oklch(0.4 0.02 70 / 0.07);
+
+  /* ---- spacing scale (grille hybride : pas 2px ≤12px, pas 4px au-delà — design-decisions.md §1) ---- */
+  --space-05: 2px;
+  --space-1: 4px;
+  --space-15: 6px;
+  --space-2: 8px;
+  --space-25: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-15x: 60px;
+
+  /* ---- density (table row height + base padding) ---- */
+  --row-h: 56px;
+  --pad: 16px;
+
+  /* ---- layout constraints ---- */
+  --page-max-w: 1400px;
+  --detail-max-w: 1080px;
+  --sidebar-w: 232px;
+
+  /* ---- responsive (mobile) ---- */
+  --bottom-nav-h: 56px;
+  --page-px: 30px;
+  --page-px-mobile: 16px;
+  --touch-min: 44px;
+
+  /* ---- invariant overlays (always dark, theme-independent) ---- */
+  --overlay-modal: oklch(0.2 0.02 262 / 0.72);
+  --overlay-soft: oklch(0.2 0.02 70 / 0.42);
+  --overlay-text: oklch(0.96 0.01 92);
+}
+
+[data-theme='dark'] {
+  --bg: oklch(0.198 0.012 262);
+  --surface: oklch(0.238 0.014 262);
+  --surface-2: oklch(0.278 0.014 262);
+  --surface-3: oklch(0.312 0.014 262);
+  --ink: oklch(0.945 0.006 92);
+  --ink-2: oklch(0.745 0.01 92);
+  --ink-3: oklch(0.595 0.012 92);
+  --line: oklch(0.33 0.014 262);
+  --line-2: oklch(0.388 0.015 262);
+
+  --accent-l: 0.76; /* @kind other */
+  --accent-c: 0.128; /* @kind other */
+  --accent-hover: oklch(0.81 0.122 var(--accent-h));
+  --accent-soft: oklch(0.338 0.066 var(--accent-h));
+  --accent-soft-2: oklch(0.388 0.078 var(--accent-h));
+  --accent-ink: oklch(0.832 0.108 var(--accent-h));
+  --on-accent: oklch(0.182 0.03 var(--accent-h));
+  --accent-wash: oklch(0.272 0.038 var(--accent-h));
+
+  --pos-l: 0.778; /* @kind other */
+  --pos-c: 0.104; /* @kind other */
+  --pos-soft: oklch(0.338 0.062 var(--pos-h));
+  --pos-ink: oklch(0.832 0.094 var(--pos-h));
+
+  --neg: oklch(0.705 0.13 var(--neg-h));
+  --neg-soft: oklch(0.34 0.072 var(--neg-h));
+  --neg-ink: oklch(0.818 0.108 var(--neg-h));
+
+  --warn: oklch(0.78 0.12 70);
+  --warn-soft: oklch(0.345 0.06 70);
+  --warn-ink: oklch(0.83 0.105 70);
+
+  --error: oklch(0.65 0.18 25);
+
+  --tag-bg-l: 0.336; /* @kind other */
+  --tag-bg-c: 0.064; /* @kind other */
+  --tag-fg-l: 0.836; /* @kind other */
+  --tag-fg-c: 0.106; /* @kind other */
+  --tag-dot-l: 0.73; /* @kind other */
+  --tag-dot-c: 0.138; /* @kind other */
+
+  --ct-l: 0.268; /* @kind other */
+  --ct-c: 0.044; /* @kind other */
+  --ct-line: oklch(1 0 0 / 0.07);
+
+  --fb-l1: 0.36; /* @kind other */
+  --fb-c1: 0.085; /* @kind other */
+  --fb-l2: 0.24; /* @kind other */
+  --fb-c2: 0.05; /* @kind other */
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-md: 0 4px 14px oklch(0 0 0 / 0.34), 0 2px 5px oklch(0 0 0 / 0.28);
+  --shadow-lg: 0 18px 48px oklch(0 0 0 / 0.48), 0 6px 16px oklch(0 0 0 / 0.34);
+}
+
+[data-density='compact'] {
+  --row-h: 46px;
+  --pad: 12px;
+}
+[data-density='comfy'] {
+  --row-h: 68px;
+  --pad: 22px;
+}

@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/diggy-design-system-50bb0990-21c7-4180-9170-6b71ccf44821/tokens/fonts.css">
+  <link rel="stylesheet" href="_ds/diggy-design-system-50bb0990-21c7-4180-9170-6b71ccf44821/tokens/diggy-tokens.css">
+  <link rel="stylesheet" href="_ds/diggy-design-system-50bb0990-21c7-4180-9170-6b71ccf44821/styles/base.css">
+  <link rel="stylesheet" href="_ds/diggy-design-system-50bb0990-21c7-4180-9170-6b71ccf44821/styles/buttons.css">
+  <link rel="stylesheet" href="_ds/diggy-design-system-50bb0990-21c7-4180-9170-6b71ccf44821/styles/page.css">
+  <script src="_ds/diggy-design-system-50bb0990-21c7-4180-9170-6b71ccf44821/_ds_bundle.js"></script>
+  <style>
+    @keyframes pdp-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+    @keyframes pdp-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .detail-view { container-type: inline-size; container-name: detail; max-width: var(--detail-max-w); margin: 0 auto; }
+    .pdp-pad { padding-left: var(--page-px); padding-right: var(--page-px); }
+    .hero-grid { display: grid; grid-template-columns: 216px 1fr; gap: var(--space-8); align-items: start; }
+    .hero-cover { width: 216px; }
+    .hero-title { margin: 0; font: 700 var(--fs-xl) var(--font-ui); line-height: 1.12; text-wrap: pretty; overflow-wrap: anywhere; }
+    .live-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); align-items: start; }
+    .tc-grid { grid-template-columns: 36px 1fr 42px 30px 44px; }
+    .tc-play { opacity: 0; transition: opacity 0.12s; }
+    .tc-row:hover .tc-play, .tc-play.is-on { opacity: 1; }
+    @container detail (max-width: 719px) {
+      .live-cols { grid-template-columns: 1fr; }
+    }
+    @container detail (max-width: 639px) {
+      .hero-grid { grid-template-columns: 1fr; }
+      .hero-cover { width: 160px; }
+      .hero-title { font-size: var(--fs-lg); }
+      .pdp-pad { padding-left: var(--page-px-mobile); padding-right: var(--page-px-mobile); }
+      .tc-play { opacity: 1; }
+      .tc-grid { grid-template-columns: 36px 1fr 42px 30px; }
+      .tc-dur { display: none; }
+    }
+  </style>
+</helmet>
+<div data-theme="{{ theme }}" style="min-height:100vh; background:var(--bg); color:var(--ink); font-family:var(--font-ui); transition:background 0.12s;">
+
+  <div style="position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; padding:var(--space-25) var(--space-4); background:var(--surface); border-bottom:1px solid var(--line); box-shadow:var(--shadow-sm);">
+    <div style="display:flex; align-items:baseline; gap:var(--space-2);">
+      <span style="font:700 var(--fs-title) var(--font-ui);">Diggy</span>
+      <span style="font:400 var(--fs-sm) var(--font-ui); color:var(--ink-2);">Playlist Detail — pilote refonte D4, page 2</span>
+    </div>
+    <div style="display:flex; gap:var(--space-2);">
+      <button class="btn btn--sm" onClick="{{ toggleTheme }}">{{ themeLabel }}</button>
+      <button class="btn btn--sm" onClick="{{ toggleView }}">{{ viewLabel }}</button>
+      <a class="btn btn--sm" href="#nuancier">Nuancier</a>
+    </div>
+  </div>
+
+  <div style="margin:0 auto; transition:width 0.2s; width:{{ pageW }}; box-shadow:{{ pageShadow }};">
+    <div class="detail-view" data-screen-label="Playlist Detail">
+      <div class="pdp-pad" style="padding-top:var(--space-5); padding-bottom:var(--space-10);">
+
+        <a href="#" style="display:inline-flex; align-items:center; gap:var(--space-15); font:500 var(--fs-sm) var(--font-ui); color:var(--ink-2); margin-bottom:var(--space-5);" style-hover="color:var(--ink);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+          Playlists
+        </a>
+
+        <section class="hero-grid" data-screen-label="Hero">
+          <div class="hero-cover" style="flex:none;">
+            <sc-if value="{{ artworkOn }}" hint-placeholder-val="{{ true }}">
+              <div style="aspect-ratio:1; border-radius:var(--r-md); border:1px solid var(--ct-line); box-shadow:var(--shadow-md); background:linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) 28), oklch(var(--fb-l2) var(--fb-c2) 28));"></div>
+            </sc-if>
+            <sc-if value="{{ artworkOff }}" hint-placeholder-val="{{ false }}">
+              <div style="aspect-ratio:1; border-radius:var(--r-md); border:1px solid var(--ct-line); box-shadow:var(--shadow-md); background:repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px);"></div>
+            </sc-if>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:var(--space-4); min-width:0;">
+            <div style="display:flex; flex-direction:column; gap:var(--space-1); min-width:0;">
+              <sc-if value="{{ titreOn }}" hint-placeholder-val="{{ true }}">
+                <h1 class="hero-title">Afterhours</h1>
+              </sc-if>
+              <sc-if value="{{ titreOff }}" hint-placeholder-val="{{ false }}">
+                <h1 class="hero-title" style="font-family:var(--font-mono); font-weight:600;">1479458082</h1>
+              </sc-if>
+              <sc-if value="{{ ownerOn }}" hint-placeholder-val="{{ true }}">
+                <div style="font:400 var(--fs-sm) var(--font-ui); color:var(--ink-2);">Laeti — Deezer Dance &amp; EDM Editor</div>
+              </sc-if>
+            </div>
+
+            <div style="display:flex; gap:var(--space-8); flex-wrap:wrap; padding:var(--space-2) 0;">
+              <div>
+                <div style="font:600 var(--fs-label) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-3);">Tracks</div>
+                <div style="font:600 var(--fs-md) var(--font-mono); margin-top:var(--space-05);">100</div>
+              </div>
+              <div>
+                <div style="font:600 var(--fs-label) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-3);">Dernier crawl</div>
+                <div style="font:600 var(--fs-md) var(--font-mono); margin-top:var(--space-05); color:{{ lastCrawlColor }};">{{ lastCrawl }}</div>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:var(--space-2); align-items:center;">
+              <a class="btn" href="#" style="width:38px; padding:0; justify-content:center; color:var(--ink-2);" aria-label="Voir sur Deezer" title="Voir sur Deezer">
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M0.5 15h4v2.4h-4zM5.5 15h4v2.4h-4zM10.5 15h4v2.4h-4zM15.5 15h4v2.4h-4zM5.5 11h4v2.4h-4zM10.5 11h4v2.4h-4zM15.5 11h4v2.4h-4zM10.5 7h4v2.4h-4zM15.5 7h4v2.4h-4zM15.5 3h4v2.4h-4z"></path></svg>
+              </a>
+              <div style="margin-left:var(--space-2);">
+                <span style="font:600 var(--fs-label) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-3); margin-right:var(--space-2);">Source</span>
+                <span style="font:500 var(--fs-sm) var(--font-ui); color:var(--ink-2);">Deezer</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <sc-if value="{{ crawlQueued }}" hint-placeholder-val="{{ false }}">
+          <div data-screen-label="Bannière crawl" style="display:flex; align-items:center; gap:var(--space-3); margin-top:var(--space-6); padding:var(--space-25) var(--space-4); background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md);">
+            <span style="width:8px; height:8px; border-radius:var(--r-pill); background:var(--ink-3); flex:none;"></span>
+            <span style="font:400 var(--fs-sm) var(--font-ui); color:var(--ink-2); flex:1;">Crawl en file d'attente — la playlist sera analysée sous peu.</span>
+            <span style="font:600 var(--fs-nano) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-3);">queued</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ crawlRunning }}" hint-placeholder-val="{{ false }}">
+          <div data-screen-label="Bannière crawl" style="display:flex; align-items:center; gap:var(--space-3); margin-top:var(--space-6); padding:var(--space-25) var(--space-4); background:var(--accent-soft); border:1px solid var(--accent-soft-2); border-radius:var(--r-md);">
+            <span style="width:8px; height:8px; border-radius:var(--r-pill); background:var(--accent); flex:none; animation:pdp-dot 1.2s ease-in-out infinite;"></span>
+            <span style="font:500 var(--fs-sm) var(--font-ui); color:var(--accent-ink); flex:1;">Crawl en cours — les tracks détectées se mettront à jour à la fin.</span>
+            <span style="font:600 var(--fs-nano) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--accent-ink);">running</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ descOn }}" hint-placeholder-val="{{ true }}">
+          <p style="margin:var(--space-6) 0 0; font:400 var(--fs-base) var(--font-ui); color:var(--ink-2); line-height:1.55; max-width:640px; text-wrap:pretty;">Chill, deep house et techno pour que la nuit ne finisse pas.</p>
+        </sc-if>
+
+        <sc-if value="{{ showLive }}" hint-placeholder-val="{{ true }}">
+          <section data-screen-label="Dans cette playlist">
+            <h2 style="margin:var(--space-10) 0 var(--space-4); font:600 var(--fs-md) var(--font-ui);">Dans cette playlist</h2>
+            <div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-sm); padding:var(--space-5);">
+              <div class="live-cols">
+                <sc-if value="{{ showArtistsCol }}" hint-placeholder-val="{{ true }}">
+                  <div>
+                    <div style="font:600 var(--fs-label) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-3); margin-bottom:var(--space-4);">Top artistes</div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, 76px); justify-content:space-between; gap:var(--space-4) var(--space-3);">
+                      <a href="#" style="display:flex; flex-direction:column; align-items:center; gap:var(--space-15); width:76px; color:var(--ink); text-align:center;" style-hover="color:var(--accent-ink);">
+                        <span style="width:48px; height:48px; border-radius:var(--r-pill); border:1px solid var(--ct-line); box-sizing:border-box; background:linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) 292), oklch(var(--fb-l2) var(--fb-c2) 292));"></span>
+                        <span style="font:500 var(--fs-xs) var(--font-ui); max-width:76px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Dimmish</span>
+                        <span style="font:500 var(--fs-nano) var(--font-mono); color:var(--ink-3);">6 tracks</span>
+                      </a>
+                      <a href="#" style="display:flex; flex-direction:column; align-items:center; gap:var(--space-15); width:76px; color:var(--ink); text-align:center;" style-hover="color:var(--accent-ink);">
+                        <span style="width:48px; height:48px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--accent-ink); display:flex; align-items:center; justify-content:center; font:600 var(--fs-sm) var(--font-ui);">NZ</span>
+                        <span style="font:500 var(--fs-xs) var(--font-ui); max-width:76px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Nu Zau</span>
+                        <span style="font:500 var(--fs-nano) var(--font-mono); color:var(--ink-3);">5 tracks</span>
+                      </a>
+                      <a href="#" style="display:flex; flex-direction:column; align-items:center; gap:var(--space-15); width:76px; color:var(--ink); text-align:center;" style-hover="color:var(--accent-ink);">
+                        <span style="width:48px; height:48px; border-radius:var(--r-pill); border:1px solid var(--ct-line); box-sizing:border-box; background:linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) 162), oklch(var(--fb-l2) var(--fb-c2) 162));"></span>
+                        <span style="font:500 var(--fs-xs) var(--font-ui); max-width:76px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Kristin Velvet</span>
+                        <span style="font:500 var(--fs-nano) var(--font-mono); color:var(--ink-3);">4 tracks</span>
+                      </a>
+                      <a href="#" style="display:flex; flex-direction:column; align-items:center; gap:var(--space-15); width:76px; color:var(--ink); text-align:center;" style-hover="color:var(--accent-ink);">
+                        <span style="width:48px; height:48px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--accent-ink); display:flex; align-items:center; justify-content:center; font:600 var(--fs-sm) var(--font-ui);">LN</span>
+                        <span style="font:500 var(--fs-xs) var(--font-ui); max-width:76px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Luke Nash</span>
+                        <span style="font:500 var(--fs-nano) var(--font-mono); color:var(--ink-3);">4 tracks</span>
+                      </a>
+                      <a href="#" style="display:flex; flex-direction:column; align-items:center; gap:var(--space-15); width:76px; color:var(--ink); text-align:center;" style-hover="color:var(--accent-ink);">
+                        <span style="width:48px; height:48px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--accent-ink); display:flex; align-items:center; justify-content:center; font:600 var(--fs-sm) var(--font-ui);">MJ</span>
+                        <span style="font:500 var(--fs-xs) var(--font-ui); max-width:76px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Marijn Jansen</span>
+                        <span style="font:500 var(--fs-nano) var(--font-mono); color:var(--ink-3);">3 tracks</span>
+                      </a>
+                      <a href="#" style="display:flex; flex-direction:column; align-items:center; gap:var(--space-15); width:76px; color:var(--ink); text-align:center;" style-hover="color:var(--accent-ink);">
+                        <span style="width:48px; height:48px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--accent-ink); display:flex; align-items:center; justify-content:center; font:600 var(--fs-sm) var(--font-ui);">AJ</span>
+                        <span style="font:500 var(--fs-xs) var(--font-ui); max-width:76px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">AJK</span>
+                        <span style="font:500 var(--fs-nano) var(--font-mono); color:var(--ink-3);">3 tracks</span>
+                      </a>
+                    </div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ showGenresCol }}" hint-placeholder-val="{{ true }}">
+                  <div>
+                    <div style="font:600 var(--fs-label) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-3); margin-bottom:var(--space-4);">Genres dominants</div>
+                    <div style="display:flex; flex-direction:column; gap:var(--space-3);">
+                      <div style="display:grid; grid-template-columns:120px 1fr 40px; gap:var(--space-3); align-items:center;">
+                        <a href="#" style="display:inline-flex;"><x-import component-from-global-scope="DiggyDesignSystem_50bb09.StyleTag" pillar="house" hint-size="70px,22px">House</x-import></a>
+                        <span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:34%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-house));"></span></span>
+                        <span style="font:500 var(--fs-xs) var(--font-mono); color:var(--ink-2); text-align:right;">34 %</span>
+                      </div>
+                      <div style="display:grid; grid-template-columns:120px 1fr 40px; gap:var(--space-3); align-items:center;">
+                        <a href="#" style="display:inline-flex;"><x-import component-from-global-scope="DiggyDesignSystem_50bb09.StyleTag" pillar="house" depth="1" hint-size="96px,22px">Tech House</x-import></a>
+                        <span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:26%; border-radius:var(--r-pill); background:oklch(calc(var(--tag-dot-l) + 0.04) calc(var(--tag-dot-c) * 0.81) var(--hue-house));"></span></span>
+                        <span style="font:500 var(--fs-xs) var(--font-mono); color:var(--ink-2); text-align:right;">26 %</span>
+                      </div>
+                      <div style="display:grid; grid-template-columns:120px 1fr 40px; gap:var(--space-3); align-items:center;">
+                        <a href="#" style="display:inline-flex;"><x-import component-from-global-scope="DiggyDesignSystem_50bb09.StyleTag" pillar="house" depth="1" hint-size="96px,22px">Deep House</x-import></a>
+                        <span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:17%; border-radius:var(--r-pill); background:oklch(calc(var(--tag-dot-l) + 0.04) calc(var(--tag-dot-c) * 0.81) var(--hue-house));"></span></span>
+                        <span style="font:500 var(--fs-xs) var(--font-mono); color:var(--ink-2); text-align:right;">17 %</span>
+                      </div>
+                      <div style="display:grid; grid-template-columns:120px 1fr 40px; gap:var(--space-3); align-items:center;">
+                        <a href="#" style="display:inline-flex;"><x-import component-from-global-scope="DiggyDesignSystem_50bb09.StyleTag" pillar="techno" hint-size="74px,22px">Techno</x-import></a>
+                        <span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:12%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-techno));"></span></span>
+                        <span style="font:500 var(--fs-xs) var(--font-mono); color:var(--ink-2); text-align:right;">12 %</span>
+                      </div>
+                      <div style="display:grid; grid-template-columns:120px 1fr 40px; gap:var(--space-3); align-items:center;">
+                        <a href="#" style="display:inline-flex;"><x-import component-from-global-scope="DiggyDesignSystem_50bb09.StyleTag" pillar="autres" hint-size="70px,22px">Autres</x-import></a>
+                        <span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:11%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) 0 0);"></span></span>
+                        <span style="font:500 var(--fs-xs) var(--font-mono); color:var(--ink-2); text-align:right;">11 %</span>
+                      </div>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </section>
+        </sc-if>
+
+        <section data-screen-label="Tracks détectées">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-3); margin:var(--space-10) 0 var(--space-3);">
+            <h2 style="margin:0; font:600 var(--fs-md) var(--font-ui);">Tracks détectées</h2>
+            <span style="font:500 var(--fs-xs) var(--font-mono); color:var(--ink-3);">{{ detectedLabel }}</span>
+          </div>
+          <sc-if value="{{ hasTracks }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex; flex-direction:column; gap:var(--space-2);">
+              <sc-for list="{{ trRows }}" as="it" hint-placeholder-count="8">
+                <div class="tc-row tc-grid" onClick="{{ it.toggle }}" style="display:grid; gap:var(--space-3); align-items:center; padding:var(--space-2) var(--space-3); border:1px solid var(--line); border-radius:var(--r-sm); cursor:pointer; transition:background 0.12s, border-color 0.12s; background:{{ it.rowBg }};" style-hover="border-color:var(--line-2); background:{{ it.hoverBg }};">
+                  <div style="position:relative; width:36px; height:36px; flex:none;">
+                    <div style="width:36px; height:36px; border-radius:var(--r-xs); border:1px solid var(--ct-line); box-sizing:border-box; background:{{ it.coverBg }};"></div>
+                    <sc-if value="{{ it.prev }}" hint-placeholder-val="{{ false }}">
+                      <div class="tc-play" style="position:absolute; inset:0; border-radius:var(--r-xs); background:var(--overlay-soft); color:var(--overlay-text); display:flex; align-items:center; justify-content:center;">
+                        <svg width="14" height="14" viewBox="0 0 20 20"><path d="{{ it.playPath }}" fill="currentColor"></path></svg>
+                      </div>
+                    </sc-if>
+                    <div style="position:absolute; right:-3px; bottom:-3px; width:12px; height:12px; border-radius:var(--r-pill); background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;">
+                      <span style="width:5px; height:5px; border-radius:var(--r-pill); box-sizing:border-box; background:{{ it.dotBg }}; border:{{ it.dotBorder }};"></span>
+                    </div>
+                  </div>
+                  <div style="min-width:0;">
+                    <div style="font:600 var(--fs-sm) var(--font-ui); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ it.title }}</div>
+                    <div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                      <sc-if value="{{ it.hasLinks }}" hint-placeholder-val="{{ true }}">
+                        <sc-for list="{{ it.artistLinks }}" as="a2" hint-placeholder-count="1">
+                          <a href="#" onClick="{{ a2.stop }}" style="color:var(--ink-3);" style-hover="color:var(--ink); text-decoration:underline;">{{ a2.name }}</a><span>{{ a2.sep }}</span>
+                        </sc-for>
+                      </sc-if>
+                      <sc-if value="{{ it.isFlat }}" hint-placeholder-val="{{ false }}">
+                        <span>{{ it.artistFlat }}</span>
+                      </sc-if>
+                    </div>
+                  </div>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">{{ it.bpm }}</span>
+                  <span style="font:500 var(--fs-sm) var(--font-mono); color:var(--accent-ink);">{{ it.key }}</span>
+                  <span class="tc-dur" style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">{{ it.dur }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ emptyTracks }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px solid var(--line); border-radius:var(--r-md); background:var(--surface); padding:var(--space-10) var(--space-6); text-align:center;">
+              <div style="width:56px; height:56px; margin:0 auto var(--space-4); border-radius:var(--r-md); border:1px solid var(--ct-line); box-sizing:border-box; background:repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px);"></div>
+              <div style="font:500 var(--fs-base) var(--font-ui); color:var(--ink-2);">Aucune track détectée pour l'instant</div>
+              <div style="font:400 var(--fs-sm) var(--font-ui); color:var(--ink-3); margin-top:var(--space-1);">La playlist est surveillée — les tracks apparaîtront après le premier crawl.</div>
+            </div>
+          </sc-if>
+        </section>
+
+        <sc-if value="{{ isAdmin }}" hint-placeholder-val="{{ true }}">
+          <section style="margin-top:var(--space-10); padding:var(--space-4); border:1px dashed var(--line-2); border-radius:var(--r-md); color:var(--ink-3); font:400 var(--fs-sm) var(--font-ui);" data-screen-label="Admin">
+            <span style="font:600 var(--fs-label) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; margin-right:var(--space-2);">Admin</span>
+            AdminCard existante (fetch artwork Deezer), inchangée — rendue seulement si <span style="font-family:var(--font-mono);">is_admin</span>, déplacée tout en bas de page. Hors périmètre de cette refonte.
+          </section>
+        </sc-if>
+
+      </div>
+    </div>
+  </div>
+
+  <div id="nuancier" style="border-top:1px solid var(--line); background:var(--bg);" data-screen-label="Nuancier">
+    <div class="detail-view">
+      <div class="pdp-pad" style="padding-top:var(--space-8); padding-bottom:var(--space-15x);">
+        <h2 style="margin:0; font:700 var(--fs-lg) var(--font-ui);">Nuancier — Playlist Detail</h2>
+        <p style="margin:var(--space-2) 0 var(--space-6); font:400 var(--fs-sm) var(--font-ui); color:var(--ink-2);">Extension TrackCard (spec : BRIEF-trackcard-extension.md), bannière crawl et états page. Les 4 composants transverses restent spécifiés dans BRIEF-composants-transverses.md.</p>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:var(--space-4); align-items:start;">
+
+          <div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-sm); padding:var(--space-4);">
+            <div style="font:600 var(--fs-title) var(--font-ui);">TrackCard ligne — extension</div>
+            <div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3); margin:var(--space-05) 0 var(--space-4);">Durée + artistes[] cliquables, additifs — sans les nouvelles props, rendu identique à aujourd'hui</div>
+            <div style="display:flex; flex-direction:column; gap:var(--space-3);">
+              <div>
+                <div style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:var(--space-1);">défaut actuel — inchangé</div>
+                <div style="display:grid; grid-template-columns:36px 1fr 42px 30px; gap:var(--space-3); align-items:center; padding:var(--space-2) var(--space-3); background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);">
+                  <div style="position:relative; width:36px; height:36px;"><div style="width:36px; height:36px; border-radius:var(--r-xs); border:1px solid var(--ct-line); box-sizing:border-box; background:linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) 162), oklch(var(--fb-l2) var(--fb-c2) 162));"></div><div style="position:absolute; right:-3px; bottom:-3px; width:12px; height:12px; border-radius:var(--r-pill); background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;"><span style="width:5px; height:5px; border-radius:var(--r-pill); background:var(--pos);"></span></div></div>
+                  <div style="min-width:0;"><div style="font:600 var(--fs-sm) var(--font-ui);">Waste My Time</div><div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3);">Nu Zau</div></div>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">129</span>
+                  <span style="font:500 var(--fs-sm) var(--font-mono); color:var(--accent-ink);">6A</span>
+                </div>
+              </div>
+              <div>
+                <div style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:var(--space-1);">+ durée (showDuration)</div>
+                <div style="display:grid; grid-template-columns:36px 1fr 42px 30px 44px; gap:var(--space-3); align-items:center; padding:var(--space-2) var(--space-3); background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);">
+                  <div style="position:relative; width:36px; height:36px;"><div style="width:36px; height:36px; border-radius:var(--r-xs); border:1px solid var(--ct-line); box-sizing:border-box; background:linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) 72), oklch(var(--fb-l2) var(--fb-c2) 72));"></div><div style="position:absolute; right:-3px; bottom:-3px; width:12px; height:12px; border-radius:var(--r-pill); background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;"><span style="width:5px; height:5px; border-radius:var(--r-pill); background:var(--pos);"></span></div></div>
+                  <div style="min-width:0;"><div style="font:600 var(--fs-sm) var(--font-ui);">Pumpin' It Up</div><div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3);">Marijn Jansen</div></div>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">130</span>
+                  <span style="font:500 var(--fs-sm) var(--font-mono); color:var(--accent-ink);">3A</span>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">3:13</span>
+                </div>
+              </div>
+              <div>
+                <div style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:var(--space-1);">+ artistes[] cliquables — jamais supposer un seul</div>
+                <div style="display:grid; grid-template-columns:36px 1fr 42px 30px 44px; gap:var(--space-3); align-items:center; padding:var(--space-2) var(--space-3); background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);">
+                  <div style="position:relative; width:36px; height:36px;"><div style="width:36px; height:36px; border-radius:var(--r-xs); border:1px solid var(--ct-line); box-sizing:border-box; background:linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) 292), oklch(var(--fb-l2) var(--fb-c2) 292));"></div><div style="position:absolute; right:-3px; bottom:-3px; width:12px; height:12px; border-radius:var(--r-pill); background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;"><span style="width:5px; height:5px; border-radius:var(--r-pill); box-sizing:border-box; border:1.5px dashed var(--ink-3);"></span></div></div>
+                  <div style="min-width:0;"><div style="font:600 var(--fs-sm) var(--font-ui);">Nova (feat. Lady Vale)</div><div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><a href="#" style="color:var(--ink-3);" style-hover="color:var(--ink); text-decoration:underline;">Dimmish</a><span>, </span><a href="#" style="color:var(--ink-3);" style-hover="color:var(--ink); text-decoration:underline;">Lady Vale</a></div></div>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">133</span>
+                  <span style="font:500 var(--fs-sm) var(--font-mono); color:var(--accent-ink);">9A</span>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">3:29</span>
+                </div>
+              </div>
+              <div>
+                <div style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:var(--space-1);">fallback chaîne plate — non cliquable · durée null → tiret</div>
+                <div style="display:grid; grid-template-columns:36px 1fr 42px 30px 44px; gap:var(--space-3); align-items:center; padding:var(--space-2) var(--space-3); background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);">
+                  <div style="position:relative; width:36px; height:36px;"><div style="width:36px; height:36px; border-radius:var(--r-xs); border:1px solid var(--ct-line); box-sizing:border-box; background:repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px);"></div><div style="position:absolute; right:-3px; bottom:-3px; width:12px; height:12px; border-radius:var(--r-pill); background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;"><span style="width:5px; height:5px; border-radius:var(--r-pill); box-sizing:border-box; border:1.5px dashed var(--ink-3);"></span></div></div>
+                  <div style="min-width:0;"><div style="font:600 var(--fs-sm) var(--font-ui);">CLOSER 2 EACH OTHER</div><div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3);">Julia Angr</div></div>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">160</span>
+                  <span style="font:500 var(--fs-sm) var(--font-mono); color:var(--accent-ink);">7A</span>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-3); text-align:right;">—</span>
+                </div>
+              </div>
+              <div>
+                <div style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:var(--space-1);">playing — accent-wash + pause, inchangé</div>
+                <div style="display:grid; grid-template-columns:36px 1fr 42px 30px 44px; gap:var(--space-3); align-items:center; padding:var(--space-2) var(--space-3); background:var(--accent-wash); border:1px solid var(--line); border-radius:var(--r-sm);">
+                  <div style="position:relative; width:36px; height:36px;"><div style="width:36px; height:36px; border-radius:var(--r-xs); border:1px solid var(--ct-line); box-sizing:border-box; background:linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) 242), oklch(var(--fb-l2) var(--fb-c2) 242));"></div><div class="tc-play is-on" style="position:absolute; inset:0; border-radius:var(--r-xs); background:var(--overlay-soft); color:var(--overlay-text); display:flex; align-items:center; justify-content:center;"><svg width="14" height="14" viewBox="0 0 20 20"><path d="M5 4h3.6v12H5zM11.4 4H15v12h-3.6z" fill="currentColor"></path></svg></div><div style="position:absolute; right:-3px; bottom:-3px; width:12px; height:12px; border-radius:var(--r-pill); background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;"><span style="width:5px; height:5px; border-radius:var(--r-pill); box-sizing:border-box; border:1.5px dashed var(--ink-3);"></span></div></div>
+                  <div style="min-width:0;"><div style="font:600 var(--fs-sm) var(--font-ui);">Gen X</div><div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3);"><a href="#" style="color:var(--ink-3);" style-hover="color:var(--ink); text-decoration:underline;">Vincent Casanova</a></div></div>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">130</span>
+                  <span style="font:500 var(--fs-sm) var(--font-mono); color:var(--accent-ink);">8B</span>
+                  <span style="font:400 var(--fs-sm) var(--font-mono); color:var(--ink-2); text-align:right;">4:16</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-sm); padding:var(--space-4);">
+            <div style="font:600 var(--fs-title) var(--font-ui);">Bannière crawl</div>
+            <div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3); margin:var(--space-05) 0 var(--space-4);">Sous le hero · poll temps réel · disparaît à la fin (done / null)</div>
+            <div style="display:flex; flex-direction:column; gap:var(--space-3);">
+              <div style="display:flex; align-items:center; gap:var(--space-3); padding:var(--space-25) var(--space-4); background:var(--bg); border:1px solid var(--line); border-radius:var(--r-md);">
+                <span style="width:8px; height:8px; border-radius:var(--r-pill); background:var(--ink-3); flex:none;"></span>
+                <span style="font:400 var(--fs-sm) var(--font-ui); color:var(--ink-2); flex:1;">Crawl en file d'attente — la playlist sera analysée sous peu.</span>
+                <span style="font:600 var(--fs-nano) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-3);">queued</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:var(--space-3); padding:var(--space-25) var(--space-4); background:var(--accent-soft); border:1px solid var(--accent-soft-2); border-radius:var(--r-md);">
+                <span style="width:8px; height:8px; border-radius:var(--r-pill); background:var(--accent); flex:none; animation:pdp-dot 1.2s ease-in-out infinite;"></span>
+                <span style="font:500 var(--fs-sm) var(--font-ui); color:var(--accent-ink); flex:1;">Crawl en cours — les tracks détectées se mettront à jour à la fin.</span>
+                <span style="font:600 var(--fs-nano) var(--font-mono); letter-spacing:0.07em; text-transform:uppercase; color:var(--accent-ink);">running</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-sm); padding:var(--space-4);">
+            <div style="font:600 var(--fs-title) var(--font-ui);">États page</div>
+            <div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3); margin:var(--space-05) 0 var(--space-4);">Loading via l'utilitaire global .state · introuvable · jamais crawlée</div>
+            <div style="display:flex; flex-direction:column; gap:var(--space-3);">
+              <div style="border:1px solid var(--line); border-radius:var(--r-sm); padding:var(--space-6); text-align:center; font:400 var(--fs-sm) var(--font-ui); color:var(--ink-3); animation:pdp-pulse 1.2s ease-in-out infinite;">Chargement…</div>
+              <div style="border:1px solid var(--line); border-radius:var(--r-sm); padding:var(--space-6); text-align:center;">
+                <div style="font:500 var(--fs-base) var(--font-ui); color:var(--ink-2); margin-bottom:var(--space-3);">Playlist introuvable</div>
+                <button class="btn btn--sm">Retour aux playlists</button>
+              </div>
+              <div style="border:1px solid var(--line); border-radius:var(--r-sm); padding:var(--space-5); text-align:center;">
+                <div style="width:40px; height:40px; margin:0 auto var(--space-3); border-radius:var(--r-sm); border:1px solid var(--ct-line); box-sizing:border-box; background:repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px);"></div>
+                <div style="font:500 var(--fs-sm) var(--font-ui); color:var(--ink-2);">Aucune track détectée pour l'instant</div>
+                <div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3); margin-top:var(--space-05);">Dernier crawl : jamais — la bannière crawl peut être active au-dessus</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-sm); padding:var(--space-4);">
+            <div style="font:600 var(--fs-title) var(--font-ui);">Genres dominants — teinte par famille</div>
+            <div style="font:400 var(--fs-xs) var(--font-ui); color:var(--ink-3); margin:var(--space-05) 0 var(--space-4);">Barres teintées via --tag-dot-* et les hues piliers · « autres » chroma 0</div>
+            <div style="display:flex; flex-direction:column; gap:var(--space-2);">
+              <div style="display:grid; grid-template-columns:82px 1fr; gap:var(--space-3); align-items:center;"><span style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);">house</span><span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:70%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-house));"></span></span></div>
+              <div style="display:grid; grid-template-columns:82px 1fr; gap:var(--space-3); align-items:center;"><span style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);">techno</span><span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:70%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-techno));"></span></span></div>
+              <div style="display:grid; grid-template-columns:82px 1fr; gap:var(--space-3); align-items:center;"><span style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);">trance</span><span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:70%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-trance));"></span></span></div>
+              <div style="display:grid; grid-template-columns:82px 1fr; gap:var(--space-3); align-items:center;"><span style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);">dnb</span><span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:70%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-dnb));"></span></span></div>
+              <div style="display:grid; grid-template-columns:82px 1fr; gap:var(--space-3); align-items:center;"><span style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);">hardcore</span><span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:70%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-hardcore));"></span></span></div>
+              <div style="display:grid; grid-template-columns:82px 1fr; gap:var(--space-3); align-items:center;"><span style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);">harddance</span><span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:70%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) var(--tag-dot-c) var(--hue-harddance));"></span></span></div>
+              <div style="display:grid; grid-template-columns:82px 1fr; gap:var(--space-3); align-items:center;"><span style="font:500 var(--fs-nano) var(--font-mono); letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3);">autres</span><span style="display:block; height:6px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden;"><span style="display:block; height:100%; width:70%; border-radius:var(--r-pill); background:oklch(var(--tag-dot-l) 0 0);"></span></span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;banniereCrawl&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;aucune&quot;,&quot;queued&quot;,&quot;running&quot;],&quot;default&quot;:&quot;aucune&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;États démo&quot;},&quot;jamaisCrawlee&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;États démo&quot;},&quot;artworkHero&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Hero&quot;},&quot;titrePresent&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Hero&quot;},&quot;ownerPresent&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Hero&quot;},&quot;descriptionPresente&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;États démo&quot;},&quot;blocVivant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;artistes + genres&quot;,&quot;artistes seuls&quot;,&quot;genres seuls&quot;,&quot;vide (masqué)&quot;],&quot;default&quot;:&quot;artistes + genres&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;États démo&quot;},&quot;isAdmin&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;États démo&quot;}}">
+class Component extends DCLogic {
+  state = { theme: 'dark', narrow: false, playingId: null };
+  tracks = [
+    { id: 't1', title: "Pumpin' It Up", artists: ['Marijn Jansen'], bpm: 130, key: '3A', dur: '3:13', lib: true, prev: true, hue: 72 },
+    { id: 't2', title: 'Gen X', artists: ['Vincent Casanova'], bpm: 130, key: '8B', dur: '4:16', lib: false, prev: true, hue: 242 },
+    { id: 't3', title: 'CLOSER 2 EACH OTHER', artist: 'Julia Angr', bpm: 160, key: '7A', dur: '2:14', lib: false, prev: true, hue: 0, art: false },
+    { id: 't4', title: 'Waste My Time', artists: ['Nu Zau'], bpm: 129, key: '6A', dur: '3:50', lib: true, prev: true, hue: 162 },
+    { id: 't5', title: 'Nova (feat. Lady Vale)', artists: ['Dimmish', 'Lady Vale'], bpm: 133, key: '9A', dur: '3:29', lib: false, prev: true, hue: 292 },
+    { id: 't6', title: 'The Trick', artists: ['Luke Nash'], bpm: 130, key: '11A', dur: '5:56', lib: false, prev: true, hue: 72 },
+    { id: 't7', title: "Block Steppa'", artists: ['Dyl Poole'], bpm: 130, key: '10A', dur: '5:57', lib: false, prev: true, hue: 242 },
+    { id: 't8', title: 'Stolen Faces', artists: ['Kristin Velvet'], bpm: 130, key: '3B', dur: '3:43', lib: true, prev: true, hue: 162 },
+    { id: 't9', title: 'Be Rich', artists: ['AJK'], bpm: 130, key: '9B', dur: '2:44', lib: false, prev: false, hue: 0, art: false },
+    { id: 't10', title: 'On The Run (JAYC Remix Radio Edit)', artists: ['Dale Hart', 'JAYC'], bpm: 132, key: '8A', dur: '1:07', lib: false, prev: true, hue: 28 },
+    { id: 't11', title: 'Lost At Sea', artists: ['Late London'], bpm: 127, key: '11B', dur: '3:24', lib: false, prev: true, hue: 338 },
+  ];
+  row(t) {
+    const playing = this.state.playingId === t.id;
+    const hasLinks = Array.isArray(t.artists);
+    return {
+      id: t.id, title: t.title, bpm: t.bpm, key: t.key, dur: t.dur, prev: t.prev,
+      coverBg: t.art === false
+        ? 'repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px)'
+        : 'linear-gradient(135deg, oklch(var(--fb-l1) var(--fb-c1) ' + t.hue + '), oklch(var(--fb-l2) var(--fb-c2) ' + t.hue + '))',
+      dotBg: t.lib ? 'var(--pos)' : 'transparent',
+      dotBorder: t.lib ? 'none' : '1.5px dashed var(--ink-3)',
+      rowBg: playing ? 'var(--accent-wash)' : 'var(--surface)',
+      hoverBg: playing ? 'var(--accent-wash)' : 'var(--surface-2)',
+      playPath: playing ? 'M5 4h3.6v12H5zM11.4 4H15v12h-3.6z' : 'M6 4l11 6-11 6z',
+      toggle: () => { if (t.prev) this.setState({ playingId: playing ? null : t.id }); },
+      hasLinks, isFlat: !hasLinks, artistFlat: t.artist || '',
+      artistLinks: (t.artists || []).map((n, i, arr) => ({
+        name: n, sep: i < arr.length - 1 ? ', ' : '',
+        stop: (e) => { if (e && e.stopPropagation) e.stopPropagation(); },
+      })),
+    };
+  }
+  renderVals() {
+    const s = this.state;
+    const crawl = this.props.banniereCrawl ?? 'aucune';
+    const jamais = !!this.props.jamaisCrawlee;
+    const bloc = this.props.blocVivant ?? 'artistes + genres';
+    const showLive = !jamais && bloc !== 'vide (masqué)';
+    return {
+      theme: s.theme,
+      themeLabel: s.theme === 'dark' ? 'Thème light' : 'Thème dark',
+      toggleTheme: () => this.setState({ theme: s.theme === 'dark' ? 'light' : 'dark' }),
+      viewLabel: s.narrow ? 'Desktop' : '375 px',
+      toggleView: () => this.setState({ narrow: !s.narrow }),
+      pageW: s.narrow ? '375px' : '100%',
+      pageShadow: s.narrow ? 'var(--shadow-lg)' : 'none',
+      artworkOn: this.props.artworkHero ?? true,
+      artworkOff: !(this.props.artworkHero ?? true),
+      titreOn: this.props.titrePresent ?? true,
+      titreOff: !(this.props.titrePresent ?? true),
+      ownerOn: this.props.ownerPresent ?? true,
+      descOn: this.props.descriptionPresente ?? true,
+      crawlQueued: crawl === 'queued',
+      crawlRunning: crawl === 'running',
+      lastCrawl: jamais ? 'jamais' : '06/07/2026',
+      lastCrawlColor: jamais ? 'var(--ink-3)' : 'var(--ink)',
+      showLive,
+      showArtistsCol: showLive && bloc !== 'genres seuls',
+      showGenresCol: showLive && bloc !== 'artistes seuls',
+      detectedLabel: jamais ? '0 track' : '87 tracks',
+      hasTracks: !jamais,
+      emptyTracks: jamais,
+      trRows: jamais ? [] : this.tracks.map((t) => this.row(t)),
+      isAdmin: this.props.isAdmin ?? true,
+    };
+  }
+}
+
+</script>
+</body>
+</html>
