@@ -191,6 +191,28 @@
         </TrackCard>
       </div>
 
+      <h3 class="ds-h3 mono">
+        TrackCard étendu · durée + artistes cliquables
+        <span class="ds-tag">refonte Playlist Detail</span>
+      </h3>
+      <div class="ds-stack">
+        <!-- défaut inchangé -->
+        <TrackCard :track="demoTrackExt" :show-artist="true" />
+        <!-- + colonne durée -->
+        <TrackCard :track="demoTrackExt" :show-artist="true" :show-duration="true" />
+        <!-- artistes cliquables (liens /artist/:id) -->
+        <TrackCard :track="demoTrackDuo" :show-artist="true" :show-duration="true" />
+        <!-- fallback chaîne plate (pas de artists[]) -->
+        <TrackCard :track="demoTrack" :show-artist="true" :show-duration="true" />
+        <!-- playing -->
+        <TrackCard
+          :track="demoTrackDuo"
+          :show-artist="true"
+          :show-duration="true"
+          :playing="true"
+        />
+      </div>
+
       <h3 class="ds-h3 mono">ScoreRing · sm &amp; md</h3>
       <div class="comp-row">
         <ScoreRing :score="0" />
@@ -237,6 +259,18 @@ const demoTrack = {
   has_artwork: false,
   has_preview: true,
   in_lib: true,
+}
+// Extension demos: with a duration, and with clickable artists[].
+const demoTrackExt = { ...demoTrack, duration_ms: 384000 }
+const demoTrackDuo = {
+  ...demoTrack,
+  title: 'Move for Me',
+  artist: 'Kaskade, deadmau5',
+  duration_ms: 447000,
+  artists: [
+    { id: 1, name: 'Kaskade' },
+    { id: 2, name: 'deadmau5' },
+  ],
 }
 const demoPlatforms = [
   'beatport',

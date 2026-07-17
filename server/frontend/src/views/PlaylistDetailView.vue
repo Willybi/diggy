@@ -1,162 +1,164 @@
 <template>
   <div class="detail-view">
     <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="!playlist" class="state">Playlist introuvable.</div>
+    <div v-else-if="!playlist" class="state state--empty">
+      <span>Playlist introuvable.</span>
+      <RouterLink to="/playlists" class="btn">Retour aux playlists</RouterLink>
+    </div>
     <template v-else>
-      <!-- 1. Hero -->
-      <PageHero
-        variant="square"
-        :image-src="playlist.has_artwork ? `/storage/playlist-artworks/${playlist.id}.jpg` : null"
-        :title="playlist.title || playlist.external_id"
-        :subtitle="heroSub"
-        :fallback-letter="(playlist.title || 'P')[0]"
-      >
-        <template #badges>
-          <SourceBadge :source="playlist.source" />
-        </template>
-        <template #actions>
-          <a v-if="externalUrl" class="btn-ghost" :href="externalUrl" target="_blank">
-            Voir sur {{ sourceLabel }} ↗
-          </a>
-          <button
-            v-if="playlist.followed"
-            class="btn-ghost btn-ghost--danger"
-            @click="toggleFollow"
-          >
-            Ne plus suivre
-          </button>
-          <button v-else class="btn-ghost btn-ghost--accent" @click="toggleFollow">Suivre</button>
-        </template>
-      </PageHero>
+      <!-- Back link -->
+      <RouterLink to="/playlists" class="dv-back">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+        Playlists
+      </RouterLink>
 
-      <!-- 2. Crawl status banner -->
+      <!-- 1. Hero -->
+      <section class="hero">
+        <div class="hero-cover">
+          <Artwork size="hero" :src="coverSrc" :alt="playlist.title || playlist.external_id" />
+        </div>
+
+        <div class="hero-main">
+          <h1 class="hero-title" :class="{ 'hero-title--id': !playlist.title }">
+            {{ playlist.title || playlist.external_id }}
+          </h1>
+
+          <div v-if="ownerLabel" class="hero-owner">{{ ownerLabel }}</div>
+
+          <!-- Identity stats (P2) — Tracks · Dernier crawl -->
+          <div class="hero-stats">
+            <div v-if="playlist.track_count != null" class="stat-cell">
+              <span class="stat-label">Tracks</span>
+              <span class="stat-val">{{ playlist.track_count }}</span>
+            </div>
+            <div class="stat-cell">
+              <span class="stat-label">Dernier crawl</span>
+              <span class="stat-val" :class="{ 'stat-val--muted': !playlist.last_crawled_at }">
+                {{ playlist.last_crawled_at ? fmtDate(playlist.last_crawled_at) : 'jamais' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Source link (P3) — unique hero action -->
+          <div v-if="externalUrl" class="hero-source">
+            <PlatformLink :platform="playlist.source" :href="externalUrl" size="md" />
+            <span class="hero-source-tx">
+              <span class="hero-source-label">Source</span>
+              <span class="hero-source-name">{{ sourceLabel }}</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Crawl status banner (P4) -->
       <div v-if="crawlState" class="crawl-banner" :class="crawlState">
-        <span class="crawl-dot" />
-        {{ crawlState === 'running' ? 'Crawl en cours…' : "Crawl en file d'attente" }}
+        <span class="crawl-dot"></span>
+        <span class="crawl-text">{{ crawlText }}</span>
+        <span class="crawl-status">{{ crawlState === 'running' ? 'RUNNING' : 'QUEUED' }}</span>
       </div>
 
-      <!-- 3. StatStrip -->
-      <StatStrip :stats="stats" />
+      <!-- 3. Description (P5) -->
+      <p v-if="playlist.description" class="desc">{{ playlist.description }}</p>
 
-      <!-- 4. Description -->
-      <RelBlock v-if="playlist.description" title="Description">
-        <div class="desc-text">{{ playlist.description }}</div>
-      </RelBlock>
-
-      <!-- 5. Dans cette playlist (placeholder) -->
-      <RelBlock
-        v-if="playlist.top_artists?.length || playlist.top_genres?.length"
-        title="Dans cette playlist"
-      >
-        <div class="dom-grid">
-          <div v-if="playlist.top_artists?.length" class="dom-col">
-            <h3>Artistes principaux</h3>
-            <div class="dom-artists">
-              <RouterLink
-                v-for="a in playlist.top_artists"
-                :key="a.id"
-                class="dom-artist"
-                :to="`/artist/${a.id}`"
-              >
-                <img
-                  v-if="a.has_artwork"
-                  class="dom-av"
-                  :src="`/storage/artist-artworks/${a.id}.jpg`"
-                />
-                <span v-else class="dom-av"></span>
-                <span class="dom-name">{{ a.name }}</span>
-              </RouterLink>
-            </div>
-          </div>
-          <div v-if="playlist.top_genres?.length" class="dom-col">
-            <h3>Genres dominants</h3>
-            <div class="dom-genres">
-              <div v-for="g in playlist.top_genres" :key="g.name" class="dom-genre">
+      <!-- 4. Dans cette playlist (P6) -->
+      <section v-if="hasInsights" class="insights">
+        <h2 class="sec-title">Dans cette playlist</h2>
+        <div class="insights-card">
+          <div class="ins-col">
+            <template v-if="topArtists.length">
+              <span class="ins-microlabel">Top artistes</span>
+              <div class="ins-artists">
                 <RouterLink
-                  :to="`/style/${encodeURIComponent(g.name)}`"
-                  style="text-decoration: none"
+                  v-for="a in topArtists"
+                  :key="a.id"
+                  :to="`/artist/${a.id}`"
+                  class="ins-artist"
                 >
-                  <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+                  <img
+                    v-if="a.has_artwork"
+                    class="ins-av"
+                    :src="`/storage/artist-artworks/${a.id}.jpg`"
+                    :alt="a.name"
+                  />
+                  <span v-else class="ins-av ins-av--ph">{{ initials(a.name) }}</span>
+                  <span class="ins-artist-tx">
+                    <span class="ins-name">{{ a.name }}</span>
+                    <span class="ins-count"
+                      >{{ a.count }} {{ pl(a.count, 'track', 'tracks') }}</span
+                    >
+                  </span>
                 </RouterLink>
-                <span class="dom-bar" :data-fam="g.pillar">
-                  <i :style="`width:${g.pct}%`"></i>
-                </span>
-                <span class="dom-pct">{{ g.pct }}%</span>
               </div>
-            </div>
+            </template>
+          </div>
+
+          <div class="ins-col">
+            <template v-if="topGenres.length">
+              <span class="ins-microlabel">Genres dominants</span>
+              <div class="ins-genres">
+                <div v-for="g in topGenres" :key="g.name" class="ins-genre">
+                  <RouterLink :to="`/style/${encodeURIComponent(g.name)}`" class="ins-tag-link">
+                    <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+                  </RouterLink>
+                  <span class="ins-bar" :data-fam="g.pillar" :style="`--d:${g.depth}`">
+                    <i :style="`width:${g.pct}%`"></i>
+                  </span>
+                  <span class="ins-pct">{{ g.pct }}%</span>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
-      </RelBlock>
+      </section>
 
-      <!-- 6. Tracks -->
-      <RelBlock v-if="playlist.tracks.length" title="Tracks" :count="playlist.tracks.length">
-        <div class="mini-table-wrap">
-          <table class="mini-table">
-            <thead>
-              <tr>
-                <th class="mt-cover" />
-                <th class="mt-track">Track</th>
-                <th class="mt-num">BPM</th>
-                <th class="mt-num">Key</th>
-                <th class="mt-dur">Durée</th>
-                <th class="mt-lib"></th>
-                <th class="mt-preview" />
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="t in playlist.tracks" :key="t.catalog_id">
-                <td class="mt-cover">
-                  <div class="cover-mini">
-                    <img
-                      v-if="t.has_artwork"
-                      :src="`/storage/catalog-artworks/${t.catalog_id}.jpg`"
-                      :alt="t.title"
-                    />
-                  </div>
-                </td>
-                <td class="mt-track">
-                  <RouterLink :to="`/catalog/${t.catalog_id}`" class="mt-link">
-                    <span class="mt-title">{{ t.title }}</span>
-                    <span class="mt-artist"
-                      ><ArtistLinks :artists="t.artists" :fallback="t.artist || '—'"
-                    /></span>
-                  </RouterLink>
-                </td>
-                <td class="mt-num mono">{{ t.bpm ? fmtBpm(t.bpm) : '—' }}</td>
-                <td class="mt-num mono">{{ t.key || '—' }}</td>
-                <td class="mt-dur mono">{{ fmtMs(t.duration_ms) }}</td>
-                <td class="mt-lib"><LibDot :in-lib="t.in_lib" /></td>
-                <td class="mt-preview">
-                  <span
-                    v-if="t.has_preview"
-                    class="play-btn"
-                    :class="{ 'play-btn--playing': player.isCurrent(t.catalog_id) }"
-                    @click="playTrack(t)"
-                  >
-                    <svg
-                      v-if="!(player.isCurrent(t.catalog_id) && player.playing)"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M8 5.5v13l11-6.5z" />
-                    </svg>
-                    <svg v-else viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M6 5h4v14H6zm8 0h4v14h-4z" />
-                    </svg>
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      <!-- 5. Tracks détectées -->
+      <section class="detected">
+        <header class="sec-head">
+          <h2 class="sec-title">Tracks détectées</h2>
+          <span v-if="detectedCards.length" class="sec-count">
+            {{ detectedCards.length }} {{ pl(detectedCards.length, 'track', 'tracks') }}
+          </span>
+        </header>
+
+        <div v-if="detectedCards.length" class="track-list">
+          <TrackCard
+            v-for="t in detectedCards"
+            :key="t.id"
+            :track="t"
+            show-artist
+            show-duration
+            :playing="rowPlaying(t.id)"
+            @play="playTrack(t)"
+            @click="goTrack(t.id)"
+          />
         </div>
-      </RelBlock>
 
-      <!-- 7. AdminCard (bottom) -->
+        <div v-else class="empty-crawl">
+          <span class="empty-ph"></span>
+          <p class="empty-title">Aucune track détectée pour l'instant</p>
+          <p class="empty-sub">
+            La playlist est surveillée — les tracks apparaîtront après le premier crawl.
+          </p>
+        </div>
+      </section>
+
+      <!-- 6. AdminCard — unchanged, gated is_admin, at the bottom -->
       <AdminCard v-if="!playlist.has_artwork && playlist.source === 'deezer'" variant="warn">
-        <button class="btn-ghost btn-ghost--accent" :disabled="fetchingArt" @click="fetchArtwork">
-          {{ fetchingArt ? 'Fetch en cours…' : 'Fetch artwork Deezer' }}
-        </button>
-        <span v-if="artMsg" class="admin-msg" :class="artMsgType">{{ artMsg }}</span>
+        <div class="admin-row">
+          <button class="btn-sync" :disabled="fetchingArt" @click="fetchArtwork">
+            {{ fetchingArt ? 'Fetch en cours…' : 'Fetch artwork Deezer' }}
+          </button>
+          <span v-if="artMsg" class="admin-msg" :class="artMsgType">{{ artMsg }}</span>
+        </div>
       </AdminCard>
     </template>
   </div>
@@ -164,22 +166,19 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useTaskPoll } from '../composables/useTaskPoll.js'
-import { useToast } from '../stores/toast.js'
-import PageHero from '../components/PageHero.vue'
-import StatStrip from '../components/StatStrip.vue'
-import RelBlock from '../components/RelBlock.vue'
-import ArtistLinks from '../components/ArtistLinks.vue'
-import LibDot from '../components/LibDot.vue'
-import SourceBadge from '../components/SourceBadge.vue'
+import Artwork from '../components/Artwork.vue'
+import TrackCard from '../components/TrackCard.vue'
+import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
-import { useAudioPlayer } from '../stores/audioPlayer'
-import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
 import AdminCard from '../components/AdminCard.vue'
+import { useAudioPlayer } from '../stores/audioPlayer'
+import { fmtDate, pl } from '../utils/format'
 
 const route = useRoute()
+const router = useRouter()
 const player = useAudioPlayer()
 const playlist = ref(null)
 const loading = ref(true)
@@ -188,6 +187,7 @@ const artMsg = ref('')
 const artMsgType = ref('')
 const crawlState = ref(null) // 'queued' | 'running' | null
 
+// Crawl status poll — mechanic unchanged (useTaskPoll, keyed timers, unmount cleanup).
 const crawlPoll = useTaskPoll(() => `/api/watchlist/${route.params.id}/crawl-status`, {
   intervalMs: 3000,
   async onData(data, { stop }) {
@@ -204,13 +204,9 @@ const crawlPoll = useTaskPoll(() => `/api/watchlist/${route.params.id}/crawl-sta
   },
 })
 
-const heroSub = computed(() => {
-  if (!playlist.value) return null
-  const owner = playlist.value.owner
-  if (!owner) return null
-  const srcLabel = sourceLabel.value
-  if (srcLabel && owner.toLowerCase() === srcLabel.toLowerCase()) return null
-  return owner
+const sourceLabel = computed(() => {
+  const map = { deezer: 'Deezer', tidal: 'TIDAL', spotify: 'Spotify' }
+  return map[playlist.value?.source] || null
 })
 
 const externalUrl = computed(() => {
@@ -228,21 +224,67 @@ const externalUrl = computed(() => {
   }
 })
 
-const sourceLabel = computed(() => {
-  const map = { deezer: 'Deezer', tidal: 'TIDAL', spotify: 'Spotify' }
-  return map[playlist.value?.source] || null
+// Owner is hidden when absent OR redundant with the source name (e.g. owner "Tidal").
+const ownerLabel = computed(() => {
+  const owner = playlist.value?.owner
+  if (!owner) return null
+  const src = sourceLabel.value
+  if (src && owner.toLowerCase() === src.toLowerCase()) return null
+  return owner
 })
 
-const stats = computed(() => {
-  if (!playlist.value) return []
-  const p = playlist.value
-  return [
-    { label: 'Tracks', value: p.track_count ?? p.tracks.length },
-    { label: 'Tracks radar', value: p.tracks.length },
-    { label: 'Dernier crawl', value: p.last_crawled_at ? fmtDate(p.last_crawled_at) : 'jamais' },
-    { label: 'Ajoutée le', value: p.created_at ? fmtDate(p.created_at) : '—' },
-  ]
+const crawlText = computed(() =>
+  crawlState.value === 'running'
+    ? 'Crawl en cours — les tracks détectées se mettront à jour à la fin.'
+    : "Crawl en file d'attente — la playlist sera analysée sous peu.",
+)
+
+const topArtists = computed(() => (playlist.value?.top_artists ?? []).slice(0, 6))
+const topGenres = computed(() => (playlist.value?.top_genres ?? []).slice(0, 5))
+const hasInsights = computed(() => topArtists.value.length > 0 || topGenres.value.length > 0)
+
+const coverSrc = computed(() =>
+  playlist.value?.has_artwork ? `/storage/playlist-artworks/${playlist.value.id}.jpg` : undefined,
+)
+
+// Detected tracks → TrackCard shape (id = catalog_id drives cover + play + row link),
+// newest detection first (detected_at desc).
+const detectedCards = computed(() => {
+  const tracks = [...(playlist.value?.tracks ?? [])]
+  tracks.sort((a, b) => {
+    const da = a.detected_at ? new Date(a.detected_at).getTime() : 0
+    const db = b.detected_at ? new Date(b.detected_at).getTime() : 0
+    return db - da
+  })
+  return tracks.map((t) => ({
+    id: t.catalog_id,
+    title: t.title,
+    artist: t.artist,
+    artists: t.artists,
+    bpm: t.bpm,
+    key: t.key,
+    duration_ms: t.duration_ms,
+    has_artwork: t.has_artwork,
+    has_preview: t.has_preview,
+    in_lib: t.in_lib,
+  }))
 })
+
+// Initials fallback for an artist avatar without artwork.
+function initials(name) {
+  return (name || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+}
+
+// A row is "playing" only while the audio is actually running.
+function rowPlaying(id) {
+  return player.isCurrent(id) && player.playing
+}
 
 async function fetchDetail() {
   try {
@@ -256,20 +298,6 @@ async function fetchDetail() {
     playlist.value = null
   } finally {
     loading.value = false
-  }
-}
-
-async function toggleFollow() {
-  if (!playlist.value) return
-  try {
-    if (playlist.value.followed) {
-      await api.delete(`/api/watchlist/${playlist.value.id}`)
-    } else {
-      await api.post(`/api/watchlist/${playlist.value.id}/follow`)
-    }
-    await fetchDetail()
-  } catch {
-    useToast().show('Erreur lors du suivi de la playlist')
   }
 }
 
@@ -291,14 +319,17 @@ async function fetchArtwork() {
 
 function playTrack(t) {
   player.play({
-    id: t.catalog_id,
-    catalog_id: t.catalog_id,
+    id: t.id,
+    catalog_id: t.id,
     title: t.title,
     artist: t.artist,
-    artist_id: t.artist_id,
     bpm: t.bpm,
     key: t.key,
   })
+}
+
+function goTrack(id) {
+  router.push(`/catalog/${id}`)
 }
 
 onMounted(fetchDetail)
@@ -306,193 +337,177 @@ onMounted(fetchDetail)
 
 <style scoped>
 .detail-view {
-  padding: var(--pad) calc(var(--pad) * 1.5);
+  padding: var(--space-6) var(--page-px) var(--space-10);
   max-width: var(--detail-max-w);
   margin-inline: auto;
   container-type: inline-size;
 }
-.desc-text {
-  padding: var(--space-3) var(--space-4);
-  font: 400 var(--fs-sm)/1.5 var(--font-ui);
-  color: var(--ink-2);
+
+/* Not-found state — stacked message + return button */
+.state--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
 }
-.btn-ghost {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
+
+/* Back link */
+.dv-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+  text-decoration: none;
   color: var(--ink-2);
   font: 500 var(--fs-sm)/1 var(--font-ui);
-  text-decoration: none;
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
+  transition: color 0.12s;
 }
-.btn-ghost:hover {
-  background: var(--surface-2);
+.dv-back:hover {
   color: var(--ink);
 }
-.btn-ghost--accent {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-.btn-ghost--accent:hover {
-  background: var(--accent-soft);
-}
-.btn-ghost--danger:hover {
-  color: var(--neg-ink);
-  border-color: var(--neg-ink);
-}
-
-/* Mini track table */
-.mini-table-wrap {
-  overflow-x: auto;
-}
-.mini-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--fs-sm);
-}
-.mini-table thead th {
-  text-align: left;
-  padding: var(--space-2) var(--space-3);
-  font: 500 var(--fs-label)/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
-}
-.mini-table tbody td {
-  padding: var(--space-15) var(--space-3);
-  vertical-align: middle;
-  border-bottom: 1px solid var(--line);
-}
-.mini-table tbody tr:last-child td {
-  border-bottom: none;
-}
-.mini-table tbody tr:hover td {
-  background: var(--surface-2);
-}
-
-.mt-lib {
-  width: 48px;
-  text-align: center;
-}
-.mt-cover {
-  width: 40px;
-  padding: var(--space-1) var(--space-2) !important;
-}
-.mt-track {
-  min-width: 180px;
-}
-.mt-num {
-  width: 56px;
-  text-align: center;
-}
-.mt-dur {
-  width: 56px;
-  text-align: center;
-}
-.mt-preview {
-  width: 40px;
-  text-align: center;
-}
-.mono {
-  font-family: var(--font-mono);
-  color: var(--ink-2);
-}
-
-.cover-mini {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line);
-  overflow: hidden;
-  background: var(--surface-2);
-}
-.cover-mini img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.mt-link {
-  text-decoration: none;
-  color: inherit;
-}
-.mt-link:hover .mt-title {
-  color: var(--accent-ink);
-}
-.mt-title {
-  display: block;
-  font-weight: 500;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mt-artist {
-  display: block;
-  font-size: var(--fs-sm);
-  color: var(--ink-2);
-}
-
-.play-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  cursor: pointer;
-  color: var(--ink-3);
-  transition:
-    color 0.12s,
-    background 0.12s;
-}
-.play-btn:hover {
-  color: var(--ink);
-  background: var(--surface-2);
-}
-.play-btn--playing {
-  color: var(--accent-ink);
-}
-.play-btn svg {
+.dv-back svg {
   width: 16px;
   height: 16px;
 }
 
-/* Crawl status banner */
+/* ============ HERO ============ */
+.hero {
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  gap: var(--space-8);
+  align-items: start;
+}
+.hero-cover {
+  width: 216px;
+  max-width: 100%;
+}
+.hero-cover :deep(.artwork--hero) {
+  width: 100%;
+}
+.hero-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.hero-title {
+  margin: 0;
+  font: 700 var(--fs-xl)/1.12 var(--font-ui);
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+/* Missing title → external_id rendered mono ("technical identifier", P9). */
+.hero-title--id {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+.hero-owner {
+  font: 400 var(--fs-sm)/1.3 var(--font-ui);
+  color: var(--ink-2);
+}
+
+/* Identity stats (P2) */
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-top: var(--space-1);
+}
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.stat-label {
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+.stat-val {
+  font: 600 var(--fs-md)/1 var(--font-mono);
+  color: var(--ink);
+}
+.stat-val--muted {
+  color: var(--ink-3);
+}
+
+/* Source link (P3) */
+.hero-source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-25);
+  margin-top: var(--space-1);
+}
+.hero-source-tx {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.hero-source-label {
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+.hero-source-name {
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  color: var(--ink-2);
+}
+
+/* ============ CRAWL BANNER (P4) ============ */
 .crawl-banner {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-3) 0;
+  margin-top: var(--space-6);
   padding: var(--space-25) var(--space-4);
-  border-radius: var(--r-sm);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
+  border-radius: var(--r-md);
 }
-.crawl-banner .crawl-dot {
-  width: 7px;
-  height: 7px;
+.crawl-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex: none;
 }
-.crawl-banner.running {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+.crawl-text {
+  flex: 1;
+  min-width: 0;
 }
-.crawl-banner.running .crawl-dot {
-  background: var(--accent-ink);
-  animation: pulse-dot 1.2s ease-in-out infinite;
+.crawl-status {
+  font: 500 var(--fs-nano)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 .crawl-banner.queued {
-  background: var(--surface-2);
-  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 .crawl-banner.queued .crawl-dot {
   background: var(--ink-3);
+}
+.crawl-banner.queued .crawl-text {
+  font: 400 var(--fs-sm)/1.3 var(--font-ui);
+  color: var(--ink-2);
+}
+.crawl-banner.queued .crawl-status {
+  color: var(--ink-3);
+}
+.crawl-banner.running {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-2);
+}
+.crawl-banner.running .crawl-dot {
+  background: var(--accent);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+.crawl-banner.running .crawl-text {
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
+  color: var(--accent-ink);
+}
+.crawl-banner.running .crawl-status {
+  color: var(--accent-ink);
 }
 @keyframes pulse-dot {
   0%,
@@ -504,8 +519,239 @@ onMounted(fetchDetail)
   }
 }
 
+/* ============ DESCRIPTION (P5) ============ */
+.desc {
+  margin: var(--space-6) 0 0;
+  max-width: 640px;
+  font: 400 var(--fs-sm)/1.55 var(--font-ui);
+  color: var(--ink-2);
+}
+
+/* ============ SECTION HEADS ============ */
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.sec-title {
+  margin: 0;
+  font: 600 var(--fs-md)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.sec-count {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ============ DANS CETTE PLAYLIST (P6) ============ */
+.insights {
+  margin-top: var(--space-8);
+}
+.insights .sec-title {
+  margin-bottom: var(--space-3);
+}
+.insights-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-8);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+}
+.ins-col {
+  min-width: 0;
+}
+.ins-microlabel {
+  display: block;
+  margin-bottom: var(--space-3);
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+
+/* Top artists */
+.ins-artists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.ins-artist {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 calc(50% - var(--space-3));
+  min-width: 0;
+  text-decoration: none;
+}
+.ins-av {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  flex: none;
+  border: 1px solid var(--line);
+  object-fit: cover;
+  background: var(--surface-3);
+}
+.ins-av--ph {
+  display: grid;
+  place-items: center;
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 600 var(--fs-xs)/1 var(--font-ui);
+}
+.ins-artist-tx {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.ins-name {
+  font: 500 var(--fs-xs)/1.2 var(--font-ui);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ins-artist:hover .ins-name {
+  text-decoration: underline;
+}
+.ins-count {
+  font: 400 var(--fs-nano)/1 var(--font-mono);
+  color: var(--ink-3);
+}
+
+/* Dominant genres */
+.ins-genres {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-25);
+}
+.ins-genre {
+  display: grid;
+  grid-template-columns: 120px 1fr 40px;
+  align-items: center;
+  gap: var(--space-3);
+}
+.ins-tag-link {
+  display: inline-flex;
+  max-width: 100%;
+  text-decoration: none;
+}
+.ins-bar {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.ins-bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: oklch(
+    calc(var(--tag-dot-l) + 0.04 * var(--d, 0)) calc(var(--tag-dot-c) * (1 - 0.19 * var(--d, 0)))
+      var(--th, 0)
+  );
+}
+.ins-bar[data-fam='house'] {
+  --th: var(--hue-house);
+}
+.ins-bar[data-fam='techno'] {
+  --th: var(--hue-techno);
+}
+.ins-bar[data-fam='trance'] {
+  --th: var(--hue-trance);
+}
+.ins-bar[data-fam='dnb'] {
+  --th: var(--hue-dnb);
+}
+.ins-bar[data-fam='hardcore'] {
+  --th: var(--hue-hardcore);
+}
+.ins-bar[data-fam='harddance'] {
+  --th: var(--hue-harddance);
+}
+.ins-bar[data-fam='autres'] i {
+  background: var(--ink-3);
+}
+.ins-pct {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-2);
+  text-align: right;
+}
+
+/* ============ TRACKS DÉTECTÉES ============ */
+.detected {
+  margin-top: var(--space-8);
+}
+.track-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Never-crawled empty state — engaging card */
+.empty-crawl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+}
+.empty-ph {
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--ct-line);
+  background: repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px);
+}
+.empty-title {
+  margin: 0;
+  font: 500 var(--fs-base)/1.3 var(--font-ui);
+  color: var(--ink-2);
+}
+.empty-sub {
+  margin: 0;
+  max-width: 360px;
+  font: 400 var(--fs-sm)/1.5 var(--font-ui);
+  color: var(--ink-3);
+}
+
+/* ============ ADMIN ============ */
+.admin-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.btn-sync {
+  padding: var(--space-15) var(--space-4);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.btn-sync:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .admin-msg {
-  font: 400 var(--fs-sm)/1 var(--font-ui);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
 }
 .admin-msg.success {
   color: var(--pos-ink);
@@ -514,94 +760,26 @@ onMounted(fetchDetail)
   color: var(--neg-ink);
 }
 
-/* Dans cette playlist — top artists & genres */
-.dom-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-6);
-}
-.dom-col h3 {
-  margin: 0 0 var(--space-25);
-  font: 600 var(--fs-xs)/1 var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.dom-artists {
-  display: flex;
-  gap: var(--space-4);
-}
-.dom-artist {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  text-decoration: none;
-}
-.dom-av {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  object-fit: cover;
-  background: var(--surface-3);
-}
-.dom-name {
-  font: 500 var(--fs-sm) var(--font-ui);
-  color: var(--ink);
-  max-width: 72px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: center;
-}
-.dom-artist:hover .dom-name {
-  color: var(--accent-ink);
-}
-.dom-genres {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.dom-genre {
-  display: grid;
-  grid-template-columns: 132px 1fr 38px;
-  align-items: center;
-  gap: var(--space-25);
-}
-.dom-bar {
-  height: 7px;
-  border-radius: var(--r-pill);
-  background: var(--surface-2);
-  overflow: hidden;
-}
-.dom-bar i {
-  display: block;
-  height: 100%;
-  border-radius: var(--r-pill);
-  background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th, 0));
-}
-.dom-bar[data-fam='house'] { --th: var(--hue-house); }
-.dom-bar[data-fam='techno'] { --th: var(--hue-techno); }
-.dom-bar[data-fam='trance'] { --th: var(--hue-trance); }
-.dom-bar[data-fam='dnb'] { --th: var(--hue-dnb); }
-.dom-bar[data-fam='hardcore'] { --th: var(--hue-hardcore); }
-.dom-bar[data-fam='harddance'] { --th: var(--hue-harddance); }
-.dom-bar[data-fam='autres'] i { background: var(--ink-3); }
-.dom-pct {
-  font: 500 var(--fs-xs)/1 var(--font-mono);
-  color: var(--ink-3);
-  text-align: right;
-}
-
+/* ============ RESPONSIVE ============ */
 @container (max-width: 720px) {
-  .dom-grid {
+  .insights-card {
     grid-template-columns: 1fr;
+    gap: var(--space-5);
   }
 }
 @container (max-width: 640px) {
   .detail-view {
     padding: var(--page-px-mobile);
+  }
+  .hero {
+    grid-template-columns: 1fr;
+    gap: var(--space-5);
+  }
+  .hero-cover {
+    width: 160px;
+  }
+  .hero-title {
+    font-size: var(--fs-lg);
   }
 }
 </style>

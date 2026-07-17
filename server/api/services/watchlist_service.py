@@ -114,11 +114,34 @@ async def browse(db: AsyncSession, user_id: int | None, limit: int, offset: int)
 
 
 async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
-    """Playlist detail with its radar tracks (enriched from catalog)."""
-    from models import CatalogEntry, RadarTrack, UserFollow, WatchedEntity
-    from schemas import PlaylistTrackOut, WatchedEntityDetailOut
+    """Playlist detail: its radar tracks (enriched from catalog) plus the
+    top artists and dominant genres computed over the same visible tracks."""
+    from collections import defaultdict
+
+    from models import (
+        Artist,
+        CatalogArtist,
+        CatalogEntry,
+        RadarTrack,
+        UserFollow,
+        UserTrack,
+        WatchedEntity,
+    )
+    from schemas import (
+        ArtistRef,
+        PlaylistTrackOut,
+        TopArtistOut,
+        TopGenreOut,
+        WatchedEntityDetailOut,
+    )
 
     from services.catalog_service import catalog_visible
+    from services.genre_service import ensure_pillar_cache, genre_pillar
+
+    # Warm the pillar cache up front (mirrors list_catalog): its loader rolls the
+    # session back on failure, so it must run before we hold any ORM row we still
+    # need — never between the entity fetch and the final serialization.
+    await ensure_pillar_cache(db)
 
     result = await db.execute(select(WatchedEntity).where(WatchedEntity.id == entry_id))
     entity = result.scalar_one_or_none()
@@ -133,7 +156,8 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
     )
     followed = follow_result.scalar_one_or_none() is not None
 
-    # Tracks: radar_tracks joined with catalog, deduped by catalog_id
+    # Tracks: radar_tracks joined with catalog, deduped by catalog_id. This is
+    # the single visibility-filtered (C3) perimeter every aggregate below reuses.
     tracks_result = await db.execute(
         select(
             CatalogEntry.id.label("catalog_id"),
@@ -157,10 +181,107 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
         .group_by(CatalogEntry.id)
         .order_by(func.max(RadarTrack.detected_at).desc())
     )
-    tracks = [PlaylistTrackOut.model_validate(row._mapping) for row in tracks_result]
+    track_rows = tracks_result.all()
+    catalog_ids = [row.catalog_id for row in track_rows]
+
+    # Artists per track: bulk-load in one query, mapped by catalog_id (position order).
+    artists_by_catalog: dict[int, list] = defaultdict(list)
+    if catalog_ids:
+        ca_result = await db.execute(
+            select(
+                CatalogArtist.catalog_id,
+                Artist.id,
+                Artist.name,
+                CatalogArtist.role,
+                Artist.has_artwork,
+            )
+            .join(Artist, Artist.id == CatalogArtist.artist_id)
+            .where(CatalogArtist.catalog_id.in_(catalog_ids))
+            .order_by(CatalogArtist.catalog_id, CatalogArtist.position)
+        )
+        for ca_cid, a_id, a_name, a_role, a_art in ca_result.all():
+            artists_by_catalog[ca_cid].append(
+                ArtistRef(id=a_id, name=a_name, role=a_role, has_artwork=a_art)
+            )
+
+    # in_lib: one query on user_tracks. Guests (user_id None) get all False.
+    in_lib_ids: set[int] = set()
+    if user_id is not None and catalog_ids:
+        ut_result = await db.execute(
+            select(UserTrack.catalog_id).where(
+                UserTrack.user_id == user_id,
+                UserTrack.catalog_id.in_(catalog_ids),
+            )
+        )
+        in_lib_ids = {row[0] for row in ut_result.all()}
+
+    tracks = [
+        PlaylistTrackOut(
+            catalog_id=row.catalog_id,
+            title=row.title,
+            artist=row.artist,
+            artists=artists_by_catalog.get(row.catalog_id, []),
+            bpm=row.bpm,
+            key=row.key,
+            duration_ms=row.duration_ms,
+            has_artwork=row.has_artwork,
+            has_preview=row.has_preview,
+            in_lib=row.catalog_id in in_lib_ids,
+            detected_at=row.detected_at,
+        )
+        for row in track_rows
+    ]
+
+    # top_artists: how many of the playlist's visible tracks each artist appears on.
+    top_artists: list[TopArtistOut] = []
+    if catalog_ids:
+        cnt_col = func.count(func.distinct(CatalogArtist.catalog_id))
+        ta_result = await db.execute(
+            select(Artist.id, Artist.name, Artist.has_artwork, cnt_col.label("cnt"))
+            .join(CatalogArtist, CatalogArtist.artist_id == Artist.id)
+            .where(CatalogArtist.catalog_id.in_(catalog_ids))
+            .group_by(Artist.id, Artist.name, Artist.has_artwork)
+            .order_by(cnt_col.desc(), Artist.name.asc())
+            .limit(6)
+        )
+        top_artists = [
+            TopArtistOut(id=a_id, name=a_name, has_artwork=a_art, count=cnt)
+            for a_id, a_name, a_art, cnt in ta_result.all()
+        ]
+
+    # top_genres: share of visible tracks containing each genre (Python aggregate
+    # over the already-loaded rows; playlist volume stays well under a N+1 threshold).
+    genre_counts: dict[str, int] = defaultdict(int)
+    tracks_with_genre = 0
+    for row in track_rows:
+        genres = row.genres or []
+        if genres:
+            tracks_with_genre += 1
+            for g in set(genres):
+                genre_counts[g] += 1
+
+    top_genres: list[TopGenreOut] = []
+    if tracks_with_genre:
+        ranked = sorted(genre_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+        for name, cnt in ranked:
+            pillar, depth = genre_pillar(name)
+            top_genres.append(
+                TopGenreOut(
+                    name=name,
+                    pillar=pillar,
+                    depth=depth,
+                    pct=round(100 * cnt / tracks_with_genre),
+                )
+            )
 
     return WatchedEntityDetailOut.model_validate(
-        {**entity.__dict__, "followed": followed, "tracks": tracks}
+        {
+            **entity.__dict__,
+            "followed": followed,
+            "tracks": tracks,
+            "top_artists": top_artists,
+            "top_genres": top_genres,
+        }
     )
 
 

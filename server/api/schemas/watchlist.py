@@ -42,17 +42,37 @@ class PlaylistTrackOut(BaseModel):
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration_ms: Optional[int] = None
-    genre: Optional[str] = None
     has_artwork: bool = False
     has_preview: bool = False
+    in_lib: bool = False
     detected_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
 
+class TopArtistOut(BaseModel):
+    """An artist appearing across the playlist's detected tracks, with its count."""
+
+    id: int
+    name: str
+    has_artwork: bool = False
+    count: int
+
+
+class TopGenreOut(BaseModel):
+    """A dominant genre of the playlist: raw name (links to /style/{name}) + share."""
+
+    name: str
+    pillar: str = "autres"
+    depth: int = 0
+    pct: int = 0
+
+
 class WatchedEntityDetailOut(WatchedEntityOut):
     followed: bool = False
     tracks: list[PlaylistTrackOut] = []
+    top_artists: list[TopArtistOut] = []
+    top_genres: list[TopGenreOut] = []
 
 
 class WatchlistListResponse(BaseModel):
