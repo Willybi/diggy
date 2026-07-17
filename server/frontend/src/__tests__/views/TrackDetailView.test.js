@@ -268,4 +268,55 @@ describe('TrackDetailView', () => {
     await flushPromises()
     expect(wrapper.findAll('.sim-skeleton .skel-row')).toHaveLength(4)
   })
+
+  it('shows the « + Nouvelle collection » item in the collection dropdown', async () => {
+    const wrapper = await mountView(makeTrack())
+    await wrapper.find('.btn-coll').trigger('click')
+    await flushPromises()
+    const add = wrapper.find('.coll-dd-add')
+    expect(add.exists()).toBe(true)
+    expect(add.text()).toContain('Nouvelle collection')
+  })
+
+  it('creates a collection, adds the current track, then closes the input', async () => {
+    apiMock.post.mockImplementation((url) => {
+      if (url === '/api/collections/') {
+        return Promise.resolve({
+          data: {
+            id: 42,
+            name: 'Peak Time',
+            type: 'playlist',
+            created_at: '2026-07-17',
+            item_count: 0,
+          },
+        })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = await mountView(makeTrack())
+    await wrapper.find('.btn-coll').trigger('click')
+    await flushPromises()
+
+    // Swap the footer button for the inline input.
+    await wrapper.find('.coll-dd-add').trigger('click')
+    await flushPromises()
+    const input = wrapper.find('.coll-dd-input')
+    expect(input.exists()).toBe(true)
+
+    // Type a name and submit with Enter.
+    await input.setValue('Peak Time')
+    await input.trigger('keydown.enter')
+    await flushPromises()
+
+    // Collection created, then the current track (id 1) added to it.
+    expect(apiMock.post).toHaveBeenCalledWith('/api/collections/', { name: 'Peak Time' })
+    expect(apiMock.post).toHaveBeenCalledWith('/api/collections/42/items', { catalog_id: 1 })
+
+    // Input closed (footer button back), new collection listed with a ✓.
+    expect(wrapper.find('.coll-dd-input').exists()).toBe(false)
+    expect(wrapper.find('.coll-dd-add').exists()).toBe(true)
+    const added = wrapper.findAll('.coll-dd-item').find((b) => b.text().includes('Peak Time'))
+    expect(added).toBeTruthy()
+    expect(added.find('.coll-dd-check').exists()).toBe(true)
+  })
 })

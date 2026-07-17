@@ -114,19 +114,35 @@
               </button>
               <div v-if="showCollDropdown" class="coll-dropdown">
                 <div v-if="collLoading" class="coll-dd-state">Chargement…</div>
-                <div v-else-if="!userCollections.length" class="coll-dd-state">
-                  Aucune collection
-                </div>
-                <button
-                  v-for="c in userCollections"
-                  :key="c.id"
-                  class="coll-dd-item"
-                  :disabled="c._added"
-                  @click="addToCollection(c)"
-                >
-                  {{ c.name }}
-                  <span v-if="c._added" class="coll-dd-check">✓</span>
-                </button>
+                <template v-else>
+                  <div v-if="!userCollections.length" class="coll-dd-state">Aucune collection</div>
+                  <button
+                    v-for="c in userCollections"
+                    :key="c.id"
+                    class="coll-dd-item"
+                    :disabled="c._added"
+                    @click="addToCollection(c)"
+                  >
+                    {{ c.name }}
+                    <span v-if="c._added" class="coll-dd-check">✓</span>
+                  </button>
+                  <div class="coll-dd-new">
+                    <input
+                      v-if="creatingNew"
+                      ref="newCollInput"
+                      v-model="newCollName"
+                      class="coll-dd-input"
+                      type="text"
+                      placeholder="Nom de la collection"
+                      @keydown.enter="createCollection"
+                      @keydown.esc="cancelNewColl"
+                      @blur="cancelNewColl"
+                    />
+                    <button v-else class="coll-dd-add" @click="startNewColl">
+                      + Nouvelle collection
+                    </button>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
@@ -329,7 +345,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import Artwork from '../components/Artwork.vue'
@@ -359,6 +375,10 @@ const opinion = ref(null)
 const showCollDropdown = ref(false)
 const userCollections = ref([])
 const collLoading = ref(false)
+const creatingNew = ref(false)
+const newCollName = ref('')
+const newCollInput = ref(null)
+const savingColl = ref(false)
 const similarTracks = ref([])
 const similarLoading = ref(false)
 const sameArtistExpanded = ref(false)
@@ -466,6 +486,34 @@ async function addToCollection(coll) {
   }
 }
 
+// Inline "+ Nouvelle collection" flow inside the dropdown.
+function startNewColl() {
+  creatingNew.value = true
+  newCollName.value = ''
+  nextTick(() => newCollInput.value?.focus())
+}
+
+function cancelNewColl() {
+  creatingNew.value = false
+  newCollName.value = ''
+}
+
+async function createCollection() {
+  const name = newCollName.value.trim()
+  if (!name || savingColl.value) return
+  savingColl.value = true
+  try {
+    const { data } = await api.post('/api/collections/', { name })
+    await api.post(`/api/collections/${data.id}/items`, { catalog_id: track.value.id })
+    userCollections.value.push({ ...data, _added: true })
+    cancelNewColl()
+  } catch {
+    // silent — leave the input open, like the rest of the dropdown
+  } finally {
+    savingColl.value = false
+  }
+}
+
 async function enrichBeatport(forceGenre = false) {
   enriching.value = true
   enrichResult.value = null
@@ -557,6 +605,8 @@ async function loadTrack(id) {
   setsExpanded.value = false
   playlistsExpanded.value = false
   showCollDropdown.value = false
+  creatingNew.value = false
+  newCollName.value = ''
   try {
     const { data } = await api.get(`/api/catalog/${id}`)
     track.value = data
@@ -580,7 +630,7 @@ onMounted(() => loadTrack(route.params.id))
 
 <style scoped>
 .detail-view {
-  padding: var(--pad) calc(var(--pad) * 1.5);
+  padding: var(--space-6) var(--page-px) var(--space-10);
   max-width: var(--detail-max-w);
   margin-inline: auto;
   container-type: inline-size;
@@ -744,7 +794,7 @@ onMounted(() => loadTrack(route.params.id))
   display: inline-flex;
   align-items: center;
   gap: var(--space-15);
-  height: 34px;
+  height: 38px;
   padding: 0 var(--space-3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
@@ -773,7 +823,7 @@ onMounted(() => loadTrack(route.params.id))
   max-height: 240px;
   overflow-y: auto;
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-2);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-md);
   z-index: 50;
@@ -809,6 +859,47 @@ onMounted(() => loadTrack(route.params.id))
 .coll-dd-check {
   color: var(--pos-ink);
   font-weight: 600;
+}
+
+/* "+ Nouvelle collection" — separated footer that swaps to an inline input */
+.coll-dd-new {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--line);
+}
+.coll-dd-add {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--accent-ink);
+  font: 500 var(--fs-sm) var(--font-ui);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background 0.1s;
+}
+.coll-dd-add:hover {
+  background: var(--surface-2);
+}
+.coll-dd-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: 500 var(--fs-sm) var(--font-ui);
+  outline: none;
+  box-sizing: border-box;
+}
+.coll-dd-input::placeholder {
+  color: var(--ink-3);
+}
+.coll-dd-input:focus {
+  border-color: var(--accent);
 }
 
 /* External links + label */
@@ -847,6 +938,7 @@ onMounted(() => loadTrack(route.params.id))
 .disc-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
   margin-bottom: var(--space-3);
 }
@@ -869,7 +961,7 @@ onMounted(() => loadTrack(route.params.id))
 .mini-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
+  gap: var(--space-2) var(--space-4);
 }
 /* grid items must shrink below min-content for equal 1fr columns */
 .mini-grid > * {
