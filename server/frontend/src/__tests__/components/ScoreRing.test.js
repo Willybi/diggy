@@ -60,4 +60,53 @@ describe('ScoreRing', () => {
         .classes(),
     ).toContain('score-ring--md')
   })
+
+  // --- mode="pct" ---
+
+  const THIN_NBSP = String.fromCharCode(0x202f) // U+202F narrow no-break space
+
+  it('keeps score mode as the default (bit-for-bit unchanged, no percent sign)', () => {
+    const wrapper = mount(ScoreRing, { props: { score: 0.86 } })
+    expect(wrapper.find('.sr-note').text()).toBe('9')
+    expect(wrapper.find('.sr-note').classes()).not.toContain('sr-note--pct')
+  })
+
+  it('renders an integer percent with a fine no-break space in pct mode', () => {
+    const wrapper = mount(ScoreRing, { props: { score: 0.69, mode: 'pct' } })
+    expect(wrapper.find('.sr-note').text()).toBe(`69${THIN_NBSP}%`)
+    expect(wrapper.find('.sr-note').classes()).toContain('sr-note--pct')
+  })
+
+  it('handles the 0% and 100% bounds in pct mode', () => {
+    expect(
+      mount(ScoreRing, { props: { score: 0, mode: 'pct' } })
+        .find('.sr-note')
+        .text(),
+    ).toBe(`0${THIN_NBSP}%`)
+    expect(
+      mount(ScoreRing, { props: { score: 1, mode: 'pct' } })
+        .find('.sr-note')
+        .text(),
+    ).toBe(`100${THIN_NBSP}%`)
+  })
+
+  it('rounds the proportion to an integer percent', () => {
+    expect(
+      mount(ScoreRing, { props: { score: 0.666, mode: 'pct' } })
+        .find('.sr-note')
+        .text(),
+    ).toBe(`67${THIN_NBSP}%`)
+  })
+
+  it('defaults the aria-label to "N %" in pct mode', () => {
+    const wrapper = mount(ScoreRing, { props: { score: 0.69, mode: 'pct' } })
+    expect(wrapper.find('.score-ring').attributes('aria-label')).toBe(`69${THIN_NBSP}%`)
+  })
+
+  it('lets the provided label win over the pct default', () => {
+    const wrapper = mount(ScoreRing, {
+      props: { score: 0.69, mode: 'pct', label: '69 % de tracks identifiées' },
+    })
+    expect(wrapper.find('.score-ring').attributes('aria-label')).toBe('69 % de tracks identifiées')
+  })
 })

@@ -122,6 +122,7 @@ from .sets import (
     SetListResponse,
     SetTrackDetailOut,
     SetTrackOut,
+    SimilarSetOut,
     TrackIDSearchResult,
 )
 from .taxonomy import (
@@ -219,6 +220,7 @@ __all__ = [
     "DJSetList",
     "DJSetDetailOut",
     "SetTrackDetailOut",
+    "SimilarSetOut",
     "SetArtistDetailOut",
     "SetFlagOut",
     "SetFlagListResponse",

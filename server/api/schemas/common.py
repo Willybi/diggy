@@ -20,6 +20,17 @@ class ArtistRef(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TopGenreOut(BaseModel):
+    """A dominant genre of a track collection: raw name (links to /style/{name}),
+    its pillar/depth for styling, and the share of genre-bearing tracks carrying
+    it. Shared by the playlist and set detail aggregates."""
+
+    name: str
+    pillar: str = "autres"
+    depth: int = 0
+    pct: int = 0
+
+
 class OkResponse(BaseModel):
     ok: bool = True
 

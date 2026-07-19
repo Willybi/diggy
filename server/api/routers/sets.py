@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from models import (
     Artist,
     CatalogArtist,
+    CatalogEntry,
     DJSet,
     SetArtist,
     SetTrack,
@@ -25,8 +26,11 @@ from schemas import (
     SetListItemOut,
     SetListResponse,
     SetTrackDetailOut,
+    SimilarSetOut,
     TrackIDSearchResult,
 )
+from services.catalog_service import catalog_visible
+from services.genre_service import aggregate_top_genres, ensure_pillar_cache
 from services.opinion_sync import sync_set_opinion
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -233,6 +237,11 @@ async def get_set_detail(
 ):
     uid = _uid(user)
 
+    # Warm the pillar cache up front (mirrors watchlist detail): its loader rolls
+    # the session back on failure, so it must run BEFORE we hold any ORM row we
+    # still need — never between the DJSet fetch and the final serialization.
+    await ensure_pillar_cache(db)
+
     # 1. DJSet
     result = await db.execute(
         select(DJSet)
@@ -319,11 +328,33 @@ async def get_set_detail(
                 catalog_artists=track_artists_map.get(t.catalog_id, [])
                 if t.catalog_id
                 else [],
+                bpm=cat.bpm if cat else None,
+                key=cat.key if cat else None,
+                duration_ms=cat.duration_ms if cat else None,
                 has_artwork=cat.has_artwork if cat else False,
                 in_lib=t.catalog_id in lib_set if t.catalog_id else False,
                 has_preview=cat.has_preview if cat else False,
             )
         )
+
+    # 5. top_genres: genres deduced from the identified tracks (catalog_id set,
+    # not an "ID" placeholder) RESTRICTED to the viewer's visible perimeter (C3).
+    # A foreign private track therefore never leaks its genres into the aggregate,
+    # even though the tracklist itself stays unfiltered (accepted C3 residual).
+    identified_ids = {t.catalog_id for t in dj_set.tracks if t.catalog_id and not t.is_id}
+    genres_by_id: dict[int, list[str]] = {}
+    if identified_ids:
+        gres = await db.execute(
+            select(CatalogEntry.id, CatalogEntry.genres).where(
+                CatalogEntry.id.in_(identified_ids), catalog_visible(uid)
+            )
+        )
+        genres_by_id = {cid: (g or []) for cid, g in gres.all()}
+    top_genres = aggregate_top_genres(
+        genres_by_id[t.catalog_id]
+        for t in dj_set.tracks
+        if t.catalog_id and not t.is_id and t.catalog_id in genres_by_id
+    )
 
     return DJSetDetailOut(
         id=dj_set.id,
@@ -340,4 +371,29 @@ async def get_set_detail(
         identified_tracks=identified,
         artists=artists,
         tracklist=tracklist,
+        top_genres=top_genres,
     )
+
+
+# ---------- Similar sets ----------
+
+
+@router.get("/{set_id}/similar", response_model=list[SimilarSetOut])
+async def get_similar_sets(
+    set_id: int,
+    limit: int = Query(8, ge=1, le=24),
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Sets closest to this one — the C2 track engine aggregated at set level.
+
+    Guest-accessible exactly like ``GET /sets/{id}``: the ``/api/sets`` public
+    GET prefix in the JWT middleware allowlist already covers this sub-path, so no
+    allowlist change is needed. Returns ``[]`` when nothing is close enough.
+    """
+    from services.similarity_service import similar_sets
+
+    try:
+        return await similar_sets(db, set_id, _uid(user), limit=limit)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Set not found")

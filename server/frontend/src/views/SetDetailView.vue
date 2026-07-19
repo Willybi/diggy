@@ -1,168 +1,135 @@
 <template>
   <div class="detail-view">
     <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="!djSet" class="state">Set introuvable.</div>
+    <div v-else-if="!djSet" class="state state--empty">
+      <span>Set introuvable.</span>
+      <RouterLink to="/sets" class="btn">Retour aux sets</RouterLink>
+    </div>
     <template v-else>
-      <PageHero
-        variant="wide"
-        :image-src="djSet.has_artwork ? `/storage/set-artworks/${djSet.id}.jpg` : null"
-        :title="djSet.title"
-        :subtitle="heroSub"
-        :fallback-letter="(djSet.title || '?')[0]"
-      >
-        <template #badges>
-          <template v-if="djSet.genres?.length">
+      <!-- Back link -->
+      <RouterLink to="/sets" class="dv-back">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+        Sets
+      </RouterLink>
+
+      <!-- 1. Immersive hero (S1-S7) -->
+      <section class="hero">
+        <!-- Backdrop = blurred cover, theme-adaptive opacity (S1). Absent without artwork. -->
+        <div v-if="djSet.has_artwork" class="hero-backdrop" aria-hidden="true">
+          <img :src="coverSrc" alt="" />
+        </div>
+
+        <div class="hero-cover">
+          <Artwork size="hero" :src="coverSrc" :alt="djSet.title" />
+        </div>
+
+        <div class="hero-main">
+          <h1 class="hero-title">{{ djSet.title }}</h1>
+
+          <!-- DJ artists — links, « b2b » separator from N ≥ 2 (S5). Absent if none. -->
+          <div v-if="djSet.artists.length" class="hero-artists">
+            <template v-for="(a, i) in djSet.artists" :key="a.artist_id">
+              <span v-if="i > 0" class="hero-b2b">b2b</span>
+              <RouterLink :to="`/artist/${a.artist_id}`" class="hero-artist-link">{{
+                a.artist_name
+              }}</RouterLink>
+            </template>
+          </div>
+
+          <!-- Deduced genres — StyleTags only (S6). Absent when empty. -->
+          <div v-if="topGenres.length" class="hero-tags">
             <RouterLink
-              v-for="g in djSet.genres"
+              v-for="g in topGenres"
               :key="g.name"
               :to="`/style/${encodeURIComponent(g.name)}`"
-              style="text-decoration: none"
+              class="tag-link"
             >
               <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
             </RouterLink>
-          </template>
-        </template>
-        <template #actions>
-          <a
-            v-if="sourceLabel && djSet.source_url"
-            class="btn-ghost"
-            :href="djSet.source_url"
-            target="_blank"
-          >
-            Voir sur {{ sourceLabel }}
-          </a>
-        </template>
-      </PageHero>
+          </div>
 
-      <StatStrip :stats="stats">
-        <div v-if="djSet.total_tracks" class="stat-cell">
-          <span class="stat-value ring-val">
-            <RingPct :value="djSet.identified_tracks" :total="djSet.total_tracks" />
-          </span>
-          <span class="stat-label">Identifiées</span>
+          <!-- Identity stats (S3) — Durée · Date · Tracks · Identifiées (ring %, S4) -->
+          <div class="hero-stats">
+            <div v-if="djSet.duration_ms" class="stat-cell">
+              <span class="stat-label">Durée</span>
+              <span class="stat-val">{{ fmtMs(djSet.duration_ms) }}</span>
+            </div>
+            <div v-if="djSet.played_date" class="stat-cell">
+              <span class="stat-label">Date</span>
+              <span class="stat-val">{{ fmtDate(djSet.played_date) }}</span>
+            </div>
+            <div class="stat-cell">
+              <span class="stat-label">Tracks</span>
+              <span class="stat-val">{{ djSet.total_tracks }}</span>
+            </div>
+            <div class="stat-cell stat-cell--ident">
+              <span class="stat-label">Identifiées</span>
+              <span class="ident-val">
+                <ScoreRing mode="pct" size="md" :score="identifiedRatio" :label="identifiedLabel" />
+                <span class="ident-frac">{{ djSet.identified_tracks }}/{{ djSet.total_tracks }}</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Source link (S7) — PlatformLink + SOURCE micro-label. Absent if no url. -->
+          <div v-if="djSet.source_url" class="hero-source">
+            <PlatformLink :platform="sourcePlatform" :href="djSet.source_url" size="md" />
+            <span class="hero-source-tx">
+              <span class="hero-source-label">Source</span>
+              <span class="hero-source-name">{{ sourceName }}</span>
+            </span>
+          </div>
         </div>
-      </StatStrip>
+      </section>
 
-      <RelBlock v-if="djSet.description" title="Description">
-        <p class="rel-prose">{{ djSet.description }}</p>
-      </RelBlock>
-
-      <!-- Artists -->
-      <RelBlock v-if="djSet.artists.length > 1" title="Artistes">
-        <RouterLink
-          v-for="a in djSet.artists"
-          :key="a.artist_id"
-          class="appear"
-          :to="`/artist/${a.artist_id}`"
-        >
-          <img
-            v-if="a.has_artwork"
-            class="ap-thumb round"
-            :src="`/storage/artist-artworks/${a.artist_id}.jpg`"
+      <!-- 2. Tracklist (S8-S9) -->
+      <section class="tracklist">
+        <header class="sec-head">
+          <h2 class="sec-title">Tracklist</h2>
+          <span class="sec-count">
+            {{ djSet.total_tracks }} {{ pl(djSet.total_tracks, 'track', 'tracks') }} ·
+            {{ djSet.identified_tracks }}
+            {{ pl(djSet.identified_tracks, 'identifiée', 'identifiées') }}
+          </span>
+        </header>
+        <div class="track-list">
+          <TrackCard
+            v-for="row in trackRows"
+            :key="row.key"
+            :track="row.track"
+            :position="row.position"
+            :timecode="row.timecode"
+            :state="row.state"
+            show-artist
+            show-duration
+            :playing="rowPlaying(row.track.id)"
+            @play="playTrack(row)"
+            @click="onRowClick(row)"
           />
-          <span v-else class="ap-thumb round ap-thumb--empty"></span>
-          <span class="ap-tx">
-            <span class="ap-title">{{ a.artist_name }}</span>
-            <span class="ap-sub">{{ a.role === 'b2b' ? 'B2B' : 'Live' }}</span>
-          </span>
-        </RouterLink>
-      </RelBlock>
-
-      <!-- Tracklist -->
-      <RelBlock title="Tracklist" :count="djSet.total_tracks">
-        <div class="tracklist-wrap">
-          <table class="tracklist">
-            <thead>
-              <tr>
-                <th class="tl-pos">#</th>
-                <th class="tl-play"></th>
-                <th class="tl-time">Time</th>
-                <th class="tl-cover"></th>
-                <th class="tl-track">Track</th>
-                <th class="tl-lib">Lib</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="t in djSet.tracklist"
-                :key="t.id"
-                :class="[trackRowClass(t), { playing: player.isCurrent(t.catalog_id) }]"
-              >
-                <td class="tl-pos mono">{{ t.position }}</td>
-                <td class="tl-play">
-                  <button
-                    v-if="t.has_preview && !t.is_id"
-                    class="play-btn"
-                    :class="{ playing: player.isCurrent(t.catalog_id) && player.playing }"
-                    @click="playTrack(t)"
-                  >
-                    <svg
-                      v-if="player.isCurrent(t.catalog_id) && player.playing"
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
-                    >
-                      <rect x="6" y="5" width="4" height="14" fill="currentColor" />
-                      <rect x="14" y="5" width="4" height="14" fill="currentColor" />
-                    </svg>
-                    <svg v-else viewBox="0 0 24 24" width="14" height="14">
-                      <polygon points="7,4 21,12 7,20" fill="currentColor" />
-                    </svg>
-                  </button>
-                </td>
-                <td class="tl-time mono">
-                  <a
-                    v-if="makeTimestampUrl(djSet.source_url, t.timecode_ms)"
-                    :href="makeTimestampUrl(djSet.source_url, t.timecode_ms)"
-                    target="_blank"
-                    class="tl-time-link"
-                    >{{ fmtCue(t.timecode_ms) }}</a
-                  >
-                  <span v-else>{{ fmtCue(t.timecode_ms) }}</span>
-                </td>
-                <td class="tl-cover">
-                  <img
-                    v-if="t.has_artwork && t.catalog_id"
-                    :src="`/storage/catalog-artworks/${t.catalog_id}.jpg`"
-                    class="tl-thumb"
-                    loading="lazy"
-                  />
-                  <span v-else class="tl-thumb tl-thumb--empty"></span>
-                </td>
-                <td class="tl-track">
-                  <RouterLink
-                    v-if="t.catalog_id && !t.is_id"
-                    :to="`/catalog/${t.catalog_id}`"
-                    class="tl-link"
-                  >
-                    <span class="tl-title">{{ t.catalog_title || t.raw_title }}</span>
-                    <span class="tl-artist">
-                      <ArtistLinks
-                        v-if="t.catalog_artists?.length"
-                        :artists="t.catalog_artists"
-                        :fallback="t.catalog_artist || t.raw_artist"
-                      />
-                      <template v-else>{{ t.catalog_artist || t.raw_artist }}</template>
-                    </span>
-                  </RouterLink>
-                  <div v-else>
-                    <span class="tl-title">{{ t.is_id ? 'ID' : t.raw_title || '?' }}</span>
-                    <span class="tl-artist">{{
-                      t.is_id ? 'non identifié' : t.raw_artist || ''
-                    }}</span>
-                  </div>
-                </td>
-                <td class="tl-lib">
-                  <span v-if="t.is_id" class="id-label">ID</span>
-                  <LibDot v-else :in-lib="t.in_lib" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
         </div>
-      </RelBlock>
+      </section>
 
-      <!-- Admin: manage set artists -->
+      <!-- 3. Similar sets (S10) — hidden entirely when empty -->
+      <section v-if="similarSets.length" class="similar">
+        <header class="sec-head">
+          <h2 class="sec-title">Sets similaires</h2>
+          <span class="sec-count">{{ similarSets.length }} {{ pl(similarSets.length, 'set', 'sets') }}</span>
+        </header>
+        <div class="similar-grid">
+          <SetCard v-for="s in similarSets" :key="s.id" :set="s" />
+        </div>
+      </section>
+
+      <!-- 4. Admin: manage set artists — unchanged, gated is_admin -->
       <AdminCard label="Admin — Artistes du set" variant="warn">
         <div v-if="djSet.artists.length" class="set-artists-list">
           <div v-for="a in djSet.artists" :key="a.artist_id" class="set-artist-row">
@@ -194,23 +161,156 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useToast } from '../stores/toast.js'
-import PageHero from '../components/PageHero.vue'
-import StatStrip from '../components/StatStrip.vue'
-import RelBlock from '../components/RelBlock.vue'
-import RingPct from '../components/RingPct.vue'
+import Artwork from '../components/Artwork.vue'
+import TrackCard from '../components/TrackCard.vue'
+import ScoreRing from '../components/ScoreRing.vue'
+import SetCard from '../components/SetCard.vue'
+import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
-import LibDot from '../components/LibDot.vue'
-import ArtistLinks from '../components/ArtistLinks.vue'
 import AdminCard from '../components/AdminCard.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import { fmtMs, fmtDate, fmtCue } from '../utils/format'
+import { fmtMs, fmtDate, pl } from '../utils/format'
 
+const route = useRoute()
+const router = useRouter()
 const player = useAudioPlayer()
+const djSet = ref(null)
+const similarSets = ref([])
+const loading = ref(true)
 
-// Admin: set artists
+const coverSrc = computed(() =>
+  djSet.value?.has_artwork ? `/storage/set-artworks/${djSet.value.id}.jpg` : undefined,
+)
+
+const topGenres = computed(() => (djSet.value?.top_genres ?? []).slice(0, 5))
+
+// Ring % identifiées — proportion 0..1, division guarded when total_tracks is 0.
+const identifiedRatio = computed(() => {
+  const s = djSet.value
+  if (!s || !s.total_tracks) return 0
+  return s.identified_tracks / s.total_tracks
+})
+const identifiedLabel = computed(
+  () => `${Math.round(identifiedRatio.value * 100)} % de tracks identifiées`,
+)
+
+// The back source value `1001tracklists` maps to the PlatformLink key `1001tl`;
+// the others (youtube / soundcloud / trackid) are identical keys.
+const SOURCE_PLATFORM = { '1001tracklists': '1001tl' }
+const SOURCE_NAMES = {
+  youtube: 'YouTube',
+  soundcloud: 'SoundCloud',
+  trackid: 'TrackID',
+  '1001tracklists': '1001Tracklists',
+}
+const sourcePlatform = computed(() => {
+  const src = djSet.value?.source
+  return SOURCE_PLATFORM[src] || src
+})
+const sourceName = computed(() => SOURCE_NAMES[djSet.value?.source] || djSet.value?.source || '')
+
+// Timestamped source URL — YouTube (?t= / &t=) and SoundCloud (#t=h:mm:ss) only;
+// any other source (trackid, 1001tracklists) or a null url → no link (plain text).
+function makeTimestampUrl(baseUrl, timecodeMs) {
+  if (!baseUrl || !timecodeMs) return null
+  const secs = Math.floor(timecodeMs / 1000)
+  if (baseUrl.includes('youtube.com') || baseUrl.includes('youtu.be')) {
+    return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${secs}s`
+  }
+  if (baseUrl.includes('soundcloud.com')) {
+    const h = Math.floor(secs / 3600)
+    const m = Math.floor((secs % 3600) / 60)
+    const s = secs % 60
+    return `${baseUrl}#t=${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  return null
+}
+
+// One TrackCard-ready row per tracklist entry. State drives the shape:
+//   'id'         → unidentified marker (title rendered "ID" by the component)
+//   'unresolved' → read in the source but absent from the catalog (raw text, no link)
+//   undefined    → identified track (full mapping expected by TrackCard)
+const trackRows = computed(() => {
+  const list = djSet.value?.tracklist ?? []
+  const url = djSet.value?.source_url
+  return list.map((t) => {
+    let state
+    if (t.is_id) state = 'id'
+    else if (!t.catalog_id) state = 'unresolved'
+    else state = undefined
+
+    let track
+    if (state === 'unresolved') {
+      // The component reads track.title / track.artist → pass the raw fields.
+      track = {
+        id: t.catalog_id,
+        title: t.raw_title,
+        artist: t.raw_artist,
+        has_artwork: false,
+        has_preview: false,
+        in_lib: false,
+      }
+    } else if (state === 'id') {
+      // Title ignored by the component (always rendered "ID").
+      track = {
+        id: t.catalog_id,
+        title: t.raw_title,
+        has_artwork: false,
+        has_preview: false,
+        in_lib: false,
+      }
+    } else {
+      track = {
+        id: t.catalog_id,
+        title: t.catalog_title || t.raw_title,
+        artist: t.catalog_artist || t.raw_artist,
+        artists: t.catalog_artists,
+        bpm: t.bpm,
+        key: t.key,
+        duration_ms: t.duration_ms,
+        has_artwork: t.has_artwork,
+        has_preview: t.has_preview,
+        in_lib: t.in_lib,
+      }
+    }
+
+    return {
+      key: t.id,
+      position: t.position,
+      timecode: { ms: t.timecode_ms, href: makeTimestampUrl(url, t.timecode_ms) || undefined },
+      state,
+      track,
+      catalogId: state ? null : t.catalog_id,
+    }
+  })
+})
+
+// A row is "playing" only while the audio is actually running.
+function rowPlaying(id) {
+  return player.isCurrent(id) && player.playing
+}
+
+function playTrack(row) {
+  const t = row.track
+  player.play({
+    id: t.id,
+    catalog_id: t.id,
+    title: t.title,
+    artist: t.artist,
+    bpm: t.bpm,
+    key: t.key,
+  })
+}
+
+// Only identified rows navigate; id/unresolved rows are inert.
+function onRowClick(row) {
+  if (!row.state && row.catalogId) router.push(`/catalog/${row.catalogId}`)
+}
+
+// ---- Admin: set artists (unchanged) ----
 const saQuery = ref('')
 const saResults = ref([])
 let saTimer = null
@@ -252,88 +352,8 @@ async function removeSetArtist(artistId) {
   }
 }
 
-function playTrack(t) {
-  if (player.isCurrent(t.catalog_id) && player.playing) {
-    player.toggle()
-    return
-  }
-  player.play({
-    id: t.catalog_id,
-    catalog_id: t.catalog_id,
-    title: t.catalog_title || t.raw_title,
-    artist: t.catalog_artist || t.raw_artist,
-  })
-}
-
-const SOURCE_META = {
-  youtube: { label: 'YouTube' },
-  '1001tracklists': { label: '1001Tracklists' },
-  trackid: { label: 'TrackID.net' },
-  soundcloud: { label: 'SoundCloud' },
-}
-
-function detectSourceLabel(url) {
-  if (!url) return null
-  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube'
-  if (url.includes('soundcloud.com')) return 'SoundCloud'
-  if (url.includes('1001tracklists.com')) return '1001Tracklists'
-  if (url.includes('trackid.net')) return 'TrackID.net'
-  return null
-}
-
-function makeTimestampUrl(baseUrl, timecodeMs) {
-  if (!baseUrl || !timecodeMs) return null
-  const secs = Math.floor(timecodeMs / 1000)
-  if (baseUrl.includes('youtube.com') || baseUrl.includes('youtu.be')) {
-    return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${secs}s`
-  }
-  if (baseUrl.includes('soundcloud.com')) {
-    const h = Math.floor(secs / 3600)
-    const m = Math.floor((secs % 3600) / 60)
-    const s = secs % 60
-    return `${baseUrl}#t=${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  }
-  return null
-}
-
-const route = useRoute()
-const djSet = ref(null)
-const loading = ref(true)
-
-const heroSub = computed(() => {
-  if (!djSet.value) return null
-  const parts = []
-  if (djSet.value.artists.length) {
-    const names = djSet.value.artists.map((a) => a.artist_name)
-    parts.push(names.join(' B2B '))
-  }
-  if (djSet.value.event) parts.push(djSet.value.event)
-  if (djSet.value.venue) parts.push(djSet.value.venue)
-  return parts.join(' · ') || null
-})
-
-const sourceLabel = computed(() => {
-  if (!djSet.value) return null
-  return detectSourceLabel(djSet.value.source_url) || SOURCE_META[djSet.value.source]?.label || null
-})
-
-const stats = computed(() => {
-  if (!djSet.value) return []
-  const s = djSet.value
-  return [
-    { label: 'Durée', value: fmtMs(s.duration_ms) },
-    { label: 'Date', value: fmtDate(s.played_date) },
-    { label: 'Tracks', value: s.total_tracks },
-  ]
-})
-
-function trackRowClass(t) {
-  if (t.is_id) return 'row--id'
-  if (!t.catalog_id) return 'row--unknown'
-  return ''
-}
-
-onMounted(async () => {
+// ---- Fetch — similar is independent of the main detail (the page never waits on it) ----
+async function fetchDetail() {
   try {
     const { data } = await api.get(`/api/sets/${route.params.id}`)
     djSet.value = data
@@ -342,271 +362,251 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+
+async function loadSimilar() {
+  try {
+    const { data } = await api.get(`/api/sets/${route.params.id}/similar`)
+    similarSets.value = Array.isArray(data) ? data : []
+  } catch {
+    similarSets.value = []
+  }
+}
+
+onMounted(() => {
+  fetchDetail()
+  loadSimilar()
 })
 </script>
 
 <style scoped>
 .detail-view {
-  padding: var(--pad) calc(var(--pad) * 1.5);
+  padding: var(--space-6) var(--page-px) var(--space-10);
   max-width: var(--detail-max-w);
   margin-inline: auto;
+  container-type: inline-size;
 }
 
-/* Identifiées cell inside StatStrip */
-.stat-cell {
-  flex: 1;
+/* Not-found state — stacked message + return button */
+.state--empty {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: var(--space-3) var(--space-4);
-  border-right: 1px solid var(--line);
+  align-items: flex-start;
+  gap: var(--space-4);
 }
-.stat-cell:last-child {
-  border-right: none;
-}
-.stat-value {
-  font: 600 var(--fs-title)/1 var(--font-mono);
-  color: var(--ink);
-}
-.stat-label {
-  font: 400 var(--fs-label)/1 var(--font-mono);
-  color: var(--ink-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-top: var(--space-1);
-}
-.ring-val {
+
+/* Back link */
+.dv-back {
   display: inline-flex;
   align-items: center;
-}
-
-/* Description */
-.rel-prose {
-  font: 400 var(--fs-base)/1.6 var(--font-ui);
-  color: var(--ink-2);
-  max-width: 78ch;
-  padding: 0 var(--space-25);
-}
-
-/* Artist appear rows */
-.appear {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-25);
-  border-radius: var(--r-sm);
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
   text-decoration: none;
-  color: inherit;
-  transition: background 0.12s;
+  color: var(--ink-2);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  transition: color 0.12s;
 }
-.appear:hover {
-  background: var(--surface-2);
+.dv-back:hover {
+  color: var(--ink);
 }
-.ap-thumb {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--r-xs);
-  flex: none;
-  object-fit: cover;
+.dv-back svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============ HERO ============ */
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-6);
   border: 1px solid var(--line);
-  background: var(--surface-3);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  gap: var(--space-8);
+  align-items: start;
 }
-.ap-thumb.round {
-  border-radius: 50%;
+
+/* Backdrop (S1) — the cover blurred behind everything, theme-adaptive opacity.
+   `data-theme` is set on the document root, so the ancestor selector below wins. */
+.hero-backdrop {
+  position: absolute;
+  inset: -48px;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.22;
 }
-.ap-thumb--empty {
-  background: var(--surface-2);
+[data-theme='dark'] .hero-backdrop {
+  opacity: 0.5;
 }
-.ap-tx {
+.hero-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(48px) saturate(1.1);
+}
+
+.hero-cover {
+  position: relative;
+  z-index: 1;
+  width: 216px;
+  max-width: 100%;
+}
+.hero-cover :deep(.artwork--hero) {
+  width: 100%;
+}
+.hero-main {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.hero-title {
+  margin: 0;
+  font: 700 var(--fs-xl)/1.12 var(--font-ui);
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+/* DJ artists (S5) */
+.hero-artists {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.hero-artist-link {
+  font: 500 var(--fs-md)/1.3 var(--font-ui);
+  color: var(--ink);
+  text-decoration: none;
+  transition: color 0.12s;
+}
+.hero-artist-link:hover {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
+.hero-b2b {
+  font: 400 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+}
+
+/* Deduced genres (S6) */
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-15);
+}
+.tag-link {
+  display: inline-flex;
+  max-width: 100%;
+  text-decoration: none;
+}
+
+/* Identity stats (S3) */
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-6);
+  margin-top: var(--space-1);
+}
+.stat-cell {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
 }
-.ap-title {
-  font: 500 var(--fs-base)/1 var(--font-ui);
-  color: var(--ink);
-}
-.ap-sub {
-  font: 400 var(--fs-sm)/1 var(--font-ui);
-  color: var(--ink-3);
-}
-
-/* Tracklist */
-.tracklist-wrap {
-  overflow-x: auto;
-}
-.tracklist {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--fs-sm);
-}
-.tracklist thead th {
-  text-align: left;
-  padding: var(--space-2) var(--space-3);
+.stat-label {
   font: 500 var(--fs-label)/1 var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
 }
-.tracklist tbody td {
-  padding: var(--space-2) var(--space-3);
-  vertical-align: middle;
-  border-bottom: 1px solid var(--line);
-}
-.tracklist tbody tr:last-child td {
-  border-bottom: none;
-}
-.tracklist tbody tr:hover td {
-  background: var(--surface-2);
-}
-
-.tl-pos {
-  width: 36px;
-  text-align: center;
-}
-.tl-play {
-  width: 44px;
-  text-align: center;
-  padding: var(--space-1) !important;
-}
-.tl-time {
-  width: 72px;
-}
-.tl-cover {
-  width: 40px;
-  padding: var(--space-1) var(--space-2) !important;
-}
-.tl-track {
-  min-width: 180px;
-}
-.tl-lib {
-  width: 44px;
-  text-align: center;
-}
-
-.tl-thumb {
-  display: block;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-xs);
-  object-fit: cover;
-  border: 1px solid var(--line);
-}
-.tl-thumb--empty {
-  background: var(--surface-2);
-}
-
-.tl-time-link {
-  color: var(--ink-2);
-  text-decoration: none;
-  transition: color 0.12s;
-}
-.tl-time-link:hover {
-  color: var(--accent-ink);
-  text-decoration: underline;
-}
-
-.mono {
-  font-family: var(--font-mono);
-  color: var(--ink-2);
-}
-
-.tl-link {
-  text-decoration: none;
-  color: inherit;
-}
-.tl-link:hover .tl-title {
-  color: var(--accent-ink);
-}
-
-.tl-title {
-  display: block;
-  font-weight: 500;
+.stat-val {
+  font: 600 var(--fs-md)/1 var(--font-mono);
   color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.tl-artist {
-  display: block;
-  font-size: var(--fs-sm);
-  color: var(--ink-2);
+/* Identifiées (S4) — ring % + fraction on one row */
+.ident-val {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
-
-/* Play button */
-.play-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
-  color: var(--ink-3);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-tr:hover .play-btn {
-  opacity: 1;
-}
-.play-btn.playing {
-  opacity: 1;
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-  border-color: transparent;
+.ident-frac {
+  font: 600 var(--fs-md)/1 var(--font-mono);
+  color: var(--ink);
 }
 
-/* Row states */
-.row--unknown .tl-title {
-  color: var(--ink-3);
-  font-style: italic;
+/* Source link (S7) */
+.hero-source {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: var(--space-25);
+  margin-top: var(--space-1);
 }
-.row--unknown .tl-artist {
-  color: var(--ink-3);
+.hero-source-tx {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
 }
-.row--id .tl-title {
-  color: var(--ink-3);
-  font-style: italic;
-  opacity: 0.6;
-}
-.row--id .tl-artist {
-  color: var(--ink-3);
-  opacity: 0.6;
-}
-
-/* Playing row */
-tr.playing td {
-  background: var(--accent-soft);
-}
-
-/* ID label */
-.id-label {
-  font: 600 var(--fs-nano)/1 var(--font-mono);
-  color: var(--ink-3);
+.hero-source-label {
+  font: 500 var(--fs-label)/1 var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+.hero-source-name {
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  color: var(--ink-2);
 }
 
-.btn-ghost {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  text-decoration: none;
-  transition:
-    background 0.12s,
-    color 0.12s;
+/* ============ SECTION HEADS ============ */
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
-.btn-ghost:hover {
-  background: var(--surface-2);
+.sec-title {
+  margin: 0;
+  font: 600 var(--fs-md)/1.2 var(--font-ui);
   color: var(--ink);
 }
+.sec-count {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
 
-/* Admin card */
+/* ============ TRACKLIST (S8) ============ */
+.tracklist {
+  margin-top: var(--space-8);
+}
+.track-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ============ SIMILAR SETS (S10) ============ */
+.similar {
+  margin-top: var(--space-8);
+}
+.similar-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+.similar-grid > * {
+  min-width: 0;
+}
+
+/* ============ ADMIN ============ */
 .set-artists-list {
   margin-bottom: var(--space-25);
 }
@@ -631,6 +631,10 @@ tr.playing td {
 .sa-role {
   font-size: var(--fs-xs);
   color: var(--ink-3);
+}
+.mono {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
 }
 .sa-add-row {
   display: flex;
@@ -686,16 +690,29 @@ tr.playing td {
   border-color: var(--neg-ink);
 }
 
-/* ============ RESPONSIVE ============ */
-@container app (max-width: 640px) {
+/* ============ RESPONSIVE — container queries only, 720 / 640 max-width ============ */
+@container (max-width: 720px) {
+  .similar-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@container (max-width: 640px) {
+  /* Horizontal padding only — never the shorthand (keep the vertical intact). */
   .detail-view {
-    padding: var(--page-px-mobile);
+    padding-inline: var(--page-px-mobile);
   }
-  .tl-time {
-    display: none;
+  .hero {
+    grid-template-columns: 1fr;
+    gap: var(--space-5);
   }
-  .play-btn {
-    opacity: 1;
+  .hero-cover {
+    width: 160px;
+  }
+  .hero-title {
+    font-size: var(--fs-lg);
+  }
+  .similar-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

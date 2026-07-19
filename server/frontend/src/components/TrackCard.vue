@@ -1,12 +1,22 @@
 <template>
   <div
     class="track-card"
-    :class="{ playing, 'has-end': !!$slots.end, 'has-duration': showDuration }"
+    :class="{
+      playing,
+      'has-end': !!$slots.end,
+      'has-duration': showDuration,
+      'has-position': position != null,
+      'has-timecode': !!timecode,
+      'state-id': isId,
+      'state-unresolved': isUnresolved,
+    }"
   >
+    <span v-if="position != null" class="tk-pos">{{ position }}</span>
+
     <div class="tk-art">
-      <Artwork size="row" :src="coverSrc" :alt="track.title" :in-lib="!!track.in_lib" />
+      <Artwork size="row" :src="coverSrc" :alt="track.title" :in-lib="artInLib" />
       <button
-        v-if="track.has_preview"
+        v-if="showPlay"
         class="tk-play"
         :class="{ playing }"
         :aria-label="playing ? 'Pause' : `Écouter ${track.title}`"
@@ -23,9 +33,11 @@
     </div>
 
     <div class="tk-tx">
-      <span class="tk-title">{{ track.title }}</span>
+      <span class="tk-title" :class="{ 'tk-title--id': isId }">{{ titleText }}</span>
       <span v-if="showArtist" class="tk-artist">
-        <template v-if="track.artists && track.artists.length">
+        <template v-if="isId">non identifié</template>
+        <template v-else-if="isUnresolved">{{ track.artist }}</template>
+        <template v-else-if="track.artists && track.artists.length">
           <template v-for="(a, i) in track.artists" :key="a.id">
             <span v-if="i > 0" class="tk-artist-sep">, </span>
             <RouterLink :to="`/artist/${a.id}`" class="tk-artist-link" @click.stop>
@@ -37,11 +49,24 @@
       </span>
     </div>
 
-    <span class="tk-bpm">{{ fmtBpm(track.bpm) }}</span>
-    <span class="tk-key">{{ track.key || '' }}</span>
-    <span v-if="showDuration" class="tk-dur" :class="{ 'tk-dur--empty': !track.duration_ms }">{{
-      fmtMs(track.duration_ms)
+    <span class="tk-bpm">{{ bpmText }}</span>
+    <span class="tk-key">{{ keyText }}</span>
+    <span v-if="showDuration" class="tk-dur" :class="{ 'tk-dur--empty': durEmpty }">{{
+      durText
     }}</span>
+
+    <template v-if="timecode">
+      <a
+        v-if="timecode.href"
+        class="tk-tc tk-tc--link"
+        :href="timecode.href"
+        target="_blank"
+        rel="noopener"
+        @click.stop
+        >{{ fmtMs(timecode.ms) }}</a
+      >
+      <span v-else class="tk-tc">{{ fmtMs(timecode.ms) }}</span>
+    </template>
 
     <span v-if="$slots.end" class="tk-end"><slot name="end"></slot></span>
   </div>
@@ -59,13 +84,57 @@ const props = defineProps({
   // Opt-in duration column (m:ss / h:mm:ss) inserted between Key and the end slot.
   showDuration: { type: Boolean, default: false },
   playing: { type: Boolean, default: false },
+  // --- Set-row extension (all optional; absent = current behavior, bit-for-bit) ---
+  // Order index (# column at the head of the grid). Pure ordering, never a link.
+  position: { type: Number, default: undefined },
+  // Timecode column between duration and the end slot. `href` → external link,
+  // otherwise plain text; `ms` null → em dash. The page builds the href.
+  timecode: { type: Object, default: undefined }, // { ms: number|null, href?: string }
+  // 'id' = unidentified row (title "ID", muted, non-interactive);
+  // 'unresolved' = read in the source but absent from the catalog (raw text, no link).
+  state: {
+    type: String,
+    default: undefined,
+    validator: (v) => v === undefined || v === 'id' || v === 'unresolved',
+  },
 })
 const emit = defineEmits(['play'])
 
-// Same cover convention as the existing views. No artwork → Artwork placeholder.
+const isId = computed(() => props.state === 'id')
+const isUnresolved = computed(() => props.state === 'unresolved')
+
+// Same cover convention as the existing views. No artwork (or a special state,
+// which is always a placeholder) → Artwork placeholder.
 const coverSrc = computed(() =>
-  props.track.has_artwork ? `/storage/catalog-artworks/${props.track.id}.jpg` : undefined,
+  !props.state && props.track.has_artwork
+    ? `/storage/catalog-artworks/${props.track.id}.jpg`
+    : undefined,
 )
+// No in-lib indicator on set rows (id/unresolved): pass undefined to hide it.
+const artInLib = computed(() => (props.state ? undefined : !!props.track.in_lib))
+// Never a play affordance on id/unresolved rows.
+const showPlay = computed(() => props.track.has_preview && !props.state)
+
+const titleText = computed(() => (isId.value ? 'ID' : props.track.title))
+// id → empty cells (the track itself is unknown, no dashes);
+// unresolved → em dash (data unknown); otherwise the real value.
+const bpmText = computed(() => {
+  if (isId.value) return ''
+  if (isUnresolved.value) return '—'
+  return fmtBpm(props.track.bpm)
+})
+const keyText = computed(() => {
+  if (isId.value) return ''
+  if (isUnresolved.value) return '—'
+  return props.track.key || ''
+})
+const durText = computed(() => {
+  if (isId.value) return ''
+  if (isUnresolved.value) return '—'
+  return fmtMs(props.track.duration_ms)
+})
+// Dimmed dash only for a genuinely-missing normal duration (states color their own cells).
+const durEmpty = computed(() => !props.state && !props.track.duration_ms)
 
 function emitPlay() {
   emit('play')
@@ -74,8 +143,18 @@ function emitPlay() {
 
 <style scoped>
 .track-card {
+  /* Composable columns: an empty custom prop drops out of the template, a set one
+     adds its track. Order: position · art · title · bpm · key · duration · timecode · end.
+     Default (no extension props) resolves to `36px 1fr 42px 30px` — unchanged. */
+  --col-pos: ;
+  --col-bpm: 42px;
+  --col-dur: ;
+  --col-tc: ;
+  --col-end: ;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 42px 30px;
+  grid-template-columns:
+    var(--col-pos) 36px minmax(0, 1fr) var(--col-bpm) 30px var(--col-dur) var(--col-tc)
+    var(--col-end);
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) var(--space-3);
@@ -87,15 +166,19 @@ function emitPlay() {
     background 0.12s,
     border-color 0.12s;
 }
-.track-card.has-end {
-  grid-template-columns: 36px minmax(0, 1fr) 42px 30px auto;
+.track-card.has-position {
+  --col-pos: 28px;
 }
-/* Duration column (44px) inserted between Key and the end slot. */
+/* Duration column (44px) inserted between Key and the timecode/end slots. */
 .track-card.has-duration {
-  grid-template-columns: 36px minmax(0, 1fr) 42px 30px 44px;
+  --col-dur: 44px;
 }
-.track-card.has-duration.has-end {
-  grid-template-columns: 36px minmax(0, 1fr) 42px 30px 44px auto;
+/* Timecode column (58px, fits 1:57:32) between duration and the end slot. */
+.track-card.has-timecode {
+  --col-tc: 58px;
+}
+.track-card.has-end {
+  --col-end: auto;
 }
 .track-card:hover {
   background: var(--surface-2);
@@ -104,6 +187,38 @@ function emitPlay() {
 .track-card.playing,
 .track-card.playing:hover {
   background: var(--accent-wash);
+}
+
+/* Set-row states — visually withdrawn, non-interactive (hover stays neutral). */
+.track-card.state-id {
+  background: var(--bg);
+  cursor: default;
+}
+.track-card.state-id:hover {
+  background: var(--bg);
+  border-color: var(--line);
+}
+.track-card.state-id .tk-art {
+  opacity: 0.55;
+}
+.track-card.state-unresolved {
+  cursor: default;
+}
+.track-card.state-unresolved:hover {
+  background: var(--surface);
+  border-color: var(--line);
+}
+.track-card.state-unresolved .tk-bpm,
+.track-card.state-unresolved .tk-key,
+.track-card.state-unresolved .tk-dur {
+  color: var(--ink-3);
+}
+
+/* Position — pure order index, mono, right-aligned, no zero-padding. */
+.tk-pos {
+  font: 400 var(--fs-sm)/1 var(--font-mono);
+  color: var(--ink-3);
+  text-align: right;
 }
 
 .tk-art {
@@ -148,6 +263,11 @@ function emitPlay() {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* "ID" placeholder title on an unidentified row — mono, withdrawn. */
+.tk-title--id {
+  font-family: var(--font-mono);
+  color: var(--ink-3);
+}
 .tk-artist {
   font: 400 var(--fs-xs)/1.2 var(--font-ui);
   color: var(--ink-3);
@@ -188,6 +308,24 @@ function emitPlay() {
 .tk-dur--empty {
   color: var(--ink-3);
 }
+
+/* Timecode — mono, right-aligned. Plain text is --ink-3; a link is --ink-2 →
+   --ink on hover (the voice distinguishes clickable from static, no icon). */
+.tk-tc {
+  font: 400 var(--fs-sm)/1 var(--font-mono);
+  color: var(--ink-3);
+  text-align: right;
+  text-decoration: none;
+}
+.tk-tc--link {
+  color: var(--ink-2);
+  transition: color 0.12s;
+}
+.tk-tc--link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 .tk-end {
   display: inline-flex;
   align-items: center;
@@ -198,15 +336,22 @@ function emitPlay() {
   .tk-play {
     opacity: 1;
   }
-  /* Duration is secondary — drop it (and its column) under 640px; BPM/Key stay. */
+  /* Duration is secondary — drop it (and its column); BPM/Key stay by default.
+     Same specificity as the base setter but later in source order → it wins. */
+  .track-card.has-duration {
+    --col-dur: ;
+  }
   .tk-dur {
     display: none;
   }
-  .track-card.has-duration {
-    grid-template-columns: 36px minmax(0, 1fr) 42px 30px;
+  /* Set rows (timecode present): the timecode is the axis of the set, so BPM also
+     drops (S9) — the room goes to the title and the timecode. Grid becomes
+     `28px 36px 1fr 30px 58px`. Without a timecode, BPM stays (zero regression). */
+  .track-card.has-timecode {
+    --col-bpm: ;
   }
-  .track-card.has-duration.has-end {
-    grid-template-columns: 36px minmax(0, 1fr) 42px 30px auto;
+  .track-card.has-timecode .tk-bpm {
+    display: none;
   }
 }
 </style>

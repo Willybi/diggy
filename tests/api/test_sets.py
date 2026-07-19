@@ -163,6 +163,164 @@ class TestSetDetailInLib:
         assert r.json()["tracklist"][0]["in_lib"] is False
 
 
+class TestSetDetailEnriched:
+    """Lot 0 enriched detail: bpm/key/duration_ms on the tracklist + top_genres
+    deduced from the identified, viewer-visible tracks."""
+
+    async def _add_identified(
+        self, db, s, position, *, title, artist,
+        bpm=None, key=None, duration_ms=None, genres=None,
+        scope="shared", owner_id=None, is_id=False,
+    ):
+        cat = CatalogEntry(
+            title=title,
+            artist=artist,
+            normalized_key=f"{artist}|{title}".lower(),
+            bpm=bpm,
+            key=key,
+            duration_ms=duration_ms,
+            genres=genres or [],
+            scope=scope,
+            owner_id=owner_id,
+        )
+        db.add(cat)
+        await db.flush()
+        db.add(
+            SetTrack(
+                set_id=s.id, position=position, catalog_id=cat.id,
+                raw_title=title, is_id=is_id,
+            )
+        )
+        return cat
+
+    async def test_tracklist_carries_bpm_key_duration(self, client, db):
+        s = DJSet(source="trackid", title="Enriched Set")
+        db.add(s)
+        await db.flush()
+        await self._add_identified(
+            db, s, 1, title="Cola", artist="CamelPhat",
+            bpm=124.0, key="8A", duration_ms=210000,
+        )
+        await db.commit()
+        await db.refresh(s)
+
+        r = await client.get(f"/api/sets/{s.id}")
+        assert r.status_code == 200
+        tr = r.json()["tracklist"][0]
+        assert tr["bpm"] == 124.0
+        assert tr["key"] == "8A"
+        assert tr["duration_ms"] == 210000
+
+    async def test_tracklist_fields_none_without_catalog(self, client, db):
+        s = DJSet(source="trackid", title="Raw Set")
+        db.add(s)
+        await db.flush()
+        db.add(SetTrack(set_id=s.id, position=1, raw_title="ID", is_id=True))
+        await db.commit()
+        await db.refresh(s)
+
+        r = await client.get(f"/api/sets/{s.id}")
+        tr = r.json()["tracklist"][0]
+        assert tr["bpm"] is None
+        assert tr["key"] is None
+        assert tr["duration_ms"] is None
+
+    async def test_top_genres_count_pct_and_order(self, client, db):
+        s = DJSet(source="trackid", title="Genre Set")
+        db.add(s)
+        await db.flush()
+        pos, n = 1, 0
+        for genre, cnt in [("techno", 3), ("house", 2), ("trance", 1)]:
+            for _ in range(cnt):
+                await self._add_identified(
+                    db, s, pos, title=f"t{n}", artist=f"a{n}", genres=[genre]
+                )
+                pos, n = pos + 1, n + 1
+        # a genre-less identified track: excluded from the pct denominator (=6)
+        await self._add_identified(db, s, pos, title=f"t{n}", artist=f"a{n}", genres=[])
+        await db.commit()
+        await db.refresh(s)
+
+        r = await client.get(f"/api/sets/{s.id}")
+        tg = r.json()["top_genres"]
+        assert [g["name"] for g in tg] == ["techno", "house", "trance"]
+        by_name = {g["name"]: g for g in tg}
+        assert by_name["techno"]["pct"] == 50  # round(100 * 3 / 6)
+        assert by_name["house"]["pct"] == 33  # round(100 * 2 / 6)
+        assert by_name["trance"]["pct"] == 17  # round(100 * 1 / 6)
+
+    async def test_top_genres_capped_at_five(self, client, db):
+        s = DJSet(source="trackid", title="Many Genres")
+        db.add(s)
+        await db.flush()
+        pos, n = 1, 0
+        for genre, cnt in [("g6", 6), ("g5", 5), ("g4", 4), ("g3", 3), ("g2", 2), ("g1", 1)]:
+            for _ in range(cnt):
+                await self._add_identified(
+                    db, s, pos, title=f"x{n}", artist=f"y{n}", genres=[genre]
+                )
+                pos, n = pos + 1, n + 1
+        await db.commit()
+        await db.refresh(s)
+
+        r = await client.get(f"/api/sets/{s.id}")
+        tg = r.json()["top_genres"]
+        assert [g["name"] for g in tg] == ["g6", "g5", "g4", "g3", "g2"]
+        assert len(tg) == 5
+
+    async def test_top_genres_ignores_unidentified_tracks(self, client, db):
+        s = DJSet(source="trackid", title="Mixed Set")
+        db.add(s)
+        await db.flush()
+        await self._add_identified(db, s, 1, title="Real", artist="A", genres=["techno"])
+        # catalog-linked but flagged is_id: must NOT contribute genres
+        await self._add_identified(
+            db, s, 2, title="Guess", artist="B", genres=["house"], is_id=True
+        )
+        await db.commit()
+        await db.refresh(s)
+
+        r = await client.get(f"/api/sets/{s.id}")
+        assert {g["name"] for g in r.json()["top_genres"]} == {"techno"}
+
+    async def test_top_genres_excludes_foreign_private_track(self, auth_client, db, auth_user):
+        other = User(
+            email="o@test.com", username="o", google_id="g-o", is_active=True
+        )
+        db.add(other)
+        await db.flush()
+        s = DJSet(source="trackid", title="Isolation Set")
+        db.add(s)
+        await db.flush()
+        await self._add_identified(db, s, 1, title="Shared", artist="Alpha", genres=["techno"])
+        await self._add_identified(
+            db, s, 2, title="Secret", artist="Beta", genres=["house"],
+            scope="private", owner_id=other.id,
+        )
+        await db.commit()
+        await db.refresh(s)
+
+        r = await auth_client.get(f"/api/sets/{s.id}")
+        assert r.status_code == 200
+        data = r.json()
+        # foreign private "house" is excluded from the aggregate…
+        assert {g["name"] for g in data["top_genres"]} == {"techno"}
+        # …while the tracklist itself stays unfiltered (accepted C3 residual)
+        assert {t["catalog_title"] for t in data["tracklist"]} == {"Shared", "Secret"}
+
+    async def test_top_genres_guest_access(self, client, db):
+        s = DJSet(source="trackid", title="Guest Genre Set")
+        db.add(s)
+        await db.flush()
+        await self._add_identified(db, s, 1, title="Cola", artist="CamelPhat", genres=["techno"])
+        await db.commit()
+        await db.refresh(s)
+
+        r = await client.get(f"/api/sets/{s.id}")
+        assert r.status_code == 200
+        assert {g["name"] for g in r.json()["top_genres"]} == {"techno"}
+
+
 class TestImportSet:
     async def test_invalid_input_returns_422(self, auth_client):
         r = await auth_client.post("/api/sets/import", json={})

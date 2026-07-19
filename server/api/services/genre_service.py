@@ -37,6 +37,49 @@ def genre_pillar(genre_name: str) -> tuple[str, int]:
     return _PILLAR_CACHE.get(genre_name, ("autres", 0))
 
 
+def aggregate_top_genres(genres_lists, cap: int = 5):
+    """Rank the dominant genres of a track collection.
+
+    ``genres_lists`` is an iterable of per-track raw-genre lists (one entry per
+    track). A track counts once per distinct genre it carries; tracks with no
+    genre are excluded from the ``pct`` denominator. Returns up to ``cap``
+    ``TopGenreOut`` sorted by ``(-count, name)``, with ``pct`` the share of
+    genre-bearing tracks carrying the genre and ``pillar``/``depth`` resolved via
+    :func:`genre_pillar` (caller must have warmed the pillar cache).
+
+    Pure and sync — shared by the playlist and set detail aggregates so both
+    apply the exact same counting, tie-break and pct rounding.
+    """
+    from collections import defaultdict
+
+    from schemas import TopGenreOut
+
+    genre_counts: dict[str, int] = defaultdict(int)
+    tracks_with_genre = 0
+    for genres in genres_lists:
+        if genres:
+            tracks_with_genre += 1
+            for g in set(genres):
+                genre_counts[g] += 1
+
+    if not tracks_with_genre:
+        return []
+
+    ranked = sorted(genre_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:cap]
+    result = []
+    for name, cnt in ranked:
+        pillar, depth = genre_pillar(name)
+        result.append(
+            TopGenreOut(
+                name=name,
+                pillar=pillar,
+                depth=depth,
+                pct=round(100 * cnt / tracks_with_genre),
+            )
+        )
+    return result
+
+
 def pillar_map() -> dict[str, tuple[str, int]]:
     """Live view of the pillar cache: raw genre name -> (pillar, depth).
 

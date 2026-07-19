@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from .common import ArtistRef
+from .common import ArtistRef, TopGenreOut  # noqa: F401  (re-exported for compat)
 
 
 class WatchedEntityIn(BaseModel):
@@ -57,15 +57,6 @@ class TopArtistOut(BaseModel):
     name: str
     has_artwork: bool = False
     count: int
-
-
-class TopGenreOut(BaseModel):
-    """A dominant genre of the playlist: raw name (links to /style/{name}) + share."""
-
-    name: str
-    pillar: str = "autres"
-    depth: int = 0
-    pct: int = 0
 
 
 class WatchedEntityDetailOut(WatchedEntityOut):

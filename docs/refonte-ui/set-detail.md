@@ -70,8 +70,34 @@ Statut : ✅ figé  |  Vue : `views/SetDetailView.vue`
 - [ ] Section **Sets similaires**.
 
 **Chantier work_manager**
-- **Back** : ajouter **bpm/key** à `SetTrackDetailOut` (join catalog) ; **genres déduits** (agrégat des genres des tracks) ; **endpoint « sets similaires »** via `similarity_service` (set = tracklist, proximité C2 agrégée) ; garder `catalog_visible` sur les tracks.
+- **Back** : ajouter **bpm/key/durée** à `SetTrackDetailOut` (join catalog) ; **genres déduits** `top_genres[]` (miroir playlist) ; **endpoint « sets similaires »** `GET /api/sets/{id}/similar` via `similarity_service` (set = tracklist, proximité C2 agrégée) ; `catalog_visible` sur les **nouveaux agrégats** (la tracklist existante reste le résiduel accepté C3, non filtré).
 - **Front** : hero immersif ; tracklist + BPM/KEY ; retrait blocs morts ; `<PlatformLink>` ; `is_admin` sur Admin ; `<Artwork>` in-lib ; section Sets similaires.
 - **Transverse** : `<PlatformLink>`, `<Artwork>`.
 
 **Dépend de** : moteur de proximité (sets similaires) ; composants transverses.
+
+## 7. Arbitrages pré-vol (2026-07-17)
+
+Vérification code + arbitrages William avant le prompt Design :
+
+- **Dette « Admin non gardé » OBSOLÈTE** : `AdminCard` gate en interne sur `is_admin` (depuis le chantier Track Detail). La décision figée « Admin → is_admin » est déjà satisfaite en prod — rien à faire.
+- **Genres déduits** : contrat **miroir playlist** — `top_genres[]` (`name`, `pillar`, `depth`, `pct`), **cap 5**, agrégé sur les tracks identifiées de la tracklist.
+- **Sets similaires** : `GET /api/sets/{id}/similar` — carte set complète : `id`, `title`, `source`, `played_date`, `duration_ms`, `has_artwork`, `total_tracks`, `identified_tracks`, `artists[]` (noms), **`score` exposé** (0..1, tri décroissant ; l'afficher ou non = latitude Design). **Cap 8**, roots only (`parent_set_id IS NULL`), set courant exclu.
+- **Étanchéité C3** : `catalog_visible` appliqué aux **nouveaux agrégats** (genres déduits + sets similaires), miroir du lot 0 Playlist Detail. La tracklist existante reste le résiduel accepté (CLAUDE.md) — la mention « garder catalog_visible sur les tracks » du §6 originel était imprécise, corrigée.
+- **Précision back** : `bpm` / `key` / `duration_ms` ajoutés à `SetTrackDetailOut` — le catalog est déjà `selectinload`é dans `get_set_detail`, coût quasi nul.
+- **`_load_set_map`** : le double-comptage parents virtuels/enfants est corrigé depuis le 2026-07-16 (roots-only, fix pooling C4) — l'endpoint similaires s'appuie dessus sans correctif préalable.
+- **PlatformLink** : la map couvre déjà `youtube` / `soundcloud` / `trackid` / `1001tl` — aucun logo à ajouter pour cette page.
+
+## 8. Décisions handoff (round unique, 2026-07-17)
+
+Handoff versionné dans [handoff-set-detail/](handoff-set-detail/) (README = provenance + conformité). Décisions DA S1-S10 du brief, dont les arbitrages pris dans la latitude laissée :
+
+- **S1 Fond flouté retenu** : backdrop = artwork `blur(48px)`, opacité 0.22 light / 0.50 dark, pas de scrim — `has_artwork=false` → bande `--surface` nue.
+- **S3 StatStrip supprimée** : Durée · Date · Tracks · Identifiées en data-row dans le hero (aligné Track/Playlist Detail).
+- **S4 Ring % identifiées = `<ScoreRing mode="pct">`** (extension additive, défaut `'score'` bit-à-bit identique) — 1ʳᵉ migration de la cible TRANSVERSE « RingPct → géométrie ScoreRing ».
+- **S5 Artistes-DJ** : séparateur « b2b » mono dès N ≥ 2 ; le `role` d'import (peu fiable) n'est plus affiché.
+- **S6 Genres déduits sans %** : StyleTags seuls, le `pct` du contrat sert au tri.
+- **S8 Tracklist = extension ADDITIVE `<TrackCard>`** (`position`, `timecode {ms, href?}`, `state 'id'/'unresolved'`) — pas de rangée bespoke ; le `href` timecode est construit par la page (le composant ignore les plateformes).
+- **S9 Responsive < 640 px re-tranché** : le timecode RESTE (axe du set + accès source), BPM + durée tombent — inverse de l'actuel. Conditionnel : sans prop `timecode`, comportement actuel inchangé (zéro régression Track/Playlist).
+- **S10 Sets similaires sans score affiché** : grille `<SetCard>` 4/3/2 colonnes triée par score ; slot `#footer` de la carte = porte ouverte pour `/sets`.
+- **Nouveau composant `<SetCard>`** (SPEC-set-card.md) : carte set réutilisable, 1ʳᵉ conso ici, réutilisée par la future refonte de `/sets`.

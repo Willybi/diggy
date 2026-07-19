@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from .common import ArtistRef
+from .common import ArtistRef, TopGenreOut
 
 
 class SetListItemOut(BaseModel):
@@ -76,6 +76,9 @@ class SetTrackDetailOut(SetTrackOut):
     catalog_title: Optional[str] = None
     catalog_artist: Optional[str] = None
     catalog_artists: list[ArtistRef] = []
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration_ms: Optional[int] = None
     has_artwork: bool = False
     in_lib: bool = False
     has_preview: bool = False
@@ -94,6 +97,25 @@ class SetArtistDetailOut(BaseModel):
 class DJSetDetailOut(DJSetOut):
     artists: list[SetArtistDetailOut] = []
     tracklist: list[SetTrackDetailOut] = []
+    top_genres: list[TopGenreOut] = []
+
+
+class SimilarSetOut(BaseModel):
+    """One set close to a seed set, aggregated from the C2 track engine.
+
+    ``score`` is the normalized proximity in (0, 1] (max = 1.0); the frontend may
+    surface it or not (Design latitude)."""
+
+    id: int
+    title: str
+    source: str
+    played_date: Optional[date] = None
+    duration_ms: Optional[int] = None
+    has_artwork: bool = False
+    total_tracks: int = 0
+    identified_tracks: int = 0
+    artists: list[str] = []
+    score: float
 
 
 class SetFlagOut(BaseModel):

@@ -12,30 +12,50 @@
         stroke-linecap="round"
       />
     </svg>
-    <span class="sr-note">{{ note }}</span>
+    <span class="sr-note" :class="{ 'sr-note--pct': isPct }">{{ centerText }}</span>
   </span>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 
+// Fine no-break space (U+202F) before "%", per French typography.
+const THIN_NBSP = String.fromCharCode(0x202f)
+
 const props = defineProps({
-  score: { type: Number, required: true }, // 0-1, displayed as Math.round(score * 10)
+  // 'score' mode: 0-1 displayed as Math.round(score * 10).
+  // 'pct' mode: 0-1 proportion displayed as Math.round(score * 100) + " %".
+  score: { type: Number, required: true },
   size: { type: String, default: 'sm' }, // 'sm' 30px · 'md' 40px
-  label: { type: String, default: '' }, // a11y label; defaults to "Score N /10"
+  label: { type: String, default: '' }, // a11y label; defaults per mode
+  mode: {
+    type: String,
+    default: 'score',
+    validator: (v) => v === 'score' || v === 'pct',
+  },
 })
 
+const isPct = computed(() => props.mode === 'pct')
 const note = computed(() => Math.round(props.score * 10))
+const pct = computed(() => Math.round(props.score * 100))
 const box = computed(() => (props.size === 'md' ? 40 : 30))
 const stroke = computed(() => (props.size === 'md' ? 3 : 2.5))
 const center = computed(() => box.value / 2)
 const radius = computed(() => (box.value - stroke.value) / 2)
 const circumference = computed(() => 2 * Math.PI * radius.value)
+// Arc fill = the proportion itself in pct mode, note/10 in score mode.
+const fraction = computed(() =>
+  isPct.value ? Math.min(1, Math.max(0, props.score)) : note.value / 10,
+)
 const dash = computed(() => {
-  const filled = circumference.value * (note.value / 10)
+  const filled = circumference.value * fraction.value
   return `${filled.toFixed(2)} ${(circumference.value - filled).toFixed(2)}`
 })
-const ariaLabel = computed(() => props.label || `Score ${note.value} /10`)
+const centerText = computed(() => (isPct.value ? `${pct.value}${THIN_NBSP}%` : String(note.value)))
+const ariaLabel = computed(() => {
+  if (props.label) return props.label
+  return isPct.value ? `${pct.value}${THIN_NBSP}%` : `Score ${note.value} /10`
+})
 </script>
 
 <style scoped>
@@ -77,5 +97,10 @@ const ariaLabel = computed(() => props.label || `Score ${note.value} /10`)
 }
 .score-ring--md .sr-note {
   font-size: var(--fs-sm);
+}
+/* Percent mode: a denser center so "100 %" fits the ring at both sizes.
+   Placed last with matching specificity so it wins over the md rule above. */
+.score-ring .sr-note--pct {
+  font-size: var(--fs-nano);
 }
 </style>

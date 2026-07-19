@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import NamedTuple
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------------------------------------------------------------------------
@@ -767,3 +767,186 @@ async def get_similar_tracks(
         top_n=top_n, score_floor=score_floor, in_lib=in_lib,
     )
     return results[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Set-level similarity (C2 engine aggregated over a set's tracklist)
+# ---------------------------------------------------------------------------
+
+# A set is scored from at most this many of its identified tracks (bounds the
+# per-request cost: each seed is scored against the whole visible pool).
+SIMILAR_SETS_SEED_CAP = 24
+# Per-seed proximity: keep the top-N most similar tracks; each contributes to the
+# sets that contain it.
+SIMILAR_SETS_CAND_TRUNC = 40
+# Weight of proximity (fuzzy per-track similarity) relative to exact tracklist
+# overlap (which contributes +1.0 per shared set per seed, the dominant signal).
+SIMILAR_SETS_PROXIMITY_W = 0.5
+
+
+async def similar_sets(
+    db: AsyncSession,
+    set_id: int,
+    user_id: int | None = None,
+    *,
+    limit: int = 8,
+) -> list[dict]:
+    """Sets closest to ``set_id``, aggregating the C2 track engine at set level.
+
+    A set is represented by its identified tracklist; the closest sets are those
+    whose tracklists overlap or whose tracks are individually similar. Algorithm:
+
+    1. Load the set (id + ``parent_set_id``); raise ``LookupError`` if absent.
+    2. Seeds = the ``catalog_id`` of its identified tracks (``catalog_id`` set,
+       ``is_id`` false), ordered by position.
+    3. Load the shared context once and the viewer-scoped candidate pool once.
+       Restrict the seeds to the pool (= C3 visibility) and cap at
+       ``SIMILAR_SETS_SEED_CAP``.
+    4. Accumulate a per-set score:
+         * OVERLAP (dominant): each root set in ``ctx.set_map[seed]`` gets +1.0;
+         * PROXIMITY: score the seed against the pool, keep the top
+           ``SIMILAR_SETS_CAND_TRUNC`` candidates, and give every set containing a
+           candidate ``+candidate_score * SIMILAR_SETS_PROXIMITY_W``.
+    5. Exclude the current set and its ``parent_set_id`` (children are absent from
+       ``set_map`` by construction — roots only — so the parent root is the only
+       way this set's own tracks re-enter the map).
+    6. Normalise (max -> 1.0), sort by ``(-score, set_id)`` for determinism, keep
+       the top ``limit``.
+    7. Fetch the winner cards (title/source/counts + artist names ordered by
+       position), same shape as the set list endpoint.
+
+    Reuses the existing loaders/scoring untouched; awaits are sequential (an
+    ``AsyncSession`` is not safe for concurrent ``execute``).
+    """
+    from models import Artist, DJSet, SetArtist, SetTrack
+
+    # 1. Load the set (id + parent).
+    set_row = (
+        await db.execute(
+            select(DJSet.id, DJSet.parent_set_id).where(DJSet.id == set_id)
+        )
+    ).first()
+    if set_row is None:
+        raise LookupError(f"Set {set_id} not found")
+    parent_set_id = set_row[1]
+
+    # 2. Seeds = identified tracks' catalog ids (position-ordered, deterministic).
+    seed_rows = (
+        await db.execute(
+            select(SetTrack.catalog_id)
+            .where(
+                SetTrack.set_id == set_id,
+                SetTrack.catalog_id.isnot(None),
+                SetTrack.is_id.is_(False),
+            )
+            .order_by(SetTrack.position)
+        )
+    ).all()
+
+    # 3. Shared context + viewer-scoped pool; restrict seeds to the visible pool.
+    ctx = await load_similarity_context(db)
+    pool = await load_candidate_pool(db, user_id, ctx)
+
+    seeds: list[int] = []
+    seen: set[int] = set()
+    for (cid,) in seed_rows:
+        if cid in pool and cid not in seen:
+            seen.add(cid)
+            seeds.append(cid)
+            if len(seeds) >= SIMILAR_SETS_SEED_CAP:
+                break
+
+    excluded = {set_id}
+    if parent_set_id is not None:
+        excluded.add(parent_set_id)
+
+    # 4. Accumulate per-set scores from overlap (dominant) + proximity.
+    set_scores: dict[int, float] = {}
+    for cid in seeds:
+        for sid in ctx.set_map.get(cid, ()):  # exact tracklist overlap
+            set_scores[sid] = set_scores.get(sid, 0.0) + 1.0
+        scored = _score_seed_against_pool(pool, pool[cid], score_floor=0.0)[
+            :SIMILAR_SETS_CAND_TRUNC
+        ]
+        for cand_id, score_pct, _components, _available in scored:
+            weight = score_pct * SIMILAR_SETS_PROXIMITY_W
+            if weight <= 0.0:
+                continue
+            for sid in ctx.set_map.get(cand_id, ()):
+                set_scores[sid] = set_scores.get(sid, 0.0) + weight
+
+    # 5. Drop the current set and its parent root.
+    for sid in excluded:
+        set_scores.pop(sid, None)
+
+    # Guard against zero-only accumulations so every returned score is in (0, 1].
+    set_scores = {sid: sc for sid, sc in set_scores.items() if sc > 0.0}
+    if not set_scores:
+        return []
+
+    # 6. Normalise to (0, 1] and rank.
+    max_score = max(set_scores.values())
+    winners = sorted(
+        ((sid, sc / max_score) for sid, sc in set_scores.items()),
+        key=lambda x: (-x[1], x[0]),
+    )[:limit]
+    winner_ids = [sid for sid, _ in winners]
+
+    # 7. Fetch the winner cards (mirror the list endpoint's shape).
+    set_rows = (
+        await db.execute(
+            select(
+                DJSet,
+                func.count(SetTrack.id).label("total_tracks"),
+                func.count(
+                    case(
+                        (
+                            and_(
+                                SetTrack.is_id.is_(False),
+                                SetTrack.catalog_id.isnot(None),
+                            ),
+                            SetTrack.id,
+                        ),
+                    )
+                ).label("identified_tracks"),
+            )
+            .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
+            .where(DJSet.id.in_(winner_ids))
+            .group_by(DJSet.id)
+        )
+    ).all()
+    cards_by_id = {s.id: (s, total, ident) for s, total, ident in set_rows}
+
+    artists_by_set: dict[int, list[str]] = {}
+    aq = (
+        await db.execute(
+            select(SetArtist.set_id, Artist.name)
+            .join(Artist, Artist.id == SetArtist.artist_id)
+            .where(SetArtist.set_id.in_(winner_ids))
+            .order_by(SetArtist.position)
+        )
+    ).all()
+    for sid, name in aq:
+        artists_by_set.setdefault(sid, []).append(name)
+
+    results: list[dict] = []
+    for sid, score in winners:
+        card = cards_by_id.get(sid)
+        if card is None:
+            continue
+        s, total, ident = card
+        results.append(
+            {
+                "id": s.id,
+                "title": s.title,
+                "source": s.source,
+                "played_date": s.played_date,
+                "duration_ms": s.duration_ms,
+                "has_artwork": s.has_artwork,
+                "total_tracks": total,
+                "identified_tracks": ident,
+                "artists": artists_by_set.get(s.id, []),
+                "score": round(score, 4),
+            }
+        )
+    return results

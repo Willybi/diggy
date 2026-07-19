@@ -131,12 +131,11 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
         ArtistRef,
         PlaylistTrackOut,
         TopArtistOut,
-        TopGenreOut,
         WatchedEntityDetailOut,
     )
 
     from services.catalog_service import catalog_visible
-    from services.genre_service import ensure_pillar_cache, genre_pillar
+    from services.genre_service import aggregate_top_genres, ensure_pillar_cache
 
     # Warm the pillar cache up front (mirrors list_catalog): its loader rolls the
     # session back on failure, so it must run before we hold any ORM row we still
@@ -251,28 +250,7 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
 
     # top_genres: share of visible tracks containing each genre (Python aggregate
     # over the already-loaded rows; playlist volume stays well under a N+1 threshold).
-    genre_counts: dict[str, int] = defaultdict(int)
-    tracks_with_genre = 0
-    for row in track_rows:
-        genres = row.genres or []
-        if genres:
-            tracks_with_genre += 1
-            for g in set(genres):
-                genre_counts[g] += 1
-
-    top_genres: list[TopGenreOut] = []
-    if tracks_with_genre:
-        ranked = sorted(genre_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
-        for name, cnt in ranked:
-            pillar, depth = genre_pillar(name)
-            top_genres.append(
-                TopGenreOut(
-                    name=name,
-                    pillar=pillar,
-                    depth=depth,
-                    pct=round(100 * cnt / tracks_with_genre),
-                )
-            )
+    top_genres = aggregate_top_genres([row.genres or [] for row in track_rows])
 
     return WatchedEntityDetailOut.model_validate(
         {

@@ -4,6 +4,7 @@ import pytest
 from services.genre_service import (
     ALL_PILLARS,
     _pillar_genre_names,
+    aggregate_top_genres,
     genre_pillar,
     lookup_deezer_genres,
     pillar_map,
@@ -45,6 +46,50 @@ class TestPillars:
 
     def test_all_pillars_is_tuple(self):
         assert isinstance(ALL_PILLARS, tuple)
+
+
+class TestAggregateTopGenres:
+    """Shared helper backing the playlist AND set detail top_genres aggregate."""
+
+    def test_empty_input_returns_empty(self):
+        assert aggregate_top_genres([]) == []
+
+    def test_all_genreless_tracks_return_empty(self):
+        assert aggregate_top_genres([[], [], []]) == []
+
+    def test_counts_pct_and_alpha_tie_break(self):
+        # techno appears on tracks 0,1 -> 2 ; house on tracks 1,2 -> 2 ; track 3
+        # is genre-less (excluded from the denominator = 3 genre-bearing tracks).
+        out = aggregate_top_genres([["techno"], ["techno", "house"], ["house"], []])
+        # tie on count 2 -> alphabetical (house before techno)
+        assert [g.name for g in out] == ["house", "techno"]
+        assert {g.name: g.pct for g in out} == {"house": 67, "techno": 67}  # round(200/3)
+
+    def test_dedupes_repeated_genre_within_a_track(self):
+        out = aggregate_top_genres([["techno", "techno"]])
+        assert len(out) == 1
+        assert out[0].name == "techno"
+        assert out[0].pct == 100  # 1 genre-bearing track
+
+    def test_caps_at_five_by_default(self):
+        lists = []
+        for genre, cnt in [("g6", 6), ("g5", 5), ("g4", 4), ("g3", 3), ("g2", 2), ("g1", 1)]:
+            lists += [[genre]] * cnt
+        out = aggregate_top_genres(lists)
+        assert [g.name for g in out] == ["g6", "g5", "g4", "g3", "g2"]
+        assert len(out) == 5  # "g1" (count 1) dropped by the cap
+
+    def test_cap_is_configurable(self):
+        out = aggregate_top_genres([["a"], ["b"], ["c"]], cap=2)
+        assert len(out) == 2
+
+    def test_pillar_resolved_from_cache(self):
+        pillar_map()["Test Deep House"] = ("house", 2)
+        try:
+            out = aggregate_top_genres([["Test Deep House"]])
+        finally:
+            pillar_map().pop("Test Deep House", None)
+        assert (out[0].pillar, out[0].depth) == ("house", 2)
 
 
 class TestLookupDeezerGenres:

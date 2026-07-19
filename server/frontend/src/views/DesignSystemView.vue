@@ -213,6 +213,56 @@
         />
       </div>
 
+      <h3 class="ds-h3 mono">
+        TrackCard étendu · set (position · timecode · états ID)
+        <span class="ds-tag">refonte Set Detail</span>
+      </h3>
+      <div class="ds-stack">
+        <!-- identifiée · position · timecode lien -->
+        <TrackCard
+          :track="demoSetTrack"
+          :show-artist="true"
+          :show-duration="true"
+          :position="1"
+          :timecode="{ ms: 185000, href: '#' }"
+        />
+        <!-- timecode texte (non cliquable) -->
+        <TrackCard
+          :track="demoSetTrack"
+          :show-artist="true"
+          :show-duration="true"
+          :position="2"
+          :timecode="{ ms: 546000 }"
+        />
+        <!-- playing -->
+        <TrackCard
+          :track="demoSetTrack"
+          :show-artist="true"
+          :show-duration="true"
+          :position="3"
+          :timecode="{ ms: 1122000, href: '#' }"
+          :playing="true"
+        />
+        <!-- état ID (non identifié) -->
+        <TrackCard
+          :track="demoSetTrack"
+          :show-artist="true"
+          :show-duration="true"
+          :position="4"
+          :timecode="{ ms: 1500000, href: '#' }"
+          state="id"
+        />
+        <!-- état non résolu -->
+        <TrackCard
+          :track="demoSetUnresolved"
+          :show-artist="true"
+          :show-duration="true"
+          :position="5"
+          :timecode="{ ms: null }"
+          state="unresolved"
+        />
+      </div>
+
       <h3 class="ds-h3 mono">ScoreRing · sm &amp; md</h3>
       <div class="comp-row">
         <ScoreRing :score="0" />
@@ -221,6 +271,34 @@
         <ScoreRing :score="1" />
         <ScoreRing :score="0.86" size="md" label="Similarité 9 /10" />
         <ScoreRing :score="1" size="md" />
+      </div>
+
+      <h3 class="ds-h3 mono">
+        ScoreRing · mode % <span class="ds-tag">identified/total · Set Detail</span>
+      </h3>
+      <div class="comp-row">
+        <ScoreRing :score="0" mode="pct" />
+        <ScoreRing :score="0.69" mode="pct" />
+        <ScoreRing :score="1" mode="pct" />
+        <ScoreRing :score="0" mode="pct" size="md" />
+        <ScoreRing :score="0.69" mode="pct" size="md" label="69 % de tracks identifiées" />
+        <ScoreRing :score="1" mode="pct" size="md" />
+      </div>
+
+      <h3 class="ds-h3 mono">
+        SetCard · carte set réutilisable <span class="ds-tag">refonte Set Detail</span>
+      </h3>
+      <div class="ds-setgrid">
+        <!-- complète -->
+        <SetCard :set="demoSet" />
+        <!-- sans artwork -->
+        <SetCard :set="{ ...demoSet, has_artwork: false }" />
+        <!-- méta partielle (date omise) -->
+        <SetCard :set="{ ...demoSet, played_date: null, artists: [] }" />
+        <!-- slot footer (point d'extension) -->
+        <SetCard :set="demoSet">
+          <template #footer><ScoreRing :score="0.7" size="sm" /></template>
+        </SetCard>
       </div>
 
       <h3 class="ds-h3 mono">PlatformLink · button (md / sm) &amp; glyph</h3>
@@ -249,6 +327,7 @@ import Artwork from '../components/Artwork.vue'
 import TrackCard from '../components/TrackCard.vue'
 import ScoreRing from '../components/ScoreRing.vue'
 import PlatformLink from '../components/PlatformLink.vue'
+import SetCard from '../components/SetCard.vue'
 
 const demoTrack = {
   id: 0,
@@ -282,6 +361,39 @@ const demoPlatforms = [
   'trackid',
   '1001tl',
 ]
+// Set-row extension demos (position · timecode · states).
+const demoSetTrack = {
+  id: 0,
+  title: 'Opus (Four Tet Remix)',
+  artist: 'Eric Prydz',
+  bpm: 124,
+  key: '4A',
+  duration_ms: 546000,
+  has_artwork: false,
+  has_preview: true,
+  in_lib: true,
+  artists: [{ id: 1, name: 'Eric Prydz' }],
+}
+const demoSetUnresolved = {
+  id: 0,
+  title: 'Unknown bootleg — ID',
+  artist: 'Unknown Artist',
+  has_artwork: false,
+  has_preview: false,
+  in_lib: false,
+}
+// SetCard demo (contract GET /api/sets/{id}/similar — artists[] are plain names).
+const demoSet = {
+  id: 0,
+  title: 'Cercle: Sébastien Léger @ Le Panthéon, Paris',
+  source: 'youtube',
+  played_date: '2023-11-18',
+  duration_ms: 5460000,
+  has_artwork: false,
+  total_tracks: 22,
+  identified_tracks: 15,
+  artists: ['Sébastien Léger'],
+}
 
 const mk = (names) => names.map((n) => ({ name: n, value: `var(${n})` }))
 
@@ -706,6 +818,12 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--space-2);
   max-width: 420px;
+}
+.ds-setgrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: var(--space-4);
+  max-width: 720px;
 }
 .ds-pagehead {
   background: var(--surface);

@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-17 (refonte UI D4 page 1 — Track Detail rebuilt from the Claude Design handoff (docs/refonte-ui/handoff-track-detail/); 4 new shared components Artwork/TrackCard/ScoreRing/PlatformLink — PlatformLink ships PLACEHOLDER logos (map platform→path, TODO official SVGs, see ROADMAP reliquats); component count fixed 34→39)
+> Last verified: 2026-07-19 (refonte UI D4 page 3 — Set Detail rebuilt from the Claude Design handoff (docs/refonte-ui/handoff-set-detail/); new shared component SetCard (count 39→40), TrackCard gained the additive set-row extension (position/timecode/state) and ScoreRing a pct mode; GET /api/sets/{id}/similar added — endpoint count recounted 100→102 (was already stale by one); similarity_service gained set-level similar_sets; TopGenreOut moved to schemas/common.py (compat re-export kept), shared aggregate_top_genres helper in genre_service. PlatformLink still ships PLACEHOLDER logos (TODO official SVGs, see ROADMAP reliquats))
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -31,7 +31,7 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 15 routers, 100 endpoints:
+│   ├── routers/             # 15 routers, 102 endpoints:
 │   │                        # catalog, radar, watchlist, artists, following, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin, recommendations (taxonomy = 11
@@ -44,8 +44,9 @@ server/
 │                            # following, similarity (C4: load_similarity_context +
 │                            # similar_from_context multi-seed primitive — NB: NOT catalog-only,
 │                            # also consumes DJ-set co-occurrence via _load_set_map, so sets are
-│                            # a similarity/reco input; that loader also double-counts virtual
-│                            # parents + their children, latent bug), artist_connection,
+│                            # a similarity/reco input; _load_set_map is roots-only since the
+│                            # C4 pooling fix, 2026-07-16; similar_sets aggregates the engine
+│                            # at set level — overlap + proximity, D4 p.3), artist_connection,
 │                            # opinion_sync, rekordbox_xml, set_dedup (normalize_set_title,
 │                            # match_set, materialize_parent), external_search (Deezer+TIDAL
 │                            # manual import), recommendation (C4: reco perso = likes/lib ×
@@ -58,7 +59,7 @@ server/
 │                            # import_rb, sets, trends
 ├── frontend/src/
 │   ├── views/               # 17 views (all routed)
-│   ├── components/          # 39 components (33 shared + 6 admin)
+│   ├── components/          # 40 components (34 shared + 6 admin)
 │   ├── composables/         # useInfiniteScroll, usePaginatedList, useTaskPoll,
 │   │                        # useStyleMap, useTheme
 │   ├── stores/              # Pinia: auth, audioPlayer, opinions, toast
