@@ -1,220 +1,190 @@
 <template>
   <div class="detail-view">
     <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="!artist" class="state">Artiste introuvable.</div>
+    <div v-else-if="!artist" class="state state--empty">
+      <span>Artiste introuvable.</span>
+      <RouterLink to="/artists" class="btn">Retour aux artistes</RouterLink>
+    </div>
     <template v-else>
-      <!-- HERO BANNER -->
-      <section class="page-hero hero--banner">
+      <!-- Back link -->
+      <RouterLink to="/artists" class="dv-back">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+        Artistes
+      </RouterLink>
+
+      <!-- 1. HERO — banner montage + avatar + genres + actions + repliée stats (A1-A4, A6) -->
+      <section class="hero">
         <div class="hero-banner">
-          <div class="hb-tiles">
+          <!-- Montage 6×2 : covers du catalog, tuiles cyclées (A3). 0 cover → bande rayée. -->
+          <div v-if="bannerTiles.length" class="hb-tiles">
             <img
-              v-for="t in bannerCovers"
-              :key="t.id"
+              v-for="(cid, i) in bannerTiles"
+              :key="i"
               class="hb-tile"
-              :src="`/storage/catalog-artworks/${t.id}.jpg`"
+              :src="`/storage/catalog-artworks/${cid}.jpg`"
+              alt=""
             />
-            <span
-              v-for="n in Math.max(0, 12 - bannerCovers.length)"
-              :key="'ph' + n"
-              class="hb-tile"
-            ></span>
           </div>
-          <div class="hb-scrim"></div>
-          <!-- Title on the banner, white + text-shadow -->
+          <div v-else class="hb-strip" aria-hidden="true"></div>
+          <div class="hb-scrim" aria-hidden="true"></div>
           <h1 class="hb-name">{{ artist.name }}</h1>
         </div>
-        <!-- Avatar outside hero-banner to avoid overflow:hidden clipping -->
-        <div class="hb-avatar">
-          <div class="hero-visual hero-visual--round">
+
+        <div class="hero-below">
+          <!-- Avatar rond débordant (A4) — image ou initiale, jamais un Artwork rayé -->
+          <div class="hero-avatar">
             <img
               v-if="artist.has_artwork"
+              class="hero-av-img"
               :src="`/storage/artist-artworks/${artist.id}.jpg`"
+              :alt="artist.name"
             />
-            <span v-else class="hero-fallback">{{ artist.name[0] }}</span>
+            <span v-else class="hero-av-fb">{{ artist.name[0] }}</span>
           </div>
-        </div>
-        <!-- Body below the banner -->
-        <div class="hero-body-below">
-          <p v-if="heroSub" class="hero-sub">{{ heroSub }}</p>
-          <div v-if="artist.genres.length" class="hero-badges">
-            <RouterLink
-              v-for="g in artist.genres"
-              :key="g.name"
-              :to="`/style/${encodeURIComponent(g.name)}`"
-              style="text-decoration: none"
-            >
-              <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
-            </RouterLink>
-          </div>
-          <div class="hero-actions">
-            <button class="btn-accent" @click="playRandomTrack">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-              Écouter un aperçu
-            </button>
-            <button
-              v-if="auth.isAuthenticated"
-              class="btn-ghost btn-follow"
-              :class="{ 'is-following': artist.following }"
-              @click="toggleFollow"
-            >
-              {{ artist.following ? 'Suivi' : 'Suivre' }}
-            </button>
-            <a
-              v-if="artist.deezer_id"
-              class="btn-ghost"
-              :href="`https://deezer.com/artist/${artist.deezer_id}`"
-              target="_blank"
-            >Deezer</a>
-            <a
-              v-if="artist.soundcloud_id"
-              class="btn-ghost"
-              :href="`https://soundcloud.com/${artist.soundcloud_id}`"
-              target="_blank"
-            >SoundCloud</a>
-            <a
-              v-if="artist.trackid_id"
-              class="btn-ghost"
-              :href="`https://trackid.net/artist/${artist.trackid_id}`"
-              target="_blank"
-            >TrackID</a>
+
+          <div class="hero-content">
+            <!-- Genres cliquables → /style (rangée absente si 0) -->
+            <div v-if="artist.genres.length" class="hero-genres">
+              <RouterLink
+                v-for="g in artist.genres"
+                :key="g.name"
+                :to="`/style/${encodeURIComponent(g.name)}`"
+                class="tag-link"
+              >
+                <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+              </RouterLink>
+            </div>
+
+            <!-- Actions : aperçu (accent) · Suivre/Suivi · logos plateformes (A6) -->
+            <div class="hero-actions">
+              <button class="btn btn--accent" @click="playRandomTrack">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                Écouter un aperçu
+              </button>
+              <button
+                v-if="auth.isAuthenticated"
+                class="btn btn-follow"
+                :class="{ 'btn--ghost-accent': artist.following }"
+                @click="toggleFollow"
+              >
+                {{ artist.following ? 'Suivi' : 'Suivre' }}
+              </button>
+              <PlatformLink v-if="deezerHref" platform="deezer" :href="deezerHref" size="md" />
+              <PlatformLink v-if="trackidHref" platform="trackid" :href="trackidHref" size="md" />
+            </div>
+
+            <!-- Stats repliées (A2) — mono Catalog · In lib · Sets, pas de Rating -->
+            <div class="hero-stats">
+              <div class="stat-cell">
+                <span class="stat-label">Catalog</span>
+                <span class="stat-val">{{ artist.stats.nb_catalog ?? 0 }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">In lib</span>
+                <span class="stat-val">{{ artist.stats.nb_lib ?? 0 }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">Sets</span>
+                <span class="stat-val">{{ artist.stats.nb_sets ?? 0 }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <StatStrip :stats="stats" />
+      <!-- 2. Aliases (ligne discrète, absente si vide) -->
+      <div v-if="artist.aliases.length" class="aliases">
+        <span class="aliases-label">Alias</span>
+        <span class="aliases-names">{{ aliasNames }}</span>
+      </div>
 
-      <RelBlock v-if="artist.aliases.length" title="Aliases">
-        <div class="aliases-text">
-          {{ artist.aliases.map((a) => a.alias).join(', ') }}
-        </div>
-      </RelBlock>
+      <!-- slot futur: Bio artiste (source à définir) — aucun rendu tant que la feature n'existe pas -->
 
-      <RelBlock v-if="artist.bio" title="Biographie">
-        <div class="bio-text">{{ artist.bio }}</div>
-      </RelBlock>
-
-      <RelBlock v-if="artist.catalog_tracks.length" title="Tracks" :count="artist.stats.nb_catalog">
-        <div class="trk-grid">
-          <div
-            v-for="(t, idx) in artist.catalog_tracks"
+      <!-- 3. Tracks (A8) — TrackCard ligne, expand 10 + N -->
+      <section class="tracks">
+        <header class="sec-head">
+          <h2 class="sec-title">Tracks</h2>
+          <span class="sec-count">
+            {{ artist.stats.nb_catalog }} {{ pl(artist.stats.nb_catalog, 'track', 'tracks') }}
+          </span>
+        </header>
+        <div class="track-list">
+          <TrackCard
+            v-for="t in visibleTracks"
             :key="t.id"
-            class="mini-row"
-            :class="{
-              playing: player.isCurrent(t.id),
-              'is-hidden': !showAllTracks && idx >= 10,
-            }"
+            :track="t"
+            show-artist
+            show-duration
+            :playing="rowPlaying(t.id)"
+            @play="playTrack(t)"
             @click="goToTrack(t.id)"
-          >
-            <img
-              v-if="t.has_artwork"
-              class="mr-cover"
-              :src="`/storage/catalog-artworks/${t.id}.jpg`"
-              alt=""
-            />
-            <span v-else class="mr-cover mr-cover--empty"></span>
-            <span class="mini-tx">
-              <span class="mini-title">{{ t.title }}</span>
-              <span class="mini-artist">
-                <ArtistLinks :artists="t.artists" :fallback="t.artist" />
-              </span>
-            </span>
-            <span class="m-style" @click.stop>
-              <template v-if="t.genres?.length">
-                <RouterLink
-                  v-for="g in t.genres"
-                  :key="g.name"
-                  :to="`/style/${encodeURIComponent(g.name)}`"
-                  style="text-decoration: none"
-                >
-                  <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
-                </RouterLink>
-              </template>
-            </span>
-            <span class="m-bpm mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
-            <span class="m-key mono">{{ t.key || '' }}</span>
-            <span class="m-dur mono">{{ t.duration_ms ? fmtMs(t.duration_ms) : '' }}</span>
-            <span class="m-play" @click.stop>
-              <button
-                v-if="t.has_preview"
-                class="play-btn"
-                :class="{ playing: player.isCurrent(t.id) && player.playing }"
-                @click="playTrack(t)"
-              >
-                <svg v-if="player.isCurrent(t.id) && player.playing" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="5" width="4" height="14" />
-                  <rect x="14" y="5" width="4" height="14" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
-            </span>
-            <span class="m-lib"><LibDot :in-lib="t.in_lib" /></span>
-          </div>
+          />
         </div>
-        <button
-          v-if="artist.catalog_tracks.length > 10"
-          class="show-more"
-          @click="showAllTracks = !showAllTracks"
-        >
-          {{ showAllTracks ? 'Afficher moins' : `Afficher les ${artist.catalog_tracks.length - 10} autres tracks` }}
-        </button>
-        <p
-          v-if="artist.stats.nb_catalog > artist.catalog_tracks.length"
-          class="more-note"
-        >
-          … et {{ artist.stats.nb_catalog - artist.catalog_tracks.length }} autres
+        <div v-if="!showAllTracks && artist.catalog_tracks.length > 10" class="tracks-more">
+          <button class="btn btn--sm" @click="showAllTracks = true">
+            Afficher les {{ artist.catalog_tracks.length - 10 }} autres tracks
+          </button>
+        </div>
+        <p v-if="artist.stats.nb_catalog > artist.catalog_tracks.length" class="more-note">
+          … et {{ artist.stats.nb_catalog - artist.catalog_tracks.length }} autres tracks au catalog
         </p>
-      </RelBlock>
+      </section>
 
-      <!-- Artistes proches -->
-      <ExpandableShelf
-        v-if="connections.length"
-        title="Artistes proches"
-        :items="connectionsPage"
-        :total="connections.length"
-        :loading="false"
-        v-model:expanded="connectionsExpanded"
-        v-model:page="connectionsPageNum"
-        @load-page="onConnectionsLoadPage"
-      >
-        <template #default="{ item: c }">
-          <ShelfCard
-            variant="round"
-            :image-src="c.has_artwork ? `/storage/artist-artworks/${c.artist_id}.jpg` : null"
-            :title="c.name"
-            :fallback-letter="c.name?.[0] || '?'"
-            :to="`/artist/${c.artist_id}`"
-          />
-        </template>
-      </ExpandableShelf>
+      <!-- slot futur: Albums / Sorties — aucun rendu tant que l'objet album n'existe pas -->
 
-      <RelBlock v-if="artist.sets.length" title="Sets" :count="artist.stats.nb_sets">
-        <RouterLink
-          v-for="s in artist.sets"
-          :key="s.set_id"
-          class="appear"
-          :to="`/set/${s.set_id}`"
+      <!-- 4. Sets (A5, A7) — grille de SetCard, section masquée si vide -->
+      <section v-if="artist.sets.length" class="sets">
+        <header class="sec-head">
+          <h2 class="sec-title">Sets</h2>
+          <span class="sec-count">
+            {{ artist.stats.nb_sets }} {{ pl(artist.stats.nb_sets, 'set', 'sets') }}
+          </span>
+        </header>
+        <div class="sets-grid">
+          <SetCard v-for="s in artist.sets" :key="s.set_id" :set="mapSet(s)">
+            <template v-if="setIdentifiedPct(s) != null" #footer>
+              <span class="set-ident-val">{{ setIdentifiedPct(s) }}&#8239;%</span>
+              <span class="set-ident-lbl">identifiées</span>
+            </template>
+          </SetCard>
+        </div>
+      </section>
+
+      <!-- 5. Artistes proches (A9) — ExpandableShelf + ShelfCard round, avatar + nom -->
+      <div v-if="connections.length" class="proches">
+        <ExpandableShelf
+          title="Artistes proches"
+          :items="connectionsPage"
+          :total="connections.length"
+          :loading="false"
+          v-model:expanded="connectionsExpanded"
+          v-model:page="connectionsPageNum"
+          @load-page="onConnectionsLoadPage"
         >
-          <img
-            v-if="s.has_artwork"
-            class="ap-thumb"
-            :src="`/storage/set-artworks/${s.set_id}.jpg`"
-          />
-          <span v-else class="ap-thumb ap-thumb--empty"></span>
-          <span class="ap-tx">
-            <span class="ap-title">{{ s.title }}</span>
-            <span class="ap-sub">{{ setSub(s) }}</span>
-          </span>
-          <span class="ap-right">
-            <RingPct :value="s.identified_tracks" :total="s.total_tracks" />
-          </span>
-        </RouterLink>
-      </RelBlock>
+          <template #default="{ item: c }">
+            <ShelfCard
+              variant="round"
+              :image-src="c.has_artwork ? `/storage/artist-artworks/${c.artist_id}.jpg` : null"
+              :title="c.name"
+              :fallback-letter="c.name?.[0] || '?'"
+              :to="`/artist/${c.artist_id}`"
+            />
+          </template>
+        </ExpandableShelf>
+      </div>
 
-      <!-- Admin panel -->
+      <!-- 6. AdminCard — inchangée, gatée is_admin, en bas -->
       <AdminCard>
         <div class="admin-header">
           <span class="mono muted">deezer_id: {{ artist.deezer_id || '—' }}</span>
@@ -252,7 +222,8 @@
                   target="_blank"
                   class="dz-link"
                   @click.stop
-                >dz:{{ h.deezer_id }}</a>
+                  >dz:{{ h.deezer_id }}</a
+                >
               </span>
             </div>
           </div>
@@ -282,16 +253,14 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import StatStrip from '../components/StatStrip.vue'
-import RelBlock from '../components/RelBlock.vue'
 import StyleTag from '../components/StyleTag.vue'
-import ArtistLinks from '../components/ArtistLinks.vue'
 import AdminCard from '../components/AdminCard.vue'
 import ShelfCard from '../components/ShelfCard.vue'
 import ExpandableShelf from '../components/ExpandableShelf.vue'
-import LibDot from '../components/LibDot.vue'
-import RingPct from '../components/RingPct.vue'
-import { fmtBpm, fmtMs, fmtDate } from '../utils/format'
+import TrackCard from '../components/TrackCard.vue'
+import SetCard from '../components/SetCard.vue'
+import PlatformLink from '../components/PlatformLink.vue'
+import { pl } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -323,10 +292,57 @@ const adminMsg = ref('')
 const adminMsgType = ref('ok')
 let dzTimer = null
 
-const bannerCovers = computed(() => {
-  if (!artist.value) return []
-  return artist.value.catalog_tracks.filter((t) => t.has_artwork).slice(0, 12)
+// Banner montage — 6×2 = 12 tiles cycled from the covers we have (A3).
+// 0 cover → empty array → striped placeholder band rendered instead.
+const bannerTiles = computed(() => {
+  const covers = (artist.value?.catalog_tracks ?? []).filter((t) => t.has_artwork)
+  if (!covers.length) return []
+  return Array.from({ length: 12 }, (_, i) => covers[i % covers.length].id)
 })
+
+// First 10 tracks, or all once expanded (the button vanishes after expand — no collapse).
+const visibleTracks = computed(() => {
+  const tracks = artist.value?.catalog_tracks ?? []
+  return showAllTracks.value ? tracks : tracks.slice(0, 10)
+})
+
+const aliasNames = computed(() => (artist.value?.aliases ?? []).map((a) => a.alias).join(' · '))
+
+// External logos — a real id only (the NOT_FOUND sentinel is not a Deezer artist,
+// so it must not produce a broken « Voir sur Deezer » link).
+const deezerHref = computed(() => {
+  const id = artist.value?.deezer_id
+  return id && id !== 'NOT_FOUND' ? `https://www.deezer.com/artist/${id}` : null
+})
+const trackidHref = computed(() =>
+  artist.value?.trackid_id ? `https://trackid.net/artist/${artist.value.trackid_id}` : null,
+)
+
+// SetCard expects `id`; the artist API gives `set_id`. Map + carry artists[]/duration_ms
+// (lot back). `role` is never surfaced (A7).
+function mapSet(s) {
+  return {
+    id: s.set_id,
+    title: s.title,
+    played_date: s.played_date,
+    duration_ms: s.duration_ms,
+    has_artwork: s.has_artwork,
+    total_tracks: s.total_tracks,
+    identified_tracks: s.identified_tracks,
+    artists: s.artists,
+  }
+}
+
+// % identifiées for the SetCard footer badge — null (no footer) when total is 0.
+function setIdentifiedPct(s) {
+  if (!s.total_tracks) return null
+  return Math.round((s.identified_tracks / s.total_tracks) * 100)
+}
+
+// A row is "playing" only while the audio is actually running (same as Set/Playlist Detail).
+function rowPlaying(id) {
+  return player.isCurrent(id) && player.playing
+}
 
 function playRandomTrack() {
   player.playRandomArtist(artist.value.id)
@@ -427,37 +443,6 @@ async function unlinkDeezer() {
   }
 }
 
-const heroSub = computed(() => {
-  if (!artist.value) return null
-  const parts = []
-  if (artist.value.real_name) parts.push(artist.value.real_name)
-  if (artist.value.country) parts.push(artist.value.country)
-  return parts.join(' · ') || null
-})
-
-const stats = computed(() => {
-  if (!artist.value) return []
-  const s = artist.value.stats
-  return [
-    { label: 'Catalog', value: s.nb_catalog ?? 0 },
-    { label: 'In lib', value: s.nb_lib ?? 0 },
-    { label: 'Sets', value: s.nb_sets ?? 0 },
-    { label: 'Rating moy.', value: s.avg_rating ?? '--' },
-  ]
-})
-
-function setSub(s) {
-  const parts = []
-  if (s.played_date) parts.push(fmtDate(s.played_date))
-  if (s.role === 'b2b') parts.push('B2B')
-  const id =
-    s.identified_tracks === s.total_tracks
-      ? `${s.total_tracks} tracks · toutes identifiées`
-      : `${s.total_tracks} tracks · ${s.identified_tracks} identifiées`
-  parts.push(id)
-  return parts.join(' · ')
-}
-
 async function loadArtist(id) {
   loading.value = true
   connections.value = []
@@ -472,41 +457,73 @@ async function loadArtist(id) {
   } finally {
     loading.value = false
   }
-  api.get(`/api/artists/${id}/connections`)
-    .then(({ data }) => { connections.value = data })
+  api
+    .get(`/api/artists/${id}/connections`)
+    .then(({ data }) => {
+      connections.value = data
+    })
     .catch(() => {})
 }
 
 onMounted(() => loadArtist(route.params.id))
 
-watch(() => route.params.id, (id) => {
-  if (id) loadArtist(id)
-})
+watch(
+  () => route.params.id,
+  (id) => {
+    if (id) loadArtist(id)
+  },
+)
 </script>
 
 <style scoped>
 .detail-view {
-  padding: var(--pad) calc(var(--pad) * 1.5);
+  padding: var(--space-6) var(--page-px) var(--space-10);
   max-width: var(--detail-max-w);
   margin-inline: auto;
   container-type: inline-size;
 }
 
-/* Hero banner */
-.hero--banner {
+/* Not-found state — stacked message + return button */
+.state--empty {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  padding: 0 0 var(--space-6);
-  position: relative;
+  align-items: flex-start;
+  gap: var(--space-4);
 }
+
+/* Back link */
+.dv-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+  text-decoration: none;
+  color: var(--ink-2);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  transition: color 0.12s;
+}
+.dv-back:hover {
+  color: var(--ink);
+}
+.dv-back svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============ HERO ============ */
+.hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+/* Banner — montage + scrim + name */
 .hero-banner {
   position: relative;
-  width: 100%;
-  height: 184px;
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-md);
+  height: 216px;
+  border-bottom: 1px solid var(--line);
 }
 .hb-tiles {
   position: absolute;
@@ -521,372 +538,224 @@ watch(() => route.params.id, (id) => {
   object-fit: cover;
   background: var(--surface-2);
 }
+/* 0 cover → standard striped placeholder band (A3), scrim kept for legibility. */
+.hb-strip {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px);
+}
 .hb-scrim {
   position: absolute;
   inset: 0;
   background: linear-gradient(
     to top,
-    oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.7) 0%,
-    oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.3) 40%,
-    transparent 70%
+    oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.72),
+    transparent 62%
   );
   pointer-events: none;
 }
-/* Avatar — positioned relative to .hero--banner, outside .hero-banner */
-.hb-avatar {
+.hb-name {
   position: absolute;
-  left: 16px;
-  top: 92px;
-  z-index: 2;
+  left: 156px;
+  right: var(--space-6);
+  bottom: var(--space-4);
+  margin: 0;
+  font: 700 var(--fs-xl)/1.1 var(--font-ui);
+  color: var(--overlay-text);
+  text-shadow:
+    0 1px 4px var(--genre-tile-shadow),
+    0 0 12px var(--genre-tile-shadow);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
-.hero-visual--round {
+
+/* Below the banner — avatar (débordant) + content column */
+.hero-below {
+  display: flex;
+  gap: var(--space-5);
+  padding: 0 var(--space-6) var(--space-6);
+}
+.hero-avatar {
   flex: none;
   width: 120px;
   height: 120px;
+  margin-top: -60px;
   border-radius: 50%;
-  border: 4px solid var(--bg);
+  border: 3px solid var(--surface);
   overflow: hidden;
-  background: var(--surface-2);
+  background: var(--surface-3);
   display: grid;
   place-items: center;
   box-shadow: var(--shadow-md);
 }
-.hero-visual--round img {
+.hero-av-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-.hero-fallback {
-  font: 700 var(--fs-fallback)/1 var(--font-ui);
-  color: var(--ink-3);
+.hero-av-fb {
+  font: 600 var(--fs-fallback)/1 var(--font-ui);
+  color: var(--ink-2);
   text-transform: uppercase;
 }
-/* Title on the banner — white + shadow */
-.hb-name {
-  position: absolute;
-  left: 152px;
-  bottom: 18px;
-  right: 16px;
-  font: 600 clamp(22px, 2.4vw, 34px)/1.1 var(--font-ui);
-  letter-spacing: -0.02em;
-  color: oklch(0.99 0 0);
-  margin: 0;
-  text-shadow: 0 1px 4px oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.6),
-    0 0 12px oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.3);
-  overflow-wrap: break-word;
-  z-index: 1;
-}
-/* Body below the banner — offset right of avatar */
-.hero-body-below {
-  padding: var(--space-4) 0 0 156px;
+.hero-content {
+  flex: 1;
+  min-width: 0;
+  padding-top: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-25);
-}
-.hero-sub {
-  font: 400 var(--fs-base)/1.3 var(--font-ui);
-  color: var(--ink-2);
-  margin: 0;
-}
-.hero-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.hero-actions {
-  display: flex;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
-/* Buttons */
-.btn-accent {
+/* Genres */
+.hero-genres {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-15);
+}
+.tag-link {
   display: inline-flex;
+  max-width: 100%;
+  text-decoration: none;
+}
+
+/* Actions */
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  height: 38px;
-  padding: 0 var(--space-4);
-  border-radius: var(--r-sm);
-  border: 0;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 var(--fs-sm) var(--font-ui);
-  cursor: pointer;
-}
-.btn-accent svg {
-  width: 15px;
-  height: 15px;
-}
-.btn-accent:hover {
-  background: var(--accent-hover);
-}
-.btn-ghost {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  text-decoration: none;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-.btn-ghost:hover {
-  background: var(--surface-2);
-  color: var(--ink);
 }
 .btn-follow {
   cursor: pointer;
 }
-.btn-follow.is-following {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  border-color: transparent;
-}
-.btn-follow.is-following:hover {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
 
-/* Text blocks */
-.aliases-text,
-.bio-text {
-  padding: var(--space-3) var(--space-4);
-  font: 400 var(--fs-sm)/1.5 var(--font-ui);
-  color: var(--ink-2);
+/* Stats repliées (A2) */
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-top: var(--space-1);
 }
-
-/* Track grid — 2 columns with fixed-column rows */
-.trk-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-05) var(--space-8);
-}
-/* grid items must shrink below min-content for equal 1fr columns */
-.trk-grid > .mini-row {
-  min-width: 0;
-  overflow: hidden;
-}
-@container (max-width: 1000px) {
-  .trk-grid {
-    grid-template-columns: 1fr;
-  }
-}
-.mini-row {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 120px 30px 26px 40px 30px 14px;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-15) var(--space-25);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition: background 0.1s;
-  min-width: 0;
-}
-.mini-row:hover {
-  background: var(--surface-2);
-}
-.mini-row.playing {
-  background: var(--accent-soft);
-}
-.mini-row.is-hidden {
-  display: none;
-}
-.mr-cover {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--r-xs);
-  object-fit: cover;
-  border: 1px solid var(--line);
-}
-.mr-cover--empty {
-  background: var(--surface-3);
-}
-.mini-tx {
-  min-width: 0;
-  overflow: hidden;
+.stat-cell {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
 }
-.mini-title {
-  display: block;
-  max-width: 100%;
-  font: 500 var(--fs-sm)/1.2 var(--font-ui);
+.stat-label {
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+.stat-val {
+  font: 600 var(--fs-md)/1 var(--font-mono);
   color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mini-row:hover .mini-title {
-  color: var(--accent-ink);
-}
-.mini-artist {
-  font: 400 var(--fs-sm)/1.2 var(--font-ui);
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.m-style {
-  min-width: 0;
-  overflow: hidden;
-}
-.m-style :deep(.style-tag) {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.m-bpm {
-  text-align: right;
-  font: 500 var(--fs-sm)/1 var(--font-mono);
-  color: var(--ink-2);
-}
-.m-key {
-  text-align: center;
-  font: 500 var(--fs-sm)/1 var(--font-mono);
-  color: var(--accent-ink);
-}
-.m-dur {
-  text-align: right;
-  font: 500 var(--fs-sm)/1 var(--font-mono);
-  color: var(--ink-3);
-}
-.m-play {
-  display: flex;
-  justify-content: center;
-  min-height: 30px;
-  align-items: center;
-}
-.m-lib {
-  display: flex;
-  justify-content: center;
-}
-.mono {
-  font-family: var(--font-mono);
-  color: var(--ink-2);
-}
-.rating {
-  white-space: nowrap;
-}
-.star {
-  color: var(--ink-3);
-  font-size: var(--fs-xs);
-}
-.star.is-on {
-  color: var(--accent-ink);
 }
 
-/* Play button */
-.play-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
+/* ============ ALIASES ============ */
+.aliases {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+.aliases-label {
+  flex: none;
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   color: var(--ink-3);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  opacity: 0;
-  transition: opacity 0.12s;
 }
-.play-btn svg {
-  width: 14px;
-  height: 14px;
-}
-.mini-row:hover .play-btn {
-  opacity: 1;
-}
-.play-btn:hover {
-  color: var(--ink);
-  background: var(--surface-2);
-}
-.play-btn.playing {
-  opacity: 1;
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-  border-color: transparent;
+.aliases-names {
+  font: 500 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
 }
 
-/* Show more / less */
-.show-more {
-  display: block;
-  width: 100%;
-  margin-top: var(--space-2);
-  padding: var(--space-25);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-  text-align: center;
-  transition: background 0.12s, color 0.12s;
+/* ============ SECTION HEADS ============ */
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
-.show-more:hover {
-  background: var(--surface-2);
+.sec-title {
+  margin: 0;
+  font: 600 var(--fs-md)/1.2 var(--font-ui);
   color: var(--ink);
+}
+.sec-count {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ============ TRACKS (A8) ============ */
+.tracks {
+  margin-top: var(--space-8);
+}
+.track-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.tracks-more {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-3);
 }
 .more-note {
-  font: 400 var(--fs-sm) var(--font-ui);
-  color: var(--ink-3);
-  margin-top: var(--space-2);
+  margin: var(--space-3) 0 0;
   text-align: center;
+  font: 400 var(--fs-xs)/1.4 var(--font-mono);
+  color: var(--ink-3);
 }
 
-/* Sets appearances */
-.appear {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-25) var(--space-3);
-  text-decoration: none;
-  color: inherit;
-  border-bottom: 1px solid var(--line);
-  transition: background 0.12s;
+/* ============ SETS (A5, A7) ============ */
+.sets {
+  margin-top: var(--space-8);
 }
-.appear:last-child {
-  border-bottom: none;
+.sets-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
 }
-.appear:hover {
-  background: var(--surface-2);
-}
-.ap-thumb {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--r-sm);
-  object-fit: cover;
-  flex: none;
-}
-.ap-thumb--empty {
-  display: block;
-  background: var(--surface-2);
-}
-.ap-tx {
-  flex: 1;
+.sets-grid > * {
   min-width: 0;
 }
-.ap-title {
-  display: block;
-  font: 500 var(--fs-sm)/1.3 var(--font-ui);
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Footer badge « NN % identifiées » via the SetCard #footer slot (A5) — the card
+   itself is untouched; the badge polish is a scoped :deep override of its footer. */
+.sets-grid :deep(.sc-footer) {
+  margin-top: auto;
+  align-items: baseline;
+  gap: var(--space-15);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-2);
 }
-.ap-sub {
-  display: block;
-  font: 400 var(--fs-sm)/1.3 var(--font-ui);
+.set-ident-val {
+  font: 600 var(--fs-sm)/1 var(--font-mono);
+  color: var(--ink-2);
+}
+.set-ident-lbl {
+  font: 400 var(--fs-xs)/1 var(--font-ui);
   color: var(--ink-3);
-  margin-top: var(--space-05);
-}
-.ap-right {
-  flex: none;
 }
 
-/* Admin card */
+/* ============ ARTISTES PROCHES (A9) ============ */
+.proches {
+  margin-top: var(--space-8);
+}
+/* Polish only — the shelf/grid geometry per brief (ShelfCard/ExpandableShelf untouched). */
+.proches :deep(.shelf),
+.proches :deep(.shelf-grid) {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+
+/* ============ ADMIN (inchangé) ============ */
 .admin-header {
   display: flex;
   align-items: center;
@@ -1009,46 +878,49 @@ watch(() => route.params.id, (id) => {
   color: var(--neg-ink);
   background: var(--neg-soft);
 }
+.mono {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
 .muted {
   color: var(--ink-3);
 }
 
-/* Responsive: narrow — avatar in flow, body full-width */
-@container (max-width: 640px) {
-  .detail-view {
-    padding: var(--page-px-mobile);
-  }
-  .hb-avatar {
-    position: relative;
-    top: -40px;
-    left: 16px;
-    margin-bottom: -20px;
-  }
-  .hero-body-below {
-    padding-left: 0;
-  }
-  .play-btn {
-    opacity: 1;
-  }
-  .m-style {
-    display: none;
-  }
-  .m-dur {
-    display: none;
-  }
-  .mini-row {
-    grid-template-columns: 36px minmax(0, 1fr) 30px 26px 30px 14px;
+/* ============ RESPONSIVE — container queries only, 720 / 640 max-width ============ */
+@container (max-width: 720px) {
+  .sets-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
-@container (max-width: 500px) {
-  .m-bpm {
-    display: none;
+@container (max-width: 640px) {
+  /* Horizontal padding only — never the shorthand (keep the vertical intact). */
+  .detail-view {
+    padding-inline: var(--page-px-mobile);
   }
-  .m-key {
-    display: none;
+  .hero-banner {
+    height: 150px;
   }
-  .mini-row {
-    grid-template-columns: 36px minmax(0, 1fr) 30px 14px;
+  /* Name left-aligned, no longer offset by the avatar. */
+  .hb-name {
+    left: var(--space-4);
+    right: var(--space-4);
+    font-size: var(--fs-lg);
+  }
+  /* Avatar back in flow (72 px) below the banner; content stacks under it. */
+  .hero-below {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .hero-avatar {
+    width: 72px;
+    height: 72px;
+    margin-top: var(--space-3);
+  }
+  .hero-content {
+    padding-top: 0;
+  }
+  .sets-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

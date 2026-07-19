@@ -21,7 +21,7 @@ Encore une **refonte** : la page couvre déjà l'essentiel de la vision.
 **Dette / divergences (factuel)** :
 - ⚠️ **Blocs morts** : `ArtistDetailOut` **ne renvoie plus** `real_name`, `country`, `bio`, `soundcloud_id` (retirés en AU3, données encore en DB). Donc **le sous-titre (real_name · country), la Biographie et le lien SoundCloud ne s'affichent jamais** → code mort à trancher.
 - **Rating moy.** (StatStrip + `avg_rating` — présent aussi dans la **liste** artistes) → à retirer (transverse).
-- **Admin visible par tous** (pas de garde `is_admin`) — même souci que Track detail.
+- ~~**Admin visible par tous** (pas de garde `is_admin`)~~ — **OBSOLÈTE (vérifié 2026-07-20)** : `AdminCard.vue` s'auto-gate déjà `v-if="auth.user?.is_admin"`. Rien à faire (même conclusion que Track detail).
 - Mini-rows tracks + shelf artistes proches = bespoke → candidats aux **composants partagés** (`<TrackCard>` compact, shelf/card partagé, `<Artwork>` in-lib).
 - Pas de section **Albums** (roadmap).
 
@@ -87,3 +87,30 @@ Encore une **refonte** : la page couvre déjà l'essentiel de la vision.
 - **Transverse** : composants partagés ; suppression Rating.
 
 **Dépend de** : composants partagés ; objet album (section Albums) ; source bio (feature Bio).
+
+## 7. Arbitrages pré-vol (2026-07-20 — avant prompt Design)
+
+Vérification code réel vs fiche (leçon Track Detail : les dettes peuvent être obsolètes). Conclusions figées :
+
+- **Admin `is_admin`** : DÉJÀ FAIT — `AdminCard.vue` s'auto-gate (dette §1 obsolète). Bloc hors design.
+- **Blocs morts CONFIRMÉS** : `ArtistDetailOut` n'expose ni `real_name`/`country`/`bio`/`soundcloud_id` → le sous-titre hero (real_name·country), le bloc Biographie et le lien SoundCloud sont du code réellement mort → **supprimés**.
+- **Rating moy.** : retiré de la StatStrip (front). Le drop back global (colonne + `ArtistListOut` + `ArtistCard`) reste le chantier **transverse** Rating, hors périmètre de cette page.
+- **Composants transverses : TOUS présents** (`Artwork`, `TrackCard` ligne étendu, `ScoreRing` pct, `PlatformLink`, `SetCard`, `ShelfCard`, `ExpandableShelf`). **Aucun nouveau composant à créer** → pas de lot transverse. « Artistes proches » utilise **déjà** `ShelfCard`+`ExpandableShelf` (polish visuel seulement, pas de « pourquoi » — figé).
+- **Tracks → `<TrackCard>` ligne** (`showArtist` + `showDuration`), in-lib via `<Artwork>`. La colonne genre par ligne **disparaît** (cohérent avec Playlist/Set Detail). Conserve l'expand « 10 + afficher les N autres ».
+- **Hero liens externes → `<PlatformLink>` logos** (Deezer + TrackID) au lieu des boutons texte (décision transverse logos).
+- **StatStrip** : latitude DA de **replier les stats dans le hero** (précédent Track/Playlist/Set) OU garder une strip séparée — les stats (Catalog · In lib · Sets) restent, seul le contenant est DA.
+- **Section Sets → `<SetCard>` grille** (décision William 2026-07-20 ; cohérence avec « Sets similaires » de Set Detail). **Ouvre un lot back 0** : ajouter `artists[]` (noms) + `duration_ms` à `ArtistSetOut` + les peupler dans `artist_service` (aujourd'hui absents). Le % identifiées passe dans le slot `#footer` de `SetCard` (`ScoreRing` pct ou badge — DA).
+- **Slots futurs** (Bio, Albums/Sorties) : emplacements **réservés seulement**, non construits (dépendent de la source bio et de l'objet album C7).
+- **Back refonte immédiate** : rien d'autre que le lot Sets ci-dessus. `CatalogEntryOut` porte déjà tout pour `<TrackCard>` ; hero/connections/follow inchangés.
+
+## 8. Décisions handoff (2026-07-20 — round unique Claude Design)
+
+Handoff versionné dans `docs/refonte-ui/handoff-artist-detail/` (BRIEF + pilote + README de conformité). Décisions DA actées :
+
+- **Stats repliées dans le hero** (data-row mono Catalog · In lib · Sets) — pas de StatStrip séparée (A2, aligné Track/Playlist/Set).
+- **Montage banner** : 1-11 covers → tuiles cyclées ; catalog vide → bande placeholder rayé, scrim conservé (A3).
+- **Footer `<SetCard>` = badge sobre** « NN % identifiées » — pas de `ScoreRing pct` en grille (discipline accent, A5). Grille 4 → 3 (<720) → 2 (<640).
+- **Artistes des SetCard joints par « , »** (spec canonique consommée telle quelle) ; `role` d'import jamais affiché (A7).
+- **Avatar** : ring 3 px `--surface` ; < 640 px en flux, 72 px (A4).
+- **« Artiste introuvable »** enrichi d'un bouton « Retour aux artistes ».
+- **Aucun composant créé, aucune extension** — consommation pure des transverses en prod.

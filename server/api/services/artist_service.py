@@ -360,15 +360,38 @@ async def get_detail(
             func.count(SetTrack.catalog_id)
             .filter(SetTrack.is_id.is_(False))
             .label("identified_tracks"),
+            DJSet.duration_ms,
         )
         .join(DJSet, DJSet.id == SetArtist.set_id)
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
         .where(SetArtist.artist_id == artist_id, DJSet.parent_set_id.is_(None))
         .group_by(
-            DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork, SetArtist.role
+            DJSet.id,
+            DJSet.title,
+            DJSet.played_date,
+            DJSet.has_artwork,
+            SetArtist.role,
+            DJSet.duration_ms,
         )
         .order_by(DJSet.played_date.desc().nulls_last())
     )
+    set_rows = sets_result.all()
+
+    # All artists of every collected set (not just the page artist), ordered by
+    # SetArtist.position, for the SetCard grid. Separate query on the same
+    # session — awaited sequentially, never asyncio.gather (project pitfall).
+    set_ids = [r[0] for r in set_rows]
+    artists_by_set: dict[int, list[str]] = defaultdict(list)
+    if set_ids:
+        set_artists_result = await db.execute(
+            select(SetArtist.set_id, Artist.name)
+            .join(Artist, Artist.id == SetArtist.artist_id)
+            .where(SetArtist.set_id.in_(set_ids))
+            .order_by(SetArtist.position.asc().nulls_last())
+        )
+        for s_id, name in set_artists_result.all():
+            artists_by_set[s_id].append(name)
+
     sets = [
         ArtistSetOut(
             set_id=r[0],
@@ -378,8 +401,10 @@ async def get_detail(
             role=r[4],
             total_tracks=r[5],
             identified_tracks=r[6],
+            duration_ms=r[7],
+            artists=artists_by_set.get(r[0], []),
         )
-        for r in sets_result.all()
+        for r in set_rows
     ]
 
     from services import following_service

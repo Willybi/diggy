@@ -66,6 +66,78 @@ class TestGetDetail:
         result = await artist_service.get_detail(db, a.id)
         assert result.name == "Test Artist"
 
+    async def test_set_lists_all_artists_ordered_by_position(self, db):
+        from models import Artist, DJSet, SetArtist
+
+        page = Artist(name="Page Artist", normalized_name="page artist")
+        guest = Artist(name="B2B Guest", normalized_name="b2b guest")
+        s = DJSet(title="B2B Set", source="trackid")
+        db.add_all([page, guest, s])
+        await db.commit()
+        await db.refresh(page)
+        await db.refresh(guest)
+        await db.refresh(s)
+        # Insert out of position order to prove the fetch orders by position.
+        db.add_all([
+            SetArtist(set_id=s.id, artist_id=guest.id, role="guest", position=1),
+            SetArtist(set_id=s.id, artist_id=page.id, role="headliner", position=0),
+        ])
+        await db.commit()
+
+        result = await artist_service.get_detail(db, page.id)
+        assert len(result.sets) == 1
+        # All artists of the set, not just the page one, ordered by position.
+        assert result.sets[0].artists == ["Page Artist", "B2B Guest"]
+
+    async def test_set_duration_ms_populated_and_none(self, db):
+        from models import Artist, DJSet, SetArtist
+
+        a = Artist(name="Durationy", normalized_name="durationy")
+        with_dur = DJSet(title="Timed Set", source="trackid", duration_ms=5400000)
+        without_dur = DJSet(title="Untimed Set", source="trackid")
+        db.add_all([a, with_dur, without_dur])
+        await db.commit()
+        await db.refresh(a)
+        await db.refresh(with_dur)
+        await db.refresh(without_dur)
+        db.add_all([
+            SetArtist(set_id=with_dur.id, artist_id=a.id, role="headliner"),
+            SetArtist(set_id=without_dur.id, artist_id=a.id, role="headliner"),
+        ])
+        await db.commit()
+
+        result = await artist_service.get_detail(db, a.id)
+        by_title = {s.title: s for s in result.sets}
+        assert by_title["Timed Set"].duration_ms == 5400000
+        assert by_title["Untimed Set"].duration_ms is None
+
+    async def test_set_with_only_current_artist_still_lists_it(self, db):
+        from models import Artist, DJSet, SetArtist
+
+        a = Artist(name="Solo Act", normalized_name="solo act")
+        s = DJSet(title="Solo Set", source="trackid")
+        db.add_all([a, s])
+        await db.commit()
+        await db.refresh(a)
+        await db.refresh(s)
+        db.add(SetArtist(set_id=s.id, artist_id=a.id, role="headliner"))
+        await db.commit()
+
+        result = await artist_service.get_detail(db, a.id)
+        assert len(result.sets) == 1
+        assert result.sets[0].artists == ["Solo Act"]
+
+    async def test_artist_without_sets_returns_empty_list(self, db):
+        from models import Artist
+
+        a = Artist(name="Setless", normalized_name="setless")
+        db.add(a)
+        await db.commit()
+        await db.refresh(a)
+
+        result = await artist_service.get_detail(db, a.id)
+        assert result.sets == []
+
 
 class TestLinkToDeezer:
     @staticmethod
