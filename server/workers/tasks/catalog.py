@@ -15,13 +15,35 @@ logger = logging.getLogger(__name__)
 # expire while a legitimate run is still in progress
 BEATPORT_LOCK_TTL = 30000
 
-# Max catalog entries per nightly sweep (per source) — keeps the Beatport
-# sweep under its soft_time_limit and bounds external API usage
-DEFAULT_NIGHTLY_BUDGET = 6000
+# Max catalog entries per nightly sweep, PER SOURCE. Deezer (official API,
+# 10 req/s) clears the full daily inflow in minutes, so its budget is high.
+# Beatport (scraped, 0.66 req/s anti-ban) is throughput-bound: 6000 fills one
+# ~7h pass, and a second afternoon beat pass doubles daily capacity to ~12000
+# without touching the rate.
+DEFAULT_NIGHTLY_BUDGET_DEEZER = 15000
+DEFAULT_NIGHTLY_BUDGET_BEATPORT = 6000
 
 
-def _nightly_budget() -> int:
-    return int(os.environ.get("ENRICH_NIGHTLY_BUDGET", str(DEFAULT_NIGHTLY_BUDGET)))
+def _nightly_budget(source: str) -> int:
+    """Per-source nightly enrichment budget.
+
+    A per-source override (ENRICH_NIGHTLY_BUDGET_DEEZER / _BEATPORT) wins; the
+    legacy shared ENRICH_NIGHTLY_BUDGET is the fallback default for both.
+    """
+    shared = os.environ.get("ENRICH_NIGHTLY_BUDGET")
+    if source == "deezer":
+        return int(
+            os.environ.get(
+                "ENRICH_NIGHTLY_BUDGET_DEEZER",
+                shared or str(DEFAULT_NIGHTLY_BUDGET_DEEZER),
+            )
+        )
+    return int(
+        os.environ.get(
+            "ENRICH_NIGHTLY_BUDGET_BEATPORT",
+            shared or str(DEFAULT_NIGHTLY_BUDGET_BEATPORT),
+        )
+    )
 
 
 @celery_app.task(
@@ -59,7 +81,7 @@ def enrich_catalog(self):
             celery_task_id=self.request.id,
         ) as clog:
 
-            budget = _nightly_budget()
+            budget = _nightly_budget("deezer")
 
             async def _async_enrich():
                 from datetime import datetime, timezone
@@ -179,7 +201,7 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
         ) as clog:
 
             # batch_size stays as a manual bound on top of the nightly budget
-            budget = _nightly_budget()
+            budget = _nightly_budget("beatport")
             effective_budget = min(batch_size, budget) if batch_size > 0 else budget
 
             async def _async_enrich():

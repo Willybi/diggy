@@ -314,6 +314,44 @@ class TestTimeLimits:
             )
 
 
+class TestEnrichBudgetAndPasses:
+    """Per-source nightly budget + the second daytime Beatport pass."""
+
+    def test_nightly_budget_per_source(self, monkeypatch):
+        """Deezer (fast API) gets a high budget to absorb the full daily inflow;
+        Beatport (rate-limited scrape) stays 6000/pass — two beat passes give
+        ~12000/night without touching the rate."""
+        import workers.tasks.catalog as catalog_mod
+
+        for var in (
+            "ENRICH_NIGHTLY_BUDGET",
+            "ENRICH_NIGHTLY_BUDGET_DEEZER",
+            "ENRICH_NIGHTLY_BUDGET_BEATPORT",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        assert catalog_mod._nightly_budget("deezer") == 15000
+        assert catalog_mod._nightly_budget("beatport") == 6000
+
+        # per-source override wins
+        monkeypatch.setenv("ENRICH_NIGHTLY_BUDGET_BEATPORT", "9000")
+        assert catalog_mod._nightly_budget("beatport") == 9000
+        # legacy shared var is the fallback default for both
+        monkeypatch.delenv("ENRICH_NIGHTLY_BUDGET_BEATPORT", raising=False)
+        monkeypatch.setenv("ENRICH_NIGHTLY_BUDGET", "4000")
+        assert catalog_mod._nightly_budget("deezer") == 4000
+        assert catalog_mod._nightly_budget("beatport") == 4000
+
+    def test_beatport_has_two_daily_passes(self):
+        """Beatport capacity is raised by a 2nd beat pass (06h + 15h), not by
+        the rate limit — so the schedule must reference the task twice."""
+        path = os.path.join(_SERVER_PATH, "workers", "celery_app.py")
+        with open(path, encoding="utf-8") as f:
+            source = f.read()
+        assert (
+            source.count('"task": "workers.tasks.enrich_catalog_beatport"') == 2
+        ), "expected two enrich_catalog_beatport beat passes (06h + 15h)"
+
+
 # crawl_followed_sets eligibility tests removed with the task (C6.b): the
 # replacement recrawl_incomplete_sets is covered in test_tasks_recrawl_sets.py
 

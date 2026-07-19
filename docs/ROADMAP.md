@@ -304,6 +304,22 @@ Taches :
 > **CHECK 1er run FAIT le 2026-07-17 — VERT** : run nuit 16→17/07 `succeeded in 2751s (~46 min)`, `{status:running, imported:999, skipped:1, new_cursor:2026-06-10T05:02:35.549329Z, page:340}`. Les 4 points passent : curseur timestamp complet et < 2026-06-15 (descendu de 06-15 reset → 06-10, ~5j d'historique = re-balayage de la fenetre trouee 10-15 juin OK), `trackid_backfill_page`=340 (entier), soft-limit 3600s non atteint, DLQ `dead_letter` vide. Aparte : 1 set (367741) skip sur `httpx.ReadError` transitoire (catche per-set, non bloquant) ; `resolve_set_tracks` a touche son soft-limit 7200s cette nuit (attendu apres 999 nouveaux sets, lock a bloque le doublon) — a re-regarder Nuit 2.
 > **CHECK Nuit 2 (18/07) — A FAIRE** : run rapide (~30-35 min) et `page` quasi stable (~340, pas de reset a 0 puis re-climb) = taxe de re-paging morte ; `resolve_set_tracks` sous le soft-limit une fois la vague de re-balayage digeree.
 
+#### C6.a.2 — Debit d'enrichissement Beatport (2e passe) — SUIVI ouvert le 2026-07-19
+
+Mesure prod 2026-07-19 : backlog Beatport actif **33 084** (jamais-cherche **12 359**, tous < 2 j = lag stable ~2 j, PAS en fuite), Deezer sain (0 jamais-cherche). Plafond Beatport ~6000/nuit = rate scrape **0,66 req/s** (pas d'API, throttle anti-ban) x fenetre ~7h ; **~860 tracks/h**, ~2,7 req/track (les 24% d'introuvables partent en fallback release a 3-4 req). Stock eligible/nuit borne (~12k tier-1 ; les 20,7k tier-2 verrouilles 30j). Taux de trouvaille 1er essai = **76%**.
+
+Livre (branche `fix/resolve-set-tracks-decouple`) : (1) `resolve_set_tracks` decouple = liage seul (plus d'enrichissement inline, cf. C6.a.1) ; (2) **budget par-source** Deezer 15000 / Beatport 6000 (compense le decouplage cote Deezer) ; (3) **2e passe `enrich_catalog_beatport` a 15h** (06h + 15h) → capacite ~12000/nuit au meme rate. Objectif : capacite > inflow → jamais-cherche **decroit vers 0** et n'augmente plus.
+
+A CHECKER chaque jour (`enrich_beatport` dans `/api/admin/crawl-logs` + requete backlog `beatport_id IS NULL AND attempts=0`) :
+- passe 1 (06h) : `enriched` / `not_found` / duree
+- passe 2 (15h) : `enriched` / `not_found` / duree — **ou tourne a vide** (= 1 passe suffit, l'inflow tient dans 6000)
+- backlog jamais-cherche : tendance J+1 → J+3 (doit baisser)
+
+DECISION apres ~3-5 j : passe 2 trouve regulierement du travail ET backlog ↓ → garder ; passe 2 a vide → revenir a 1 passe. Bonus efficacite en reserve si besoin de plus : fallback release plus malin (couper le cout des introuvables) + backoff tier-2 allonge (30j → 60-90j).
+- [ ] CHECK J+1 (20/07) : passe1=… passe2=… backlog=…
+- [ ] CHECK J+2 (21/07) : passe1=… passe2=… backlog=…
+- [ ] CHECK J+3 (22/07) : passe1=… passe2=… backlog=…
+
 ### C6.b — Re-crawl decroissant des sets incomplets
 
 Les sets TrackID.net ne sont pas toujours complets a la premiere visite (identification en cours). Re-crawler intelligemment sans gaspiller de bande passante.

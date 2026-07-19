@@ -115,6 +115,14 @@ celery_app.conf.update(
             "task": "workers.tasks.enrich_catalog_beatport",
             "schedule": crontab(hour=6, minute=0),  # tous les jours à 6h
         },
+        # 2e passe Beatport en journée (worker enrich oisif le jour) : double la
+        # capacité à ~12000/nuit AU MÊME rate scrape 0,66 req/s (pas de risque de
+        # ban en plus). Espacée de >8h de la passe 6h → pas de collision de lock
+        # (BEATPORT_LOCK_TTL 8,3h) ; une passe sans candidat retourne en secondes.
+        "enrich-catalog-beatport-afternoon": {
+            "task": "workers.tasks.enrich_catalog_beatport",
+            "schedule": crontab(hour=15, minute=0),  # tous les jours à 15h
+        },
         "compute-trends-daily": {
             "task": "workers.tasks.compute_trends",
             "schedule": crontab(hour=7, minute=0),  # tous les jours à 7h
