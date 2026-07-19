@@ -101,3 +101,9 @@ Handoff versionné dans [handoff-set-detail/](handoff-set-detail/) (README = pro
 - **S9 Responsive < 640 px re-tranché** : le timecode RESTE (axe du set + accès source), BPM + durée tombent — inverse de l'actuel. Conditionnel : sans prop `timecode`, comportement actuel inchangé (zéro régression Track/Playlist).
 - **S10 Sets similaires sans score affiché** : grille `<SetCard>` 4/3/2 colonnes triée par score ; slot `#footer` de la carte = porte ouverte pour `/sets`.
 - **Nouveau composant `<SetCard>`** (SPEC-set-card.md) : carte set réutilisable, 1ʳᵉ conso ici, réutilisée par la future refonte de `/sets`.
+
+**Amendements post-revue (FIX round unique, 2026-07-19 — détail dans [handoff-set-detail/FIX-set-detail.md](handoff-set-detail/FIX-set-detail.md))** :
+- **Timecode cliquable** : le href se construit depuis le **domaine de `source_url`** (YouTube/SoundCloud horodatables), JAMAIS depuis `source` — un set `source=trackid` dont l'URL pointe vers SoundCloud a des timecodes cliquables, c'est voulu (la lettre initiale du brief supposait le contraire à tort).
+- **Langage « donnée manquante » unifié dans TrackCard** : BPM/KEY absents sur rangée identifiée → « — » `--ink-3` (comme la durée) — s'applique aux 3 pages détail.
+- `fmtCue` assoupli (`m:ss` sous l'heure) = format des timecodes ; ScoreRing n'affiche plus d'arc à 0 % ; ombre `--shadow-md` sur la cover hero.
+- Layout cellule IDENTIFIÉES (label au-dessus) : arbitrage documenté — pattern data-row des pages détail, prime sur le pilote.
