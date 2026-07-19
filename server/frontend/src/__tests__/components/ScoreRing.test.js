@@ -61,6 +61,28 @@ describe('ScoreRing', () => {
     ).toContain('score-ring--md')
   })
 
+  // --- arc rendering (no dot at 0) ---
+
+  it('renders no arc at 0 (score mode) but keeps the track ring', () => {
+    const wrapper = mount(ScoreRing, { props: { score: 0 } })
+    expect(wrapper.find('.sr-arc').exists()).toBe(false)
+    expect(wrapper.find('.sr-track').exists()).toBe(true)
+  })
+
+  it('renders no arc at 0 (pct mode)', () => {
+    const wrapper = mount(ScoreRing, { props: { score: 0, mode: 'pct' } })
+    expect(wrapper.find('.sr-arc').exists()).toBe(false)
+  })
+
+  it('renders the arc when the fraction is above 0 (both modes)', () => {
+    expect(mount(ScoreRing, { props: { score: 0.5 } }).find('.sr-arc').exists()).toBe(true)
+    expect(
+      mount(ScoreRing, { props: { score: 0.5, mode: 'pct' } })
+        .find('.sr-arc')
+        .exists(),
+    ).toBe(true)
+  })
+
   // --- mode="pct" ---
 
   const THIN_NBSP = String.fromCharCode(0x202f) // U+202F narrow no-break space

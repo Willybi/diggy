@@ -346,6 +346,15 @@ describe('SetDetailView', () => {
     expect(tc.href).toBeUndefined()
   })
 
+  it('builds a timecode href for timecode_ms=0 (0 is a valid cue, not "no cue")', async () => {
+    const tracklist = makeTracklist()
+    tracklist[0].timecode_ms = 0
+    const wrapper = await mountView({ set: makeSet({ tracklist }) })
+    const tc = wrapper.findAllComponents(TrackCard)[0].props('timecode')
+    expect(tc.ms).toBe(0)
+    expect(tc.href).toBe('https://youtube.com/watch?v=abc&t=0s')
+  })
+
   // ---- Tracklist navigation ----
 
   it('navigates to /catalog/:id on an identified row, and never on an id/unresolved row', async () => {

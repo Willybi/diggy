@@ -31,6 +31,26 @@ describe('TrackCard', () => {
     expect(wrapper.find('.tk-key').text()).toBe('9A')
   })
 
+  it('renders a dimmed em dash for a missing key on a normal row', () => {
+    const wrapper = mount(TrackCard, { props: { track: makeTrack({ key: null }) } })
+    const key = wrapper.find('.tk-key')
+    expect(key.text()).toBe('—')
+    expect(key.classes()).toContain('tk-key--empty')
+  })
+
+  it('renders a dimmed em dash for a missing bpm on a normal row', () => {
+    const wrapper = mount(TrackCard, { props: { track: makeTrack({ bpm: null }) } })
+    const bpm = wrapper.find('.tk-bpm')
+    expect(bpm.text()).toBe('—')
+    expect(bpm.classes()).toContain('tk-bpm--empty')
+  })
+
+  it('does not dim a present key or bpm', () => {
+    const wrapper = mount(TrackCard, { props: { track: makeTrack() } })
+    expect(wrapper.find('.tk-key').classes()).not.toContain('tk-key--empty')
+    expect(wrapper.find('.tk-bpm').classes()).not.toContain('tk-bpm--empty')
+  })
+
   it('hides the artist by default and shows it when showArtist is true', () => {
     const hidden = mount(TrackCard, { props: { track: makeTrack() } })
     expect(hidden.find('.tk-artist').exists()).toBe(false)

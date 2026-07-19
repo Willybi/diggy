@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
@@ -12,6 +13,8 @@ from typing import NamedTuple
 
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -774,14 +777,78 @@ async def get_similar_tracks(
 # ---------------------------------------------------------------------------
 
 # A set is scored from at most this many of its identified tracks (bounds the
-# per-request cost: each seed is scored against the whole visible pool).
-SIMILAR_SETS_SEED_CAP = 24
+# per-request cost: each seed is scored against the whole visible pool). Halved
+# 24→12 after prod measured ~21 s per uncached call — the cost is linear in the
+# seed count, so this ≈ halves the first (cache-miss) computation while leaving
+# ample seeds to characterise a set.
+SIMILAR_SETS_SEED_CAP = 12
 # Per-seed proximity: keep the top-N most similar tracks; each contributes to the
 # sets that contain it.
 SIMILAR_SETS_CAND_TRUNC = 40
 # Weight of proximity (fuzzy per-track similarity) relative to exact tracklist
 # overlap (which contributes +1.0 per shared set per seed, the dominant signal).
 SIMILAR_SETS_PROXIMITY_W = 0.5
+
+# Result cache — the scoring is expensive (pool build + in-memory scoring, ~21 s
+# cold on a large set) and a tracklist only changes on the nightly recrawl, so
+# the ranked result is cached per (set_id, viewer) with no active invalidation.
+# The full ranked list (up to SIMILAR_SETS_MAX_CACHED) is stored and sliced per
+# request, so one entry serves every ``limit`` — cf. recommendation_service.
+# Fail-open: an unavailable Redis just recomputes (availability > a warm cache).
+_SIMILAR_SETS_CACHE_PREFIX = "sets_similar"
+_SIMILAR_SETS_CACHE_TTL = 21600  # 6h, aligned with the similarity-context TTL
+SIMILAR_SETS_MAX_CACHED = 24  # the /similar endpoint's limit ceiling (Query le=24)
+
+
+def _similar_sets_cache_key(set_id: int, user_id: int | None) -> str:
+    return f"{_SIMILAR_SETS_CACHE_PREFIX}:{set_id}:{user_id if user_id is not None else 'anon'}"
+
+
+async def _similar_sets_cache_get(
+    redis, set_id: int, user_id: int | None
+) -> list[dict] | None:
+    """Read the cached ranked list; None on miss / unavailable Redis / bad payload.
+
+    The stored JSON carries ``played_date`` as an ISO string; validating it back
+    through ``SimilarSetOut`` reparses it to a ``date``, so the returned dicts
+    match the freshly-computed shape field for field.
+    """
+    if redis is None:
+        return None
+    try:
+        raw = await redis.get(_similar_sets_cache_key(set_id, user_id))
+    except Exception as exc:  # fail-open: Redis down/unsupported → recompute
+        logger.warning("similar_sets cache read skipped (Redis unavailable): %s", exc)
+        return None
+    if not raw:
+        return None
+    try:
+        from pydantic import TypeAdapter
+        from schemas import SimilarSetOut
+
+        adapter = TypeAdapter(list[SimilarSetOut])
+        return [m.model_dump() for m in adapter.validate_json(raw)]
+    except Exception:  # corrupt/legacy payload → recompute
+        return None
+
+
+async def _similar_sets_cache_set(
+    redis, set_id: int, user_id: int | None, result: list[dict]
+) -> None:
+    """Serialize the ranked list to JSON via ``SimilarSetOut`` (date → ISO). Fail-open."""
+    if redis is None:
+        return
+    try:
+        from pydantic import TypeAdapter
+        from schemas import SimilarSetOut
+
+        adapter = TypeAdapter(list[SimilarSetOut])
+        payload = adapter.dump_json(adapter.validate_python(result)).decode()
+        await redis.setex(
+            _similar_sets_cache_key(set_id, user_id), _SIMILAR_SETS_CACHE_TTL, payload
+        )
+    except Exception as exc:  # fail-open
+        logger.warning("similar_sets cache write skipped (Redis unavailable): %s", exc)
 
 
 async def similar_sets(
@@ -790,8 +857,31 @@ async def similar_sets(
     user_id: int | None = None,
     *,
     limit: int = 8,
+    redis=None,
 ) -> list[dict]:
-    """Sets closest to ``set_id``, aggregating the C2 track engine at set level.
+    """Sets closest to ``set_id`` — cached per (set_id, viewer), sliced to ``limit``.
+
+    Thin cache wrapper around :func:`_compute_similar_sets`: a hit returns the
+    stored ranked list sliced to ``limit``; a miss computes the full list (up to
+    ``SIMILAR_SETS_MAX_CACHED``), caches it (6h, fail-open) and returns the slice.
+    Propagates ``LookupError`` (unknown set) from the compute path — a 404 is
+    never cached.
+    """
+    cached = await _similar_sets_cache_get(redis, set_id, user_id)
+    if cached is not None:
+        return cached[:limit]
+
+    result = await _compute_similar_sets(db, set_id, user_id)
+    await _similar_sets_cache_set(redis, set_id, user_id, result)
+    return result[:limit]
+
+
+async def _compute_similar_sets(
+    db: AsyncSession,
+    set_id: int,
+    user_id: int | None = None,
+) -> list[dict]:
+    """Rank sets closest to ``set_id``, aggregating the C2 track engine at set level.
 
     A set is represented by its identified tracklist; the closest sets are those
     whose tracklists overlap or whose tracks are individually similar. Algorithm:
@@ -811,7 +901,7 @@ async def similar_sets(
        ``set_map`` by construction — roots only — so the parent root is the only
        way this set's own tracks re-enter the map).
     6. Normalise (max -> 1.0), sort by ``(-score, set_id)`` for determinism, keep
-       the top ``limit``.
+       the top ``SIMILAR_SETS_MAX_CACHED`` (the caller slices to the request limit).
     7. Fetch the winner cards (title/source/counts + artist names ordered by
        position), same shape as the set list endpoint.
 
@@ -884,12 +974,13 @@ async def similar_sets(
     if not set_scores:
         return []
 
-    # 6. Normalise to (0, 1] and rank.
+    # 6. Normalise to (0, 1] and rank. Keep the full ranked head (up to the cache
+    #    ceiling); the wrapper slices to the request's ``limit``.
     max_score = max(set_scores.values())
     winners = sorted(
         ((sid, sc / max_score) for sid, sc in set_scores.items()),
         key=lambda x: (-x[1], x[0]),
-    )[:limit]
+    )[:SIMILAR_SETS_MAX_CACHED]
     winner_ids = [sid for sid, _ in winners]
 
     # 7. Fetch the winner cards (mirror the list endpoint's shape).

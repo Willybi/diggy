@@ -2,7 +2,10 @@
   <span class="score-ring" :class="`score-ring--${size}`" role="img" :aria-label="ariaLabel">
     <svg class="sr-svg" :viewBox="`0 0 ${box} ${box}`">
       <circle class="sr-track" :cx="center" :cy="center" :r="radius" :stroke-width="stroke" />
+      <!-- Skip the arc at 0: a "0 C" dasharray + round linecap would draw a dot at
+           12 o'clock. Both modes (score note/10 and pct proportion). -->
       <circle
+        v-if="fraction > 0"
         class="sr-arc"
         :cx="center"
         :cy="center"

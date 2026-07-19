@@ -44,7 +44,8 @@ export function fmtSec(sec) {
 }
 
 /**
- * ms -> "H:MM:SS" timecode for sets
+ * ms -> set timecode: "m:ss" under an hour, "h:mm:ss" from an hour up.
+ * Only null is unknown ("—"); 0 is a valid cue (start of the set) -> "0:00".
  */
 export function fmtCue(ms) {
   if (ms == null) return '—'
@@ -52,7 +53,9 @@ export function fmtCue(ms) {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   const sec = s % 60
-  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`
 }
 
 /**

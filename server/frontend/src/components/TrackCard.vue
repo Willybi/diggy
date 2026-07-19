@@ -49,8 +49,8 @@
       </span>
     </div>
 
-    <span class="tk-bpm">{{ bpmText }}</span>
-    <span class="tk-key">{{ keyText }}</span>
+    <span class="tk-bpm" :class="{ 'tk-bpm--empty': bpmEmpty }">{{ bpmText }}</span>
+    <span class="tk-key" :class="{ 'tk-key--empty': keyEmpty }">{{ keyText }}</span>
     <span v-if="showDuration" class="tk-dur" :class="{ 'tk-dur--empty': durEmpty }">{{
       durText
     }}</span>
@@ -63,9 +63,9 @@
         target="_blank"
         rel="noopener"
         @click.stop
-        >{{ fmtMs(timecode.ms) }}</a
+        >{{ fmtCue(timecode.ms) }}</a
       >
-      <span v-else class="tk-tc">{{ fmtMs(timecode.ms) }}</span>
+      <span v-else class="tk-tc">{{ fmtCue(timecode.ms) }}</span>
     </template>
 
     <span v-if="$slots.end" class="tk-end"><slot name="end"></slot></span>
@@ -75,7 +75,7 @@
 <script setup>
 import { computed } from 'vue'
 import Artwork from './Artwork.vue'
-import { fmtBpm, fmtMs } from '../utils/format'
+import { fmtBpm, fmtMs, fmtCue } from '../utils/format'
 
 const props = defineProps({
   // { id, title, artist?, artists?: [{ id, name }], bpm, key, duration_ms?, has_artwork, has_preview, in_lib }
@@ -126,14 +126,18 @@ const bpmText = computed(() => {
 const keyText = computed(() => {
   if (isId.value) return ''
   if (isUnresolved.value) return '—'
-  return props.track.key || ''
+  // Missing key on a normal row → em dash (unified "missing data" language),
+  // dimmed via .tk-key--empty rather than the key accent.
+  return props.track.key || '—'
 })
 const durText = computed(() => {
   if (isId.value) return ''
   if (isUnresolved.value) return '—'
   return fmtMs(props.track.duration_ms)
 })
-// Dimmed dash only for a genuinely-missing normal duration (states color their own cells).
+// Dimmed dash only for a genuinely-missing normal cell (states color their own cells).
+const bpmEmpty = computed(() => !props.state && !props.track.bpm)
+const keyEmpty = computed(() => !props.state && !props.track.key)
 const durEmpty = computed(() => !props.state && !props.track.duration_ms)
 
 function emitPlay() {
@@ -297,6 +301,12 @@ function emitPlay() {
 .tk-key {
   font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--accent-ink);
+}
+/* Missing BPM/Key on a normal row → dimmed dash (grid alignment preserved,
+   same "missing data" language as .tk-dur--empty). */
+.tk-bpm--empty,
+.tk-key--empty {
+  color: var(--ink-3);
 }
 /* Duration — same voice as BPM (mono, --ink-2, right-aligned); the Key keeps the accent. */
 .tk-dur {

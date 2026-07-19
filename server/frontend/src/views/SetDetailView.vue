@@ -215,7 +215,8 @@ const sourceName = computed(() => SOURCE_NAMES[djSet.value?.source] || djSet.val
 // Timestamped source URL — YouTube (?t= / &t=) and SoundCloud (#t=h:mm:ss) only;
 // any other source (trackid, 1001tracklists) or a null url → no link (plain text).
 function makeTimestampUrl(baseUrl, timecodeMs) {
-  if (!baseUrl || !timecodeMs) return null
+  // 0 is a valid cue (start of the set): only a null timecode has no link.
+  if (!baseUrl || timecodeMs == null) return null
   const secs = Math.floor(timecodeMs / 1000)
   if (baseUrl.includes('youtube.com') || baseUrl.includes('youtu.be')) {
     return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${secs}s`
@@ -455,6 +456,11 @@ onMounted(() => {
 }
 .hero-cover :deep(.artwork--hero) {
   width: 100%;
+}
+/* Hero cover elevation (S2) — carried by the page on the artwork frame so its
+   rounded corners are respected; Artwork.vue stays untouched. */
+.hero-cover :deep(.aw-frame) {
+  box-shadow: var(--shadow-md);
 }
 .hero-main {
   position: relative;

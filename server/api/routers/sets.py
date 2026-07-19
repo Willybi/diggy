@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from celery_client import celery
 from database import get_db
-from dependencies import get_current_user, get_current_user_optional
+from dependencies import get_current_user, get_current_user_optional, get_redis
 from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import (
@@ -383,17 +383,19 @@ async def get_similar_sets(
     set_id: int,
     limit: int = Query(8, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
     user: User | None = Depends(get_current_user_optional),
 ):
     """Sets closest to this one — the C2 track engine aggregated at set level.
 
     Guest-accessible exactly like ``GET /sets/{id}``: the ``/api/sets`` public
     GET prefix in the JWT middleware allowlist already covers this sub-path, so no
-    allowlist change is needed. Returns ``[]`` when nothing is close enough.
+    allowlist change is needed. Returns ``[]`` when nothing is close enough. The
+    result is cached per (set_id, viewer) — see ``similarity_service.similar_sets``.
     """
     from services.similarity_service import similar_sets
 
     try:
-        return await similar_sets(db, set_id, _uid(user), limit=limit)
+        return await similar_sets(db, set_id, _uid(user), limit=limit, redis=redis)
     except LookupError:
         raise HTTPException(status_code=404, detail="Set not found")
