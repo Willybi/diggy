@@ -150,12 +150,12 @@ class TestRetryPolicies:
 
     def test_non_orchestrators_have_autoretry(self):
         wt = self._get_tasks()
-        # fetch_artist_artworks + link_artists_deezer are deliberately EXCLUDED:
-        # see test_backlog_tasks_have_no_exception_autoretry.
+        # fetch_artist_artworks, link_artists_deezer and resolve_set_tracks are
+        # deliberately EXCLUDED: see test_backlog_tasks_have_no_exception_autoretry.
         non_orchestrators = [
             "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
+            "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "link_set_artists",
             "reclassify_genres_chunk", "compute_trends",
         ]
@@ -172,9 +172,11 @@ class TestRetryPolicies:
         """Regression for the 2026-07-13 loop: the artist backlog tasks must NOT
         carry autoretry_for=(Exception,). SoftTimeLimitExceeded IS an Exception,
         so that decorator turned a soft timeout into an infinite re-download loop.
-        These tasks rely on their budget cap + batch commits + a Redis lock."""
+        These tasks rely on their budget cap + batch commits + a Redis lock.
+        resolve_set_tracks joined this list once its inline enrichment was moved
+        to the nightly enrich tasks (same footgun applied to its 7200s limit)."""
         wt = self._get_tasks()
-        for tname in ("fetch_artist_artworks", "link_artists_deezer"):
+        for tname in ("fetch_artist_artworks", "link_artists_deezer", "resolve_set_tracks"):
             task = getattr(wt, tname)
             assert Exception not in (task.autoretry_for or ()), (
                 f"Task {task.name} must NOT autoretry on Exception (loop footgun)"
@@ -272,10 +274,12 @@ class TestTimeLimits:
         )
 
     def test_resolve_set_tracks_has_dedicated_limits(self):
-        """Inline enrichment after big imports needs more than the global 1800s."""
+        """Resolution-only (bulk catalog linking, no external API calls): short
+        limits are enough. Enrichment moved to the nightly enrich tasks, which
+        killed the old 7200s inline-enrichment pinning."""
         wt = self._get_tasks()
-        assert wt.resolve_set_tracks.soft_time_limit == 7200
-        assert wt.resolve_set_tracks.time_limit == 7500
+        assert wt.resolve_set_tracks.soft_time_limit == 1800
+        assert wt.resolve_set_tracks.time_limit == 2400
 
     def test_enrich_catalog_beatport_keeps_long_limits(self):
         wt = self._get_tasks()

@@ -12,9 +12,9 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-# Lock TTL must cover the task's time_limit (7500s) so the lock cannot
+# Lock TTL must cover the task's time_limit (2400s) so the lock cannot
 # expire while a legitimate run is still in progress
-RESOLVE_SET_TRACKS_LOCK_TTL = 7800
+RESOLVE_SET_TRACKS_LOCK_TTL = 2700
 
 # Same rule for recrawl_incomplete_sets (time_limit 3900s)
 RECRAWL_INCOMPLETE_SETS_LOCK_TTL = 4200
@@ -100,19 +100,23 @@ def _resume_page_decision(
 @celery_app.task(
     name="workers.tasks.resolve_set_tracks",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
-    # Large imports (TrackID backfill: 500 sets/night) push inline enrichment
-    # past the global 1800s limit; keep time_limit under the broker
-    # visibility_timeout (30000s) to avoid duplicate deliveries
-    soft_time_limit=7200,
-    time_limit=7500,
+    # Resolution-only (bulk catalog linking, no external API calls) → fast, stays
+    # well under a short limit even for a full night's inflow. Enrichment of the
+    # freshly-linked entries is owned by the nightly enrich_catalog /
+    # enrich_catalog_beatport tasks on the dedicated enrich worker (their E1
+    # budgets + re-scan backoff are the single point of throughput control).
+    # Deliberately NO autoretry_for=(Exception,): SoftTimeLimitExceeded IS an
+    # Exception, so that decorator would turn a timeout into a retry loop (same
+    # footgun as the artist backlog tasks). The Redis lock + idempotent bulk
+    # resolve + nightly re-dispatch are the guards.
+    soft_time_limit=1800,
+    time_limit=2400,
 )
 def resolve_set_tracks(self):
     """
-    Résout les set_tracks sans catalog_id.
-    Uses bulk catalog operations + concurrent async enrichment.
+    Résout les set_tracks sans catalog_id (liage catalog en masse uniquement).
+    L'enrichissement Deezer/Beatport des entrées liées est laissé aux tâches
+    nightly enrich_catalog / enrich_catalog_beatport (worker enrich dédié).
     Single-instance: a Redis lock skips the run if another one is in flight
     (three beat tasks and the API all dispatch this task fire-and-forget).
     """
@@ -139,18 +143,15 @@ def resolve_set_tracks(self):
 
 
 def _run_resolve_set_tracks(task):
-    from celery.exceptions import SoftTimeLimitExceeded
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
-    from models import CatalogEntry, SetTrack
-    from services.image_service import BUCKET_CATALOG, ImageService
+    from models import SetTrack
     from workers.crawl_logger import CrawlLogger
     from workers.db import bulk_get_or_create_catalog, get_engine
 
     engine = get_engine()
-    ImageService.ensure_bucket(BUCKET_CATALOG)
 
     with Session(engine) as log_session:
         with CrawlLogger(
@@ -172,8 +173,8 @@ def _run_resolve_set_tracks(task):
                 )
 
                 if not tracks:
-                    clog.set_stats({"resolved": 0, "enriched": 0, "bp_enriched": 0})
-                    return {"resolved": 0, "enriched": 0, "bp_enriched": 0}
+                    clog.set_stats({"resolved": 0})
+                    return {"resolved": 0}
 
                 # Bulk catalog lookup/create
                 track_dicts = [
@@ -190,98 +191,9 @@ def _run_resolve_set_tracks(task):
                         st.catalog_id = entry.id
                         resolved += 1
 
-                # Save IDs before commit expires ORM attributes
-                resolved_ids = {st.catalog_id for st in tracks if st.catalog_id}
                 session.commit()
 
-            # Async enrichment for entries missing deezer_id or beatport_id
-            async def _async_enrich():
-                from datetime import datetime, timezone
-
-                from workers.async_http import HttpPool
-                from workers.enrichment import (
-                    enrich_beatport_batch,
-                    enrich_deezer_batch,
-                    not_recently_searched,
-                )
-                from workers.rate_limiter import RateLimiter
-
-                limiter = RateLimiter()
-                now = datetime.now(timezone.utc)
-                async with HttpPool(limiter) as pool:
-                    with Session(engine) as session:
-                        existing_isrcs = {
-                            r[0]
-                            for r in session.execute(
-                                select(CatalogEntry.isrc).where(
-                                    CatalogEntry.isrc.isnot(None)
-                                )
-                            ).all()
-                        }
-                        dz_entries = (
-                            session.execute(
-                                select(CatalogEntry).where(
-                                    CatalogEntry.id.in_(resolved_ids),
-                                    CatalogEntry.deezer_id.is_(None),
-                                    not_recently_searched(
-                                        CatalogEntry.deezer_searched_at, now
-                                    ),
-                                )
-                            )
-                            .scalars()
-                            .all()
-                        )
-
-                        dz_stats = {"enriched": 0}
-                        if dz_entries:
-                            dz_stats = await enrich_deezer_batch(
-                                session, dz_entries, pool, None, existing_isrcs
-                            )
-                        session.commit()
-
-                        bp_entries = (
-                            session.execute(
-                                select(CatalogEntry).where(
-                                    CatalogEntry.id.in_(resolved_ids),
-                                    CatalogEntry.beatport_id.is_(None),
-                                    not_recently_searched(
-                                        CatalogEntry.beatport_searched_at, now
-                                    ),
-                                )
-                            )
-                            .scalars()
-                            .all()
-                        )
-
-                        bp_stats = {"enriched": 0}
-                        if bp_entries:
-                            bp_stats = await enrich_beatport_batch(
-                                session, bp_entries, pool, None
-                            )
-                        session.commit()
-
-                return dz_stats, bp_stats
-
-            try:
-                dz_stats, bp_stats = asyncio.run(_async_enrich())
-            except SoftTimeLimitExceeded:
-                # Resolution is already committed; leftover enrichment is
-                # picked up by the nightly enrich_catalog / enrich_beatport
-                logger.warning(
-                    "resolve_set_tracks: enrichment cut by soft time limit "
-                    "(%d tracks resolved), nightly enrich tasks will catch up",
-                    resolved,
-                )
-                dz_stats, bp_stats = {"enriched": 0}, {"enriched": 0}
-            except Exception:
-                logger.exception("Async enrichment failed in resolve_set_tracks")
-                raise
-
-            result = {
-                "resolved": resolved,
-                "enriched": dz_stats.get("enriched", 0),
-                "bp_enriched": bp_stats.get("enriched", 0),
-            }
+            result = {"resolved": resolved}
             clog.set_stats(result)
 
     return result

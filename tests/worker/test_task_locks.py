@@ -148,7 +148,7 @@ class TestResolveSetTracksLock:
 
     def test_lock_ttl_covers_task_time_limit(self, sets_mod):
         """The lock must not expire while a legitimate run is in progress."""
-        assert sets_mod.RESOLVE_SET_TRACKS_LOCK_TTL > 7500
+        assert sets_mod.RESOLVE_SET_TRACKS_LOCK_TTL > 2400
 
 
 class TestRecrawlIncompleteSetsLock:
