@@ -9,7 +9,7 @@
 > - `ROADMAP_MULTIUSER.md` — multi-user phases 0-4 (100%)
 > - `ROADMAP_AUDIT_2026-07.md` — rapport d'audit CTO complet (reference)
 >
-> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global : series AU + C6 + F5 + C3 + C4 + N1 TERMINE. **Mise a jour 2026-07-13 (2)** : les deux derniers chantiers, C5 (Collections v2) et D4 (Pages Detail), sont desormais STANDALONE et prets a demarrer — retrait des statuts 'apres ouverture' (C5) et 'bloque briefs' (D4). Plus aucune dependance ni condition bloquante : leur lancement est un choix de priorite (William), pas un blocage. D4 = a demarrer en binome avec Claude Design (briefs Track/Playlist co-produits dans le chantier) ; C5 = gros refacto de la feature Collections.) **Mise a jour 2026-07-14** : ajout de 4 nouveaux items backlog issus d'une revue produit/technique (aucun statut de chantier existant modifie) — **P2** (lot correctifs UX/admin : affichage sortie album Hub, loading "Pour toi", compteurs vrai total x3, Beatport skip-lock, chips trend familles vides), **N2** (fix split artiste multi + separateur "|"), **C7** (entite Album + M2M catalog_albums), **C8** (fiabilite des sets TrackID : flag hidden + exclusion des calculs de proximite). Deux divergences CLAUDE.md corrigees le meme jour : la similarite consomme les sets (via `_load_set_map`, PAS catalog-only) ; commentaire `external_id` dans `models/artist.py` (track id Deezer depuis C6.c v2, plus album id). **Mise a jour 2026-07-16** : **N2** et **P2** TERMINES (commit d11f28e + follow-ups, deployes, /deploy_verify SAIN). Le **fix durable pooling de C4** est LIVRE (commits 58c91b0 + 3fae063) : contexte de similarite cache in-process + candidate pooling (pool construit 1x, scoring en memoire) + `_load_set_map` roots-only ; optimisation PURE (byte-identique, ancree par test golden), reco a froid mesuree ~60s -> ~6.6s en prod, SEED_CAP reste a 12. Corriges hors chantier le meme jour (bugs prod emergents, pas de nouveau chantier) : pillar-count `list_artists` via sous-requete (cap asyncpg 32767 bind params sur GET /api/artists une fois la table artistes > 32767 lignes, commit 383588d) et le separateur "|" sans espaces "A|B". **Mise a jour 2026-07-17** : **D4 passe EN COURS** — page 1 (Track Detail) TERMINEE et deployee (0c47a8c, /deploy_verify SAIN, checklist William validee) : 4 composants transverses (Artwork/TrackCard/ScoreRing/PlatformLink, logos placeholders → reliquat) + refonte TrackDetailView. Restent Playlist Detail, verif FIX Artist/Set, Admin Vague 5. **Mise a jour 2026-07-17 (2)** : page 2 (Playlist Detail) TERMINEE et deployee (ef8505f + FIX bcb3845, /deploy_verify SAIN, checklist validee, revue design soldee) — lot 0 back (top_artists/top_genres/in_lib/artists[] sur GET /api/watchlist/{id}, perimetre catalog_visible) + extension additive TrackCard (duree + artistes cliquables) + refonte PlaylistDetailView (bouton Suivre retire de l'UI). La contradiction back de la fiche playlist-detail est tranchee et livree. Restent verif FIX Artist/Set + Admin Vague 5. **Mise a jour 2026-07-20** : page 3 (Set Detail) TERMINEE et deployee (41e9315 + FIX ef7117f, /deploy_verify SAIN x2, checklist validee, revue design FIX round unique solde 5/2/1) — lot 0 back (bpm/key/duree tracklist + top_genres[] perimetre catalog_visible + NOUVEL endpoint GET /api/sets/{id}/similar, moteur C2 agrege niveau set, cache Redis 6h + seed cap 12 apres mesure 21s → 0,12s chaud) + extension TrackCard « set » (position/timecode/etats) + ScoreRing mode pct + NOUVEAU SetCard (40 composants) + refonte SetDetailView. La moitie Set de « verif FIX Artist/Set » est soldee par la refonte ; restent verif FIX Artist Detail + Admin Vague 5. Nettoyage doc : les mentions C7.b/C8.b du double-comptage `_load_set_map` annotees DEJA CORRIGE (roots-only, 2026-07-16). **Mise a jour 2026-07-20 (2)** : page 4 (Artist Detail) TERMINEE et deployee (cb88318 + FIX c81b7e3/01548f4/fbbec21/8411317, /deploy_verify SAIN, revue design 2 rounds soldes) — lot 0 back additif (ArtistSetOut.artists[]/duration_ms) + refonte ArtistDetailView (hero poli, code mort retire, TrackCard/SetCard/PlatformLink consommes, AUCUN composant cree). Leçon majeure versionnee dans le FIX archive : les ecarts #1-#4 venaient d'UNE cause racine layout (fr = minmax(auto,1fr)) invisible au controle statique — verification visuelle headless authentifiee desormais outillee. La verif FIX Artist/Set est entierement soldee ; D4 : reste Admin Vague 5. Nouveaux reliquats : polish transverse ExpandableShelf (libelle/style bouton expand), filtrage placeholders Deezer dans fetch_artist_artworks.
+> **Derniere mise a jour** : 2026-07-13 (C6.c v2 deploye — les releases Deezer des artistes suivis sont desormais crawlees DANS le catalog : album eclate en tracklist, 1 `artist_activity` par titre lie a une entree catalog `scope='shared'` (cover/preview/artistes/release_date), rendu comme un track normal dans la shelf "Nouveautes" du Hub ; fallback lien externe si le fetch `/track` echoue, cap 40 titres/release, aucune migration. Raffinement de C6.c (deja TERMINE le 2026-07-12), commit 245c1cc, /deploy_verify SAIN — ne rouvre pas le chantier. Etat global : series AU + C6 + F5 + C3 + C4 + N1 TERMINE. **Mise a jour 2026-07-13 (2)** : les deux derniers chantiers, C5 (Collections v2) et D4 (Pages Detail), sont desormais STANDALONE et prets a demarrer — retrait des statuts 'apres ouverture' (C5) et 'bloque briefs' (D4). Plus aucune dependance ni condition bloquante : leur lancement est un choix de priorite (William), pas un blocage. D4 = a demarrer en binome avec Claude Design (briefs Track/Playlist co-produits dans le chantier) ; C5 = gros refacto de la feature Collections.) **Mise a jour 2026-07-14** : ajout de 4 nouveaux items backlog issus d'une revue produit/technique (aucun statut de chantier existant modifie) — **P2** (lot correctifs UX/admin : affichage sortie album Hub, loading "Pour toi", compteurs vrai total x3, Beatport skip-lock, chips trend familles vides), **N2** (fix split artiste multi + separateur "|"), **C7** (entite Album + M2M catalog_albums), **C8** (fiabilite des sets TrackID : flag hidden + exclusion des calculs de proximite). Deux divergences CLAUDE.md corrigees le meme jour : la similarite consomme les sets (via `_load_set_map`, PAS catalog-only) ; commentaire `external_id` dans `models/artist.py` (track id Deezer depuis C6.c v2, plus album id). **Mise a jour 2026-07-16** : **N2** et **P2** TERMINES (commit d11f28e + follow-ups, deployes, /deploy_verify SAIN). Le **fix durable pooling de C4** est LIVRE (commits 58c91b0 + 3fae063) : contexte de similarite cache in-process + candidate pooling (pool construit 1x, scoring en memoire) + `_load_set_map` roots-only ; optimisation PURE (byte-identique, ancree par test golden), reco a froid mesuree ~60s -> ~6.6s en prod, SEED_CAP reste a 12. Corriges hors chantier le meme jour (bugs prod emergents, pas de nouveau chantier) : pillar-count `list_artists` via sous-requete (cap asyncpg 32767 bind params sur GET /api/artists une fois la table artistes > 32767 lignes, commit 383588d) et le separateur "|" sans espaces "A|B". **Mise a jour 2026-07-17** : **D4 passe EN COURS** — page 1 (Track Detail) TERMINEE et deployee (0c47a8c, /deploy_verify SAIN, checklist William validee) : 4 composants transverses (Artwork/TrackCard/ScoreRing/PlatformLink, logos placeholders → reliquat) + refonte TrackDetailView. Restent Playlist Detail, verif FIX Artist/Set, Admin Vague 5. **Mise a jour 2026-07-17 (2)** : page 2 (Playlist Detail) TERMINEE et deployee (ef8505f + FIX bcb3845, /deploy_verify SAIN, checklist validee, revue design soldee) — lot 0 back (top_artists/top_genres/in_lib/artists[] sur GET /api/watchlist/{id}, perimetre catalog_visible) + extension additive TrackCard (duree + artistes cliquables) + refonte PlaylistDetailView (bouton Suivre retire de l'UI). La contradiction back de la fiche playlist-detail est tranchee et livree. Restent verif FIX Artist/Set + Admin Vague 5. **Mise a jour 2026-07-20** : page 3 (Set Detail) TERMINEE et deployee (41e9315 + FIX ef7117f, /deploy_verify SAIN x2, checklist validee, revue design FIX round unique solde 5/2/1) — lot 0 back (bpm/key/duree tracklist + top_genres[] perimetre catalog_visible + NOUVEL endpoint GET /api/sets/{id}/similar, moteur C2 agrege niveau set, cache Redis 6h + seed cap 12 apres mesure 21s → 0,12s chaud) + extension TrackCard « set » (position/timecode/etats) + ScoreRing mode pct + NOUVEAU SetCard (40 composants) + refonte SetDetailView. La moitie Set de « verif FIX Artist/Set » est soldee par la refonte ; restent verif FIX Artist Detail + Admin Vague 5. Nettoyage doc : les mentions C7.b/C8.b du double-comptage `_load_set_map` annotees DEJA CORRIGE (roots-only, 2026-07-16). **Mise a jour 2026-07-20 (2)** : page 4 (Artist Detail) TERMINEE et deployee (cb88318 + FIX c81b7e3/01548f4/fbbec21/8411317, /deploy_verify SAIN, revue design 2 rounds soldes) — lot 0 back additif (ArtistSetOut.artists[]/duration_ms) + refonte ArtistDetailView (hero poli, code mort retire, TrackCard/SetCard/PlatformLink consommes, AUCUN composant cree). Leçon majeure versionnee dans le FIX archive : les ecarts #1-#4 venaient d'UNE cause racine layout (fr = minmax(auto,1fr)) invisible au controle statique — verification visuelle headless authentifiee desormais outillee. La verif FIX Artist/Set est entierement soldee ; D4 : reste Admin Vague 5. Nouveaux reliquats : polish transverse ExpandableShelf (libelle/style bouton expand), filtrage placeholders Deezer dans fetch_artist_artworks. **Mise a jour 2026-07-20 (3)** : ajout du chantier **D6 — Refonte UI : listes, Radar & transverses** — inscription a la roadmap du reliquat refonte UI deja SPECIFIE et FIGE dans `docs/refonte-ui/` (Hub, Explorer ex-Catalog, listes Sets/Playlists/Artistes/Genres, Genre Detail, nouvelle page Radar bi-score, suppression Rating projet-wide, restructuration nav) : la roadmap ne planifiait jusqu'ici que les pages detail (D4) ; sans D6 le gros du travail cadre le 2026-07-14 (dont Explorer et son lot back) restait orphelin. Aucun statut existant modifie.
 
 ---
 
@@ -23,7 +23,7 @@ Avant l'ouverture aux amis (5-10 DJs), Diggy doit offrir :
 
 Apres l'ouverture : la recommandation personnalisee (croisement similarite x likes), utile des un seul user et enrichie par chaque nouvel utilisateur.
 
-**Sequence verrouillee (historique — soldee)** : ~~C0 -> R1 -> C1 -> C2 -> H0 + P1 -> F5 + C6 -> serie AU -> C3 -> C4~~ (TOUT TERMINE). Restent **C5** et **D4** : hors sequence, deux chantiers STANDALONE sans ordre impose ni dependance bloquante, lancables au choix.
+**Sequence verrouillee (historique — soldee)** : ~~C0 -> R1 -> C1 -> C2 -> H0 + P1 -> F5 + C6 -> serie AU -> C3 -> C4~~ (TOUT TERMINE). Restent **C5**, **D4** (en cours — reste Admin), **D6** (refonte UI listes/Radar/transverses, ajoute 2026-07-20), **C7** et **C8** : hors sequence, chantiers STANDALONE sans ordre impose ni dependance bloquante (seule contrainte legere : D6 s'appuie sur les composants deja livres par D4), lancables au choix.
 
 **Sequencement interne serie AU** (arbitre dans `docs/audit_2026-07/DECISIONS.md`) : AU1 -> AU2 -> AU3 -> AU7 -> AU4 -> AU5 -> AU6 -> AU8. Contrainte imperative : le volet enrichissement de AU7 s'execute AVANT ou AVEC AU4.
 
@@ -55,6 +55,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C4   Reco personnalisee                    BAS         3-5 jours    TERMINE (2026-07-13)
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE — standalone
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    EN COURS — Track + Playlist + Set + Artist Detail TERMINES (2026-07-20) ; reste Admin Vague 5
+ D6   Refonte UI listes + Radar + transverses BAS      8-12 jours   A FAIRE — cadrage deja fige (fiches docs/refonte-ui/)
  N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
  P2   Correctifs UX/admin (revue 07-14)     MOYEN       1 jour       TERMINE (2026-07-16)
  N2   Split artiste multi + separateur "|"  MOYEN       1-2 jours    TERMINE (2026-07-16)
@@ -130,6 +131,7 @@ Serie AU ───> avant C3 (les findings lie-chantier:C3/C6 restent dans leurs
 C4 ─────────> C2 + C3 (similarite + likes + users)
 C5 ─────────> Rien — C1 (TERMINE). Refacto standalone, pret a demarrer, aucun blocage
 D4 ─────────> Rien — D5 (TERMINE). Standalone, briefs Track/Playlist co-produits en binome avec Claude Design
+D6 ─────────> D4 (composants Artwork/TrackCard/SetCard/ScoreRing/PlatformLink livres) — cadrage fige dans docs/refonte-ui/, lancable en parallele de la fin de D4 (Admin)
 N1 ─────────> Rien (parallelisable avec tout, priorite basse)
 
 --- revue 2026-07-14 (nouveaux items backlog) ---
@@ -1016,6 +1018,68 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 - [x] **Playlist Detail** `/playlists/:id` (brief co-produit avec Claude Design) : Hero square + StatStrip + table tracks — TERMINE (2026-07-17, ef8505f + FIX bcb3845) ; decisions handoff : hero finalement « cover + infos a cote » SANS StatStrip, table remplacee par des rangees TrackCard etendues
 - [ ] **Vague 5 — Admin panel** `/admin` (brief co-produit avec Claude Design) : Refonte visuelle selon DA Wildflower
 
+> La suite de la refonte (Hub, listes, Explorer, page Radar, transverses) est inscrite au chantier **D6** ci-dessous.
+
+---
+
+## D6 — Refonte UI : listes, Radar & transverses
+
+**Priorite : BAS**
+**Estimation : 8-12 jours (page par page, chaque page = un livrable deployable via `/refonte_page`)**
+**Depend de : D4 (composants transverses livres : Artwork, TrackCard, SetCard, ScoreRing, PlatformLink) — lancable en parallele de la fin de D4 (Admin). Source de verite : fiches FIGEES de `docs/refonte-ui/` (INDEX.md = registre, TRANSVERSE.md = sujets transverses).**
+**Statut : A FAIRE — le cadrage est DEJA FAIT (fiches ✅ figees avec William, revue page par page 2026-07-14). Ce chantier inscrit a la roadmap le reliquat refonte UI hors pages detail, qui n'etait planifie nulle part (constat 2026-07-20).**
+
+### Objectif
+
+D4 couvre les pages detail (+ Admin). Ce chantier couvre le RESTE du site deja specifie dans `docs/refonte-ui/` : le Hub, les listes (Explorer ex-Catalog, Sets, Playlists, Artistes, Genres), le detail genre, la NOUVELLE page Radar, et les sujets transverses (suppression du Rating, navigation). Hors perimetre (INDEX.md) : Login (laisse tel quel), LoginCallback (flow Safari iOS — ne pas toucher), Design System (vitrine dev-only).
+
+L'ordre interne ci-dessous est indicatif (une page = un livrable) ; seules vraies contraintes : la nav et Radar avant de finaliser les « voir plus » du Hub, et la rangee partagee d'Explorer avant la tracklist de Genre Detail.
+
+### D6.0 — Transverses prealables
+
+- [ ] **Suppression du Rating (etoiles Rekordbox) de TOUT le projet** — decision actee (interpretation 100% perso, aucune valeur partagee), inventaire complet dans `TRANSVERSE.md` § Rating : front (CatalogView colonne + tri, ArtistsView/ArtistCard badge + tri + `avg_rating` — les pages detail refondues en D4 sont deja purgees), back (schemas/routers/services catalog + artists, `rekordbox_xml.py` cesse d'importer le champ, drop colonne DB en migration a terme). Feature-first : le back suit.
+- [ ] **Restructuration navigation** (TRANSVERSE.md § Navigation, statut « a travailler ») : entree Radar (sidebar + BottomNav), renommage Catalog → Explorer, cibles « voir plus » du Hub — A CADRER avec William AVANT D6.a (conditionne la place de Radar)
+- [ ] (Opportuniste) systeme d'icones SVG unifie (fin des emoji des scopes de recherche) — TRANSVERSE § icones, non bloquant
+
+### D6.a — Explorer (ex-Catalog) + page Radar
+
+Couplees : le mode Radar SORT de CatalogView vers une page dediee (`catalog.md` + `radar.md`).
+
+- [ ] **Explorer** : route `/explorer` (redirects `/catalog`, `/tracks`) ; moteur de recherche sur la base brute — filtres riches (BPM range, Key multi-select, Style multi, Artiste type-ahead, In lib tri-state, Duree, Ecoutable, Avis) SYNCHRONISES dans l'URL ; tri defaut « recemment ajoutes » ; infinite scroll VIRTUALISE (windowing des le depart) ; colonne In lib → indicateur cover `<Artwork>` ; colonnes Rating/Radar/Source/Detecte retirees ; imports ranges dans un menu « + » ; libelles FR ; fix du handler inline play (pitfall Prettier/Vue)
+- [ ] Back Explorer : query-builder `GET /api/catalog/` (bpm range, key[], genre[], artist, duration, has_preview, avis, release range) + index (bpm, key, duration_ms, release_date) — `catalog_visible` OBLIGATOIRE sur toute la query
+- [ ] **Radar** : NOUVELLE page = surface de recommandation bi-score — liste unique, chaque son avec scores **Tendance** + **Pour toi** (`ScoreRing` /10, float conserve pour le tri), tri par l'un ou l'autre, filtres facon Explorer, cold-start → tri Tendance par defaut ; `/for-you` FUSIONNE dedans (le « voir plus » Pour toi du Hub pointe ici). ECARTE (fiche) : triage `user_radar_state`, indice « pourquoi », ponderation des likes
+- [ ] Back Radar : endpoint qui MERGE `trend_score` (radar_trends) + `reco_score` (recommendations C4) par `catalog_id` (union des 2 univers, « — » si score absent), normalisation note /10, filtres, `catalog_visible`
+
+### D6.b — Listes Sets + Playlists (jumelles)
+
+- [ ] **Sets** (`sets-list.md`) : sets a 0 % identifies MASQUES (hard, sans toggle) ; row = cover · titre + artistes · genre deduit (StyleTag) · date · source (logo `PlatformLink`) · % tracks · duree · avis ; passage `usePaginatedList` + sort/pagination server-side. Back : exclusion `identified_tracks == 0`, genres deduits dans `SetListItemOut`, skip/limit/sort
+- [ ] **Playlists** (`playlists-list.md`) : aligne sur Sets — logo source, genre dominant deduit (A CONSTRUIRE cote back, meme mecanique que le detail), retrait `external_id`, pastille cadence Quotidien/Hebdo/Mensuel (derivee de `last_changed_at`, C6.e), statut crawl live (`useTaskPoll`) + bouton Crawl conserves, PAS d'exclusion. ECARTE (fiche) : tracks detectees, follow toggle (masque de l'UI, mecanisme back conserve)
+
+### D6.c — Hub + listes Artistes/Genres + Genre Detail (retouches)
+
+- [ ] **Hub** (`hub.md`) : « Essaie » deplace sous la search bar, bloc Genres populaires RETIRE, « Ca sort » top 9 + « voir plus » → Radar (invite → login), « Pour toi » top 9 + « voir plus » → Radar, « Nouveautes » « voir plus » → `/new-releases` (actif une fois la page cadree, D6.d), meta `BPM · KEY · age` sur les cards des 3 etageres. Back : `release_date` ajoute a `TrendItem` (`list_trends`)
+- [ ] **Artistes** (`artists-list.md`) : ArtistCard — badge in-lib overlay retire (stat « In Lib » gardee), rating retire (D6.0), **pastille-TOGGLE « Suivi »** (follow/unfollow depuis la card, coin haut-gauche libere), SegFilter « Rating » → « Suivis ». Back : `following` dans `ArtistListItemOut` + filtre `followed=true`
+- [ ] **Genres** (`genres-list.md`) : tri « En bib » (SegFilter + back `sort=lib` si absent), GenreCard in-lib en STAT (badge retire, harmonise avec ArtistCard), % de couverture bib (`inLibCount/trackCount`)
+- [ ] **Genre Detail** (`genre-detail.md`) : hero immersif (mosaique agrandie, titre + pilier + stats par-dessus), bouton « Tout filtrer dans Catalog » RETIRE, `GenreTrackRow` bespoke → rangee partagee Explorer SANS colonne genre (back : `artists[]` structures sur genre/tracks), Admin gate `is_admin`
+- [ ] Reliquats a solder au passage (deja listes en « Reliquats hors chantiers ») : polish `ExpandableShelf` (libelle/style bouton), logos officiels `PlatformLink` (quand SVG fournis), padding-inline TrackDetailView
+
+### D6.d — A cadrer (fiches NON figees — hors DoD de ce chantier)
+
+- [ ] **`/new-releases`** (nouveautes des artistes suivis, nee du Hub) : fiche 🔲 a discuter — feed heterogene (track crawle / lien externe fallback / set) a gerer proprement
+- [ ] **Collections liste + detail** : fiches 🔲 (« a la toute fin », vraie feature a designer) — a cadrer AVEC C5 (Collections v2), meme surface
+- [ ] Logo/brand `<BrandLogo>` : long terme DA (TRANSVERSE § Brand), hors chantier
+
+### Definition of Done
+
+```bash
+# /explorer : filtres riches URL-synces + scroll virtualise ; plus aucune trace du mode Radar dans CatalogView
+# /radar : liste bi-score Tendance / Pour toi triable ; /for-you n'existe pas (fusionne)
+# /sets : 0 % masques, genre + logo source, pagination server-side ; /playlists : idem + pastille cadence, sans external_id
+# Hub : Essaie sous la search, plus de bloc Genres populaires, top 9 + « voir plus » cables vers Radar / new-releases
+# Rating : plus aucune etoile dans l'app (UI + API), l'import XML ne le lit plus
+# Chaque page livree via /refonte_page (handoff Design → lots → deploy → revue design → cloture) + verif visuelle headless
+```
+
 ---
 
 ## N1 — Nettoyage residus
@@ -1301,6 +1365,7 @@ Ajouter le predicat d'exclusion aux sites recenses (enquete 2026-07-14) :
 | C4 | Reco personnalisee | Apres ouverture | C2 + likes |
 | C5 | Collections v2 (items polymorphes + dossiers) | Au choix (standalone) | C1 (TERMINE) |
 | D4 | Pages Detail (Track/Playlist, binome Claude Design) | Au choix (standalone) | D5 (TERMINE) |
+| D6 | Refonte UI : listes + Radar + transverses | Au choix, apres/avec la fin de D4 | D4 (composants partages) ; fiches figees docs/refonte-ui/ |
 | N1 | Nettoyage residus (auth legacy + TagsView morte) | Opportuniste | Rien |
 
 Notes :
