@@ -578,6 +578,7 @@ watch(
 }
 .hero-avatar {
   flex: none;
+  position: relative;
   width: 120px;
   height: 120px;
   margin-top: -60px;
