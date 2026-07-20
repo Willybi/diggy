@@ -556,7 +556,7 @@ watch(
 }
 .hb-name {
   position: absolute;
-  left: 156px;
+  left: calc(var(--space-6) + 120px + var(--space-5));
   right: var(--space-6);
   bottom: var(--space-4);
   margin: 0;
