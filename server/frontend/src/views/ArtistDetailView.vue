@@ -55,7 +55,7 @@
             <!-- Genres cliquables → /style (rangée absente si 0) -->
             <div v-if="artist.genres.length" class="hero-genres">
               <RouterLink
-                v-for="g in artist.genres"
+                v-for="g in heroGenres"
                 :key="g.name"
                 :to="`/style/${encodeURIComponent(g.name)}`"
                 class="tag-link"
@@ -307,6 +307,20 @@ const visibleTracks = computed(() => {
 })
 
 const aliasNames = computed(() => (artist.value?.aliases ?? []).map((a) => a.alias).join(' · '))
+
+// Genres dédupliqués par libellé VISIBLE : StyleTag tronque le nom au premier « / »
+// (« Dance / Pop » → « Dance »), donc l'API peut renvoyer deux chips visuellement
+// identiques. On garde la première occurrence (ordre inchangé) ; le `name` complet du
+// GenreRef conservé reste porté par le RouterLink /style/{name}.
+const heroGenres = computed(() => {
+  const seen = new Set()
+  return (artist.value?.genres ?? []).filter((g) => {
+    const label = g.name.split('/')[0].trim()
+    if (seen.has(label)) return false
+    seen.add(label)
+    return true
+  })
+})
 
 // External logos — a real id only (the NOT_FOUND sentinel is not a Deezer artist,
 // so it must not produce a broken « Voir sur Deezer » link).

@@ -154,6 +154,19 @@ describe('ArtistDetailView hero', () => {
     expect(wrapper.findAll('.hb-tile')).toHaveLength(0)
   })
 
+  it('dedupes genres by visible label (StyleTag truncates at « / »)', async () => {
+    // « Dance » and « Dance / Pop » both display as « Dance » → a single chip.
+    const wrapper = await mountView(
+      makeArtist({
+        genres: [
+          { name: 'Dance', pillar: 'pop', depth: 1 },
+          { name: 'Dance / Pop', pillar: 'pop', depth: 2 },
+        ],
+      }),
+    )
+    expect(wrapper.findAll('.tag-link')).toHaveLength(1)
+  })
+
   it('cycles the available covers to fill the 12 banner tiles', async () => {
     // 2 covers → 12 tiles cycled (no empty slots).
     const catalog_tracks = [

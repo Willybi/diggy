@@ -28,6 +28,16 @@ banner avait `overflow: hidden` (perdu à l'implémentation, déplacé sur `.her
 | 7 | Compteur en pastille collé au titre (attendu : « 20 artistes » mono à droite) | **CLOS — arbitrage acté** | En-tête rendu par `RelBlock` via `ExpandableShelf` (composant inchangeable) — arbitrage déclaré au chantier, ce round de revue n'avait pas le prompt le listant |
 | 8 | Fallback avatar « silhouette de personnage » (Danil Wright) | **CLOS non-écart page — DONNÉE** | Le fallback code est bien l'initiale. L'image stockée dans MinIO (`has_artwork=true`) EST un placeholder « silhouette » Deezer ingéré tel quel par `fetch_artist_artworks` (vérifié : artist-artworks/4248.jpg). → Reliquat backlog : filtrer les placeholders Deezer à l'ingestion (md5/URL connue, même logique que le placeholder TrackID prévu en C8.a) |
 
+## Round 2 (2026-07-20) — re-check demandé par William, verdicts
+
+Claude Design confirme les correctifs #1-#5 point par point (« page conforme au brief, livrable »). Deux écarts résiduels mineurs, triés :
+
+| # | Écart annoncé | Verdict | Résolution |
+|---|---|---|---|
+| 9 | Ring avatar « blanc » en dark (soupçon blanc en dur / mauvais token) | **CLOS non-écart — mesuré** | `border: 3px solid var(--surface)` au code ; couleur calculée mesurée en prod dark = `oklch(0.238 0.014 262)` = `--surface` exact. L'« anneau clair » = bords clairs des photos (ciel/chemise) contre la carte sombre — illusion dépendante de la donnée, invisible en light |
+| 10 | Deux StyleTag « Dance » identiques (soupçon doublon de donnée) | **ACCEPTÉ — cause requalifiée** | La donnée est propre (« Dance » + « Dance / Pop », GenreRefs distincts) ; c'est `StyleTag.shortLabel` qui tronque au premier « / » (comportement partagé assumé) → deux libellés visibles identiques. Fix côté vue : computed `heroGenres` dédupliqué par libellé visible |
+| — | Proches 12 entières (non couvert par les captures du round) | **CLOS — vérifié work manager** | Vérifié au pixel + styles calculés après 01548f4 (capture 07-desktop-dark-proches-12-entieres.png) |
+
 ## Vérification post-correctif (2026-07-20, prod, headless authentifié)
 
 Hero : montage 6×2 contraint, nom bas-gauche sur l'axe du contenu, avatar 120px débordant ring `--surface`,
