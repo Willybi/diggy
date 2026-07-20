@@ -524,13 +524,14 @@ watch(
   position: relative;
   height: 216px;
   border-bottom: 1px solid var(--line);
+  overflow: hidden;
 }
 .hb-tiles {
   position: absolute;
   inset: 0;
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  grid-template-rows: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
 }
 .hb-tile {
   width: 100%;
@@ -753,6 +754,10 @@ watch(
 .proches :deep(.shelf-grid) {
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: var(--space-2);
+}
+.proches :deep(.shelf) {
+  max-height: none;
+  overflow: visible;
 }
 
 /* ============ ADMIN (inchangé) ============ */

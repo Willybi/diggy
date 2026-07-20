@@ -145,20 +145,23 @@ Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`
 
 ## Celery Beat Schedule
 
-| Task | Time | Module |
-|------|------|--------|
-| `backfill_trackid_sets` | 02:00 | tasks/sets.py |
-| `crawl_radar` | 03:00 | tasks/radar.py |
-| `crawl_trackid_latest` | 03:30 | tasks/sets.py |
-| `recrawl_incomplete_sets` | 04:00 | tasks/sets.py |
-| `check_followed_artists` | 04:45 | tasks/artists.py |
-| `enrich_catalog` (Deezer) | 05:00 | tasks/catalog.py |
-| `link_artists_deezer` | 05:10 | tasks/artists.py |
-| `fetch_artist_artworks` | 05:20 | tasks/artists.py |
-| `enrich_catalog_beatport` | 06:00 | tasks/catalog.py |
-| `compute_trends` | 07:00 | tasks/trends.py |
+Heures en `Europe/Paris` (timezone Celery beat). Durées Beatport = à plein budget (6000) ; raccourcissent quand le backlog éligible descend sous le budget.
 
-Enrichment tasks run on the dedicated `diggy_worker_enrich` (slow, rate-limited external APIs); everything else on `diggy_worker`. Keep that separation when adding tasks.
+| Task | Time | Worker (queue) | Durée obs. | Module |
+|------|------|----------------|-----------|--------|
+| `backfill_trackid_sets` | 02:00 | `diggy_worker` (celery) | ~30 min | tasks/sets.py |
+| `crawl_radar` | 03:00 | `diggy_worker` (celery) | qq sec | tasks/radar.py |
+| `crawl_trackid_latest` | 03:30 | `diggy_worker` (celery) | ~15-17 min | tasks/sets.py |
+| `recrawl_incomplete_sets` | 04:00 | `diggy_worker` (celery) | qq min | tasks/sets.py |
+| `check_followed_artists` | 04:45 | `diggy_worker_enrich` (enrich) | court | tasks/artists.py |
+| `enrich_catalog` (Deezer) | 05:00 | `diggy_worker_enrich` (enrich) | qq sec | tasks/catalog.py |
+| `link_artists_deezer` | 05:10 | `diggy_worker_enrich` (enrich) | court (budget) | tasks/artists.py |
+| `fetch_artist_artworks` | 05:20 | `diggy_worker_enrich` (enrich) | court (budget) | tasks/artists.py |
+| `enrich_catalog_beatport` (passe 1) | 06:00 | `diggy_worker_enrich` (enrich) | ~6h24 → ~12:24 | tasks/catalog.py |
+| `compute_trends` | 07:00 | `diggy_worker` (celery) | court | tasks/trends.py |
+| `enrich_catalog_beatport` (passe 2) | 15:00 | `diggy_worker_enrich` (enrich) | ~6h24 → ~21:24 | tasks/catalog.py |
+
+Deux workers consomment le broker : `diggy_worker` (`-Q celery,crawl -c 3`) et `diggy_worker_enrich` (`-Q enrich -c 2`) ; `diggy_beat` ordonnance seulement (n'exécute rien). Les tâches d'enrichissement (APIs externes rate-limitées) sont routées vers la queue `enrich` → `diggy_worker_enrich` ; tout le reste va sur `celery`/`crawl` → `diggy_worker`. Keep that separation when adding tasks. **Overlap** : les deux workers tournent en parallèle (queues distinctes) — une tâche `diggy_worker` (backfill/crawl) et une tâche `enrich` s'exécutent simultanément ; sur un même worker, la concurrence max est le `-c` (3 vs 2). Les **2 passes Beatport ne se chevauchent JAMAIS** : elles partagent le lock Redis `lock:enrich_beatport` (single-instance, la 2e skip si la 1re court encore) ET le `time_limit=28800s` (8h) borne la passe 06:00 à 14:00 au plus tard, avant le départ 15:00.
 
 Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NIGHTLY_BUDGET`=1500) and `fetch_artist_artworks` (budget `ARTIST_ARTWORK_NIGHTLY_BUDGET`=10000, `budget` kwarg overrides for an ad-hoc drain) are budget-capped, batch-committing and Redis-locked, with **NO `autoretry_for=(Exception,)`** — that decorator turned the 2026-07-13 soft timeout into an infinite re-download loop (`SoftTimeLimitExceeded` IS an `Exception`). The budget cap (dimensioned well under the soft limit) is the primary loop guard; both are placed at 05:10/05:20 in the Deezer-idle window (enrich_catalog finishes in seconds, enrich_beatport uses the separate Beatport rate window).
 
