@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-19 (refonte UI D4 page 3 — Set Detail rebuilt from the Claude Design handoff (docs/refonte-ui/handoff-set-detail/); new shared component SetCard (count 39→40), TrackCard gained the additive set-row extension (position/timecode/state) and ScoreRing a pct mode; GET /api/sets/{id}/similar added — endpoint count recounted 100→102 (was already stale by one); similarity_service gained set-level similar_sets; TopGenreOut moved to schemas/common.py (compat re-export kept), shared aggregate_top_genres helper in genre_service. PlatformLink still ships PLACEHOLDER logos (TODO official SVGs, see ROADMAP reliquats))
+> Last verified: 2026-07-20 (refonte UI D4 page 4 — Artist Detail rebuilt from the Claude Design handoff (docs/refonte-ui/handoff-artist-detail/); NO component created or extended (first D4 page in that case): ArtistSetOut gained additive artists[]/duration_ms for the SetCard grid. PlatformLink still ships PLACEHOLDER logos (TODO official SVGs, see ROADMAP reliquats))
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -201,6 +201,7 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 - Celery task polling goes through `composables/useTaskPoll.js` (keyed timers, onUnmounted cleanup built in); paginated infinite-scroll lists through `usePaginatedList.js`. Never reintroduce an ad-hoc `setInterval` poll or a hand-rolled offset/hasMore fetch in a view.
 - The `.state` empty/loading message and `@keyframes spin` are global utilities in `assets/page.css`; views only keep scoped overrides for real divergences (mono, centered, fs-sm...). Don't redeclare the full block locally.
 - Vitest: when `vue-router` is mocked, `stubs: { RouterLink: true }` is a no-op (VTU ignores string-name stubs for unresolved components) — register `RouterLinkStub` via `global.components` (pattern: BottomNav.test.js, LoginCallbackView.test.js).
+- Grid `1fr` means `minmax(auto, 1fr)`: tracks can NOT shrink below their content's min-content (an `<img>` at natural aspect wins over the fr distribution). For image mosaics constrained to a fixed box, use `minmax(0, 1fr)` + `overflow: hidden` on the box. Corollary: positioned elements paint ABOVE later in-flow siblings — overflowing absolute content silently covers them (Artist Detail hero, 2026-07-20: a complete, correctly-styled DOM was invisible under the overflowing tiles). Neither vitest (no layout) nor static CSS reading catches this — verify RENDERING (headless screenshot) after any layout-sensitive change.
 
 ### Language
 - Code in English, UI text in French.
