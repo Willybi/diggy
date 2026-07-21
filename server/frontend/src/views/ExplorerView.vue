@@ -1114,16 +1114,14 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
 }
+/* Avis buttons stay visible at rest (neutral --ink-3 from LikeDislike); only
+   Play is hover-revealed on desktop. Liked/disliked colored states below. */
 .xp-cell--avis :deep(.ld-btn) {
   width: 28px;
   height: 28px;
   border-radius: 50%;
   border-color: transparent;
   background: transparent;
-  opacity: 0;
-}
-.xp-row:hover .xp-cell--avis :deep(.ld-btn) {
-  opacity: 1;
 }
 .xp-cell--avis :deep(.ld-btn:hover) {
   background: var(--surface-3);
@@ -1288,9 +1286,8 @@ onUnmounted(() => {
   .xp-sort {
     display: none;
   }
-  /* Touch: play and avis always visible. */
-  .pbtn,
-  .xp-cell--avis :deep(.ld-btn) {
+  /* Touch: play always visible (avis is already visible at rest). */
+  .pbtn {
     opacity: 1;
   }
 }
