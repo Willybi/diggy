@@ -731,6 +731,41 @@ class TestExplorerSort:
         artists = [i["artist"] for i in r.json()["items"]]
         assert artists == ["Alpha", "Zeta"]
 
+    async def test_sort_title_case_and_leading_space_insensitive(self, client, db):
+        """Title A–Z: lower(trim()) so case is ignored (Zulu is not first) and a
+        leading space no longer floats a row to the top (' bravo' sorts as bravo)."""
+        db.add(CatalogEntry(title="Zulu", artist="A", normalized_key="a|tszulu"))
+        db.add(CatalogEntry(title="alpha", artist="A", normalized_key="a|tsalpha"))
+        db.add(CatalogEntry(title=" bravo", artist="A", normalized_key="a|tsbravo"))
+        await db.commit()
+
+        r = await client.get("/api/catalog/?sort=title&order=asc")
+        titles = [i["title"] for i in r.json()["items"]]
+        assert titles == ["alpha", " bravo", "Zulu"]
+
+    async def test_sort_artist_case_insensitive(self, client, db):
+        """Artist A–Z is case-insensitive: 'apple' before 'Zebra' (a default
+        case-sensitive collation would sort 'Zebra' first, Z=90 < a=97)."""
+        db.add(CatalogEntry(title="T1", artist="Zebra", normalized_key="a|artci_z"))
+        db.add(CatalogEntry(title="T2", artist="apple", normalized_key="a|artci_a"))
+        await db.commit()
+
+        r = await client.get("/api/catalog/?sort=artist&order=asc")
+        artists = [i["artist"] for i in r.json()["items"]]
+        assert artists == ["apple", "Zebra"]
+
+    async def test_sort_artist_empty_pushed_last(self, client, db):
+        """An empty artist ('') becomes NULL via nullif(trim, '') and lands LAST,
+        not at the top where the empty string would otherwise sort."""
+        db.add(CatalogEntry(title="T1", artist="", normalized_key="a|artempty"))
+        db.add(CatalogEntry(title="T2", artist="Beta", normalized_key="a|artbeta"))
+        db.add(CatalogEntry(title="T3", artist="alpha", normalized_key="a|artalpha"))
+        await db.commit()
+
+        r = await client.get("/api/catalog/?sort=artist&order=asc")
+        artists = [i["artist"] for i in r.json()["items"]]
+        assert artists == ["alpha", "Beta", ""]
+
     async def test_sort_duration_ms_nulls_last(self, client, db):
         """duration_ms ascending: value-less tracks land LAST, not first (fix #1:
         the bare column + .nulls_last(), no coalesce(..., 0) sinking NULLs to 0)."""

@@ -327,6 +327,24 @@ class TestCrawlDiffLifecycle:
         url = os.environ["DATABASE_URL"].replace("+asyncpg", "")
         return create_engine(url)
 
+    def test_bulk_get_or_create_trims_title_and_artist(self):
+        """The radar/playlist bulk path stores title/artist trimmed (a source
+        playlist often pads them with whitespace), mirroring get_or_create_catalog."""
+        from sqlalchemy.orm import Session
+        from workers.db import bulk_get_or_create_catalog
+        from utils import make_normalized_key
+
+        nk = make_normalized_key("  BulkTrimT ", " BulkTrimA ")
+        engine = self._make_engine()
+        with Session(engine) as s:
+            catalog_map = bulk_get_or_create_catalog(
+                s, [{"title": "  BulkTrimT ", "artist": " BulkTrimA "}]
+            )
+            s.commit()
+            entry = catalog_map[nk]
+            assert entry.title == "BulkTrimT"
+            assert entry.artist == "BulkTrimA"
+
     def test_crawl_marks_removed_tracks(self):
         """Tracks absent from crawl should get removed_at set."""
         from dataclasses import dataclass

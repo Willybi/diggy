@@ -103,10 +103,17 @@ def bulk_get_or_create_catalog(
             continue
 
         # 4. Queue for insert
+        # Trim stored columns (a source playlist often pads title/artist with
+        # leading/trailing whitespace). _norm_key stays as computed above —
+        # normalize() already trims it, so dedup is unaffected; only the stored
+        # columns get cleaner. Mirrors catalog_service.get_or_create_catalog.
+        title = (t["title"] or "").strip()
+        artist = t.get("artist")
+        artist = artist.strip() if artist else artist
         to_insert.append(
             {
-                "title": t["title"],
-                "artist": t.get("artist"),
+                "title": title,
+                "artist": artist,
                 "normalized_key": nk,
                 "isrc": isrc if (isrc and isrc not in seen_isrcs) else None,
                 "duration_ms": t.get("duration_ms"),

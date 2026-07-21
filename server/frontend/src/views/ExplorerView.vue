@@ -132,7 +132,7 @@
           BPM<span v-if="state.sort === 'bpm'" class="xp-arr">{{ arrow }}</span>
         </button>
         <button
-          class="xp-th xp-th--btn"
+          class="xp-th xp-th--btn col-key"
           :class="{ 'is-sorted': state.sort === 'key' }"
           type="button"
           @click="onHeaderSort('key')"
@@ -163,7 +163,7 @@
           </span>
           <span class="xp-cell col-style"><span class="sk sk-line sk-line--tag"></span></span>
           <span class="xp-cell xp-cell--right col-bpm"><span class="sk sk-line sk-line--num"></span></span>
-          <span class="xp-cell"><span class="sk sk-line sk-line--num"></span></span>
+          <span class="xp-cell col-key"><span class="sk sk-line sk-line--num"></span></span>
           <span class="xp-cell xp-cell--right col-dur"><span class="sk sk-line sk-line--num"></span></span>
           <span class="xp-cell xp-cell--avis"><span class="sk sk-round"></span><span class="sk sk-round"></span></span>
         </div>
@@ -265,7 +265,7 @@
             <span class="xp-cell xp-cell--right col-bpm">
               <span :class="e.bpm != null ? 'xp-bpm' : 'xp-null'">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span>
             </span>
-            <span class="xp-cell">
+            <span class="xp-cell col-key">
               <span :class="e.key ? 'xp-key' : 'xp-null'">{{ e.key || '—' }}</span>
             </span>
             <span class="xp-cell xp-cell--right col-dur">
@@ -1257,9 +1257,9 @@ onUnmounted(() => {
 }
 @container (max-width: 699px) {
   .xp-table {
-    --xp-grid: 44px minmax(0, 1fr) 48px 84px;
+    --xp-grid: 44px minmax(0, 1fr) 56px 84px;
   }
-  .col-bpm {
+  .col-key {
     display: none;
   }
 }

@@ -55,7 +55,9 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C4   Reco personnalisee                    BAS         3-5 jours    TERMINE (2026-07-13)
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE — standalone
  D4   Pages Detail (Vague 3)               BAS         5-7 jours    EN COURS — Track + Playlist + Set + Artist Detail TERMINES (2026-07-20) ; reste Admin Vague 5
- D6   Refonte UI listes + Radar + transverses BAS      8-12 jours   A FAIRE — cadrage deja fige (fiches docs/refonte-ui/)
+ D6   Refonte UI listes + Radar + transverses BAS      8-12 jours   EN COURS — Explorer (p.1) livre 2026-07-21 ; reste Radar, listes, Hub, Genre Detail
+ X1   Dedup catalog (fusion deezer/beatport) HAUT      3-5 jours    A FAIRE — PROCHAIN (fausse trend/similarite/reco ; ~1934 lignes en trop)
+ X2   Explorer — etat de navigation (filtre+scroll) BAS 1-2 jours   A FAIRE — retour au filtre + position scroll depuis la fiche detail
  N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
  P2   Correctifs UX/admin (revue 07-14)     MOYEN       1 jour       TERMINE (2026-07-16)
  N2   Split artiste multi + separateur "|"  MOYEN       1-2 jours    TERMINE (2026-07-16)
@@ -1225,6 +1227,67 @@ L'admin "Lier un artiste a Deezer" liste les artistes sans `deezer_id`, dont bea
 # Split manuel d'une chaine multi-artiste : la ligne combinee disparait definitivement de la liste
 # Les liens catalog/set du track pointent vers les vrais artistes splittes
 # "|" reconnu comme separateur (front + sync nocturne), listes front/back alignees
+```
+
+---
+
+## X1 — Dedup catalog (fusion sur deezer_id/beatport_id)
+
+**Priorite : HAUT**
+**Estimation : 3-5 jours**
+**Depend de : rien de bloquant. A lancer APRES la cloture d'Explorer (D6 p.1).**
+**Statut : A FAIRE — PROCHAIN CHANTIER (arbitrage William 2026-07-21). Decouvert au retour utilisateur sur Explorer : des morceaux identiques existent en N exemplaires en base, ce qui fausse trend/similarite/reco.**
+
+### Constat (mesure prod 2026-07-21)
+
+**1 749 `deezer_id` sont portes par >=2 lignes `catalog`, soit 3 683 lignes (~1 934 lignes en trop)** sur 115 157 lignes enrichies Deezer. Plus les doublons `beatport_id` non comptes. Exemples : « ten » de Fred again.. en 4 lignes (ids 412/4650/4666/7282, tous deezer_id 2448771265) ; « Baxter (these are my friends) » en 3 (4422/4596/7367, tous deezer 1445522022 + beatport 15578888).
+
+### Cause racine (confirmee code + donnees)
+
+La dedup a l'ingestion (`catalog_service.get_or_create_catalog`) se fait sur `isrc` sinon `normalized_key = normalize(titre) + " - " + normalize(artiste)` (`utils.make_normalized_key`). `normalize()` ne fait que minuscule/trim/apostrophes/ft.-feat. — **il ne canonicalise PAS la liste d'artistes**. Le meme morceau arrive de sources differentes avec des chaines d'artistes variables (sous-ensembles de featurings, separateur virgule vs espace : `fred again..` / `fred again.., jozzy` / `fred again.. jozzy`) => clés differentes => nouvelles lignes. L'ISRC les rattraperait mais est souvent NULL (toutes les sources ne le fournissent pas). Et surtout : `deezer_id`/`beatport_id` — l'identite la plus fiable — sont poses par l'enrichissement APRES creation et ne servent JAMAIS de cle de fusion.
+
+### X1.a — Prevention (le back evolue)
+
+- [ ] **Fusion a l'enrichissement** : quand l'enrichissement resout une ligne vers un `deezer_id`/`beatport_id` DEJA porte par une autre ligne catalog => fusionner au lieu de tamponner un doublon. Primitive de merge reutilisable : repointer toutes les FK (`user_tracks`, `set_tracks`, `radar_tracks`, `catalog_artists`, `user_opinions`, `collection_items`, `artist_activity.catalog_id`) vers la ligne canonique, unir genres/artistes, garder la meilleure metadata, supprimer la perdante.
+- [ ] **Index unique partiel** sur `catalog.deezer_id` (et `beatport_id`) en filet, sur le modele de `uq_artists_deezer_id` (partiel, sentinelle-aware) — a poser APRES la fusion, sinon l'UPDATE d'enrichissement echoue.
+- [ ] (Optionnel, PRUDENCE — asymetrie de merge) cle de dedup plus robuste (artiste principal + titre) : n'ameliore l'ingestion qu'avec garde-fous, un mauvais merge coute plus cher qu'un doublon.
+
+### X1.b — Nettoyage de l'existant (operation destructive)
+
+- [ ] Dump prealable + procedure `docs/restore.md` a portee de main.
+- [ ] Grouper par `deezer_id` (puis `beatport_id`) les groupes >1, choisir une canonique (ISRC present / plus ancienne / plus complete), fusionner les autres dedans via la primitive X1.a, supprimer. **Merge SUR** (identite plateforme confirmee, jamais sur un nom flou) — conforme a l'asymetrie de merge.
+- [ ] Recompter trend/similarite apres nettoyage (l'impact sur le scoring est le but).
+- [ ] Trim des 66 titres a espace/tab de tete a solder ici si pas deja fait par le round FIX Explorer (migration 0040).
+
+### Definition of Done
+
+```bash
+# 0 deezer_id (et beatport_id) porte par >1 ligne catalog visible
+# enrichir une ligne vers un deezer_id existant => fusion, pas de nouvelle ligne
+# index unique partiel actif sur catalog.deezer_id / beatport_id
+# trend/similarite recalcules sur base dedupliquee
+```
+
+---
+
+## X2 — Explorer : etat de navigation (memoire du filtre + scroll)
+
+**Priorite : BAS**
+**Estimation : 1-2 jours**
+**Depend de : Explorer livre (D6 p.1, 2026-07-21).**
+**Statut : A FAIRE — retour utilisateur 2026-07-21 (confort de navigation, non bloquant).**
+
+### Objectif
+
+Depuis Explorer, cliquer un son ouvre la fiche detail ; le bouton retour « ‹ Explorer » ramene a `/explorer` SANS les filtres ni la position de scroll. Rendre le retour « la ou j'etais ».
+
+- [ ] **Memoire du filtre (#3)** : le retour de `TrackDetailView` (lien statique `to="/explorer"`) doit reporter la query active (via `router.back()` ou en transportant la query). Simple.
+- [ ] **Restauration du scroll (#5)** : le scroll vit dans `.app-main` (pas la window) => le `scrollBehavior`/`savedPosition` natif de Vue Router ne suffit pas ; restauration custom liee a l'historique (memoriser l'offset du conteneur scrollable a la navigation, le restaurer au retour). Plus couteux.
+
+### Definition of Done
+
+```bash
+# Explorer -> fiche detail -> retour : filtres ET position de scroll restaures
 ```
 
 ---

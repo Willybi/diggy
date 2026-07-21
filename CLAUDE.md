@@ -8,7 +8,7 @@
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (39 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (40 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -202,7 +202,7 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 - Container queries everywhere; `@media` ONLY for `position: fixed` elements.
 - Zero hardcoded colors: everything via `var(--...)` from `diggy-tokens.css`.
 - No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`): Prettier reformats them across lines, which breaks the Vue compiler. Extract to a method.
-- Responsive tables: columns hidden progressively (ExplorerView: 4 container-query paliers 1000/860/700/640). At <640px only Play / Track / Key / Avis remain, play & avis always visible (touch).
+- Responsive tables: columns hidden progressively (ExplorerView: 4 container-query paliers 1000/860/700/640). At <640px only Play / Track / BPM / Avis remain (Key drops before BPM — DJs favor BPM on mobile), play & avis always visible (touch).
 - BottomNav (mobile <640px): 5 items + conditional Admin; PlayerBar repositions above it.
 - Celery task polling goes through `composables/useTaskPoll.js` (keyed timers, onUnmounted cleanup built in). Two sanctioned paginated-fetch patterns, NEVER a hand-rolled offset/hasMore fetch in a view: card grids with an IntersectionObserver sentinel → `usePaginatedList.js`; virtualised tables (windowing, no sentinel, page-built repeated params) → `useWindowedList.js` paired with `useVirtualWindow.js` (Explorer/D6, reused by Radar). Never reintroduce an ad-hoc `setInterval` poll either.
 - The `.state` empty/loading message and `@keyframes spin` are global utilities in `assets/page.css`; views only keep scoped overrides for real divergences (mono, centered, fs-sm...). Don't redeclare the full block locally.

@@ -75,6 +75,21 @@ class TestUpdateAvis:
         assert result["avis"] == "like"
 
 
+class TestGetOrCreateCatalog:
+    async def test_trims_title_and_artist_on_create(self, db):
+        """Leading/trailing whitespace (incl. tab) is stripped before storing."""
+        entry = await catalog_service.get_or_create_catalog(
+            db, "\t Padded Title ", "  Padded Artist\t"
+        )
+        assert entry.title == "Padded Title"
+        assert entry.artist == "Padded Artist"
+
+    async def test_none_artist_stays_none(self, db):
+        entry = await catalog_service.get_or_create_catalog(db, "  Solo  ", None)
+        assert entry.title == "Solo"
+        assert entry.artist is None
+
+
 class TestGetCrawlLogs:
     async def test_returns_dict_with_items(self, db):
         result = await catalog_service.get_crawl_logs(db, page=1, per_page=20, task_type=None, status=None)

@@ -312,9 +312,13 @@ async def list_catalog(
         return c.desc() if order != "asc" else c.asc()
 
     if sort == "title":
-        order_cols = [CatalogEntry.title]
+        # Case-insensitive + leading/trailing spaces trimmed so ' Baseline' sorts
+        # as "baseline", not before the letters. lower/trim are cross-DB (PG+SQLite).
+        order_cols = [func.lower(func.trim(CatalogEntry.title))]
     elif sort == "artist":
-        order_cols = [CatalogEntry.artist]
+        # Same case/trim normalization; nullif(trim, '') turns an empty artist into
+        # NULL so the existing .nulls_last() pushes value-less rows to the end.
+        order_cols = [func.lower(func.nullif(func.trim(CatalogEntry.artist), ""))]
     elif sort == "bpm":
         # bpm_col keeps its rb/catalog coalesce; the bare column lets .nulls_last()
         # push value-less tracks to the end (a coalesce(..., 0) would sink them to
@@ -858,6 +862,12 @@ async def get_or_create_catalog(
     """Find a catalog entry by ISRC or normalized_key, or create it (flushed, not committed)."""
     from models import CatalogEntry
     from utils import make_normalized_key
+
+    # Trim before building the key and storing: .strip() removes ALL leading/trailing
+    # whitespace (incl. \t\n\r) so stored title/artist stay clean. The key is
+    # unaffected (normalize() already trims), only the stored columns get cleaner.
+    title = (title or "").strip()
+    artist = artist.strip() if artist else artist
 
     # 1. Cherche par ISRC si dispo
     if isrc:
