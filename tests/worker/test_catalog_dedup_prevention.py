@@ -1,10 +1,14 @@
 """Tests for the X1/L2 collision prevention wired into the enrichment writes.
 
 Before an enrichment function stamps a platform id (deezer_id/beatport_id), it
-folds the current row into any pre-existing row already carrying that id
-(``merge_catalog_entries``) and raises ``CatalogEntryMerged`` so the batch loop
-counts it and skips the dead row's post-processing. Uses a real sync SQLite
-session (sync_session fixture) so the merge SQL actually executes.
+inspects the pre-existing rows already carrying that id. It folds the current row
+ONLY into a holder that ``same_track`` confirms is the same recording (raising
+``CatalogEntryMerged`` so the batch loop counts it and skips the dead row's
+post-processing). When the holder is a distinct recording merely sharing the id
+(a remix / EP track), it does NOT merge and does NOT raise — the two rows coexist
+under one platform id (id-uniqueness on catalog is abandoned, X1-FIX). Uses a
+real sync SQLite session (sync_session fixture) so the merge SQL actually
+executes.
 """
 import os
 import sys
@@ -73,8 +77,9 @@ class TestDeezerCollision:
         The loser's metadata is unioned onto the canonical and the loser row is
         deleted; the canonical (pre-existing) always wins.
         """
+        # Same title on both rows → same_track confirms the recording identity.
         canonical = _make_row(sync_session, "Canon", "A", deezer_id="123")
-        loser = _make_row(sync_session, "Dup", "B", duration_ms=200_000)
+        loser = _make_row(sync_session, "Canon", "B", duration_ms=200_000)
         loser_id = loser.id
         hit = {"id": 123, "isrc": None, "preview": ""}
 
@@ -116,7 +121,7 @@ class TestDeezerCollision:
         """enrich_deezer_batch: a folded row is counted under `merged`, not
         `enriched`, and its dead row is neither marked nor kept."""
         canonical = _make_row(sync_session, "Canon", "A", deezer_id="555")
-        loser = _make_row(sync_session, "Dup", "B", deezer_searched_at=None)
+        loser = _make_row(sync_session, "Canon", "B", deezer_searched_at=None)
         loser_id = loser.id
 
         pool = MagicMock()
@@ -151,7 +156,7 @@ class TestDeezerCollision:
         """The sync twin (workers.deezer_enrich.enrich_entry) behaves identically
         when a session is passed and merge_on_collision is left on (default)."""
         canonical = _make_row(sync_session, "Canon", "A", deezer_id="321")
-        loser = _make_row(sync_session, "Dup", "B")
+        loser = _make_row(sync_session, "Canon", "B")
         loser_id = loser.id
 
         with pytest.raises(CatalogEntryMerged) as exc:
@@ -187,6 +192,30 @@ class TestDeezerCollision:
         )
         assert len(rows) == 2
 
+    def test_remix_collision_does_not_merge(self, sync_session):
+        """Same deezer_id but a DISTINCT recording — the remix inherited the
+        original's id via the Deezer hits[0] bug. No merge, no exception; both
+        rows keep the id (uniqueness is abandoned by design)."""
+        original = _make_row(
+            sync_session, "Meridian", "A", deezer_id="123", isrc="ISRC-ORIG"
+        )
+        remix = _make_row(sync_session, "Meridian (Julian Muller Remix)", "A")
+        remix_id = remix.id
+
+        changed = enrich_entry(remix, {"id": 123}, session=sync_session)
+
+        assert changed is True
+        assert remix.deezer_id == "123"
+        assert sync_session.get(CatalogEntry, remix_id) is not None
+        rows = (
+            sync_session.execute(
+                select(CatalogEntry).where(CatalogEntry.deezer_id == "123")
+            )
+            .scalars()
+            .all()
+        )
+        assert {r.id for r in rows} == {original.id, remix_id}
+
 
 # ── Beatport collision ──────────────────────────────────────────────────────────
 
@@ -194,7 +223,7 @@ class TestDeezerCollision:
 class TestBeatportCollision:
     def test_enrich_from_beatport_folds_and_raises(self, sync_session):
         canonical = _make_row(sync_session, "Canon", "A", beatport_id="777")
-        loser = _make_row(sync_session, "Dup", "B")
+        loser = _make_row(sync_session, "Canon", "B")
         loser_id = loser.id
 
         with pytest.raises(CatalogEntryMerged) as exc:
@@ -220,7 +249,7 @@ class TestBeatportCollision:
 
     async def test_batch_counts_merged_and_skips_mark(self, sync_session, monkeypatch):
         canonical = _make_row(sync_session, "Canon", "A", beatport_id="999")
-        loser = _make_row(sync_session, "Dup", "B", beatport_searched_at=None)
+        loser = _make_row(sync_session, "Canon", "B", beatport_searched_at=None)
         loser_id = loser.id
 
         monkeypatch.setattr(enrichment_mod, "_get_redis", lambda: None)
@@ -240,3 +269,27 @@ class TestBeatportCollision:
             is None
         )
         assert sync_session.get(CatalogEntry, canonical.id).beatport_searched_at is None
+
+    def test_ep_track_collision_does_not_merge(self, sync_session):
+        """Same beatport_id but a DISTINCT recording — the Beatport release
+        fallback stamps one id on every EP track. No merge, no exception; both
+        remix rows coexist under the shared id."""
+        remix_a = _make_row(
+            sync_session, "Funk Solo (Batu Remix)", "A", beatport_id="EP1"
+        )
+        remix_b = _make_row(sync_session, "Funk Solo (Shed Remix)", "A")
+        remix_b_id = remix_b.id
+
+        changed = enrich_from_beatport(remix_b, {"id": "EP1"}, session=sync_session)
+
+        assert changed is True
+        assert remix_b.beatport_id == "EP1"
+        assert sync_session.get(CatalogEntry, remix_b_id) is not None
+        rows = (
+            sync_session.execute(
+                select(CatalogEntry).where(CatalogEntry.beatport_id == "EP1")
+            )
+            .scalars()
+            .all()
+        )
+        assert {r.id for r in rows} == {remix_a.id, remix_b_id}

@@ -2,9 +2,11 @@
 
 Exercises the testable core ``dedup_by_column`` (extracted from ``main`` so it
 runs without the CLI) against a real sync SQLite session (``sync_session``
-fixture). Builds small duplicate graphs sharing a platform id, plus FK children
-on the losers, and asserts a single canonical row survives with every reference
-repointed. Same import/path pattern as test_catalog_merge.py.
+fixture). Builds small graphs sharing a platform id, plus FK children on the
+losers, and asserts that ONLY the same-recording clusters collapse (X1-FIX):
+rows sharing an id but differing in recording identity — remixes, EP tracks —
+are left intact. Duplicates are given a matching title so ``same_track`` confirms
+them. Same import/path pattern as test_catalog_merge.py.
 """
 import itertools
 import os
@@ -46,14 +48,17 @@ def _cat(session, *, commit=True, **fields):
 
 class TestDryRun:
     def test_dry_run_reports_without_modifying(self, sync_session):
-        # Two rows share a deezer_id: dry-run should count 1 group / 1 loser and
-        # leave BOTH rows in place.
-        a = _cat(sync_session, deezer_id="DZ1", isrc="ISRC-A")  # ISRC => canonical
-        b = _cat(sync_session, deezer_id="DZ1")
+        # Two same-title rows share a deezer_id: dry-run should count 1 group /
+        # 1 loser and leave BOTH rows in place.
+        a = _cat(
+            sync_session, title="Same", deezer_id="DZ1", isrc="ISRC-A"
+        )  # ISRC => canonical
+        b = _cat(sync_session, title="Same", deezer_id="DZ1")
 
         stats = dedup_by_column(sync_session, "deezer_id", apply=False)
 
         assert stats["groups"] == 1
+        assert stats["distinct"] == 0
         assert stats["losers"] == 1
         assert stats["examples"] == [("DZ1", a.id, [b.id])]
         # Nothing removed.
@@ -63,10 +68,10 @@ class TestDryRun:
 
 class TestApply:
     def test_apply_collapses_group_and_repoints_fks(self, sync_session):
-        # 3 rows share a deezer_id; the ISRC-bearing one is the canonical winner.
-        canon = _cat(sync_session, deezer_id="DZ2", isrc="ISRC-CANON")
-        loser1 = _cat(sync_session, deezer_id="DZ2")
-        loser2 = _cat(sync_session, deezer_id="DZ2")
+        # 3 same-title rows share a deezer_id; the ISRC-bearing one is canonical.
+        canon = _cat(sync_session, title="Dup", deezer_id="DZ2", isrc="ISRC-CANON")
+        loser1 = _cat(sync_session, title="Dup", deezer_id="DZ2")
+        loser2 = _cat(sync_session, title="Dup", deezer_id="DZ2")
         # FK children hang off the losers — they must survive, repointed.
         sync_session.add(
             CatalogArtist(catalog_id=loser1.id, artist_id=7, role="main", position=0)
@@ -104,8 +109,8 @@ class TestApply:
         )
 
     def test_apply_is_idempotent(self, sync_session):
-        _cat(sync_session, deezer_id="DZ3", isrc="ISRC-K")
-        _cat(sync_session, deezer_id="DZ3")
+        _cat(sync_session, title="Dup", deezer_id="DZ3", isrc="ISRC-K")
+        _cat(sync_session, title="Dup", deezer_id="DZ3")
 
         first = dedup_by_column(sync_session, "deezer_id", apply=True)
         assert first["groups"] == 1
@@ -114,20 +119,25 @@ class TestApply:
         second = dedup_by_column(sync_session, "deezer_id", apply=True)
         assert second == {
             "groups": 0,
+            "distinct": 0,
             "losers": 0,
             "deleted": 0,
             "examples": [],
         }
 
     def test_deezer_pass_then_beatport_pass_sequential(self, sync_session):
-        # r1/r2/r3 all share a deezer_id; r2 & r3 ALSO share a beatport_id.
-        # The deezer pass collapses all three; the later beatport pass must
-        # re-query the up-to-date state and touch NO deleted row.
+        # r1/r2/r3 all share a deezer_id AND the same title; r2 & r3 ALSO share a
+        # beatport_id. The deezer pass collapses all three; the later beatport
+        # pass must re-query the up-to-date state and touch NO deleted row.
         r1 = _cat(
-            sync_session, deezer_id="DZ4", isrc="ISRC-R1", created_at=datetime(2019, 1, 1)
+            sync_session,
+            title="Dup",
+            deezer_id="DZ4",
+            isrc="ISRC-R1",
+            created_at=datetime(2019, 1, 1),
         )  # oldest + ISRC => canonical
-        _cat(sync_session, deezer_id="DZ4", beatport_id="BP4")
-        _cat(sync_session, deezer_id="DZ4", beatport_id="BP4")
+        _cat(sync_session, title="Dup", deezer_id="DZ4", beatport_id="BP4")
+        _cat(sync_session, title="Dup", deezer_id="DZ4", beatport_id="BP4")
 
         dz = dedup_by_column(sync_session, "deezer_id", apply=True)
         assert dz["groups"] == 1
@@ -146,10 +156,10 @@ class TestApply:
         assert rows[0].beatport_id == "BP4"
 
     def test_beatport_group_independent_of_deezer(self, sync_session):
-        # A pure beatport duplicate (no shared deezer_id) is folded by the
-        # beatport pass alone.
-        canon = _cat(sync_session, beatport_id="BP5", isrc="ISRC-B")
-        loser = _cat(sync_session, beatport_id="BP5")
+        # A pure beatport duplicate (no shared deezer_id, same title) is folded by
+        # the beatport pass alone.
+        canon = _cat(sync_session, title="Dup", beatport_id="BP5", isrc="ISRC-B")
+        loser = _cat(sync_session, title="Dup", beatport_id="BP5")
 
         dz = dedup_by_column(sync_session, "deezer_id", apply=True)
         assert dz["groups"] == 0
@@ -160,3 +170,91 @@ class TestApply:
         survivors = sync_session.execute(select(CatalogEntry)).scalars().all()
         assert [s.id for s in survivors] == [canon.id]
         assert sync_session.get(CatalogEntry, loser.id) is None
+
+
+class TestClustering:
+    def test_only_true_duplicate_merges_remixes_stay_intact(self, sync_session):
+        # One beatport_id shared by: a real duplicate pair (same title "Funk Solo")
+        # + two distinct remixes. Only the pair collapses; the remixes survive
+        # untouched — the Beatport EP-fallback case (project invariant #4).
+        dup_canon = _cat(
+            sync_session, title="Funk Solo", beatport_id="EP1", isrc="ISRC-FS"
+        )  # ISRC => canonical of the pair
+        dup_loser = _cat(sync_session, title="Funk Solo", beatport_id="EP1")
+        remix_a = _cat(sync_session, title="Funk Solo (Shed Remix)", beatport_id="EP1")
+        remix_b = _cat(sync_session, title="Funk Solo (Batu Remix)", beatport_id="EP1")
+
+        # FK children: on the loser (must repoint) and on a remix (must NOT move).
+        sync_session.add(UserTrack(user_id=3, catalog_id=dup_loser.id, avis="love"))
+        sync_session.add(SetTrack(set_id=1, catalog_id=remix_a.id, position=0))
+        sync_session.add(
+            CatalogArtist(catalog_id=remix_b.id, artist_id=9, role="main", position=0)
+        )
+        sync_session.commit()
+
+        stats = dedup_by_column(sync_session, "beatport_id", apply=True)
+
+        # Exactly one mergeable cluster (the pair); one loser removed.
+        assert stats["groups"] == 1
+        assert stats["distinct"] == 0
+        assert stats["losers"] == 1
+        assert stats["deleted"] == 1
+        assert stats["examples"] == [("EP1", dup_canon.id, [dup_loser.id])]
+
+        # Three distinct rows remain: the merged pair + both remixes, still sharing
+        # the beatport_id.
+        survivors = (
+            sync_session.execute(
+                select(CatalogEntry).where(CatalogEntry.beatport_id == "EP1")
+            )
+            .scalars()
+            .all()
+        )
+        assert {s.id for s in survivors} == {dup_canon.id, remix_a.id, remix_b.id}
+        assert sync_session.get(CatalogEntry, dup_loser.id) is None
+
+        # The loser's FK child repointed to the canonical; the remixes' children
+        # were never touched.
+        ut = sync_session.execute(select(UserTrack)).scalar_one()
+        assert ut.catalog_id == dup_canon.id and ut.avis == "love"
+        assert sync_session.execute(select(SetTrack)).scalar_one().catalog_id == (
+            remix_a.id
+        )
+        assert sync_session.execute(select(CatalogArtist)).scalar_one().catalog_id == (
+            remix_b.id
+        )
+
+    def test_all_distinct_recordings_nothing_merges(self, sync_session):
+        # A beatport_id shared only by distinct remixes → nothing merges, counted
+        # under `distinct`, all rows survive.
+        remix_a = _cat(sync_session, title="Funk Solo (Shed Remix)", beatport_id="EP2")
+        remix_b = _cat(sync_session, title="Funk Solo (Batu Remix)", beatport_id="EP2")
+
+        stats = dedup_by_column(sync_session, "beatport_id", apply=True)
+
+        assert stats["groups"] == 0
+        assert stats["distinct"] == 1
+        assert stats["losers"] == 0
+        assert stats["deleted"] == 0
+        survivors = sync_session.execute(select(CatalogEntry)).scalars().all()
+        assert {s.id for s in survivors} == {remix_a.id, remix_b.id}
+
+    def test_isrc_conflict_under_same_title_never_bad_merges(self, sync_session):
+        # Non-transitive edge: a no-ISRC row matches BOTH rows by title, but those
+        # two carry CONFLICTING ISRCs (distinct recordings). The clique rule keeps
+        # the ISRC-distinct rows apart — a bad merge here would be corruption.
+        a = _cat(sync_session, title="X", beatport_id="EP3", isrc="ISRC-1")
+        b = _cat(sync_session, title="X", beatport_id="EP3", isrc="ISRC-2")
+        s = _cat(sync_session, title="X", beatport_id="EP3")  # no isrc
+
+        stats = dedup_by_column(sync_session, "beatport_id", apply=True)
+
+        # Only the no-ISRC row folds (into the first ISRC row); BOTH ISRC-bearing
+        # recordings survive with their distinct ISRCs.
+        assert stats["losers"] == 1
+        assert stats["deleted"] == 1
+        survivors = sync_session.execute(select(CatalogEntry)).scalars().all()
+        assert {row.isrc for row in survivors} == {"ISRC-1", "ISRC-2"}
+        assert sync_session.get(CatalogEntry, s.id) is None
+        assert sync_session.get(CatalogEntry, a.id) is not None
+        assert sync_session.get(CatalogEntry, b.id) is not None

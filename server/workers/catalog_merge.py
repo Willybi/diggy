@@ -16,6 +16,8 @@ Every table referencing ``catalog.id`` is repointed with bulk UPDATE/DELETE
 the primitive and its tests: no enrichment integration, no cleanup script.
 """
 
+import re
+
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session
 
@@ -36,6 +38,78 @@ class CatalogEntryMerged(Exception):
     def __init__(self, surviving_id: int):
         self.surviving_id = surviving_id
         super().__init__(f"catalog entry folded into canonical {surviving_id}")
+
+
+# ── Safe identity predicate ────────────────────────────────────────────────
+#
+# Sharing a platform id (deezer_id/beatport_id) does NOT mean two catalog rows
+# are the same recording: Deezer search returns hits[0] unchecked, so a REMIX
+# inherits the ORIGINAL's deezer_id; the Beatport release fallback stamps one
+# beatport_id on EVERY track of an EP. Merging on the platform id alone would
+# destroy those distinct versions (project invariant #4: always err toward
+# separation). ``same_track`` is the guard: it confirms identity from the ISRC
+# (recording identity) or, absent one, from a conservative remix-aware title
+# comparison. When in doubt it returns False — a missed dup is cheap storage
+# debt, a bad merge is data corruption.
+
+# Non-distinctive noise removed from a title (it never changes which recording
+# the title names): featured-artist credits, and the "(original mix)"/"(original)"
+# default-version marker. Every OTHER parenthesised marker (remix, edit, dub,
+# a non-original mix, version, extended, bootleg, ...) is PRESERVED.
+_RE_FEAT = re.compile(
+    r"\s*[\(\[]\s*(?:featuring|feat|ft)\b\.?\s[^)\]]*[\)\]]", re.IGNORECASE
+)
+# The bare-credit tail stops at the first "(" or "[": a feat credit runs to the
+# end of the title UNLESS a parenthesised version marker follows it, which must
+# be preserved (else "Song feat. X (Club Mix)" and "… (Radio Edit)" would both
+# collapse to "song" and merge two distinct versions — invariant #4).
+_RE_FEAT_BARE = re.compile(r"\s+(?:featuring|feat|ft)\b\.?\s[^(\[]*$", re.IGNORECASE)
+_RE_ORIGINAL = re.compile(
+    r"\s*[\(\[]\s*original(?:\s+mix)?\s*[\)\]]\s*$", re.IGNORECASE
+)
+_RE_TITLE_SPACES = re.compile(r"\s+")
+
+
+def normalize_track_title(title: str) -> str:
+    """Conservative, remix-aware normalization of a track title.
+
+    Lowercases, trims and compacts internal whitespace, then strips ONLY the
+    non-distinctive noise — "(feat. …)"/"feat. …"/"ft. …" credits and the
+    trailing "(original mix)"/"(original)" marker. Any version/remix marker
+    ("(… remix)", "(… edit)", "(… dub)", "(… version)", "(extended …)",
+    "(… bootleg)", a non-original "(… mix)", …) is left intact so two versions
+    normalise to DIFFERENT strings and never merge.
+
+    Guiding rule (merge asymmetry): when unsure whether a marker is noise, keep
+    it — over-stripping causes a bad merge (corruption); under-stripping only
+    misses a duplicate (harmless storage debt).
+    """
+    t = (title or "").lower().strip()
+    t = _RE_FEAT.sub("", t)
+    t = _RE_ORIGINAL.sub("", t)
+    t = _RE_FEAT_BARE.sub("", t)
+    t = _RE_TITLE_SPACES.sub(" ", t).strip()
+    return t
+
+
+def same_track(a, b) -> bool:
+    """True only if ``a`` and ``b`` are confidently the SAME recording.
+
+    ``a`` and ``b`` are catalog rows already known to share a platform id, so
+    the id is not re-compared — the point is to confirm or REFUTE the recording
+    identity:
+
+    - Both carry an ISRC → they are the same iff the ISRCs are equal. Two
+      distinct ISRCs are two recordings even under one platform id (this is what
+      separates the remixes of an EP that share a beatport_id).
+    - Otherwise (at least one ISRC missing) → fall back to the conservative
+      title comparison.
+    """
+    a_isrc = getattr(a, "isrc", None)
+    b_isrc = getattr(b, "isrc", None)
+    if a_isrc and b_isrc:
+        return a_isrc == b_isrc
+    return normalize_track_title(a.title) == normalize_track_title(b.title)
 
 
 # Columns whose non-NULL presence signals a "more complete" catalog row. Used

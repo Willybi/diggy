@@ -10,6 +10,7 @@ import itertools
 import os
 import sys
 from datetime import datetime
+from types import SimpleNamespace
 
 from sqlalchemy import select
 
@@ -30,9 +31,23 @@ from models import (  # noqa: E402
     UserRadarState,
     UserTrack,
 )
-from workers.catalog_merge import merge_catalog_entries, pick_canonical  # noqa: E402
+from workers.catalog_merge import (  # noqa: E402
+    merge_catalog_entries,
+    normalize_track_title,
+    pick_canonical,
+    same_track,
+)
 
 _nk = itertools.count(1)
+
+
+def _row(title="X", isrc=None):
+    """Lightweight stand-in for a catalog row (same_track only reads title/isrc).
+
+    Uses SimpleNamespace rather than a real row so two entries can carry equal
+    ISRCs — the DB's UNIQUE(isrc) constraint would forbid inserting those.
+    """
+    return SimpleNamespace(title=title, isrc=isrc)
 
 
 def _cat(session, *, commit=True, **fields):
@@ -47,6 +62,162 @@ def _cat(session, *, commit=True, **fields):
     session.add(entry)
     session.commit() if commit else session.flush()
     return entry
+
+
+# ── normalize_track_title ──────────────────────────────────────────────────
+
+
+class TestNormalizeTrackTitle:
+    def test_plain_title_unchanged(self):
+        assert normalize_track_title("ten") == "ten"
+
+    def test_lowercase_trim_and_compact_spaces(self):
+        assert normalize_track_title("  Ten  ") == "ten"
+        assert normalize_track_title("Head &   Heart") == "head & heart"
+
+    def test_feat_credit_stripped(self):
+        assert normalize_track_title("Head & Heart (feat. MNEK)") == "head & heart"
+        assert normalize_track_title("Head & Heart feat. MNEK") == "head & heart"
+        assert normalize_track_title("Head & Heart ft. MNEK") == "head & heart"
+        assert normalize_track_title("Head & Heart (featuring MNEK)") == "head & heart"
+
+    def test_original_marker_stripped(self):
+        assert normalize_track_title("303 State (Original Mix)") == "303 state"
+        assert normalize_track_title("303 State (Original)") == "303 state"
+
+    def test_remix_marker_preserved(self):
+        # The safety-critical direction: version markers MUST survive.
+        assert (
+            normalize_track_title("Meridian (Julian Muller Remix)")
+            == "meridian (julian muller remix)"
+        )
+        assert (
+            normalize_track_title("Happiness (Dr. Atmo Remix)")
+            == "happiness (dr. atmo remix)"
+        )
+        assert (
+            normalize_track_title("Funk Solo (Shed Remix)") == "funk solo (shed remix)"
+        )
+
+    def test_non_remix_version_markers_preserved(self):
+        assert (
+            normalize_track_title("Feel The Need (Extended Dance Version)")
+            == "feel the need (extended dance version)"
+        )
+        assert (
+            normalize_track_title("Fantasy (Sweet Dub Mix)") == "fantasy (sweet dub mix)"
+        )
+
+    def test_feature_word_not_mistaken_for_feat_credit(self):
+        # "feature" starts with "feat" but is not a credit — must be preserved.
+        assert (
+            normalize_track_title("Main Feature (Club Mix)") == "main feature (club mix)"
+        )
+
+    def test_bare_feat_stripped_when_no_version_follows(self):
+        # A bare feat credit with no trailing version marker is fully removed.
+        assert normalize_track_title("Song feat. X") == "song"
+        assert normalize_track_title("Song feat. A, B, C") == "song"
+        assert normalize_track_title("Song ft. X") == "song"
+
+    def test_bare_feat_does_not_swallow_version_marker(self):
+        # The X1-FIX-2 bug: a bare feat credit must NOT eat a version marker that
+        # follows it, or two distinct versions collapse to the same string.
+        club = normalize_track_title("Song feat. X (Club Mix)")
+        radio = normalize_track_title("Song feat. X (Radio Edit)")
+        assert "club mix" in club
+        assert "radio edit" in radio
+        assert club != radio
+        assert "extended mix" in normalize_track_title("Track ft. A B (Extended Mix)")
+
+    def test_none_title_is_empty(self):
+        assert normalize_track_title(None) == ""
+
+
+# ── same_track ─────────────────────────────────────────────────────────────
+
+
+class TestSameTrack:
+    def test_equal_isrcs_are_same(self):
+        assert same_track(_row(isrc="AAA"), _row(isrc="AAA")) is True
+
+    def test_null_isrcs_fall_back_to_title(self):
+        # Two rows titled "ten" (ISRCs null) are the same recording.
+        assert same_track(_row(title="Ten"), _row(title="ten")) is True
+        assert same_track(_row(title="Ten"), _row(title="Eleven")) is False
+
+    def test_one_isrc_present_uses_title(self):
+        assert (
+            same_track(
+                _row(title="Head & Heart (feat. MNEK)", isrc="AAA"),
+                _row(title="Head & Heart", isrc=None),
+            )
+            is True
+        )
+        assert (
+            same_track(
+                _row(title="303 State (Original Mix)", isrc=None),
+                _row(title="303 State", isrc="AAA"),
+            )
+            is True
+        )
+
+    def test_different_isrcs_never_same(self):
+        # ISRC contradiction wins even when the titles are identical: the remixes
+        # of "Funk Solo" share a beatport_id but have distinct ISRCs.
+        assert (
+            same_track(
+                _row(title="Funk Solo", isrc="ISRC-1"),
+                _row(title="Funk Solo", isrc="ISRC-2"),
+            )
+            is False
+        )
+        assert (
+            same_track(
+                _row(title="Funk Solo (Batu Remix)", isrc="ISRC-1"),
+                _row(title="Funk Solo (Shed Remix)", isrc="ISRC-2"),
+            )
+            is False
+        )
+
+    def test_remix_vs_original_not_same(self):
+        # The Deezer hits[0] bug: a remix inherits the original's deezer_id. The
+        # original carries the ISRC, the remix does not → title fallback separates.
+        assert (
+            same_track(
+                _row(title="Meridian", isrc="ISRC-ORIG"),
+                _row(title="Meridian (Julian Muller Remix)", isrc=None),
+            )
+            is False
+        )
+        assert (
+            same_track(
+                _row(title="Happiness"),
+                _row(title="Happiness (Dr. Atmo Remix)"),
+            )
+            is False
+        )
+
+    def test_distinct_remixes_not_same(self):
+        assert (
+            same_track(
+                _row(title="Funk Solo (Batu Remix)"),
+                _row(title="Funk Solo (Shed Remix)"),
+            )
+            is False
+        )
+
+    def test_bare_feat_with_distinct_versions_not_same(self):
+        # Same base + same feat artist, but different versions (Club vs Radio).
+        # The bare-feat fix keeps the versions in the normalized title, so these
+        # two ISRC-less rows are NOT merged.
+        assert (
+            same_track(
+                _row(title="Song feat. X (Club Mix)"),
+                _row(title="Song feat. X (Radio Edit)"),
+            )
+            is False
+        )
 
 
 # ── pick_canonical ────────────────────────────────────────────────────────
