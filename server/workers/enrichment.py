@@ -21,6 +21,7 @@ import redis as redis_lib
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 from workers.async_http import DeezerHTTPError
+from workers.catalog_merge import CatalogEntryMerged
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,12 @@ async def _enrich_entry_async(
 
     deezer_id = str(hit["id"])
     if entry.deezer_id != deezer_id:
+        # X1/L2: never stamp a deezer_id another catalog row already carries —
+        # fold this (loser) row into the pre-existing one and signal the caller.
+        if session is not None:
+            from workers.catalog_dedup import fold_if_platform_id_taken
+
+            fold_if_platform_id_taken(session, entry, "deezer_id", deezer_id)
         entry.deezer_id = deezer_id
         changed = True
 
@@ -305,9 +312,10 @@ async def enrich_deezer_batch(
     """
     enriched = 0
     errors = 0
+    merged = 0
 
     async def _enrich_one(entry):
-        nonlocal enriched, errors
+        nonlocal enriched, errors, merged
         try:
             now = datetime.now(timezone.utc)
             if source == "deezer" and ext_id_map:
@@ -328,9 +336,22 @@ async def enrich_deezer_batch(
                     _mark_searched(entry, "deezer", now)
                     return
 
-            if await _enrich_entry_async(
-                entry, hit, pool, s3, known_isrcs, session=session
-            ):
+            try:
+                changed = await _enrich_entry_async(
+                    entry, hit, pool, s3, known_isrcs, session=session
+                )
+            except CatalogEntryMerged as m:
+                # X1/L2: entry duplicated an existing row (same deezer_id) and was
+                # folded into it. The dead row must NOT be marked/linked — the
+                # canonical already carries the id and unified metadata.
+                merged += 1
+                logger.info(
+                    "Deezer enrich: folded a duplicate into canonical catalog %s",
+                    m.surviving_id,
+                )
+                return
+
+            if changed:
                 enriched += 1
                 # Link artist from Deezer hit to catalog_artists
                 try:
@@ -355,7 +376,7 @@ async def enrich_deezer_batch(
     # Process concurrently (rate limiter handles concurrency cap)
     await asyncio.gather(*[_enrich_one(e) for e in entries])
 
-    return {"enriched": enriched, "errors": errors}
+    return {"enriched": enriched, "errors": errors, "merged": merged}
 
 
 # ── Beatport enrichment (async) ──
@@ -566,15 +587,31 @@ async def enrich_beatport_batch(
     enriched = 0
     not_found = 0
     errors = 0
+    merged = 0
 
     async def _enrich_one(entry):
-        nonlocal enriched, not_found, errors
+        nonlocal enriched, not_found, errors, merged
         try:
             bp_track = await _search_beatport_async(
                 pool, entry.title, entry.artist, entry.isrc, rcache=rcache
             )
-            if bp_track and enrich_from_beatport(entry, bp_track, s3=s3):
-                enriched += 1
+            if bp_track:
+                try:
+                    matched = enrich_from_beatport(entry, bp_track, s3=s3, session=session)
+                except CatalogEntryMerged as m:
+                    # X1/L2: entry duplicated an existing row (same beatport_id)
+                    # and was folded into it — do NOT mark the dead row.
+                    merged += 1
+                    logger.info(
+                        "Beatport enrich: folded a duplicate into canonical "
+                        "catalog %s",
+                        m.surviving_id,
+                    )
+                    return
+                if matched:
+                    enriched += 1
+                else:
+                    not_found += 1
             else:
                 not_found += 1
             _mark_searched(entry, "beatport", datetime.now(timezone.utc))
@@ -585,4 +622,4 @@ async def enrich_beatport_batch(
     # Process concurrently (rate limiter handles concurrency cap at 2)
     await asyncio.gather(*[_enrich_one(e) for e in entries])
 
-    return {"enriched": enriched, "not_found": not_found, "errors": errors}
+    return {"enriched": enriched, "not_found": not_found, "errors": errors, "merged": merged}

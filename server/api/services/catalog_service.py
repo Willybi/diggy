@@ -1071,6 +1071,16 @@ async def import_external(db: AsyncSession, *, deezer_id=None, tidal_id=None):
             select(CatalogEntry).where(CatalogEntry.normalized_key == norm_key)
         )
         existing = result.scalar_one_or_none()
+    if not existing and deezer_id:
+        # X1/L2: also dedup by deezer_id so a manual re-import of a track already
+        # in the catalog (matched on neither ISRC nor normalized_key) never spawns
+        # a second duplicate. Folding a pre-existing normalized_key row is out of
+        # scope here (rare, covered by the L4 unique index).
+        dz = detail.get("deezer_id") or str(deezer_id)
+        result = await db.execute(
+            select(CatalogEntry).where(CatalogEntry.deezer_id == dz)
+        )
+        existing = result.scalar_one_or_none()
 
     if existing:
         # Never re-enrich or downgrade an entry that already exists.

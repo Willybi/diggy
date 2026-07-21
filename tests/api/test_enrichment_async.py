@@ -138,7 +138,7 @@ class TestEnrichOneSearchedAt:
         stats = await enrich_deezer_batch(None, [entry], pool, None, set())
 
         assert isinstance(entry.deezer_searched_at, datetime)
-        assert stats == {"enriched": 0, "errors": 0}
+        assert stats == {"enriched": 0, "errors": 0, "merged": 0}
 
     async def test_http_error_leaves_unsearched_and_counts_error(self):
         entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
@@ -148,7 +148,7 @@ class TestEnrichOneSearchedAt:
         stats = await enrich_deezer_batch(None, [entry], pool, None, set())
 
         assert entry.deezer_searched_at is None
-        assert stats == {"enriched": 0, "errors": 1}
+        assert stats == {"enriched": 0, "errors": 1, "merged": 0}
 
     async def test_track_lookup_empty_200_marks_searched(self):
         entry = _make_entry(deezer_searched_at=None)
@@ -166,7 +166,7 @@ class TestEnrichOneSearchedAt:
         )
 
         assert isinstance(entry.deezer_searched_at, datetime)
-        assert stats == {"enriched": 0, "errors": 0}
+        assert stats == {"enriched": 0, "errors": 0, "merged": 0}
 
 
 class TestSearchAttempts:
@@ -211,7 +211,7 @@ class TestSearchAttempts:
 
         stats = await enrich_deezer_batch(None, [entry], pool, None, set())
 
-        assert stats == {"enriched": 0, "errors": 1}
+        assert stats == {"enriched": 0, "errors": 1, "merged": 0}
         assert entry.deezer_searched_at is None
         assert entry.deezer_search_attempts == 0
 
@@ -227,7 +227,7 @@ class TestEnrichDeezerBatch:
 
         stats = await enrich_deezer_batch(None, [entry], pool, None, set())
 
-        assert stats == {"enriched": 1, "errors": 0}
+        assert stats == {"enriched": 1, "errors": 0, "merged": 0}
         assert entry.deezer_id == "123"
         assert entry.isrc == "US1234"
         assert entry.duration_ms == 180_000
@@ -241,7 +241,7 @@ class TestEnrichDeezerBatch:
 
         stats = await enrich_deezer_batch(None, [entry], pool, None, set())
 
-        assert stats == {"enriched": 0, "errors": 1}
+        assert stats == {"enriched": 0, "errors": 1, "merged": 0}
         assert entry.deezer_searched_at is None
 
     async def test_deezer_source_without_ext_id_skips_entry(self):
@@ -253,7 +253,7 @@ class TestEnrichDeezerBatch:
             None, [entry], pool, None, set(), source="deezer", ext_id_map={99: "1"}
         )
 
-        assert stats == {"enriched": 0, "errors": 0}
+        assert stats == {"enriched": 0, "errors": 0, "merged": 0}
         pool.deezer_get.assert_not_called()
         assert entry.deezer_searched_at is None
 
@@ -268,7 +268,7 @@ class TestEnrichDeezerBatch:
             None, [entry], pool, None, set(), source="deezer", ext_id_map={1: "555"}
         )
 
-        assert stats == {"enriched": 1, "errors": 0}
+        assert stats == {"enriched": 1, "errors": 0, "merged": 0}
         assert entry.deezer_id == "555"
         pool.deezer_get.assert_awaited_once_with("/track/555")
 

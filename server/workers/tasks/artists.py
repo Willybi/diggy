@@ -1405,7 +1405,13 @@ def _crawl_track(session, hit):
         session.flush()
         created = True
 
-    enrich_entry(entry, hit, session=session)
+    # X1/L2 deferral: this crawler references entry.id right after (artist link +
+    # the caller attaches an artist_activity to entry.id) and its caller wraps the
+    # call in a broad `except Exception: session.rollback()` that would UNDO a
+    # merge. Folding a duplicate here would leave entry pointing at a deleted row
+    # and roll the merge back — so merge-on-collision is disabled until the flow
+    # is reworked to adopt the survivor (deferred, tracked X1).
+    enrich_entry(entry, hit, session=session, merge_on_collision=False)
     if entry.release_date is None:
         entry.release_date = _parse_release_date(hit.get("release_date"))
     link_catalog_artist_from_hit(session, entry.id, hit)

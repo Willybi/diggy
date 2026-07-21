@@ -322,7 +322,7 @@ class TestBeatportBatchAttempts:
             None, [entry], MagicMock(), None
         )
 
-        assert stats == {"enriched": 0, "not_found": 1, "errors": 0}
+        assert stats == {"enriched": 0, "not_found": 1, "errors": 0, "merged": 0}
         assert isinstance(entry.beatport_searched_at, datetime)
         assert entry.beatport_search_attempts == 1
 
@@ -339,6 +339,6 @@ class TestBeatportBatchAttempts:
             None, [entry], MagicMock(), None
         )
 
-        assert stats == {"enriched": 0, "not_found": 0, "errors": 1}
+        assert stats == {"enriched": 0, "not_found": 0, "errors": 1, "merged": 0}
         assert entry.beatport_searched_at is None
         assert entry.beatport_search_attempts == 0

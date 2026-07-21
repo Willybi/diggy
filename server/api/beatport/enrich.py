@@ -12,8 +12,15 @@ from datetime import date
 logger = logging.getLogger(__name__)
 
 
-def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
-    """Apply Beatport data to a CatalogEntry. Returns True if anything changed."""
+def enrich_from_beatport(entry, bp_track: dict, s3=None, session=None) -> bool:
+    """Apply Beatport data to a CatalogEntry. Returns True if anything changed.
+
+    X1/L2: when ``session`` is provided (sync worker context), a ``beatport_id``
+    already carried by another catalog row triggers a merge of this (loser) row
+    into the pre-existing one, raising ``CatalogEntryMerged`` for the caller.
+    ``session`` stays optional so the async single-enrich path (no sync merge)
+    keeps calling without it.
+    """
     from services.image_service import BUCKET_CATALOG, ImageService
 
     changed = False
@@ -21,6 +28,10 @@ def enrich_from_beatport(entry, bp_track: dict, s3=None) -> bool:
     # Beatport ID — always set
     bp_id = str(bp_track.get("id", ""))
     if bp_id and entry.beatport_id != bp_id:
+        if session is not None:
+            from workers.catalog_dedup import fold_if_platform_id_taken
+
+            fold_if_platform_id_taken(session, entry, "beatport_id", bp_id)
         entry.beatport_id = bp_id
         changed = True
 

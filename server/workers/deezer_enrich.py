@@ -272,17 +272,28 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
 
 
 def enrich_entry(
-    entry, hit: dict, s3=None, _known_isrcs: set | None = None, session=None  # s3 ignored, kept for compat
+    entry, hit: dict, s3=None, _known_isrcs: set | None = None, session=None,  # s3 ignored, kept for compat
+    merge_on_collision: bool = True,
 ) -> bool:
     """Apply Deezer data to a CatalogEntry. Returns True if anything changed.
 
     Pass _known_isrcs (set of ISRCs already in DB) to avoid unique constraint violations.
     When session is provided, uses a conflict-safe SQL UPDATE for ISRC assignment.
+
+    X1/L2: when ``session`` is given and ``merge_on_collision`` is True, a
+    ``deezer_id`` already carried by another catalog row triggers a merge of this
+    (loser) row into the pre-existing one, raising ``CatalogEntryMerged``. Set
+    ``merge_on_collision=False`` for callers that keep using ``entry`` afterwards
+    (e.g. the release crawler references ``entry.id`` to attach an activity).
     """
     changed = False
 
     deezer_id = str(hit["id"])
     if entry.deezer_id != deezer_id:
+        if session is not None and merge_on_collision:
+            from workers.catalog_dedup import fold_if_platform_id_taken
+
+            fold_if_platform_id_taken(session, entry, "deezer_id", deezer_id)
         entry.deezer_id = deezer_id
         changed = True
 

@@ -113,10 +113,11 @@ def enrich_catalog(self):
                         )
 
                         if not entries:
-                            return {"enriched": 0, "errors": 0}
+                            return {"enriched": 0, "errors": 0, "merged": 0}
 
                         total_enriched = 0
                         total_errors = 0
+                        total_merged = 0
                         for i in range(0, len(entries), 100):
                             batch = entries[i : i + 100]
                             stats = await enrich_deezer_batch(
@@ -124,6 +125,7 @@ def enrich_catalog(self):
                             )
                             total_enriched += stats.get("enriched", 0)
                             total_errors += stats.get("errors", 0)
+                            total_merged += stats.get("merged", 0)
                             session.commit()
                             logger.info(
                                 "Deezer enrich progress: %d/%d",
@@ -131,7 +133,11 @@ def enrich_catalog(self):
                                 len(entries),
                             )
 
-                        return {"enriched": total_enriched, "errors": total_errors}
+                        return {
+                            "enriched": total_enriched,
+                            "errors": total_errors,
+                            "merged": total_merged,
+                        }
 
             try:
                 stats = asyncio.run(_async_enrich())
@@ -218,6 +224,7 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
                 total_enriched = 0
                 total_not_found = 0
                 total_errors = 0
+                total_merged = 0
 
                 async with HttpPool(limiter) as pool:
                     with Session(engine) as session:
@@ -234,6 +241,7 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
                                 "enriched": 0,
                                 "not_found": 0,
                                 "errors": 0,
+                                "merged": 0,
                                 "total": 0,
                             }
 
@@ -245,6 +253,7 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
                             total_enriched += stats.get("enriched", 0)
                             total_not_found += stats.get("not_found", 0)
                             total_errors += stats.get("errors", 0)
+                            total_merged += stats.get("merged", 0)
                             session.commit()
                             logger.info(
                                 "Beatport enrich progress: %d/%d",
@@ -256,6 +265,7 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
                             "enriched": total_enriched,
                             "not_found": total_not_found,
                             "errors": total_errors,
+                            "merged": total_merged,
                             "total": total,
                         }
 

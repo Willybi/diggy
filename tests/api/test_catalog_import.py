@@ -156,6 +156,41 @@ class TestImportDeezer:
         await db.refresh(entry)
         assert entry.deezer_id is None  # existing entry not re-enriched
 
+    async def test_reimport_matches_by_deezer_id(self, db, mocker):
+        # Pre-existing entry carries deezer_id "123" but neither its ISRC nor its
+        # normalized_key matches the incoming track → the deezer_id pre-check must
+        # dedup it (X1/L2) instead of creating a second duplicate row.
+        entry = CatalogEntry(
+            title="Old Title",
+            artist="Old Artist",
+            normalized_key=make_normalized_key("Old Title", "Old Artist"),
+            isrc="US0000000000",
+            deezer_id="123",
+            scope="shared",
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+        before = await _catalog_count(db)
+
+        mocker.patch.object(
+            catalog_service,
+            "_fetch_deezer_track",
+            return_value=_dz_detail(
+                deezer_id="123",
+                title="Fresh Title",
+                artist="Fresh Artist",
+                isrc="US9999999999",
+            ),
+        )
+
+        out = await catalog_service.import_external(db, deezer_id="123")
+
+        assert out.created is False
+        assert out.catalog_id == entry.id
+        assert await _catalog_count(db) == before  # no duplicate created
+
     async def test_reimport_matches_by_normalized_key(self, db, mocker):
         entry = CatalogEntry(
             title="Nightcall",
