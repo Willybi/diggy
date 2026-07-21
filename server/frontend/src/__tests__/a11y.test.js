@@ -17,7 +17,7 @@ describe('router lazy loading', () => {
     const { default: router } = await import('../router.js')
     const routes = router.getRoutes()
 
-    const lazyPaths = ['/genres', '/catalog', '/sets', '/artists', '/login']
+    const lazyPaths = ['/genres', '/explorer', '/sets', '/artists', '/login']
     for (const path of lazyPaths) {
       const route = routes.find((r) => r.path === path)
       if (!route) continue

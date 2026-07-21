@@ -39,7 +39,7 @@ const iconAdmin = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 
 const baseItems = [
   { to: '/', label: 'Hub', icon: iconHome, badge: true },
-  { to: '/catalog', label: 'Catalog', icon: iconGrid },
+  { to: '/explorer', label: 'Explorer', icon: iconGrid },
   { to: '/artists', label: 'Artistes', icon: iconArtist },
   { to: '/sets', label: 'Sets', icon: iconSet },
   { to: '/genres', label: 'Genres', icon: iconTag },

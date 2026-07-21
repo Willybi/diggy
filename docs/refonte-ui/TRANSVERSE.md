@@ -25,8 +25,15 @@
 
 ## Composant Artwork + indicateur in-lib (issu du Catalog)
 - `<Artwork>` (ou `<Cover>`) : gère la cover réelle **et** le placeholder rayé, avec un **indicateur in-lib optionnel** en coin : point vert plein = dans la bib / cercle pointillé vide = pas dans RB. Petit, discret, lisible même sur le placeholder.
-- **Réutilisé partout** où une cover apparaît : Catalog, résultats de recherche Hub, `<TrackCard>`, pages détail, sets… → remplace la colonne « In lib » lourde par une info légère et universelle. Statut : 🔲 à créer (1re demande : Catalog).
+- **Réutilisé partout** où une cover apparaît : Catalog, résultats de recherche Hub, `<TrackCard>`, pages détail, sets… → remplace la colonne « In lib » lourde par une info légère et universelle. Statut : ✅ LIVRÉ (chantier Track Detail 2026-07-17 — `Artwork.vue`, prop `inLib` optionnelle point plein/cercle pointillé ; constaté au pré-vol Explorer 2026-07-20).
 - **Cards agrégées (artiste / genre / …)** : là l'in-lib est un **count** (pas un booléen) → affiché **en stat dans le body** (pas un badge overlay), cohérent sur **toutes les listes** (décidé sur Artistes + Genres ; à suivre pour Sets / Playlists).
+
+## Système de filtres partagés (issu d'Explorer, D6)
+- Mécanique de filtres complète spécifiée comme **famille de composants autonomes** : `<FilterBar>` (conteneur : recherche, bouton + badge compteur, tri, compteur live, chips) + `<FilterChip>` + `<FilterPanel>` (desktop, inline) + `<FilterDrawer>` (mobile, bottom-sheet fixed) + 8 contrôles : `SearchInput`, `RangeSlider`, `CamelotSelect` (grille 12×2), `StyleMultiSelect` (groupé par pilier, couleurs `StyleTag` préservées + ring accent), `ArtistTypeAhead` (recherche serveur), `SegmentedFilter`, `ToggleChip`, `SortSelect`.
+- Principes : état = objet plat ↔ query params URL (1:1, défaut = absent) ; chips = représentation canonique toujours visible ; feedback live (compteur, debounce 250 ms) ; sélection = accent plein sauf valeurs à couleur sémantique (ring accent, hue pilier préservée).
+- **Spec** : `docs/refonte-ui/handoff-explorer/BRIEF-filtres-partages.md` (contrat consommateur inclus). Consommateurs : Explorer (1re implémentation) puis **Radar** (« filtres façon Explorer », décision figée) et toute liste filtrable.
+- ⚠️ Implémentation : le repo a déjà un `SegFilter.vue` (segments de listes existantes) — le `SegmentedFilter` de cette famille est un composant distinct ; nommer sans collision (ex. préfixe famille) et ne PAS modifier `SegFilter`.
+- Statut : 🟡 spec livrée (2026-07-21), 1re implémentation = chantier Explorer (lot composants dédié).
 
 ## Navigation (WIP — William)
 - **Vraie page Radar** dédiée **+ onglet séparé dans Catalog**. Structure encore à travailler.

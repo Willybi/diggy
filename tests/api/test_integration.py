@@ -117,32 +117,37 @@ class TestIntegrationRadarPipeline:
         await db.commit()
 
     async def test_radar_tracks_visible_in_catalog(self, client, radar_data):
-        """Radar tracks appear in catalog listing with view=radar."""
-        r = await client.get("/api/catalog/", params={"view": "radar"})
+        """Radar-detected tracks are catalog rows served by the listing.
+
+        The `view=radar` mode was removed from GET /catalog/ (Explorer refonte,
+        D6 p.1) — the listing now serves the whole catalog; the radar signal
+        survives as the nb_radar_playlists count.
+        """
+        r = await client.get("/api/catalog/")
         assert r.status_code == 200
         items = r.json()["items"]
         assert len(items) == 3
         titles = {it["title"] for it in items}
         assert titles == {"Body Funk", "Losing It", "Cola"}
+        assert all(it["nb_radar_playlists"] >= 1 for it in items)
 
     async def test_trend_scores_visible_after_computation(
         self, client, radar_data, trends
     ):
-        """After trends are inserted, catalog entries expose trend scores."""
-        r = await client.get(
-            "/api/catalog/",
-            params={"view": "radar", "sort": "trend_score_10", "order": "desc"},
-        )
+        """After trends are inserted, catalog entries expose trend scores.
+
+        `sort=trend_score_10` was removed with the radar mode (D6 p.1): the
+        scores stay served on each item, so assert on values, not ordering.
+        """
+        r = await client.get("/api/catalog/")
         assert r.status_code == 200
         items = r.json()["items"]
         assert len(items) == 3
 
-        # Body Funk (score 10.0) should rank first
-        assert items[0]["title"] == "Body Funk"
-
-        # Scores should be descending
-        scores = [it.get("trend_score_10") or 0 for it in items]
-        assert scores == sorted(scores, reverse=True)
+        scores = {it["title"]: it["trend_score_10"] for it in items}
+        # Body Funk holds the max trend_score → normalized to 10.0
+        assert scores["Body Funk"] == 10.0
+        assert all(s is not None for s in scores.values())
 
     async def test_second_crawl_adds_new_tracks(self, db, client, radar_data):
         """Simulating a 2nd crawl: new tracks appear alongside existing ones."""
@@ -165,7 +170,7 @@ class TestIntegrationRadarPipeline:
         )
         await db.commit()
 
-        r = await client.get("/api/catalog/", params={"view": "radar"})
+        r = await client.get("/api/catalog/")
         assert r.status_code == 200
         assert r.json()["total"] == 4
 

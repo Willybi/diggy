@@ -345,7 +345,6 @@ async def get_detail(
                 created_at=entry.created_at,
                 in_lib=is_in_lib,
                 style=lib_style,
-                rating=rating,
             )
         )
 

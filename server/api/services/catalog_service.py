@@ -8,14 +8,14 @@ import asyncio
 import json as _json
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import httpx
-from sqlalchemy import String, case, cast, func, select, update
+from sqlalchemy import String, cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from services.genre_service import ensure_pillar_cache, genre_pillar, pillar_map
+from services.genre_service import ensure_pillar_cache, genre_pillar
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +146,22 @@ async def list_catalog(
     user_id: int | None,
     skip: int,
     limit: int,
-    in_lib: bool | None,
-    min_radar_playlists: int | None,
-    search: str | None,
-    genre: str | None,
-    sort: str | None,
-    order: str,
-    view: str | None,
-    detected_after: datetime | None,
-    avis: str | None,
+    in_lib: bool | None = None,
+    search: str | None = None,
+    genre: list[str] | None = None,
+    bpm_min: float | None = None,
+    bpm_max: float | None = None,
+    key: list[str] | None = None,
+    artist_id: list[int] | None = None,
+    duration_min: int | None = None,
+    duration_max: int | None = None,
+    has_preview: bool | None = None,
+    avis: str | None = None,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    label: str | None = None,
+    sort: str | None = None,
+    order: str = "desc",
 ):
     from models import (
         Artist,
@@ -165,12 +172,9 @@ async def list_catalog(
         SetTrack,
         UserOpinion,
         UserTrack,
-        WatchedEntity,
     )
     from schemas import ArtistRef, CatalogEntryOut, CatalogList, GenreRef
-    from sqlalchemy import literal_column
-
-    is_radar = view == "radar"
+    from sqlalchemy import or_
 
     radar_count = (
         select(
@@ -193,13 +197,11 @@ async def list_catalog(
     ut_sub = (
         select(
             UserTrack.catalog_id,
-            UserTrack.rating,
             UserTrack.rb_bpm,
             UserTrack.rb_key,
             UserTrack.rb_mytags,
             UserTrack.has_artwork.label("ut_has_artwork"),
             UserTrack.avis.label("ut_avis"),
-            UserTrack.date_added.label("ut_date_added"),
         )
         .where(UserTrack.user_id == user_id)
         .subquery()
@@ -214,30 +216,10 @@ async def list_catalog(
         .subquery()
     )
     avis_col = func.coalesce(uo_sub.c.opinion, ut_sub.c.ut_avis)
-    radar_src = (
-        select(
-            RadarTrack.catalog_id,
-            func.max(RadarTrack.detected_at).label("max_detected_at"),
-        )
-        .where(RadarTrack.catalog_id.isnot(None))
-        .group_by(RadarTrack.catalog_id)
-        .subquery()
-    )
-    latest_radar = (
-        select(
-            RadarTrack.catalog_id,
-            WatchedEntity.title.label("src_name"),
-            WatchedEntity.source.label("src_kind"),
-        )
-        .join(WatchedEntity, WatchedEntity.id == RadarTrack.watched_entity_id)
-        .join(
-            radar_src,
-            (RadarTrack.catalog_id == radar_src.c.catalog_id)
-            & (RadarTrack.detected_at == radar_src.c.max_detected_at),
-        )
-        .distinct(RadarTrack.catalog_id)
-        .subquery()
-    )
+    # Rekordbox values are authoritative for the viewer (project invariant):
+    # filters and sorts on bpm/key go through the same coalesce as the output.
+    bpm_col = func.coalesce(ut_sub.c.rb_bpm, CatalogEntry.bpm)
+    key_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key)
 
     trend_sub = (
         select(
@@ -257,7 +239,6 @@ async def list_catalog(
         func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
         func.coalesce(set_count.c.nb_sets, 0).label("nb_radar_sets"),
         ut_sub.c.catalog_id.label("ut_catalog_id"),
-        ut_sub.c.rating.label("ut_rating"),
         ut_sub.c.rb_bpm.label("ut_bpm"),
         ut_sub.c.rb_key.label("ut_key"),
         ut_sub.c.rb_mytags.label("ut_tags"),
@@ -266,14 +247,6 @@ async def list_catalog(
         trend_sub.c.rank_global.label("trend_rank"),
         trend_sub.c.trend_score_10.label("trend_score_10"),
     ]
-    if is_radar:
-        select_cols.extend(
-            [
-                radar_src.c.max_detected_at.label("detected_at"),
-                latest_radar.c.src_name.label("source_name"),
-                latest_radar.c.src_kind.label("source_kind"),
-            ]
-        )
 
     query = (
         select(*select_cols)
@@ -285,83 +258,84 @@ async def list_catalog(
         .where(catalog_visible(user_id))
     )
 
-    if is_radar:
-        query = query.outerjoin(
-            radar_src, CatalogEntry.id == radar_src.c.catalog_id
-        ).outerjoin(latest_radar, CatalogEntry.id == latest_radar.c.catalog_id)
-        query = query.where(radar_count.c.nb_playlists.isnot(None))
-        if detected_after:
-            query = query.where(radar_src.c.max_detected_at >= detected_after)
-
     if in_lib is True:
         query = query.where(ut_sub.c.catalog_id.isnot(None))
     elif in_lib is False:
         query = query.where(ut_sub.c.catalog_id.is_(None))
 
-    if min_radar_playlists is not None:
-        query = query.where(
-            func.coalesce(radar_count.c.nb_playlists, 0) >= min_radar_playlists
-        )
     if genre:
-        query = query.where(CatalogEntry.genres.any(genre))
+        query = query.where(or_(*[CatalogEntry.genres.any(g) for g in genre]))
     if search:
         pattern = f"%{search}%"
         query = query.where(
-            CatalogEntry.title.ilike(pattern) | CatalogEntry.artist.ilike(pattern)
+            CatalogEntry.title.ilike(pattern)
+            | CatalogEntry.artist.ilike(pattern)
+            | CatalogEntry.label.ilike(pattern)
         )
-    if avis:
+    if bpm_min is not None:
+        query = query.where(bpm_col >= bpm_min)
+    if bpm_max is not None:
+        query = query.where(bpm_col <= bpm_max)
+    if key:
+        query = query.where(key_col.in_(key))
+    if artist_id:
+        query = query.where(
+            select(CatalogArtist.catalog_id)
+            .where(
+                CatalogArtist.catalog_id == CatalogEntry.id,
+                CatalogArtist.artist_id.in_(artist_id),
+            )
+            .exists()
+        )
+    if duration_min is not None:
+        query = query.where(CatalogEntry.duration_ms >= duration_min)
+    if duration_max is not None:
+        query = query.where(CatalogEntry.duration_ms <= duration_max)
+    if has_preview is True:
+        query = query.where(CatalogEntry.has_preview.is_(True))
+    if avis == "none":
+        # No opinion at all for this viewer (neither canonical nor denormalized)
+        query = query.where(avis_col.is_(None))
+    elif avis:
         query = query.where(avis_col == avis)
+    # Year bounds expressed as date bounds (cross-DB, no extract())
+    if year_min is not None:
+        query = query.where(CatalogEntry.release_date >= date(year_min, 1, 1))
+    if year_max is not None:
+        query = query.where(CatalogEntry.release_date <= date(year_max, 12, 31))
+    if label:
+        query = query.where(CatalogEntry.label.ilike(f"%{label}%"))
 
     await ensure_pillar_cache(db)
 
-    nb_radar_col = func.coalesce(radar_count.c.nb_playlists, 0)
-    sort_col = None
+    def dir_fn(c):
+        return c.desc() if order != "asc" else c.asc()
 
-    if sort == "detected_at" and is_radar:
-        sort_col = func.coalesce(radar_src.c.max_detected_at, datetime(2000, 1, 1))
-    elif sort == "nb_radar_playlists":
-        sort_col = nb_radar_col
-    elif sort == "trend_score_10":
-        sort_col = func.coalesce(trend_sub.c.trend_score_10, 0)
-    elif sort == "rating":
-        sort_col = func.coalesce(ut_sub.c.rating, 0)
+    if sort == "title":
+        order_cols = [CatalogEntry.title]
+    elif sort == "artist":
+        order_cols = [CatalogEntry.artist]
     elif sort == "bpm":
-        sort_col = func.coalesce(ut_sub.c.rb_bpm, CatalogEntry.bpm, 0)
-    elif sort == "duration_ms":
-        sort_col = func.coalesce(CatalogEntry.duration_ms, 0)
+        # bpm_col keeps its rb/catalog coalesce; the bare column lets .nulls_last()
+        # push value-less tracks to the end (a coalesce(..., 0) would sink them to
+        # the top in asc, inconsistent with title/artist/key/release_date).
+        order_cols = [bpm_col]
     elif sort == "key":
-        sort_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key, "")
-    elif sort == "style":
-        first_genre = func.coalesce(literal_column("genres[1]"), "")
-        pillar_rank = {
-            "house": 0, "techno": 1, "trance": 2,
-            "dnb": 3, "hardcore": 4, "harddance": 5, "autres": 6,
-        }
-        pillar_case = case(
-            *[(first_genre == g, pillar_rank.get(p, 6)) for g, (p, _d) in pillar_map().items()],
-            else_=6,
-        )
-
-        def dir_fn(c):
-            return c.desc() if order != "asc" else c.asc()
-
-        query = query.order_by(dir_fn(pillar_case), dir_fn(first_genre))
-    elif sort == "in_lib":
-        # Sort by rekordbox date_added: most recent first, non-lib tracks last
-        dir_fn = (lambda c: c.desc().nulls_last()) if order != "asc" else (lambda c: c.asc().nulls_last())
-        query = query.order_by(dir_fn(ut_sub.c.ut_date_added))
-    elif sort == "avis":
-        sort_col = func.coalesce(avis_col, "")
-    elif sort == "title":
-        sort_col = CatalogEntry.title
+        # Harmonic (Camelot) order, cross-DB: length() first puts 2A before 10A
+        order_cols = [func.length(key_col), key_col]
+    elif sort == "duration_ms":
+        order_cols = [CatalogEntry.duration_ms]
+    elif sort == "release_date":
+        order_cols = [CatalogEntry.release_date]
     else:
-        if is_radar:
-            sort_col = func.coalesce(radar_src.c.max_detected_at, datetime(2000, 1, 1))
-        else:
-            sort_col = nb_radar_col
+        # Default: newest catalog entries first
+        order_cols = [CatalogEntry.created_at]
 
-    if sort_col is not None:
-        query = query.order_by(sort_col.desc() if order != "asc" else sort_col.asc())
+    # NULLs always last + stable id tiebreak for pagination (lesson A1-02)
+    query = query.order_by(
+        *[dir_fn(c).nulls_last() for c in order_cols],
+        dir_fn(CatalogEntry.id),
+    )
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
@@ -395,24 +369,15 @@ async def list_catalog(
         nb_playlists = row[1]
         nb_sets = row[2]
         is_in_lib = row[3] is not None
-        ut_rating = row[4]
-        ut_bpm = row[5]
-        ut_key = row[6]
-        ut_tags = row[7]
-        ut_has_artwork = row[8]
-        row_avis = row[9]
-        t_rank = row[10]
-        t_score_10 = row[11]
+        ut_bpm = row[4]
+        ut_key = row[5]
+        ut_tags = row[6]
+        ut_has_artwork = row[7]
+        row_avis = row[8]
+        t_rank = row[9]
+        t_score_10 = row[10]
         entry_artists = artists_by_catalog.get(entry.id, [])
         art_id = entry_artists[0].id if entry_artists else None
-
-        radar_fields = {}
-        if is_radar:
-            radar_fields = {
-                "detected_at": row[12],
-                "source_name": row[13],
-                "source_kind": row[14],
-            }
 
         lib_style = None
         if ut_tags:
@@ -446,13 +411,11 @@ async def list_catalog(
                 nb_radar_playlists=nb_playlists or 0,
                 nb_radar_sets=nb_sets or 0,
                 style=lib_style,
-                rating=ut_rating,
                 avis=row_avis,
                 trend_rank=t_rank,
                 trend_score_10=round(t_score_10, 1) if t_score_10 is not None else None,
                 artist_id=art_id,
                 artists=entry_artists,
-                **radar_fields,
             )
         )
 
@@ -496,7 +459,6 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
     )
     ut = ut_result.scalar_one_or_none()
     in_lib = ut is not None
-    ut_rating = ut.rating if ut else None
 
     # Canonical opinion (covers tracks outside the library); fall back to
     # the denormalized user_tracks.avis for consistency with list_catalog.
@@ -639,7 +601,6 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 has_artwork=r[6],
                 has_preview=r[7],
                 in_lib=r[8] is not None,
-                rating=r[9],
                 artists=sa_artists_map.get(r[0], []),
             )
             for r in sa_rows
@@ -671,7 +632,6 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
         nb_radar_playlists=len(radar_appearances),
         nb_radar_sets=len(set_appearances),
         style=lib_style,
-        rating=ut_rating,
         avis=avis,
         artist_id=entry_artist_id,
         artists=entry_artists,

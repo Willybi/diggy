@@ -55,6 +55,7 @@ describe('BottomNav new-count fetch', () => {
     const wrapper = await mountNav()
     const links = wrapper.findAllComponents(RouterLinkStub)
     expect(links).toHaveLength(5)
-    expect(links.map((l) => l.props('to'))).toEqual(['/', '/catalog', '/artists', '/sets', '/genres'])
+    expect(links.map((l) => l.props('to'))).toEqual(['/', '/explorer', '/artists', '/sets', '/genres'])
+    expect(wrapper.text()).toContain('Explorer')
   })
 })

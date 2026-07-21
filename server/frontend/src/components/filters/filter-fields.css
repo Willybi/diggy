@@ -1,0 +1,25 @@
+/* ── Filter family · consumer field blocks (FilterPanel grid / FilterDrawer stack) ──
+   The consumer wraps each control in a `.flt-field` block: micro-label
+   (`.flt-label`) + control. Spans are declared on the block (2 columns by
+   default in the 6-column panel grid); the drawer stacks blocks in 1 column,
+   where grid-column has no effect. Imported by FilterPanel and FilterDrawer. */
+
+.flt-field {
+  grid-column: span 2;
+  min-width: 0;
+}
+.flt-field--4 {
+  grid-column: span 4;
+}
+.flt-field--6 {
+  grid-column: 1 / -1;
+}
+
+.flt-label {
+  display: block;
+  font: 500 var(--fs-label) / 1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+  margin: 0 0 var(--space-25);
+}

@@ -1,11 +1,11 @@
-from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from database import get_db
 from dependencies import get_current_user, get_current_user_optional, get_redis
 from dependencies import uid as _uid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import User
+from pydantic import StringConstraints
 from schemas import (
     AvisResponse,
     CatalogAvisUpdate,
@@ -25,18 +25,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 CatalogSortField = Literal[
+    "created_at",
     "title",
-    "nb_radar_playlists",
-    "trend_score_10",
-    "detected_at",
-    "rating",
+    "artist",
     "bpm",
-    "duration_ms",
     "key",
-    "style",
-    "in_lib",
-    "avis",
+    "duration_ms",
+    "release_date",
 ]
+
+# Camelot notation: 1A..12A (minor) / 1B..12B (major)
+CamelotKey = Annotated[str, StringConstraints(pattern=r"^(1[0-2]|[1-9])[AB]$")]
 
 
 @router.get("/genres", response_model=list[CatalogGenreItem])
@@ -64,23 +63,33 @@ async def list_catalog(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     in_lib: bool | None = Query(None),
-    min_radar_playlists: int | None = Query(None),
     search: str | None = Query(None, max_length=200),
-    genre: str | None = Query(None, max_length=100),
+    genre: list[str] | None = Query(None),
+    bpm_min: float | None = Query(None, ge=0),
+    bpm_max: float | None = Query(None, ge=0),
+    key: list[CamelotKey] | None = Query(None),
+    artist_id: list[int] | None = Query(None),
+    duration_min: int | None = Query(None, ge=0),
+    duration_max: int | None = Query(None, ge=0),
+    has_preview: bool | None = Query(None),
+    avis: Literal["liked", "disliked", "none"] | None = Query(None),
+    year_min: int | None = Query(None, ge=1, le=9999),
+    year_max: int | None = Query(None, ge=1, le=9999),
+    label: str | None = Query(None, max_length=200),
     sort: CatalogSortField | None = Query(None),
     order: Literal["asc", "desc"] | None = Query("desc"),
-    view: Literal["radar"] | None = Query(None),
-    detected_after: datetime | None = Query(None),
-    avis: Literal["liked", "disliked"] | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     return await catalog_service.list_catalog(
         db, _uid(user),
         skip=skip, limit=limit, in_lib=in_lib,
-        min_radar_playlists=min_radar_playlists, search=search, genre=genre,
-        sort=sort, order=order or "desc", view=view,
-        detected_after=detected_after, avis=avis,
+        search=search, genre=genre,
+        bpm_min=bpm_min, bpm_max=bpm_max, key=key, artist_id=artist_id,
+        duration_min=duration_min, duration_max=duration_max,
+        has_preview=has_preview, avis=avis,
+        year_min=year_min, year_max=year_max, label=label,
+        sort=sort, order=order or "desc",
     )
 
 

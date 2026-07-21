@@ -1,14 +1,14 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-20 (refonte UI D4 page 4 — Artist Detail rebuilt from the Claude Design handoff (docs/refonte-ui/handoff-artist-detail/); NO component created or extended (first D4 page in that case): ArtistSetOut gained additive artists[]/duration_ms for the SetCard grid. PlatformLink still ships PLACEHOLDER logos (TODO official SVGs, see ROADMAP reliquats))
+> Last verified: 2026-07-21 (refonte UI D6 page 1 — Catalog rebuilt as Explorer: query-builder `GET /catalog/` (bpm/key[]/genre[]/artist_id[]/duration/preview/avis-4-states/year/label filters, created_at default sort, harmonic key sort; radar mode + rating field removed), NEW filter component family `components/filters/` (12) + composables useVirtualWindow/useWindowedList/useFilterState, ExplorerView with virtualised table + URL-synced filters. Migration 0039 (5 catalog indexes). Rating removed from catalog surface ONLY (artists/import XML/DB-column drop still pending, tracked D6). rb_key→Camelot normalization is a ROADMAP reliquat)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (37 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (39 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -58,10 +58,15 @@ server/
 │   └── tasks/               # 7 modules: radar, catalog, artists, genres,
 │                            # import_rb, sets, trends
 ├── frontend/src/
-│   ├── views/               # 17 views (all routed)
-│   ├── components/          # 40 components (34 shared + 6 admin)
+│   ├── views/               # 17 views (all routed; CatalogView renamed ExplorerView, D6)
+│   ├── components/          # 52 components (46 shared + 6 admin). The filter family
+│   │                        # lives in components/filters/ (12: FilterBar/Chip/Panel/
+│   │                        # Drawer + SearchInput/RangeSlider/CamelotSelect/
+│   │                        # StyleMultiSelect/ArtistTypeAhead/SegmentedFilter/
+│   │                        # ToggleChip/SortSelect) + camelot.js/criteria.js helpers
 │   ├── composables/         # useInfiniteScroll, usePaginatedList, useTaskPoll,
-│   │                        # useStyleMap, useTheme
+│   │                        # useStyleMap, useTheme, useVirtualWindow, useWindowedList,
+│   │                        # useFilterState (last 3 = Explorer/D6, reused by Radar)
 │   ├── stores/              # Pinia: auth, audioPlayer, opinions, toast
 │   └── styles/diggy-tokens.css  # ALL colors/spacing (zero hardcoded)
 └── nginx/                   # default.ssl.conf.template = active prod config
@@ -191,14 +196,15 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 - The migration chain is NOT replayable from an empty database: 0001 assumes the pre-Alembic tables historically created by `create_all`. A fresh local PG volume must be seeded from a prod dump (`docs/restore.md`); an old dev volume created by `create_all` must be stamped once (`alembic stamp head`). A baseline/squash migration is a known follow-up.
 - `uq_artists_deezer_id` (partial unique on `artists.deezer_id`, sentinel-aware) exists ONLY in prod, created outside migrations — see the MANUAL block of `docs/database-schema.md` before touching artist deezer_id uniqueness.
 - NEVER `asyncio.gather` several `db.execute` on the SAME `AsyncSession`: a session is not safe for concurrent access. SQLite masks it, but asyncpg (PostgreSQL/CI) wedges a connection ("non-checked-in connection … will be terminated") and the suite HANGS. Await DB loaders sequentially on one session; if you truly need parallel DB reads, use separate sessions/connections. Bit us in C4 (`load_similarity_context`, `get_connections` — both since serialized).
+- `StringArray` (custom `TypeDecorator`, `catalog.genres`) needs an explicit `comparator_factory` for `.any()`/`.in_()`: the base `TypeDecorator.Comparator` does NOT inherit `ARRAY`'s membership ops, so `genres.any(x)` raised `AttributeError` at query-build (a 500, latent since no code path exercised it until the Explorer genre filter). The fix (`models/base.py`) is a per-dialect-compiled `array_any` (`= ANY(col)` on PG, correlated `EXISTS json_each` on SQLite) — any new membership op on a custom array type must compile on BOTH dialects (SQLite backs the test suite).
 
 ### Frontend
 - Container queries everywhere; `@media` ONLY for `position: fixed` elements.
 - Zero hardcoded colors: everything via `var(--...)` from `diggy-tokens.css`.
 - No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`): Prettier reformats them across lines, which breaks the Vue compiler. Extract to a method.
-- Responsive tables: columns hidden progressively across 6 breakpoints (CatalogView). At 375px only Play / Track / Key / InLib remain.
+- Responsive tables: columns hidden progressively (ExplorerView: 4 container-query paliers 1000/860/700/640). At <640px only Play / Track / Key / Avis remain, play & avis always visible (touch).
 - BottomNav (mobile <640px): 5 items + conditional Admin; PlayerBar repositions above it.
-- Celery task polling goes through `composables/useTaskPoll.js` (keyed timers, onUnmounted cleanup built in); paginated infinite-scroll lists through `usePaginatedList.js`. Never reintroduce an ad-hoc `setInterval` poll or a hand-rolled offset/hasMore fetch in a view.
+- Celery task polling goes through `composables/useTaskPoll.js` (keyed timers, onUnmounted cleanup built in). Two sanctioned paginated-fetch patterns, NEVER a hand-rolled offset/hasMore fetch in a view: card grids with an IntersectionObserver sentinel → `usePaginatedList.js`; virtualised tables (windowing, no sentinel, page-built repeated params) → `useWindowedList.js` paired with `useVirtualWindow.js` (Explorer/D6, reused by Radar). Never reintroduce an ad-hoc `setInterval` poll either.
 - The `.state` empty/loading message and `@keyframes spin` are global utilities in `assets/page.css`; views only keep scoped overrides for real divergences (mono, centered, fs-sm...). Don't redeclare the full block locally.
 - Vitest: when `vue-router` is mocked, `stubs: { RouterLink: true }` is a no-op (VTU ignores string-name stubs for unresolved components) — register `RouterLinkStub` via `global.components` (pattern: BottomNav.test.js, LoginCallbackView.test.js).
 - Grid `1fr` means `minmax(auto, 1fr)`: tracks can NOT shrink below their content's min-content (an `<img>` at natural aspect wins over the fr distribution). For image mosaics constrained to a fixed box, use `minmax(0, 1fr)` + `overflow: hidden` on the box. Corollary: positioned elements paint ABOVE later in-flow siblings — overflowing absolute content silently covers them (Artist Detail hero, 2026-07-20: a complete, correctly-styled DOM was invisible under the overflowing tiles). Neither vitest (no layout) nor static CSS reading catches this — verify RENDERING (headless screenshot) after any layout-sensitive change.

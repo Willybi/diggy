@@ -98,9 +98,12 @@ class TestCatalogSortValidation:
         r = await client.get("/api/catalog/?order=asc")
         assert r.status_code == 200
 
-    async def test_invalid_view_returns_422(self, client):
-        r = await client.get("/api/catalog/?view=invalid")
-        assert r.status_code == 422
+    async def test_removed_view_param_ignored(self, client):
+        # `view` was removed from GET /catalog/ (Explorer refonte, D6 p.1):
+        # FastAPI ignores unknown params, so a legacy `?view=radar` URL keeps
+        # answering 200 during the transition gap (front redirects handle it).
+        r = await client.get("/api/catalog/?view=radar")
+        assert r.status_code == 200
 
     async def test_invalid_avis_returns_422(self, client):
         r = await client.get("/api/catalog/?avis=maybe")

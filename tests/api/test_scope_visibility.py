@@ -47,8 +47,7 @@ async def _mk_user_track(db, user_id, catalog_id) -> UserTrack:
 async def _list_titles(db, user_id):
     result = await catalog_service.list_catalog(
         db, user_id, skip=0, limit=50, in_lib=None,
-        min_radar_playlists=None, search=None, genre=None,
-        sort=None, order="desc", view=None, detected_after=None, avis=None,
+        search=None, genre=None, sort=None, order="desc", avis=None,
     )
     return {item.title for item in result.items}
 

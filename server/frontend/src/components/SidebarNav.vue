@@ -83,7 +83,7 @@ const iconMoon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const iconUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`
 const iconLogout = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M17 16l4-4-4-4M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>`
 const libraryItems = [
-  { to: '/catalog', label: 'Catalog', icon: iconGrid, count: null },
+  { to: '/explorer', label: 'Explorer', icon: iconGrid, count: null },
   { to: '/artists', label: 'Artistes', icon: iconArtist, count: null },
   { to: '/sets', label: 'Sets', icon: iconSet, count: null },
   { to: '/playlists', label: 'Playlists', icon: iconPlaylist, count: null },

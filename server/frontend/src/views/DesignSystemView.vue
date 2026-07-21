@@ -312,6 +312,151 @@
         <PlatformLink v-for="p in demoPlatforms" :key="p" :platform="p" variant="glyph" />
       </div>
     </section>
+
+    <!-- 8 · FILTRES (famille partagée Explorer/Radar) -->
+    <section class="ds-section">
+      <h2 class="ds-h2">8 · Filtres <span class="mono ds-tag">components/filters · D6</span></h2>
+
+      <h3 class="ds-h3 mono">SearchInput · défaut / variante Label sans loupe / désactivé</h3>
+      <div class="comp-row comp-row--fields">
+        <SearchInput v-model="fltDemo.q" placeholder="Artiste, titre ou label…" />
+        <SearchInput v-model="fltDemo.label" :icon="false" placeholder="Defected, Drumcode…" />
+        <SearchInput model-value="" placeholder="Désactivé" disabled />
+      </div>
+
+      <h3 class="ds-h3 mono">RangeSlider · actif / plage complète (inactif) / désactivé</h3>
+      <div class="comp-row comp-row--fields">
+        <RangeSlider v-model="fltDemo.bpm" :min="60" :max="200" label="BPM" />
+        <RangeSlider v-model="fltDemo.year" :min="1985" :max="2026" label="Année" />
+        <RangeSlider :model-value="[100, 140]" :min="60" :max="200" label="BPM" disabled />
+      </div>
+
+      <h3 class="ds-h3 mono">CamelotSelect · 12×2 / variante drawer 6×4</h3>
+      <div class="flt-vitrine-cam">
+        <CamelotSelect v-model="fltDemo.keys" />
+        <div class="flt-vitrine-cam-drawer">
+          <CamelotSelect v-model="fltDemo.keys" variant="drawer" />
+        </div>
+      </div>
+
+      <h3 class="ds-h3 mono">StyleMultiSelect · groupé par pilier, ring accent en sélection</h3>
+      <StyleMultiSelect v-model="fltDemo.styles" :options="demoGenreOptions" />
+
+      <h3 class="ds-h3 mono">ArtistTypeAhead · chips + recherche serveur (dropdown live)</h3>
+      <div class="comp-row comp-row--fields">
+        <ArtistTypeAhead v-model="fltDemo.artists" />
+      </div>
+
+      <h3 class="ds-h3 mono">
+        SegmentedFilter · tri-state « Tous » / presets mono (re-clic = désélection)
+      </h3>
+      <div class="comp-row">
+        <SegmentedFilter v-model="fltDemo.inlib" :options="demoInLibOptions" />
+        <SegmentedFilter v-model="fltDemo.duration" :options="demoDurationOptions" mono />
+        <SegmentedFilter model-value="a" :options="[{ value: 'a', label: 'Désactivé' }]" disabled />
+      </div>
+
+      <h3 class="ds-h3 mono">ToggleChip &amp; SortSelect</h3>
+      <div class="comp-row">
+        <ToggleChip v-model="fltDemo.preview" label="Écoutable uniquement">
+          <template #icon>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M8 5v14l11-7z" stroke-linejoin="round" />
+            </svg>
+          </template>
+        </ToggleChip>
+        <ToggleChip :model-value="false" label="Désactivé" disabled />
+        <SortSelect v-model="fltSort" :options="demoSortOptions" />
+      </div>
+
+      <h3 class="ds-h3 mono">FilterChip · chip / valeur longue / variante empty-state (hover --neg)</h3>
+      <div class="comp-row">
+        <FilterChip label="BPM" value="120–133" />
+        <FilterChip label="Key" value="5A 6A 7A 6B" />
+        <FilterChip label="Style" value="Tech House" empty />
+      </div>
+
+      <h3 class="ds-h3 mono">FilterBar · assemblage complet (barre + badge + chips + panneau inline)</h3>
+      <FilterBar
+        v-model:filters="fltDemo"
+        v-model:panelOpen="fltPanelOpen"
+        v-model:drawerOpen="fltDrawerOpen"
+        :criteria="demoCriteria"
+        :result-count="1234"
+      >
+        <template #search>
+          <SearchInput v-model="fltDemo.q" placeholder="Artiste, titre ou label…" />
+        </template>
+        <template #sort>
+          <SortSelect v-model="fltSort" :options="demoSortOptions" />
+        </template>
+        <template #panel>
+          <FilterPanel :result-count="1234" @reset="resetFltDemo" @close="closeFltPanel">
+            <div class="flt-field">
+              <span class="flt-label">BPM</span>
+              <RangeSlider v-model="fltDemo.bpm" :min="60" :max="200" label="BPM" />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Année</span>
+              <RangeSlider v-model="fltDemo.year" :min="1985" :max="2026" label="Année" />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Durée</span>
+              <SegmentedFilter v-model="fltDemo.duration" :options="demoDurationOptions" mono />
+            </div>
+            <div class="flt-field flt-field--4">
+              <span class="flt-label">Key</span>
+              <CamelotSelect v-model="fltDemo.keys" />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Bibliothèque</span>
+              <SegmentedFilter v-model="fltDemo.inlib" :options="demoInLibOptions" />
+            </div>
+            <div class="flt-field flt-field--4">
+              <span class="flt-label">Styles</span>
+              <StyleMultiSelect v-model="fltDemo.styles" :options="demoGenreOptions" />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Artiste</span>
+              <ArtistTypeAhead v-model="fltDemo.artists" />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Label</span>
+              <SearchInput v-model="fltDemo.label" :icon="false" placeholder="Defected, Drumcode…" />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Extrait audio</span>
+              <ToggleChip v-model="fltDemo.preview" label="Écoutable uniquement" />
+            </div>
+          </FilterPanel>
+        </template>
+      </FilterBar>
+
+      <h3 class="ds-h3 mono">FilterDrawer · bottom-sheet mobile</h3>
+      <button class="btn" @click="openFltDrawer">Ouvrir le drawer</button>
+      <FilterDrawer v-model:open="fltDrawerOpen" :result-count="1234" @reset="resetFltDemo">
+        <div class="flt-field">
+          <span class="flt-label">BPM</span>
+          <RangeSlider v-model="fltDemo.bpm" :min="60" :max="200" label="BPM" />
+        </div>
+        <div class="flt-field">
+          <span class="flt-label">Key</span>
+          <CamelotSelect v-model="fltDemo.keys" variant="drawer" />
+        </div>
+        <div class="flt-field">
+          <span class="flt-label">Bibliothèque</span>
+          <SegmentedFilter v-model="fltDemo.inlib" :options="demoInLibOptions" variant="drawer" />
+        </div>
+        <div class="flt-field">
+          <span class="flt-label">Styles</span>
+          <StyleMultiSelect v-model="fltDemo.styles" :options="demoGenreOptions" variant="drawer" />
+        </div>
+        <div class="flt-field">
+          <span class="flt-label">Extrait audio</span>
+          <ToggleChip v-model="fltDemo.preview" label="Écoutable uniquement" variant="drawer" />
+        </div>
+      </FilterDrawer>
+    </section>
   </div>
 </template>
 
@@ -328,6 +473,20 @@ import TrackCard from '../components/TrackCard.vue'
 import ScoreRing from '../components/ScoreRing.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import SetCard from '../components/SetCard.vue'
+import FilterBar from '../components/filters/FilterBar.vue'
+import FilterChip from '../components/filters/FilterChip.vue'
+import FilterPanel from '../components/filters/FilterPanel.vue'
+import FilterDrawer from '../components/filters/FilterDrawer.vue'
+import SearchInput from '../components/filters/SearchInput.vue'
+import RangeSlider from '../components/filters/RangeSlider.vue'
+import CamelotSelect from '../components/filters/CamelotSelect.vue'
+import StyleMultiSelect from '../components/filters/StyleMultiSelect.vue'
+import ArtistTypeAhead from '../components/filters/ArtistTypeAhead.vue'
+import SegmentedFilter from '../components/filters/SegmentedFilter.vue'
+import ToggleChip from '../components/filters/ToggleChip.vue'
+import SortSelect from '../components/filters/SortSelect.vue'
+import { compareCamelot } from '../components/filters/camelot.js'
+import { defaultValue } from '../components/filters/criteria.js'
 
 const demoTrack = {
   id: 0,
@@ -393,6 +552,88 @@ const demoSet = {
   total_tracks: 22,
   identified_tracks: 15,
   artists: ['Sébastien Léger'],
+}
+
+// ── Section 8 · Filtres — demo state ──
+const demoInLibOptions = [
+  { value: null, label: 'Tous' },
+  { value: 'in', label: 'Dans ma bib' },
+  { value: 'out', label: 'Pas dans RB' },
+]
+const demoDurationOptions = [
+  { value: 'lt3', label: '< 3 min' },
+  { value: '3-5', label: '3–5 min' },
+  { value: '5-8', label: '5–8 min' },
+  { value: 'gt8', label: '> 8 min' },
+]
+const demoSortOptions = [
+  { value: 'recent', label: 'Récemment ajoutés' },
+  { value: 'title', label: 'Titre A–Z' },
+  { value: 'artist', label: 'Artiste A–Z' },
+  { value: 'bpm', label: 'BPM' },
+  { value: 'key', label: 'Key (harmonique)' },
+  { value: 'duration', label: 'Durée' },
+  { value: 'release', label: 'Date de sortie' },
+]
+const demoGenreOptions = [
+  { name: 'House', count: 4120, pillar: 'house', depth: 0 },
+  { name: 'Tech House', count: 1284, pillar: 'house', depth: 1 },
+  { name: 'Deep House', count: 940, pillar: 'house', depth: 1 },
+  { name: 'Techno', count: 3860, pillar: 'techno', depth: 0 },
+  { name: 'Hard Techno', count: 720, pillar: 'techno', depth: 1 },
+  { name: 'Trance', count: 1520, pillar: 'trance', depth: 0 },
+  { name: 'Psytrance', count: 410, pillar: 'trance', depth: 1 },
+  { name: 'Drum & Bass', count: 980, pillar: 'dnb', depth: 0 },
+  { name: 'Hardcore', count: 310, pillar: 'hardcore', depth: 0 },
+  { name: 'Hardstyle', count: 260, pillar: 'harddance', depth: 1 },
+  { name: 'Ambient', count: 240, pillar: 'autres', depth: 0 },
+]
+const demoCriteria = [
+  { key: 'q', type: 'text', label: 'Recherche', chip: false },
+  { key: 'bpm', type: 'range', label: 'BPM', min: 60, max: 200 },
+  { key: 'year', type: 'range', label: 'Année', min: 1985, max: 2026 },
+  { key: 'keys', type: 'multi', label: 'Key', sort: compareCamelot },
+  { key: 'styles', type: 'multi', label: 'Style', chipPerValue: true },
+  {
+    key: 'artists',
+    type: 'multi',
+    label: 'Artiste',
+    chipPerValue: true,
+    format: (a) => a.name,
+  },
+  { key: 'inlib', type: 'segment', label: 'Bibliothèque', options: demoInLibOptions },
+  { key: 'duration', type: 'segment', label: 'Durée', options: demoDurationOptions },
+  { key: 'preview', type: 'toggle', label: 'Extrait', valueLabel: 'Écoutable' },
+  { key: 'label', type: 'text', label: 'Label' },
+]
+const fltDemo = ref({
+  q: '',
+  bpm: [120, 133],
+  year: [1985, 2026],
+  keys: ['6B', '7A', '5A', '6A'],
+  styles: ['Tech House'],
+  artists: [{ id: 1, name: 'Kaskade' }],
+  inlib: 'in',
+  duration: null,
+  preview: true,
+  label: '',
+})
+const fltSort = ref('recent')
+const fltPanelOpen = ref(true)
+const fltDrawerOpen = ref(false)
+
+function resetFltDemo() {
+  const next = {}
+  for (const c of demoCriteria) next[c.key] = defaultValue(c)
+  fltDemo.value = next
+}
+
+function closeFltPanel() {
+  fltPanelOpen.value = false
+}
+
+function openFltDrawer() {
+  fltDrawerOpen.value = true
 }
 
 const mk = (names) => names.map((n) => ({ name: n, value: `var(${n})` }))
@@ -804,6 +1045,29 @@ onMounted(() => {
 .comp-row--wide {
   align-items: flex-end;
   gap: var(--space-5);
+}
+
+/* 8 · filters showcase */
+.comp-row--fields {
+  align-items: flex-start;
+}
+.comp-row--fields > * {
+  flex: 1 1 220px;
+  max-width: 400px;
+}
+.flt-vitrine-cam {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-5);
+}
+.flt-vitrine-cam > :first-child {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.flt-vitrine-cam-drawer {
+  width: 260px;
+  flex: none;
 }
 
 /* 7 · transverse components showcase */

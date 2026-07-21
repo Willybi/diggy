@@ -92,6 +92,12 @@ class CatalogEntry(Base):
             "beatport_searched_at",
             postgresql_where=text("beatport_id IS NULL"),
         ),
+        # Explorer query-builder (D6 p.1): filter/sort columns of GET /catalog/
+        Index("ix_catalog_bpm", "bpm"),
+        Index("ix_catalog_key", "key"),
+        Index("ix_catalog_duration_ms", "duration_ms"),
+        Index("ix_catalog_release_date", "release_date"),
+        Index("ix_catalog_created_at", "created_at"),
     )
 
     artist_links = relationship(

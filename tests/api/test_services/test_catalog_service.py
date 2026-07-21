@@ -8,8 +8,7 @@ class TestListCatalog:
     async def test_returns_catalog_list(self, db, auth_user):
         result = await catalog_service.list_catalog(
             db, auth_user.id, skip=0, limit=20, in_lib=None,
-            min_radar_playlists=None, search=None, genre=None,
-            sort=None, order="desc", view=None, detected_after=None, avis=None
+            search=None, genre=None, sort=None, order="desc", avis=None,
         )
         assert hasattr(result, "total")
         assert hasattr(result, "items")
@@ -23,8 +22,7 @@ class TestListCatalog:
 
         result = await catalog_service.list_catalog(
             db, auth_user.id, skip=0, limit=20, in_lib=None,
-            min_radar_playlists=None, search="Windowlicker", genre=None,
-            sort=None, order="desc", view=None, detected_after=None, avis=None
+            search="Windowlicker", genre=None, sort=None, order="desc", avis=None,
         )
         assert result.total == 1
         assert result.items[0].title == "Windowlicker"
@@ -37,8 +35,7 @@ class TestListCatalog:
 
         result = await catalog_service.list_catalog(
             db, auth_user.id, skip=0, limit=2, in_lib=None,
-            min_radar_playlists=None, search=None, genre=None,
-            sort=None, order="desc", view=None, detected_after=None, avis=None
+            search=None, genre=None, sort=None, order="desc", avis=None,
         )
         assert result.total == 5
         assert len(result.items) == 2

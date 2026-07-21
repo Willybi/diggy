@@ -3,11 +3,11 @@
     <div v-if="loading" class="state">Chargement…</div>
     <div v-else-if="!track" class="state state--empty">
       <span>Track introuvable.</span>
-      <RouterLink to="/catalog" class="btn">Retour au catalog</RouterLink>
+      <RouterLink to="/explorer" class="btn">Retour à l'Explorer</RouterLink>
     </div>
     <template v-else>
       <!-- Back link -->
-      <RouterLink to="/catalog" class="dv-back">
+      <RouterLink to="/explorer" class="dv-back">
         <svg
           viewBox="0 0 24 24"
           fill="none"
@@ -18,7 +18,7 @@
         >
           <path d="M15 6l-6 6 6 6" />
         </svg>
-        Catalog
+        Explorer
       </RouterLink>
 
       <!-- Hero -->
@@ -453,7 +453,7 @@ const playlistsHidden = computed(() =>
   Math.max(0, (track.value?.radar_appearances?.length ?? 0) - REL_LIMIT),
 )
 
-// Persist opinion (canonical avis endpoint, same as CatalogView)
+// Persist opinion (canonical avis endpoint, same as the Explorer table)
 watch(opinion, async (val) => {
   if (!track.value) return
   try {

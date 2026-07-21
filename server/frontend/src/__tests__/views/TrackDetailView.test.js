@@ -248,7 +248,7 @@ describe('TrackDetailView', () => {
     expect(wrapper.find('.state--empty').text()).toContain('Track introuvable')
     const back = wrapper.find('.state--empty .btn')
     expect(back.exists()).toBe(true)
-    expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/catalog')
+    expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/explorer')
   })
 
   it('shows the similar-loading skeleton before similar tracks resolve', async () => {
