@@ -126,6 +126,7 @@ class TestSuspectGroups:
             "suspect_rows": 0,
             "reset": 0,
             "meta_cleared": 0,
+            "preview_cleared": 0,
             "examples": [],
         }
 
@@ -212,6 +213,7 @@ class TestTrueDuplicatesLeftIntact:
             "suspect_rows": 0,
             "reset": 0,
             "meta_cleared": 0,
+            "preview_cleared": 0,
             "examples": [],
         }
         assert sync_session.get(CatalogEntry, solo.id).deezer_id == "DZ6"
@@ -464,5 +466,127 @@ class TestBeatportMetadataReset:
             "suspect_rows": 0,
             "reset": 0,
             "meta_cleared": 0,
+            "preview_cleared": 0,
             "examples": [],
         }
+
+
+class TestDeezerHasPreviewReset:
+    """X3.c-ext: the deezer pass ALSO resets stale ``has_preview``.
+
+    ``has_preview`` is a Deezer-only signal (only a Deezer hit sets it True). Once
+    the suspect ``deezer_id`` is cleared, an orphaned ``has_preview=True`` with no
+    ``deezer`` radar source can never be resolved by ``get_preview_url`` — the
+    frontend offers a Play button that 404s. So the deezer pass nulls it, UNLESS a
+    ``deezer`` radar source still backs the row (that source keeps the preview
+    servable). The beatport pass never touches ``has_preview``.
+    """
+
+    def _radar(self, session, catalog_id, source):
+        from models import RadarTrack
+
+        session.add(
+            RadarTrack(
+                watched_entity_id=1,
+                external_track_id="ext-1",
+                source=source,
+                title="src",
+                catalog_id=catalog_id,
+            )
+        )
+        session.commit()
+
+    def test_deezer_pass_resets_stale_has_preview(self, sync_session):
+        # Suspect deezer group (remix + original), both has_preview=True, NO deezer
+        # radar source → both reset to False and counted.
+        orig = _cat(
+            sync_session, title="Meridian", deezer_id="DZP1", isrc="ISRC-O",
+            has_preview=True,
+        )
+        remix = _cat(
+            sync_session, title="Meridian (Shed Remix)", deezer_id="DZP1",
+            has_preview=True,
+        )
+
+        stats = reverify_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["reset"] == 2
+        assert stats["preview_cleared"] == 2
+        for row_id in (orig.id, remix.id):
+            row = sync_session.get(CatalogEntry, row_id)
+            assert row.deezer_id is None
+            assert row.has_preview is False
+
+    def test_deezer_pass_keeps_has_preview_with_deezer_radar_source(self, sync_session):
+        # A suspect row still backed by a deezer radar source stays has_preview=True
+        # (get_preview_url resolves it via the radar external_track_id); a sibling
+        # with no source is reset. Proves the guard is per-row.
+        with_src = _cat(
+            sync_session, title="Meridian", deezer_id="DZP2", isrc="ISRC-O",
+            has_preview=True,
+        )
+        no_src = _cat(
+            sync_session, title="Meridian (Shed Remix)", deezer_id="DZP2",
+            has_preview=True,
+        )
+        self._radar(sync_session, with_src.id, "deezer")
+
+        stats = reverify_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["preview_cleared"] == 1  # only the row without a deezer source
+        assert sync_session.get(CatalogEntry, with_src.id).has_preview is True
+        assert sync_session.get(CatalogEntry, no_src.id).has_preview is False
+
+    def test_non_deezer_radar_source_does_not_protect_has_preview(self, sync_session):
+        # A TIDAL radar source does NOT keep a preview servable (Deezer-only), so the
+        # row's stale has_preview is still reset.
+        tidal_backed = _cat(
+            sync_session, title="Meridian", deezer_id="DZP3", isrc="ISRC-O",
+            has_preview=True,
+        )
+        _cat(
+            sync_session, title="Meridian (Shed Remix)", deezer_id="DZP3",
+            has_preview=True,
+        )
+        self._radar(sync_session, tidal_backed.id, "tidal")
+
+        stats = reverify_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["preview_cleared"] == 2
+        assert sync_session.get(CatalogEntry, tidal_backed.id).has_preview is False
+
+    def test_beatport_pass_never_touches_has_preview(self, sync_session):
+        # The beatport pass leaves has_preview alone (Beatport never sets it).
+        remix_a = _cat(
+            sync_session, title="Funk (Batu Remix)", beatport_id="EPH",
+            has_preview=True,
+        )
+        remix_b = _cat(
+            sync_session, title="Funk (Shed Remix)", beatport_id="EPH",
+            has_preview=True,
+        )
+
+        stats = reverify_by_column(sync_session, "beatport_id", apply=True)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["preview_cleared"] == 0
+        for row_id in (remix_a.id, remix_b.id):
+            assert sync_session.get(CatalogEntry, row_id).has_preview is True
+
+    def test_dry_run_counts_preview_without_clearing(self, sync_session):
+        orig = _cat(
+            sync_session, title="Meridian", deezer_id="DZP4", isrc="ISRC-O",
+            has_preview=True,
+        )
+        remix = _cat(
+            sync_session, title="Meridian (Shed Remix)", deezer_id="DZP4",
+            has_preview=True,
+        )
+
+        stats = reverify_by_column(sync_session, "deezer_id", apply=False)
+
+        assert stats["preview_cleared"] == 2  # counted...
+        for row_id in (orig.id, remix.id):
+            assert sync_session.get(CatalogEntry, row_id).has_preview is True  # ...not mutated

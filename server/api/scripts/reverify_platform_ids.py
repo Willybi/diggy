@@ -34,8 +34,19 @@ corrected match re-finds the right value but DROPS it at that guard. Nulling the
 value AND its source re-opens the guard so the re-scan re-derives it. A bpm/key
 from any OTHER source ("rekordbox", "deezer", or unset) did NOT come from the
 suspect Beatport match and may be authoritative, so it is NEVER blanked
-(data-authority invariant #2). The DEEZER pass stays id-only — Deezer enrichment
-never stamps a bpm/key provenance.
+(data-authority invariant #2). The DEEZER pass has no bpm/key to clear (Deezer
+enrichment never stamps a bpm/key provenance) but DOES reset ``has_preview`` to
+False when it clears the id:
+
+    row.has_preview = False   (iff no ``deezer`` radar source backs the row)
+
+because ``has_preview`` is a Deezer-only signal (only a Deezer hit sets it True;
+TIDAL/Spotify ingestion stores ``preview=None``) and ``get_preview_url`` resolves a
+preview ONLY via Deezer — a ``deezer`` radar source, else ``catalog.deezer_id``. A
+row left ``has_preview=True`` with neither can never serve a preview, so the
+frontend (which gates Play on ``has_preview``) offers a Play button that 404s. A row
+that keeps a ``deezer`` radar source still serves a preview from its
+``external_track_id`` and is therefore left untouched.
 
 Detection (per column, deezer then beatport):
   1. Take every platform-id VALUE shared by 2+ rows (``_duplicate_values``).
@@ -56,10 +67,11 @@ running with --apply. A crash mid-run is safe (each batch is committed and the
 operation is idempotent — a re-run finds the remaining groups), but a bad dump is
 not recoverable.
 
-RESIDUAL (assumed): the platform id + its search state are reset on both passes,
-and the beatport pass additionally nulls beatport-sourced bpm/key. The OTHER
-metadata a wrong match may have written (cover, duration, label, release_date, ...)
-is NOT blanked — that is deliberately too risky to null blind. Such a mis-derived
+RESIDUAL (assumed): the platform id + its search state are reset on both passes;
+the beatport pass additionally nulls beatport-sourced bpm/key and the deezer pass
+resets stale ``has_preview``. The OTHER metadata a wrong match may have written
+(cover, duration, label, release_date, ...) is NOT blanked — that is deliberately
+too risky to null blind. Such a mis-derived
 field can survive until a natural overwrite (the re-scan fills only NULL fields; an
 already-populated wrong value may persist). The report calls this out; deciding
 whether that residual is acceptable is the team's call before running --apply.
@@ -119,6 +131,18 @@ _CONDITIONAL_METADATA = {
         ("key", "key_source", "beatport"),
     ),
 }
+# ``has_preview`` is a DEEZER-only signal: only a Deezer hit ever sets it True
+# (``enrich_entry``); TIDAL/Spotify ingestion stores ``preview=None``. Clearing a
+# suspect ``deezer_id`` therefore invalidates ``has_preview`` — ``get_preview_url``
+# resolves previews ONLY via Deezer (a ``deezer`` radar source, else
+# ``catalog.deezer_id``), so a row left ``has_preview=True`` with NEITHER can never
+# serve a preview: the frontend offers Play (gated on ``has_preview``) and it 404s.
+# The DEEZER pass thus also resets ``has_preview=False`` — but ONLY for a row with
+# no ``deezer`` radar source (a row that keeps one still serves a preview from its
+# ``external_track_id`` and must stay True). The BEATPORT pass never touches it
+# (Beatport never sets ``has_preview``). This closes the residual that shipped dead
+# Play buttons on ~2.3k remixes after the first prod run (see git history).
+_CLEAR_HAS_PREVIEW = {"deezer_id": True, "beatport_id": False}
 # Groups per committed transaction in --apply mode (mirrors dedup_catalog).
 _COMMIT_EVERY = 50
 
@@ -132,6 +156,28 @@ def _get_engine():
         url = os.environ["DATABASE_URL"].replace("+asyncpg", "")
         _engine = create_engine(url, pool_pre_ping=True)
     return _engine
+
+
+def _has_deezer_radar_source(session, catalog_id):
+    """True if a ``deezer`` radar_tracks row backs this catalog id.
+
+    ``get_preview_url`` can still resolve a preview from that source's
+    ``external_track_id`` even after ``catalog.deezer_id`` is cleared, so such a
+    row's ``has_preview`` must be left True (clearing it would hide a working Play
+    button). Rows with no deezer radar source are the ones that 404.
+    """
+    from sqlalchemy import text
+
+    return (
+        session.execute(
+            text(
+                "SELECT 1 FROM radar_tracks "
+                "WHERE catalog_id = :cid AND source = 'deezer' LIMIT 1"
+            ),
+            {"cid": catalog_id},
+        ).first()
+        is not None
+    )
 
 
 def reverify_by_column(
@@ -152,26 +198,35 @@ def reverify_by_column(
     ``bpm_source``/``key_source`` still equal to "beatport" pins the wrong value at
     the ``enrich_from_beatport`` guard, so both value and source are cleared to let
     the re-scan re-derive them. A bpm/key from any other source is authoritative
-    and NEVER touched (invariant #2). The deezer column has no such fields.
+    and NEVER touched (invariant #2).
+
+    On the DEEZER column each suspect row ALSO has ``has_preview`` reset to False
+    (``_CLEAR_HAS_PREVIEW``) — but only when no ``deezer`` radar source still backs
+    it: ``has_preview`` is a Deezer-only signal and, once the id is cleared, an
+    orphaned True makes the frontend offer a Play button that 404s. A row keeping a
+    deezer radar source still serves a preview and is left True.
 
     apply=False (default) is read-only: nothing is committed and the returned
-    counts describe what WOULD happen (``meta_cleared`` included). In --apply mode
-    the work is committed every ``commit_every`` suspect groups (plus a trailing
-    commit).
+    counts describe what WOULD happen (``meta_cleared`` / ``preview_cleared``
+    included). In --apply mode the work is committed every ``commit_every`` suspect
+    groups (plus a trailing commit).
 
     Returns ``{"suspect_groups", "clean_groups", "suspect_rows", "reset",
-    "meta_cleared", "examples"}`` where ``suspect_groups`` counts id-groups spanning
-    distinct recordings, ``clean_groups`` counts true-duplicate groups left intact,
-    ``meta_cleared`` counts individual beatport-sourced bpm/key fields cleared (or,
-    in dry-run, that WOULD be cleared), and ``examples`` is a list of
+    "meta_cleared", "preview_cleared", "examples"}`` where ``suspect_groups`` counts
+    id-groups spanning distinct recordings, ``clean_groups`` counts true-duplicate
+    groups left intact, ``meta_cleared`` counts individual beatport-sourced bpm/key
+    fields cleared, ``preview_cleared`` counts stale has_preview flags reset (both,
+    in dry-run, describe what WOULD happen), and ``examples`` is a list of
     ``(value, [(row_id, title), ...])`` per suspect group.
     """
     col = getattr(CatalogEntry, column)
     searched_name, attempts_name = _SEARCH_STATE[column]
     conditional = _CONDITIONAL_METADATA[column]
+    clear_preview = _CLEAR_HAS_PREVIEW[column]
     dup_values = _duplicate_values(session, column)
 
     suspect_groups = clean_groups = suspect_rows = reset = meta_cleared = 0
+    preview_cleared = 0
     examples = []
     pending = 0
 
@@ -202,6 +257,15 @@ def reverify_by_column(
                     if apply:
                         setattr(r, value_col, None)
                         setattr(r, source_col, None)
+            # has_preview is Deezer-derived: reset it when the suspect deezer_id is
+            # cleared AND no deezer radar source can still serve a preview, so the
+            # frontend stops offering a Play that 404s (invariant restored).
+            if clear_preview and r.has_preview and not _has_deezer_radar_source(
+                session, r.id
+            ):
+                preview_cleared += 1
+                if apply:
+                    r.has_preview = False
             if apply:
                 setattr(r, column, None)
                 setattr(r, searched_name, None)
@@ -223,6 +287,7 @@ def reverify_by_column(
         "suspect_rows": suspect_rows,
         "reset": reset,
         "meta_cleared": meta_cleared,
+        "preview_cleared": preview_cleared,
         "examples": examples,
     }
 
@@ -244,6 +309,12 @@ def _print_report(column, stats, apply):
         print(
             f"    (+ {meta_verb} {stats['meta_cleared']} beatport-sourced bpm/key "
             f"field(s) so the re-scan re-derives them)"
+        )
+    if stats.get("preview_cleared"):
+        prev_verb = "reset" if apply else "would reset"
+        print(
+            f"    (+ {prev_verb} {stats['preview_cleared']} stale has_preview flag(s) "
+            f"to False — Deezer-derived, unresolvable once the id is cleared)"
         )
     for value, rows in stats["examples"]:
         titles = ", ".join(f"#{rid} {title!r}" for rid, title in rows)
@@ -268,7 +339,9 @@ def main(apply):
                 print(
                     "\nDry-run only. True-duplicate groups (a single recording "
                     "under the id) are NOT counted here — they are dedup_catalog's "
-                    "job. The deezer pass resets the id only; the beatport pass "
+                    "job. The deezer pass resets the id and stale has_preview (a "
+                    "Deezer-only signal, unresolvable once the id is cleared, unless "
+                    "a deezer radar source still backs the row); the beatport pass "
                     "ALSO clears bpm/key when they are beatport-sourced "
                     "(bpm_source/key_source == 'beatport') so the re-scan re-derives "
                     "them — a rekordbox/deezer/unset bpm/key is authoritative and "
@@ -307,9 +380,10 @@ def main(apply):
                 "re-enriched on the next nightly run (enrich_catalog / "
                 "enrich_catalog_beatport). The platform id + its search state were "
                 "cleared on both passes; the beatport pass ALSO nulled beatport-"
-                "sourced bpm/key so the corrected match re-derives them. Other "
-                "mis-derived non-id fields (cover/duration/label/release_date) may "
-                "persist until a natural overwrite — the assumed X3.c residual."
+                "sourced bpm/key and the deezer pass reset stale has_preview so the "
+                "corrected match re-derives them. Other mis-derived non-id fields "
+                "(cover/duration/label/release_date) may persist until a natural "
+                "overwrite — the assumed X3.c residual."
             )
     finally:
         engine.dispose()
