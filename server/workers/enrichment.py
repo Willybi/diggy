@@ -157,14 +157,21 @@ def _mark_searched(entry, source: str, now: datetime) -> None:
 
 
 async def _search_deezer_async(
-    pool, artist: str | None, title: str | None
+    pool, artist: str | None, title: str | None, isrc: str | None = None
 ) -> dict | None:
-    """Async version of deezer_enrich.search_deezer — cascading search strategy."""
+    """Async version of deezer_enrich.search_deezer — cascading search strategy.
+
+    Each cascade candidate is validated against the ORIGINAL artist/title (and
+    ``isrc`` when known) before being returned, so a non-matching hit (e.g. a
+    remix inheriting the original's deezer_id) is skipped and the search yields
+    None rather than a wrong recording. Twin of the sync ``search_deezer``.
+    """
     if not title:
         return None
 
-    # Import the title-cleaning helpers from deezer_enrich
+    # Import the title-cleaning + validation helpers from deezer_enrich
     from workers.deezer_enrich import (
+        _deezer_hit_matches,
         _first_artist,
         _strip_non_remix_parens,
         _strip_safe_suffixes,
@@ -191,21 +198,21 @@ async def _search_deezer_async(
 
     # 1. Original title
     hit = await _search(title)
-    if hit:
+    if hit and _deezer_hit_matches(hit, artist, title, isrc):
         return hit
 
     # 2. Strip safe suffixes
     safe = _strip_safe_suffixes(title)
     if safe:
         hit = await _search(safe)
-        if hit:
+        if hit and _deezer_hit_matches(hit, artist, title, isrc):
             return hit
 
     # 3. Strip non-remix parens
     stripped = _strip_non_remix_parens(title)
     if stripped and stripped != safe:
         hit = await _search(stripped)
-        if hit:
+        if hit and _deezer_hit_matches(hit, artist, title, isrc):
             return hit
 
     # 4. First artist only
@@ -214,7 +221,7 @@ async def _search_deezer_async(
         if first:
             t = stripped or safe or title
             hit = await _search(t, a=first)
-            if hit:
+            if hit and _deezer_hit_matches(hit, artist, title, isrc):
                 return hit
 
     return None
@@ -330,7 +337,9 @@ async def enrich_deezer_batch(
                     _mark_searched(entry, "deezer", now)
                     return
             else:
-                hit = await _search_deezer_async(pool, entry.artist, entry.title)
+                hit = await _search_deezer_async(
+                    pool, entry.artist, entry.title, isrc=entry.isrc
+                )
                 if not hit:
                     logger.debug("Deezer not found for catalog %s", entry.id)
                     _mark_searched(entry, "deezer", now)
@@ -396,6 +405,7 @@ async def _search_beatport_async(
         _normalize_release_page_track,
         _normalize_track,
         _pick_best_track,
+        _release_title_matches,
     )
 
     def _extract_next_data(html: str) -> dict:
@@ -546,21 +556,17 @@ async def _search_beatport_async(
         if match:
             return match
 
-        # Strategy 3: release fallback
+        # Strategy 3: release fallback — require a remix-aware title match so the
+        # shared release beatport_id is never stamped onto the wrong EP track (no
+        # more blind single-track guess; identical guard to the sync twin).
         releases = await _do_release_search(q)
-        title_lower = title.lower()
         for rel in releases:
             if not _artist_matches(rel.get("artists", []), artist):
                 continue
             tracks = await _fetch_release_tracks(rel["name"], rel["id"])
-            if not tracks:
-                continue
             for t in tracks:
-                t_name = (t.get("name") or "").lower()
-                if title_lower in t_name or t_name in title_lower:
+                if _release_title_matches(t, title):
                     return t
-            if len(tracks) == 1:
-                return tracks[0]
 
     return None
 

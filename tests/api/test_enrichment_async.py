@@ -186,7 +186,15 @@ class TestSearchAttempts:
     async def test_success_increments_attempts(self):
         entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
         pool = MagicMock()
-        hit = {"id": 123, "isrc": "US1234", "duration": 180, "preview": ""}
+        # X3.a: hit must validate against the entry (title + artist) to be applied.
+        hit = {
+            "id": 123,
+            "title": "Track",
+            "artist": {"name": "Artist"},
+            "isrc": "US1234",
+            "duration": 180,
+            "preview": "",
+        }
         pool.deezer_get = AsyncMock(return_value={"data": [hit]})
 
         await enrich_deezer_batch(None, [entry], pool, None, set())
@@ -222,7 +230,15 @@ class TestEnrichDeezerBatch:
     async def test_successful_search_enriches_and_marks_searched(self):
         entry = _make_entry(artist="Artist", title="Track", deezer_searched_at=None)
         pool = MagicMock()
-        hit = {"id": 123, "isrc": "US1234", "duration": 180, "preview": "http://p"}
+        # X3.a: hit must validate against the entry (title + artist) to be applied.
+        hit = {
+            "id": 123,
+            "title": "Track",
+            "artist": {"name": "Artist"},
+            "isrc": "US1234",
+            "duration": 180,
+            "preview": "http://p",
+        }
         pool.deezer_get = AsyncMock(return_value={"data": [hit]})
 
         stats = await enrich_deezer_batch(None, [entry], pool, None, set())
@@ -309,21 +325,23 @@ class TestSearchDeezerCascade:
         pool.deezer_get.assert_not_called()
 
     async def test_qualified_search_hit_returned_as_is(self):
-        hit = {"id": 1, "title": "Track"}
+        # X3.a: the returned hit must now also validate (title + artist match).
+        hit = {"id": 1, "title": "Track", "artist": {"name": "Artist"}}
         pool = _make_cascade_pool({'artist:"Artist" track:"Track"': hit})
 
         assert await _search_deezer_async(pool, "Artist", "Track") is hit
         assert pool.queries == ['artist:"Artist" track:"Track"']
 
     async def test_free_query_fallback_when_qualified_empty(self):
-        hit = {"id": 2}
+        hit = {"id": 2, "title": "Track", "artist": {"name": "Artist"}}
         pool = _make_cascade_pool({"Artist Track": hit})
 
         assert await _search_deezer_async(pool, "Artist", "Track") is hit
         assert pool.queries == ['artist:"Artist" track:"Track"', "Artist Track"]
 
     async def test_no_artist_uses_free_query_only(self):
-        hit = {"id": 3}
+        # No requested artist → artist validation is a pass; title must still match.
+        hit = {"id": 3, "title": "Track"}
         pool = _make_cascade_pool({"Track": hit})
 
         assert await _search_deezer_async(pool, None, "Track") is hit
@@ -331,7 +349,7 @@ class TestSearchDeezerCascade:
 
     async def test_hit_after_safe_suffix_strip(self):
         # Step 2: "(Extended Mix)" is a safe suffix, stripped after step 1 fails.
-        hit = {"id": 4}
+        hit = {"id": 4, "title": "Track (Extended Mix)", "artist": {"name": "Artist"}}
         pool = _make_cascade_pool({'artist:"Artist" track:"Track"': hit})
 
         result = await _search_deezer_async(pool, "Artist", "Track (Extended Mix)")
@@ -346,7 +364,7 @@ class TestSearchDeezerCascade:
     async def test_hit_after_non_remix_paren_strip(self):
         # Step 3: "(Vocal Mix)" is not a safe suffix (step 2 skipped) but only
         # contains generic mixing terms, so it is stripped as a non-remix paren.
-        hit = {"id": 5}
+        hit = {"id": 5, "title": "Track (Vocal Mix)", "artist": {"name": "Artist"}}
         pool = _make_cascade_pool({'artist:"Artist" track:"Track"': hit})
 
         result = await _search_deezer_async(pool, "Artist", "Track (Vocal Mix)")
@@ -360,7 +378,7 @@ class TestSearchDeezerCascade:
 
     async def test_hit_with_first_artist_only(self):
         # Step 4: multi-artist "A & B" fails everywhere, first artist "A" matches.
-        hit = {"id": 6}
+        hit = {"id": 6, "title": "Song", "artist": {"name": "A"}}
         pool = _make_cascade_pool({'artist:"A" track:"Song"': hit})
 
         result = await _search_deezer_async(pool, "A & B", "Song")
@@ -371,6 +389,21 @@ class TestSearchDeezerCascade:
             "A & B Song",
             'artist:"A" track:"Song"',
         ]
+
+    async def test_non_matching_hit_rejected_returns_none(self):
+        # X3.a: the only available hit is a DIFFERENT recording (the original
+        # returned for a remix request — the X3 bug). Validation rejects it, so
+        # the cascade yields None instead of stamping the wrong deezer_id.
+        original = {"id": 9, "title": "Strobe", "artist": {"name": "deadmau5"}}
+        pool = _make_cascade_pool(
+            {'artist:"deadmau5" track:"Strobe Layton Giordani Remix"': original}
+        )
+
+        result = await _search_deezer_async(
+            pool, "deadmau5", "Strobe (Layton Giordani Remix)"
+        )
+
+        assert result is None
 
     async def test_full_cascade_failure_returns_none(self):
         pool = _make_cascade_pool({})

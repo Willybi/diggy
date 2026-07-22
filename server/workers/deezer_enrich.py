@@ -11,10 +11,12 @@ Used by:
 """
 
 import re as _re
+import unicodedata
 
 import httpx
 import requests
 from services.image_service import BUCKET_CATALOG, ImageService
+from workers.catalog_merge import normalize_track_title
 
 DEEZER_API = "https://api.deezer.com"
 RATE_LIMIT = 0.12  # seconds between requests
@@ -100,10 +102,110 @@ def _first_artist(artist: str) -> str | None:
     return None
 
 
+# ── Hit validation (X3.a) ───────────────────────────────────────────────────
+#
+# Deezer /search returns hits[0] unchecked, so a REMIX inherits the ORIGINAL's
+# deezer_id (measured in prod: 77% of shared-deezer_id groups are DISTINCT
+# recordings). Before the cascade returns a candidate it must be confirmed to
+# name the SAME recording as the requested track — mirror of
+# ``catalog_merge.same_track``: an ISRC present on BOTH sides is the recording
+# identity; otherwise a remix-aware title match (kept versions differ) plus a
+# tolerant artist match. Tolerant to formatting (feat / "(Original Mix)" /
+# accents / "(X Remix)" vs "- X Remix"), strict on a named remix vs its original
+# (project invariant #4: err toward separation).
+
+_ARTIST_SPLIT = _re.compile(
+    r"\s*(?:,\s*|\s+&\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+x\s+|\s+vs\.?\s+)", _re.IGNORECASE
+)
+_TITLE_BRACKETS = _re.compile(r"[()\[\]]")
+_TITLE_DASH = _re.compile(r"\s+-\s+")
+
+
+def _fold(s: str) -> str:
+    """Lowercase + strip diacritics for accent-insensitive comparison."""
+    return unicodedata.normalize("NFD", s.lower()).encode("ascii", "ignore").decode()
+
+
+def _hit_artist_names(hit: dict) -> list[str]:
+    """Every artist name carried by a Deezer hit (contributors, else single artist)."""
+    contributors = hit.get("contributors") or []
+    if contributors:
+        return [c["name"] for c in contributors if c.get("name")]
+    name = (hit.get("artist") or {}).get("name")
+    return [name] if name else []
+
+
+def _artist_matches(artist: str | None, hit: dict) -> bool:
+    """True if a hit artist overlaps the requested artist (fold + containment).
+
+    No requested artist → nothing to refute (True). A hit carrying no artist name
+    cannot be confirmed → False. Mirrors ``beatport.client._artist_matches``.
+    """
+    if not artist:
+        return True
+    hit_names = [_fold(n) for n in _hit_artist_names(hit)]
+    if not hit_names:
+        return False
+    for want in (_fold(n.strip()) for n in _ARTIST_SPLIT.split(artist) if n.strip()):
+        for got in hit_names:
+            if want and got and (want in got or got in want):
+                return True
+    return False
+
+
+def _title_key(title: str) -> str:
+    """Remix-aware comparison key: ``normalize_track_title`` (drops feat /
+    "(Original Mix)", KEEPS named remixes) then fold accents and unify
+    bracket/dash notation so "(X Remix)" and "- X Remix" compare equal."""
+    t = _fold(normalize_track_title(title))
+    t = _TITLE_BRACKETS.sub(" ", t)
+    t = _TITLE_DASH.sub(" ", t)
+    return _re.sub(r"\s+", " ", t).strip()
+
+
+def _deezer_hit_matches(
+    hit: dict, artist: str | None, title: str | None, isrc: str | None = None
+) -> bool:
+    """True only if ``hit`` confidently names the requested recording.
+
+    - ISRC present on BOTH sides → recording identity: accept iff equal (a
+      different ISRC is a different recording even under one deezer_id).
+    - Otherwise → remix-aware title match AND tolerant artist match.
+
+    Rejects the X3 bug (a remix returned for the original title) while staying
+    tolerant to formatting. Missing/blank data on either side → reject.
+    """
+    if not hit:
+        return False
+
+    hit_isrc = hit.get("isrc")
+    if isrc and hit_isrc:
+        return isrc == hit_isrc
+
+    if not _artist_matches(artist, hit):
+        return False
+
+    hit_title = hit.get("title")
+    if not title or not hit_title:
+        return False
+    hk = _title_key(hit_title)
+    return bool(hk) and hk == _title_key(title)
+
+
 def search_deezer(
-    artist: str | None, title: str | None, client: httpx.Client | None = None
+    artist: str | None,
+    title: str | None,
+    client: httpx.Client | None = None,
+    isrc: str | None = None,
 ) -> dict | None:
-    """Search Deezer for a track. Returns the best match or None."""
+    """Search Deezer for a track. Returns the best VALIDATED match or None.
+
+    Each cascade candidate is checked against the ORIGINAL artist/title (and
+    ``isrc`` when known) via ``_deezer_hit_matches`` before being returned; a
+    non-matching candidate is treated as "no hit" for that step and the cascade
+    continues. Returns None when nothing validates (the caller marks a search
+    attempt, keeping the entry eligible for the E1 re-scan).
+    """
     if not title:
         return None
 
@@ -137,7 +239,7 @@ def search_deezer(
 
     # 1. Try with original title
     hit = _search(title)
-    if hit:
+    if hit and _deezer_hit_matches(hit, artist, title, isrc):
         return hit
 
     # 2. Strip safe suffixes only (feat, Remastered, Extended Mix, etc.)
@@ -145,14 +247,14 @@ def search_deezer(
     safe = _strip_safe_suffixes(title)
     if safe:
         hit = _search(safe)
-        if hit:
+        if hit and _deezer_hit_matches(hit, artist, title, isrc):
             return hit
 
     # 3. Strip non-remix parens (keeps remix/edit credits, strips everything else)
     stripped = _strip_non_remix_parens(title)
     if stripped and stripped != safe:
         hit = _search(stripped)
-        if hit:
+        if hit and _deezer_hit_matches(hit, artist, title, isrc):
             return hit
 
     # 4. First artist only + cleaned title (for multi-artist tracks)
@@ -161,7 +263,7 @@ def search_deezer(
         if first:
             t = stripped or safe or title
             hit = _search(t, a=first)
-            if hit:
+            if hit and _deezer_hit_matches(hit, artist, title, isrc):
                 return hit
 
     return None

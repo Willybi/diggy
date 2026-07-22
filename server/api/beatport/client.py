@@ -188,6 +188,31 @@ def _title_matches(bp_name: str | None, catalog_title: str | None) -> bool:
     return cat in bp or bp in cat
 
 
+def _release_title_matches(bp_track: dict, catalog_title: str | None) -> bool:
+    """Strict, remix-aware title match for the release fallback (Strategy 3).
+
+    A Beatport release shares ONE ``beatport_id`` across its whole tracklist, so
+    picking the wrong track out of an EP stamps that id onto a DISTINCT recording
+    (the X1 root cause: 94% of beatport_id groups span distinct recordings).
+    Unlike the substring ``_title_matches`` (used only AFTER an artist-validated
+    track search), this requires the normalized titles to be EQUAL. Version
+    markers (remix/edit/extended/…) survive ``normalize_track_title`` while
+    feat/original-mix noise is stripped, so an original never matches its remix
+    and vice-versa. Beatport keeps the version in a separate ``mix_name`` field,
+    so the full title is reconstructed before normalizing.
+    """
+    from workers.catalog_merge import normalize_track_title
+
+    if not catalog_title:
+        return False
+    bp_name = bp_track.get("name")
+    if not bp_name:
+        return False
+    mix = (bp_track.get("mix_name") or "").strip()
+    full = f"{bp_name} ({mix})" if mix else bp_name
+    return normalize_track_title(full) == normalize_track_title(catalog_title)
+
+
 def _pick_best_track(
     results: list[dict], catalog_artist: str | None, catalog_title: str | None = None
 ) -> dict | None:
@@ -307,23 +332,21 @@ class BeatportClient:
     def search_release_fallback(
         self, title: str, artist: str | None = None
     ) -> dict | None:
-        """Search releases, filter by artist, scrape release page for full track data."""
+        """Search releases, filter by artist, scrape release page for full track data.
+
+        Only returns a track whose title matches (remix-aware) the requested one;
+        a release track that does not match is never returned — not even when the
+        release holds a single track, so the shared release ``beatport_id`` is
+        never stamped onto the wrong recording.
+        """
         releases = self.search_releases(title, artist)
         for rel in releases:
             if not _artist_matches(rel.get("artists", []), artist):
                 continue
             tracks = self.get_release_tracks(rel["name"], rel["id"])
-            if not tracks:
-                continue
-            # Pick track whose title best matches
-            title_lower = title.lower()
             for t in tracks:
-                t_name = (t.get("name") or "").lower()
-                if title_lower in t_name or t_name in title_lower:
+                if _release_title_matches(t, title):
                     return t
-            # If only one track in release, take it
-            if len(tracks) == 1:
-                return tracks[0]
         return None
 
     def search_track_validated(

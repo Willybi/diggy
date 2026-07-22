@@ -78,7 +78,7 @@ async def main(
             entry = await db.get(CatalogEntry, entry.id)
 
             try:
-                hit = search_deezer(entry.artist, entry.title)
+                hit = search_deezer(entry.artist, entry.title, isrc=entry.isrc)
             except Exception as e:
                 print(f"  ERROR [{entry.id}] {entry.artist} — {entry.title}: {e}")
                 errors += 1

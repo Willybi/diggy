@@ -4,12 +4,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from database import Base
 from workers.deezer_enrich import (
+    _deezer_hit_matches,
     _first_artist,
     _is_remix_paren,
     _strip_non_remix_parens,
     _strip_safe_suffixes,
     enrich_entry,
     link_catalog_artist_from_hit,
+    search_deezer,
 )
 from models import Artist, ArtistAlias, CatalogArtist, CatalogEntry
 from services.image_service import ImageService
@@ -87,6 +89,135 @@ class TestFirstArtist:
 
     def test_single_artist(self):
         assert _first_artist("CamelPhat") is None
+
+
+class TestDeezerHitMatches:
+    """X3.a: a Deezer candidate must confidently name the requested recording
+    before it is accepted — mirror of catalog_merge.same_track."""
+
+    # ── accept: same recording, tolerant to formatting ──
+
+    def test_exact_title(self):
+        hit = {"title": "Strobe", "artist": {"name": "deadmau5"}}
+        assert _deezer_hit_matches(hit, "deadmau5", "Strobe") is True
+
+    def test_entry_feat_hit_plain(self):
+        hit = {"title": "Track", "artist": {"name": "A"}}
+        assert _deezer_hit_matches(hit, "A", "Track (feat. Guest)") is True
+
+    def test_entry_original_mix_hit_plain(self):
+        hit = {"title": "Track", "artist": {"name": "A"}}
+        assert _deezer_hit_matches(hit, "A", "Track (Original Mix)") is True
+
+    def test_named_remix_both_sides(self):
+        hit = {"title": "Track (Adam Port Remix)", "artist": {"name": "A"}}
+        assert _deezer_hit_matches(hit, "A", "Track (Adam Port Remix)") is True
+
+    def test_remix_dash_vs_paren_notation(self):
+        # Tolerant to notation: "- Adam Port Remix" == "(Adam Port Remix)".
+        hit = {"title": "Track (Adam Port Remix)", "artist": {"name": "A"}}
+        assert _deezer_hit_matches(hit, "A", "Track - Adam Port Remix") is True
+
+    def test_accent_insensitive_title(self):
+        hit = {"title": "Cafe", "artist": {"name": "A"}}
+        assert _deezer_hit_matches(hit, "A", "Café") is True
+
+    def test_artist_from_contributors(self):
+        hit = {"title": "Track", "contributors": [{"name": "A"}, {"name": "B"}]}
+        assert _deezer_hit_matches(hit, "A", "Track") is True
+
+    def test_isrc_equal_overrides_title(self):
+        # ISRC is the recording identity: accept even when titles differ.
+        hit = {"title": "Whatever", "artist": {"name": "Z"}, "isrc": "USABC1234567"}
+        assert (
+            _deezer_hit_matches(hit, "A", "Totally Different", isrc="USABC1234567")
+            is True
+        )
+
+    def test_isrc_only_on_one_side_falls_back_to_title(self):
+        # Entry has an ISRC, hit has none → fall back to title/artist match.
+        hit = {"title": "Track", "artist": {"name": "A"}}
+        assert _deezer_hit_matches(hit, "A", "Track", isrc="USABC1234567") is True
+
+    # ── reject: different recording ──
+
+    def test_remix_hit_for_original_request(self):
+        # THE X3 bug: entry is a remix, Deezer returns the original recording.
+        hit = {"title": "Strobe", "artist": {"name": "deadmau5"}}
+        assert (
+            _deezer_hit_matches(hit, "deadmau5", "Strobe (Layton Giordani Remix)")
+            is False
+        )
+
+    def test_original_request_for_remix_hit(self):
+        # Reverse direction: entry is the original, Deezer returns a remix.
+        hit = {"title": "Strobe (Layton Giordani Remix)", "artist": {"name": "deadmau5"}}
+        assert _deezer_hit_matches(hit, "deadmau5", "Strobe") is False
+
+    def test_wrong_title(self):
+        hit = {"title": "Daycall", "artist": {"name": "Kavinsky"}}
+        assert _deezer_hit_matches(hit, "Kavinsky", "Nightcall") is False
+
+    def test_wrong_artist(self):
+        hit = {"title": "Track", "artist": {"name": "Zniff"}}
+        assert _deezer_hit_matches(hit, "Alpha", "Track") is False
+
+    def test_isrc_mismatch_rejects(self):
+        hit = {"title": "Track", "artist": {"name": "A"}, "isrc": "GB0001111111"}
+        assert _deezer_hit_matches(hit, "A", "Track", isrc="USABC1234567") is False
+
+    def test_missing_artist_in_hit_rejects(self):
+        hit = {"title": "Track"}
+        assert _deezer_hit_matches(hit, "A", "Track") is False
+
+    def test_empty_hit_rejects(self):
+        assert _deezer_hit_matches({}, "A", "Track") is False
+
+
+class _FakeDeezerClient:
+    """Minimal httpx.Client stand-in: every /search returns the same hit list."""
+
+    def __init__(self, hit):
+        self._hit = hit
+        self.calls = 0
+
+    def get(self, url, params=None, timeout=None):
+        self.calls += 1
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"data": [self._hit] if self._hit else []}
+        return resp
+
+
+class TestSearchDeezerValidation:
+    """X3.a: search_deezer only returns a candidate that validates."""
+
+    def test_returns_matching_hit(self):
+        hit = {"id": 1, "title": "Strobe", "artist": {"name": "deadmau5"}}
+        client = _FakeDeezerClient(hit)
+        assert search_deezer("deadmau5", "Strobe", client=client) is hit
+
+    def test_rejects_original_for_remix_entry_returns_none(self):
+        # THE X3 bug: entry is a remix, Deezer only has the original → None.
+        original = {"id": 1, "title": "Strobe", "artist": {"name": "deadmau5"}}
+        client = _FakeDeezerClient(original)
+        result = search_deezer(
+            "deadmau5", "Strobe (Layton Giordani Remix)", client=client
+        )
+        assert result is None
+
+    def test_isrc_match_accepts_despite_title(self):
+        hit = {
+            "id": 2,
+            "title": "Whatever Edit",
+            "artist": {"name": "Z"},
+            "isrc": "USABC1234567",
+        }
+        client = _FakeDeezerClient(hit)
+        result = search_deezer(
+            "A", "Different Title", client=client, isrc="USABC1234567"
+        )
+        assert result is hit
 
 
 class TestEnrichEntry:

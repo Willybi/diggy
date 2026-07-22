@@ -1,9 +1,8 @@
 """Tests for server/api/beatport/ — client and enrichment logic."""
+import os
+import sys
 from datetime import date
 from unittest.mock import MagicMock, patch
-
-import sys
-import os
 
 # Patch infra deps before import
 sys.modules.setdefault("boto3", MagicMock())
@@ -11,9 +10,16 @@ sys.modules.setdefault("botocore", MagicMock())
 sys.modules.setdefault("botocore.client", MagicMock())
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../server/api"))
 
-from beatport.client import _key_to_camelot, _normalize_track, _artist_matches, _pick_best_track, _title_matches
+from beatport.client import (
+    BeatportClient,
+    _artist_matches,
+    _key_to_camelot,
+    _normalize_track,
+    _pick_best_track,
+    _release_title_matches,
+    _title_matches,
+)
 from beatport.enrich import enrich_from_beatport
-
 
 # ── _key_to_camelot ──
 
@@ -359,3 +365,130 @@ class TestPickBestTrack:
         ]
         picked = _pick_best_track(results, "MALUGI")
         assert picked["name"] == "Baby"
+
+
+# ── _release_title_matches (X3.b: strict, remix-aware release matcher) ──
+
+
+class TestReleaseTitleMatches:
+    def test_exact_base_title(self):
+        assert _release_title_matches({"name": "Strobe", "mix_name": None}, "Strobe") is True
+
+    def test_original_mix_matches_bare_title(self):
+        # "Original Mix" is the default-version marker → stripped on both sides.
+        assert (
+            _release_title_matches({"name": "Strobe", "mix_name": "Original Mix"}, "Strobe")
+            is True
+        )
+
+    def test_remix_rejected_for_bare_title(self):
+        # Asking for the original must NOT match a remix sharing the release id.
+        assert (
+            _release_title_matches(
+                {"name": "Strobe", "mix_name": "Layton Giordani Remix"}, "Strobe"
+            )
+            is False
+        )
+
+    def test_remix_matches_when_title_asks_for_it(self):
+        assert (
+            _release_title_matches(
+                {"name": "Strobe", "mix_name": "Layton Giordani Remix"},
+                "Strobe (Layton Giordani Remix)",
+            )
+            is True
+        )
+
+    def test_different_title_rejected(self):
+        assert _release_title_matches({"name": "Baby", "mix_name": None}, "Strobe") is False
+
+    def test_feat_credit_is_noise(self):
+        assert (
+            _release_title_matches(
+                {"name": "Honestly feat. Sam Harper", "mix_name": None}, "Honestly"
+            )
+            is True
+        )
+
+    def test_substring_no_longer_matches(self):
+        # Old behaviour matched "Reach" against "Reach Out" (substring); the
+        # tightened matcher rejects it.
+        assert _release_title_matches({"name": "Reach Out", "mix_name": None}, "Reach") is False
+
+    def test_none_catalog_title(self):
+        assert _release_title_matches({"name": "Strobe", "mix_name": None}, None) is False
+
+    def test_missing_bp_name(self):
+        assert _release_title_matches({"name": None, "mix_name": "x"}, "Strobe") is False
+
+
+# ── search_release_fallback (X3.b: no blind single-track guess) ──
+
+
+class TestSearchReleaseFallback:
+    def _releases(self, artist="Malugi"):
+        return [{"id": 1, "name": "Some EP", "artists": [{"name": artist}], "tracks": []}]
+
+    def test_rejects_single_non_matching_track(self):
+        # A release with ONE track whose title differs must NOT be returned
+        # (previously returned blindly via `if len(tracks) == 1`).
+        client = BeatportClient()
+        with patch.object(client, "search_releases", return_value=self._releases()), patch.object(
+            client,
+            "get_release_tracks",
+            return_value=[{"name": "Different Song", "mix_name": "Original Mix", "id": 99}],
+        ):
+            assert client.search_release_fallback("Honestly", "Malugi") is None
+
+    def test_rejects_multi_track_when_none_match(self):
+        client = BeatportClient()
+        with patch.object(client, "search_releases", return_value=self._releases()), patch.object(
+            client,
+            "get_release_tracks",
+            return_value=[
+                {"name": "Song A", "mix_name": None, "id": 1},
+                {"name": "Song B", "mix_name": None, "id": 2},
+            ],
+        ):
+            assert client.search_release_fallback("Honestly", "Malugi") is None
+
+    def test_accepts_matching_track(self):
+        client = BeatportClient()
+        with patch.object(client, "search_releases", return_value=self._releases()), patch.object(
+            client,
+            "get_release_tracks",
+            return_value=[
+                {"name": "Baby", "mix_name": None, "id": 1},
+                {"name": "Honestly", "mix_name": "Original Mix", "id": 2},
+            ],
+        ):
+            picked = client.search_release_fallback("Honestly", "Malugi")
+            assert picked["id"] == 2
+
+    def test_picks_remix_not_original_when_title_asks_for_remix(self):
+        # EP holds both the original and its remix under one beatport_id; asking
+        # for the remix must pick the remix, never the original (old substring
+        # logic returned the original "Strobe" first).
+        client = BeatportClient()
+        with patch.object(
+            client,
+            "search_releases",
+            return_value=[{"id": 7, "name": "Strobe Remixes", "artists": [{"name": "deadmau5"}], "tracks": []}],
+        ), patch.object(
+            client,
+            "get_release_tracks",
+            return_value=[
+                {"name": "Strobe", "mix_name": "Original Mix", "id": 1},
+                {"name": "Strobe", "mix_name": "Layton Giordani Remix", "id": 2},
+            ],
+        ):
+            picked = client.search_release_fallback("Strobe (Layton Giordani Remix)", "deadmau5")
+            assert picked["id"] == 2
+
+    def test_skips_release_with_mismatched_artist(self):
+        client = BeatportClient()
+        with patch.object(
+            client, "search_releases", return_value=self._releases(artist="Other")
+        ), patch.object(client, "get_release_tracks") as mock_tracks:
+            assert client.search_release_fallback("Honestly", "Malugi") is None
+            mock_tracks.assert_not_called()
