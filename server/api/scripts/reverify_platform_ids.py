@@ -21,6 +21,22 @@ which is exactly what ``workers.enrichment.select_enrich_candidates`` reads to
 re-pick the row (tier 1: id NULL + searched_at NULL) — so the E1 re-scan, now
 guarded by the corrected matcher (lots A/B), re-enriches it with the RIGHT id.
 
+The BEATPORT pass ALSO clears bpm/key when — and ONLY when — they are
+beatport-sourced (``bpm_source`` / ``key_source`` == "beatport"):
+
+    row.bpm = row.bpm_source = NULL   (iff bpm_source == "beatport")
+    row.key = row.key_source = NULL   (iff key_source == "beatport")
+
+because ``beatport/enrich.enrich_from_beatport`` writes bpm/key ONLY when the
+source is not already "beatport". A suspect row still carrying the WRONG match's
+``bpm_source="beatport"`` would otherwise keep its wrong bpm/key forever — the
+corrected match re-finds the right value but DROPS it at that guard. Nulling the
+value AND its source re-opens the guard so the re-scan re-derives it. A bpm/key
+from any OTHER source ("rekordbox", "deezer", or unset) did NOT come from the
+suspect Beatport match and may be authoritative, so it is NEVER blanked
+(data-authority invariant #2). The DEEZER pass stays id-only — Deezer enrichment
+never stamps a bpm/key provenance.
+
 Detection (per column, deezer then beatport):
   1. Take every platform-id VALUE shared by 2+ rows (``_duplicate_values``).
   2. Split each group into same-recording clusters (``_cluster_by_same_track``,
@@ -40,13 +56,13 @@ running with --apply. A crash mid-run is safe (each batch is committed and the
 operation is idempotent — a re-run finds the remaining groups), but a bad dump is
 not recoverable.
 
-RESIDUAL (assumed): only the platform id and its search state are reset. The
-OTHER metadata a wrong match may have written (cover, duration, bpm/key, label,
-release_date, ...) is NOT blanked — that is deliberately too risky to null blind.
-Such a mis-derived field can survive until a natural overwrite (the re-scan fills
-only NULL fields; an already-populated wrong value may persist). The report calls
-this out; deciding whether that residual is acceptable is the team's call before
-running --apply.
+RESIDUAL (assumed): the platform id + its search state are reset on both passes,
+and the beatport pass additionally nulls beatport-sourced bpm/key. The OTHER
+metadata a wrong match may have written (cover, duration, label, release_date, ...)
+is NOT blanked — that is deliberately too risky to null blind. Such a mis-derived
+field can survive until a natural overwrite (the re-scan fills only NULL fields; an
+already-populated wrong value may persist). The report calls this out; deciding
+whether that residual is acceptable is the team's call before running --apply.
 
 The run is DRY-RUN by default: it prints how many id-groups are suspect (shared
 across distinct recordings), how many are true-duplicate groups left to
@@ -87,6 +103,22 @@ _SEARCH_STATE = {
     "deezer_id": ("deezer_searched_at", "deezer_search_attempts"),
     "beatport_id": ("beatport_searched_at", "beatport_search_attempts"),
 }
+# Per-column metadata whose value must be re-derived on re-enrichment, cleared
+# ONLY when its provenance proves it came from THIS platform's (suspect) match.
+# Each entry is (value_col, source_col, expected_source): when
+# ``row.<source_col> == expected_source`` the pair is nulled so the enrich guard
+# re-opens (``enrich_from_beatport`` writes bpm/key only when the source is not
+# already "beatport" — a wrong bpm_source="beatport" would otherwise pin the wrong
+# value forever). A bpm/key from another source ("rekordbox"/"deezer"/unset) did
+# NOT come from this match and may be authoritative → NEVER touched (data-authority
+# invariant #2). Deezer has no bpm/key provenance write, so its pass stays id-only.
+_CONDITIONAL_METADATA = {
+    "deezer_id": (),
+    "beatport_id": (
+        ("bpm", "bpm_source", "beatport"),
+        ("key", "key_source", "beatport"),
+    ),
+}
 # Groups per committed transaction in --apply mode (mirrors dedup_catalog).
 _COMMIT_EVERY = 50
 
@@ -115,20 +147,31 @@ def reverify_by_column(
     the group is reset: ``column`` → NULL and the source's ``*_searched_at`` /
     ``*_search_attempts`` → NULL / 0, making it a tier-1 E1 re-scan candidate.
 
+    On the BEATPORT column each suspect row ALSO has its bpm/key nulled when — and
+    only when — the value is beatport-sourced (``_CONDITIONAL_METADATA``): a
+    ``bpm_source``/``key_source`` still equal to "beatport" pins the wrong value at
+    the ``enrich_from_beatport`` guard, so both value and source are cleared to let
+    the re-scan re-derive them. A bpm/key from any other source is authoritative
+    and NEVER touched (invariant #2). The deezer column has no such fields.
+
     apply=False (default) is read-only: nothing is committed and the returned
-    counts describe what WOULD happen. In --apply mode the work is committed every
-    ``commit_every`` suspect groups (plus a trailing commit).
+    counts describe what WOULD happen (``meta_cleared`` included). In --apply mode
+    the work is committed every ``commit_every`` suspect groups (plus a trailing
+    commit).
 
     Returns ``{"suspect_groups", "clean_groups", "suspect_rows", "reset",
-    "examples"}`` where ``suspect_groups`` counts id-groups spanning distinct
-    recordings, ``clean_groups`` counts true-duplicate groups left intact, and
-    ``examples`` is a list of ``(value, [(row_id, title), ...])`` per suspect group.
+    "meta_cleared", "examples"}`` where ``suspect_groups`` counts id-groups spanning
+    distinct recordings, ``clean_groups`` counts true-duplicate groups left intact,
+    ``meta_cleared`` counts individual beatport-sourced bpm/key fields cleared (or,
+    in dry-run, that WOULD be cleared), and ``examples`` is a list of
+    ``(value, [(row_id, title), ...])`` per suspect group.
     """
     col = getattr(CatalogEntry, column)
     searched_name, attempts_name = _SEARCH_STATE[column]
+    conditional = _CONDITIONAL_METADATA[column]
     dup_values = _duplicate_values(session, column)
 
-    suspect_groups = clean_groups = suspect_rows = reset = 0
+    suspect_groups = clean_groups = suspect_rows = reset = meta_cleared = 0
     examples = []
     pending = 0
 
@@ -149,12 +192,23 @@ def reverify_by_column(
         if len(examples) < max_examples:
             examples.append((value, [(r.id, r.title) for r in rows]))
 
-        if apply:
-            for r in rows:
+        for r in rows:
+            # Count (dry-run included) and, in --apply, null each metadata field
+            # only when its *_source proves it came from THIS platform's suspect
+            # match — invariant #2 guards a rekordbox/deezer/unset value.
+            for value_col, source_col, expected_source in conditional:
+                if getattr(r, source_col) == expected_source:
+                    meta_cleared += 1
+                    if apply:
+                        setattr(r, value_col, None)
+                        setattr(r, source_col, None)
+            if apply:
                 setattr(r, column, None)
                 setattr(r, searched_name, None)
                 setattr(r, attempts_name, 0)
                 reset += 1
+
+        if apply:
             pending += 1
             if pending >= commit_every:
                 session.commit()
@@ -168,6 +222,7 @@ def reverify_by_column(
         "clean_groups": clean_groups,
         "suspect_rows": suspect_rows,
         "reset": reset,
+        "meta_cleared": meta_cleared,
         "examples": examples,
     }
 
@@ -184,6 +239,12 @@ def _print_report(column, stats, apply):
         f"({stats['clean_groups']} true-duplicate group(s) left to dedup_catalog), "
         f"{verb} {stats['suspect_rows']} suspect row(s)."
     )
+    if stats["meta_cleared"]:
+        meta_verb = "cleared" if apply else "would clear"
+        print(
+            f"    (+ {meta_verb} {stats['meta_cleared']} beatport-sourced bpm/key "
+            f"field(s) so the re-scan re-derives them)"
+        )
     for value, rows in stats["examples"]:
         titles = ", ".join(f"#{rid} {title!r}" for rid, title in rows)
         print(f"    {column}={value!r}: {titles}")
@@ -207,10 +268,14 @@ def main(apply):
                 print(
                     "\nDry-run only. True-duplicate groups (a single recording "
                     "under the id) are NOT counted here — they are dedup_catalog's "
-                    "job. Only the ids are reset by --apply; the OTHER metadata a "
-                    "wrong match may have written (cover/duration/bpm/key/label/"
-                    "release_date) is left as-is (too risky to blank blind) and can "
-                    "survive until a natural overwrite — an assumed residual."
+                    "job. The deezer pass resets the id only; the beatport pass "
+                    "ALSO clears bpm/key when they are beatport-sourced "
+                    "(bpm_source/key_source == 'beatport') so the re-scan re-derives "
+                    "them — a rekordbox/deezer/unset bpm/key is authoritative and "
+                    "left untouched (invariant #2). The OTHER metadata a wrong match "
+                    "may have written (cover/duration/label/release_date) is still "
+                    "left as-is (too risky to blank blind) and can survive until a "
+                    "natural overwrite — an assumed residual."
                 )
                 print(
                     "Re-run with --apply to clear the suspect ids so the E1 re-scan "
@@ -240,9 +305,11 @@ def main(apply):
             print(
                 "\nThe reset rows are now tier-1 E1 re-scan candidates and will be "
                 "re-enriched on the next nightly run (enrich_catalog / "
-                "enrich_catalog_beatport). Only the platform id + its search state "
-                "were cleared; a mis-derived non-id field may persist until a "
-                "natural overwrite — the assumed X3.c residual."
+                "enrich_catalog_beatport). The platform id + its search state were "
+                "cleared on both passes; the beatport pass ALSO nulled beatport-"
+                "sourced bpm/key so the corrected match re-derives them. Other "
+                "mis-derived non-id fields (cover/duration/label/release_date) may "
+                "persist until a natural overwrite — the assumed X3.c residual."
             )
     finally:
         engine.dispose()

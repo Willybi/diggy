@@ -125,6 +125,7 @@ class TestSuspectGroups:
             "clean_groups": 0,
             "suspect_rows": 0,
             "reset": 0,
+            "meta_cleared": 0,
             "examples": [],
         }
 
@@ -210,6 +211,7 @@ class TestTrueDuplicatesLeftIntact:
             "clean_groups": 0,
             "suspect_rows": 0,
             "reset": 0,
+            "meta_cleared": 0,
             "examples": [],
         }
         assert sync_session.get(CatalogEntry, solo.id).deezer_id == "DZ6"
@@ -243,3 +245,224 @@ class TestDryRun:
             assert row.deezer_id == "DZ7"
             assert row.deezer_searched_at == _SEARCHED
             assert row.deezer_search_attempts == attempts
+
+
+class TestBeatportMetadataReset:
+    """X3.c-ext: the beatport pass ALSO nulls bpm/key WHEN beatport-sourced.
+
+    enrich_from_beatport only writes bpm/key when bpm_source/key_source is not
+    already "beatport"; a suspect row still carrying the WRONG match's
+    bpm_source="beatport" would keep its wrong bpm/key on re-enrichment. So the
+    beatport pass nulls value + source to re-open the guard. The ABSOLUTE guard
+    (data-authority invariant #2): a bpm/key from any other source is authoritative
+    and must NEVER be blanked. The deezer pass never touches bpm/key.
+    """
+
+    def test_beatport_pass_clears_beatport_sourced_bpm_key(self, sync_session):
+        # Two distinct remixes under one EP beatport_id, both carrying a
+        # beatport-sourced bpm/key derived from the (wrong) match → id + bpm/key +
+        # their sources cleared, search state reset.
+        remix_a = _cat(
+            sync_session,
+            title="Funk Solo (Batu Remix)",
+            beatport_id="EP-M",
+            bpm=128.0,
+            key="8A",
+            bpm_source="beatport",
+            key_source="beatport",
+            beatport_searched_at=_SEARCHED,
+            beatport_search_attempts=2,
+        )
+        remix_b = _cat(
+            sync_session,
+            title="Funk Solo (Shed Remix)",
+            beatport_id="EP-M",
+            bpm=130.0,
+            key="9A",
+            bpm_source="beatport",
+            key_source="beatport",
+            beatport_searched_at=_SEARCHED,
+            beatport_search_attempts=1,
+        )
+
+        stats = reverify_by_column(sync_session, "beatport_id", apply=True)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["reset"] == 2
+        assert stats["meta_cleared"] == 4  # 2 rows × (bpm + key)
+        for row_id in (remix_a.id, remix_b.id):
+            row = sync_session.get(CatalogEntry, row_id)
+            assert row.beatport_id is None
+            assert row.bpm is None and row.bpm_source is None
+            assert row.key is None and row.key_source is None
+            assert row.beatport_searched_at is None
+            assert row.beatport_search_attempts == 0
+
+    def test_beatport_pass_keeps_non_beatport_sourced_bpm_key(self, sync_session):
+        # THE invariant #2 test: a bpm/key sourced from rekordbox or deezer did NOT
+        # come from the suspect Beatport match and may be authoritative → the id +
+        # search state are reset but the bpm/key (and their sources) are UNTOUCHED.
+        row_rb = _cat(
+            sync_session,
+            title="Funk Solo (Batu Remix)",
+            beatport_id="EP-N",
+            bpm=126.0,
+            key="7A",
+            bpm_source="rekordbox",
+            key_source="rekordbox",
+            beatport_searched_at=_SEARCHED,
+            beatport_search_attempts=2,
+        )
+        row_dz = _cat(
+            sync_session,
+            title="Funk Solo (Shed Remix)",
+            beatport_id="EP-N",
+            bpm=124.0,
+            key="6A",
+            bpm_source="deezer",
+            key_source="deezer",
+            beatport_searched_at=_SEARCHED,
+            beatport_search_attempts=1,
+        )
+
+        stats = reverify_by_column(sync_session, "beatport_id", apply=True)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["reset"] == 2
+        assert stats["meta_cleared"] == 0  # nothing beatport-sourced → nothing cleared
+
+        rb = sync_session.get(CatalogEntry, row_rb.id)
+        assert rb.beatport_id is None  # id reset...
+        assert rb.beatport_searched_at is None and rb.beatport_search_attempts == 0
+        assert rb.bpm == 126.0 and rb.bpm_source == "rekordbox"  # ...but bpm/key KEPT
+        assert rb.key == "7A" and rb.key_source == "rekordbox"
+
+        dz = sync_session.get(CatalogEntry, row_dz.id)
+        assert dz.beatport_id is None
+        assert dz.bpm == 124.0 and dz.bpm_source == "deezer"
+        assert dz.key == "6A" and dz.key_source == "deezer"
+
+    def test_beatport_guard_is_per_field(self, sync_session):
+        # A row can hold a beatport-sourced bpm AND a rekordbox-sourced key: only
+        # the beatport-sourced field is cleared, proving the guard is per-field.
+        mixed = _cat(
+            sync_session,
+            title="Funk Solo (Batu Remix)",
+            beatport_id="EP-P",
+            bpm=130.0,
+            bpm_source="beatport",
+            key="5A",
+            key_source="rekordbox",
+        )
+        _cat(sync_session, title="Funk Solo (Shed Remix)", beatport_id="EP-P")
+
+        stats = reverify_by_column(sync_session, "beatport_id", apply=True)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["meta_cleared"] == 1  # only the beatport-sourced bpm
+        row = sync_session.get(CatalogEntry, mixed.id)
+        assert row.beatport_id is None
+        assert row.bpm is None and row.bpm_source is None  # beatport-sourced → cleared
+        assert row.key == "5A" and row.key_source == "rekordbox"  # rekordbox → KEPT
+
+    def test_deezer_pass_leaves_bpm_key_untouched(self, sync_session):
+        # The deezer pass is id-only: even a beatport-sourced bpm/key on a suspect
+        # deezer group is NOT touched (deezer enrichment never stamps bpm/key).
+        orig = _cat(
+            sync_session,
+            title="Meridian",
+            deezer_id="DZM",
+            isrc="ISRC-ORIG",
+            bpm=128.0,
+            key="8A",
+            bpm_source="beatport",
+            key_source="beatport",
+        )
+        remix = _cat(
+            sync_session,
+            title="Meridian (Julian Muller Remix)",
+            deezer_id="DZM",
+            bpm=132.0,
+            key="10A",
+            bpm_source="beatport",
+            key_source="beatport",
+        )
+
+        stats = reverify_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["reset"] == 2
+        assert stats["meta_cleared"] == 0  # deezer pass never clears bpm/key
+        for row_id, bpm, key in ((orig.id, 128.0, "8A"), (remix.id, 132.0, "10A")):
+            row = sync_session.get(CatalogEntry, row_id)
+            assert row.deezer_id is None  # id reset
+            assert row.bpm == bpm and row.bpm_source == "beatport"  # bpm/key intact
+            assert row.key == key and row.key_source == "beatport"
+
+    def test_dry_run_counts_meta_without_clearing(self, sync_session):
+        # meta_cleared is reported in dry-run (how many WOULD be cleared) but the
+        # rows are untouched — the count informs the run/no-run decision.
+        remix_a = _cat(
+            sync_session,
+            title="Funk Solo (Batu Remix)",
+            beatport_id="EP-D",
+            bpm=128.0,
+            key="8A",
+            bpm_source="beatport",
+            key_source="beatport",
+        )
+        remix_b = _cat(
+            sync_session,
+            title="Funk Solo (Shed Remix)",
+            beatport_id="EP-D",
+            bpm=130.0,
+            key="9A",
+            bpm_source="beatport",
+            key_source="beatport",
+        )
+
+        stats = reverify_by_column(sync_session, "beatport_id", apply=False)
+
+        assert stats["suspect_groups"] == 1
+        assert stats["reset"] == 0
+        assert stats["meta_cleared"] == 4  # counted, but nothing mutated
+        for row_id in (remix_a.id, remix_b.id):
+            row = sync_session.get(CatalogEntry, row_id)
+            assert row.beatport_id == "EP-D"
+            assert row.bpm is not None and row.bpm_source == "beatport"
+            assert row.key is not None and row.key_source == "beatport"
+
+    def test_beatport_meta_reset_is_idempotent(self, sync_session):
+        # After the first apply cleared id + bpm/key, a second apply finds no shared
+        # id → 0 suspect group, 0 meta cleared.
+        _cat(
+            sync_session,
+            title="Funk Solo (Batu Remix)",
+            beatport_id="EP-I",
+            bpm=128.0,
+            key="8A",
+            bpm_source="beatport",
+            key_source="beatport",
+        )
+        _cat(
+            sync_session,
+            title="Funk Solo (Shed Remix)",
+            beatport_id="EP-I",
+            bpm=130.0,
+            key="9A",
+            bpm_source="beatport",
+            key_source="beatport",
+        )
+
+        first = reverify_by_column(sync_session, "beatport_id", apply=True)
+        assert first["suspect_groups"] == 1 and first["meta_cleared"] == 4
+
+        second = reverify_by_column(sync_session, "beatport_id", apply=True)
+        assert second == {
+            "suspect_groups": 0,
+            "clean_groups": 0,
+            "suspect_rows": 0,
+            "reset": 0,
+            "meta_cleared": 0,
+            "examples": [],
+        }
