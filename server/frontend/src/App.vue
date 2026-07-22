@@ -135,6 +135,11 @@ body {
 .app-main {
   min-width: 0;
   overflow-y: auto;
+  /* Lock horizontal panning: a few px of overflow anywhere would otherwise
+     turn app-main into an x-scroll container (overflow-y:auto forces the
+     x axis to `auto` too). Clip x + kill the residual rubber-band on iOS. */
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
   container: app / inline-size;
 }
 .app-main.has-player {

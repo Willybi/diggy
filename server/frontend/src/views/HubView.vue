@@ -632,7 +632,12 @@ const recoLoading = ref(false)
 async function loadReco() {
   recoLoading.value = true
   try {
-    const { data } = await api.get('/api/recommendations', { params: { limit: 12 } })
+    // Trailing slash is REQUIRED: the route is defined at `/api/recommendations/`.
+    // Hitting it slashless returns a 307 to the canonical path, and Safari/iOS
+    // drops the Authorization header across that redirect → 401 → the response
+    // interceptor auto-logs-out, kicking the user back to /login right after a
+    // successful sign-in (desktop Chrome preserves the header, hence "works on PC").
+    const { data } = await api.get('/api/recommendations/', { params: { limit: 12 } })
     recoItems.value = data.items || []
   } catch {
     /* silent — the Hub must never break on this */

@@ -99,7 +99,7 @@ function mockApiGet({ activityItems = [], newCount = 0, recoItems = [] } = {}) {
     if (url === '/api/following/activity') {
       return Promise.resolve({ data: { items: activityItems } })
     }
-    if (url === '/api/recommendations') {
+    if (url === '/api/recommendations/') {
       return Promise.resolve({ data: { items: recoItems } })
     }
     return Promise.resolve({ data: {} })
@@ -250,7 +250,7 @@ describe('HubView « Pour toi » recommendations shelf', () => {
     mockApiGet({ recoItems: [RECO_ITEM] })
     const wrapper = await mountHub()
     expect(wrapper.find('.discover--foryou').exists()).toBe(false)
-    const recoCalls = apiMock.get.mock.calls.filter(([url]) => url === '/api/recommendations')
+    const recoCalls = apiMock.get.mock.calls.filter(([url]) => url === '/api/recommendations/')
     expect(recoCalls).toHaveLength(0)
   })
 
@@ -281,7 +281,7 @@ describe('HubView « Pour toi » recommendations shelf', () => {
   it('keeps the Hub alive when the recommendations endpoint fails', async () => {
     authState.value = { isAuthenticated: true, user: { username: 'will' } }
     apiMock.get.mockImplementation((url) => {
-      if (url === '/api/recommendations') return Promise.reject(new Error('boom'))
+      if (url === '/api/recommendations/') return Promise.reject(new Error('boom'))
       if (url === '/api/following/activity/new-count')
         return Promise.resolve({ data: { count: 0 } })
       return Promise.resolve({ data: { items: [] } })
@@ -294,7 +294,7 @@ describe('HubView « Pour toi » recommendations shelf', () => {
   it('shows a skeleton while the recommendations are still loading', async () => {
     authState.value = { isAuthenticated: true, user: { username: 'will' } }
     apiMock.get.mockImplementation((url) => {
-      if (url === '/api/recommendations') return new Promise(() => {}) // never resolves
+      if (url === '/api/recommendations/') return new Promise(() => {}) // never resolves
       if (url === '/api/following/activity/new-count')
         return Promise.resolve({ data: { count: 0 } })
       if (url === '/api/following/activity') return Promise.resolve({ data: { items: [] } })
