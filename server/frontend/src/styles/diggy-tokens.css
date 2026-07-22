@@ -190,6 +190,21 @@
   --overlay-modal: oklch(0.2 0.02 262 / 0.72);
   --overlay-soft: oklch(0.2 0.02 70 / 0.42);
   --overlay-text: oklch(0.96 0.01 92);
+
+  /* ============================================================
+     CHARTS  ·  monitoring / dataviz — categorical + grid/axis
+     Palette catégorielle : une teinte par source d'enrichissement.
+     deezer (violet) / beatport (vert) sont validés CVD-safe sur
+     --surface (séparation adjacente ΔE ≫ 12, script validate_palette).
+     --chart-neutral = série agrégée/muette (chroma volontairement bas).
+     --chart-grid ≈ --line (subtil) · --chart-axis ≈ --ink-3.
+     Ces tokens flippent seuls light↔dark (bloc dark plus bas).
+     ============================================================ */
+  --chart-deezer: oklch(0.55 0.19 293);
+  --chart-beatport: oklch(0.62 0.14 165);
+  --chart-neutral: oklch(0.62 0.03 70);
+  --chart-grid: oklch(0.905 0.008 88 / 0.7);
+  --chart-axis: oklch(0.615 0.01 70);
 }
 
 [data-theme='dark'] {
@@ -246,6 +261,14 @@
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3);
   --shadow-md: 0 4px 14px oklch(0 0 0 / 0.34), 0 2px 5px oklch(0 0 0 / 0.28);
   --shadow-lg: 0 18px 48px oklch(0 0 0 / 0.48), 0 6px 16px oklch(0 0 0 / 0.34);
+
+  /* ---- charts (dark) — teintes catégorielles éclaircies, re-validées
+     sur --surface sombre (bande L dark, séparation CVD conservée) ---- */
+  --chart-deezer: oklch(0.66 0.17 293);
+  --chart-beatport: oklch(0.66 0.15 165);
+  --chart-neutral: oklch(0.66 0.03 92);
+  --chart-grid: oklch(0.33 0.014 262 / 0.7);
+  --chart-axis: oklch(0.595 0.012 92);
 }
 
 [data-density='compact'] {

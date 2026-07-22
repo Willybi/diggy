@@ -3,6 +3,7 @@
 from .admin import (
     ArtistDeezerIn,
     ArtistFlagOut,
+    BacklogSnapshotItem,
     CrawlLogItem,
     CrawlLogsResponse,
     DeezerArtistHit,
@@ -10,7 +11,10 @@ from .admin import (
     EnrichBeatportResponse,
     FetchPlaylistArtworksResponse,
     FlagManualIn,
+    LastRunItem,
     LinkDeezerResponse,
+    MonitoringResponse,
+    MonitoringStatus,
     NoDeezerResponse,
     ResetBeatportResponse,
     ResolveIn,
@@ -18,6 +22,7 @@ from .admin import (
     SetArtistIn,
     SyncQueued,
     SyncStatus,
+    ThroughputItem,
     UnclassifiedCountResponse,
 )
 from .artist import (
@@ -287,6 +292,11 @@ __all__ = [
     "FetchPlaylistArtworksResponse",
     "CrawlLogItem",
     "CrawlLogsResponse",
+    "BacklogSnapshotItem",
+    "ThroughputItem",
+    "LastRunItem",
+    "MonitoringStatus",
+    "MonitoringResponse",
     # auth
     "UserOut",
     "GoogleLoginResponse",

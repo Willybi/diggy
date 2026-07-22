@@ -14,6 +14,7 @@ from .base import StringArray  # noqa: F401
 from .catalog import CatalogArtist, CatalogEntry, UserTrack  # noqa: F401
 from .collection import CollectionItem, UserCollection  # noqa: F401
 from .genre import GenreEdge, GenreMapping, GenreNode  # noqa: F401
+from .monitoring import MetricSnapshot  # noqa: F401
 from .opinion import UserOpinion  # noqa: F401
 from .radar import (  # noqa: F401
     RadarTrack,

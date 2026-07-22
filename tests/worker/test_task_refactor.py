@@ -150,11 +150,12 @@ class TestRetryPolicies:
 
     def test_non_orchestrators_have_autoretry(self):
         wt = self._get_tasks()
-        # fetch_artist_artworks, link_artists_deezer and resolve_set_tracks are
-        # deliberately EXCLUDED: see test_backlog_tasks_have_no_exception_autoretry.
+        # fetch_artist_artworks, link_artists_deezer, resolve_set_tracks and
+        # enrich_catalog_beatport are deliberately EXCLUDED: see
+        # test_backlog_tasks_have_no_exception_autoretry.
         non_orchestrators = [
             "crawl_single_playlist",
-            "enrich_catalog", "enrich_catalog_beatport",
+            "enrich_catalog",
             "enrich_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "link_set_artists",
             "reclassify_genres_chunk", "compute_trends",
@@ -174,9 +175,17 @@ class TestRetryPolicies:
         so that decorator turned a soft timeout into an infinite re-download loop.
         These tasks rely on their budget cap + batch commits + a Redis lock.
         resolve_set_tracks joined this list once its inline enrichment was moved
-        to the nightly enrich tasks (same footgun applied to its 7200s limit)."""
+        to the nightly enrich tasks (same footgun applied to its 7200s limit).
+        enrich_catalog_beatport joined it with the hourly-drain switch (Lot A):
+        the short time_limit + Redis lock guard the run, and an autoretry over
+        SoftTimeLimitExceeded would loop the Beatport scrape all over again."""
         wt = self._get_tasks()
-        for tname in ("fetch_artist_artworks", "link_artists_deezer", "resolve_set_tracks"):
+        for tname in (
+            "fetch_artist_artworks",
+            "link_artists_deezer",
+            "resolve_set_tracks",
+            "enrich_catalog_beatport",
+        ):
             task = getattr(wt, tname)
             assert Exception not in (task.autoretry_for or ()), (
                 f"Task {task.name} must NOT autoretry on Exception (loop footgun)"
@@ -281,10 +290,12 @@ class TestTimeLimits:
         assert wt.resolve_set_tracks.soft_time_limit == 1800
         assert wt.resolve_set_tracks.time_limit == 2400
 
-    def test_enrich_catalog_beatport_keeps_long_limits(self):
+    def test_enrich_catalog_beatport_has_hourly_drain_limits(self):
+        """Lot A: the 2 long daily passes became an hourly bounded drain, so the
+        limits shrank from ~7h/8h to 3000s/3300s — a deploy kill now costs ≤1h."""
         wt = self._get_tasks()
-        assert wt.enrich_catalog_beatport.soft_time_limit == 25200
-        assert wt.enrich_catalog_beatport.time_limit == 28800
+        assert wt.enrich_catalog_beatport.soft_time_limit == 3000
+        assert wt.enrich_catalog_beatport.time_limit == 3300
 
     def test_recrawl_incomplete_sets_has_dedicated_limits(self):
         wt = self._get_tasks()
@@ -315,12 +326,12 @@ class TestTimeLimits:
 
 
 class TestEnrichBudgetAndPasses:
-    """Per-source nightly budget + the second daytime Beatport pass."""
+    """Per-source nightly budget + the hourly bounded Beatport drain."""
 
     def test_nightly_budget_per_source(self, monkeypatch):
         """Deezer (fast API) gets a high budget to absorb the full daily inflow;
-        Beatport (rate-limited scrape) stays 6000/pass — two beat passes give
-        ~12000/night without touching the rate."""
+        Beatport (rate-limited scrape) stays 6000 as a daily safety ceiling — the
+        hourly drain (batch_size=800/run) is the effective per-run cap."""
         import workers.tasks.catalog as catalog_mod
 
         for var in (
@@ -341,15 +352,19 @@ class TestEnrichBudgetAndPasses:
         assert catalog_mod._nightly_budget("deezer") == 4000
         assert catalog_mod._nightly_budget("beatport") == 4000
 
-    def test_beatport_has_two_daily_passes(self):
-        """Beatport capacity is raised by a 2nd beat pass (06h + 15h), not by
-        the rate limit — so the schedule must reference the task twice."""
+    def test_beatport_has_single_hourly_pass(self):
+        """Lot A: the 2 long daily passes (06h + 15h) became ONE hourly bounded
+        drain (6h-23h). The schedule must reference the task exactly once, via the
+        hourly entry, and no longer carry the old daily/afternoon entries."""
         path = os.path.join(_SERVER_PATH, "workers", "celery_app.py")
         with open(path, encoding="utf-8") as f:
             source = f.read()
         assert (
-            source.count('"task": "workers.tasks.enrich_catalog_beatport"') == 2
-        ), "expected two enrich_catalog_beatport beat passes (06h + 15h)"
+            source.count('"task": "workers.tasks.enrich_catalog_beatport"') == 1
+        ), "expected exactly one enrich_catalog_beatport beat entry (hourly drain)"
+        assert "enrich-catalog-beatport-hourly" in source
+        assert "enrich-catalog-beatport-daily" not in source
+        assert "enrich-catalog-beatport-afternoon" not in source
 
 
 # crawl_followed_sets eligibility tests removed with the task (C6.b): the

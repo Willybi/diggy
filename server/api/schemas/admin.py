@@ -130,3 +130,46 @@ class CrawlLogsResponse(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+# ── Monitoring (GET /admin/monitoring) ──
+
+
+class BacklogSnapshotItem(BaseModel):
+    captured_at: str
+    # Free-form dict keyed by domain (enrich/artists/sets/catalog).
+    payload: dict
+
+
+class ThroughputItem(BaseModel):
+    day: str
+    task_type: str
+    source: str | None = None
+    runs: int
+    errors: int
+    enriched: int
+    not_found: int
+    merged: int
+    hit_rate: float | None = None
+    duration_ms_avg: int | None = None
+    duration_ms_max: int | None = None
+
+
+class LastRunItem(BaseModel):
+    task_type: str
+    source: str | None = None
+    status: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+
+
+class MonitoringStatus(BaseModel):
+    last_runs: list[LastRunItem]
+    latest_snapshot: BacklogSnapshotItem | None = None
+
+
+class MonitoringResponse(BaseModel):
+    backlog_series: list[BacklogSnapshotItem]
+    throughput_series: list[ThroughputItem]
+    status: MonitoringStatus

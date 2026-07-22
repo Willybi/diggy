@@ -11,15 +11,18 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-# Lock TTL must cover the task's time_limit (28800s) so the lock cannot
-# expire while a legitimate run is still in progress
-BEATPORT_LOCK_TTL = 30000
+# Lock TTL must cover the task's time_limit (3300s) so the lock cannot
+# expire while a legitimate run is still in progress (invariant: TTL ≥ time_limit).
+# 3900s = 65 min, just above the hourly-drain 3300s time_limit.
+BEATPORT_LOCK_TTL = 3900
 
-# Max catalog entries per nightly sweep, PER SOURCE. Deezer (official API,
-# 10 req/s) clears the full daily inflow in minutes, so its budget is high.
-# Beatport (scraped, 0.66 req/s anti-ban) is throughput-bound: 6000 fills one
-# ~7h pass, and a second afternoon beat pass doubles daily capacity to ~12000
-# without touching the rate.
+# Max catalog entries per sweep, PER SOURCE. Deezer (official API, 10 req/s)
+# clears the full daily inflow in minutes, so its budget is high. Beatport
+# (scraped, 0.66 req/s anti-ban) is throughput-bound and now drained by an
+# HOURLY beat (6h-23h) capped at batch_size=800/run — ~18 créneaux → up to
+# ~14400/day, itself bounded by the rate (~940/h). The per-source budget stays
+# 6000: each run is already bounded by min(batch_size, budget), so batch_size
+# (800) is the effective per-run cap and the budget is the daily safety ceiling.
 DEFAULT_NIGHTLY_BUDGET_DEEZER = 15000
 DEFAULT_NIGHTLY_BUDGET_BEATPORT = 6000
 
@@ -153,11 +156,8 @@ def enrich_catalog(self):
 @celery_app.task(
     name="workers.tasks.enrich_catalog_beatport",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
-    soft_time_limit=25200,
-    time_limit=28800,
+    soft_time_limit=3000,
+    time_limit=3300,
 )
 def enrich_catalog_beatport(self, batch_size: int = 0):
     """

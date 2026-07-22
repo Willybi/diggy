@@ -133,5 +133,11 @@ class TestBeatportLock:
         fake_redis.delete.assert_not_called()
 
     def test_lock_ttl_covers_task_time_limit(self, catalog_mod):
-        """The lock must not expire while a legitimate run is in progress."""
-        assert catalog_mod.BEATPORT_LOCK_TTL >= 28800
+        """The lock must not expire while a legitimate run is in progress: the TTL
+        must stay ≥ the task's time_limit. Since the hourly-drain switch (Lot A)
+        the task runs bounded per hour (time_limit 3300s, lock TTL 3900s), so a
+        deploy kill costs ≤1h instead of ~8h."""
+        assert (
+            catalog_mod.BEATPORT_LOCK_TTL
+            >= catalog_mod.enrich_catalog_beatport.time_limit
+        )

@@ -64,7 +64,7 @@ DOMAIN_ORDER: list[tuple[str, list[str]]] = [
     ),
     (
         "System",
-        ["admin_audit_log", "crawl_logs"],
+        ["admin_audit_log", "crawl_logs", "metric_snapshots"],
     ),
 ]
 

@@ -20,6 +20,7 @@
     <AdminSets v-else-if="activeTab === 'sets'" />
     <AdminGenres v-else-if="activeTab === 'genres'" />
     <AdminCrawl v-else-if="activeTab === 'crawl'" />
+    <AdminMonitoring v-else-if="activeTab === 'monitoring'" />
     <AdminBeatport v-else-if="activeTab === 'beatport'" />
   </div>
 </template>
@@ -31,6 +32,7 @@ import AdminFlags from '../components/admin/AdminFlags.vue'
 import AdminSets from '../components/admin/AdminSets.vue'
 import AdminGenres from '../components/admin/AdminGenres.vue'
 import AdminCrawl from '../components/admin/AdminCrawl.vue'
+import AdminMonitoring from '../components/admin/AdminMonitoring.vue'
 import AdminBeatport from '../components/admin/AdminBeatport.vue'
 
 const tabs = [
@@ -39,6 +41,7 @@ const tabs = [
   { id: 'sets', label: 'Sets' },
   { id: 'genres', label: 'Genres' },
   { id: 'crawl', label: 'Crawl' },
+  { id: 'monitoring', label: 'Monitoring' },
   { id: 'beatport', label: 'Beatport' },
 ]
 

@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 27 tables across 7 domains.
+> 28 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -72,7 +72,7 @@ is auto-generated — do not edit it directly.
 **Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity`
 **Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows`
 **Genres:** `genre_nodes` · `genre_edges` · `genre_mappings`
-**System:** `admin_audit_log` · `crawl_logs`
+**System:** `admin_audit_log` · `crawl_logs` · `metric_snapshots`
 
 ## Catalog hub
 
@@ -113,15 +113,15 @@ PK: `id`
 **Indexes:**
 - `ix_catalog_deezer_id`: `deezer_id`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
-- `ix_catalog_release_date`: `release_date`
-- `ix_catalog_beatport_id`: `beatport_id`
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
 - `ix_catalog_key`: `key`
+- `ix_catalog_beatport_id`: `beatport_id`
 - `ix_catalog_created_at`: `created_at`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_duration_ms`: `duration_ms`
 - `ix_catalog_bpm`: `bpm`
 - `ix_catalog_genres`: `genres`
 - `ix_catalog_owner`: `owner_id`
-- `ix_catalog_duration_ms`: `duration_ms`
+- `ix_catalog_release_date`: `release_date`
 - `ix_catalog_scope`: `scope`
 
 ### `catalog_artists`
@@ -278,9 +278,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
+- `ix_radar_tracks_catalog`: `catalog_id`
 - `ix_radar_tracks_source_detected`: `source`
 - `ix_radar_tracks_watched_entity`: `watched_entity_id`
-- `ix_radar_tracks_catalog`: `catalog_id`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -477,9 +477,9 @@ PK: `id`
 | `trackid_music_track_id` | Integer | yes |  |  |  |
 
 **Indexes:**
+- `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 - `ix_set_tracks_set_id`: `set_id`
 - `ix_set_tracks_catalog_id`: `catalog_id`
-- `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -504,10 +504,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_group_key`: `group_key`
-- `ix_set_flags_set_id_a`: `set_id_a`
 - `ix_set_flags_set_id_b`: `set_id_b`
 - `uq_set_flag_group_key`: `group_key` (unique)
+- `ix_set_flags_group_key`: `group_key`
+- `ix_set_flags_set_id_a`: `set_id_a`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
@@ -611,3 +611,16 @@ PK: `id`
 
 **Indexes:**
 - `ix_crawl_logs_task_type`: `task_type`
+
+### `metric_snapshots`
+
+PK: `id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `id` **PK** | Integer | no |  |  |  |
+| `captured_at` | DateTime(tz) | no |  |  |  |
+| `payload` | JSON | no |  |  |  |
+
+**Indexes:**
+- `ix_metric_snapshots_captured_at`: `captured_at`

@@ -18,7 +18,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import redis as redis_lib
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 from workers.async_http import DeezerHTTPError
 from workers.catalog_merge import CatalogEntryMerged
@@ -129,6 +129,61 @@ def select_enrich_candidates(
     )
 
     return list(fresh) + list(retries)
+
+
+def count_enrich_backlog(session: Session, *, source: str, now: datetime) -> dict:
+    """Count catalog entries by enrichment tier for ``source`` (deezer/beatport).
+
+    Faithful to :func:`select_enrich_candidates`: same columns (``_source_columns``)
+    and the same RESCAN_* thresholds, so the monitoring figures match what the
+    nightly/hourly sweep would actually pick up. Buckets, over id-missing rows:
+
+      never_tried : never searched (``searched_at`` NULL, i.e. 0 attempts)
+      due_retry   : 1 attempt >TIER2 days ago, or 2 attempts >TIER3 days ago
+                    (exactly the retry predicate of select_enrich_candidates)
+      cooldown    : 1-2 attempts but searched too recently to be due yet
+      abandoned   : >= MAX_SEARCH_ATTEMPTS (never re-selected)
+
+    ``total_missing`` = every id-missing row (never+due+cooldown+abandoned);
+    ``total_linked`` = rows already carrying a ``{source}_id``. A naive
+    "id NULL AND attempts < MAX" over-counts because it swallows the cooldown
+    tier — hence the explicit split.
+    """
+    from models import CatalogEntry
+
+    id_col, searched_col, attempts_col = _source_columns(source)
+    missing = id_col.is_(None)
+
+    def _count(*predicates) -> int:
+        return (
+            session.execute(
+                select(func.count(CatalogEntry.id)).where(*predicates)
+            ).scalar()
+            or 0
+        )
+
+    tier2_cutoff = now - timedelta(days=RESCAN_TIER2_DAYS)
+    tier3_cutoff = now - timedelta(days=RESCAN_TIER3_DAYS)
+    # due_retry mirrors select_enrich_candidates (`<` cutoff); cooldown is its
+    # non-null complement (`>=` cutoff), so never/due/cooldown/abandoned partition
+    # the id-missing rows without overlap.
+    due_retry = or_(
+        and_(attempts_col == 1, searched_col < tier2_cutoff),
+        and_(attempts_col == 2, searched_col < tier3_cutoff),
+    )
+    cooldown = or_(
+        and_(attempts_col == 1, searched_col >= tier2_cutoff),
+        and_(attempts_col == 2, searched_col >= tier3_cutoff),
+    )
+
+    return {
+        "never_tried": _count(missing, searched_col.is_(None)),
+        "due_retry": _count(missing, due_retry),
+        "cooldown": _count(missing, cooldown),
+        "abandoned": _count(missing, attempts_col >= MAX_SEARCH_ATTEMPTS),
+        "total_missing": _count(missing),
+        "total_linked": _count(id_col.isnot(None)),
+    }
 
 
 def not_recently_searched(searched_col, now: datetime):

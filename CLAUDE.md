@@ -1,14 +1,14 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-22 (X3 — enrichment match validation: `deezer_enrich._deezer_hit_matches` (ISRC-or-remix-aware title + folded artist) and `beatport/client._release_title_matches` gate id-stamping in BOTH the sync and async twins of each searcher; a non-match stamps nothing and the row stays E1-eligible. New OPS script `scripts/reverify_platform_ids.py` (dry-run/`--apply`) clears pre-X3 ids shared across distinct recordings for E1 re-enrichment. No model/migration change — the platform-id unique index stays deliberately ABSENT. Prior (2026-07-21): D6 p.1 Explorer rebuild — `components/filters/` family (12) + windowing composables, migration 0039)
+> Last verified: 2026-07-22 (MON — monitoring + scheduler Beatport horaire : `enrich_catalog_beatport` passe de 2 passes (06:00/15:00) à un DRAIN HORAIRE borné `crontab(minute=0, hour="6-23")` `batch_size=800` (time_limit 3300s, BEATPORT_LOCK_TTL 3900s, autoretry retiré → un kill de déploiement coûte ≤1h au lieu de ~8h). Nouvelle table `metric_snapshots` (migration 0041) + tâche `snapshot_backlogs` (`tasks/monitoring.py`, `count_enrich_backlog` fidèle aux tiers E1) + `monitoring_service` + `GET /admin/monitoring` + page `AdminMonitoring` (composants SVG maison `components/charts/`). Prior (X3) — enrichment match validation: `deezer_enrich._deezer_hit_matches` (ISRC-or-remix-aware title + folded artist) and `beatport/client._release_title_matches` gate id-stamping in BOTH the sync and async twins of each searcher; a non-match stamps nothing and the row stays E1-eligible. New OPS script `scripts/reverify_platform_ids.py` (dry-run/`--apply`) clears pre-X3 ids shared across distinct recordings for E1 re-enrichment. No model/migration change — the platform-id unique index stays deliberately ABSENT. Prior (2026-07-21): D6 p.1 Explorer rebuild — `components/filters/` family (12) + windowing composables, migration 0039)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (40 migrations) |
+| API | FastAPI 0.115 + SQLAlchemy 2.0 async + Alembic (41 migrations) |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |
@@ -22,16 +22,16 @@
 server/
 ├── api/
 │   ├── main.py              # FastAPI entrypoint
-│   ├── models/              # SQLAlchemy models (30 classes, 11 modules):
+│   ├── models/              # SQLAlchemy models (31 classes, 12 modules):
 │   │                        # catalog, user, artist, radar, sets, genre,
-│   │                        # collection, opinion, admin (+ base, __init__)
+│   │                        # collection, opinion, admin, monitoring (+ base, __init__)
 │   │                        # sets module gained: SetFlag, SetFlagType, SetFlagStatus
 │   │                        # artist module gained: FollowedArtist, ArtistActivity (C6.c)
 │   ├── dependencies.py      # get_current_user, require_admin
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 15 routers, 102 endpoints:
+│   ├── routers/             # 15 routers, 103 endpoints:
 │   │                        # catalog, radar, watchlist, artists, following, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin, recommendations (taxonomy = 11
@@ -50,20 +50,25 @@ server/
 │                            # opinion_sync, rekordbox_xml, set_dedup (normalize_set_title,
 │                            # match_set, materialize_parent), external_search (Deezer+TIDAL
 │                            # manual import), recommendation (C4: reco perso = likes/lib ×
-│                            # similarity, on-the-fly + Redis cache)
+│                            # similarity, on-the-fly + Redis cache), monitoring (MON:
+│                            # agrégation crawl_logs débit/erreurs/durées + série
+│                            # metric_snapshots pour la page admin de monitoring)
 ├── workers/
 │   ├── celery_app.py        # Celery config + beat schedule
 │   ├── deezer_enrich.py     # Deezer search + enrichment
 │   ├── source_clients.py    # Multi-source abstraction (Deezer/TIDAL/Spotify)
-│   └── tasks/               # 7 modules: radar, catalog, artists, genres,
-│                            # import_rb, sets, trends
+│   └── tasks/               # 8 modules: radar, catalog, artists, genres,
+│                            # import_rb, sets, trends, monitoring (MON: snapshot_backlogs)
 ├── frontend/src/
 │   ├── views/               # 17 views (all routed; CatalogView renamed ExplorerView, D6)
-│   ├── components/          # 52 components (46 shared + 6 admin). The filter family
+│   ├── components/          # 56 components (49 shared + 7 admin). The filter family
 │   │                        # lives in components/filters/ (12: FilterBar/Chip/Panel/
 │   │                        # Drawer + SearchInput/RangeSlider/CamelotSelect/
 │   │                        # StyleMultiSelect/ArtistTypeAhead/SegmentedFilter/
-│   │                        # ToggleChip/SortSelect) + camelot.js/criteria.js helpers
+│   │                        # ToggleChip/SortSelect) + camelot.js/criteria.js helpers.
+│   │                        # The charts family = components/charts/ (3: TimeSeriesChart/
+│   │                        # SparkLine/StatTile, SVG maison token-driven) → admin
+│   │                        # AdminMonitoring page (MON)
 │   ├── composables/         # useInfiniteScroll, usePaginatedList, useTaskPoll,
 │   │                        # useStyleMap, useTheme, useVirtualWindow, useWindowedList,
 │   │                        # useFilterState (last 3 = Explorer/D6, reused by Radar)
@@ -89,7 +94,8 @@ Local tooling (A7-07): `worker/` (`relocate_tracks.py`) + `server/deezer/` (`ext
 - `has_artwork` = file exists in MinIO. Never store external image URLs in DB.
 - Deezer sentinel: `deezer_id = "NOT_FOUND"` marks artists confirmed absent from Deezer.
 - Sets dedup (C6.0): `sets.parent_set_id` (self-referential FK, ON DELETE SET NULL) + `is_virtual` model virtual parents. Only roots (`parent_set_id IS NULL`) appear in listings and trend scoring. `set_flags` table tracks ambiguous pairs for admin review. Service: `services/set_dedup_service.py`.
-- Enrichment re-scan (E1): a not-found catalog entry is retried after 30 then 90 days, abandoned after 3 attempts (`deezer_search_attempts` / `beatport_search_attempts`). An HTTP failure never stamps `*_searched_at` (an outage is not an attempt). Nightly sweeps are capped by `ENRICH_NIGHTLY_BUDGET` (default 6000, per source). Same idea on `artists.deezer_searched_at` (30-day retry; the `NOT_FOUND` sentinel stays a human decision).
+- Enrichment re-scan (E1): a not-found catalog entry is retried after 30 then 90 days, abandoned after 3 attempts (`deezer_search_attempts` / `beatport_search_attempts`). An HTTP failure never stamps `*_searched_at` (an outage is not an attempt). Deezer runs one nightly sweep (05:00); Beatport is an **hourly bounded drain** (6h→23h, `batch_size=800`/run) since MON — the per-source `ENRICH_NIGHTLY_BUDGET` (default 6000) is the daily ceiling, `batch_size` the per-run cap via `min()`. Same idea on `artists.deezer_searched_at` (30-day retry; the `NOT_FOUND` sentinel stays a human decision).
+- Monitoring (MON): `metric_snapshots` (migration 0041, `captured_at` + `payload` JSON) = échantillon horaire des tailles de backlog écrit par la tâche `snapshot_backlogs` ; les comptes d'éligibilité viennent de `workers/enrichment.count_enrich_backlog` (fidèle aux tiers E1 : never/due/cooldown/abandoned partitionnent, `total_missing` autoritaire). L'historique débit/erreurs/durées vit déjà dans `crawl_logs` (chaque run y écrit `stats`). Agrégé par `services/monitoring_service.py` (en Python, dialect-neutre) → `GET /admin/monitoring` → page admin `AdminMonitoring`.
 - Sets re-crawl (C6.b): `sets.completion_pct` is **is_id-based only** (`catalog_id` is reset by every re-import, it cannot back a stable metric); `recrawl_count` = CONSECUTIVE re-crawls without progression (3 stale runs or age > 90 days → `recrawl_status='final'`, no more crawls). Cap per run: `RECRAWL_MAX_SETS_PER_RUN` (default 500, newest first).
 - Artist follow (C6.c): `followed_artists` (composite PK user/artist) + `artist_activity` feed; unique `(artist_id, activity_type, source, external_id)` is the worker's idempotence guarantee. Per-user "seen" marker = `users.settings["artist_activity_seen_at"]`. Follow ≠ like: decorrelated by design (acted product decision), no sync with `user_opinions`.
 - Release crawl (C6.c v2, 2026-07-13): a detected Deezer release is now **fully crawled into the catalog** — the album is expanded into its tracklist and **each track** becomes its own `artist_activity` (`external_id` = Deezer **track** id, not album id) linked via `catalog_id` to a freshly created `scope='shared'` catalog entry (cover, preview, artists, `release_date`), so the "Nouveautés" shelf renders it like any other track (`worker._crawl_track` reuses `deezer_enrich.enrich_entry` + `link_catalog_artist_from_hit`). Fan-out capped at `ARTIST_ACTIVITY_MAX_TRACKS_PER_RELEASE` (40, logged when hit). A track whose `/track/{id}` fetch fails still gets a **link-only** activity (`catalog_id` NULL → external Deezer link fallback). The pre-crawl album-level card (`external_id` = album id) is self-healingly deleted when the album is reprocessed. `get_activity` LEFT JOINs the catalog (through `catalog_visible`) and returns the track fields (`has_artwork/has_preview/bpm/key/duration_ms/artist/release_date`); the Hub formats a "Sorti il y a Nj" age. Stats gained `catalog_created` + `crawl_errors`.
@@ -150,7 +156,7 @@ Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`
 
 ## Celery Beat Schedule
 
-Heures en `Europe/Paris` (timezone Celery beat). Durées Beatport = à plein budget (6000) ; raccourcissent quand le backlog éligible descend sous le budget.
+Heures en `Europe/Paris` (timezone Celery beat). Depuis MON (2026-07-22), Beatport n'est plus 2 grosses passes mais un **drain horaire borné** 6h→23h (`batch_size=800`/run) — résilient aux redéploiements (un kill coûte ≤1h au lieu de ~8h) et remplit les heures creuses ; no-op en secondes quand le backlog éligible est vide (auto-throttle).
 
 | Task | Time | Worker (queue) | Durée obs. | Module |
 |------|------|----------------|-----------|--------|
@@ -162,11 +168,11 @@ Heures en `Europe/Paris` (timezone Celery beat). Durées Beatport = à plein bud
 | `enrich_catalog` (Deezer) | 05:00 | `diggy_worker_enrich` (enrich) | qq sec | tasks/catalog.py |
 | `link_artists_deezer` | 05:10 | `diggy_worker_enrich` (enrich) | court (budget) | tasks/artists.py |
 | `fetch_artist_artworks` | 05:20 | `diggy_worker_enrich` (enrich) | court (budget) | tasks/artists.py |
-| `enrich_catalog_beatport` (passe 1) | 06:00 | `diggy_worker_enrich` (enrich) | ~6h24 → ~12:24 | tasks/catalog.py |
+| `enrich_catalog_beatport` (drain horaire) | 06:00→23:00 (chaque h) | `diggy_worker_enrich` (enrich) | ≤55 min/run (budget 800) | tasks/catalog.py |
 | `compute_trends` | 07:00 | `diggy_worker` (celery) | court | tasks/trends.py |
-| `enrich_catalog_beatport` (passe 2) | 15:00 | `diggy_worker_enrich` (enrich) | ~6h24 → ~21:24 | tasks/catalog.py |
+| `snapshot_backlogs` | :30 (chaque h) | `diggy_worker` (celery) | qq sec | tasks/monitoring.py |
 
-Deux workers consomment le broker : `diggy_worker` (`-Q celery,crawl -c 3`) et `diggy_worker_enrich` (`-Q enrich -c 2`) ; `diggy_beat` ordonnance seulement (n'exécute rien). Les tâches d'enrichissement (APIs externes rate-limitées) sont routées vers la queue `enrich` → `diggy_worker_enrich` ; tout le reste va sur `celery`/`crawl` → `diggy_worker`. Keep that separation when adding tasks. **Overlap** : les deux workers tournent en parallèle (queues distinctes) — une tâche `diggy_worker` (backfill/crawl) et une tâche `enrich` s'exécutent simultanément ; sur un même worker, la concurrence max est le `-c` (3 vs 2). Les **2 passes Beatport ne se chevauchent JAMAIS** : elles partagent le lock Redis `lock:enrich_beatport` (single-instance, la 2e skip si la 1re court encore) ET le `time_limit=28800s` (8h) borne la passe 06:00 à 14:00 au plus tard, avant le départ 15:00.
+Deux workers consomment le broker : `diggy_worker` (`-Q celery,crawl -c 3`) et `diggy_worker_enrich` (`-Q enrich -c 2`) ; `diggy_beat` ordonnance seulement (n'exécute rien). Les tâches d'enrichissement (APIs externes rate-limitées) sont routées vers la queue `enrich` → `diggy_worker_enrich` ; tout le reste va sur `celery`/`crawl` → `diggy_worker`. Keep that separation when adding tasks. **Overlap** : les deux workers tournent en parallèle (queues distinctes) — une tâche `diggy_worker` (backfill/crawl) et une tâche `enrich` s'exécutent simultanément ; sur un même worker, la concurrence max est le `-c` (3 vs 2). Le **drain Beatport horaire** (6h→23h) est single-instance via le lock Redis `lock:enrich_beatport` (TTL 3900s ≥ `time_limit` 3300s) : un créneau ne peut pas chevaucher le suivant (le 2e skip si le 1er court encore), et le TTL court fait qu'un **lock orphelin** (worker tué par un déploiement) s'auto-guérit en ≤1h au lieu de bloquer ~8h. `snapshot_backlogs` tourne sur la queue `celery` (pas d'API externe) décalé à :30.
 
 Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NIGHTLY_BUDGET`=1500) and `fetch_artist_artworks` (budget `ARTIST_ARTWORK_NIGHTLY_BUDGET`=10000, `budget` kwarg overrides for an ad-hoc drain) are budget-capped, batch-committing and Redis-locked, with **NO `autoretry_for=(Exception,)`** — that decorator turned the 2026-07-13 soft timeout into an infinite re-download loop (`SoftTimeLimitExceeded` IS an `Exception`). The budget cap (dimensioned well under the soft limit) is the primary loop guard; both are placed at 05:10/05:20 in the Deezer-idle window (enrich_catalog finishes in seconds, enrich_beatport uses the separate Beatport rate window).
 
@@ -190,6 +196,7 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 - Destructive cleanup of a watched playlist triggers ONLY on `PlaylistGoneError` (typed per source in `source_clients.py`), never on string-matching an exception message.
 - Never `result.get()` inside a task (blocks a worker slot for the whole run) — use a `chord` with a finalize callback + errback (pattern: `tasks/genres.py`).
 - A cadence gate compared against a daily beat needs slack: the beat fires every 24h sharp but the reference timestamp is stamped DURING the previous run, so a strict `elapsed > 1d` check skips every other run (daily tier → every other day). Subtract `CADENCE_SLACK_DAYS` (0.25) from the threshold — pattern: `tasks/radar.py` + `tasks/sets.py`.
+- Un déploiement (`docker compose up -d`) qui recrée les workers **pendant** un run enrich tue le process (SIGKILL) sans exécuter la release conditionnelle du lock → `lock:enrich_beatport` orphelin qui fait skip la tâche suivante jusqu'à expiration du TTL (MON, constaté 2026-07-22). Mitigé par le TTL court (3900s depuis le drain horaire) : au pire 1 créneau sauté. Remédiation à chaud : `redis-cli DEL lock:enrich_beatport` **seulement si** `celery … inspect active` ne montre aucune tâche. Éviter de pousser sur master pendant les fenêtres enrich (Beatport 6h→23h, Deezer 05:00).
 
 ### Database & Alembic
 - Since AU3 the API never runs `create_all`: the schema comes from Alembic ONLY (test harnesses keep their own `create_all` in `tests/*/conftest.py`). In local dev, the compose override runs `alembic upgrade head` before uvicorn.

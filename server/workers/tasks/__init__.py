@@ -15,6 +15,7 @@ from workers.tasks.genres import (
     reclassify_genres_error,
 )
 from workers.tasks.import_rb import import_rekordbox_xml
+from workers.tasks.monitoring import snapshot_backlogs
 from workers.tasks.radar import crawl_radar, crawl_single_playlist
 from workers.tasks.sets import (
     backfill_trackid_sets,
@@ -47,4 +48,5 @@ __all__ = [
     "import_rekordbox_xml",
     "backfill_multi_artists",
     "check_followed_artists",
+    "snapshot_backlogs",
 ]

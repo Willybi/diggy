@@ -1303,7 +1303,7 @@ Depuis Explorer, cliquer un son ouvre la fiche detail ; le bouton retour « ‹ 
 **Priorite : MOYEN**
 **Estimation : 3-5 jours**
 **Depend de : rien de bloquant. Complementaire de C7 (la moitie Beatport/release peut etre absorbee par la modelisation Album).**
-**Statut : TERMINE (2026-07-22) — prevention X3.a (Deezer) + X3.b (Beatport) deployee (bedd997) ; script X3.c `scripts/reverify_platform_ids.py` etendu pour re-deriver le bpm/key beatport-source (15016d0, garde invariant #2) ; rollout `--apply` execute en prod apres dump chiffre : 2779 deezer + 10111 beatport ids effaces + 20212 champs bpm/key nulles, `Remaining suspect groups: 0` verifie (+ dry-run frais + spot-check SQL). Les lignes reparees re-derivent id + bpm/key corrects au re-scan E1 nocturne (drain 1-3 nuits, watch crawl-logs).**
+**Statut : TERMINE (2026-07-22) — prevention X3.a (Deezer) + X3.b (Beatport) deployee (bedd997) ; script X3.c `scripts/reverify_platform_ids.py` etendu pour re-deriver le bpm/key beatport-source (15016d0, garde invariant #2) ; rollout `--apply` execute en prod apres dump chiffre : 2779 deezer + 10111 beatport ids effaces + 20212 champs bpm/key nulles, `Remaining suspect groups: 0` verifie (+ dry-run frais + spot-check SQL). Les lignes reparees re-derivent id + bpm/key corrects au re-scan E1 nocturne (drain 1-3 nuits, watch crawl-logs). Correctif de suivi 5de55a1 : la passe deezer reset aussi le `has_preview` obsolete (sinon bouton Play qui 404 sur ~2333 lignes) — prod remediee + script patche/teste, deploye.**
 
 ### Objectif
 
@@ -1320,6 +1320,7 @@ X1 a montre que `deezer_id`/`beatport_id` ne sont pas une identite par enregistr
 ### X3.c — Reparation de l'existant
 
 - [x] Backfill : re-verifier / re-enrichir les lignes dont l'id a ete pose par un match douteux (metadata potentiellement issue du mauvais morceau). Suspects = les lignes des groupes `same_track`-distincts partageant un id (mesurables via la logique de `scripts/dedup_catalog.py`). FAIT (2026-07-22) : `scripts/reverify_platform_ids.py` (dry-run/`--apply`, idempotent, +reset bpm/key beatport-source) execute en prod apres dump — 2779 deezer + 10111 beatport reset.
+- [x] Correctif de suivi (2026-07-22, 5de55a1) : le run `--apply` avait laisse `has_preview=True` (signal Deezer-only) sur les lignes deezer dont l'id etait efface sans source radar deezer restante => bouton Play offert cote front qui repond 404 (`get_preview_url` ne resout que via Deezer). ~2333 lignes remediees en prod (`UPDATE has_preview=false`, still_broken=0 verifie) et la passe deezer de `reverify_platform_ids.py` reset desormais `has_preview` (symetrique au reset bpm/key beatport) + tests. Deploye et `/deploy_verify` SAIN + checklist humaine validee.
 
 ### Definition of Done
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from celery_client import celery
@@ -24,6 +24,7 @@ from schemas import (
     FetchPlaylistArtworksResponse,
     FlagManualIn,
     LinkDeezerResponse,
+    MonitoringResponse,
     NoDeezerResponse,
     OkResponse,
     ResetBeatportResponse,
@@ -37,7 +38,12 @@ from schemas import (
     SyncStatus,
     UnclassifiedCountResponse,
 )
-from services import artist_service, catalog_service, genre_service
+from services import (
+    artist_service,
+    catalog_service,
+    genre_service,
+    monitoring_service,
+)
 from services.image_service import ImageService
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -671,3 +677,22 @@ async def get_crawl_logs(
 ):
     """List crawl logs with pagination and filters."""
     return await catalog_service.get_crawl_logs(db, page, per_page, task_type, status)
+
+
+# ---------- Monitoring ----------
+
+
+@router.get("/monitoring", response_model=MonitoringResponse)
+async def get_monitoring(
+    days: int = Query(14, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """Backlog time-series (metric_snapshots) + throughput/error/duration history
+    (crawl_logs) + current status. Thin router — all work in monitoring_service."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    return {
+        "backlog_series": await monitoring_service.get_backlog_series(db, since),
+        "throughput_series": await monitoring_service.get_throughput_series(db, since),
+        "status": await monitoring_service.get_current_status(db),
+    }

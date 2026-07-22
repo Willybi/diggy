@@ -83,7 +83,7 @@ celery_app.conf.update(
     task_acks_late=True,  # re-deliver on crash
     worker_prefetch_multiplier=1,  # don't hoard tasks
     task_reject_on_worker_lost=True,  # requeue if worker crashes mid-task
-    # Must exceed the longest task time_limit (enrich_catalog_beatport: 28800s),
+    # Must exceed the longest task time_limit (enrich_catalog Deezer: 9000s),
     # otherwise Redis re-delivers still-running tasks and spawns concurrent duplicates
     broker_transport_options={"visibility_timeout": 30000},
     # Task routing
@@ -111,17 +111,16 @@ celery_app.conf.update(
             "task": "workers.tasks.enrich_catalog",
             "schedule": crontab(hour=5, minute=0),  # tous les jours à 5h
         },
-        "enrich-catalog-beatport-daily": {
+        # Drain Beatport HORAIRE borné (6h-23h ; la nuit reste aux crawls +
+        # Deezer/artistes). batch_size=800/run remplit les heures creuses au MÊME
+        # rate scrape 0,66 req/s (~940/h, pas de risque de ban en plus). Le lock
+        # single-instance + le time_limit court (3300s) bornent chaque créneau : un
+        # kill de deploy coûte ≤1h au lieu de ~8h. Un run sans candidat éligible
+        # est un no-op en secondes (auto-throttle quand le backlog est vide).
+        "enrich-catalog-beatport-hourly": {
             "task": "workers.tasks.enrich_catalog_beatport",
-            "schedule": crontab(hour=6, minute=0),  # tous les jours à 6h
-        },
-        # 2e passe Beatport en journée (worker enrich oisif le jour) : double la
-        # capacité à ~12000/nuit AU MÊME rate scrape 0,66 req/s (pas de risque de
-        # ban en plus). Espacée de >8h de la passe 6h → pas de collision de lock
-        # (BEATPORT_LOCK_TTL 8,3h) ; une passe sans candidat retourne en secondes.
-        "enrich-catalog-beatport-afternoon": {
-            "task": "workers.tasks.enrich_catalog_beatport",
-            "schedule": crontab(hour=15, minute=0),  # tous les jours à 15h
+            "schedule": crontab(minute=0, hour="6-23"),
+            "kwargs": {"batch_size": 800},
         },
         "compute-trends-daily": {
             "task": "workers.tasks.compute_trends",
@@ -150,6 +149,14 @@ celery_app.conf.update(
         "fetch-artist-artworks-daily": {
             "task": "workers.tasks.fetch_artist_artworks",
             "schedule": crontab(hour=5, minute=20),  # tous les jours à 5h20
+        },
+        # Backlog time-series sample — toutes les heures à :30 (décalé des runs
+        # d'enrichissement à :00 pour ne pas s'y agréger). 24/24 → courbe
+        # continue. Read-only sur les tables domaine, pas d'API externe → queue
+        # par défaut "celery", pas de task_route.
+        "snapshot-backlogs-hourly": {
+            "task": "workers.tasks.snapshot_backlogs",
+            "schedule": crontab(minute=30),
         },
     },
 )
