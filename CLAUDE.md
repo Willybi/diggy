@@ -80,7 +80,7 @@ Local tooling (A7-07): `worker/` (`relocate_tracks.py`) + `server/deezer/` (`ext
 
 `catalog` is the ONLY hub. Everything points to it via `catalog_id`.
 
-- Dedup via `normalized_key` (artist|title) or `isrc`
+- Dedup via `normalized_key` (artist|title) or `isrc` at ingestion. Since X1 (2026-07-22) enrichment also folds a row into a pre-existing one **only when it is the same recording** — guard `workers/catalog_merge.same_track` (equal ISRC, else remix-aware `normalize_track_title`); the FK-safe merge primitive `merge_catalog_entries` (+ `pick_canonical`) is wired at the enrichment write points by `workers/catalog_dedup.py`. **Platform ids (`deezer_id`/`beatport_id`) are NOT a per-recording identity** — Deezer search returns `hits[0]` unchecked (a remix inherits the original's deezer_id) and the Beatport release fallback shares one beatport_id across an EP; ~77%/94% of deezer/beatport id-groups are DISTINCT recordings. So NEVER dedup/cluster on a platform id alone, and there is deliberately **no unique index** on them. One-shot cleanup of pre-existing dups: `scripts/dedup_catalog.py` (dry-run/`--apply`, `same_track` clustering). Fixing the wrong-id root cause = chantier X3.
 - `user_tracks`: composite PK `(user_id, catalog_id)`, FK to catalog is `ON DELETE RESTRICT`
 - `catalog_artists`: many-to-many with `role` + `position` (~7200 rows). Never assume a single artist per track.
 - Genres: `catalog.genres` is a `TEXT[]` of raw names; normalization goes through the graph `genre_nodes` / `genre_edges` / `genre_mappings` (Wikidata-based). The legacy tables `genres`, `catalog_genres`, `artist_genres`, `set_genres` were DROPPED in migration 0013 and no longer exist.

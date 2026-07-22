@@ -1,6 +1,6 @@
 # Explorer — `/explorer` (ex-Catalog ; redirects `/catalog`, `/tracks`)
 
-Statut : ✅ figé  |  Vue : `views/CatalogView.vue` (Radar extrait → page dédiée)
+Statut : ✅ LIVRÉ (D6 p.1, 2026-07-21 — commits e2b90ac + FIX b8e7875/056183f)  |  Vue : `views/ExplorerView.vue` (ex-CatalogView, supprimée ; Radar extrait → page dédiée à venir, redirect temporaire `/radar` → `/explorer`)
 
 ## 1. Ce qu'on a (actuel)
 
