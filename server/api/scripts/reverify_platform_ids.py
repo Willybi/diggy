@@ -69,13 +69,13 @@ sys.path.insert(
 )  # server/ -> workers
 
 from models import CatalogEntry
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session
 
 # Reuse the exact detection bricks from the dedup script: the shared-value query
 # and the ISRC-or-remix-aware clustering — so both scripts agree on "same
 # recording" and never diverge.
 from scripts.dedup_catalog import _cluster_by_same_track, _duplicate_values
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
 
 # Platform-id columns to re-verify, deezer first (matches dedup_catalog order;
 # here the passes are independent — no row is deleted — but keep the order for a
