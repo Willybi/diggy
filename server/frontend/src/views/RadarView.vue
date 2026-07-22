@@ -20,7 +20,7 @@
         @update:filters="applyFilters"
       >
         <template #search>
-          <SearchInput v-model="state.q" placeholder="Artiste, titre ou label…" :debounce="0" />
+          <SearchInput v-model="state.q" placeholder="Artiste ou titre…" :debounce="0" />
         </template>
         <template #sort>
           <span class="rd-sort">
@@ -1354,6 +1354,12 @@ onMounted(() => {
   /* Touch: play always visible (avis is already visible at rest). */
   .pbtn {
     opacity: 1;
+  }
+  /* Score columns shrink to 52px < 640px: drop the header type down and kill the
+     tracking so « TENDANCE »/« POUR TOI » stay readable and stop overlapping. */
+  .rd-th--score {
+    font-size: var(--fs-nano);
+    letter-spacing: 0;
   }
 }
 </style>
