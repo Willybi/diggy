@@ -210,7 +210,12 @@ services:
       resources:
         limits:
           cpus: '1'
-          memory: 1G
+          # Raised 1G->2G (2026-07-22): MinIO working-set crept to ~98% of 1G
+          # (Go RSS + object-metadata cache); host has ample free RAM. Takes
+          # effect on the next deploy (up -d recreates the container; a plain
+          # restart does NOT re-read the limit). A weekly `restart minio` cron
+          # (Mon 00:30 Europe/Paris) trims RSS as extra hygiene.
+          memory: 2G
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
