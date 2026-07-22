@@ -5,6 +5,7 @@ import HubView from './views/HubView.vue'
 const GenresView = () => import('./views/GenresView.vue')
 const GenreDetailView = () => import('./views/GenreDetailView.vue')
 const ExplorerView = () => import('./views/ExplorerView.vue')
+const RadarView = () => import('./views/RadarView.vue')
 const WatchlistView = () => import('./views/WatchlistView.vue')
 const TrackDetailView = () => import('./views/TrackDetailView.vue')
 const ArtistDetailView = () => import('./views/ArtistDetailView.vue')
@@ -45,8 +46,7 @@ const routes = [
   { path: '/set/:id', component: SetDetailView, props: true },
   { path: '/artists', component: ArtistsView },
   { path: '/admin', component: AdminView },
-  // Assumed gap until the dedicated Radar page ships (D6): plain Explorer.
-  { path: '/radar', redirect: '/explorer' },
+  { path: '/radar', component: RadarView },
   { path: '/collections', component: CollectionsView },
   { path: '/collections/:id', component: CollectionDetailView, props: true },
   { path: '/playlists', component: WatchlistView },

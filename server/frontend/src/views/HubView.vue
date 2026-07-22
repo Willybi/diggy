@@ -118,7 +118,15 @@
            family is selected, so a family with 0 visible tracks never traps the
            user — they can always switch back via the chips. -->
       <div v-if="isEmpty && (trendTracks.length || trendFamily !== 'all')" class="discover">
-        <h2 class="discover-title">Ca sort en ce moment</h2>
+        <div class="discover-head">
+          <h2 class="discover-title">Ca sort en ce moment</h2>
+          <RouterLink to="/radar" class="discover-more">
+            Voir plus
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </RouterLink>
+        </div>
         <FamilyChips v-model="trendFamily" :counts="trendFamilyCounts" />
         <div v-if="trendTracks.length" class="trend-shelf">
           <div
@@ -172,7 +180,15 @@
         v-if="isEmpty && auth.isAuthenticated && recoItems.length"
         class="discover discover--foryou"
       >
-        <h2 class="discover-title">Pour toi</h2>
+        <div class="discover-head">
+          <h2 class="discover-title">Pour toi</h2>
+          <RouterLink to="/radar" class="discover-more">
+            Voir plus
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </RouterLink>
+        </div>
         <div class="trend-shelf">
           <div
             v-for="track in recoItems"
@@ -1630,6 +1646,35 @@ const vClickOutside = {
   font: 600 var(--fs-md)/1 var(--font-ui);
   color: var(--ink);
   margin: 0 0 var(--space-4);
+}
+/* header row: title + « voir plus » link (bare .discover-title keeps its own margin) */
+.discover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+.discover-head .discover-title {
+  margin: 0;
+}
+.discover-more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  font: 500 var(--fs-sm) var(--font-ui);
+  color: var(--accent-ink);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.12s;
+}
+.discover-more:hover {
+  color: var(--accent);
+}
+.discover-more svg {
+  width: 14px;
+  height: 14px;
 }
 .discover-empty {
   padding: var(--space-6) 0;

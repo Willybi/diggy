@@ -123,6 +123,52 @@ class TestCatalogBrowseNoAuthNoUserData:
         app.dependency_overrides.pop(get_current_user_optional, None)
 
 
+# ── GET /api/radar/feed ──────────────────────────────────────────────────────
+
+class TestRadarFeed:
+    async def test_feed_requires_auth(self, db):
+        """No JWT and no override → 401 (Radar feed is authenticated)."""
+        from dependencies import get_current_user
+        app.dependency_overrides.pop(get_current_user, None)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            r = await c.get("/api/radar/feed")
+        assert r.status_code == 401
+
+    async def test_feed_returns_bi_score_shape(self, client, db, auth_user):
+        from models import RadarTrend
+        cat = CatalogEntry(title="Trend", artist="Art", normalized_key="trend - art")
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(RadarTrend(
+            catalog_id=cat.id, trend_score=5.0, family="house",
+            rank_in_family=1, rank_global=1, velocity=0.6,
+        ))
+        await db.commit()
+
+        r = await client.get("/api/radar/feed")
+        assert r.status_code == 200
+        data = r.json()
+        assert set(data) >= {"total", "trend_count", "reco_count", "items"}
+        assert data["trend_count"] == 1
+        assert data["reco_count"] == 0
+        assert data["total"] == 1
+        item = data["items"][0]
+        assert item["id"] == cat.id
+        assert item["trend_score_10"] is not None
+        assert item["reco_score_10"] is None
+        assert item["velocity"] == 0.6
+        # Inherited CatalogEntryOut fields still present
+        for field in ("has_artwork", "has_preview", "in_lib", "artists", "genres"):
+            assert field in item
+
+    async def test_feed_sort_param_validation(self, client):
+        r = await client.get("/api/radar/feed?sort=bogus")
+        assert r.status_code == 422
+
+
 # ── GET /api/radar/new-count ─────────────────────────────────────────────────
 
 class TestNewCount:

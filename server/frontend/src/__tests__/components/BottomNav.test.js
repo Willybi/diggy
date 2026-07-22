@@ -50,12 +50,20 @@ describe('BottomNav new-count fetch', () => {
     expect(apiGet).toHaveBeenCalledWith('/api/radar/new-count')
   })
 
-  it('renders the five base nav links through the RouterLink stub', async () => {
+  it('renders the six base nav links (incl. Radar) through the RouterLink stub', async () => {
     authState.value = { isAuthenticated: true, user: { is_admin: false } }
     const wrapper = await mountNav()
     const links = wrapper.findAllComponents(RouterLinkStub)
-    expect(links).toHaveLength(5)
-    expect(links.map((l) => l.props('to'))).toEqual(['/', '/explorer', '/artists', '/sets', '/genres'])
+    expect(links).toHaveLength(6)
+    expect(links.map((l) => l.props('to'))).toEqual([
+      '/',
+      '/explorer',
+      '/radar',
+      '/artists',
+      '/sets',
+      '/genres',
+    ])
     expect(wrapper.text()).toContain('Explorer')
+    expect(wrapper.text()).toContain('Radar')
   })
 })

@@ -1,7 +1,7 @@
 # Diggy - Project Context
 
 > DJ web app to manage and visualize a Rekordbox library: tracks, radar, sets, artists, genres.
-> Last verified: 2026-07-22 (MON — monitoring + scheduler Beatport horaire : `enrich_catalog_beatport` passe de 2 passes (06:00/15:00) à un DRAIN HORAIRE borné `crontab(minute=0, hour="6-23")` `batch_size=800` (time_limit 3300s, BEATPORT_LOCK_TTL 3900s, autoretry retiré → un kill de déploiement coûte ≤1h au lieu de ~8h). Nouvelle table `metric_snapshots` (migration 0041) + tâche `snapshot_backlogs` (`tasks/monitoring.py`, `count_enrich_backlog` fidèle aux tiers E1) + `monitoring_service` + `GET /admin/monitoring` + page `AdminMonitoring` (composants SVG maison `components/charts/`). Prior (X3) — enrichment match validation: `deezer_enrich._deezer_hit_matches` (ISRC-or-remix-aware title + folded artist) and `beatport/client._release_title_matches` gate id-stamping in BOTH the sync and async twins of each searcher; a non-match stamps nothing and the row stays E1-eligible. New OPS script `scripts/reverify_platform_ids.py` (dry-run/`--apply`) clears pre-X3 ids shared across distinct recordings for E1 re-enrichment. No model/migration change — the platform-id unique index stays deliberately ABSENT. Prior (2026-07-21): D6 p.1 Explorer rebuild — `components/filters/` family (12) + windowing composables, migration 0039)
+> Last verified: 2026-07-22 (Radar — nouvelle page `/radar` = surface de reco bi-score : `GET /api/radar/feed` (`radar_service.list_bi_score`) fusionne top-N Tendance par famille (`radar_trends.rank_in_family`) ∪ ≤100 reco perso (`recommendation_service`) par `catalog_id`, 2 notes /10 max-normalisées PAR COLONNE (« — » si absente sur un axe), filtres/tri façon Explorer, `catalog_visible`, JWT ; `catalog_service.list_catalog` gagne un param ADDITIF `catalog_ids` (défaut None = comportement inchangé) réutilisé comme builder canonique des lignes Tendance ; nouvelle vue `RadarView.vue` (réutilise composables + famille `filters/` + `ScoreRing` ×2, tri Tendance défaut, cold-start, responsive préservant les 2 scores), entrée nav Sidebar+Bottom, « voir plus » Hub (« Ça sort »/« Pour toi ») → /radar ; AUCUN modèle ni migration. Prior (MON) — monitoring + scheduler Beatport horaire : `enrich_catalog_beatport` passe de 2 passes (06:00/15:00) à un DRAIN HORAIRE borné `crontab(minute=0, hour="6-23")` `batch_size=800` (time_limit 3300s, BEATPORT_LOCK_TTL 3900s, autoretry retiré → un kill de déploiement coûte ≤1h au lieu de ~8h). Nouvelle table `metric_snapshots` (migration 0041) + tâche `snapshot_backlogs` (`tasks/monitoring.py`, `count_enrich_backlog` fidèle aux tiers E1) + `monitoring_service` + `GET /admin/monitoring` + page `AdminMonitoring` (composants SVG maison `components/charts/`). Prior (X3) — enrichment match validation: `deezer_enrich._deezer_hit_matches` (ISRC-or-remix-aware title + folded artist) and `beatport/client._release_title_matches` gate id-stamping in BOTH the sync and async twins of each searcher; a non-match stamps nothing and the row stays E1-eligible. New OPS script `scripts/reverify_platform_ids.py` (dry-run/`--apply`) clears pre-X3 ids shared across distinct recordings for E1 re-enrichment. No model/migration change — the platform-id unique index stays deliberately ABSENT. Prior (2026-07-21): D6 p.1 Explorer rebuild — `components/filters/` family (12) + windowing composables, migration 0039)
 > If you notice a divergence between this file and the actual code, SAY SO explicitly instead of silently working around it. Suggest the fix for this file.
 
 ## Tech Stack
@@ -31,7 +31,7 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 15 routers, 103 endpoints:
+│   ├── routers/             # 15 routers, 104 endpoints:
 │   │                        # catalog, radar, watchlist, artists, following, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin, recommendations (taxonomy = 11
@@ -60,7 +60,7 @@ server/
 │   └── tasks/               # 8 modules: radar, catalog, artists, genres,
 │                            # import_rb, sets, trends, monitoring (MON: snapshot_backlogs)
 ├── frontend/src/
-│   ├── views/               # 17 views (all routed; CatalogView renamed ExplorerView, D6)
+│   ├── views/               # 18 views (all routed; RadarView added D6; CatalogView renamed ExplorerView, D6)
 │   ├── components/          # 56 components (49 shared + 7 admin). The filter family
 │   │                        # lives in components/filters/ (12: FilterBar/Chip/Panel/
 │   │                        # Drawer + SearchInput/RangeSlider/CamelotSelect/
@@ -210,7 +210,7 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 - Zero hardcoded colors: everything via `var(--...)` from `diggy-tokens.css`.
 - No multi-statement inline handlers in templates (`@click="a = 1; b = 2"`): Prettier reformats them across lines, which breaks the Vue compiler. Extract to a method.
 - Responsive tables: columns hidden progressively (ExplorerView: 4 container-query paliers 1000/860/700/640). At <640px only Play / Track / BPM / Avis remain (Key drops before BPM — DJs favor BPM on mobile), play & avis always visible (touch).
-- BottomNav (mobile <640px): 5 items + conditional Admin; PlayerBar repositions above it.
+- BottomNav (mobile <640px): 6 items + conditional Admin (Radar added D6 → 7 with Admin, tight on ≤360px); PlayerBar repositions above it.
 - Celery task polling goes through `composables/useTaskPoll.js` (keyed timers, onUnmounted cleanup built in). Two sanctioned paginated-fetch patterns, NEVER a hand-rolled offset/hasMore fetch in a view: card grids with an IntersectionObserver sentinel → `usePaginatedList.js`; virtualised tables (windowing, no sentinel, page-built repeated params) → `useWindowedList.js` paired with `useVirtualWindow.js` (Explorer/D6, reused by Radar). Never reintroduce an ad-hoc `setInterval` poll either.
 - The `.state` empty/loading message and `@keyframes spin` are global utilities in `assets/page.css`; views only keep scoped overrides for real divergences (mono, centered, fs-sm...). Don't redeclare the full block locally.
 - Vitest: when `vue-router` is mocked, `stubs: { RouterLink: true }` is a no-op (VTU ignores string-name stubs for unresolved components) — register `RouterLinkStub` via `global.components` (pattern: BottomNav.test.js, LoginCallbackView.test.js).

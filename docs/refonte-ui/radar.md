@@ -38,7 +38,7 @@ Statut : ✅ figé  |  Vue : à créer (aujourd'hui `/radar` → redirect `/cata
 
 **Principe (William)** : **une seule liste** de recommandations. Chaque ligne = un son (infos) + **2 colonnes de score côte à côte : `Tendance` et `Pour toi`**. On **trie par l'une ou l'autre**.
 
-**À compléter (données)** : la liste = **union des 2 univers** (ce qui *trend* ∪ ce qui t'est *recommandé*). Beaucoup de sons n'auront qu'un des deux scores → l'autre colonne = « — ». Nécessite un endpoint qui **merge `trend_score` (radar_trends) + `reco_score` (recommendations)** par `catalog_id`.
+**À compléter (données)** : la liste = **union des 2 univers** (ce qui *trend* ∪ ce qui t'est *recommandé*). Beaucoup de sons n'auront qu'un des deux scores → l'autre colonne = « — ». Nécessite un endpoint qui **merge `trend_score` (radar_trends) + `reco_score` (recommendations)** par `catalog_id`. **Tranché en Phase 0 (cf. §7)** : union **bornée & symétrique** — Tendance = top-N **par famille** (via `rank_in_family`), Pour toi ≤100 (plafond existant du moteur C4). Les deux notes `/10` sont **relatives à leur propre colonne** (max-normalisation par colonne, comme l'actuel `trend_score_10`).
 
 **Décisions de rendu & contenu :**
 1. **Rendu des 2 scores** : **jauge circulaire** (anneau de progression) avec **note entière /10 au centre** ; le **float reste stocké** pour un tri précis. Même composant pour Tendance et Pour toi → candidat `<ScoreRing>` réutilisable. *(Velocity = accent optionnel léger sur la jauge Tendance, ex. petit ▲ « monte vite » — basse priorité.)*
@@ -68,7 +68,7 @@ Statut : ✅ figé  |  Vue : à créer (aujourd'hui `/radar` → redirect `/cata
 - **`/for-you` fusionné** dans Radar.
 - **Composants partagés** avec Explorer (liste virtualisée, colonnes, `<Artwork>`, filtres) + `<ScoreRing>`.
 - **Écarté** : triage (`user_radar_state`), indice « pourquoi », pondération des likes, états invité (invité confiné au Hub).
-- **Ouvert (non bloquant)** : liste exacte des colonnes ; velocity (accent optionnel) ; nom « Radar ».
+- **Ouvert (non bloquant)** : liste exacte des colonnes ; velocity (accent optionnel) ; nom « Radar » (défaut Phase 0 : on **garde « Radar »**, continuité nav).
 
 ## 6. Sortie next-step
 **Handoff Design**
@@ -81,3 +81,34 @@ Statut : ✅ figé  |  Vue : à créer (aujourd'hui `/radar` → redirect `/cata
 - **Transverse** : composants partagés (dont `<ScoreRing>`).
 
 **Dépend de** : composants Explorer ; chantier nav (place de Radar).
+
+## 7. Décisions Phase 0 (cadrage refonte, 2026-07-22)
+
+Arbitrages William au lancement de `/refonte_page radar` (tranchés avant le prompt Design) :
+
+1. **Union bornée & symétrique** (back). Dataset de l'endpoint merge = **top-N Tendance par famille** (`radar_trends.rank_in_family`, ~40-60/famille → filtres profonds « techno 130-135 » restent peuplés) **∪ ≤100 recommandations** (plafond existant du moteur C4). Écarté : la liste exhaustive façon Explorer (des milliers de lignes trend). Motif : Radar = **surface de reco curée**, pas un dump ; le coût reco est déjà plafonné (calcul à la volée, cache 1h, ~6,6s à froid) et sans valeur au-delà de ~100.
+2. **Normalisation `/10` par colonne** (relative). Chaque anneau dit « à quel point c'est haut dans CE classement » (10 = le plus tendance / 10 = ton meilleur match). Ce sont **deux recommandations distinctes** côte à côte, pas la même échelle — l'asymétrie de tailles ne casse donc pas la cohérence. Réutilise la max-normalisation déjà en place pour `trend_score_10`.
+3. **Tri par défaut = Tendance, TOUJOURS** (pas seulement au cold-start). « Pour toi » reste une colonne triable, mais l'ouverture se fait sur le classement Tendance objectif quel que soit l'historique.
+4. **Périmètre au-delà de la page** : (a) **entrée de nav dédiée Radar** dans SidebarNav + BottomNav (entrée simple ; la restructuration nav complète reste le chantier transverse nav, 🔲) ; (b) rebrancher **Hub « Pour toi » → /radar** ; (c) rebrancher **Hub « Ça sort en ce moment » → /radar** (les deux étagères gagnent un « voir plus » qui n'existe pas aujourd'hui).
+5. **Nom** : on **garde « Radar »** (continuité nav).
+
+### Divergences fiche ↔ code relevées au pré-vol (à ne pas traiter comme des tâches existantes)
+
+- **`/for-you` n'a jamais existé** : ni route, ni vue, ni lien « voir plus » sur le Hub. La tâche « supprimer `/for-you` » de la fiche/roadmap est **sans objet** ; rebrancher un « voir plus » vers `/radar` (décision 4b/4c) est du **net-new**.
+- **La liste virtualisée d'Explorer n'est PAS un composant** : ~1300 lignes inline dans `ExplorerView.vue`. Radar **réécrit son tableau** (grille + rangées) en réutilisant les *primitives* partagées (composables `useFilterState`/`useVirtualWindow`/`useWindowedList`, famille `filters/`, `Artwork`/`StyleTag`/`ArtistLinks`/`LikeDislike`) + 2 colonnes `<ScoreRing>`. On **ne modifie pas** Explorer (doctrine refonte).
+- **Aucun nouveau composant transverse** : `<ScoreRing>` (contrat figé : entrée score **0–1**, affichage `/10`), `<Artwork>`, la famille `filters/` sont déjà livrés. Le handoff Design est allégé (composition de page + maquette, pas de spec composant).
+- Le mode radar de Catalog (Source/Détecté/ScorePill/chip Radar≥2) a **déjà été retiré** d'Explorer en D6 ; la liste brute `radar_tracks` n'est pas reprise (hors vision, §4).
+
+### Décisions du handoff Claude Design (round unique, 2026-07-22)
+
+Handoff versionné dans `handoff-radar/` (BRIEF-radar.md + pilote), conforme aux décisions figées. Évolutions actées au round (latitude DA), à porter au chantier :
+
+- **Menu « + » imports RETIRÉ** du head Radar (« Ajouter un track » / « Importer XML » restent sur Explorer) — sans sens sur une surface de reco.
+- **Colonne active = bande verticale `--accent-wash`** (en-tête + toutes les cellules de la colonne triée), pas seulement l'en-tête — repère de tri continu en scroll virtualisé.
+- **Accent velocity = ▲** en coin de l'anneau **Tendance** uniquement (jamais Pour toi), optionnel.
+- **Cold-start** = bandeau « Débloque Pour toi » (fermable) + colonne Pour toi entière « — » ; ouverture sur tri Tendance.
+- Column-drop 4 paliers (1000/860/700/640) hérité d'Explorer, réordonné pour **préserver les 2 scores jusqu'au 375 px**.
+
+**Impacts back (lot 0) nés du handoff** :
+- L'endpoint doit exposer les **bornes de l'union** pour le compteur de head (« N tendances · M pour toi »), en plus du `total` filtré (compteur live « N sons »).
+- **Seuil velocity « élevée »** (déclencheur du ▲) à définir au lot : percentile serveur ou booléen `is_rising` renvoyé par l'endpoint (non bloquant, optionnel).

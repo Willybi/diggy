@@ -5,6 +5,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
+from .catalog import CatalogEntryOut
 from .common import ArtistRef
 
 RadarStatus = Literal["new", "seen", "added", "ignored", "liked", "disliked"]
@@ -74,6 +75,25 @@ class RadarFullList(BaseModel):
     total: int
     items: list[RadarFullOut]
     counts: dict[str, int] = {}
+
+
+class RadarFeedItem(CatalogEntryOut):
+    """A bi-score radar feed row: a full catalog entry plus its two scores.
+
+    ``trend_score_10`` (max-normalised trend, inherited from CatalogEntryOut) and
+    ``reco_score_10`` (max-normalised personal reco) are each None when the row
+    carries no score on that axis.
+    """
+
+    reco_score_10: Optional[float] = None
+    velocity: Optional[float] = None
+
+
+class RadarFeedList(BaseModel):
+    total: int  # rows of the union AFTER filters (live counter)
+    trend_count: int  # union rows carrying a trend score, BEFORE filters
+    reco_count: int  # union rows carrying a reco score, BEFORE filters
+    items: list[RadarFeedItem] = []
 
 
 class RadarStateUpdate(BaseModel):

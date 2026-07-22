@@ -162,6 +162,7 @@ async def list_catalog(
     label: str | None = None,
     sort: str | None = None,
     order: str = "desc",
+    catalog_ids: list[int] | None = None,
 ):
     from models import (
         Artist,
@@ -257,6 +258,12 @@ async def list_catalog(
         .outerjoin(trend_sub, CatalogEntry.id == trend_sub.c.catalog_id)
         .where(catalog_visible(user_id))
     )
+
+    # Additive restriction to an explicit id set (Radar bi-score feed reuses this
+    # canonical builder for its trend rows). None = Explorer behaviour unchanged;
+    # an empty list correctly yields no rows.
+    if catalog_ids is not None:
+        query = query.where(CatalogEntry.id.in_(catalog_ids))
 
     if in_lib is True:
         query = query.where(ut_sub.c.catalog_id.isnot(None))

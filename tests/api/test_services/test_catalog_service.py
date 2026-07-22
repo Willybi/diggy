@@ -40,6 +40,36 @@ class TestListCatalog:
         assert result.total == 5
         assert len(result.items) == 2
 
+    async def test_catalog_ids_restricts_to_given_ids(self, db, auth_user):
+        """The additive catalog_ids param filters to exactly those ids; None
+        (default) leaves the Explorer behaviour unchanged."""
+        from models import CatalogEntry
+        rows = [
+            CatalogEntry(title=f"T{i}", artist="Artist", normalized_key=f"artist|t{i}")
+            for i in range(3)
+        ]
+        db.add_all(rows)
+        await db.commit()
+        for r in rows:
+            await db.refresh(r)
+        wanted = [rows[0].id, rows[2].id]
+
+        restricted = await catalog_service.list_catalog(
+            db, auth_user.id, skip=0, limit=50, catalog_ids=wanted,
+        )
+        assert restricted.total == 2
+        assert {it.id for it in restricted.items} == set(wanted)
+
+        # Default (catalog_ids=None) still returns everything.
+        full = await catalog_service.list_catalog(db, auth_user.id, skip=0, limit=50)
+        assert full.total == 3
+
+        # Empty list yields no rows (valid, degenerate case).
+        empty = await catalog_service.list_catalog(
+            db, auth_user.id, skip=0, limit=50, catalog_ids=[],
+        )
+        assert empty.total == 0
+
 
 class TestGetDetail:
     async def test_raises_lookup_error_for_missing_entry(self, db, auth_user):
