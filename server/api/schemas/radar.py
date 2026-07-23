@@ -1,6 +1,6 @@
 """Radar schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, field_validator
@@ -113,6 +113,7 @@ class TrendItem(BaseModel):
     has_preview: bool = False
     bpm: Optional[float] = None
     key: Optional[str] = None
+    release_date: Optional[date] = None
     trend_score: float = 0
     rank: int = 1
     family: Optional[str] = None

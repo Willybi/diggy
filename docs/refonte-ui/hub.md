@@ -1,6 +1,14 @@
 # Hub / accueil — `/`
 
-Statut : ✅ figé (décisions actées ; assets Design + fiches des 2 pages filles restent à produire)  |  Vue : `views/HubView.vue`
+Statut : ✅ figé + **handoff Design LIVRÉ (2026-07-23)** → `docs/refonte-ui/handoff-hub/` (`BRIEF-hub.md`, `BRIEF-composants-hub.md` = nouveau `<DiscoveryCard>`, pilote). Chantier `/refonte_page` en cours.  |  Vue : `views/HubView.vue`
+
+> **Décisions Phase 0 (arbitrages William + Claude) intégrées au prompt/handoff, priment sur le corps ci-dessous rédigé avant Radar :**
+> - Cibles « voir plus » désormais concrètes : **Ça sort → `/radar`** (invité → `/login`), **Pour toi → `/radar`** (colonne Pour toi ; `/for-you` fusionné dans Radar) — la cible provisoire `/catalog?view=radar` est caduque.
+> - **Nouveautés « voir plus » = bouton DÉSACTIVÉ « Bientôt »** (arbitrage William) tant que `/new-releases` (D6.d) n'existe pas.
+> - **Search bar** : dropdown scope = **icônes SVG unifiées** (fin des emoji) + **compteurs par type** (recap C1, `search.totals.*`) — arbitrages Q2/Q3.
+> - Carte enrichie = nouveau composant **`<DiscoveryCard>`** horizontal (cf. TRANSVERSE), âge en **token brut**, in-lib seulement sur Pour toi (donnée dispo).
+> - Back du chantier (unique) : **`release_date` sur `TrendItem`** + query `list_trends` (`routers/radar.py`), aucune migration.
+> - **Reporté** (backlog roadmap) : recap **C5** (badges *sur N sources* / genre / durée sur les cartes) — hétérogène + back en plus.
 
 ## 1. Ce qu'on a (actuel)
 

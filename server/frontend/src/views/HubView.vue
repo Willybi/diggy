@@ -35,8 +35,8 @@
       <div class="searchwrap" :class="{ focused: inputFocused }">
         <div class="scope" :class="{ open: scopeOpen }" v-click-outside="() => (scopeOpen = false)">
           <button class="scope-btn" @click="scopeOpen = !scopeOpen">
+            <span class="scope-ic" v-html="currentScopeIconSvg"></span>
             <span class="lbl lbl-long">{{ currentScopeLabel }}</span>
-            <span class="lbl lbl-short">{{ currentScopeIcon }}</span>
             <svg
               class="chev"
               viewBox="0 0 24 24"
@@ -54,7 +54,9 @@
               :class="{ on: scope === s.value }"
               @click="selectScope(s.value)"
             >
-              <span class="ic" v-html="s.icon"></span>{{ s.label }}
+              <span class="ic" v-html="scopeIcons[s.value]"></span>
+              <span class="ml">{{ s.label }}</span>
+              <span v-if="!isEmpty" class="cnt">{{ scopeCount(s.value) }}</span>
             </button>
           </div>
         </div>
@@ -85,28 +87,25 @@
         </div>
       </div>
 
-      <!-- extras (empty state) -->
+      <!-- essaie: search primers, right under the search bar (empty state) -->
       <div v-if="isEmpty" class="extras">
-        <div class="ex-section">
-          <div class="ex-label">Genres populaires</div>
-          <div class="gpills">
-            <button
-              v-for="g in topGenres"
-              :key="g.name"
-              class="gpill"
-              :data-fam="g.pillar"
-              @click="searchGenre(g.name)"
-            >
-              <span class="vd"></span>
-              <span class="vn">{{ g.name }}</span>
-              <span class="vc">{{ g.count }}</span>
-            </button>
-          </div>
-        </div>
         <div class="ex-section">
           <div class="ex-label">Essaie</div>
           <div class="qsugs">
             <button v-for="s in suggestions" :key="s" class="qsug" @click="searchSuggestion(s)">
+              <svg
+                class="qsug-arrow"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M6 5v6.5a2 2 0 0 0 2 2h10" />
+                <path d="M14 9.5l4 4-4 4" />
+              </svg>
               {{ s }}
             </button>
           </div>
@@ -119,8 +118,8 @@
            user — they can always switch back via the chips. -->
       <div v-if="isEmpty && (trendTracks.length || trendFamily !== 'all')" class="discover">
         <div class="discover-head">
-          <h2 class="discover-title">Ca sort en ce moment</h2>
-          <RouterLink to="/radar" class="discover-more">
+          <h2 class="discover-title">Ça sort en ce moment</h2>
+          <RouterLink :to="auth.isAuthenticated ? '/radar' : '/login'" class="discover-more">
             Voir plus
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
@@ -128,31 +127,21 @@
           </RouterLink>
         </div>
         <FamilyChips v-model="trendFamily" :counts="trendFamilyCounts" />
-        <div v-if="trendTracks.length" class="trend-shelf">
-          <div
+        <div v-if="trendTracks.length" class="hb-shelfgrid">
+          <DiscoveryCard
             v-for="track in trendTracks"
             :key="track.catalog_id"
-            class="trend-card"
-            @click="openTrend(track)"
-          >
-            <div class="tc-art">
-              <img
-                v-if="track.has_artwork"
-                :src="`/storage/catalog-artworks/${track.catalog_id}.jpg`"
-                alt=""
-                loading="lazy"
-                @error="(e) => (e.target.style.display = 'none')"
-              />
-              <div v-if="track.has_preview" class="tc-play" @click.stop="playTrend(track)">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-              </div>
-            </div>
-            <div class="tc-info">
-              <span class="tc-rank">#{{ track.rank }}</span>
-              <div class="tc-title">{{ track.title }}</div>
-              <div class="tc-artist">{{ track.artist || '—' }}</div>
-            </div>
-          </div>
+            :title="track.title"
+            :artist="track.artist || ''"
+            :cover-id="track.catalog_id"
+            :has-artwork="track.has_artwork"
+            :has-preview="track.has_preview"
+            :rank="track.rank"
+            :meta-parts="trackMeta(track)"
+            :playing="catalogPlaying(track.catalog_id)"
+            @open="openTrend(track)"
+            @play="playTrend(track)"
+          />
         </div>
         <div v-else class="discover-empty">Aucune sortie dans ce style pour l'instant.</div>
       </div>
@@ -164,14 +153,8 @@
         aria-busy="true"
       >
         <h2 class="discover-title">Pour toi</h2>
-        <div class="trend-shelf">
-          <div v-for="n in 6" :key="n" class="trend-card is-skeleton" aria-hidden="true">
-            <div class="tc-art sk-block"></div>
-            <div class="tc-info">
-              <div class="sk-line sk-line--title"></div>
-              <div class="sk-line sk-line--sub"></div>
-            </div>
-          </div>
+        <div class="hb-shelfgrid">
+          <DiscoveryCard v-for="n in 9" :key="n" skeleton />
         </div>
       </div>
 
@@ -189,30 +172,21 @@
             </svg>
           </RouterLink>
         </div>
-        <div class="trend-shelf">
-          <div
+        <div class="hb-shelfgrid">
+          <DiscoveryCard
             v-for="track in recoItems"
             :key="track.id"
-            class="trend-card"
-            @click="openReco(track)"
-          >
-            <div class="tc-art">
-              <img
-                v-if="track.has_artwork"
-                :src="`/storage/catalog-artworks/${track.id}.jpg`"
-                alt=""
-                loading="lazy"
-                @error="(e) => (e.target.style.display = 'none')"
-              />
-              <div v-if="track.has_preview" class="tc-play" @click.stop="playReco(track)">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-              </div>
-            </div>
-            <div class="tc-info">
-              <div class="tc-title">{{ track.title }}</div>
-              <div class="tc-artist">{{ track.artist || '—' }}</div>
-            </div>
-          </div>
+            :title="track.title"
+            :artist="track.artist || ''"
+            :cover-id="track.id"
+            :has-artwork="track.has_artwork"
+            :has-preview="track.has_preview"
+            :in-lib="track.in_lib"
+            :meta-parts="trackMeta(track)"
+            :playing="catalogPlaying(track.id)"
+            @open="openReco(track)"
+            @play="playReco(track)"
+          />
         </div>
       </div>
 
@@ -221,13 +195,17 @@
         v-if="isEmpty && auth.isAuthenticated && activityItems.length"
         class="discover discover--activity"
       >
-        <h2 class="discover-title">
-          Nouveautés de tes artistes
-          <span v-if="activityNewCount > 0" class="ac-new-badge">
-            {{ activityNewCount }} nouvelle{{ activityNewCount > 1 ? 's' : '' }}
-          </span>
-        </h2>
-        <div class="trend-shelf">
+        <div class="discover-head">
+          <h2 class="discover-title">
+            Nouveautés de tes artistes
+            <span v-if="activityNewCount > 0" class="ac-new-badge">
+              {{ activityNewCount }} nouvelle{{ activityNewCount > 1 ? 's' : '' }}
+            </span>
+          </h2>
+          <!-- /new-releases doesn't exist yet → inert « Bientôt » (no dead link) -->
+          <span class="discover-more is-disabled" aria-disabled="true">Bientôt</span>
+        </div>
+        <div class="hb-shelfgrid">
           <template v-for="entry in activityShelf" :key="activityKey(entry)">
             <!-- grouped release (2+ tracks share an album) → one expandable card -->
             <ActivityAlbumCard
@@ -237,59 +215,39 @@
               @open="openActivityTrack"
             />
             <!-- crawled release → full track card (cover, preview, release age) -->
-            <div
+            <DiscoveryCard
               v-else-if="entry.item.type === 'release' && entry.item.catalog_id"
-              class="trend-card activity-card"
-              @click="openActivityTrack(entry.item)"
-            >
-              <div class="tc-art">
-                <img
-                  v-if="entry.item.has_artwork"
-                  :src="`/storage/catalog-artworks/${entry.item.catalog_id}.jpg`"
-                  alt=""
-                  loading="lazy"
-                  @error="(e) => (e.target.style.display = 'none')"
-                />
-                <div
-                  v-if="entry.item.has_preview"
-                  class="tc-play"
-                  @click.stop="playActivityTrack(entry.item)"
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                </div>
-              </div>
-              <div class="tc-info">
-                <span class="ac-badge">Nouveauté</span>
-                <div class="tc-title">{{ entry.item.title }}</div>
-                <div class="tc-artist">
-                  {{ entry.item.artist || entry.item.artist_name || '—' }}
-                </div>
-                <div v-if="relativeAge(entry.item.release_date)" class="ac-age">
-                  Sorti {{ relativeAge(entry.item.release_date) }}
-                </div>
-              </div>
-            </div>
+              :title="entry.item.title"
+              :artist="entry.item.artist || entry.item.artist_name || ''"
+              :cover-id="entry.item.catalog_id"
+              :has-artwork="entry.item.has_artwork"
+              :has-preview="entry.item.has_preview"
+              badge="Nouveauté"
+              :meta-parts="trackMeta(entry.item)"
+              :playing="catalogPlaying(entry.item.catalog_id)"
+              @open="openActivityTrack(entry.item)"
+              @play="playActivityTrack(entry.item)"
+            />
             <!-- release we could not crawl → external Deezer link fallback -->
-            <a
+            <DiscoveryCard
               v-else-if="entry.item.type === 'release'"
-              class="trend-card activity-card"
+              :title="entry.item.title"
+              :artist="entry.item.artist_name || ''"
+              badge="Nouveauté"
+              badge-icon="ext"
               :href="entry.item.external_url"
-              target="_blank"
-              rel="noopener"
-            >
-              <div class="tc-info">
-                <span class="ac-badge">Nouveauté</span>
-                <div class="tc-title">{{ entry.item.title }}</div>
-                <div class="tc-artist">{{ entry.item.artist_name || '—' }}</div>
-              </div>
-            </a>
-            <RouterLink v-else class="trend-card activity-card" :to="`/set/${entry.item.set_id}`">
-              <div class="tc-info">
-                <span class="ac-badge">Set</span>
-                <div class="tc-title">{{ entry.item.title }}</div>
-                <div class="tc-artist">{{ entry.item.artist_name || '—' }}</div>
-              </div>
-            </RouterLink>
+              :meta-parts="externalReleaseMeta(entry.item)"
+            />
+            <!-- followed-artist set -->
+            <DiscoveryCard
+              v-else
+              :title="entry.item.title"
+              :artist="entry.item.artist_name || ''"
+              badge="Set"
+              badge-icon="set"
+              :meta-parts="setMeta(entry.item)"
+              @open="openSet(entry.item)"
+            />
           </template>
         </div>
       </div>
@@ -412,12 +370,12 @@ import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../stores/toast.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import { styleTone } from '../composables/useStyleMap.js'
-import { fmtMs, fmtBpm, relativeAge } from '../utils/format.js'
+import { fmtMs, fmtBpm, fmtNum, relativeAge, relativeAgeShort } from '../utils/format.js'
 import SegFilter from '../components/SegFilter.vue'
 import SourceBadge from '../components/SourceBadge.vue'
 import FamilyChips from '../components/FamilyChips.vue'
 import ActivityAlbumCard from '../components/ActivityAlbumCard.vue'
+import DiscoveryCard from '../components/DiscoveryCard.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -442,12 +400,12 @@ const toast = useToast()
 const suggestions = ['house', 'disclosure', 'boiler room', 'techno', 'trance', 'deep house']
 
 const scopes = [
-  { value: 'all', label: 'Tout', icon: '⊕' },
-  { value: 'track', label: 'Tracks', icon: '♫' },
-  { value: 'artist', label: 'Artistes', icon: '●' },
-  { value: 'set', label: 'Sets', icon: '◎' },
-  { value: 'playlist', label: 'Playlists', icon: '☰' },
-  { value: 'genre', label: 'Genres', icon: '◆' },
+  { value: 'all', label: 'Tout' },
+  { value: 'track', label: 'Tracks' },
+  { value: 'artist', label: 'Artistes' },
+  { value: 'set', label: 'Sets' },
+  { value: 'playlist', label: 'Playlists' },
+  { value: 'genre', label: 'Genres' },
 ]
 
 const scopeIcons = {
@@ -464,8 +422,14 @@ const isEmpty = computed(() => !query.value.trim())
 const currentScopeLabel = computed(
   () => scopes.find((s) => s.value === scope.value)?.label || 'Tout',
 )
-const currentScopeIcon = computed(() => scopes.find((s) => s.value === scope.value)?.icon || '⊕')
+const currentScopeIconSvg = computed(() => scopeIcons[scope.value] || scopeIcons.all)
 const remaining = computed(() => Math.max(0, total.value - items.value.length))
+
+// Per-scope result counts for the dropdown (search state only). `totals` carries
+// track/artist/set/playlist/genre; « Tout » = their sum (already exposed as `total`).
+function scopeCount(value) {
+  return value === 'all' ? fmtNum(total.value) : fmtNum(totals.value?.[value] || 0)
+}
 const userInitial = computed(() => (auth.user?.username || '?')[0].toUpperCase())
 
 const sortedItems = computed(() => {
@@ -483,26 +447,6 @@ const sortedItems = computed(() => {
   return clone
 })
 
-// ── top genres (loaded once) ──
-const topGenres = ref([])
-
-async function loadTopGenres() {
-  try {
-    const { data } = await api.get('/api/genres', { params: { limit: 10, sort: 'tracks' } })
-    topGenres.value = (data.items || []).map((g) => {
-      const tone = styleTone({ pillar: g.pillar, depth: g.depth })
-      return {
-        name: g.name,
-        count: g.trackCount || 0,
-        pillar: tone.pillar,
-        isAutres: tone.pillar === 'autres',
-      }
-    })
-  } catch {
-    /* silent */
-  }
-}
-
 // ── trends ──
 const trendFamily = ref('all')
 const trendTracks = ref([])
@@ -510,7 +454,7 @@ const trendFamilyCounts = ref({})
 
 async function loadTrends() {
   try {
-    const params = { limit: 20 }
+    const params = { limit: 9 }
     if (trendFamily.value !== 'all') params.family = trendFamily.value
     const { data } = await api.get('/api/radar/trends', { params })
     trendTracks.value = data.items || []
@@ -637,7 +581,7 @@ async function loadReco() {
     // drops the Authorization header across that redirect → 401 → the response
     // interceptor auto-logs-out, kicking the user back to /login right after a
     // successful sign-in (desktop Chrome preserves the header, hence "works on PC").
-    const { data } = await api.get('/api/recommendations/', { params: { limit: 12 } })
+    const { data } = await api.get('/api/recommendations/', { params: { limit: 9 } })
     recoItems.value = data.items || []
   } catch {
     /* silent — the Hub must never break on this */
@@ -682,8 +626,30 @@ function playTrend(track) {
   })
 }
 
+function openSet(item) {
+  router.push(`/set/${item.set_id}`)
+}
+
+// ── DiscoveryCard meta builders (component drops empty cells, never a dash) ──
+// BPM · KEY · brut age — the dense card meta line (BRIEF-hub H2/H3).
+function trackMeta(t) {
+  return [t.bpm ? fmtBpm(t.bpm) : '', t.key || '', relativeAgeShort(t.release_date)]
+}
+// External Deezer link: no BPM/KEY available → "Sur Deezer" + verbose age.
+function externalReleaseMeta(item) {
+  return ['Sur Deezer', relativeAge(item.release_date)]
+}
+// Set: no BPM/KEY → verbose age alone (omitted when unknown).
+function setMeta(item) {
+  const age = relativeAge(item.release_date)
+  return age ? [age] : []
+}
+// A card is "playing" when the global player holds that catalog id.
+function catalogPlaying(catalogId) {
+  return catalogId != null && player.track?.catalog_id === catalogId && player.playing
+}
+
 onMounted(() => {
-  loadTopGenres()
   loadTrends()
   if (auth.isAuthenticated) {
     loadActivity()
@@ -737,10 +703,6 @@ function selectScope(value) {
   scope.value = value
   scopeOpen.value = false
   focusInput()
-}
-function searchGenre(name) {
-  scope.value = 'genre'
-  query.value = name
 }
 function searchSuggestion(s) {
   scope.value = 'all'
@@ -1101,8 +1063,16 @@ const vClickOutside = {
 .scope.open .scope-btn .chev {
   transform: rotate(180deg);
 }
-.scope-btn .lbl-short {
-  display: none;
+.scope-btn .scope-ic {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ink-2);
+}
+.scope-btn .scope-ic :deep(svg) {
+  width: 100%;
+  height: 100%;
 }
 
 .scope-menu {
@@ -1144,12 +1114,31 @@ const vClickOutside = {
   color: var(--accent-ink);
 }
 .scope-menu button .ic {
-  width: 16px;
-  height: 16px;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
   flex: none;
   color: var(--ink-3);
 }
+.scope-menu button .ic :deep(svg) {
+  width: 100%;
+  height: 100%;
+}
 .scope-menu button.on .ic {
+  color: var(--accent-ink);
+}
+.scope-menu button .ml {
+  flex: 1;
+}
+.scope-menu button.on .ml {
+  font-weight: 600;
+}
+.scope-menu button .cnt {
+  flex: none;
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+}
+.scope-menu button.on .cnt {
   color: var(--accent-ink);
 }
 
@@ -1218,77 +1207,7 @@ const vClickOutside = {
   margin: 0 0 var(--space-3);
 }
 
-/* genre pills */
-/* pillar hue mapping for genre pills */
-.gpill[data-fam='house'] {
-  --th: var(--hue-house);
-}
-.gpill[data-fam='techno'] {
-  --th: var(--hue-techno);
-}
-.gpill[data-fam='trance'] {
-  --th: var(--hue-trance);
-}
-.gpill[data-fam='dnb'] {
-  --th: var(--hue-dnb);
-}
-.gpill[data-fam='hardcore'] {
-  --th: var(--hue-hardcore);
-}
-.gpill[data-fam='harddance'] {
-  --th: var(--hue-harddance);
-}
-.gpill[data-fam='autres'] .vd {
-  background: var(--ink-3);
-}
-.gpill[data-fam='autres'] .vn {
-  color: var(--ink);
-}
-
-.gpills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.gpill {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition:
-    border-color 0.14s,
-    transform 0.14s,
-    background 0.14s;
-  font-family: var(--font-ui);
-}
-.gpill:hover {
-  border-color: var(--line-2);
-  transform: translateY(-1px);
-  background: var(--surface-2);
-}
-.gpill .vd {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: none;
-  background: oklch(var(--tag-dot-l) var(--tag-dot-c) var(--th));
-}
-.gpill .vn {
-  font: 600 var(--fs-sm) var(--font-ui);
-  color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
-  white-space: nowrap;
-}
-.gpill .vc {
-  font: 500 var(--fs-xs)/1 var(--font-mono);
-  color: var(--ink-3);
-}
-
-/* suggestions */
+/* suggestions (Essaie) — pill with an inline « entrée » arrow glyph */
 .qsugs {
   display: flex;
   flex-wrap: wrap;
@@ -1296,6 +1215,9 @@ const vClickOutside = {
   margin-top: var(--space-15);
 }
 .qsug {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-15);
   font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
   background: var(--surface-2);
@@ -1303,14 +1225,19 @@ const vClickOutside = {
   border-radius: var(--r-pill);
   padding: var(--space-15) var(--space-3);
   cursor: pointer;
+  transition:
+    background 0.14s,
+    color 0.14s;
 }
 .qsug:hover {
   background: var(--surface-3);
   color: var(--ink);
 }
-.qsug::before {
-  content: '↳ ';
-  color: var(--ink-3);
+.qsug-arrow {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--accent-ink);
 }
 
 /* ── results ── */
@@ -1681,6 +1608,12 @@ const vClickOutside = {
   width: 14px;
   height: 14px;
 }
+/* Inert « Bientôt » state (Nouveautés) — no destination yet, not a dead link. */
+.discover-more.is-disabled {
+  color: var(--ink-3);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .discover-empty {
   padding: var(--space-6) 0;
   text-align: center;
@@ -1690,126 +1623,14 @@ const vClickOutside = {
 .discover :deep(.fam-chips) {
   padding: 0 0 var(--space-4);
 }
-.trend-shelf {
+/* Shelf grid: 3 → 2 → 1 col. minmax(0,1fr) so a 64px cover never blows a column
+   past its share (grid 1fr = minmax(auto,1fr) otherwise). Cards = <DiscoveryCard>
+   / <ActivityAlbumCard>, both self-styled. */
+.hb-shelfgrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-25);
-  padding: 0 0 var(--space-4);
-}
-.trend-card {
-  display: flex;
-  align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
-  padding: var(--space-2);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  cursor: pointer;
-  transition:
-    background 0.13s,
-    border-color 0.13s;
-}
-.trend-card:hover {
-  background: var(--surface-2);
-  border-color: var(--line-2);
-}
-.tc-art {
-  position: relative;
-  width: 80px;
-  height: 80px;
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  flex: none;
-  background: var(--surface-3);
-}
-.tc-art img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.tc-play {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: var(--overlay-soft);
-  color: var(--overlay-text);
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.tc-play svg {
-  width: 22px;
-  height: 22px;
-}
-.trend-card:hover .tc-play {
-  opacity: 1;
-}
-.tc-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.tc-rank {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-05) var(--space-15);
-  border-radius: var(--r-xs);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font: 600 var(--fs-xs)/1 var(--font-mono);
-  align-self: flex-start;
-}
-.tc-title {
-  font: 500 var(--fs-base) var(--font-ui);
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tc-artist {
-  font: 400 var(--fs-sm) var(--font-ui);
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ── skeleton (Pour toi, loading) ── */
-.trend-card.is-skeleton {
-  cursor: default;
-  pointer-events: none;
-}
-.sk-block,
-.sk-line {
-  background: var(--surface-3);
-  border-radius: var(--r-xs);
-}
-.sk-line {
-  height: 12px;
-}
-.sk-line--title {
-  width: 70%;
-}
-.sk-line--sub {
-  width: 45%;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .sk-block,
-  .sk-line {
-    animation: sk-pulse 1.2s ease-in-out infinite;
-  }
-}
-@keyframes sk-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  padding: 0 0 var(--space-4);
 }
 
 /* ── followed artists activity ── */
@@ -1824,40 +1645,33 @@ const vClickOutside = {
   font: 600 var(--fs-xs)/1 var(--font-mono);
   vertical-align: middle;
 }
-.activity-card {
-  text-decoration: none;
-  color: inherit;
-}
-.ac-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-05) var(--space-15);
-  border-radius: var(--r-xs);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font: 600 var(--fs-xs)/1 var(--font-mono);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  align-self: flex-start;
-}
-.ac-age {
-  font: 400 var(--fs-xs) var(--font-ui);
-  color: var(--ink-3);
-  margin-top: var(--space-05);
-}
 
-/* ── responsive ── */
-@container app (max-width: 680px) {
+/* ── responsive — container queries, two breakpoints (720 / 640) ── */
+@container app (max-width: 720px) {
+  .hb-shelfgrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container app (max-width: 640px) {
   .hub,
   .hub-top {
     padding-left: var(--page-px-mobile);
     padding-right: var(--page-px-mobile);
   }
+  .searchwrap,
+  .results,
+  .extras,
+  .discover {
+    max-width: 100%;
+  }
+  .hb-shelfgrid {
+    grid-template-columns: 1fr;
+  }
   .scope-btn .lbl-long {
     display: none;
   }
-  .scope-btn .lbl-short {
-    display: inline;
+  .big-word .w {
+    font-size: var(--fs-display);
   }
   .rmeta .m-dur {
     display: none;
@@ -1868,43 +1682,11 @@ const vClickOutside = {
   .tbadge .lbl {
     display: none;
   }
-}
-@container app (max-width: 640px) {
-  .searchwrap {
-    max-width: 100%;
-  }
-  .results {
-    max-width: 100%;
-  }
-  .extras {
-    max-width: 100%;
-  }
-  .discover {
-    max-width: 100%;
-  }
-  .trend-shelf {
-    grid-template-columns: 1fr;
-  }
-  .tc-art {
-    width: 56px;
-    height: 56px;
-  }
-  .tc-play {
-    opacity: 1;
-  }
   .rart .play {
     opacity: 1;
   }
   .r-add {
     opacity: 0.8;
-  }
-}
-@container app (max-width: 540px) {
-  .big-word .w {
-    font-size: var(--fs-display);
-  }
-  .rmeta .m-bpm {
-    display: none;
   }
 }
 </style>

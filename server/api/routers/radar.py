@@ -68,6 +68,7 @@ async def list_trends(
             CatalogEntry.has_preview,
             CatalogEntry.bpm,
             CatalogEntry.key,
+            CatalogEntry.release_date,
         )
         .join(CatalogEntry, CatalogEntry.id == RadarTrend.catalog_id)
         .where(catalog_visible(_uid(user)))
@@ -89,6 +90,7 @@ async def list_trends(
             has_preview=r.has_preview,
             bpm=r.bpm,
             key=r.key,
+            release_date=r.release_date,
             trend_score=r.trend_score,
             rank=idx + 1,
             family=r.family,

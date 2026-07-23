@@ -2,7 +2,7 @@
 Tests des endpoints /api/radar + C0 security & lifecycle.
 """
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -167,6 +167,49 @@ class TestRadarFeed:
     async def test_feed_sort_param_validation(self, client):
         r = await client.get("/api/radar/feed?sort=bogus")
         assert r.status_code == 422
+
+
+# ── GET /api/radar/trends ─────────────────────────────────────────────────────
+
+class TestTrends:
+    async def test_trends_returns_release_date(self, client, db, auth_user):
+        from models import RadarTrend
+        cat = CatalogEntry(
+            title="Trend", artist="Art", normalized_key="trend - art",
+            release_date=date(2026, 5, 1),
+        )
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(RadarTrend(
+            catalog_id=cat.id, trend_score=5.0, family="house",
+            rank_in_family=1, rank_global=1,
+        ))
+        await db.commit()
+
+        r = await client.get("/api/radar/trends")
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert len(items) == 1
+        assert items[0]["release_date"] == "2026-05-01"
+
+    async def test_trends_null_release_date(self, client, db, auth_user):
+        from models import RadarTrend
+        cat = CatalogEntry(title="NoDate", artist="Art", normalized_key="nodate - art")
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(RadarTrend(
+            catalog_id=cat.id, trend_score=3.0, family="techno",
+            rank_in_family=1, rank_global=1,
+        ))
+        await db.commit()
+
+        r = await client.get("/api/radar/trends")
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert len(items) == 1
+        assert items[0]["release_date"] is None
 
 
 # ── GET /api/radar/new-count ─────────────────────────────────────────────────

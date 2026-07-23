@@ -159,7 +159,10 @@ describe('HubView followed-artists activity shelf', () => {
     expect(apiMock.post).not.toHaveBeenCalled()
   })
 
-  it('renders a crawled release as a track card and a set as a RouterLink', async () => {
+  // Since the Hub refonte, the shelves render <DiscoveryCard> (`.dc-card`) instead
+  // of the old inline `.activity-card`/`.tc-*` markup, and the set is a clickable
+  // card (emits open) rather than a RouterLink. Selectors updated accordingly.
+  it('renders a crawled release as a DiscoveryCard and a set as a « Set » card', async () => {
     authState.value = { isAuthenticated: true, user: { username: 'will' } }
     mockApiGet({ activityItems: [RELEASE_ITEM, SET_ITEM] })
     const wrapper = await mountHub()
@@ -168,24 +171,23 @@ describe('HubView followed-artists activity shelf', () => {
     expect(shelf.exists()).toBe(true)
     expect(shelf.find('.discover-title').text()).toContain('Nouveautés de tes artistes')
 
-    // Crawled release → clickable track card (div): cover keyed on catalog_id,
-    // play button, badge « Nouveauté », relative release age.
-    const cards = shelf.findAll('.activity-card')
+    // Crawled release → clickable card (div): cover keyed on catalog_id, play
+    // button, accent badge « Nouveauté ».
+    const cards = shelf.findAll('.dc-card')
     const release = cards.find((c) => c.text().includes('Song A'))
     expect(release).toBeTruthy()
     expect(release.element.tagName).toBe('DIV')
-    expect(release.find('.ac-badge').text()).toBe('Nouveauté')
-    expect(release.find('img').attributes('src')).toBe('/storage/catalog-artworks/909.jpg')
-    expect(release.find('.tc-play').exists()).toBe(true)
+    expect(release.find('.dc-badge').text()).toBe('Nouveauté')
+    expect(release.find('img.aw-img').attributes('src')).toBe('/storage/catalog-artworks/909.jpg')
+    expect(release.find('.dc-play').exists()).toBe(true)
     expect(release.text()).toContain('Amelie Lens')
-    expect(release.text()).toContain('Sorti')
 
-    // Set card → internal RouterLink with badge « Set »
-    const setLink = shelf.findComponent(RouterLinkStub)
-    expect(setLink.exists()).toBe(true)
-    expect(setLink.props('to')).toBe('/set/77')
-    expect(setLink.find('.ac-badge').text()).toBe('Set')
-    expect(setLink.text()).toContain('Awakenings 2026')
+    // Set → « Set » card (also a DiscoveryCard div, no play, no href).
+    const setCard = cards.find((c) => c.text().includes('Awakenings 2026'))
+    expect(setCard).toBeTruthy()
+    expect(setCard.element.tagName).toBe('DIV')
+    expect(setCard.find('.dc-badge').text()).toBe('Set')
+    expect(setCard.find('.dc-play').exists()).toBe(false)
   })
 
   it('renders an uncrawled release as an external Deezer link', async () => {
@@ -193,13 +195,26 @@ describe('HubView followed-artists activity shelf', () => {
     mockApiGet({ activityItems: [RELEASE_LINK_ITEM] })
     const wrapper = await mountHub()
 
-    const link = wrapper.find('a.activity-card')
+    const link = wrapper.find('a.dc-card')
     expect(link.exists()).toBe(true)
     expect(link.attributes('href')).toBe(RELEASE_LINK_ITEM.external_url)
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toBe('noopener')
-    expect(link.find('.ac-badge').text()).toBe('Nouveauté')
+    expect(link.find('.dc-badge').text()).toBe('Nouveauté')
     expect(link.text()).toContain('Uncrawled EP')
+  })
+
+  it('renders the Nouveautés « Voir plus » as an inert « Bientôt » (no dead link)', async () => {
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+    mockApiGet({ activityItems: [RELEASE_ITEM] })
+    const wrapper = await mountHub()
+
+    const more = wrapper.find('.discover--activity .discover-more')
+    expect(more.exists()).toBe(true)
+    expect(more.element.tagName).toBe('SPAN')
+    expect(more.text()).toBe('Bientôt')
+    expect(more.classes()).toContain('is-disabled')
+    expect(more.attributes('aria-disabled')).toBe('true')
   })
 
   it('shows the « N nouvelles » badge while items are not yet marked seen', async () => {
@@ -270,12 +285,12 @@ describe('HubView « Pour toi » recommendations shelf', () => {
     expect(shelf.exists()).toBe(true)
     expect(shelf.find('.discover-title').text()).toBe('Pour toi')
 
-    const cards = shelf.findAll('.trend-card')
+    const cards = shelf.findAll('.dc-card')
     expect(cards).toHaveLength(1)
     expect(cards[0].text()).toContain('Strobe')
     expect(cards[0].text()).toContain('Deadmau5')
-    // Artwork keyed on `id` (not catalog_id).
-    expect(shelf.find('.tc-art img').attributes('src')).toBe('/storage/catalog-artworks/42.jpg')
+    // Cover keyed on `id` (not catalog_id).
+    expect(shelf.find('img.aw-img').attributes('src')).toBe('/storage/catalog-artworks/42.jpg')
   })
 
   it('keeps the Hub alive when the recommendations endpoint fails', async () => {
@@ -304,9 +319,10 @@ describe('HubView « Pour toi » recommendations shelf', () => {
     const shelf = wrapper.find('.discover--foryou')
     expect(shelf.exists()).toBe(true)
     expect(shelf.attributes('aria-busy')).toBe('true')
-    expect(shelf.findAll('.trend-card.is-skeleton').length).toBeGreaterThan(0)
+    // Skeleton ghosts now come from <DiscoveryCard skeleton />.
+    expect(shelf.findAll('.dc-card--skeleton').length).toBeGreaterThan(0)
     // No real reco cards yet.
-    expect(shelf.find('.tc-title').exists()).toBe(false)
+    expect(shelf.find('.dc-title').exists()).toBe(false)
   })
 })
 
@@ -325,8 +341,8 @@ describe('HubView activity album grouping', () => {
     const shelf = wrapper.find('.discover--activity')
     const albumCards = shelf.findAll('.album-card')
     expect(albumCards).toHaveLength(1)
-    // One card, not two near-identical track cards.
-    expect(shelf.findAll('.activity-card')).toHaveLength(1)
+    // One album card, and no unit DiscoveryCards alongside it.
+    expect(shelf.findAll('.dc-card')).toHaveLength(0)
 
     const card = albumCards[0]
     expect(card.text()).toContain('Formula EP')
@@ -350,10 +366,10 @@ describe('HubView activity album grouping', () => {
 
     const shelf = wrapper.find('.discover--activity')
     expect(shelf.find('.album-card').exists()).toBe(false)
-    const card = shelf.find('.activity-card')
+    const card = shelf.find('.dc-card')
     expect(card.element.tagName).toBe('DIV')
     expect(card.text()).toContain('Song A')
-    expect(card.find('img').attributes('src')).toBe('/storage/catalog-artworks/909.jpg')
+    expect(card.find('img.aw-img').attributes('src')).toBe('/storage/catalog-artworks/909.jpg')
   })
 
   it('dedups a collab track surfaced via two followed artists', async () => {
@@ -364,6 +380,53 @@ describe('HubView activity album grouping', () => {
     const wrapper = await mountHub()
 
     const shelf = wrapper.find('.discover--activity')
-    expect(shelf.findAll('.activity-card')).toHaveLength(1)
+    expect(shelf.findAll('.dc-card')).toHaveLength(1)
+  })
+})
+
+describe('HubView search scope counters', () => {
+  beforeEach(() => {
+    apiMock.get.mockReset()
+    apiMock.post.mockReset()
+    apiMock.post.mockResolvedValue({ data: {} })
+    authState.value = { isAuthenticated: true, user: { username: 'will' } }
+  })
+
+  it('shows a per-scope count in the dropdown only in search state', async () => {
+    apiMock.get.mockImplementation((url) => {
+      if (url === '/api/search') {
+        return Promise.resolve({
+          data: {
+            items: [],
+            total: 1552,
+            totals: { track: 1290, artist: 96, set: 84, playlist: 63, genre: 19 },
+          },
+        })
+      }
+      if (url === '/api/radar/trends') {
+        return Promise.resolve({ data: { items: [], family_counts: {} } })
+      }
+      if (url === '/api/following/activity/new-count') return Promise.resolve({ data: { count: 0 } })
+      if (url === '/api/following/activity') return Promise.resolve({ data: { items: [] } })
+      if (url === '/api/recommendations/') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = await mountHub()
+
+    // Empty state → no counters in the dropdown.
+    expect(wrapper.find('.scope-menu .cnt').exists()).toBe(false)
+
+    // Type a query → debounced search → counters appear (one per scope).
+    await wrapper.find('.search-field input').setValue('house')
+    await new Promise((r) => setTimeout(r, 200))
+    await flushPromises()
+
+    const counts = wrapper.findAll('.scope-menu .cnt')
+    expect(counts).toHaveLength(6) // Tout + 5 types
+    // fr-FR grouping inserts thin/no-break spaces (both matched by \s).
+    const texts = counts.map((c) => c.text().replace(/\s/g, ''))
+    expect(texts[0]).toBe('1552') // « Tout » = sum
+    expect(texts[1]).toBe('1290') // Tracks
+    expect(texts[2]).toBe('96') // Artistes
   })
 })

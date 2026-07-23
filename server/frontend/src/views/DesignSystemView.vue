@@ -301,6 +301,16 @@
         </SetCard>
       </div>
 
+      <h3 class="ds-h3 mono">
+        DiscoveryCard · carte de découverte <span class="ds-tag">refonte Hub</span>
+      </h3>
+      <div class="ds-dcgrid">
+        <div v-for="d in demoDiscovery" :key="d.caption" class="ds-dccell">
+          <span class="ds-dccaption mono">{{ d.caption }}</span>
+          <DiscoveryCard v-bind="d.props" />
+        </div>
+      </div>
+
       <h3 class="ds-h3 mono">PlatformLink · button (md / sm) &amp; glyph</h3>
       <div class="comp-row">
         <PlatformLink v-for="p in demoPlatforms" :key="p" :platform="p" href="#" />
@@ -473,6 +483,7 @@ import TrackCard from '../components/TrackCard.vue'
 import ScoreRing from '../components/ScoreRing.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import SetCard from '../components/SetCard.vue'
+import DiscoveryCard from '../components/DiscoveryCard.vue'
 import FilterBar from '../components/filters/FilterBar.vue'
 import FilterChip from '../components/filters/FilterChip.vue'
 import FilterPanel from '../components/filters/FilterPanel.vue'
@@ -553,6 +564,109 @@ const demoSet = {
   identified_tracks: 15,
   artists: ['Sébastien Léger'],
 }
+
+// DiscoveryCard — 5 variantes + états (calqué sur le Nuancier du pilote Hub).
+// has_artwork false partout → placeholder Artwork (pas d'image réelle à charger).
+const demoDiscovery = [
+  {
+    caption: 'Tendance · #rank',
+    props: {
+      title: 'La La Land',
+      artists: [{ id: 1, name: 'Green Velvet' }],
+      coverId: 1,
+      hasArtwork: false,
+      hasPreview: true,
+      rank: 3,
+      metaParts: ['125', '4A', '6 j'],
+    },
+  },
+  {
+    caption: 'Reco · in-lib',
+    props: {
+      title: 'Pongo',
+      artists: [{ id: 2, name: 'miirabelle' }],
+      coverId: 2,
+      hasArtwork: false,
+      hasPreview: true,
+      inLib: true,
+      metaParts: ['128', '9B', '1 mois'],
+    },
+  },
+  {
+    caption: 'Nouveauté · release',
+    props: {
+      title: 'Get Buck',
+      artists: [{ id: 3, name: 'Marlon Hoffstadt' }],
+      coverId: 3,
+      hasArtwork: false,
+      hasPreview: true,
+      badge: 'Nouveauté',
+      metaParts: ['130', '8A', '6 j'],
+    },
+  },
+  {
+    caption: 'Nouveauté · set',
+    props: {
+      title: 'Boiler Room: Palermo',
+      artist: 'DJ Tennis',
+      hasArtwork: false,
+      hasPreview: false,
+      badge: 'Set',
+      badgeIcon: 'set',
+      metaParts: ['il y a 1 sem'],
+    },
+  },
+  {
+    caption: 'Nouveauté · lien externe',
+    props: {
+      title: 'Sunset Rendezvous',
+      artist: 'Ivan Iacobucci',
+      hasArtwork: false,
+      hasPreview: false,
+      badge: 'Nouveauté',
+      badgeIcon: 'ext',
+      href: '#',
+      metaParts: ['Sur Deezer', 'il y a 3 sem'],
+    },
+  },
+  {
+    caption: 'Sans cover · placeholder + in-lib absent',
+    props: {
+      title: 'Concrete Dawn',
+      artist: 'SPFDJ',
+      hasArtwork: false,
+      hasPreview: true,
+      inLib: false,
+      metaParts: ['140', '1A', '4 j'],
+    },
+  },
+  {
+    caption: 'En lecture (playing)',
+    props: {
+      title: 'Mantra',
+      artist: 'Joe Milli',
+      coverId: 5,
+      hasArtwork: false,
+      hasPreview: true,
+      rank: 2,
+      playing: true,
+      metaParts: ['132', '7A', '2 sem'],
+    },
+  },
+  {
+    caption: 'Méta dégradée (sans KEY)',
+    props: {
+      title: 'Moving',
+      artist: 'DJ Sprinter',
+      coverId: 6,
+      hasArtwork: false,
+      hasPreview: true,
+      rank: 8,
+      metaParts: ['150', '4 j'],
+    },
+  },
+  { caption: 'Skeleton (chargement)', props: { skeleton: true } },
+]
 
 // ── Section 8 · Filtres — demo state ──
 const demoInLibOptions = [
@@ -1088,6 +1202,24 @@ onMounted(() => {
   grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: var(--space-4);
   max-width: 720px;
+}
+.ds-dcgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  max-width: 920px;
+}
+.ds-dccell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-15);
+  min-width: 0;
+}
+.ds-dccaption {
+  font: 600 var(--fs-nano) var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
 }
 .ds-pagehead {
   background: var(--surface);

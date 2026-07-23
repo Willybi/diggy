@@ -73,14 +73,23 @@ export function pl(n, one, many) {
 }
 
 /**
+ * "YYYY-MM-DD" -> whole days elapsed since that day, or null if unparseable.
+ * Shared by the two relative-age formatters below.
+ */
+function ageInDays(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return null
+  return Math.floor((Date.now() - d.getTime()) / 86400000)
+}
+
+/**
  * "YYYY-MM-DD" -> "aujourd'hui / hier / il y a N j / N sem / N mois"
  * Release recency at day granularity (horizon <= 30 j). '' if unparseable.
  */
 export function relativeAge(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(`${dateStr}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return ''
-  const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+  const days = ageInDays(dateStr)
+  if (days == null) return ''
   if (days <= 0) return "aujourd'hui"
   if (days === 1) return 'hier'
   if (days < 7) return `il y a ${days} j`
@@ -88,4 +97,22 @@ export function relativeAge(dateStr) {
   if (days < 30) return weeks === 1 ? 'il y a 1 sem' : `il y a ${weeks} sem`
   const months = Math.max(1, Math.floor(days / 30))
   return months === 1 ? 'il y a 1 mois' : `il y a ${months} mois`
+}
+
+/**
+ * "YYYY-MM-DD" -> compact release-age TOKEN for dense meta lines:
+ * "auj." / "hier" / "N j" / "N sem" / "N mois". '' if empty/unparseable.
+ * Same recency as relativeAge, without the verbose "il y a" prefix — reads as a
+ * data cell next to BPM/KEY on a mono meta line (BRIEF-hub H3).
+ */
+export function relativeAgeShort(dateStr) {
+  const days = ageInDays(dateStr)
+  if (days == null) return ''
+  if (days <= 0) return 'auj.'
+  if (days === 1) return 'hier'
+  if (days < 7) return `${days} j`
+  const weeks = Math.floor(days / 7)
+  if (days < 30) return `${weeks} sem`
+  const months = Math.max(1, Math.floor(days / 30))
+  return `${months} mois`
 }
