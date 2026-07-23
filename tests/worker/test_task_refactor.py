@@ -331,7 +331,7 @@ class TestEnrichBudgetAndPasses:
     def test_nightly_budget_per_source(self, monkeypatch):
         """Deezer (fast API) gets a high budget to absorb the full daily inflow;
         Beatport (rate-limited scrape) stays 6000 as a daily safety ceiling — the
-        hourly drain (batch_size=800/run) is the effective per-run cap."""
+        hourly drain (batch_size=550/run) is the effective per-run cap."""
         import workers.tasks.catalog as catalog_mod
 
         for var in (

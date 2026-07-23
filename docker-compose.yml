@@ -220,6 +220,12 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+      # Soft heap ceiling BELOW the 2G cgroup limit above: Go's GC targets this
+      # and runs harder as RSS approaches it, so an OOM-kill (hard cgroup limit)
+      # becomes cheap GC pressure instead. MinIO RSS creeps up over ~a day (heap
+      # not returned to the OS + the data-usage scanner walking ~190k objects);
+      # this keeps it bounded. 1800MiB leaves ~250MiB for off-heap/goroutines.
+      GOMEMLIMIT: 1800MiB
     volumes:
       - minio_data:/data
     networks:

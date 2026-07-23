@@ -1,6 +1,6 @@
 """
 Lot A — the Beatport enrichment moved from 2 long daily passes (06h + 15h,
-~7h/8h limits) to ONE hourly bounded drain (6h-23h, batch_size=800/run, short
+~7h/8h limits) to ONE hourly bounded drain (6h-23h, batch_size=550/run, short
 limits + hardened lock). A deploy kill now costs ≤1h instead of ~8h.
 
 These are light source-level assertions (workers.celery_app pulls in celery,
@@ -28,13 +28,13 @@ def _catalog_source():
 class TestBeatportHourlySchedule:
     def test_hourly_entry_present_with_expected_config(self):
         """The beat schedule carries the hourly Beatport drain: hour='6-23' and
-        the batch_size=800 per-run cap."""
+        the batch_size=550 per-run cap."""
         source = _celery_app_source()
         assert "enrich-catalog-beatport-hourly" in source
         # crontab bounded to 6h-23h
         assert 'crontab(minute=0, hour="6-23")' in source
         # per-run cap passed as a beat kwarg
-        assert '"batch_size": 800' in source
+        assert '"batch_size": 550' in source
         # exactly one beat entry references the task now
         assert (
             source.count('"task": "workers.tasks.enrich_catalog_beatport"') == 1

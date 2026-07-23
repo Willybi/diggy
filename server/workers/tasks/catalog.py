@@ -19,10 +19,10 @@ BEATPORT_LOCK_TTL = 3900
 # Max catalog entries per sweep, PER SOURCE. Deezer (official API, 10 req/s)
 # clears the full daily inflow in minutes, so its budget is high. Beatport
 # (scraped, 0.66 req/s anti-ban) is throughput-bound and now drained by an
-# HOURLY beat (6h-23h) capped at batch_size=800/run — ~18 créneaux → up to
-# ~14400/day, itself bounded by the rate (~940/h). The per-source budget stays
+# HOURLY beat (6h-23h) capped at batch_size=550/run — ~18 créneaux → up to
+# ~9900/day, itself bounded by the rate (~940/h). The per-source budget stays
 # 6000: each run is already bounded by min(batch_size, budget), so batch_size
-# (800) is the effective per-run cap and the budget is the daily safety ceiling.
+# (550) is the effective per-run cap and the budget is the daily safety ceiling.
 DEFAULT_NIGHTLY_BUDGET_DEEZER = 15000
 DEFAULT_NIGHTLY_BUDGET_BEATPORT = 6000
 
@@ -210,6 +210,16 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
             budget = _nightly_budget("beatport")
             effective_budget = min(batch_size, budget) if batch_size > 0 else budget
 
+            # Hoisted so a SoftTimeLimitExceeded mid-run still yields the work
+            # committed so far (each 50-batch is committed before the next).
+            progress = {
+                "enriched": 0,
+                "not_found": 0,
+                "errors": 0,
+                "merged": 0,
+                "total": 0,
+            }
+
             async def _async_enrich():
                 from datetime import datetime, timezone
 
@@ -221,10 +231,6 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
                 from workers.rate_limiter import RateLimiter
 
                 limiter = RateLimiter()
-                total_enriched = 0
-                total_not_found = 0
-                total_errors = 0
-                total_merged = 0
 
                 async with HttpPool(limiter) as pool:
                     with Session(engine) as session:
@@ -234,47 +240,46 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
                             budget=effective_budget,
                             now=datetime.now(timezone.utc),
                         )
-                        total = len(entries)
-
-                        if not entries:
-                            return {
-                                "enriched": 0,
-                                "not_found": 0,
-                                "errors": 0,
-                                "merged": 0,
-                                "total": 0,
-                            }
+                        progress["total"] = len(entries)
 
                         for i in range(0, len(entries), 50):
                             batch = entries[i : i + 50]
                             stats = await enrich_beatport_batch(
                                 session, batch, pool, None
                             )
-                            total_enriched += stats.get("enriched", 0)
-                            total_not_found += stats.get("not_found", 0)
-                            total_errors += stats.get("errors", 0)
-                            total_merged += stats.get("merged", 0)
+                            progress["enriched"] += stats.get("enriched", 0)
+                            progress["not_found"] += stats.get("not_found", 0)
+                            progress["errors"] += stats.get("errors", 0)
+                            progress["merged"] += stats.get("merged", 0)
                             session.commit()
                             logger.info(
                                 "Beatport enrich progress: %d/%d",
-                                min(i + 50, total),
-                                total,
+                                min(i + 50, progress["total"]),
+                                progress["total"],
                             )
 
-                        return {
-                            "enriched": total_enriched,
-                            "not_found": total_not_found,
-                            "errors": total_errors,
-                            "merged": total_merged,
-                            "total": total,
-                        }
+            # Catch the soft limit so the run ends cleanly (status success) with
+            # the partial stats flushed, and the Redis lock is released by the
+            # outer `finally` — instead of propagating to a hard-limit SIGKILL
+            # that skips the lock release and orphans it (constaté 2026-07-23).
+            from celery.exceptions import SoftTimeLimitExceeded
 
+            soft_limit_hit = False
             try:
-                result = asyncio.run(_async_enrich())
+                asyncio.run(_async_enrich())
+            except SoftTimeLimitExceeded:
+                soft_limit_hit = True
+                logger.warning(
+                    "enrich_catalog_beatport hit soft time limit; "
+                    "flushing partial stats: %s",
+                    progress,
+                )
             except Exception:
                 logger.exception("enrich_catalog_beatport failed")
                 raise
 
+            result = dict(progress)
+            result["soft_limit_hit"] = soft_limit_hit
             clog.set_stats(result)
 
     return result

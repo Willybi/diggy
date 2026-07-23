@@ -112,15 +112,19 @@ celery_app.conf.update(
             "schedule": crontab(hour=5, minute=0),  # tous les jours à 5h
         },
         # Drain Beatport HORAIRE borné (6h-23h ; la nuit reste aux crawls +
-        # Deezer/artistes). batch_size=800/run remplit les heures creuses au MÊME
-        # rate scrape 0,66 req/s (~940/h, pas de risque de ban en plus). Le lock
-        # single-instance + le time_limit court (3300s) bornent chaque créneau : un
-        # kill de deploy coûte ≤1h au lieu de ~8h. Un run sans candidat éligible
-        # est un no-op en secondes (auto-throttle quand le backlog est vide).
+        # Deezer/artistes). batch_size=550/run remplit les heures creuses au MÊME
+        # rate scrape 0,66 req/s (~940/h, pas de risque de ban en plus). 550 est
+        # calibré pour finir SOUS le soft_time_limit=3000s même quand le taux
+        # d'introuvables monte (chaque not_found coûte 3-4 req en fallback release) :
+        # à 800 la majorité des runs tapaient le soft/hard limit → status error +
+        # stats perdues + risque de lock orphelin sur hard-kill (constaté 2026-07-23).
+        # Le lock single-instance + le time_limit court (3300s) bornent chaque
+        # créneau : un kill de deploy coûte ≤1h au lieu de ~8h. Un run sans candidat
+        # éligible est un no-op en secondes (auto-throttle quand le backlog est vide).
         "enrich-catalog-beatport-hourly": {
             "task": "workers.tasks.enrich_catalog_beatport",
             "schedule": crontab(minute=0, hour="6-23"),
-            "kwargs": {"batch_size": 800},
+            "kwargs": {"batch_size": 550},
         },
         "compute-trends-daily": {
             "task": "workers.tasks.compute_trends",
