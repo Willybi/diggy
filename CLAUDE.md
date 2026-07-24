@@ -152,6 +152,8 @@ cd server/frontend && npm run dev     # frontend dev server
 
 Full-stack local dev is NOT a supported flow (Q6): the official path is push → CI → prod. `npm run dev` (port 5173) is frontend-only in ALL cases — its Vite `/api` proxy targets `http://api:8000` (a Docker-internal hostname, a leftover from the old containerized dev server) which does not resolve from the host, so API calls fail even with the Docker stack up. They fail cleanly: the page never crashes (the boot swallows network errors — `refreshUser()` and `opinions.load()` both catch). The full local app (static frontend + API + `/api/docs`) is served by nginx on http://localhost:8080.
 
+**Command hygiene (Claude — avoid needless permission prompts):** the Bash tool's cwd **persists** across calls, so `cd` into a subdir in its OWN call — never `cd server/frontend && npx vitest …` inline. The inline `cd X && cmd` form makes the whole command start with `cd`, which no longer matches the command's allow-list prefix (`Bash(npx vitest:*)`, `Bash(ruff check:*)`, …) and forces a prompt. Frontend commands (`npx vitest run`, `npm run lint`) run from `server/frontend`; backend (`pytest`, `ruff check server/`, `alembic`) from the repo root. Same idea for the VPS: use `ssh diggy-vps "…"`, not the raw `-i` key form.
+
 Env vars: see `.env.example` at repo root. Required: `POSTGRES_USER/PASSWORD/DB`, `DATABASE_URL`, `JWT_SECRET`, `MINIO_USER/PASSWORD`. Prod adds `COMPOSE_FILE=docker-compose.yml:docker-compose.ssl.yml` and `DOMAIN`. `ENV=production` disables permissive CORS and the API docs (`/api/docs`, `/api/redoc`, `/api/openapi.json` are not registered).
 
 ## Celery Beat Schedule
@@ -236,7 +238,8 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant. `.
 
 - Domain: `diggy-music.fr`. VPS project path: `/root/diggy`. `.env` lives ONLY on the VPS, never in git.
 - Push to `master` → GitHub Actions (ruff + eslint + pytest on real PG + vitest + pip-audit) → SSH → `docker compose build` → `alembic upgrade head` (on the NEW image, before the switch) → `docker compose up -d`. A failing lint blocks everything; a failing build or migration aborts the deploy (old code keeps serving).
-- SSH from Claude: `ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247` (dedicated key required).
+- SSH from Claude: **prefer the alias `ssh diggy-vps "…"`** — it matches the skill/allow-list rules (`Bash(ssh diggy-vps:*)`) so it won't prompt; the explicit form `ssh -i /c/Users/willi/.ssh/claude_diggy root@82.29.168.247` also works (dedicated key) but is more verbose.
+- Prod read-only SQL (VPS): `ssh diggy-vps "cd /root/diggy && docker compose exec -T postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"SELECT …\"'"`. Gotchas: the DB service is **`postgres`** (not `db`); env vars must expand **inside** the container → wrap the psql call in `sh -c '…'`; table names are the SQLAlchemy `__tablename__` (e.g. `sets`, `set_tracks`, `catalog_artists` — NOT `dj_sets`).
 - Local vs prod: local = `docker-compose.yml` + override (hot reload, port 8080 HTTP); prod = `COMPOSE_FILE` chains `docker-compose.ssl.yml` (ports 80/443, certbot container).
 - After deploying, run `/deploy_verify`.
 

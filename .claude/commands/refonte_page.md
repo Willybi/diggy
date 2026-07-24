@@ -1,6 +1,6 @@
 ---
 description: Déroule le pipeline complet de refonte d'une page (fiche → Claude Design → chantier → deploy → revue design → clôture)
-allowed-tools: Read, Glob, Grep, Write, Edit, AskUserQuestion, Bash(git log:*), Bash(git diff:*), Bash(git status:*), Bash(git fetch:*), Bash(npm run lint:*), Bash(npx vitest run:*), Bash(ssh diggy-vps:*), Bash(curl:*), Bash(node:*), Bash(mkdir:*)
+allowed-tools: Read, Glob, Grep, Write, Edit, AskUserQuestion, Bash(git log:*), Bash(git diff:*), Bash(git status:*), Bash(git fetch:*), Bash(npm run lint:*), Bash(npx vitest run:*), Bash(pytest:*), Bash(python -m pytest:*), Bash(ruff check:*), Bash(ssh diggy-vps:*), Bash(curl:*), Bash(node:*), Bash(mkdir:*)
 argument-hint: [nom de la page, ex. playlist-detail]
 ---
 
@@ -13,7 +13,8 @@ Pipeline éprouvé sur Track Detail (D4 p.1, 2026-07-17) : tu orchestres, les ag
 1. Lis `docs/refonte-ui/$ARGUMENTS.md` (la fiche de cadrage), `docs/refonte-ui/TRANSVERSE.md`, `docs/refonte-ui/INDEX.md`. Si la fiche n'existe pas ou n'est pas ✅ figée → STOP : on la produit d'abord ensemble selon la boucle de l'INDEX.
 2. **Vérifie l'état RÉEL du code contre la fiche** — les « dettes » listées peuvent être obsolètes (leçon Track Detail : le gate `is_admin` d'AdminCard était déjà fait). Vérifie aussi quels composants transverses existent déjà dans `src/components/` (Artwork, TrackCard, ScoreRing, PlatformLink… créés au fil des pages) et lesquels manquent.
 3. **Traque les incohérences internes de la fiche**, en particulier §5 (décisions) vs §6 (« Back : rien de neuf ») : si la page exige du back (champs jamais renvoyés, agrégats à calculer), liste précisément les besoins et fais-moi TRANCHER avant le prompt Design — le back devient alors un lot du chantier (leçon : fiche playlist-detail contradictoire détectée en amont).
-4. Questions de périmètre restantes → AskUserQuestion. Aucune hypothèse silencieuse.
+4. **Pré-vol DONNÉES (pas seulement code)** : vérifie en base PROD, en SQL read-only (`ssh diggy-vps`, recette CLAUDE.md « Prod read-only SQL »), les DONNÉES sur lesquelles une décision de fiche repose. Une fiche peut supposer une donnée qui n'existe pas ou est **constante** → la décision tombe. Leçon /sets 2026-07-24 : « Source » supposée multi-plateforme = en réalité 100 % `trackid` (colonne retirée) ; « % de tracks identifiés » supposé variable = toujours ~100 % car l'import ne stocke que les tracks identifiées (anneau % sans info). Détecte-le AVANT le prompt Design, pas à mi-chantier — sinon aller-retours coûteux.
+5. Questions de périmètre restantes → AskUserQuestion. Aucune hypothèse silencieuse.
 
 ## Phase 1 — Prompt Claude Design
 
@@ -59,6 +60,8 @@ Produis le prompt de revue pour Claude Design (modèle : celui de Track Detail) 
 **STOP** : j'envoie le prompt + tes captures, je te rapporte le FIX.
 
 ## Phase 6 — Triage du FIX + lot correctif
+
+> **Retour utilisateur ciblé = correction ciblée.** Quand William rapporte un défaut UI précis (hors round design), corrige EXACTEMENT ce défaut — ne le réinterprète PAS en décision produit sans le lui demander. Un bug mobile n'est pas une refonte de colonne. Leçon /sets 2026-07-24 : « les anneaux n'ont pas de valeur sur mobile » = le libellé % masqué sous 640 px (à ré-afficher), PAS « retirer l'anneau » ; le détour data-driven (« le % est toujours 100 %, mettons un compteur ») a coûté 2 déploiements correctifs avant de revenir à l'anneau voulu.
 
 1. **Chaque [spec] se vérifie contre le code AVANT acceptation** — un écart annoncé n'est pas un écart confirmé. Cas connus : écart pré-existant à TOUT le repo → le canon s'applique à la page refondue seulement (les autres s'aligneront à leur tour) ; convention repo vs pilote (ex. seuils inclusifs 720/640) → la convention repo prime, arbitrage documenté.
 2. Archive le FIX annoté de tes verdicts (ACCEPTÉ/REJETÉ/CLOS + résolution) dans `docs/refonte-ui/handoff-$ARGUMENTS/FIX-$ARGUMENTS.md`.
