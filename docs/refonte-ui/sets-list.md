@@ -11,9 +11,9 @@ Statut : ✅ figé  |  Vue : `views/SetsView.vue`
 - **Table** (fixed) : Set (cover + titre + artistes) · Date · **Tracks (`RingPct` %)** · Durée · Avis. Colonnes sortables, row → détail, états liked/disliked.
 
 **Dette** :
-- **Pas de pagination** : tous les sets chargés + sort/filtre **client-side** (≠ `usePaginatedList` des autres listes) → lourd.
+- **Pagination front absente** : ⚠️ _correction pré-vol 2026-07-23_ — le back `/api/sets/` **pagine déjà** (`limit`/`offset` défaut 50 + `total`). C'est le **front** qui ne s'en sert pas : il charge la page 1 et trie/filtre **client-side** dessus (≠ `usePaginatedList`). Reste à câbler : infinite scroll front + `sort` server-side (le back n'a pas encore de param `sort`, ordre figé date desc).
 - **Beaucoup de sets à 0 %** identifié (bruit).
-- **Genre absent** (dispo côté détail via déduction).
+- **Genre absent** (dispo côté détail via déduction — le back sait le calculer via `aggregate_top_genres`).
 - **Source dispo en data mais pas affichée**.
 
 ## 2. Vision (William)
@@ -50,20 +50,34 @@ Statut : ✅ figé  |  Vue : `views/SetsView.vue`
 
 ## 5. Décisions figées
 - **Exclure les sets à 0 %** (`identified_tracks == 0`) — **par défaut, sans toggle**.
-- **Row** : cover · titre + artistes · **Genre (déduit, StyleTag)** · Date · **Source (logo, `<PlatformLink>`)** · Tracks (`RingPct` %) · Durée · Avis.
+- **Row** : cover · titre + artistes · **Genre (déduit, StyleTag)** · Date · Tracks (`RingPct` %) · Durée · Avis.
 - **Genre** : déduit des tracks (aucun champ set).
-- **Source** : logo de plateforme (`<PlatformLink>`).
+- ~~**Source** : logo de plateforme (`<PlatformLink>`).~~ **RETIRÉE (pré-vol 2026-07-23)** : en base 100 % des sets sont `source='trackid'` (origine réelle `platform` connue pour seulement 68/11800) → un logo de source serait identique partout ou vide à ~99 %, aucune valeur. Décision William. Le lien vers l'origine reste sur la page Set detail.
 - **Infinite scroll** (`usePaginatedList`) + sort/filtre **server-side**.
 - **Écarté** : nb tracks brut, play.
 - **Gardé** : form **Ajouter** (TrackID / URL), tri par colonne, états liked/disliked, row → détail.
 
+### Précisions pré-vol chantier (2026-07-23)
+- **Format = TABLEAU enrichi** (décision William) — l'incohérence `TRANSVERSE.md` (qui annonçait une grille `<SetCard>`) est tranchée en faveur de la row : `<SetCard>` **n'est pas** réutilisé ici (TRANSVERSE corrigé).
+- **Opinion (like/dislike)** géré **comme la liste Artistes** : le SegFilter (Tous/Liked/Disliked/À explorer) résout les ids via le store `opinions` puis un fetch `ids=…` (non paginé). → **le tri par colonne « Avis » est retiré** (opinion = filtre, pas colonne triable server-side) ; les boutons avis restent dans la row. Colonnes triables server-side = **titre · date · tracks (%) · durée**.
+- **Genre** : le back renvoie `top_genres` (liste `TopGenreOut`, même agrégat que le détail) ; la DA affiche **1–2 StyleTags**.
+- **Source** : colonne **RETIRÉE** (voir §5 — donnée sans valeur : 100 % trackid). `<PlatformLink>` n'est donc plus une dépendance de cette page.
+- **Composants transverses** : tous déjà livrés (`<StyleTag>`, `<ScoreRing>`, `<Artwork>`, `usePaginatedList`). **Aucun nouveau composant** → pas de lot composant.
+
+### Décisions du handoff Design (round Claude Design, 2026-07-24 — voir `handoff-sets-list/`)
+- **Colonne Tracks (%) = `<ScoreRing mode="pct" size="md">`** (`score = identified_tracks / total_tracks`), **pas** `<RingPct>` : le brief décrit la géométrie ScoreRing (40 px, % centré, espace fine insécable) → concrétise la migration RingPct→ScoreRing de TRANSVERSE. Anneau jamais nul (0 % exclus).
+- **Panneau « Ajouter » = MODAL 2 onglets** (recentré desktop, bottom-sheet `position: fixed` mobile) — l'actuel formulaire inline devient un modal ; flux inchangé (recherche TrackID + import par résultat · import URL).
+- **Genre : colonne dédiée desktop qui se replie sous le titre (chips) < 860 px** (ne disparaît pas). Column-drop : Durée < 1000 · Genre(colonne) < 860 · Date < 700 · mobile < 640 garde Set + Tracks(%) + Avis.
+- **Artistes cliquables → `/artist/:id`** dans la cellule Set → **le lot back renvoie `artists: [{id, name}]`** (au lieu de `list[str]`), l'`artist_id` étant dispo via `SetArtist`. _Petit ajout de contrat au-delà de la fiche._
+- **Reliquat/caveat** : le genre déduit d'un set à peu de tracks identifiés est bruité (1–2 tracks) — accepté, non bloquant.
+
 ## 6. Sortie next-step
 **Handoff Design**
-- [ ] Row set enrichie : **+ genre (StyleTag)** + **source (logo)** ; layout colonnes + responsive (masquage progressif).
+- [ ] Row set enrichie : **+ genre (StyleTag)** ; layout colonnes + responsive (masquage progressif). _(Source retirée — voir §5.)_
 
 **Chantier work_manager**
-- **Back** : `/api/sets/` — **exclure `identified_tracks == 0`** ; ajouter **genres déduits** à `SetListItemOut` ; supporter **sort + pagination server-side** (skip/limit/sort).
-- **Front** : `SetsView` → **`usePaginatedList`** ; row + genre + source logo (`<PlatformLink>`) ; retrait du sort/filtre client-side. NB : filtres opinion (liked/disliked/à explorer) à gérer comme la liste Artistes (résolution via opinions store / ids).
-- **Transverse** : `<PlatformLink>`, cohérence de la rangée.
+- **Lot 0 — Back** : `/api/sets/` — **exclure `identified_tracks == 0`** (HAVING) ; ajouter **genres déduits** (`top_genres: list[TopGenreOut]`) à `SetListItemOut` (batch + `catalog_visible(uid)` + warm pillar cache, comme set-detail → ajoute `get_current_user_optional`) ; ajouter param **`sort`** (titre/date/tracks/durée ; pagination `limit`/`offset` déjà en place) et param **`ids`** (résolution filtre opinion façon Artistes).
+- **Lot 1 — Front** : `SetsView` → **`usePaginatedList`** (sentinel infinite scroll) ; row + colonne genre (StyleTag) ; retrait du sort/filtre client-side ; filtres opinion (liked/disliked/à explorer) gérés **comme la liste Artistes** (résolution via opinions store / `ids`). Tri par colonne retiré sur « Avis ».
+- **Transverse** : aucun nouveau composant (tous livrés).
 
-**Dépend de** : `<PlatformLink>` (transverse).
+**Dépend de** : rien (composants transverses tous livrés).

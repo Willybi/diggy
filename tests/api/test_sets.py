@@ -1,5 +1,5 @@
 """Tests for /api/sets endpoints."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
@@ -20,6 +20,32 @@ from models import (
 from sqlalchemy import select
 
 
+async def _attach_identified_track(
+    db, set_obj, *, position=1, title=None, artist=None, genres=None, is_id=False
+):
+    """Attach an identified catalog track to a set so it clears the list's
+    ``having(identified > 0)`` gate. normalized_key is derived from the set id +
+    position to stay globally unique across a test."""
+    title = title or f"trk-{set_obj.id}-{position}"
+    artist = artist or f"art-{set_obj.id}-{position}"
+    cat = CatalogEntry(
+        title=title,
+        artist=artist,
+        normalized_key=f"{artist}|{title}".lower(),
+        genres=genres or [],
+        scope="shared",
+    )
+    db.add(cat)
+    await db.flush()
+    db.add(
+        SetTrack(
+            set_id=set_obj.id, position=position, catalog_id=cat.id,
+            raw_title=title, is_id=is_id,
+        )
+    )
+    return cat
+
+
 class TestListSets:
     async def test_empty_returns_zero(self, client):
         r = await client.get("/api/sets/")
@@ -29,7 +55,10 @@ class TestListSets:
         assert data["items"] == []
 
     async def test_returns_sets(self, client, db):
-        db.add(DJSet(source="trackid", title="Boiler Room London"))
+        s = DJSet(source="trackid", title="Boiler Room London")
+        db.add(s)
+        await db.flush()
+        await _attach_identified_track(db, s)
         await db.commit()
         r = await client.get("/api/sets/")
         assert r.status_code == 200
@@ -38,8 +67,12 @@ class TestListSets:
         assert data["items"][0]["title"] == "Boiler Room London"
 
     async def test_filter_by_title(self, client, db):
-        db.add(DJSet(source="trackid", title="Boiler Room London"))
-        db.add(DJSet(source="trackid", title="Cercle Paris"))
+        s1 = DJSet(source="trackid", title="Boiler Room London")
+        s2 = DJSet(source="trackid", title="Cercle Paris")
+        db.add_all([s1, s2])
+        await db.flush()
+        await _attach_identified_track(db, s1)
+        await _attach_identified_track(db, s2)
         await db.commit()
         r = await client.get("/api/sets/?q=boiler")
         data = r.json()
@@ -50,7 +83,14 @@ class TestListSets:
         s = DJSet(source="trackid", title="Test Set")
         db.add(s)
         await db.flush()
-        db.add(SetTrack(set_id=s.id, position=1, raw_title="Track 1"))
+        # Track 1 is identified (catalog-linked) so the set clears the gate; the
+        # count stays 2 because we don't add a 3rd track.
+        cat = CatalogEntry(
+            title="Track 1", artist="A1", normalized_key="a1|track 1", scope="shared"
+        )
+        db.add(cat)
+        await db.flush()
+        db.add(SetTrack(set_id=s.id, position=1, catalog_id=cat.id, raw_title="Track 1"))
         db.add(SetTrack(set_id=s.id, position=2, raw_title="ID", is_id=True))
         await db.commit()
         r = await client.get("/api/sets/")
@@ -64,14 +104,20 @@ class TestListSets:
         db.add(s)
         await db.flush()
         db.add(SetArtist(set_id=s.id, artist_id=a.id, role="main", position=1))
+        await _attach_identified_track(db, s)
         await db.commit()
         r = await client.get("/api/sets/")
         data = r.json()
-        assert data["items"][0]["artists"] == ["ANNA"]
+        artist = data["items"][0]["artists"][0]
+        assert artist["name"] == "ANNA"
+        assert artist["id"] == a.id
 
     async def test_pagination(self, client, db):
         for i in range(5):
-            db.add(DJSet(source="trackid", title=f"Set {i}"))
+            s = DJSet(source="trackid", title=f"Set {i}")
+            db.add(s)
+            await db.flush()
+            await _attach_identified_track(db, s)
         await db.commit()
         r = await client.get("/api/sets/?limit=2")
         data = r.json()
@@ -80,12 +126,192 @@ class TestListSets:
 
     async def test_pagination_offset(self, client, db):
         for i in range(5):
-            db.add(DJSet(source="trackid", title=f"Set {i}"))
+            s = DJSet(source="trackid", title=f"Set {i}")
+            db.add(s)
+            await db.flush()
+            await _attach_identified_track(db, s)
         await db.commit()
         r = await client.get("/api/sets/?offset=3&limit=10")
         data = r.json()
         assert len(data["items"]) == 2
         assert data["total"] == 5
+
+
+class TestListSetsEnriched:
+    """Lot 0 enriched list: 0-identified exclusion, sort keys/direction,
+    ids/exclude_ids filters, batch top_genres (catalog_visible), artists shape."""
+
+    async def test_zero_identified_set_absent_from_list_and_total(self, client, db):
+        visible = DJSet(source="trackid", title="Has Identified")
+        db.add(visible)
+        await db.flush()
+        await _attach_identified_track(db, visible)
+        # A set whose only tracks are ID placeholders / uncatalogued -> excluded
+        empty = DJSet(source="trackid", title="All Unknown")
+        db.add(empty)
+        await db.flush()
+        db.add(SetTrack(set_id=empty.id, position=1, raw_title="ID", is_id=True))
+        db.add(SetTrack(set_id=empty.id, position=2, raw_title="Mystery"))
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        data = r.json()
+        assert [it["title"] for it in data["items"]] == ["Has Identified"]
+        assert data["total"] == 1
+
+    async def test_sort_by_date(self, client, db):
+        old = DJSet(source="trackid", title="Old", played_date=date(2020, 1, 1))
+        new = DJSet(source="trackid", title="New", played_date=date(2024, 1, 1))
+        db.add_all([old, new])
+        await db.flush()
+        await _attach_identified_track(db, old)
+        await _attach_identified_track(db, new)
+        await db.commit()
+
+        # default -date -> most recent first
+        r = await client.get("/api/sets/")
+        assert [it["title"] for it in r.json()["items"]] == ["New", "Old"]
+        # date asc -> oldest first
+        r = await client.get("/api/sets/?sort=date")
+        assert [it["title"] for it in r.json()["items"]] == ["Old", "New"]
+
+    async def test_sort_by_title(self, client, db):
+        alpha = DJSet(source="trackid", title="Alpha")
+        zeta = DJSet(source="trackid", title="Zeta")
+        db.add_all([alpha, zeta])
+        await db.flush()
+        await _attach_identified_track(db, alpha)
+        await _attach_identified_track(db, zeta)
+        await db.commit()
+
+        r = await client.get("/api/sets/?sort=title")
+        assert [it["title"] for it in r.json()["items"]] == ["Alpha", "Zeta"]
+        r = await client.get("/api/sets/?sort=-title")
+        assert [it["title"] for it in r.json()["items"]] == ["Zeta", "Alpha"]
+
+    async def test_sort_by_duration(self, client, db):
+        short = DJSet(source="trackid", title="Short", duration_ms=100)
+        long_ = DJSet(source="trackid", title="Long", duration_ms=200)
+        db.add_all([short, long_])
+        await db.flush()
+        await _attach_identified_track(db, short)
+        await _attach_identified_track(db, long_)
+        await db.commit()
+
+        r = await client.get("/api/sets/?sort=duration")
+        assert [it["title"] for it in r.json()["items"]] == ["Short", "Long"]
+        r = await client.get("/api/sets/?sort=-duration")
+        assert [it["title"] for it in r.json()["items"]] == ["Long", "Short"]
+
+    async def test_sort_by_tracks_ratio(self, client, db):
+        full = DJSet(source="trackid", title="Full")  # 1/1 identified
+        half = DJSet(source="trackid", title="Half")  # 1/2 identified
+        db.add_all([full, half])
+        await db.flush()
+        await _attach_identified_track(db, full, position=1)
+        await _attach_identified_track(db, half, position=1)
+        db.add(SetTrack(set_id=half.id, position=2, raw_title="ID", is_id=True))
+        await db.commit()
+
+        # -tracks -> highest identified ratio first
+        r = await client.get("/api/sets/?sort=-tracks")
+        assert [it["title"] for it in r.json()["items"]] == ["Full", "Half"]
+        r = await client.get("/api/sets/?sort=tracks")
+        assert [it["title"] for it in r.json()["items"]] == ["Half", "Full"]
+
+    async def test_unknown_sort_falls_back_to_date(self, client, db):
+        old = DJSet(source="trackid", title="Old", played_date=date(2020, 1, 1))
+        new = DJSet(source="trackid", title="New", played_date=date(2024, 1, 1))
+        db.add_all([old, new])
+        await db.flush()
+        await _attach_identified_track(db, old)
+        await _attach_identified_track(db, new)
+        await db.commit()
+
+        r = await client.get("/api/sets/?sort=bogus")
+        assert [it["title"] for it in r.json()["items"]] == ["New", "Old"]
+
+    async def test_ids_restricts_and_exclude_ids_removes(self, client, db):
+        s1 = DJSet(source="trackid", title="One")
+        s2 = DJSet(source="trackid", title="Two")
+        s3 = DJSet(source="trackid", title="Three")
+        db.add_all([s1, s2, s3])
+        await db.flush()
+        for s in (s1, s2, s3):
+            await _attach_identified_track(db, s)
+        await db.commit()
+
+        r = await client.get(f"/api/sets/?ids={s1.id},{s3.id}")
+        data = r.json()
+        assert {it["id"] for it in data["items"]} == {s1.id, s3.id}
+        assert data["total"] == 2
+
+        r = await client.get(f"/api/sets/?exclude_ids={s2.id}")
+        data = r.json()
+        assert s2.id not in {it["id"] for it in data["items"]}
+        assert data["total"] == 2
+
+        # junk tokens are ignored; an all-junk CSV drops the filter entirely
+        r = await client.get("/api/sets/?ids=abc,")
+        assert r.json()["total"] == 3
+
+    async def test_items_carry_top_genres(self, client, db):
+        s = DJSet(source="trackid", title="Genre Set")
+        db.add(s)
+        await db.flush()
+        await _attach_identified_track(db, s, position=1, genres=["techno"])
+        await _attach_identified_track(db, s, position=2, genres=["techno"])
+        await _attach_identified_track(db, s, position=3, genres=["house"])
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        item = r.json()["items"][0]
+        assert [g["name"] for g in item["top_genres"]] == ["techno", "house"]
+        by_name = {g["name"]: g for g in item["top_genres"]}
+        assert by_name["techno"]["pct"] == 67  # round(100 * 2 / 3)
+
+    async def test_top_genres_respect_catalog_visible(self, auth_client, db, auth_user):
+        other = User(email="o2@test.com", username="o2", google_id="g-o2", is_active=True)
+        db.add(other)
+        await db.flush()
+        s = DJSet(source="trackid", title="Visibility Set")
+        db.add(s)
+        await db.flush()
+        # shared techno track (visible) + foreign private house track (hidden)
+        cat_shared = CatalogEntry(
+            title="Shared", artist="Alpha", normalized_key="alpha|shared",
+            genres=["techno"], scope="shared",
+        )
+        cat_private = CatalogEntry(
+            title="Secret", artist="Beta", normalized_key="beta|secret",
+            genres=["house"], scope="private", owner_id=other.id,
+        )
+        db.add_all([cat_shared, cat_private])
+        await db.flush()
+        db.add(SetTrack(set_id=s.id, position=1, catalog_id=cat_shared.id, raw_title="Shared"))
+        db.add(SetTrack(set_id=s.id, position=2, catalog_id=cat_private.id, raw_title="Secret"))
+        await db.commit()
+
+        r = await auth_client.get("/api/sets/")
+        item = r.json()["items"][0]
+        # foreign private "house" is excluded from the aggregate
+        assert {g["name"] for g in item["top_genres"]} == {"techno"}
+
+    async def test_artists_shape_is_id_name(self, client, db):
+        a = Artist(name="ANNA", normalized_name="anna")
+        db.add(a)
+        s = DJSet(source="trackid", title="ANNA set")
+        db.add(s)
+        await db.flush()
+        db.add(SetArtist(set_id=s.id, artist_id=a.id, role="main", position=1))
+        await _attach_identified_track(db, s)
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        artists = r.json()["items"][0]["artists"]
+        assert artists == [
+            {"id": a.id, "name": "ANNA", "role": None, "has_artwork": False}
+        ]
 
 
 class TestSetDetail:
@@ -421,6 +647,7 @@ class TestSetChildVisibility:
         parent = DJSet(source="trackid", title="Parent Set")
         db.add(parent)
         await db.flush()
+        await _attach_identified_track(db, parent)
         child = DJSet(source="trackid", title="Child Set", parent_set_id=parent.id)
         db.add(child)
         await db.commit()
@@ -437,6 +664,7 @@ class TestSetChildVisibility:
         parent = DJSet(source="trackid", title="Boiler Room Berlin")
         db.add(parent)
         await db.flush()
+        await _attach_identified_track(db, parent)
         child = DJSet(source="trackid", title="Boiler Room Berlin Part 2", parent_set_id=parent.id)
         db.add(child)
         await db.commit()

@@ -18,7 +18,8 @@ class SetListItemOut(BaseModel):
     has_artwork: bool = False
     total_tracks: int = 0
     identified_tracks: int = 0
-    artists: list[str] = []
+    artists: list[ArtistRef] = []
+    top_genres: list[TopGenreOut] = []
 
     model_config = {"from_attributes": True}
 

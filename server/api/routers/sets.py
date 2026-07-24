@@ -84,55 +84,145 @@ async def search_trackid_sets(
 # ---------- List ----------
 
 
+def _parse_id_csv(raw: str | None) -> list[int] | None:
+    """Parse a CSV of ints defensively. Non-int tokens are dropped; an empty or
+    all-junk CSV yields ``None`` (param ignored, no ``IN ()`` degenerate filter)."""
+    if not raw:
+        return None
+    out: list[int] = []
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            out.append(int(tok))
+        except ValueError:
+            continue
+    return out or None
+
+
 @router.get("/", response_model=SetListResponse)
 async def list_sets(
     q: str | None = None,
+    sort: str = Query("-date"),
+    ids: str | None = None,
+    exclude_ids: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
+    uid = _uid(user)
+
+    # Warm the pillar cache up front (mirrors get_set_detail): its loader rolls
+    # the session back on failure, so it must run BEFORE we hold any ORM row.
+    await ensure_pillar_cache(db)
+
+    identified_expr = func.count(
+        case(
+            (
+                and_(SetTrack.is_id.is_(False), SetTrack.catalog_id.isnot(None)),
+                SetTrack.id,
+            ),
+        )
+    )
+    total_tracks_expr = func.count(SetTrack.id)
+
     stmt = (
         select(
             DJSet,
-            func.count(SetTrack.id).label("total_tracks"),
-            func.count(
-                case(
-                    (
-                        and_(
-                            SetTrack.is_id.is_(False), SetTrack.catalog_id.isnot(None)
-                        ),
-                        SetTrack.id,
-                    ),
-                )
-            ).label("identified_tracks"),
+            total_tracks_expr.label("total_tracks"),
+            identified_expr.label("identified_tracks"),
         )
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
         .where(DJSet.parent_set_id.is_(None))
         .group_by(DJSet.id)
-        .order_by(DJSet.played_date.desc().nulls_last(), DJSet.created_at.desc())
+        # A set with no identified track is noise in a discovery list: exclude it.
+        # The count subquery below is built on this stmt, so total honours it.
+        .having(identified_expr > 0)
     )
 
     if q:
         stmt = stmt.where(DJSet.title.ilike(f"%{q}%"))
+
+    ids_parsed = _parse_id_csv(ids)
+    if ids_parsed is not None:
+        stmt = stmt.where(DJSet.id.in_(ids_parsed))
+    exclude_parsed = _parse_id_csv(exclude_ids)
+    if exclude_parsed is not None:
+        stmt = stmt.where(DJSet.id.notin_(exclude_parsed))
+
+    # Ordering: leading '-' = descending, else ascending. Unknown key -> -date.
+    # created_at.desc() is the final tie-break everywhere.
+    ratio_expr = identified_expr * 1.0 / func.nullif(total_tracks_expr, 0)
+    sort_columns = {
+        "title": DJSet.title,
+        "date": DJSet.played_date,
+        "tracks": ratio_expr,
+        "duration": DJSet.duration_ms,
+    }
+    key = sort or "-date"
+    descending = key.startswith("-")
+    key = key[1:] if descending else key
+    if key not in sort_columns:
+        key, descending = "date", True
+    col = sort_columns[key]
+    primary = (col.desc() if descending else col.asc()).nulls_last()
+    stmt = stmt.order_by(primary, DJSet.created_at.desc())
 
     # Total count
     count_result = await db.execute(select(func.count()).select_from(stmt.subquery()))
     total = count_result.scalar()
 
     rows = (await db.execute(stmt.offset(offset).limit(limit))).all()
-
-    # Batch-fetch artists
     set_ids = [row[0].id for row in rows]
-    set_artists_map: dict[int, list[str]] = {}
+
+    # Batch-fetch artists as [{id, name}] (ordered by position)
+    set_artists_map: dict[int, list[ArtistRef]] = {}
     if set_ids:
         aq = await db.execute(
-            select(SetArtist.set_id, Artist.name)
+            select(SetArtist.set_id, Artist.id, Artist.name)
             .join(Artist, Artist.id == SetArtist.artist_id)
             .where(SetArtist.set_id.in_(set_ids))
             .order_by(SetArtist.position)
         )
-        for sid, name in aq.all():
-            set_artists_map.setdefault(sid, []).append(name)
+        for sid, aid, name in aq.all():
+            set_artists_map.setdefault(sid, []).append(ArtistRef(id=aid, name=name))
+
+    # Batch-deduce top_genres per set — same rules as get_set_detail, page-wide:
+    # only identified tracks (catalog_id set, not an "ID" placeholder), restricted
+    # to the viewer's visible perimeter (C3 — a foreign private track never leaks
+    # its genres into the aggregate). Sequential awaits on one session — never
+    # asyncio.gather on `db` (asyncpg wedges the connection).
+    top_genres_map: dict[int, list] = {}
+    if set_ids:
+        st_rows = await db.execute(
+            select(SetTrack.set_id, SetTrack.catalog_id).where(
+                SetTrack.set_id.in_(set_ids),
+                SetTrack.is_id.is_(False),
+                SetTrack.catalog_id.isnot(None),
+            )
+        )
+        catalog_ids_by_set: dict[int, list[int]] = {}
+        all_catalog_ids: set[int] = set()
+        for sid, cid in st_rows.all():
+            catalog_ids_by_set.setdefault(sid, []).append(cid)
+            all_catalog_ids.add(cid)
+
+        genres_by_id: dict[int, list[str]] = {}
+        if all_catalog_ids:
+            gres = await db.execute(
+                select(CatalogEntry.id, CatalogEntry.genres).where(
+                    CatalogEntry.id.in_(all_catalog_ids), catalog_visible(uid)
+                )
+            )
+            genres_by_id = {cid: (g or []) for cid, g in gres.all()}
+
+        for sid, cids in catalog_ids_by_set.items():
+            top_genres_map[sid] = aggregate_top_genres(
+                (genres_by_id[cid] for cid in cids if cid in genres_by_id),
+                cap=3,
+            )
 
     items = [
         SetListItemOut(
@@ -146,6 +236,7 @@ async def list_sets(
             total_tracks=total_tracks,
             identified_tracks=identified,
             artists=set_artists_map.get(s.id, []),
+            top_genres=top_genres_map.get(s.id, []),
         )
         for s, total_tracks, identified in rows
     ]

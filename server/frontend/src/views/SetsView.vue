@@ -1,18 +1,24 @@
 <template>
-  <div class="sets-view">
-    <div class="page-head">
+  <div class="st-page">
+    <!-- ── Head : identity + counter + search + avis filter + add ── -->
+    <header class="page-head st-head">
       <div class="titles">
         <h1>Sets</h1>
-        <div class="sub">
-          {{ total }} set{{ total !== 1 ? 's' : '' }}
-          <span v-if="mode !== 'all'" class="muted"
-            >· {{ displayList.length }}
-            {{ mode === 'liked' ? 'likés' : mode === 'disliked' ? 'dislikés' : 'à explorer' }}</span
+        <div class="st-sub">
+          <template v-if="isOpinionMode"
+            >{{ fmtNum(baseTotal) }} sets<span class="st-sub-muted">
+              · {{ fmtNum(total) }} {{ avisLabel }}</span
+            ></template
           >
+          <template v-else>{{ fmtNum(total) }} {{ pl(total, 'set', 'sets') }}</template>
         </div>
       </div>
       <div class="head-tools">
-        <SearchBox v-model="search" placeholder="Rechercher…" @update:modelValue="fetchSets" />
+        <SearchBox
+          v-model="search"
+          placeholder="Rechercher un set…"
+          @update:modelValue="runFetch(true)"
+        />
         <SegFilter
           v-model="mode"
           :options="[
@@ -22,234 +28,476 @@
             { value: 'unrated', label: 'À explorer' },
           ]"
         />
-        <button class="btn-add" :class="{ cancel: showForm }" @click="toggleForm">
-          <span v-if="!showForm" class="plus">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M12 5v14M5 12h14" stroke-linecap="round" />
-            </svg>
-          </span>
-          <span class="addlbl">{{ showForm ? 'Annuler' : 'Ajouter' }}</span>
+        <button class="btn btn--accent st-add" type="button" @click="openAdd">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.2"
+            aria-hidden="true"
+          >
+            <path d="M12 5v14M5 12h14" stroke-linecap="round" />
+          </svg>
+          Ajouter
         </button>
       </div>
-    </div>
+    </header>
 
-    <!-- Add form -->
-    <div v-if="showForm" class="addform">
-      <div class="addcard">
-        <div class="addtabs">
-          <button class="addtab" :class="{ on: addMode === 'search' }" @click="addMode = 'search'">
+    <!-- ── Table : shared grid header/rows, infinite scroll ── -->
+    <section class="st-table" aria-label="Liste des sets">
+      <div v-if="showSkeleton || items.length" class="st-thead">
+        <button
+          class="st-th st-th--btn col-set"
+          :class="{ 'is-sorted': sortKey === 'title' }"
+          type="button"
+          @click="toggleSort('title')"
+        >
+          Set<span v-if="sortKey === 'title'" class="st-arr">{{ arrow }}</span>
+        </button>
+        <span class="st-th col-genre">Genre</span>
+        <button
+          class="st-th st-th--btn col-date"
+          :class="{ 'is-sorted': sortKey === 'date' }"
+          type="button"
+          @click="toggleSort('date')"
+        >
+          Date<span v-if="sortKey === 'date'" class="st-arr">{{ arrow }}</span>
+        </button>
+        <button
+          class="st-th st-th--btn st-th--center col-tracks"
+          :class="{ 'is-sorted': sortKey === 'tracks' }"
+          type="button"
+          @click="toggleSort('tracks')"
+        >
+          Tracks<span v-if="sortKey === 'tracks'" class="st-arr">{{ arrow }}</span>
+        </button>
+        <button
+          class="st-th st-th--btn st-th--right col-dur"
+          :class="{ 'is-sorted': sortKey === 'duration' }"
+          type="button"
+          @click="toggleSort('duration')"
+        >
+          Durée<span v-if="sortKey === 'duration'" class="st-arr">{{ arrow }}</span>
+        </button>
+        <span class="st-th st-th--center col-avis">Avis</span>
+      </div>
+
+      <!-- Loading skeleton : 8 ghost rows in the exact grid -->
+      <div v-if="showSkeleton" class="st-body" aria-hidden="true">
+        <div v-for="i in 8" :key="i" class="st-row st-row--skel" :style="{ '--i': i - 1 }">
+          <div class="st-cell col-set st-cell--set">
+            <span class="sk sk-art"></span>
+            <div class="st-tx">
+              <span class="sk sk-line sk-line--title"></span>
+              <span class="sk sk-line sk-line--sub"></span>
+            </div>
+          </div>
+          <div class="st-cell col-genre"><span class="sk sk-line sk-line--tag"></span></div>
+          <div class="st-cell col-date"><span class="sk sk-line sk-line--num"></span></div>
+          <div class="st-cell col-tracks st-cell--center"><span class="sk sk-round"></span></div>
+          <div class="st-cell col-dur st-cell--right">
+            <span class="sk sk-line sk-line--num"></span>
+          </div>
+          <div class="st-cell col-avis st-cell--center">
+            <span class="sk sk-round"></span><span class="sk sk-round"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty : no search result (loupe + clear) -->
+      <div v-else-if="isEmpty && hasSearch" class="st-empty">
+        <svg
+          class="st-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.2-3.2" />
+        </svg>
+        <p class="st-empty-title">Aucun set trouvé</p>
+        <p class="st-empty-sub">
+          Aucun set ne correspond à « {{ search.trim() }} ». Vérifie l’orthographe ou élargis ta
+          recherche.
+        </p>
+        <button class="btn" type="button" @click="clearSearch">Effacer la recherche</button>
+      </div>
+
+      <!-- Empty : avis filter with no match (adapted copy, no action) -->
+      <div v-else-if="isEmpty && isOpinionMode" class="st-empty">
+        <svg
+          class="st-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="2.4" />
+        </svg>
+        <p class="st-empty-title">{{ emptyAvis.title }}</p>
+        <p class="st-empty-sub">{{ emptyAvis.sub }}</p>
+      </div>
+
+      <!-- Empty : generic fallback -->
+      <div v-else-if="isEmpty" class="st-empty">
+        <svg
+          class="st-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.2-3.2" />
+        </svg>
+        <p class="st-empty-title">Aucun set à afficher</p>
+      </div>
+
+      <!-- Rows -->
+      <div v-else class="st-body">
+        <div
+          v-for="s in items"
+          :key="s.id"
+          class="st-row"
+          :class="{
+            liked: opinionOf(s.id) === 'liked',
+            disliked: opinionOf(s.id) === 'disliked',
+          }"
+          @click="goToSet(s.id)"
+        >
+          <div class="st-cell col-set st-cell--set">
+            <Artwork
+              size="row"
+              :src="s.has_artwork ? `/storage/set-artworks/${s.id}.jpg` : undefined"
+              :alt="s.title"
+            />
+            <div class="st-tx">
+              <div class="st-title">{{ s.title }}</div>
+              <span v-if="s.artists.length" class="st-artists" @click.stop>
+                <ArtistLinks :artists="s.artists" />
+              </span>
+              <!-- Genre chips fold under the title below 860px (S1) -->
+              <div v-if="s.top_genres.length" class="st-genre-fold">
+                <RouterLink
+                  v-for="g in s.top_genres.slice(0, 2)"
+                  :key="g.name"
+                  class="st-style-link"
+                  :to="`/style/${encodeURIComponent(g.name)}`"
+                  @click.stop
+                >
+                  <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+                </RouterLink>
+              </div>
+            </div>
+          </div>
+
+          <div class="st-cell col-genre st-cell--genre">
+            <template v-if="s.top_genres.length">
+              <RouterLink
+                v-for="g in s.top_genres.slice(0, 2)"
+                :key="g.name"
+                class="st-style-link"
+                :to="`/style/${encodeURIComponent(g.name)}`"
+                @click.stop
+              >
+                <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+              </RouterLink>
+            </template>
+          </div>
+
+          <div class="st-cell col-date">
+            <span :class="s.played_date ? 'st-date' : 'st-null'">{{ fmtDate(s.played_date) }}</span>
+          </div>
+
+          <div class="st-cell col-tracks st-cell--center">
+            <ScoreRing
+              mode="pct"
+              size="md"
+              :score="s.total_tracks ? s.identified_tracks / s.total_tracks : 0"
+              :label="`${s.identified_tracks} / ${s.total_tracks} tracks identifiés`"
+            />
+          </div>
+
+          <div class="st-cell col-dur st-cell--right">
+            <span :class="s.duration_ms ? 'st-dur' : 'st-null'">{{ fmtMs(s.duration_ms) }}</span>
+          </div>
+
+          <div class="st-cell col-avis st-cell--center" @click.stop>
+            <LikeDislike
+              :model-value="opinionOf(s.id)"
+              @update:model-value="(v) => setOpinion(s.id, v)"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Sentinel (infinite scroll) — always in DOM so the observer attaches -->
+      <div ref="sentinel" class="st-sentinel" :class="{ on: hasMore }">
+        <span class="spin"></span>Chargement…
+      </div>
+    </section>
+
+    <!-- ── Add modal (2 tabs) ── -->
+    <div v-if="showAdd" class="st-overlay" @click.self="closeAdd">
+      <div class="st-modal" role="dialog" aria-modal="true" aria-label="Ajouter un set">
+        <div class="st-modal-head">
+          <h2 class="st-modal-title">Ajouter un set</h2>
+          <button class="st-modal-x" type="button" aria-label="Fermer" @click="closeAdd">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18M6 6l12 12" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="st-tabs">
+          <button
+            class="st-tab"
+            :class="{ on: addMode === 'search' }"
+            type="button"
+            @click="addMode = 'search'"
+          >
             Rechercher
           </button>
-          <button class="addtab" :class="{ on: addMode === 'url' }" @click="addMode = 'url'">
+          <button
+            class="st-tab"
+            :class="{ on: addMode === 'url' }"
+            type="button"
+            @click="addMode = 'url'"
+          >
             URL
           </button>
         </div>
 
-        <!-- Search mode -->
-        <div v-if="addMode === 'search'">
-          <div class="addrow">
-            <input
-              v-model="tdQuery"
-              type="text"
-              placeholder="Nom d'artiste, de DJ, d'event…"
-              @keydown.enter="doTrackIDSearch"
-              autofocus
-            />
-            <button class="btn-go" :disabled="tdSearching" @click="doTrackIDSearch">
+        <!-- Search tab -->
+        <div v-if="addMode === 'search'" class="st-tabpanel">
+          <div class="st-search-row">
+            <label class="st-tid-search">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.2-3.2" stroke-linecap="round" />
+              </svg>
+              <input
+                v-model="tdQuery"
+                type="text"
+                placeholder="Titre, artiste ou show TrackID…"
+                @keydown.enter="doTrackIDSearch"
+              />
+            </label>
+            <button
+              class="btn btn--accent"
+              type="button"
+              :disabled="tdSearching"
+              @click="doTrackIDSearch"
+            >
               {{ tdSearching ? 'Recherche…' : 'Rechercher' }}
             </button>
           </div>
-          <div v-if="tdResults.length" class="results">
-            <div v-for="r in tdResults" :key="r.trackid_id" class="res">
-              <div class="aw">
-                <img v-if="r.artwork_url" :src="r.artwork_url" />
-                <span v-else class="fallback-letter">{{ (r.title || '?')[0] }}</span>
-              </div>
-              <div class="rx">
-                <div class="rt">{{ r.title }}</div>
-                <div class="rm">
-                  <template v-if="r.channel"
-                    ><b>{{ r.channel }}</b></template
-                  >
-                  <template v-if="r.track_count"> · {{ r.track_count }} tracks</template>
-                  <template v-if="r.created_on">
-                    · {{ fmtDate(r.created_on?.slice(0, 10)) }}</template
-                  >
-                </div>
-              </div>
-              <button
-                v-if="r.already_imported"
-                class="btn-like liked"
-                title="Déjà dans ta bibliothèque"
-                aria-label="Déjà dans ta bibliothèque"
-              >
-                <svg viewBox="0 0 24 24">
-                  <path
-                    d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                  />
-                </svg>
-              </button>
+
+          <div v-if="tdResults.length" class="st-tid-count">
+            {{ tdResults.length }} résultats TrackID
+          </div>
+
+          <div v-if="tdResults.length" class="st-results">
+            <div v-for="r in tdResults" :key="r.trackid_id" class="st-res">
+              <span class="st-res-art">
+                <img v-if="r.artwork_url" :src="r.artwork_url" alt="" loading="lazy" />
+                <span v-else class="st-res-ini">{{ (r.title || '?')[0] }}</span>
+              </span>
+              <span class="st-res-tx">
+                <span class="st-res-title" :title="r.title">{{ r.title }}</span>
+                <span class="st-res-meta">{{ resultMeta(r) }}</span>
+              </span>
+              <span v-if="r.already_imported" class="st-res-done">✓ Importé</span>
               <button
                 v-else
-                class="btn-like"
+                class="btn btn--sm"
+                type="button"
                 :disabled="r._importing"
-                title="Ajouter à ma bibliothèque"
-                aria-label="Ajouter à ma bibliothèque"
                 @click="doImportFromSearch(r)"
               >
-                <svg viewBox="0 0 24 24">
-                  <path
-                    d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                  />
-                </svg>
+                {{ r._importing ? 'Import…' : 'Importer' }}
               </button>
             </div>
           </div>
-          <span v-if="formError" class="form-error">{{ formError }}</span>
+
+          <p v-if="formError && addMode === 'search'" class="st-form-error">{{ formError }}</p>
         </div>
 
-        <!-- URL mode -->
-        <div v-if="addMode === 'url'">
-          <div class="addrow">
-            <input
-              v-model="importUrl"
-              type="text"
-              placeholder="URL TrackID (ex : https://trackid.net/audiostream/…)"
-              @keydown.enter="doImport"
-              @input="formError = ''"
-              autofocus
-            />
-            <button class="btn-go" :disabled="importing" @click="doImport">
-              {{ importing ? 'Import…' : 'Importer' }}
-            </button>
-          </div>
-          <span v-if="formError" class="form-error">{{ formError }}</span>
+        <!-- URL tab -->
+        <div v-else class="st-tabpanel">
+          <label class="st-field-label" for="st-url-input">URL TrackID</label>
+          <input
+            id="st-url-input"
+            v-model="importUrl"
+            class="st-input st-input--mono"
+            :class="{ 'is-error': formError }"
+            type="text"
+            placeholder="https://trackid.net/audiostream/…"
+            @keydown.enter="doImport"
+            @input="onUrlInput"
+          />
+          <p class="st-field-help">Colle le lien d’un show TrackID pour l’importer directement.</p>
+          <p v-if="formError" class="st-form-error">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.9"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+            </svg>
+            {{ formError }}
+          </p>
+          <button
+            class="btn btn--accent st-url-go"
+            type="button"
+            :disabled="importing"
+            @click="doImport"
+          >
+            {{ importing ? 'Import…' : 'Importer depuis l’URL' }}
+          </button>
         </div>
       </div>
-    </div>
-
-    <div v-if="loading" class="state">Chargement…</div>
-    <div v-else-if="displayList.length === 0" class="state">Aucun set trouvé.</div>
-
-    <div v-else class="table-wrap">
-      <table class="tt">
-        <colgroup>
-          <col class="w-set" />
-          <col class="w-date col-date" />
-          <col class="w-tracks" />
-          <col class="w-dur col-dur" />
-          <col class="w-avis" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th class="sortable" @click="toggleSort('title')">
-              Set
-              <span v-if="sortKey === 'title'" class="arr">{{
-                sortDir === 'asc' ? '↑' : '↓'
-              }}</span>
-            </th>
-            <th class="col-date sortable" @click="toggleSort('date')">
-              Date
-              <span v-if="sortKey === 'date'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-            </th>
-            <th class="num sortable" @click="toggleSort('tracks')">
-              Tracks
-              <span v-if="sortKey === 'tracks'" class="arr">{{
-                sortDir === 'asc' ? '↑' : '↓'
-              }}</span>
-            </th>
-            <th class="num col-dur sortable" @click="toggleSort('duration')">
-              Durée
-              <span v-if="sortKey === 'duration'" class="arr">{{
-                sortDir === 'asc' ? '↑' : '↓'
-              }}</span>
-            </th>
-            <th class="end sortable" @click="toggleSort('avis')">
-              Avis
-              <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="s in displayList"
-            :key="s.id"
-            :class="{
-              liked: opinions.get('set', s.id) === 'liked',
-              disliked: opinions.get('set', s.id) === 'disliked',
-            }"
-            @click="$router.push(`/set/${s.id}`)"
-          >
-            <td>
-              <div class="td-track">
-                <div class="aw">
-                  <img
-                    v-if="s.has_artwork"
-                    :src="`/storage/set-artworks/${s.id}.jpg`"
-                    :alt="s.title"
-                  />
-                  <span v-else class="fallback-letter">{{ (s.title || '?')[0] }}</span>
-                </div>
-                <div class="tx">
-                  <div class="tt-title">{{ s.title }}</div>
-                  <div v-if="s.artists.length" class="tt-art">{{ s.artists.join(', ') }}</div>
-                </div>
-              </div>
-            </td>
-            <td class="col-date">
-              <span class="detect">{{ fmtDate(s.played_date) }}</span>
-            </td>
-            <td class="num">
-              <RingPct :value="s.identified_tracks" :total="s.total_tracks" />
-            </td>
-            <td class="num col-dur">
-              <span class="td-dur">{{ fmtMs(s.duration_ms) }}</span>
-            </td>
-            <td class="end td-avis" @click.stop>
-              <LikeDislike
-                :model-value="opinions.get('set', s.id)"
-                @update:model-value="(v) => setOpinion(s.id, v)"
-              />
-            </td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import api from '../utils/api.js'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
-import { fmtMs, fmtDate } from '../utils/format'
+import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { fmtMs, fmtDate, fmtNum, pl } from '../utils/format'
+import Artwork from '../components/Artwork.vue'
+import ArtistLinks from '../components/ArtistLinks.vue'
+import StyleTag from '../components/StyleTag.vue'
+import ScoreRing from '../components/ScoreRing.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SearchBox from '../components/SearchBox.vue'
 import SegFilter from '../components/SegFilter.vue'
-import RingPct from '../components/RingPct.vue'
 
 const router = useRouter()
 const opinions = useOpinionsStore()
 
-const sets = ref([])
-const total = ref(0)
-const loading = ref(false)
+// ── Filters / sort ──
 const search = ref('')
 const mode = ref('all')
-const showForm = ref(false)
-const addMode = ref('search')
-const importUrl = ref('')
-const formError = ref('')
-const importing = ref(false)
-// TrackID search
-const tdQuery = ref('')
-const tdResults = ref([])
-const tdSearching = ref(false)
+const sortKey = ref('date') // title | date | tracks | duration
+const sortDir = ref('desc') // asc | desc
+const baseTotal = ref(0) // last unfiltered (all-mode) total, for the head sub-count
 
-// Sort
-const sortKey = ref('date')
-const sortDir = ref('desc')
+// Composite sort sent server-side: leading '-' = descending.
+const sortParam = computed(() => (sortDir.value === 'desc' ? '-' : '') + sortKey.value)
+
+// ── Paginated list (shared trunk) ──
+const { items, total, loading, hasMore, sentinel, fetch } = usePaginatedList({
+  endpoint: '/api/sets/',
+  pageSize: 24,
+  sort: () => sortParam.value,
+  query: () => search.value,
+})
+
+const arrow = computed(() => (sortDir.value === 'asc' ? '↑' : '↓'))
+const isOpinionMode = computed(() => mode.value !== 'all')
+const hasSearch = computed(() => search.value.trim().length > 0)
+const showSkeleton = computed(() => loading.value && !items.value.length)
+const isEmpty = computed(() => !loading.value && !items.value.length)
+
+const avisLabel = computed(() => {
+  if (mode.value === 'liked') return 'likés'
+  if (mode.value === 'disliked') return 'dislikés'
+  if (mode.value === 'unrated') return 'à explorer'
+  return ''
+})
+
+const emptyAvis = computed(() => {
+  const map = {
+    liked: { title: 'Aucun set liké', sub: 'Tu n’as encore liké aucun set.' },
+    disliked: { title: 'Aucun set disliké', sub: 'Tu n’as encore disliké aucun set.' },
+    unrated: { title: 'Aucun set à explorer', sub: 'Tous tes sets ont déjà un avis.' },
+  }
+  return map[mode.value] || { title: 'Aucun set', sub: '' }
+})
+
+function opinionOf(id) {
+  return opinions.get('set', id)
+}
+
+// ── Fetch orchestration ──
+// `all` goes through the shared paginated list (infinite scroll). The opinion
+// filters resolve their id set from the opinions store in ONE non-paginated shot
+// (like ArtistsView) and write the shared refs directly: liked/disliked pass the
+// matching ids via `ids=`, unrated excludes every rated id via `exclude_ids=`.
+async function runFetch(reset = true) {
+  if (!isOpinionMode.value) {
+    await fetch(reset)
+    baseTotal.value = total.value
+    return
+  }
+  if (!reset) return // opinion filters are not paginated (sentinel stays off)
+  items.value = []
+  loading.value = true
+  try {
+    await opinions.load()
+    const setOps = opinions.data.set || {}
+    const params = { sort: sortParam.value, limit: 200, offset: 0 }
+    const q = search.value.trim()
+    if (q) params.q = q
+
+    if (mode.value === 'unrated') {
+      const ratedIds = Object.keys(setOps).filter(
+        (k) => setOps[k] === 'liked' || setOps[k] === 'disliked',
+      )
+      if (ratedIds.length) params.exclude_ids = ratedIds.join(',')
+    } else {
+      const matchingIds = Object.entries(setOps)
+        .filter(([, v]) => v === mode.value)
+        .map(([k]) => k)
+      if (!matchingIds.length) {
+        items.value = []
+        total.value = 0
+        hasMore.value = false
+        return
+      }
+      params.ids = matchingIds.join(',')
+    }
+
+    const { data } = await api.get('/api/sets/', { params })
+    items.value = data.items
+    total.value = data.total
+    hasMore.value = false
+  } catch {
+    items.value = []
+    total.value = 0
+    hasMore.value = false
+  } finally {
+    loading.value = false
+  }
+}
 
 function toggleSort(key) {
   if (sortKey.value === key) {
@@ -260,62 +508,54 @@ function toggleSort(key) {
   }
 }
 
-function sortValue(s, key) {
-  if (key === 'title') return (s.title || '').toLowerCase()
-  if (key === 'date') return s.played_date || ''
-  if (key === 'tracks') return s.total_tracks ? s.identified_tracks / s.total_tracks : 0
-  if (key === 'duration') return s.duration_ms || 0
-  if (key === 'avis') {
-    const op = opinions.get('set', s.id)
-    if (op === 'liked') return 2
-    if (op === 'disliked') return 1
-    return 0
-  }
-  return 0
+function clearSearch() {
+  search.value = ''
+  runFetch(true)
 }
 
-const displayList = computed(() => {
-  let list
-  if (mode.value === 'liked') {
-    list = sets.value.filter((s) => opinions.get('set', s.id) === 'liked')
-  } else if (mode.value === 'disliked') {
-    list = sets.value.filter((s) => opinions.get('set', s.id) === 'disliked')
-  } else if (mode.value === 'unrated') {
-    list = sets.value.filter((s) => !opinions.get('set', s.id))
-  } else {
-    list = [...sets.value]
-  }
-  const dir = sortDir.value === 'asc' ? 1 : -1
-  const key = sortKey.value
-  list.sort((a, b) => {
-    const va = sortValue(a, key)
-    const vb = sortValue(b, key)
-    if (va < vb) return -1 * dir
-    if (va > vb) return 1 * dir
-    return 0
-  })
-  return list
-})
+function goToSet(id) {
+  router.push(`/set/${id}`)
+}
 
-function toggleForm() {
-  showForm.value = !showForm.value
+async function setOpinion(id, val) {
+  // Optimistic store update; the row recolors reactively via opinionOf().
+  await opinions.set('set', id, val)
+}
+
+// Mode / sort changes reload from the server.
+watch([mode, sortKey, sortDir], () => runFetch(true))
+
+// ── Add modal ──
+const showAdd = ref(false)
+const addMode = ref('search') // search | url
+const importUrl = ref('')
+const importing = ref(false)
+const formError = ref('')
+const tdQuery = ref('')
+const tdResults = ref([])
+const tdSearching = ref(false)
+
+function openAdd() {
+  showAdd.value = true
   addMode.value = 'search'
   tdResults.value = []
   formError.value = ''
 }
 
-async function fetchSets() {
-  loading.value = true
-  try {
-    const params = {}
-    if (search.value.trim()) params.q = search.value.trim()
-    const { data } = await api.get('/api/sets/', { params })
-    sets.value = data.items
-    // Header count = true DB total (backend), not the number of rows loaded.
-    total.value = data.total ?? data.items.length
-  } finally {
-    loading.value = false
-  }
+function closeAdd() {
+  showAdd.value = false
+}
+
+function onUrlInput() {
+  formError.value = ''
+}
+
+function resultMeta(r) {
+  const parts = []
+  if (r.channel) parts.push(r.channel)
+  if (r.track_count) parts.push(`${r.track_count} tracks`)
+  if (r.created_on) parts.push(fmtDate(r.created_on.slice(0, 10)))
+  return parts.join(' · ')
 }
 
 async function doTrackIDSearch() {
@@ -327,7 +567,7 @@ async function doTrackIDSearch() {
     tdResults.value = data
     if (!data.length) formError.value = 'Aucun résultat sur TrackID'
   } catch (e) {
-    formError.value = e.response?.data?.detail || 'Erreur recherche'
+    formError.value = e.response?.data?.detail || 'Erreur de recherche'
   } finally {
     tdSearching.value = false
   }
@@ -341,66 +581,68 @@ async function doImportFromSearch(result) {
     result.already_imported = true
     result._importing = false
     await opinions.set('set', data.id, 'liked')
-    await fetchSets()
+    await runFetch(true)
   } catch (e) {
     result._importing = false
-    formError.value = e.response?.data?.detail || 'Erreur import'
+    formError.value = e.response?.data?.detail || 'Erreur d’import'
   }
 }
 
 async function doImport() {
   formError.value = ''
   if (!importUrl.value.trim()) {
-    formError.value = 'URL requise'
+    formError.value = 'URL non reconnue — colle un lien de show TrackID.'
     return
   }
   importing.value = true
   try {
     const { data } = await api.post('/api/sets/import', { url: importUrl.value.trim() })
     importUrl.value = ''
-    showForm.value = false
+    showAdd.value = false
     router.push(`/set/${data.id}`)
   } catch (e) {
-    formError.value = e.response?.data?.detail || 'Erreur'
+    formError.value =
+      e.response?.data?.detail || 'URL non reconnue — colle un lien de show TrackID.'
   } finally {
     importing.value = false
   }
 }
 
-async function setOpinion(setId, val) {
-  await opinions.set('set', setId, val)
-  await fetchSets()
+function onKeydown(e) {
+  if (e.key === 'Escape' && showAdd.value) closeAdd()
 }
 
-onMounted(fetchSets)
+onMounted(() => {
+  runFetch(true)
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.sets-view {
+.st-page {
   container-type: inline-size;
-  min-height: 100%;
+  min-width: 0;
   max-width: var(--page-max-w);
   margin-inline: auto;
   width: 100%;
 }
 
-/* ============ PAGE HEAD ============ */
+/* ============ HEAD ============ */
 .titles h1 {
   margin: 0;
-  font-size: var(--fs-xl);
-  font-weight: 600;
+  font: 700 var(--fs-lg) / 1.1 var(--font-ui);
   letter-spacing: -0.3px;
   color: var(--ink);
 }
-.sub {
+.st-sub {
   margin-top: var(--space-1);
-  font: 500 var(--fs-sm)/1 var(--font-mono);
+  font: 500 var(--fs-sm) / 1 var(--font-mono);
   color: var(--ink-2);
 }
-.sub .muted {
+.st-sub-muted {
   color: var(--ink-3);
 }
-
 .head-tools {
   margin-left: auto;
   display: flex;
@@ -408,86 +650,519 @@ onMounted(fetchSets)
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+.head-tools :deep(.search) {
+  flex: 1 1 200px;
+  max-width: 320px;
+  min-width: 200px;
+}
+.st-add {
+  flex: none;
+}
 
-/* ============ BTN ADD ============ */
-.btn-add {
-  display: inline-flex;
+/* ============ TABLE — shared grid header/rows ============ */
+.st-table {
+  --st-grid: minmax(0, 1fr) 190px 104px 72px 92px 80px;
+  --st-gap: var(--space-3);
+  padding-bottom: var(--space-8);
+}
+.st-thead,
+.st-row {
+  display: grid;
+  grid-template-columns: var(--st-grid);
+  gap: var(--st-gap);
   align-items: center;
-  gap: var(--space-15);
-  height: 38px;
-  padding: 0 var(--space-4);
-  border-radius: var(--r-sm);
-  border: 1px solid transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 var(--fs-sm) var(--font-ui);
-  cursor: pointer;
+  padding-inline: var(--page-px);
+}
+.st-thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 36px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-2);
+}
+.st-th {
+  font: 600 var(--fs-label) / 1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
   white-space: nowrap;
+  text-align: left;
+  user-select: none;
 }
-.btn-add:hover {
-  background: var(--accent-hover);
-}
-.btn-add svg {
-  width: 15px;
-  height: 15px;
-}
-.btn-add.cancel {
-  background: var(--surface);
-  color: var(--ink-2);
-  border-color: var(--line-2);
-}
-.btn-add.cancel .plus {
-  display: none;
-}
-.btn-add.cancel:hover {
-  color: var(--ink);
-  border-color: var(--ink-3);
-}
-
-/* ============ ADD FORM ============ */
-.addform {
-  padding: 0 var(--page-px) var(--space-15);
-}
-.addcard {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-sm);
-  padding: var(--space-15) var(--space-5) var(--space-5);
-  margin-bottom: var(--space-2);
-}
-.addtabs {
-  display: flex;
-  gap: var(--space-6);
-  border-bottom: 1px solid var(--line);
-  margin-bottom: var(--space-4);
-}
-.addtab {
+.st-th--btn {
+  padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
-  font: 500 var(--fs-base) var(--font-ui);
-  color: var(--ink-3);
-  padding: var(--space-4) var(--space-05) var(--space-3);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  transition: color 0.12s;
 }
-.addtab:hover {
+.st-th--btn:hover {
   color: var(--ink-2);
 }
-.addtab.on {
+.st-th--btn.is-sorted {
   color: var(--accent-ink);
+}
+.st-th--btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.st-th--center {
+  text-align: center;
+}
+.st-th--right {
+  text-align: right;
+}
+.st-arr {
+  margin-left: var(--space-05);
+  color: var(--accent-ink);
+}
+
+/* ============ ROWS ============ */
+.st-row {
+  min-height: var(--row-h);
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.st-row:hover {
+  background: var(--surface-2);
+}
+.st-row.liked {
+  background: var(--pos-wash);
+}
+.st-row.liked:hover {
+  background: var(--pos-wash-2);
+}
+[data-theme='dark'] .st-row.liked {
+  background: var(--pos-wash-2);
+}
+.st-row.disliked > .st-cell:not(.st-cell--avis) {
+  opacity: 0.45;
+  transition: opacity 0.16s;
+}
+.st-row.disliked:hover > .st-cell:not(.st-cell--avis) {
+  opacity: 0.7;
+}
+.st-cell {
+  min-width: 0;
+}
+.st-cell--center {
+  display: flex;
+  justify-content: center;
+}
+.st-cell--right {
+  text-align: right;
+}
+
+/* ============ SET CELL ============ */
+.st-cell--set {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* Local sizing of the shared Artwork (BRIEF S4 : 44px cover, --r-sm). */
+.st-cell--set :deep(.artwork--row) {
+  width: 44px;
+}
+.st-cell--set :deep(.artwork--row .aw-frame) {
+  border-radius: var(--r-sm);
+}
+.st-tx {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.st-title {
+  font: 600 var(--fs-table) / 1.25 var(--font-ui);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-artists {
+  font: 400 var(--fs-table-sm) / 1.25 var(--font-ui);
+  color: var(--ink-3);
+  min-width: 0;
+}
+.st-artists :deep(.art-link:hover) {
+  color: var(--ink);
+  text-decoration: underline;
+}
+/* Genre chips folded under the title (< 860px, S1) — hidden by default. */
+.st-genre-fold {
+  display: none;
+  flex-wrap: wrap;
+  gap: var(--space-15);
+  margin-top: var(--space-05);
+}
+
+/* ============ GENRE CELL ============ */
+.st-cell--genre {
+  display: flex;
+  align-items: center;
+  gap: var(--space-15);
+  overflow: hidden;
+}
+.st-style-link {
+  text-decoration: none;
+  min-width: 0;
+  display: inline-flex;
+}
+
+/* ============ DATA CELLS ============ */
+.st-date,
+.st-dur {
+  font: 500 var(--fs-table) var(--font-mono);
+  color: var(--ink-2);
+}
+.st-null {
+  font: 500 var(--fs-table) var(--font-mono);
+  color: var(--ink-3);
+}
+
+/* ============ AVIS (shared LikeDislike, local deltas) ============ */
+.st-cell--avis :deep(.ld-btn) {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border-color: transparent;
+  background: transparent;
+}
+.st-cell--avis :deep(.ld-btn:hover) {
+  background: var(--surface-3);
+}
+.st-cell--avis :deep(.ld[data-state='liked'] .ld-btn.like) {
+  background: var(--pos-soft);
+}
+.st-cell--avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
+  background: var(--neg-soft);
+}
+
+/* ============ SENTINEL ============ */
+.st-sentinel {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-25);
+  padding: var(--space-4) var(--page-px) var(--space-2);
+  color: var(--ink-3);
+  font: 500 var(--fs-xs) / 1 var(--font-mono);
+}
+.st-sentinel.on {
+  display: flex;
+}
+.spin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+/* ============ SKELETON ============ */
+.st-row--skel {
+  cursor: default;
+}
+.sk {
+  display: inline-block;
+  background: var(--surface-2);
+  border-radius: var(--r-xs);
+  animation: st-pulse 1.4s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 0.12s);
+}
+.sk-art {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+}
+.sk-line {
+  height: 10px;
+}
+.sk-line--title {
+  width: 60%;
+  background: var(--surface-3);
+}
+.sk-line--sub {
+  width: 38%;
+}
+.sk-line--tag {
+  width: 88px;
+  height: 18px;
+  border-radius: var(--r-pill);
+}
+.sk-line--num {
+  width: 40px;
+}
+.sk-round {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  margin: 0 var(--space-05);
+}
+@keyframes st-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ============ EMPTY STATES ============ */
+.st-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-15x) var(--page-px);
+  text-align: center;
+}
+.st-empty-ic {
+  width: 30px;
+  height: 30px;
+  color: var(--ink-3);
+}
+.st-empty-title {
+  margin: 0;
+  font: 600 var(--fs-md) / 1.3 var(--font-ui);
+  color: var(--ink);
+}
+.st-empty-sub {
+  margin: 0;
+  max-width: 44ch;
+  font: 400 var(--fs-sm) / 1.5 var(--font-ui);
+  color: var(--ink-2);
+}
+.st-empty .btn {
+  margin-top: var(--space-2);
+}
+
+/* ============ ADD MODAL ============ */
+.st-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--overlay-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+}
+.st-modal {
+  width: min(460px, 100vw - 32px);
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.st-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.st-modal-title {
+  margin: 0;
+  font: 700 var(--fs-md) / 1.2 var(--font-ui);
+  color: var(--ink);
+}
+.st-modal-x {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.st-modal-x:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.st-modal-x svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Tabs (underlined, distinct from the head SegFilter) */
+.st-tabs {
+  display: flex;
+  gap: var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+.st-tab {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: 600 var(--fs-sm) var(--font-ui);
+  color: var(--ink-3);
+  padding: 0 var(--space-05) var(--space-25);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s;
+}
+.st-tab:hover {
+  color: var(--ink-2);
+}
+.st-tab.on {
+  color: var(--ink);
   border-bottom-color: var(--accent);
 }
-.addrow {
+.st-tabpanel {
   display: flex;
-  gap: var(--space-25);
+  flex-direction: column;
+  gap: var(--space-3);
 }
-.addrow input {
+
+/* Search tab */
+.st-search-row {
+  display: flex;
+  gap: var(--space-2);
+}
+.st-tid-search {
   flex: 1;
   min-width: 0;
-  height: 42px;
-  padding: 0 var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  cursor: text;
+}
+.st-tid-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.st-tid-search svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--ink-3);
+}
+.st-tid-search input {
+  border: 0;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font: 400 var(--fs-input) var(--font-ui);
+  color: var(--ink);
+}
+.st-tid-search input::placeholder {
+  color: var(--ink-3);
+}
+.st-search-row .btn {
+  height: 44px;
+  flex: none;
+}
+.st-tid-count {
+  font: 600 var(--fs-label) / 1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.st-results {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.st-res {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-05);
+  border-bottom: 1px solid var(--line);
+}
+.st-res:last-child {
+  border-bottom: 0;
+}
+.st-res-art {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  background: var(--surface-3);
+  display: grid;
+  place-items: center;
+}
+.st-res-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.st-res-ini {
+  font: 600 var(--fs-base) var(--font-ui);
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+.st-res-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.st-res-title {
+  font: 600 var(--fs-sm) var(--font-ui);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-res-meta {
+  font: 500 var(--fs-xs) / 1.4 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-res .btn {
+  flex: none;
+}
+.st-res-done {
+  flex: none;
+  font: 600 var(--fs-sm) / 1 var(--font-ui);
+  color: var(--pos-ink);
+  white-space: nowrap;
+}
+
+/* URL tab */
+.st-field-label {
+  font: 600 var(--fs-label) / 1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.st-input {
+  height: 44px;
+  padding: 0 var(--space-3);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
   background: var(--bg);
@@ -495,367 +1170,111 @@ onMounted(fetchSets)
   color: var(--ink);
   outline: none;
 }
-.addrow input::placeholder {
+.st-input--mono {
+  font-family: var(--font-mono);
+}
+.st-input::placeholder {
   color: var(--ink-3);
 }
-.addrow input:focus {
+.st-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.btn-go {
-  height: 42px;
-  padding: 0 var(--space-5);
-  border: 0;
-  border-radius: var(--r-sm);
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 var(--fs-sm) var(--font-ui);
-  cursor: pointer;
-  white-space: nowrap;
+.st-input.is-error {
+  border-color: var(--neg);
 }
-.btn-go:hover {
-  background: var(--accent-hover);
+.st-field-help {
+  margin: 0;
+  font: 400 var(--fs-xs) / 1.4 var(--font-ui);
+  color: var(--ink-3);
 }
-.btn-go:disabled {
-  opacity: 0.5;
-  cursor: default;
+.st-url-go {
+  align-self: flex-start;
 }
-.form-error {
-  display: block;
-  margin-top: var(--space-25);
-  font: 400 var(--fs-sm)/1 var(--font-mono);
+.st-form-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-15);
+  margin: 0;
+  font: 500 var(--fs-sm) / 1.3 var(--font-mono);
   color: var(--neg-ink);
 }
-
-/* ============ BTN LIKE (résultats recherche) ============ */
-.btn-like {
-  width: 34px;
-  height: 34px;
+.st-form-error svg {
+  width: 15px;
+  height: 15px;
   flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-3);
-  cursor: pointer;
-  padding: 0;
-  transition:
-    color 0.14s,
-    border-color 0.14s,
-    background 0.14s,
-    transform 0.12s;
-}
-.btn-like svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-.btn-like:hover {
-  color: var(--pos);
-  border-color: var(--pos);
-}
-.btn-like:active {
-  transform: scale(0.92);
-}
-.btn-like:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.btn-like.liked {
-  background: var(--pos-soft);
-  border-color: transparent;
-  color: var(--pos-ink);
-  cursor: default;
-}
-.btn-like.liked svg {
-  fill: var(--pos-ink);
-  stroke: var(--pos-ink);
-}
-.btn-like.liked:hover {
-  background: var(--pos-soft);
-  border-color: transparent;
 }
 
-/* ============ SEARCH RESULTS ============ */
-.results {
-  margin-top: var(--space-4);
-  max-height: 312px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-.res {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-1);
-  border-bottom: 1px solid var(--line);
-}
-.res:last-child {
-  border-bottom: 0;
-}
-.res .aw {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-xs);
-  flex: none;
-  background: var(--surface-3);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.res .aw img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.rx {
-  min-width: 0;
-  flex: 1;
-}
-.rt {
-  font: 500 var(--fs-base) var(--font-ui);
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rm {
-  font: 500 var(--fs-xs)/1.4 var(--font-mono);
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: var(--space-05);
-}
-.rm b {
-  color: var(--ink-2);
-  font-weight: 500;
-}
-
-/* ============ TABLE ============ */
-.table-wrap {
-  padding: var(--space-1) var(--page-px) var(--space-8);
-  overflow-x: auto;
-}
-table.tt {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  min-width: 440px;
-}
-table.tt col.w-set {
-  width: auto;
-}
-table.tt col.w-date {
-  width: 128px;
-}
-table.tt col.w-tracks {
-  width: 116px;
-}
-table.tt col.w-dur {
-  width: 110px;
-}
-table.tt col.w-avis {
-  width: 100px;
-}
-table.tt thead th {
-  font: 600 var(--fs-label)/1 var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  text-align: left;
-  padding: 0 var(--space-3) var(--space-25);
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
-  user-select: none;
-}
-table.tt th.sortable {
-  cursor: pointer;
-}
-table.tt th.sortable:hover {
-  color: var(--ink-2);
-}
-table.tt th .arr {
-  color: var(--accent-ink);
-  margin-left: var(--space-1);
-}
-table.tt th.num,
-table.tt td.num {
-  text-align: center;
-}
-table.tt th.end,
-table.tt td.end {
-  text-align: right;
-}
-table.tt tbody tr {
-  border-bottom: 1px solid var(--line);
-  height: var(--row-h);
-  cursor: pointer;
-}
-table.tt tbody tr:hover {
-  background: var(--surface-2);
-}
-table.tt td {
-  padding: 0 var(--space-3);
-  vertical-align: middle;
-}
-
-/* ============ SET CELL (artwork + title + artists) ============ */
-.td-track {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-}
-.td-track .aw {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--r-xs);
-  flex: none;
-  background: var(--surface-3);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.td-track .aw img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.fallback-letter {
-  font: 600 var(--fs-title)/1 var(--font-ui);
-  color: var(--ink-3);
-  text-transform: uppercase;
-}
-.tx {
-  min-width: 0;
-  flex: 1;
-}
-.tt-title {
-  font-size: var(--fs-table);
-  font-weight: 500;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tt-art {
-  font-size: var(--fs-table-sm);
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ============ DATE ============ */
-.detect {
-  font: 500 var(--fs-sm) var(--font-mono);
-  color: var(--ink-2);
-}
-
-/* ============ DURATION ============ */
-.td-dur {
-  font: 500 var(--fs-sm) var(--font-mono);
-  color: var(--ink-2);
-}
-
-/* ============ AVIS: hover-reveal LikeDislike ============ */
-.td-avis :deep(.ld-btn) {
-  opacity: 0;
-  transition: opacity 0.14s;
-}
-table.tt tbody tr:hover .td-avis :deep(.ld-btn) {
-  opacity: 1;
-}
-.td-avis :deep(.ld[data-state='liked'] .ld-btn.like),
-.td-avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
-  opacity: 1;
-}
-
-/* ============ ROW AVIS STATES ============ */
-table.tt tbody tr.liked {
-  background: var(--pos-wash);
-}
-table.tt tbody tr.liked:hover {
-  background: var(--pos-wash-2);
-}
-table.tt tbody tr.disliked td:not(.td-avis) {
-  opacity: 0.42;
-}
-table.tt tbody tr.disliked:hover td:not(.td-avis) {
-  opacity: 0.7;
-}
-
-/* ============ STATES ============ */
-.state {
-  /* diverges from canonical .state: horizontal page padding (listing view) */
-  padding: var(--space-10) var(--page-px);
-}
-
-/* ============ RESPONSIVE (container queries) ============ */
-@container (max-width: 1040px) {
+/* ============ RESPONSIVE — column drop ============ */
+@container (max-width: 999px) {
+  .st-table {
+    --st-grid: minmax(0, 1fr) 190px 104px 72px 80px;
+  }
   .col-dur {
     display: none;
   }
 }
-@container (max-width: 820px) {
+@container (max-width: 859px) {
+  .st-table {
+    --st-grid: minmax(0, 1fr) 104px 72px 80px;
+  }
+  .col-genre {
+    display: none;
+  }
+  .st-genre-fold {
+    display: flex;
+  }
+}
+@container (max-width: 699px) {
+  .st-table {
+    --st-grid: minmax(0, 1fr) 72px 80px;
+  }
   .col-date {
     display: none;
+  }
+}
+@container (max-width: 639px) {
+  .st-table {
+    --st-grid: minmax(0, 1fr) 46px 84px;
+    --st-gap: var(--space-2);
+  }
+  .st-thead,
+  .st-row {
+    padding-inline: var(--page-px-mobile);
+  }
+  .st-head {
+    padding: var(--space-4) var(--page-px-mobile) var(--space-3);
   }
   .head-tools {
     width: 100%;
     margin-left: 0;
   }
-  .search {
-    flex: 1;
-    min-width: 0;
-    order: 3;
+  .head-tools :deep(.search) {
+    flex: 1 1 100%;
+    max-width: none;
   }
-}
-@container (max-width: 640px) {
-  .page-head,
-  .addform {
-    padding-left: var(--page-px-mobile);
-    padding-right: var(--page-px-mobile);
+  .st-sentinel,
+  .st-empty {
+    padding-inline: var(--page-px-mobile);
   }
-  .table-wrap {
-    padding: var(--space-1) var(--page-px-mobile) var(--space-6);
-  }
-  .addrow {
-    flex-direction: column;
-  }
-  .btn-go {
-    width: 100%;
-  }
-  /* Touch: always show avis buttons */
-  .td-avis :deep(.ld-btn) {
-    opacity: 1;
-  }
-  table.tt {
-    min-width: 0;
-  }
-  table.tt col.w-tracks {
-    width: 56px;
-  }
-  table.tt col.w-avis {
-    width: 88px;
-  }
-}
-@container (max-width: 600px) {
-  :deep(.ring) .pct {
+  /* Ring keeps the arc, drops the « N % » label on narrow screens (S3). */
+  .col-tracks :deep(.sr-note) {
     display: none;
+  }
+}
+
+/* Bottom-sheet Add modal on mobile (fixed → @media, not @container). */
+@media (max-width: 640px) {
+  .st-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .st-modal {
+    width: 100%;
+    max-width: none;
+    max-height: 90vh;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    padding: var(--space-5) var(--page-px-mobile) var(--space-6);
   }
 }
 </style>
