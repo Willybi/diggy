@@ -267,20 +267,32 @@ def _mark_link_searched(artist, now):
     artist.deezer_search_attempts = (artist.deezer_search_attempts or 0) + 1
 
 
-async def _link_artist_deezer(pool, artist, used_ids, now):
-    """Search Deezer for one artist and link it on an exact name match.
+async def _link_artist_deezer(pool, artist, holder_map, now):
+    """Search Deezer for one artist and link (or fold) it on an exact name match.
 
-    Returns a status string:
-      - "linked":   a Deezer id was matched and assigned (search marked).
-      - "searched": the search completed but nothing was assigned — no exact
-                    match, or every matching id was already claimed by another
-                    row (the uq_artists_deezer_id guard, e.g. the "Åskar"/"Askar"
-                    diacritic pair). The search is still marked.
-      - "error":    a Deezer outage (DeezerHTTPError). NOT marked, so the artist
-                    stays eligible next run (an outage is not an attempt).
+    Returns a ``(status, holder_id)`` tuple:
+      - ("linked", None):   a FREE Deezer id was matched and assigned. ``holder_map``
+                            is updated (dz_id → this artist's id) so a same-run
+                            sibling matching the same id folds into this row.
+      - ("merge", holder_id): a matching id is ALREADY held by ANOTHER artist row.
+                            A held id is NOT a collision to skip — it means the SAME
+                            real artist was written twice under two spellings
+                            ("Nick León"/"Nick Leon": the matcher folds accents, the
+                            identity key ``normalized_name`` does not). We return the
+                            holder so the orchestrator folds this orphan INTO it. The
+                            merge itself (DELETE/UPDATE/flush) is deferred OUT of the
+                            concurrent gather — see _run_link_artists_deezer.
+      - ("searched", None): the search completed but no hit matched at all. Marked.
+      - ("error", None):    a Deezer outage (DeezerHTTPError). NOT marked, so the
+                            artist stays eligible next run (an outage is not an
+                            attempt).
 
-    A completed search (linked or searched) stamps deezer_searched_at and bumps
-    deezer_search_attempts together via _mark_link_searched.
+    A completed search (linked / merge / searched) stamps deezer_searched_at and
+    bumps deezer_search_attempts together via _mark_link_searched.
+
+    ``holder_map`` maps every claimed deezer_id → its holder artist id (the
+    NOT_FOUND sentinel excluded); both the free-id membership test and the merge
+    target are read from it.
     """
     from workers.async_http import DeezerHTTPError
 
@@ -290,10 +302,16 @@ async def _link_artist_deezer(pool, artist, used_ids, now):
         )
     except DeezerHTTPError as e:
         logger.warning("Deezer artist search failed for %s: %s", artist.name, e)
-        return "error"
+        return "error", None
 
     _mark_link_searched(artist, now)
     name_norm = _norm_artist_name(artist.name)
+    # Prefer a FREE id (link) over a merge: scan every matching hit, link on the
+    # first free one, and only fall back to merging into the top held homonym when
+    # no hit exposes a free id. This keeps the old "skip a taken id, keep looking"
+    # preference — it just turns the terminal no-op ("searched", orphan left NULL)
+    # into a merge into the row that already owns the artist.
+    merge_target = None
     for hit in data.get("data", []):
         dz_name = hit.get("name", "")
         if (
@@ -301,11 +319,21 @@ async def _link_artist_deezer(pool, artist, used_ids, now):
             or _norm_artist_name(dz_name) == name_norm
         ):
             dz_id = str(hit["id"])
-            if dz_id not in used_ids:
+            holder_id = holder_map.get(dz_id)
+            if holder_id is None:
                 artist.deezer_id = dz_id
-                used_ids.add(dz_id)
-                return "linked"
-    return "searched"
+                # Publish the fresh holder so a same-run duplicate processed later
+                # in this batch merges into this row instead of orphaning.
+                holder_map[dz_id] = artist.id
+                return "linked", None
+            # Held by another row → remember it as a merge fallback but keep
+            # scanning for a free id. holder_id is never this orphan: an orphan has
+            # no deezer_id, so it is never a value in holder_map (guarded anyway).
+            if merge_target is None and holder_id != artist.id:
+                merge_target = holder_id
+    if merge_target is not None:
+        return "merge", merge_target
+    return "searched", None
 
 
 @celery_app.task(
@@ -352,6 +380,7 @@ def _run_link_artists_deezer(task):
 
     sys.path.insert(0, "/app")
     from models import Artist
+    from workers.artist_merge import merge_artist_into
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
@@ -373,6 +402,7 @@ def _run_link_artists_deezer(task):
                 now = datetime.now(timezone.utc)
                 stats = {
                     "linked": 0,
+                    "merged": 0,
                     "searched": 0,
                     "abandoned": 0,
                     "errors": 0,
@@ -389,18 +419,39 @@ def _run_link_artists_deezer(task):
                         if not candidates:
                             return stats
 
-                        used_ids = set(
-                            row[0]
+                        # Map every claimed deezer_id → its holder artist id. Two
+                        # jobs: (1) the free-id membership test (an id in the map is
+                        # taken) and (2) the merge target — a match on a held id
+                        # means the orphan is the SAME artist as the holder (an
+                        # accent/Unicode spelling twin), so it is folded INTO it.
+                        # NOT_FOUND is excluded: it is not a real Deezer id, is
+                        # shared by many artists, and must never be a merge target
+                        # (a real hit id is always numeric, so it is never looked up
+                        # anyway — excluding it just keeps the map honest).
+                        holder_map = {
+                            row[0]: row[1]
                             for row in session.execute(
-                                select(Artist.deezer_id).where(
-                                    Artist.deezer_id.isnot(None)
+                                select(Artist.deezer_id, Artist.id).where(
+                                    Artist.deezer_id.isnot(None),
+                                    Artist.deezer_id != "NOT_FOUND",
                                 )
                             ).all()
-                        )
+                        }
+
+                        # merge_pairs holds (orphan_id, holder_id) couples DETECTED
+                        # during the concurrent gather. The merge itself is NEVER run
+                        # inside the gather: the whole batch shares ONE sync Session,
+                        # and merge_artist_into issues DELETE/UPDATE + flush — a
+                        # coroutine mutating/flushing the session while a sibling
+                        # coroutine reads it would corrupt it (same hazard as
+                        # asyncio.gather-ing db.execute on one session). So the
+                        # concurrent phase only COLLECTS; the merges run
+                        # SEQUENTIALLY after the gather (see the post-gather loop).
+                        merge_pairs = []
 
                         async def _link_one(artist):
-                            status = await _link_artist_deezer(
-                                pool, artist, used_ids, now
+                            status, holder_id = await _link_artist_deezer(
+                                pool, artist, holder_map, now
                             )
                             if status == "error":
                                 stats["errors"] += 1
@@ -408,6 +459,12 @@ def _run_link_artists_deezer(task):
                             stats["searched"] += 1
                             if status == "linked":
                                 stats["linked"] += 1
+                            elif status == "merge":
+                                # Detect only — defer the DELETE/UPDATE + flush out
+                                # of the gather (see merge_pairs above). Recorded by
+                                # id so a later session.commit() expiring the ORM
+                                # object cannot break the merge.
+                                merge_pairs.append((artist.id, holder_id))
                             elif (
                                 artist.deezer_search_attempts
                                 >= ARTIST_MAX_SEARCH_ATTEMPTS
@@ -418,13 +475,48 @@ def _run_link_artists_deezer(task):
 
                         for i in range(0, len(candidates), ARTIST_BACKLOG_BATCH):
                             batch = candidates[i : i + ARTIST_BACKLOG_BATCH]
+                            merge_pairs = []
                             await asyncio.gather(*[_link_one(a) for a in batch])
+                            # Persist this batch's stampings + fresh links FIRST:
+                            # each merge below runs in its OWN unit of work and a
+                            # failed one is rolled back — committing here guarantees
+                            # that rollback can never discard the batch's search
+                            # progress.
                             session.commit()
+                            # Fold each detected duplicate into its holder,
+                            # SEQUENTIALLY and outside the gather. Each merge is
+                            # isolated (own commit): a failure — an IntegrityError on
+                            # an alias/link collision, or a holder that vanished — is
+                            # rolled back and skipped, the run continues, and the
+                            # orphan keeps its NULL deezer_id (E1-eligible for a later
+                            # run). Merge asymmetry (invariant #4): a bad merge costs
+                            # far more than a retried orphan.
+                            for orphan_id, holder_id in merge_pairs:
+                                try:
+                                    merge_artist_into(
+                                        session,
+                                        source_id=orphan_id,
+                                        target_id=holder_id,
+                                    )
+                                    session.commit()
+                                    stats["merged"] += 1
+                                except Exception:
+                                    session.rollback()
+                                    logger.warning(
+                                        "link_artists_deezer: merge of artist %s "
+                                        "into %s failed — rolled back, orphan left "
+                                        "for a later run",
+                                        orphan_id,
+                                        holder_id,
+                                        exc_info=True,
+                                    )
                             logger.info(
-                                "link_artists_deezer progress: %d/%d (linked=%d)",
+                                "link_artists_deezer progress: %d/%d "
+                                "(linked=%d merged=%d)",
                                 min(i + ARTIST_BACKLOG_BATCH, len(candidates)),
                                 len(candidates),
                                 stats["linked"],
+                                stats["merged"],
                             )
 
                         return stats

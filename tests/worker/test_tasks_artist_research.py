@@ -5,9 +5,11 @@ Tests for the artist Deezer link backlog helpers of workers/tasks/artists.py
     backoff tiers, abandonment after 3 attempts.
   - count_link_candidates: total eligible across tiers (drives dropped_by_budget).
   - _mark_link_searched: stamp + increment together.
-  - _link_artist_deezer(pool, artist, used_ids, now): marks on a completed
-    search only (match or no-match), never on a Deezer outage (an outage is not
-    an attempt, E1 invariant / catalog A3-04).
+  - _link_artist_deezer(pool, artist, holder_map, now): marks on a completed
+    search only (match, no-match, or a held-id merge), never on a Deezer outage
+    (an outage is not an attempt, E1 invariant / catalog A3-04). Returns a
+    (status, holder_id) tuple; a match on an already-held id yields
+    ("merge", holder_id) so the orchestrator folds the orphan into the holder.
 """
 
 import importlib.util
@@ -227,7 +229,9 @@ class TestMarkLinkSearched:
 
 
 class TestLinkArtistDeezer:
-    """A completed search (match or no-match) is marked; a Deezer outage is not."""
+    """A completed search (match, no-match, or held-id merge) is marked; a Deezer
+    outage is not. The helper returns a (status, holder_id) tuple; ``holder_map``
+    maps every claimed deezer_id → its holder artist id."""
 
     def _artist(self, name):
         return Artist(name=name, normalized_name=name.lower(), deezer_search_attempts=0)
@@ -237,9 +241,10 @@ class TestLinkArtistDeezer:
         pool = MagicMock()
         pool.deezer_get = AsyncMock(return_value={"data": []})
 
-        status = await _link_artist_deezer(pool, artist, set(), NOW)
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
 
         assert status == "searched"
+        assert holder_id is None
         assert artist.deezer_id is None  # no-match must never set NOT_FOUND
         assert artist.deezer_searched_at == NOW
         assert artist.deezer_search_attempts == 1
@@ -249,9 +254,10 @@ class TestLinkArtistDeezer:
         pool = MagicMock()
         pool.deezer_get = AsyncMock(side_effect=DeezerHTTPError(500, "/search/artist"))
 
-        status = await _link_artist_deezer(pool, artist, set(), NOW)
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
 
         assert status == "error"
+        assert holder_id is None
         assert artist.deezer_searched_at is None
         assert artist.deezer_search_attempts == 0
 
@@ -261,26 +267,55 @@ class TestLinkArtistDeezer:
         pool.deezer_get = AsyncMock(
             return_value={"data": [{"id": 42, "name": "Boris Brejcha"}]}
         )
-        used_ids = set()
+        holder_map = {}
 
-        status = await _link_artist_deezer(pool, artist, used_ids, NOW)
+        status, holder_id = await _link_artist_deezer(pool, artist, holder_map, NOW)
 
         assert status == "linked"
+        assert holder_id is None
         assert artist.deezer_id == "42"
-        assert "42" in used_ids
+        assert "42" in holder_map  # freshly published so a same-run sibling merges
         assert artist.deezer_searched_at == NOW
         assert artist.deezer_search_attempts == 1
 
-    async def test_taken_id_not_linked_but_marks(self):
+    async def test_held_id_returns_merge_and_marks(self):
+        """A match on an id ALREADY held by another artist row now yields a merge
+        directive (status "merge" + the holder id) instead of the old silent
+        "searched" no-op that left the orphan NULL to rot to `abandoned`. The
+        orphan is NOT linked in place (the fold happens in the orchestrator), but
+        the search is still marked."""
         artist = self._artist("Duplicate Name")
         pool = MagicMock()
         pool.deezer_get = AsyncMock(
             return_value={"data": [{"id": 42, "name": "Duplicate Name"}]}
         )
 
-        status = await _link_artist_deezer(pool, artist, {"42"}, NOW)
+        status, holder_id = await _link_artist_deezer(pool, artist, {"42": 999}, NOW)
 
-        assert status == "searched"
-        assert artist.deezer_id is None
+        assert status == "merge"
+        assert holder_id == 999  # the row that already owns deezer_id 42
+        assert artist.deezer_id is None  # not linked in place — merged by the caller
         assert artist.deezer_searched_at == NOW
         assert artist.deezer_search_attempts == 1
+
+    async def test_free_id_preferred_over_held_homonym(self):
+        """When the top match is held but a later hit exposes a FREE id, the free
+        id wins (link), preserving the old skip-taken-ids preference — the merge is
+        only a fallback when no hit offers a free id."""
+        artist = self._artist("Homonym")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={
+                "data": [
+                    {"id": 42, "name": "Homonym"},  # held
+                    {"id": 43, "name": "Homonym"},  # free
+                ]
+            }
+        )
+        holder_map = {"42": 999}
+
+        status, holder_id = await _link_artist_deezer(pool, artist, holder_map, NOW)
+
+        assert status == "linked"
+        assert artist.deezer_id == "43"
+        assert "43" in holder_map  # the free id, not the held "42", was published

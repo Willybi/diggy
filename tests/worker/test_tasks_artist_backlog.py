@@ -240,7 +240,7 @@ class TestLinkArtistsDeezer:
         result = tasks_env.artists.link_artists_deezer(fake_self)
 
         assert result == {
-            "linked": 0, "searched": 1, "abandoned": 0,
+            "linked": 0, "merged": 0, "searched": 1, "abandoned": 0,
             "errors": 0, "dropped_by_budget": 0,
         }
         arts = _artists(task_engine)
@@ -323,6 +323,75 @@ class TestLinkArtistsDeezer:
         assert arts["A2"].deezer_search_attempts == 0
         assert arts["A3"].deezer_search_attempts == 0
         assert _crawl_log(task_engine, "link_artists").status == "error"
+
+    def test_held_id_merges_orphan_into_holder(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """An accent/Unicode spelling twin whose Deezer match resolves to an id
+        ALREADY held by another row is FOLDED into that holder — not left NULL to
+        rot to `abandoned`. The orphan row is deleted, its catalog/set links are
+        reassigned to the holder, and stats["merged"] is incremented."""
+        from models import CatalogArtist, SetArtist
+
+        with Session(task_engine) as s:
+            holder = _add_artist(s, "Nick Leon", deezer_id="777")
+            orphan = _add_artist(s, "Nick León")  # deezer_id NULL → a candidate
+            holder_id = holder.id
+            orphan_id = orphan.id
+            # Links the orphan carries that must survive on the holder.
+            s.add(
+                CatalogArtist(
+                    catalog_id=55, artist_id=orphan_id, role="main", position=0
+                )
+            )
+            s.add(SetArtist(set_id=9, artist_id=orphan_id, position=0))
+            s.flush()
+        # The orphan's Deezer search returns the holder's id: the matcher folds
+        # "Nick León" → "nick leon", so the "Nick Leon" hit matches.
+        fake_pool.search["Nick León"] = [_hit(777, "Nick Leon")]
+
+        result = tasks_env.artists.link_artists_deezer(fake_self)
+
+        assert result["merged"] == 1
+        assert result["linked"] == 0
+        assert result["searched"] == 1  # the search ran and was marked
+        assert result["abandoned"] == 0
+
+        with Session(task_engine) as s:
+            # the orphan row is gone (folded into the holder)...
+            assert s.get(Artist, orphan_id) is None
+            assert s.get(Artist, holder_id) is not None
+            # ...and its links now point at the holder
+            cat = s.execute(select(CatalogArtist)).scalar_one()
+            assert cat.artist_id == holder_id
+            st = s.execute(select(SetArtist)).scalar_one()
+            assert st.artist_id == holder_id
+
+    def test_two_orphans_fold_into_same_holder(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """Two orphans matching the SAME held id in one batch both merge into the
+        holder: the sequential post-gather merges each delete their own orphan, so
+        both succeed (merged == 2) and both rows are gone."""
+        with Session(task_engine) as s:
+            holder = _add_artist(s, "Amelie Lens", deezer_id="888")
+            # Two spellings that FOLD to "amelie lens" (matcher strips accents) but
+            # keep DISTINCT normalized_name (= name.lower(), accent-sensitive), so
+            # neither collides with the holder on the UNIQUE normalized_name index.
+            o1 = _add_artist(s, "Amélie Lens")  # é acute → norm "amélie lens"
+            o2 = _add_artist(s, "Amèlie Lens")  # è grave → norm "amèlie lens"
+            holder_id, o1_id, o2_id = holder.id, o1.id, o2.id
+        fake_pool.search["Amélie Lens"] = [_hit(888, "Amelie Lens")]
+        fake_pool.search["Amèlie Lens"] = [_hit(888, "Amelie Lens")]
+
+        result = tasks_env.artists.link_artists_deezer(fake_self)
+
+        assert result["merged"] == 2
+        assert result["linked"] == 0
+        with Session(task_engine) as s:
+            assert s.get(Artist, o1_id) is None
+            assert s.get(Artist, o2_id) is None
+            assert s.get(Artist, holder_id) is not None
 
 
 class TestLinkArtistsLock:
