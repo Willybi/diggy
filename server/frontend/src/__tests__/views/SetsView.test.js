@@ -161,7 +161,7 @@ describe('SetsView', () => {
     expect(empty.text()).toContain('Aucun set liké')
   })
 
-  it('renders an enriched row: title, clickable artist links, genre StyleTag, track count', async () => {
+  it('renders an enriched row: title, clickable artist links, genre StyleTag, identified-tracks ring', async () => {
     const wrapper = await mountView()
     const rows = wrapper.findAll('.st-row:not(.st-row--skel)')
     expect(rows).toHaveLength(2)
@@ -180,9 +180,9 @@ describe('SetsView', () => {
     expect(first.find('.style-tag').exists()).toBe(true)
     expect(links.some((l) => l.props('to') === '/style/House')).toBe(true)
 
-    // Tracks column = mono track count (total_tracks = 10), no ScoreRing anymore.
-    expect(first.find('.col-tracks .score-ring').exists()).toBe(false)
-    expect(first.find('.col-tracks .st-tracks').text()).toBe('10')
+    // Tracks column = ScoreRing (pct of identified tracks: 7/10 → 70 %).
+    expect(first.find('.col-tracks .score-ring').exists()).toBe(true)
+    expect(first.find('.col-tracks .sr-note').text()).toContain('70')
 
     // Second row has no artists line and no genre chip (both omitted, no dash).
     const second = rows[1]

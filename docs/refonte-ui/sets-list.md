@@ -50,7 +50,7 @@ Statut : ✅ figé  |  Vue : `views/SetsView.vue`
 
 ## 5. Décisions figées
 - **Exclure les sets à 0 %** (`identified_tracks == 0`) — **par défaut, sans toggle**.
-- **Row** : cover · titre + artistes · **Genre (déduit, StyleTag)** · Date · Tracks (**nombre de tracks** — voir note ci-dessous) · Durée · Avis.
+- **Row** : cover · titre + artistes · **Genre (déduit, StyleTag)** · Date · Tracks (**`ScoreRing` mode pct — anneau + %**) · Durée · Avis.
 - **Genre** : déduit des tracks (aucun champ set).
 - ~~**Source** : logo de plateforme (`<PlatformLink>`).~~ **RETIRÉE (pré-vol 2026-07-23)** : en base 100 % des sets sont `source='trackid'` (origine réelle `platform` connue pour seulement 68/11800) → un logo de source serait identique partout ou vide à ~99 %, aucune valeur. Décision William. Le lien vers l'origine reste sur la page Set detail.
 - **Infinite scroll** (`usePaginatedList`) + sort/filtre **server-side**.
@@ -65,7 +65,7 @@ Statut : ✅ figé  |  Vue : `views/SetsView.vue`
 - **Composants transverses** : tous déjà livrés (`<StyleTag>`, `<ScoreRing>`, `<Artwork>`, `usePaginatedList`). **Aucun nouveau composant** → pas de lot composant.
 
 ### Décisions du handoff Design (round Claude Design, 2026-07-24 — voir `handoff-sets-list/`)
-- **Colonne Tracks = compteur `N tracks`** (mono). _Historique_ : le brief posait un `<ScoreRing mode="pct">` (% de tracks identifiés), implémenté puis **retiré au test** (William, 2026-07-24) — l'import ne stocke que les tracks identifiées → le `%` vaut structurellement toujours 100 % (0 information, cf. colonne Source). Le tri serveur `tracks` trie par **nombre de tracks** (`total_tracks`). `<RingPct>`/`<ScoreRing pct>` **non consommés** par cette page ; `RingPct` devient orphelin (reliquat).
+- **Colonne Tracks = `<ScoreRing mode="pct" size="md">`** (anneau + % de tracks identifiés, `%` **visible y compris sur mobile** — c'était le vrai bug du 1er jet : le libellé était masqué sous 640 px). _Aller-retour 2026-07-24_ : brièvement remplacée par un compteur `N tracks` (car le `%` vaut structurellement toujours ~100 %, l'import ne stockant que les tracks identifiées) puis **anneau `%` rétabli à la demande de William** (préférence visuelle assumée malgré le ~100 % constant). **Nuance** : le **tri** de l'en-tête « Tracks » se fait par **nombre de tracks** (`total_tracks`) — trier par `%` ne réordonnerait rien (tous ~100 %) → l'anneau (taux) et le tri (nombre) mesurent deux choses différentes, acté. `<RingPct>` reste **orphelin** (SetsView consomme `<ScoreRing>`, pas `<RingPct>`) — reliquat de nettoyage.
 - **Modal « Ajouter » centré** (desktop ET mobile) : le bottom-sheet mobile initial était masqué par la BottomNav → recentré (retrait de l'override `@media`, 2026-07-24).
 - **Panneau « Ajouter » = MODAL 2 onglets** (recentré desktop, bottom-sheet `position: fixed` mobile) — l'actuel formulaire inline devient un modal ; flux inchangé (recherche TrackID + import par résultat · import URL).
 - **Genre : colonne dédiée desktop qui se replie sous le titre (chips) < 860 px** (ne disparaît pas). Column-drop : Durée < 1000 · Genre(colonne) < 860 · Date < 700 · mobile < 640 garde Set + Tracks(%) + Avis.

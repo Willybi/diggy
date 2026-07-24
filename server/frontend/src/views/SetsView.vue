@@ -94,7 +94,7 @@
           </div>
           <div class="st-cell col-genre"><span class="sk sk-line sk-line--tag"></span></div>
           <div class="st-cell col-date"><span class="sk sk-line sk-line--num"></span></div>
-          <div class="st-cell col-tracks st-cell--center"><span class="sk sk-line sk-line--num"></span></div>
+          <div class="st-cell col-tracks st-cell--center"><span class="sk sk-round"></span></div>
           <div class="st-cell col-dur st-cell--right">
             <span class="sk sk-line sk-line--num"></span>
           </div>
@@ -219,7 +219,12 @@
           </div>
 
           <div class="st-cell col-tracks st-cell--center">
-            <span class="st-tracks">{{ s.total_tracks }}</span>
+            <ScoreRing
+              mode="pct"
+              size="md"
+              :score="s.total_tracks ? s.identified_tracks / s.total_tracks : 0"
+              :label="`${s.identified_tracks} / ${s.total_tracks} tracks identifiés`"
+            />
           </div>
 
           <div class="st-cell col-dur st-cell--right">
@@ -390,6 +395,7 @@ import { fmtMs, fmtDate, fmtNum, pl } from '../utils/format'
 import Artwork from '../components/Artwork.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
 import StyleTag from '../components/StyleTag.vue'
+import ScoreRing from '../components/ScoreRing.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SearchBox from '../components/SearchBox.vue'
 import SegFilter from '../components/SegFilter.vue'
@@ -809,8 +815,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* ============ DATA CELLS ============ */
 .st-date,
-.st-dur,
-.st-tracks {
+.st-dur {
   font: 500 var(--fs-table) var(--font-mono);
   color: var(--ink-2);
 }
