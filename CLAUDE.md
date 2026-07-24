@@ -128,8 +128,8 @@ These are project invariants. Never propose code that violates them.
 
 ```bash
 # Backend tests (SQLite in-memory by default, no PG needed; deps in requirements-test.txt)
-pytest tests/ -q
-pytest tests/ -q --cov=server --cov-report= --cov-fail-under=55        # CI coverage gate
+pytest tests/ -q                                                       # quick serial local run
+pytest tests/ -q -n auto --dist loadscope --cov=server --cov-report= --cov-fail-under=55  # exact CI command (parallel via pytest-xdist)
 DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/diggy_test pytest tests/ -q  # PG like CI
 
 # Frontend tests
@@ -202,6 +202,7 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 
 ### Database & Alembic
 - Since AU3 the API never runs `create_all`: the schema comes from Alembic ONLY (test harnesses keep their own `create_all` in `tests/*/conftest.py`). In local dev, the compose override runs `alembic upgrade head` before uvicorn.
+- **CI runs pytest under xdist** (`-n auto --dist loadscope`, since bf141ed / 2026-07-24): every backend test must be **parallel-safe**. `tests/api` gives each xdist worker its OWN PostgreSQL database (`diggy_test_gwN`, created at session start via an autocommit maintenance connection under a shared advisory lock; `DATABASE_URL` is rewritten per worker BEFORE the app imports so every engine is isolated). Never reintroduce shared-DB serial assumptions (a per-test `TRUNCATE` on one shared DB corrupts sibling workers) or module-global mutable state. Keep `tests/api` self-sufficient re: Redis — it ships its own in-memory rate-limit stand-in; do NOT rely on another module's `sys.modules` redis mock (before the fix, `pytest tests/api` alone took ~5 min on slowapi's absent-Redis timeouts, "saved" only in the full run by `tests/worker/test_rate_limiter.py`). The SQLite path (default, per-process `:memory:`) is naturally isolated.
 - The migration chain is NOT replayable from an empty database: 0001 assumes the pre-Alembic tables historically created by `create_all`. A fresh local PG volume must be seeded from a prod dump (`docs/restore.md`); an old dev volume created by `create_all` must be stamped once (`alembic stamp head`). A baseline/squash migration is a known follow-up.
 - `uq_artists_deezer_id` (partial unique on `artists.deezer_id`, sentinel-aware) exists ONLY in prod, created outside migrations — see the MANUAL block of `docs/database-schema.md` before touching artist deezer_id uniqueness.
 - NEVER `asyncio.gather` several `db.execute` on the SAME `AsyncSession`: a session is not safe for concurrent access. SQLite masks it, but asyncpg (PostgreSQL/CI) wedges a connection ("non-checked-in connection … will be terminated") and the suite HANGS. Await DB loaders sequentially on one session; if you truly need parallel DB reads, use separate sessions/connections. Bit us in C4 (`load_similarity_context`, `get_connections` — both since serialized).
