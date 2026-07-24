@@ -65,6 +65,7 @@ select_link_candidates = _artists_mod.select_link_candidates
 count_link_candidates = _artists_mod.count_link_candidates
 _mark_link_searched = _artists_mod._mark_link_searched
 _link_artist_deezer = _artists_mod._link_artist_deezer
+_norm_artist_name = _artists_mod._norm_artist_name
 
 NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -78,6 +79,27 @@ def _add_artist(session, name, **kw):
     session.add(a)
     session.commit()
     return a
+
+
+class TestNormArtistName:
+    """The ascii fold folds diacritics for latin names but must collapse a fully
+    non-ASCII name to "" — a blank fold carries no identity signal and would
+    otherwise "match" any other non-latin name that also folds to blank."""
+
+    def test_japanese_name_folds_to_empty(self):
+        # U+3000 full-width space → plain space, ideographs dropped by ascii-fold
+        # → "" after strip (before the .strip() fix this returned " ").
+        assert _norm_artist_name("桜井　哲夫") == ""
+
+    def test_hebrew_name_folds_to_empty(self):
+        assert _norm_artist_name("נוער שוליים") == ""
+
+    def test_whitespace_only_folds_to_empty(self):
+        assert _norm_artist_name("   ") == ""
+
+    def test_latin_name_still_folds_diacritics(self):
+        # Unchanged: the accent-fold that unifies "Nick León"/"Nick Leon" homonyms.
+        assert _norm_artist_name("Nick León") == "nick leon"
 
 
 class TestSelectLinkCandidatesTiers:
@@ -295,6 +317,67 @@ class TestLinkArtistDeezer:
         assert status == "merge"
         assert holder_id == 999  # the row that already owns deezer_id 42
         assert artist.deezer_id is None  # not linked in place — merged by the caller
+        assert artist.deezer_searched_at == NOW
+        assert artist.deezer_search_attempts == 1
+
+    async def test_non_ascii_name_never_matches_held_id(self):
+        """A fully non-ASCII name folds to "" (no ASCII identity signal). Even when
+        Deezer returns a hit whose name ALSO folds to "" and whose id is already
+        HELD by another row, the helper must NOT merge (nor link) — it returns
+        ("searched", None) and leaves the orphan NULL. Before the blank-fold guard
+        both names folded to " " and spuriously "matched", producing a false merge
+        onto a held id (invariant #4). The search is still marked."""
+        artist = self._artist("桜井　哲夫")  # Japanese, U+3000 full-width space
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            # An unrelated non-latin artist whose name also folds to "".
+            return_value={"data": [{"id": 42, "name": "浜崎あゆみ"}]}
+        )
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {"42": 999}, NOW)
+
+        assert status == "searched"  # NOT "merge"
+        assert holder_id is None
+        assert artist.deezer_id is None  # neither linked nor merged
+        assert artist.deezer_searched_at == NOW  # but the search is marked
+        assert artist.deezer_search_attempts == 1
+
+    async def test_non_ascii_exact_raw_match_merges_into_holder(self):
+        """The blank-fold guard must NOT swallow the raw exact-name match: a Deezer
+        hit echoing the artist's non-latin name VERBATIM is a valid identity even
+        though the fold is "". On an id already HELD by another row this MUST merge
+        into the holder — that is exactly how two identical-spelling non-latin rows
+        (桜井　哲夫/桜井　哲夫) dedup — not fall through to a signal-less "searched"."""
+        artist = self._artist("桜井　哲夫")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={"data": [{"id": 42, "name": "桜井　哲夫"}]}  # verbatim
+        )
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {"42": 999}, NOW)
+
+        assert status == "merge"  # raw exact match survives the blank fold
+        assert holder_id == 999
+        assert artist.deezer_id is None  # merged by the caller, not linked in place
+        assert artist.deezer_searched_at == NOW
+        assert artist.deezer_search_attempts == 1
+
+    async def test_non_ascii_exact_raw_match_links_free_id(self):
+        """Same raw-exact-match path with a FREE id: the non-latin artist links
+        (blank fold does not block an exact equality)."""
+        artist = self._artist("小泉今日子")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={"data": [{"id": 77, "name": "小泉今日子"}]}  # verbatim, free
+        )
+        holder_map = {}
+
+        status, holder_id = await _link_artist_deezer(pool, artist, holder_map, NOW)
+
+        assert status == "linked"
+        assert holder_id is None
+        assert artist.deezer_id == "77"
+        assert "77" in holder_map
         assert artist.deezer_searched_at == NOW
         assert artist.deezer_search_attempts == 1
 

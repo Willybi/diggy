@@ -79,7 +79,14 @@ class TestModuleImports:
         )
         task_files = ["radar.py", "catalog.py", "sets.py", "artists.py", "genres.py", "trends.py"]
         for fname in task_files:
-            content = open(os.path.join(tasks_dir, fname)).read()
+            # Pin UTF-8: Python source is UTF-8 by definition (PEP 3120), but
+            # open() defaults to the platform encoding (cp1252 on Windows), which
+            # chokes on legitimate non-ASCII comments in a task module (e.g. the
+            # CJK/Hebrew examples in artists.py's non-ASCII-fold guard). CI (Linux)
+            # defaults to UTF-8 and never hit this.
+            content = open(
+                os.path.join(tasks_dir, fname), encoding="utf-8"
+            ).read()
             # All @celery_app.task decorators must include name=
             decorator_blocks = re.findall(
                 r'@celery_app\.task\(.*?\)', content, re.DOTALL

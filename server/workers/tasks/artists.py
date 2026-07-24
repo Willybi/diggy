@@ -151,8 +151,14 @@ CHECK_FOLLOWED_ARTISTS_LOCK_TTL = 4200
 
 
 def _norm_artist_name(s):
+    # Trailing .strip() is load-bearing: a fully non-ASCII name (Japanese
+    # "桜井　哲夫", Hebrew "נוער שוליים"…) collapses to a blank string after
+    # NFKD+ascii-fold — the ideographs are dropped and separators like U+3000
+    # become a plain space, leaving NO identity signal. Folding to "" (rather than
+    # " ") lets callers treat the empty result as "do not match": any other
+    # non-latin name would fold to the same blank, so a match on it is spurious.
     s = unicodedata.normalize("NFKD", s.lower().strip())
-    return s.encode("ascii", "ignore").decode()
+    return s.encode("ascii", "ignore").decode().strip()
 
 
 def _link_budget():
@@ -314,9 +320,17 @@ async def _link_artist_deezer(pool, artist, holder_map, now):
     merge_target = None
     for hit in data.get("data", []):
         dz_name = hit.get("name", "")
+        # Two independent match signals. The raw exact match stays active for EVERY
+        # name (including fully non-latin ones) — an exact equality IS a valid
+        # identity, so a Deezer hit echoing 桜井　哲夫 verbatim must still link/merge.
+        # The accent-fold branch is gated on ``name_norm`` being non-empty: a fully
+        # non-ASCII name folds to "" (no ASCII signal), and matching on "" would fold
+        # this artist into any OTHER non-latin row whose name also folds to "" (a
+        # false merge — invariant #4). So we neutralise the FOLD when it is blank,
+        # NOT the exact equality.
         if (
             dz_name.lower() == artist.name.lower()
-            or _norm_artist_name(dz_name) == name_norm
+            or (name_norm and _norm_artist_name(dz_name) == name_norm)
         ):
             dz_id = str(hit["id"])
             holder_id = holder_map.get(dz_id)
@@ -716,8 +730,11 @@ def sync_artists(self):
                 from workers.rate_limiter import RateLimiter
 
                 def _norm(s):
+                    # Trailing .strip() as in the module-level _norm_artist_name: a
+                    # fully non-ASCII name folds to a blank string (no ASCII signal);
+                    # collapse it to "" so the caller can refuse a signal-less match.
                     s = unicodedata.normalize("NFKD", s.lower().strip())
-                    return s.encode("ascii", "ignore").decode()
+                    return s.encode("ascii", "ignore").decode().strip()
 
                 async def _deezer_artist_id(pool, name):
                     try:
@@ -730,9 +747,14 @@ def sync_artists(self):
                     name_norm = _norm(name)
                     for hit in data.get("data", []):
                         dz_name = hit.get("name", "")
+                        # Raw exact match stays active for every name (non-latin
+                        # included — an exact equality is a valid identity). The fold
+                        # branch is gated on a non-empty name_norm: a fully non-ASCII
+                        # name folds to "" (no ASCII signal) and would stamp a WRONG
+                        # deezer_id on any other non-latin hit (invariant #4).
                         if (
                             dz_name.lower() == name.lower()
-                            or _norm(dz_name) == name_norm
+                            or (name_norm and _norm(dz_name) == name_norm)
                         ):
                             return str(hit["id"])
                     return None
