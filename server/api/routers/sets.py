@@ -154,11 +154,12 @@ async def list_sets(
 
     # Ordering: leading '-' = descending, else ascending. Unknown key -> -date.
     # created_at.desc() is the final tie-break everywhere.
-    ratio_expr = identified_expr * 1.0 / func.nullif(total_tracks_expr, 0)
+    # "tracks" sorts by the total track COUNT: the import stores only identified
+    # tracks, so the identified/total ratio is always ~100% and would sort nothing.
     sort_columns = {
         "title": DJSet.title,
         "date": DJSet.played_date,
-        "tracks": ratio_expr,
+        "tracks": total_tracks_expr,
         "duration": DJSet.duration_ms,
     }
     key = sort or "-date"

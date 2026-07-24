@@ -50,7 +50,7 @@ Statut : ✅ figé  |  Vue : `views/SetsView.vue`
 
 ## 5. Décisions figées
 - **Exclure les sets à 0 %** (`identified_tracks == 0`) — **par défaut, sans toggle**.
-- **Row** : cover · titre + artistes · **Genre (déduit, StyleTag)** · Date · Tracks (`RingPct` %) · Durée · Avis.
+- **Row** : cover · titre + artistes · **Genre (déduit, StyleTag)** · Date · Tracks (**nombre de tracks** — voir note ci-dessous) · Durée · Avis.
 - **Genre** : déduit des tracks (aucun champ set).
 - ~~**Source** : logo de plateforme (`<PlatformLink>`).~~ **RETIRÉE (pré-vol 2026-07-23)** : en base 100 % des sets sont `source='trackid'` (origine réelle `platform` connue pour seulement 68/11800) → un logo de source serait identique partout ou vide à ~99 %, aucune valeur. Décision William. Le lien vers l'origine reste sur la page Set detail.
 - **Infinite scroll** (`usePaginatedList`) + sort/filtre **server-side**.
@@ -65,7 +65,8 @@ Statut : ✅ figé  |  Vue : `views/SetsView.vue`
 - **Composants transverses** : tous déjà livrés (`<StyleTag>`, `<ScoreRing>`, `<Artwork>`, `usePaginatedList`). **Aucun nouveau composant** → pas de lot composant.
 
 ### Décisions du handoff Design (round Claude Design, 2026-07-24 — voir `handoff-sets-list/`)
-- **Colonne Tracks (%) = `<ScoreRing mode="pct" size="md">`** (`score = identified_tracks / total_tracks`), **pas** `<RingPct>` : le brief décrit la géométrie ScoreRing (40 px, % centré, espace fine insécable) → concrétise la migration RingPct→ScoreRing de TRANSVERSE. Anneau jamais nul (0 % exclus).
+- **Colonne Tracks = compteur `N tracks`** (mono). _Historique_ : le brief posait un `<ScoreRing mode="pct">` (% de tracks identifiés), implémenté puis **retiré au test** (William, 2026-07-24) — l'import ne stocke que les tracks identifiées → le `%` vaut structurellement toujours 100 % (0 information, cf. colonne Source). Le tri serveur `tracks` trie par **nombre de tracks** (`total_tracks`). `<RingPct>`/`<ScoreRing pct>` **non consommés** par cette page ; `RingPct` devient orphelin (reliquat).
+- **Modal « Ajouter » centré** (desktop ET mobile) : le bottom-sheet mobile initial était masqué par la BottomNav → recentré (retrait de l'override `@media`, 2026-07-24).
 - **Panneau « Ajouter » = MODAL 2 onglets** (recentré desktop, bottom-sheet `position: fixed` mobile) — l'actuel formulaire inline devient un modal ; flux inchangé (recherche TrackID + import par résultat · import URL).
 - **Genre : colonne dédiée desktop qui se replie sous le titre (chips) < 860 px** (ne disparaît pas). Column-drop : Durée < 1000 · Genre(colonne) < 860 · Date < 700 · mobile < 640 garde Set + Tracks(%) + Avis.
 - **Artistes cliquables → `/artist/:id`** dans la cellule Set → **le lot back renvoie `artists: [{id, name}]`** (au lieu de `list[str]`), l'`artist_id` étant dispo via `SetArtist`. _Petit ajout de contrat au-delà de la fiche._

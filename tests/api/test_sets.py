@@ -203,9 +203,11 @@ class TestListSetsEnriched:
         r = await client.get("/api/sets/?sort=-duration")
         assert [it["title"] for it in r.json()["items"]] == ["Long", "Short"]
 
-    async def test_sort_by_tracks_ratio(self, client, db):
-        full = DJSet(source="trackid", title="Full")  # 1/1 identified
-        half = DJSet(source="trackid", title="Half")  # 1/2 identified
+    async def test_sort_by_tracks_count(self, client, db):
+        # "tracks" sorts by the total track COUNT (not the identified ratio, which
+        # is always ~100% since the import stores only identified tracks).
+        full = DJSet(source="trackid", title="Full")  # 1 track
+        half = DJSet(source="trackid", title="Half")  # 2 tracks
         db.add_all([full, half])
         await db.flush()
         await _attach_identified_track(db, full, position=1)
@@ -213,11 +215,12 @@ class TestListSetsEnriched:
         db.add(SetTrack(set_id=half.id, position=2, raw_title="ID", is_id=True))
         await db.commit()
 
-        # -tracks -> highest identified ratio first
+        # -tracks -> most tracks first (Half has 2 > Full's 1)
         r = await client.get("/api/sets/?sort=-tracks")
-        assert [it["title"] for it in r.json()["items"]] == ["Full", "Half"]
-        r = await client.get("/api/sets/?sort=tracks")
         assert [it["title"] for it in r.json()["items"]] == ["Half", "Full"]
+        # tracks -> fewest tracks first
+        r = await client.get("/api/sets/?sort=tracks")
+        assert [it["title"] for it in r.json()["items"]] == ["Full", "Half"]
 
     async def test_unknown_sort_falls_back_to_date(self, client, db):
         old = DJSet(source="trackid", title="Old", played_date=date(2020, 1, 1))

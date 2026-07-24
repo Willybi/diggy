@@ -94,7 +94,7 @@
           </div>
           <div class="st-cell col-genre"><span class="sk sk-line sk-line--tag"></span></div>
           <div class="st-cell col-date"><span class="sk sk-line sk-line--num"></span></div>
-          <div class="st-cell col-tracks st-cell--center"><span class="sk sk-round"></span></div>
+          <div class="st-cell col-tracks st-cell--center"><span class="sk sk-line sk-line--num"></span></div>
           <div class="st-cell col-dur st-cell--right">
             <span class="sk sk-line sk-line--num"></span>
           </div>
@@ -219,12 +219,7 @@
           </div>
 
           <div class="st-cell col-tracks st-cell--center">
-            <ScoreRing
-              mode="pct"
-              size="md"
-              :score="s.total_tracks ? s.identified_tracks / s.total_tracks : 0"
-              :label="`${s.identified_tracks} / ${s.total_tracks} tracks identifiés`"
-            />
+            <span class="st-tracks">{{ s.total_tracks }}</span>
           </div>
 
           <div class="st-cell col-dur st-cell--right">
@@ -395,7 +390,6 @@ import { fmtMs, fmtDate, fmtNum, pl } from '../utils/format'
 import Artwork from '../components/Artwork.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
 import StyleTag from '../components/StyleTag.vue'
-import ScoreRing from '../components/ScoreRing.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SearchBox from '../components/SearchBox.vue'
 import SegFilter from '../components/SegFilter.vue'
@@ -815,7 +809,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* ============ DATA CELLS ============ */
 .st-date,
-.st-dur {
+.st-dur,
+.st-tracks {
   font: 500 var(--fs-table) var(--font-mono);
   color: var(--ink-2);
 }
@@ -1206,6 +1201,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ RESPONSIVE — column drop ============ */
+/* The Add modal stays centered on mobile too (.st-overlay is align-items:center
+   and .st-modal already caps at min(460px, 100vw - 32px)) so the BottomNav never
+   masks it — no bottom-sheet override. */
 @container (max-width: 999px) {
   .st-table {
     --st-grid: minmax(0, 1fr) 190px 104px 72px 80px;
@@ -1256,25 +1254,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .st-sentinel,
   .st-empty {
     padding-inline: var(--page-px-mobile);
-  }
-  /* Ring keeps the arc, drops the « N % » label on narrow screens (S3). */
-  .col-tracks :deep(.sr-note) {
-    display: none;
-  }
-}
-
-/* Bottom-sheet Add modal on mobile (fixed → @media, not @container). */
-@media (max-width: 640px) {
-  .st-overlay {
-    align-items: flex-end;
-    padding: 0;
-  }
-  .st-modal {
-    width: 100%;
-    max-width: none;
-    max-height: 90vh;
-    border-radius: var(--r-xl) var(--r-xl) 0 0;
-    padding: var(--space-5) var(--page-px-mobile) var(--space-6);
   }
 }
 </style>
