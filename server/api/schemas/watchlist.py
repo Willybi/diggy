@@ -32,6 +32,8 @@ class WatchedEntityOut(BaseModel):
 
 class WatchedEntityBrowseOut(WatchedEntityOut):
     followed: bool = False
+    last_changed_at: Optional[datetime] = None
+    top_genres: list[TopGenreOut] = []
 
 
 class PlaylistTrackOut(BaseModel):

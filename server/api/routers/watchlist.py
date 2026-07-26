@@ -19,6 +19,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 
+def _parse_id_csv(raw: str | None) -> list[int] | None:
+    """Parse a CSV of ints defensively. Non-int tokens are dropped; an empty or
+    all-junk CSV yields ``None`` (param ignored, no ``IN ()`` degenerate filter)."""
+    if not raw:
+        return None
+    out: list[int] = []
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            out.append(int(tok))
+        except ValueError:
+            continue
+    return out or None
+
+
 @router.get("/", response_model=WatchlistListResponse)
 async def list_watched(
     limit: int = Query(50, ge=1, le=200),
@@ -33,13 +50,24 @@ async def list_watched(
 
 @router.get("/browse", response_model=WatchlistBrowseResponse)
 async def browse_playlists(
+    sort: str = Query("title"),
+    ids: str | None = None,
+    exclude_ids: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     """All playlists in the system, with a `followed` flag for the current user."""
-    return await watchlist_service.browse(db, _uid(user), limit=limit, offset=offset)
+    return await watchlist_service.browse(
+        db,
+        _uid(user),
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        ids=_parse_id_csv(ids),
+        exclude_ids=_parse_id_csv(exclude_ids),
+    )
 
 
 @router.get("/{entry_id}", response_model=WatchedEntityDetailOut)

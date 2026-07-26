@@ -87,6 +87,138 @@ class TestBrowsePlaylists:
         assert data["total"] == 1
         assert data["items"][0]["followed"] is False
 
+    async def test_browse_exposes_new_fields(self, client, mocker):
+        """Browse rows carry top_genres (default []) and last_changed_at (None)."""
+        _mock_deezer(mocker)
+        await client.post("/api/watchlist/", json=playlist_payload())
+
+        r = await client.get("/api/watchlist/browse")
+        item = r.json()["items"][0]
+        assert "top_genres" in item
+        assert item["top_genres"] == []
+        assert "last_changed_at" in item
+        assert item["last_changed_at"] is None
+
+    async def test_browse_sort_by_title(self, client, db):
+        from models import WatchedEntity
+
+        db.add_all(
+            [
+                WatchedEntity(external_id="p-b", source="deezer", title="Bravo"),
+                WatchedEntity(external_id="p-a", source="deezer", title="Alpha"),
+                WatchedEntity(external_id="p-c", source="deezer", title="Charlie"),
+            ]
+        )
+        await db.commit()
+
+        asc = await client.get("/api/watchlist/browse?sort=title")
+        assert [it["title"] for it in asc.json()["items"]] == [
+            "Alpha",
+            "Bravo",
+            "Charlie",
+        ]
+
+        desc = await client.get("/api/watchlist/browse?sort=-title")
+        assert [it["title"] for it in desc.json()["items"]] == [
+            "Charlie",
+            "Bravo",
+            "Alpha",
+        ]
+
+    async def test_browse_sort_by_tracks(self, client, db):
+        from models import WatchedEntity
+
+        db.add_all(
+            [
+                WatchedEntity(external_id="t1", source="deezer", title="One", track_count=10),
+                WatchedEntity(external_id="t2", source="deezer", title="Two", track_count=50),
+                WatchedEntity(external_id="t3", source="deezer", title="Three", track_count=30),
+            ]
+        )
+        await db.commit()
+
+        asc = await client.get("/api/watchlist/browse?sort=tracks")
+        assert [it["track_count"] for it in asc.json()["items"]] == [10, 30, 50]
+
+        desc = await client.get("/api/watchlist/browse?sort=-tracks")
+        assert [it["track_count"] for it in desc.json()["items"]] == [50, 30, 10]
+
+    async def test_browse_filter_ids(self, client, db):
+        from models import WatchedEntity
+
+        entities = [
+            WatchedEntity(external_id=f"id-{i}", source="deezer", title=f"P{i}")
+            for i in range(3)
+        ]
+        db.add_all(entities)
+        await db.commit()
+        keep = entities[0].id
+
+        r = await client.get(f"/api/watchlist/browse?ids={keep}")
+        data = r.json()
+        assert data["total"] == 1
+        assert [it["id"] for it in data["items"]] == [keep]
+
+    async def test_browse_exclude_ids(self, client, db):
+        from models import WatchedEntity
+
+        entities = [
+            WatchedEntity(external_id=f"ex-{i}", source="deezer", title=f"P{i}")
+            for i in range(3)
+        ]
+        db.add_all(entities)
+        await db.commit()
+        drop = entities[0].id
+
+        r = await client.get(f"/api/watchlist/browse?exclude_ids={drop}")
+        data = r.json()
+        returned = [it["id"] for it in data["items"]]
+        assert drop not in returned
+        assert data["total"] == 2
+
+    async def test_browse_top_genres_content(self, client, db):
+        """top_genres is deduced from the playlist's visible radar tracks."""
+        from models import CatalogEntry, RadarTrack, WatchedEntity
+
+        entity = WatchedEntity(external_id="g-1", source="deezer", title="Genred")
+        db.add(entity)
+        await db.commit()
+
+        c1 = CatalogEntry(
+            title="Track A", normalized_key="a|track a", genres=["House", "Tech House"]
+        )
+        c2 = CatalogEntry(title="Track B", normalized_key="b|track b", genres=["House"])
+        db.add_all([c1, c2])
+        await db.commit()
+
+        db.add_all(
+            [
+                RadarTrack(
+                    watched_entity_id=entity.id,
+                    external_track_id="x1",
+                    source="deezer",
+                    title="Track A",
+                    catalog_id=c1.id,
+                ),
+                RadarTrack(
+                    watched_entity_id=entity.id,
+                    external_track_id="x2",
+                    source="deezer",
+                    title="Track B",
+                    catalog_id=c2.id,
+                ),
+            ]
+        )
+        await db.commit()
+
+        r = await client.get(f"/api/watchlist/browse?ids={entity.id}")
+        item = r.json()["items"][0]
+        genres = {g["name"]: g["pct"] for g in item["top_genres"]}
+        # Both tracks carry "House" (2/2 => 100%); only one carries "Tech House".
+        assert genres.get("House") == 100
+        assert "Tech House" in genres
+        assert item["top_genres"][0]["name"] == "House"
+
 
 # ── POST /api/watchlist/ ──────────────────────────────────────────────────────
 

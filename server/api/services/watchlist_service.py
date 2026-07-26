@@ -86,10 +86,29 @@ async def list_followed(
     return WatchlistListResponse(total=total, items=result.scalars().all())
 
 
-async def browse(db: AsyncSession, user_id: int | None, limit: int, offset: int):
-    """All playlists in the system, with a `followed` flag for the given user."""
-    from models import UserFollow, WatchedEntity
+async def browse(
+    db: AsyncSession,
+    user_id: int | None,
+    limit: int,
+    offset: int,
+    sort: str = "title",
+    ids: list[int] | None = None,
+    exclude_ids: list[int] | None = None,
+):
+    """All playlists in the system, with a `followed` flag for the given user,
+    server-side sort/filter and the dominant genres deduced per playlist."""
+    from collections import defaultdict
+
+    from models import CatalogEntry, RadarTrack, UserFollow, WatchedEntity
     from schemas import WatchedEntityBrowseOut, WatchlistBrowseResponse
+
+    from services.catalog_service import catalog_visible
+    from services.genre_service import aggregate_top_genres, ensure_pillar_cache
+
+    # Warm the pillar cache up front (mirrors list_sets/get_detail): its loader
+    # rolls the session back on failure, so it must run BEFORE we hold any ORM row
+    # we still need — never between the fetch and the final serialization.
+    await ensure_pillar_cache(db)
 
     follow_exists = (
         select(UserFollow.entity_id)
@@ -97,17 +116,74 @@ async def browse(db: AsyncSession, user_id: int | None, limit: int, offset: int)
         .correlate(WatchedEntity)
         .exists()
     )
-    base = select(WatchedEntity, follow_exists.label("followed")).order_by(
-        WatchedEntity.title
-    )
-    count_result = await db.execute(
-        select(func.count()).select_from(select(WatchedEntity.id).subquery())
-    )
+    stmt = select(WatchedEntity, follow_exists.label("followed"))
+
+    if ids is not None:
+        stmt = stmt.where(WatchedEntity.id.in_(ids))
+    if exclude_ids is not None:
+        stmt = stmt.where(WatchedEntity.id.notin_(exclude_ids))
+
+    # Ordering: leading '-' = descending, else ascending. Unknown key -> title asc
+    # (the default). WatchedEntity.id.asc() is the final stable tie-break.
+    sort_columns = {
+        "title": WatchedEntity.title,
+        "creator": WatchedEntity.owner,
+        "tracks": WatchedEntity.track_count,
+        "crawl": WatchedEntity.last_crawled_at,
+    }
+    key = sort or "title"
+    descending = key.startswith("-")
+    key = key[1:] if descending else key
+    if key not in sort_columns:
+        key, descending = "title", False
+    col = sort_columns[key]
+    primary = (col.desc() if descending else col.asc()).nulls_last()
+    stmt = stmt.order_by(primary, WatchedEntity.id.asc())
+
+    # Total honours the ids/exclude_ids filters (count on the filtered query).
+    count_result = await db.execute(select(func.count()).select_from(stmt.subquery()))
     total = count_result.scalar()
-    result = await db.execute(base.offset(offset).limit(limit))
-    rows = result.all()
+
+    rows = (await db.execute(stmt.offset(offset).limit(limit))).all()
+    page_ids = [entity.id for entity, _ in rows]
+
+    # Batch-deduce top_genres per playlist over its visible radar tracks (C3),
+    # deduped by catalog_id — same aggregate as get_detail, page-wide. Sequential
+    # awaits on one session — never asyncio.gather on `db` (asyncpg wedges the
+    # connection).
+    top_genres_map: dict[int, list] = {}
+    if page_ids:
+        rt_rows = await db.execute(
+            select(
+                RadarTrack.watched_entity_id,
+                RadarTrack.catalog_id,
+                CatalogEntry.genres,
+            )
+            .join(CatalogEntry, RadarTrack.catalog_id == CatalogEntry.id)
+            .where(
+                RadarTrack.watched_entity_id.in_(page_ids),
+                RadarTrack.catalog_id.isnot(None),
+                catalog_visible(user_id),
+            )
+        )
+        genres_by_entity: dict[int, list] = defaultdict(list)
+        seen: dict[int, set] = defaultdict(set)  # dedupe by catalog_id per playlist
+        for entity_id, catalog_id, genres in rt_rows.all():
+            if catalog_id in seen[entity_id]:
+                continue
+            seen[entity_id].add(catalog_id)
+            genres_by_entity[entity_id].append(genres or [])
+        for entity_id, genre_lists in genres_by_entity.items():
+            top_genres_map[entity_id] = aggregate_top_genres(genre_lists, cap=3)
+
     items = [
-        WatchedEntityBrowseOut.model_validate({**entity.__dict__, "followed": followed})
+        WatchedEntityBrowseOut.model_validate(
+            {
+                **entity.__dict__,
+                "followed": followed,
+                "top_genres": top_genres_map.get(entity.id, []),
+            }
+        )
         for entity, followed in rows
     ]
     return WatchlistBrowseResponse(total=total, items=items)
