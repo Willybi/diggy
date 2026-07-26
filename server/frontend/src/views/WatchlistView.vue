@@ -1,16 +1,16 @@
 <template>
-  <div class="playlists-view">
-    <div class="page-head">
+  <div class="pl-page">
+    <!-- ── Head : identity + counter + avis filter + add (no search on this page) ── -->
+    <header class="page-head pl-head">
       <div class="titles">
         <h1>Playlists</h1>
-        <div class="sub">
-          {{ total }} playlist{{ total !== 1 ? 's' : '' }}
-          <span v-if="mode !== 'all'" class="muted"
-            >· {{ filteredList.length }}
-            {{
-              mode === 'liked' ? 'likées' : mode === 'disliked' ? 'dislikées' : 'à explorer'
-            }}</span
+        <div class="pl-sub">
+          <template v-if="isOpinionMode"
+            >{{ fmtNum(baseTotal) }} playlists<span class="pl-sub-muted">
+              · {{ fmtNum(total) }} {{ avisLabel }}</span
+            ></template
           >
+          <template v-else>{{ fmtNum(total) }} {{ pl(total, 'playlist', 'playlists') }}</template>
         </div>
       </div>
       <div class="head-tools">
@@ -23,286 +23,573 @@
             { value: 'unrated', label: 'À explorer' },
           ]"
         />
-        <button class="btn-add" :class="{ cancel: showForm }" @click="toggleForm">
-          <span v-if="!showForm" class="plus">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M12 5v14M5 12h14" stroke-linecap="round" />
-            </svg>
-          </span>
-          <span class="addlbl">{{ showForm ? 'Annuler' : 'Ajouter' }}</span>
+        <button class="btn btn--accent pl-add" type="button" @click="openAdd">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.2"
+            aria-hidden="true"
+          >
+            <path d="M12 5v14M5 12h14" stroke-linecap="round" />
+          </svg>
+          Ajouter
         </button>
       </div>
-    </div>
+    </header>
 
-    <div v-if="showForm" class="addform">
-      <div class="addcard">
-        <div class="addrow">
-          <input
-            v-model="inputValue"
-            type="text"
-            placeholder="URL Deezer, Tidal ou Spotify (ex : https://open.spotify.com/playlist/…)"
-            @keydown.enter="addPlaylist"
-            @input="formError = ''"
-            autofocus
-          />
-          <button class="btn-go" :disabled="adding" @click="addPlaylist">
-            {{ adding ? 'Ajout…' : 'Suivre' }}
-          </button>
-        </div>
-        <span v-if="formError" class="form-error">{{ formError }}</span>
+    <!-- ── Table : shared grid header/rows, infinite scroll ── -->
+    <section class="pl-table" aria-label="Liste des playlists surveillées">
+      <div v-if="showSkeleton || items.length" class="pl-thead">
+        <button
+          class="pl-th pl-th--btn col-pl"
+          :class="{ 'is-sorted': sortKey === 'title' }"
+          type="button"
+          @click="toggleSort('title')"
+        >
+          Playlist<span v-if="sortKey === 'title'" class="pl-arr">{{ arrow }}</span>
+        </button>
+        <span class="pl-th col-genre">Genre</span>
+        <button
+          class="pl-th pl-th--btn col-creator"
+          :class="{ 'is-sorted': sortKey === 'creator' }"
+          type="button"
+          @click="toggleSort('creator')"
+        >
+          Créateur<span v-if="sortKey === 'creator'" class="pl-arr">{{ arrow }}</span>
+        </button>
+        <button
+          class="pl-th pl-th--btn pl-th--right col-tracks"
+          :class="{ 'is-sorted': sortKey === 'tracks' }"
+          type="button"
+          @click="toggleSort('tracks')"
+        >
+          Tracks<span v-if="sortKey === 'tracks'" class="pl-arr">{{ arrow }}</span>
+        </button>
+        <button
+          class="pl-th pl-th--btn col-crawl"
+          :class="{ 'is-sorted': sortKey === 'crawl' }"
+          type="button"
+          @click="toggleSort('crawl')"
+        >
+          Dernier crawl<span v-if="sortKey === 'crawl'" class="pl-arr">{{ arrow }}</span>
+        </button>
+        <span class="pl-th pl-th--center col-avis">Avis</span>
       </div>
-    </div>
 
-    <div v-if="loading" class="state">Chargement…</div>
+      <!-- Loading skeleton : 8 ghost rows in the exact grid -->
+      <div v-if="showSkeleton" class="pl-body" aria-hidden="true">
+        <div v-for="i in 8" :key="i" class="pl-row pl-row--skel" :style="{ '--i': i - 1 }">
+          <div class="pl-cell col-pl pl-cell--pl">
+            <span class="sk sk-art"></span>
+            <div class="pl-tx">
+              <span class="sk sk-line sk-line--title"></span>
+              <span class="sk sk-line sk-line--sub"></span>
+            </div>
+          </div>
+          <div class="pl-cell col-genre"><span class="sk sk-line sk-line--tag"></span></div>
+          <div class="pl-cell col-creator"><span class="sk sk-line sk-line--sub"></span></div>
+          <div class="pl-cell col-tracks pl-cell--right">
+            <span class="sk sk-line sk-line--num"></span>
+          </div>
+          <div class="pl-cell col-crawl">
+            <span class="sk sk-line sk-line--num"></span>
+            <span class="sk sk-line sk-line--tag"></span>
+          </div>
+          <div class="pl-cell col-avis pl-cell--center">
+            <span class="sk sk-round"></span><span class="sk sk-round"></span>
+          </div>
+        </div>
+      </div>
 
-    <div v-else-if="displayList.length === 0 && !showForm" class="state">
-      Aucune playlist trouvée.
-    </div>
+      <!-- Empty : avis filter with no match (adapted copy, no action) -->
+      <div v-else-if="isEmpty && isOpinionMode" class="pl-empty">
+        <svg
+          class="pl-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+        </svg>
+        <p class="pl-empty-title">{{ emptyAvis.title }}</p>
+        <p class="pl-empty-sub">{{ emptyAvis.sub }}</p>
+      </div>
 
-    <div v-else-if="displayList.length > 0" class="table-wrap">
-      <table class="tt">
-        <colgroup>
-          <col class="w-pl" />
-          <col class="w-creator col-creator" />
-          <col class="w-tracks col-tracks" />
-          <col class="w-crawl col-crawl" />
-          <col class="w-avis" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th class="sortable" @click="toggleSort('title')">
-              Playlist
-              <span v-if="sortKey === 'title'" class="arr">{{
-                sortDir === 'asc' ? '↑' : '↓'
-              }}</span>
-            </th>
-            <th class="col-creator sortable" @click="toggleSort('creator')">
-              Créateur
-              <span v-if="sortKey === 'creator'" class="arr">{{
-                sortDir === 'asc' ? '↑' : '↓'
-              }}</span>
-            </th>
-            <th class="num col-tracks sortable" @click="toggleSort('tracks')">
-              Tracks
-              <span v-if="sortKey === 'tracks'" class="arr">{{
-                sortDir === 'asc' ? '↑' : '↓'
-              }}</span>
-            </th>
-            <th class="col-crawl sortable" @click="toggleSort('crawl')">
-              Dernier crawl
-              <span v-if="sortKey === 'crawl'" class="arr">{{
-                sortDir === 'asc' ? '↑' : '↓'
-              }}</span>
-            </th>
-            <th class="end sortable" @click="toggleSort('avis')">
-              Avis
-              <span v-if="sortKey === 'avis'" class="arr">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="pl in displayList"
-            :key="pl.id"
-            :class="{
-              liked: opinions.get('playlist', pl.id) === 'liked',
-              disliked: opinions.get('playlist', pl.id) === 'disliked',
-            }"
-          >
-            <td>
-              <RouterLink :to="`/playlists/${pl.id}`" class="pl-cell">
-                <span class="aw">
-                  <img
-                    v-if="pl.has_artwork"
-                    :src="`/storage/playlist-artworks/${pl.id}.jpg`"
-                    :alt="pl.title"
-                  />
-                </span>
-                <div class="pl-meta">
-                  <div class="pl-top">
-                    <span class="pl-name">{{ pl.title || pl.external_id }}</span>
-                    <SourceBadge :source="pl.source || 'deezer'" />
-                  </div>
-                  <span class="pl-id">{{ pl.external_id }}</span>
-                </div>
+      <!-- Empty : generic fallback -->
+      <div v-else-if="isEmpty" class="pl-empty">
+        <svg
+          class="pl-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+        </svg>
+        <p class="pl-empty-title">Aucune playlist à afficher</p>
+      </div>
+
+      <!-- Rows -->
+      <div v-else class="pl-body">
+        <div
+          v-for="p in items"
+          :key="p.id"
+          class="pl-row"
+          :class="{
+            liked: opinionOf(p.id) === 'liked',
+            disliked: opinionOf(p.id) === 'disliked',
+          }"
+          @click="goToPlaylist(p.id)"
+        >
+          <!-- Playlist : cover + title + source glyph (+ folded genre/crawl below xs) -->
+          <div class="pl-cell col-pl pl-cell--pl">
+            <Artwork
+              size="row"
+              :src="p.has_artwork ? `/storage/playlist-artworks/${p.id}.jpg` : undefined"
+              :alt="p.title || p.external_id"
+            />
+            <div class="pl-tx">
+              <div class="pl-title-row">
+                <span class="pl-title">{{ p.title || p.external_id }}</span>
+                <PlatformLink :platform="p.source || 'deezer'" variant="glyph" />
+              </div>
+
+              <!-- Genre chips fold under the title below 880px (P1) -->
+              <div v-if="p.top_genres.length" class="pl-genre-fold">
+                <RouterLink
+                  v-for="g in p.top_genres.slice(0, 2)"
+                  :key="g.name"
+                  class="pl-style-link"
+                  :to="`/style/${encodeURIComponent(g.name)}`"
+                  @click.stop
+                >
+                  <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+                </RouterLink>
+              </div>
+
+              <!-- Crawl meta folds under the title below 720px (P12) -->
+              <div class="pl-crawl-fold">
+                <span class="pl-crawl-fold-date">{{ crawlShort(p) }}</span>
+                <span v-if="cadence(p)" class="pl-cadence" :title="cadence(p).title">{{
+                  cadence(p).label
+                }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Genre : 1–2 StyleTag (P1) -->
+          <div class="pl-cell col-genre pl-cell--genre">
+            <template v-if="p.top_genres.length">
+              <RouterLink
+                v-for="g in p.top_genres.slice(0, 2)"
+                :key="g.name"
+                class="pl-style-link"
+                :to="`/style/${encodeURIComponent(g.name)}`"
+                @click.stop
+              >
+                <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
               </RouterLink>
-            </td>
-            <td class="col-creator">
-              <span v-if="pl.owner" class="td-creator">{{ pl.owner }}</span>
-              <span v-else class="td-empty">—</span>
-            </td>
-            <td class="num col-tracks">
-              <span v-if="pl.track_count != null" class="td-num">{{ pl.track_count }}</span>
-              <span v-else class="td-empty">—</span>
-            </td>
-            <td class="col-crawl" @click.stop>
-              <span v-if="crawlStatus[pl.id] === 'running'" class="crawl running"
-                ><span class="cdot"></span><span class="clbl">En cours</span></span
-              >
-              <span v-else-if="crawlStatus[pl.id] === 'queued'" class="crawl queued"
-                ><span class="cdot"></span><span class="clbl">En attente</span></span
-              >
-              <span v-else-if="crawlStatus[pl.id] === 'done'" class="crawl done"
-                ><span class="cdot"></span><span class="clbl">Crawlé</span></span
-              >
-              <template v-else>
-                <span class="td-date">{{ formatCrawled(pl.last_crawled_at) }}</span>
-                <button v-if="!isCooldown(pl)" class="btn-crawl" @click="triggerCrawl(pl)">
+            </template>
+          </div>
+
+          <!-- Créateur : owner, non-clickable (P3) -->
+          <div class="pl-cell col-creator">
+            <span v-if="p.owner" class="pl-creator">{{ p.owner }}</span>
+          </div>
+
+          <!-- Tracks : raw count, right-aligned (P8) -->
+          <div class="pl-cell col-tracks pl-cell--right">
+            <span v-if="p.track_count != null" class="pl-num">{{ p.track_count }}</span>
+            <span v-else class="pl-null">—</span>
+          </div>
+
+          <!-- Dernier crawl : 2-line block (P4–P7) -->
+          <div class="pl-cell col-crawl pl-crawl" @click.stop>
+            <div class="pl-crawl-l1">
+              <span v-if="crawlStatus[p.id]" class="pl-live" :class="crawlStatus[p.id]">
+                <span class="pl-live-dot"></span>
+                <span class="pl-live-lbl">{{ liveLabel(crawlStatus[p.id]) }}</span>
+              </span>
+              <span v-else class="pl-date" :class="{ 'pl-null': !p.last_crawled_at }">{{
+                fmtCrawled(p.last_crawled_at)
+              }}</span>
+            </div>
+            <div class="pl-crawl-l2">
+              <span v-if="cadence(p)" class="pl-cadence" :title="cadence(p).title">{{
+                cadence(p).label
+              }}</span>
+              <template v-if="!crawlStatus[p.id]">
+                <button
+                  v-if="!isCooldown(p)"
+                  class="btn btn--sm pl-crawl-btn"
+                  type="button"
+                  @click.stop="triggerCrawl(p)"
+                >
                   Crawl
                 </button>
+                <span v-else class="pl-cooldown" title="Réessaie dans quelques heures"
+                  >cooldown 12 h</span
+                >
               </template>
-            </td>
-            <td class="end td-avis" @click.stop>
-              <LikeDislike
-                :model-value="opinions.get('playlist', pl.id)"
-                @update:model-value="(v) => setOpinion(pl.id, v)"
-              />
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </div>
+          </div>
 
-      <div v-if="totalPages > 1" class="pagination">
-        <button :disabled="page <= 1" @click="page--">&lsaquo;</button>
-        <span class="pg-info">{{ page }} / {{ totalPages }}</span>
-        <button :disabled="page >= totalPages" @click="page++">&rsaquo;</button>
+          <!-- Avis (P) -->
+          <div class="pl-cell col-avis pl-cell--avis" @click.stop>
+            <LikeDislike
+              :model-value="opinionOf(p.id)"
+              @update:model-value="(v) => setOpinion(p.id, v)"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Sentinel (infinite scroll) — always in DOM so the observer attaches -->
+      <div ref="sentinel" class="pl-sentinel" :class="{ on: hasMore }">
+        <span class="spin"></span>Chargement…
+      </div>
+    </section>
+
+    <!-- ── Add modal (single URL field) ── -->
+    <div v-if="showAdd" class="pl-overlay" @click.self="closeAdd">
+      <div class="pl-modal" role="dialog" aria-modal="true" aria-label="Ajouter une playlist">
+        <div class="pl-modal-head">
+          <h2 class="pl-modal-title">Ajouter une playlist</h2>
+          <button class="pl-modal-x" type="button" aria-label="Fermer" @click="closeAdd">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18M6 6l12 12" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="pl-tabpanel">
+          <label class="pl-field-label" for="pl-url-input">URL de la playlist</label>
+          <input
+            id="pl-url-input"
+            v-model="inputValue"
+            class="pl-input pl-input--mono"
+            :class="{ 'is-error': formError }"
+            type="text"
+            placeholder="https://www.deezer.com/playlist/…"
+            @keydown.enter="addPlaylist"
+            @input="onUrlInput"
+          />
+          <p class="pl-field-help">
+            Colle l’URL d’une playlist Deezer, Tidal ou Spotify. Elle est crawlée dès l’ajout et
+            alimente le radar.
+          </p>
+          <p v-if="formError" class="pl-form-error">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.9"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+            </svg>
+            {{ formError }}
+          </p>
+          <button
+            class="btn btn--accent pl-url-go"
+            type="button"
+            :disabled="adding"
+            @click="addPlaylist"
+          >
+            {{ adding ? 'Ajout…' : 'Ajouter' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, reactive } from 'vue'
+import { ref, computed, watch, reactive, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../utils/api.js'
-import { useTaskPoll } from '../composables/useTaskPoll.js'
 import { useOpinionsStore } from '../stores/opinions.js'
+import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { useTaskPoll } from '../composables/useTaskPoll.js'
+import { fmtNum, pl } from '../utils/format'
+import Artwork from '../components/Artwork.vue'
+import PlatformLink from '../components/PlatformLink.vue'
+import StyleTag from '../components/StyleTag.vue'
 import LikeDislike from '../components/LikeDislike.vue'
-import SourceBadge from '../components/SourceBadge.vue'
 import SegFilter from '../components/SegFilter.vue'
 
+const router = useRouter()
 const opinions = useOpinionsStore()
+
 const COOLDOWN_MS = 12 * 3600 * 1000
+const DAY_MS = 86400000
 
-const browsePlaylists = ref([])
-const total = ref(0)
-const loading = ref(false)
-const showForm = ref(false)
-const inputValue = ref('')
-const formError = ref('')
-const adding = ref(false)
+// ── Filters / sort ──
 const mode = ref('all')
-const crawlStatus = reactive({}) // pl.id → 'queued' | 'running' | null
-const page = ref(1)
-const perPage = 25
+const sortKey = ref('title') // title | creator | tracks | crawl
+const sortDir = ref('asc') // asc | desc
+const baseTotal = ref(0) // last unfiltered (all-mode) total, for the head sub-count
 
-// Sort
-const sortKey = ref('title')
-const sortDir = ref('asc')
+// Composite sort sent server-side: leading '-' = descending.
+const sortParam = computed(() => (sortDir.value === 'desc' ? '-' : '') + sortKey.value)
 
-watch([mode, sortKey, sortDir], () => {
-  page.value = 1
+// ── Paginated list (shared trunk, infinite scroll) ──
+const { items, total, loading, hasMore, sentinel, fetch } = usePaginatedList({
+  endpoint: '/api/watchlist/browse',
+  pageSize: 24,
+  sort: () => sortParam.value,
 })
+
+const arrow = computed(() => (sortDir.value === 'asc' ? '↑' : '↓'))
+const isOpinionMode = computed(() => mode.value !== 'all')
+const showSkeleton = computed(() => loading.value && !items.value.length)
+const isEmpty = computed(() => !loading.value && !items.value.length)
+
+const avisLabel = computed(() => {
+  if (mode.value === 'liked') return 'likées'
+  if (mode.value === 'disliked') return 'dislikées'
+  if (mode.value === 'unrated') return 'à explorer'
+  return ''
+})
+
+const emptyAvis = computed(() => {
+  const map = {
+    liked: {
+      title: 'Aucune playlist likée',
+      sub: 'Tu n’as encore liké aucune playlist surveillée.',
+    },
+    disliked: {
+      title: 'Aucune playlist dislikée',
+      sub: 'Tu n’as encore disliké aucune playlist surveillée.',
+    },
+    unrated: {
+      title: 'Aucune playlist à explorer',
+      sub: 'Toutes tes playlists surveillées ont déjà un avis.',
+    },
+  }
+  return map[mode.value] || { title: 'Aucune playlist', sub: '' }
+})
+
+function opinionOf(id) {
+  return opinions.get('playlist', id)
+}
+
+// ── Fetch orchestration (mirrors SetsView) ──
+// `all` goes through the shared paginated list (infinite scroll). The opinion
+// filters resolve their id set from the opinions store in ONE non-paginated shot
+// and write the shared refs directly: liked/disliked pass the matching ids via
+// `ids=`, unrated excludes every rated id via `exclude_ids=`.
+async function runFetch(reset = true) {
+  if (!isOpinionMode.value) {
+    await fetch(reset)
+    baseTotal.value = total.value
+    return
+  }
+  if (!reset) return // opinion filters are not paginated (sentinel stays off)
+  items.value = []
+  loading.value = true
+  try {
+    await opinions.load()
+    const plOps = opinions.data.playlist || {}
+    const params = { sort: sortParam.value, limit: 200, offset: 0 }
+
+    if (mode.value === 'unrated') {
+      const ratedIds = Object.keys(plOps).filter(
+        (k) => plOps[k] === 'liked' || plOps[k] === 'disliked',
+      )
+      if (ratedIds.length) params.exclude_ids = ratedIds.join(',')
+    } else {
+      const matchingIds = Object.entries(plOps)
+        .filter(([, v]) => v === mode.value)
+        .map(([k]) => k)
+      if (!matchingIds.length) {
+        items.value = []
+        total.value = 0
+        hasMore.value = false
+        return
+      }
+      params.ids = matchingIds.join(',')
+    }
+
+    const { data } = await api.get('/api/watchlist/browse', { params })
+    items.value = data.items
+    total.value = data.total
+    hasMore.value = false
+  } catch {
+    items.value = []
+    total.value = 0
+    hasMore.value = false
+  } finally {
+    loading.value = false
+  }
+}
 
 function toggleSort(key) {
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   } else {
     sortKey.value = key
+    // Alphabetical dimensions open ascending; magnitudes/dates open descending.
     sortDir.value = key === 'title' || key === 'creator' ? 'asc' : 'desc'
   }
 }
 
-function sortValue(p, key) {
-  if (key === 'title') return (p.title || p.external_id || '').toLowerCase()
-  if (key === 'creator') return (p.owner || '').toLowerCase()
-  if (key === 'tracks') return p.track_count ?? -1
-  if (key === 'crawl') return p.last_crawled_at || ''
-  if (key === 'avis') {
-    const op = opinions.get('playlist', p.id)
-    if (op === 'liked') return 2
-    if (op === 'disliked') return 1
-    return 0
-  }
-  return 0
+function goToPlaylist(id) {
+  router.push(`/playlists/${id}`)
 }
-// One concurrent poll per playlist id, keyed by the id passed to start(id).
-const crawlPoll = useTaskPoll((playlistId) => `/api/watchlist/${playlistId}/crawl-status`, {
+
+async function setOpinion(id, val) {
+  // Optimistic store update; the row recolors reactively via opinionOf().
+  await opinions.set('playlist', id, val)
+}
+
+// Mode / sort changes reload from the server.
+watch([mode, sortKey, sortDir], () => runFetch(true))
+
+// ── Crawl live status (one keyed poll per playlist id) ──
+const crawlStatus = reactive({}) // id → 'queued' | 'running' | 'done'
+
+const crawlPoll = useTaskPoll((id) => `/api/watchlist/${id}/crawl-status`, {
   intervalMs: 4000,
-  async onData(data, { key: playlistId, stop }) {
+  async onData(data, { key: id, stop }) {
     if (data.status === 'done') {
       stop()
-      crawlStatus[playlistId] = 'done'
-      await fetchPlaylists()
+      crawlStatus[id] = 'done'
+      stampCrawled(id)
       setTimeout(() => {
-        delete crawlStatus[playlistId]
+        delete crawlStatus[id]
       }, 3000)
     } else if (!data.status) {
       stop()
-      delete crawlStatus[playlistId]
-      await fetchPlaylists()
+      delete crawlStatus[id]
+      stampCrawled(id)
     } else {
-      crawlStatus[playlistId] = data.status
+      crawlStatus[id] = data.status
     }
   },
-  onError(_err, { key: playlistId }) {
-    delete crawlStatus[playlistId]
+  onError(_err, { key: id }) {
+    delete crawlStatus[id]
   },
 })
 
-const filteredList = computed(() => {
-  let list
-  if (mode.value === 'liked') {
-    list = browsePlaylists.value.filter((p) => opinions.get('playlist', p.id) === 'liked')
-  } else if (mode.value === 'disliked') {
-    list = browsePlaylists.value.filter((p) => opinions.get('playlist', p.id) === 'disliked')
-  } else if (mode.value === 'unrated') {
-    list = browsePlaylists.value.filter((p) => !opinions.get('playlist', p.id))
-  } else {
-    list = [...browsePlaylists.value]
+// Reflect a finished crawl on the loaded row without a disruptive full refetch:
+// stamp "just now" (→ "aujourd'hui" + 12h cooldown) and clear the active-task flag.
+function stampCrawled(id) {
+  const item = items.value.find((p) => p.id === id)
+  if (item) {
+    item.last_crawled_at = new Date().toISOString()
+    item.current_task_id = null
   }
-  const dir = sortDir.value === 'asc' ? 1 : -1
-  const key = sortKey.value
-  list.sort((a, b) => {
-    const va = sortValue(a, key)
-    const vb = sortValue(b, key)
-    if (va < vb) return -1 * dir
-    if (va > vb) return 1 * dir
-    return 0
-  })
-  return list
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredList.value.length / perPage)))
-
-const displayList = computed(() => {
-  const start = (page.value - 1) * perPage
-  return filteredList.value.slice(start, start + perPage)
-})
-
-function isCooldown(pl) {
-  if (!pl.last_crawled_at) return false
-  return Date.now() - new Date(pl.last_crawled_at).getTime() < COOLDOWN_MS
 }
 
-async function triggerCrawl(pl) {
-  crawlStatus[pl.id] = 'queued'
+function startPolling(id) {
+  if (!crawlStatus[id]) crawlStatus[id] = 'queued'
+  crawlPoll.start(id)
+}
+
+// Attach a poll to any freshly loaded row that already has a crawl in flight.
+function syncPolls() {
+  for (const p of items.value) {
+    if (p.current_task_id && !crawlPoll.isActive(p.id)) {
+      crawlStatus[p.id] = 'queued'
+      crawlPoll.start(p.id)
+    }
+  }
+}
+watch(() => items.value.length, syncPolls)
+
+function isCooldown(p) {
+  if (!p.last_crawled_at) return false
+  return Date.now() - new Date(p.last_crawled_at).getTime() < COOLDOWN_MS
+}
+
+function liveLabel(status) {
+  if (status === 'running') return 'En cours'
+  if (status === 'done') return 'Crawlé'
+  return 'En attente'
+}
+
+async function triggerCrawl(p) {
+  crawlStatus[p.id] = 'queued'
   try {
-    await api.post(`/api/watchlist/${pl.id}/crawl`)
-    startPolling(pl.id)
+    await api.post(`/api/watchlist/${p.id}/crawl`)
+    startPolling(p.id)
   } catch (e) {
-    if (e.response?.status === 429) {
-      await fetchPlaylists()
-    }
-    delete crawlStatus[pl.id]
+    // 429 = cooldown still active server-side: reflect it locally (hide the button).
+    if (e.response?.status === 429) p.last_crawled_at = new Date().toISOString()
+    delete crawlStatus[p.id]
   }
 }
 
-function toggleForm() {
-  showForm.value = !showForm.value
-  if (!showForm.value) {
-    inputValue.value = ''
-    formError.value = ''
-  }
+// ── Relative crawl date (L1) + compact fold token ──
+function crawlDays(iso) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS)
+}
+
+function fmtCrawled(iso) {
+  if (!iso) return 'jamais'
+  const days = crawlDays(iso)
+  if (days <= 0) return "aujourd'hui"
+  if (days === 1) return 'il y a 1 j'
+  return `il y a ${days} j`
+}
+
+// Compact crawl token for the folded mobile meta (< 720px).
+function crawlShort(p) {
+  const live = crawlStatus[p.id]
+  if (live === 'running') return 'crawl en cours'
+  if (live === 'queued') return 'crawl en attente'
+  if (live === 'done') return 'crawlé'
+  if (!p.last_crawled_at) return 'jamais crawlée'
+  const days = crawlDays(p.last_crawled_at)
+  if (days <= 0) return 'crawl auj.'
+  return `crawl ${days} j`
+}
+
+// ── Cadence pill (P7) — derived from last_changed_at. Null → no pill. ──
+function cadence(p) {
+  if (!p.last_changed_at) return null
+  const days = Math.floor((Date.now() - new Date(p.last_changed_at).getTime()) / DAY_MS)
+  let label = 'Mensuel'
+  if (days < 14) label = 'Quotidien'
+  else if (days <= 60) label = 'Hebdo'
+  const since = days <= 0 ? "aujourd'hui" : days === 1 ? 'il y a 1 j' : `il y a ${days} j`
+  return { label, title: `Dernière nouveauté ${since}` }
+}
+
+// ── Add modal ──
+const showAdd = ref(false)
+const inputValue = ref('')
+const formError = ref('')
+const adding = ref(false)
+
+function openAdd() {
+  showAdd.value = true
+  inputValue.value = ''
+  formError.value = ''
+}
+
+function closeAdd() {
+  showAdd.value = false
+}
+
+function onUrlInput() {
+  formError.value = ''
 }
 
 function parsePlaylistInput(input) {
@@ -319,98 +606,65 @@ function parsePlaylistInput(input) {
   return null
 }
 
-async function fetchPlaylists() {
-  loading.value = true
-  try {
-    const { data } = await api.get('/api/watchlist/browse')
-    browsePlaylists.value = data.items
-    // Header count = true DB total (backend), not the number of rows loaded.
-    total.value = data.total ?? data.items.length
-  } finally {
-    loading.value = false
-  }
-}
-
 async function addPlaylist() {
   formError.value = ''
   const parsed = parsePlaylistInput(inputValue.value)
   if (!parsed) {
-    formError.value = 'URL ou ID invalide (Deezer, Tidal ou Spotify)'
+    formError.value = 'URL non reconnue — colle un lien de playlist Deezer, Tidal ou Spotify.'
     return
   }
   adding.value = true
   try {
     const { data } = await api.post('/api/watchlist/', parsed)
     inputValue.value = ''
-    showForm.value = false
-    await fetchPlaylists()
+    showAdd.value = false
+    await runFetch(true)
     startPolling(data.id)
   } catch (e) {
     if (e.response?.status === 409) {
-      formError.value = 'Playlist déjà suivie'
+      formError.value = 'Cette playlist est déjà dans ta watchlist.'
     } else {
-      formError.value = "Erreur lors de l'ajout"
+      formError.value = 'Erreur lors de l’ajout. Réessaie.'
     }
   } finally {
     adding.value = false
   }
 }
 
-function startPolling(playlistId) {
-  if (!crawlStatus[playlistId]) crawlStatus[playlistId] = 'queued'
-  crawlPoll.start(playlistId)
+function onKeydown(e) {
+  if (e.key === 'Escape' && showAdd.value) closeAdd()
 }
 
-function startPollingIfActive(pl) {
-  if (pl.current_task_id) {
-    crawlStatus[pl.id] = 'queued'
-    startPolling(pl.id)
-  }
-}
-
-function formatCrawled(iso) {
-  if (!iso) return 'jamais'
-  const d = new Date(iso)
-  const now = new Date()
-  const diffDays = Math.floor((now - d) / 86400000)
-  if (diffDays === 0) return "aujourd'hui"
-  if (diffDays === 1) return 'il y a 1 j'
-  return `il y a ${diffDays} j`
-}
-
-async function setOpinion(plId, val) {
-  await opinions.set('playlist', plId, val)
-  await fetchPlaylists()
-}
-
-onMounted(async () => {
-  await fetchPlaylists()
-  for (const pl of browsePlaylists.value) {
-    startPollingIfActive(pl)
-  }
+onMounted(() => {
+  runFetch(true)
+  window.addEventListener('keydown', onKeydown)
 })
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.playlists-view {
+.pl-page {
   container-type: inline-size;
+  container-name: pl;
+  min-width: 0;
   max-width: var(--page-max-w);
   margin-inline: auto;
   width: 100%;
 }
 
-.page-head .titles h1 {
+/* ============ HEAD ============ */
+.titles h1 {
   margin: 0;
-  font-size: var(--fs-xl);
-  font-weight: 600;
+  font: 700 var(--fs-lg) / 1.1 var(--font-ui);
   letter-spacing: -0.3px;
+  color: var(--ink);
 }
-.page-head .sub {
+.pl-sub {
   margin-top: var(--space-1);
-  font: 500 var(--fs-sm)/1 var(--font-mono);
+  font: 500 var(--fs-sm) / 1 var(--font-mono);
   color: var(--ink-2);
 }
-.sub .muted {
+.pl-sub-muted {
   color: var(--ink-3);
 }
 .head-tools {
@@ -420,59 +674,538 @@ onMounted(async () => {
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+.pl-add {
+  flex: none;
+}
 
-/* bouton ajouter */
-.btn-add {
-  display: inline-flex;
+/* ============ TABLE — shared grid header/rows ============ */
+.pl-table {
+  --pl-grid: minmax(0, 1fr) 190px 148px 64px 184px 80px;
+  --pl-gap: var(--space-3);
+  padding-bottom: var(--space-8);
+}
+.pl-thead,
+.pl-row {
+  display: grid;
+  grid-template-columns: var(--pl-grid);
+  gap: var(--pl-gap);
+  align-items: center;
+  padding-inline: var(--page-px);
+}
+.pl-thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 36px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-2);
+}
+.pl-th {
+  font: 600 var(--fs-label) / 1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-align: left;
+  user-select: none;
+}
+.pl-th--btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.pl-th--btn:hover {
+  color: var(--ink-2);
+}
+.pl-th--btn.is-sorted {
+  color: var(--accent-ink);
+}
+.pl-th--btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pl-th--center {
+  text-align: center;
+}
+.pl-th--right {
+  text-align: right;
+}
+.pl-arr {
+  margin-left: var(--space-05);
+  color: var(--accent-ink);
+}
+
+/* ============ ROWS ============ */
+.pl-row {
+  min-height: var(--row-h);
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.pl-row:hover {
+  background: var(--surface-2);
+}
+.pl-row.liked {
+  background: var(--pos-wash);
+}
+.pl-row.liked:hover {
+  background: var(--pos-wash-2);
+}
+[data-theme='dark'] .pl-row.liked {
+  background: var(--pos-wash-2);
+}
+.pl-row.disliked > .pl-cell:not(.pl-cell--avis) {
+  opacity: 0.45;
+  transition: opacity 0.16s;
+}
+.pl-row.disliked:hover > .pl-cell:not(.pl-cell--avis) {
+  opacity: 0.7;
+}
+.pl-cell {
+  min-width: 0;
+}
+.pl-cell--center {
+  display: flex;
+  justify-content: center;
+}
+.pl-cell--right {
+  text-align: right;
+}
+
+/* ============ PLAYLIST CELL ============ */
+.pl-cell--pl {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* Local sizing of the shared Artwork (BRIEF : 44px cover, --r-sm). */
+.pl-cell--pl :deep(.artwork--row) {
+  width: 44px;
+}
+.pl-cell--pl :deep(.artwork--row .aw-frame) {
+  border-radius: var(--r-sm);
+}
+.pl-tx {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+.pl-title-row {
+  display: flex;
   align-items: center;
   gap: var(--space-15);
-  height: 38px;
-  padding: 0 var(--space-4);
-  border-radius: var(--r-sm);
-  border: 1px solid transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 var(--fs-sm) var(--font-ui);
-  cursor: pointer;
+  min-width: 0;
+}
+.pl-title {
+  font: 600 var(--fs-table) / 1.25 var(--font-ui);
+  color: var(--ink);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.btn-add:hover {
-  background: var(--accent-hover);
+/* Source glyph: attribute of the title, never shrinks, muted (P2). */
+.pl-title-row :deep(.plink--glyph) {
+  flex: none;
+  color: var(--ink-3);
 }
-.btn-add svg {
-  width: 15px;
-  height: 15px;
-}
-.btn-add.cancel {
-  background: var(--surface);
-  color: var(--ink-2);
-  border-color: var(--line-2);
-}
-.btn-add.cancel .plus {
-  display: none;
+.pl-row:hover .pl-title {
+  color: var(--accent-ink);
 }
 
-/* formulaire d'ajout */
-.addform {
-  padding: 0 var(--page-px) var(--space-15);
+/* Genre chips folded under the title (< 880px, P1) — hidden by default. */
+.pl-genre-fold {
+  display: none;
+  flex-wrap: wrap;
+  gap: var(--space-15);
+  margin-top: var(--space-05);
 }
-.addcard {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-sm);
-  padding: var(--space-5);
-  margin-bottom: var(--space-2);
-}
-.addrow {
-  display: flex;
-  gap: var(--space-25);
-}
-.addrow input {
-  flex: 1;
+/* Crawl meta folded under the title (< 720px, P12) — hidden by default. */
+.pl-crawl-fold {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-05);
   min-width: 0;
-  height: 42px;
-  padding: 0 var(--space-4);
+}
+.pl-crawl-fold-date {
+  font: 500 var(--fs-table-sm) / 1 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============ GENRE CELL ============ */
+.pl-cell--genre {
+  display: flex;
+  align-items: center;
+  gap: var(--space-15);
+  overflow: hidden;
+}
+.pl-style-link {
+  text-decoration: none;
+  min-width: 0;
+  display: inline-flex;
+}
+/* The dominant chip never compresses; only the 2nd absorbs the shortfall (P1). */
+.pl-cell--genre .pl-style-link:first-child {
+  flex: none;
+}
+
+/* ============ CRÉATEUR ============ */
+.pl-creator {
+  font: 400 var(--fs-table) / 1.3 var(--font-ui);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+/* ============ TRACKS ============ */
+.pl-num {
+  font: 500 var(--fs-table) var(--font-mono);
+  color: var(--ink-2);
+}
+.pl-null {
+  font: 500 var(--fs-table) var(--font-mono);
+  color: var(--ink-3);
+}
+
+/* ============ DERNIER CRAWL (P4–P7) ============ */
+.pl-crawl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pl-crawl-l1 {
+  min-height: 19px;
+  display: flex;
+  align-items: center;
+}
+.pl-crawl-l2 {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.pl-date {
+  font: 500 var(--fs-table) / 1 var(--font-mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pl-date.pl-null {
+  color: var(--ink-3);
+}
+
+/* Live status (P6) — replaces both date and button. */
+.pl-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+.pl-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.pl-live-lbl {
+  font: 500 var(--fs-table-sm) / 1 var(--font-ui);
+}
+.pl-live.queued .pl-live-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+}
+.pl-live.queued .pl-live-lbl {
+  color: var(--ink-3);
+}
+.pl-live.running .pl-live-dot {
+  background: var(--accent);
+}
+.pl-live.running .pl-live-lbl {
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+.pl-live.done .pl-live-dot {
+  background: var(--pos);
+}
+.pl-live.done .pl-live-lbl {
+  color: var(--pos-ink);
+}
+@keyframes pl-live {
+  from {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pl-live.running .pl-live-dot {
+    animation: pl-live 1.1s ease-in-out infinite alternate;
+  }
+}
+
+/* Cadence pill (P7) — monochrome, no colour code. */
+.pl-cadence {
+  flex: none;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-15);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font: 500 var(--fs-nano) / 1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Crawl button (P5) — revealed on row hover / focus. .btn--sm shrunk to the
+   reserved 24px L2 line height. */
+.pl-crawl-btn {
+  margin-left: auto;
+  height: 24px;
+  padding-inline: var(--space-25);
+  font-size: var(--fs-xs);
+  opacity: 0;
+  transition:
+    opacity 0.12s,
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.pl-row:hover .pl-crawl-btn,
+.pl-crawl-btn:focus-visible {
+  opacity: 1;
+}
+.pl-crawl-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Cooldown label (P5) — replaces the button, only on hover. */
+.pl-cooldown {
+  margin-left: auto;
+  font: 500 var(--fs-nano) / 1 var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pl-row:hover .pl-cooldown {
+  opacity: 0.7;
+}
+
+/* ============ AVIS (shared LikeDislike, local deltas) ============ */
+.pl-cell--avis {
+  display: flex;
+  justify-content: center;
+}
+.pl-cell--avis :deep(.ld-btn) {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border-color: transparent;
+  background: transparent;
+}
+.pl-cell--avis :deep(.ld-btn:hover) {
+  background: var(--surface-3);
+}
+.pl-cell--avis :deep(.ld[data-state='liked'] .ld-btn.like) {
+  background: var(--pos-soft);
+}
+.pl-cell--avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
+  background: var(--neg-soft);
+}
+
+/* ============ SENTINEL ============ */
+.pl-sentinel {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-25);
+  padding: var(--space-4) var(--page-px) var(--space-2);
+  color: var(--ink-3);
+  font: 500 var(--fs-xs) / 1 var(--font-mono);
+}
+.pl-sentinel.on {
+  display: flex;
+}
+.spin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+/* ============ SKELETON ============ */
+.pl-row--skel {
+  cursor: default;
+}
+.sk {
+  display: inline-block;
+  background: var(--surface-2);
+  border-radius: var(--r-xs);
+  animation: pl-pulse 1.4s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 0.12s);
+}
+.sk-art {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+}
+.sk-line {
+  height: 10px;
+}
+.sk-line--title {
+  width: 60%;
+  background: var(--surface-3);
+}
+.sk-line--sub {
+  width: 42%;
+}
+.sk-line--tag {
+  width: 84px;
+  height: 18px;
+  border-radius: var(--r-pill);
+}
+.sk-line--num {
+  width: 40px;
+}
+.sk-round {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  margin: 0 var(--space-05);
+}
+.pl-row--skel .pl-tx {
+  gap: var(--space-15);
+}
+@keyframes pl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ============ EMPTY STATES ============ */
+.pl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-15x) var(--page-px);
+  text-align: center;
+}
+.pl-empty-ic {
+  width: 26px;
+  height: 26px;
+  color: var(--ink-3);
+}
+.pl-empty-title {
+  margin: 0;
+  font: 600 var(--fs-md) / 1.3 var(--font-ui);
+  color: var(--ink);
+}
+.pl-empty-sub {
+  margin: 0;
+  max-width: 44ch;
+  font: 400 var(--fs-sm) / 1.5 var(--font-ui);
+  color: var(--ink-2);
+}
+
+/* ============ ADD MODAL ============ */
+.pl-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--overlay-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+}
+.pl-modal {
+  width: min(460px, 100vw - 32px);
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.pl-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.pl-modal-title {
+  margin: 0;
+  font: 700 var(--fs-md) / 1.2 var(--font-ui);
+  color: var(--ink);
+}
+.pl-modal-x {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.pl-modal-x:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.pl-modal-x svg {
+  width: 16px;
+  height: 16px;
+}
+.pl-tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.pl-field-label {
+  font: 600 var(--fs-label) / 1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pl-input {
+  height: 44px;
+  padding: 0 var(--space-3);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
   background: var(--bg);
@@ -480,351 +1213,110 @@ onMounted(async () => {
   color: var(--ink);
   outline: none;
 }
-.addrow input::placeholder {
+.pl-input--mono {
+  font-family: var(--font-mono);
+}
+.pl-input::placeholder {
   color: var(--ink-3);
 }
-.addrow input:focus {
+.pl-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.btn-go {
-  height: 42px;
-  padding: 0 var(--space-5);
-  border: 0;
-  border-radius: var(--r-sm);
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 var(--fs-sm) var(--font-ui);
-  cursor: pointer;
-  white-space: nowrap;
+.pl-input.is-error {
+  border-color: var(--neg);
 }
-.btn-go:hover {
-  background: var(--accent-hover);
+.pl-field-help {
+  margin: 0;
+  font: 400 var(--fs-xs) / 1.4 var(--font-ui);
+  color: var(--ink-3);
 }
-.btn-go:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.form-error {
-  display: block;
-  margin-top: var(--space-25);
-  font: 400 var(--fs-sm)/1 var(--font-mono);
+.pl-form-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-15);
+  margin: 0;
+  font: 500 var(--fs-xs) / 1.3 var(--font-mono);
   color: var(--neg-ink);
 }
-
-/* table */
-.table-wrap {
-  padding: var(--space-1) var(--page-px) var(--space-8);
-  overflow-x: auto;
-}
-table.tt {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  min-width: 440px;
-}
-table.tt col.w-pl {
-  width: auto;
-}
-table.tt col.w-creator {
-  width: 180px;
-}
-table.tt col.w-tracks {
-  width: 84px;
-}
-table.tt col.w-crawl {
-  width: 140px;
-}
-table.tt col.w-avis {
-  width: 100px;
-}
-
-table.tt thead th {
-  position: sticky;
-  top: 0;
-  font: 600 var(--fs-label)/1 var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  text-align: left;
-  padding: 0 var(--space-3) var(--space-25);
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
-  user-select: none;
-}
-table.tt th.sortable {
-  cursor: pointer;
-}
-table.tt th.sortable:hover {
-  color: var(--ink-2);
-}
-table.tt th .arr {
-  color: var(--accent-ink);
-  margin-left: var(--space-1);
-}
-table.tt th.num,
-table.tt td.num {
-  text-align: center;
-}
-table.tt th.end,
-table.tt td.end {
-  text-align: right;
-}
-table.tt tbody tr {
-  border-bottom: 1px solid var(--line);
-  height: var(--row-h);
-}
-table.tt tbody tr:hover {
-  background: var(--surface-2);
-}
-table.tt td {
-  padding: 0 var(--space-3);
-  vertical-align: middle;
-}
-
-/* cellule playlist */
-.pl-cell {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-  text-decoration: none;
-  color: inherit;
-}
-.aw {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-xs);
-  flex: none;
-  background: var(--surface-3);
-  overflow: hidden;
-}
-.aw img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.pl-meta {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.pl-top {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.pl-name {
-  font: 500 var(--fs-base) var(--font-ui);
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pl-cell:hover .pl-name {
-  color: var(--accent-ink);
-}
-.pl-id {
-  font: 500 var(--fs-xs) var(--font-mono);
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-
-/* créateur */
-.td-creator {
-  font: 400 var(--fs-sm) var(--font-ui);
-  color: var(--ink-2);
-}
-
-/* numbers + dates */
-.td-num {
-  font: 600 var(--fs-sm) var(--font-mono);
-  color: var(--ink);
-}
-.td-date {
-  font: 500 var(--fs-table-sm) var(--font-mono);
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.td-empty {
-  font: 500 var(--fs-sm) var(--font-mono);
-  color: var(--ink-3);
-}
-
-/* ── avis: hover-reveal LikeDislike ── */
-.td-avis :deep(.ld-btn) {
-  opacity: 0;
-  transition: opacity 0.14s;
-}
-table.tt tbody tr:hover .td-avis :deep(.ld-btn) {
-  opacity: 1;
-}
-.td-avis :deep(.ld[data-state='liked'] .ld-btn.like),
-.td-avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
-  opacity: 1;
-}
-
-/* ── row avis states ── */
-table.tt tbody tr.liked {
-  background: var(--pos-wash);
-}
-table.tt tbody tr.liked:hover {
-  background: var(--pos-wash-2);
-}
-table.tt tbody tr.disliked td:not(.td-avis) {
-  opacity: 0.42;
-}
-table.tt tbody tr.disliked:hover td:not(.td-avis) {
-  opacity: 0.7;
-}
-
-/* crawl button */
-.btn-crawl {
-  height: 24px;
-  padding: 0 var(--space-25);
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-3);
-  font: 500 var(--fs-xs) var(--font-ui);
-  cursor: pointer;
-  white-space: nowrap;
-  margin-left: var(--space-2);
-}
-.btn-crawl:hover {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-
-/* crawl status chips (inline dot + label) */
-.crawl {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  white-space: nowrap;
-}
-.crawl .cdot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+.pl-form-error svg {
+  width: 13px;
+  height: 13px;
   flex: none;
 }
-.crawl .clbl {
-  font: 600 var(--fs-sm)/1 var(--font-ui);
-}
-.crawl.running .cdot {
-  background: var(--accent);
-}
-.crawl.running .clbl {
-  color: var(--ink);
-}
-.crawl.queued .cdot {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--ink-3);
-}
-.crawl.queued .clbl {
-  color: var(--ink-3);
-}
-.crawl.done .cdot {
-  background: var(--pos);
-}
-.crawl.done .clbl {
-  color: var(--pos-ink);
-}
-@keyframes crawlring {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 60%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 6px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .crawl.running .cdot {
-    animation: crawlring 1.5s ease-out infinite;
-  }
+.pl-url-go {
+  align-self: flex-start;
 }
 
-/* pagination */
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  padding: var(--space-5) 0 var(--space-1);
+/* ============ RESPONSIVE — column drop ============ */
+@container pl (max-width: 1039px) {
+  .pl-table {
+    --pl-grid: minmax(0, 1fr) 190px 64px 184px 80px;
+  }
+  .col-creator {
+    display: none;
+  }
 }
-.pagination button {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 600 var(--fs-title)/1 var(--font-ui);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
+@container pl (max-width: 879px) {
+  .pl-table {
+    --pl-grid: minmax(0, 1fr) 64px 184px 80px;
+  }
+  .col-genre {
+    display: none;
+  }
+  .pl-genre-fold {
+    display: flex;
+  }
 }
-.pagination button:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-.pagination button:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-.pg-info {
-  font: 500 var(--fs-sm)/1 var(--font-mono);
-  color: var(--ink-2);
-}
-
-.state {
-  /* diverges from canonical .state: centered, no italic, vertical + page padding */
-  font-style: normal;
-  text-align: center;
-  padding: var(--space-15x) var(--page-px);
-}
-
-/* ── responsive (container queries) ── */
-@container (max-width: 1040px) {
+@container pl (max-width: 719px) {
+  .pl-table {
+    --pl-grid: minmax(0, 1fr) 64px 80px;
+  }
   .col-crawl {
     display: none;
   }
-}
-@container (max-width: 820px) {
-  .col-creator {
+  .pl-crawl-fold {
+    display: flex;
+  }
+  /* Below 720px the folded genre is limited to the dominant chip. */
+  .pl-genre-fold .pl-style-link:nth-child(n + 2) {
     display: none;
+  }
+}
+@container pl (max-width: 639px) {
+  .pl-table {
+    --pl-grid: minmax(0, 1fr) 44px 72px;
+    --pl-gap: var(--space-2);
+  }
+  .pl-thead,
+  .pl-row {
+    padding-inline: var(--page-px-mobile);
+  }
+  .pl-head {
+    padding: var(--space-4) var(--page-px-mobile) var(--space-3);
   }
   .head-tools {
     width: 100%;
     margin-left: 0;
   }
+  .pl-sentinel,
+  .pl-empty {
+    padding-inline: var(--page-px-mobile);
+  }
 }
-@container (max-width: 640px) {
-  .col-tracks {
-    display: none;
+
+/* Add modal → bottom-sheet on mobile (position: fixed = the one @media exception). */
+@media (max-width: 640px) {
+  .pl-overlay {
+    align-items: flex-end;
+    padding: 0;
   }
-  .page-head,
-  .addform,
-  .table-wrap {
-    padding-left: var(--page-px-mobile);
-    padding-right: var(--page-px-mobile);
-  }
-  .addrow {
-    flex-direction: column;
-  }
-  .btn-go {
+  .pl-modal {
     width: 100%;
-  }
-  /* Touch: always show avis buttons */
-  .td-avis :deep(.ld-btn) {
-    opacity: 1;
+    max-width: none;
+    max-height: 90vh;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    border-bottom: 0;
   }
 }
 </style>

@@ -46,6 +46,7 @@
 - Tous les liens vers des plateformes tierces (**SoundCloud, YouTube, Deezer, Beatport, TrackID, 1001Tracklists, Spotify…**) affichent le **logo** de la plateforme, pas son **nom** en texte.
 - → composant `<PlatformLink>` (logo + href + `aria-label`), réutilisé sur Set detail (« Voir sur… »), Artist detail (Deezer/SoundCloud/TrackID), Track detail (Beatport/Deezer), etc.
 - **Variante `glyph`** (handoff Track Detail, 2026-07-17) : logo seul non cliquable (~13 px, `--ink-2`) pour marquer une **source** dans une liste dense (ex. « Détecté dans ») — remplace les badges texte DEEZER/TIDAL/SPOTIFY (`SourceBadge` à terme).
+  - **1er consommateur LISTE (2026-07-26, chantier liste `/playlists`)** : la row de la liste Playlists accole le `glyph` (deezer/tidal/spotify) **au titre** comme marqueur de source (remplace le `<SourceBadge>` texte). Non-cliquable **par contrainte** : la row entière est un `RouterLink` → un `<a>` cliquable imbriquerait deux ancres. Aucune modif du composant.
 - **Monochrome `currentColor` partout** (décision D6) : jamais les couleurs de marque — l'accent mauve reste le seul signal coloré.
 - Contrainte CSP : logos en **SVG inline / data-URI** (pas de CDN). **Logos temporaires** : tracés simplifiés de la maquette, centralisés dans la map `platform → path` de `PlatformLink.vue` (`TODO logos officiels` — remplacement = un seul fichier). Statut : 🟡 spec livrée (`docs/refonte-ui/handoff-track-detail/BRIEF-composants-transverses.md`), 1re implémentation = chantier Track Detail.
 

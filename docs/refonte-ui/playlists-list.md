@@ -56,9 +56,34 @@ Liste des **playlists surveillées** (watchlist / sources radar).
 - **Retirer** l'`external_id` sous le titre.
 - **Infinite scroll** (`usePaginatedList`) + sort/filtre **server-side**.
 - **Écarté** : tracks détectées, follow toggle.
-- **(recap C3)** : **pastille cadence** (Quotidien / Hebdo / Mensuel) sur la row, dérivée de `last_changed_at` (pilote déjà C6.e) → distingue les sources **vivantes** des **dormantes**. Donnée underlying : « dernière nouveauté » (last_changed_at relatif), affichable en tooltip.
+- **(recap C3)** : **pastille cadence** (Quotidien / Hebdo / Mensuel) sur la row, dérivée de `last_changed_at` (pilote déjà C6.e) → distingue les sources **vivantes** des **dormantes**. Donnée underlying : « dernière nouveauté » (last_changed_at relatif), affichable en tooltip. ⚠️ **précisée au pré-vol** (voir ci-dessous) : dérivation **stricte**, **pas de fallback `created_at`**.
 - **Gardé** : form **Ajouter** (URL), tri, statut crawl **live** + bouton Crawl, avis, row → détail.
 - **Pas d'exclusion** (playlists peu nombreuses).
+
+### Précisions pré-vol chantier (2026-07-25)
+
+> Vérif code réel + **données PROD** (56 playlists). Ces précisions **priment** sur les formulations amont.
+
+- **Format = TABLEAU enrichi** (jumelle de la liste Sets) — cohérent avec §5, on reste en tableau (pas de grille de cartes).
+- **Source → logo `<PlatformLink>` variante `glyph`** (marqueur non-cliquable). Donnée prod = **multi-plateforme réel** : deezer 33 / tidal 22 / spotify 1 → **contrairement à /sets** (100 % trackid, colonne retirée), le logo a de la valeur ici. `<PlatformLink>` couvre déjà les 3 sources. **Glyph et pas bouton cliquable** : la row entière est un `RouterLink` vers `/playlists/:id` → un `<a>` cliquable dans la cellule imbriquerait deux ancres (HTML invalide). Le logo est un marqueur de source, pas un lien.
+- **Genre déduit** : **56/56** playlists produisent ≥1 genre (radar_tracks→catalog genrées). Back renvoie `top_genres: list[TopGenreOut]` (même agrégat que le détail, périmètre `catalog_visible`), DA affiche **1–2 `<StyleTag>`**. Résidu : genre bruité sur une playlist à peu de tracks détectées — **accepté**, non bloquant (comme /sets).
+- **Créateur (`owner`)** : 56/56 rempli → colonne toujours renseignée. **Tracks (`track_count`)** : 56/56 rempli (c'est le compte **source**, pas les détectées — décision §5 : détectées écartées).
+- **Pastille cadence — arbitrage William (A)** : dérivée **STRICTEMENT de `last_changed_at`**, **aucune pastille quand NULL** (pas de fallback `created_at`, qui fabriquerait une fausse cadence). Donnée prod : `last_changed_at` peuplé **8/56** seulement (les 33 Deezer = tous NULL) — mais c'est un artefact **transitoire mono-utilisateur** (peu de follows/crawls actifs à un seul user), **pas** une constante structurelle comme la Source /sets : elle se peuplera à l'ouverture (plusieurs DJs → plancher de crawl quotidien sur plus de playlists → plus de changements détectés). On **garde donc la feature** mais on l'affiche **honnêtement** : la row montre une pastille **uniquement** si `last_changed_at` existe. Tooltip = « dernière nouveauté » (relatif).
+- **Filtre d'avis** (Toutes/Liked/Disliked/À explorer) → résolution `ids`/`exclude_ids` **server-side façon Artistes** (le back gagne ces params). **Tri par colonne « Avis » retiré** (opinion = filtre, pas tri) ; boutons avis conservés dans la row. Colonnes triables server-side = **Titre · Créateur · Tracks · Dernier crawl**.
+- **Infinite scroll** (`usePaginatedList`) : les 56 playlists tiennent largement → **cohérence** (jumelle Sets/Artistes), pas perf. Corrige au passage un bug existant : `/browse` a `limit=50` par défaut et le front l'appelle sans params → il ne charge aujourd'hui que **50/56** alors que le header affiche 56.
+- **Retrait `external_id`** sous le titre (bruit technique) — confirmé.
+- **Composants transverses : tous déjà livrés** (`<PlatformLink>`, `<Artwork>`, `<StyleTag>`, `<LikeDislike>`, `usePaginatedList`). **Aucun nouveau composant** → pas de lot composant (comme /sets).
+- **Lot back confirmé** (patron `routers/sets.list_sets`, quasi-copiable) : `browse` gagne `sort` (titre/créateur/tracks/crawl) + `ids`/`exclude_ids` (`_parse_id_csv`) + `top_genres` batché (radar_tracks→catalog, `catalog_visible`, warm pillar cache) + **expose `last_changed_at`** — additif à `WatchedEntityBrowseOut`. **Aucune migration** (`last_changed_at` déjà en base, C6.e).
+
+### Décisions du handoff Design (round Claude Design, 2026-07-26 — voir `handoff-playlists-list/`)
+- **Bouton Crawl révélé au survol** (≠ actuel toujours-visible) ; **toujours visible < 640 px / tactile**. En **cooldown 12 h** : pas de bouton, libellé mono `cooldown 12 h` au survol seulement.
+- **Statut live prioritaire** : `En attente`/`En cours`(animé)/`Crawlé` remplacent **date ET bouton** — mappe `queued`/`running`/`done` du polling `useTaskPoll` existant (aucun changement back).
+- **Bloc « Dernier crawl » sur 2 lignes** (cellule ~184 px) : L1 date relative **ou** statut live ; L2 pastille cadence (gauche) + bouton Crawl (droite). Hauteurs réservées → aucun décalage.
+- **Pastille cadence = libellé mono nano** (`Quotidien`/`Hebdo`/`Mensuel`, pill `--surface-2`), **pas de code couleur**, **absente si `last_changed_at` nul**. Dérivée client-side (seuils 14 j / 60 j).
+- **Panneau Ajouter → MODAL** (recentré desktop, bottom-sheet mobile), 1 champ URL, bouton **« Ajouter »**. Flux inchangé.
+- **Column-drop** : Créateur < 1040 → Genre replié sous le titre < 880 → **Dernier crawl replié en méta mono < 720** (tombe **tard**, pas en premier : c'est le cœur de veille) → mobile < 640 (Playlist+genre+méta crawl · Tracks · Avis, avis toujours visible). Bouton Crawl non repris en mobile.
+- **Tracks = nombre brut aligné droite** (pas d'anneau). **Créateur non cliquable** (string libre, pas d'entité Diggy → pas de besoin back `[{id,name}]`).
+- **Aucun composant transverse créé** ; pilote 100 % tokens (hex = harness bundler uniquement). **Verdict handoff : GO.**
 
 ## 6. Sortie next-step
 **Handoff Design**
