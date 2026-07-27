@@ -3,11 +3,15 @@ import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mutable holders shared with the hoisted mocks below.
-const { apiMock } = vi.hoisted(() => ({
+const { apiMock, authStore } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  // Minimal auth store stand-in: only `user` is read by the view (admin gate on
+  // the « Sans Deezer » toggle). Mutate authStore.user BEFORE mounting a scenario.
+  authStore: { user: null },
 }))
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
+vi.mock('../../stores/auth.js', () => ({ useAuthStore: () => authStore }))
 
 // The child ArtistCard pulls in vue-router + stores; the view itself does not.
 // Stub it so this suite only exercises the view's head, filters and empty states.
@@ -68,6 +72,7 @@ describe('ArtistsView', () => {
     apiMock.get.mockReset()
     apiMock.post.mockReset()
     setActivePinia(createPinia())
+    authStore.user = null // default: non-admin viewer (toggle hidden)
     opinionsResponse = { artist: {} }
     listResponse = {
       total: 3,
@@ -140,6 +145,7 @@ describe('ArtistsView', () => {
   })
 
   it('adds no_deezer=true for the current sort when the « Sans Deezer » toggle is on', async () => {
+    authStore.user = { is_admin: true } // toggle is admin-only, so admin-mount it
     const wrapper = await mountView()
     const toggle = wrapper.find('.no-dz')
     expect(toggle.attributes('aria-checked')).toBe('false')
@@ -150,5 +156,19 @@ describe('ArtistsView', () => {
     const p = lastArtistsParams()
     expect(p.no_deezer).toBe(true)
     expect(p.sort).toBe('catalog')
+  })
+
+  it('hides the « Sans Deezer » toggle for a non-admin viewer but keeps the family chips', async () => {
+    authStore.user = null
+    const wrapper = await mountView()
+    expect(wrapper.find('.no-dz').exists()).toBe(false)
+    // FamilyChips stay visible for everyone — only the toggle is admin-gated.
+    expect(wrapper.find('.fam-chips').exists()).toBe(true)
+  })
+
+  it('shows the « Sans Deezer » toggle for an admin viewer', async () => {
+    authStore.user = { is_admin: true }
+    const wrapper = await mountView()
+    expect(wrapper.find('.no-dz').exists()).toBe(true)
   })
 })

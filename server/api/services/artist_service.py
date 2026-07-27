@@ -192,16 +192,20 @@ async def list_artists(
         filtered_ids = {aid for aid, pil in pillar_by_id.items() if pil == family}
         base_query = base_query.where(Artist.id.in_(filtered_ids))
 
+    # Artist.id is the final tiebreaker on EVERY branch: without a total order,
+    # ex-aequo rows (very common — many artists share a track count) can be
+    # reordered between two LIMIT/OFFSET pages, which surfaced/skipped rows and
+    # returned the same artist twice in the infinite scroll.
     if sort == "catalog":
-        base_query = base_query.order_by(nb_catalog_col.desc())
+        base_query = base_query.order_by(nb_catalog_col.desc(), Artist.id)
     elif sort == "lib":
-        base_query = base_query.order_by(nb_lib_col.desc(), nb_catalog_col.desc())
+        base_query = base_query.order_by(nb_lib_col.desc(), nb_catalog_col.desc(), Artist.id)
     elif sort == "liked":
-        base_query = base_query.order_by(nb_liked_col.desc(), nb_catalog_col.desc())
+        base_query = base_query.order_by(nb_liked_col.desc(), nb_catalog_col.desc(), Artist.id)
     elif sort == "disliked":
-        base_query = base_query.order_by(func.lower(Artist.name))
+        base_query = base_query.order_by(func.lower(Artist.name), Artist.id)
     elif sort == "alpha":
-        base_query = base_query.order_by(func.lower(Artist.name))
+        base_query = base_query.order_by(func.lower(Artist.name), Artist.id)
 
     count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
     total = count_result.scalar()

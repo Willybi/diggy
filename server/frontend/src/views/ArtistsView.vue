@@ -35,6 +35,7 @@
     <div class="tools-row">
       <FamilyChips v-model="familyFilter" :counts="familyCounts" />
       <button
+        v-if="auth.user?.is_admin"
         type="button"
         class="no-dz"
         :class="{ on: noDeezer }"
@@ -103,6 +104,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import api from '../utils/api.js'
+import { useAuthStore } from '../stores/auth.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import ArtistCard from '../components/ArtistCard.vue'
 import SearchBox from '../components/SearchBox.vue'
@@ -112,6 +114,7 @@ import SkeletonGrid from '../components/SkeletonGrid.vue'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
 import { fmtNum } from '../utils/format'
 
+const auth = useAuthStore()
 const opinions = useOpinionsStore()
 
 // -- Filters --

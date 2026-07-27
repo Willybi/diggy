@@ -50,6 +50,47 @@ class TestListArtists:
         assert "NoDeezer" in names
         assert "WithDeezer" not in names
 
+    async def test_pagination_stable_on_tied_catalog_count(self, db, auth_user):
+        """Regression: ex-aequo rows (same nb_catalog) must not repeat or skip
+        across two consecutive LIMIT/OFFSET pages. Artist.id is the total-order
+        tiebreaker, so infinite scroll never returns the same artist twice.
+
+        Each page runs in its OWN session — faithful to the real per-request DB
+        sessions the infinite scroll uses, and it sidesteps the SQLite-only
+        artwork rollback (the artwork query is PostgreSQL syntax) that would
+        otherwise poison a single reused session between the two calls.
+        """
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from models import Artist
+
+        # Four artists, none linked to any catalog track → all nb_catalog=0 (tied).
+        db.add_all([
+            Artist(name=f"Tie {i}", normalized_name=f"tie {i}") for i in range(4)
+        ])
+        await db.commit()
+
+        maker = async_sessionmaker(db.bind, expire_on_commit=False)
+
+        async def page(offset):
+            async with maker() as session:
+                res = await artist_service.list_artists(
+                    session, auth_user.id, sort="catalog", family=None, q=None,
+                    no_deezer=False, ids=None, limit=2, offset=offset,
+                )
+            return [i["id"] for i in res["items"]]
+
+        page1 = await page(0)
+        page2 = await page(2)
+
+        # No id on both pages; the union covers all four distinctly.
+        assert len(page1) == 2 and len(page2) == 2
+        assert set(page1).isdisjoint(page2)
+        combined = page1 + page2
+        assert len(set(combined)) == 4
+        # Ex-aequo → deterministic ascending Artist.id order across the pages.
+        assert combined == sorted(combined)
+
     async def test_followed_filter_returns_only_followed(self, db, auth_user):
         from datetime import datetime, timezone
 
