@@ -140,7 +140,7 @@
                 Flagguer
               </button>
               <button
-                v-if="hasSpaces(a.name)"
+                v-if="hasSpaces(a.name) || detectSeparator(a.name)"
                 class="btn-row-action split"
                 title="Découper manuellement en plusieurs artistes"
                 @click="openManualSplit(a)"
@@ -269,9 +269,22 @@ const linkError = ref('')
 let linkDbTimer = null
 let linkDeezerTimer = null
 
+// Discogs-style disambiguation suffix — a homonym counter in trailing parens
+// ("Willow (18)", "Africano (3)"). Source-data pollution, never part of the real
+// stage name, and it blocks the Deezer match (Deezer knows "Willow", not
+// "Willow (18)"). We strip it (1-2 digits, per the observed data) ONLY to build
+// the Deezer search query; the stored name is left untouched until a confirmed
+// link renames it to the canonical Deezer name (artist_service.link_to_deezer).
+// A name that is ONLY the counter ("(19)") strips to "" → callers fall back to
+// the raw name.
+const DISAMBIG_SUFFIX_RE = /\s*\(\d{1,2}\)\s*$/
+function cleanArtistName(name) {
+  return (name || '').replace(DISAMBIG_SUFFIX_RE, '').trim()
+}
+
 function selectArtistAndSearch(a) {
   selectedDbArtist.value = a
-  linkDeezerQuery.value = a.name
+  linkDeezerQuery.value = cleanArtistName(a.name) || a.name
   onDeezerSearch()
 }
 
@@ -464,13 +477,15 @@ async function markNoDeezer(artist) {
 
 // Kept in parity with the backend sync detection (tasks/artists.py: FEAT_RE +
 // " & " + bare "|"), with more specific variants first so detectSeparator picks
-// the longest match. "|" is bare (no surrounding spaces) — source strings use
-// both "A | B" and "A|B", and a pipe is never part of a real name. Exception:
-// '/' stays FRONT-ONLY — human-review hint, never a backend auto-split ("AC/DC").
+// the longest match. "|" and ";" are bare (no surrounding spaces) — source
+// strings glue them ("A|B", "Gyan Nishabda; Tri Atma") and neither is ever part
+// of a real name. FRONT-ONLY exceptions (human-review hints, never a backend
+// auto-split): '/' ("AC/DC") and ';' — recognised here only for the manual tool.
 const SEPARATORS = [
   '/',
   ' & ',
   '|',
+  ';',
   ', ',
   ' feat. ',
   ' featuring ',
