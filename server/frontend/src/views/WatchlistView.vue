@@ -178,9 +178,6 @@
               <!-- Crawl meta folds under the title below 720px (P12) -->
               <div class="pl-crawl-fold">
                 <span class="pl-crawl-fold-date">{{ crawlShort(p) }}</span>
-                <span v-if="cadence(p)" class="pl-cadence" :title="cadence(p).title">{{
-                  cadence(p).label
-                }}</span>
               </div>
             </div>
           </div>
@@ -211,12 +208,8 @@
             <span v-else class="pl-null">—</span>
           </div>
 
-          <!-- Dernier crawl : 1 line on the baseline, 2 lines only with a cadence (P4–P7) -->
-          <div
-            class="pl-cell col-crawl pl-crawl"
-            :class="{ 'pl-crawl--stacked': cadence(p) }"
-            @click.stop
-          >
+          <!-- Dernier crawl : single centered line — date/status left, Crawl button right (P4–P7) -->
+          <div class="pl-cell col-crawl pl-crawl" @click.stop>
             <div class="pl-crawl-l1">
               <span v-if="crawlStatus[p.id]" class="pl-live" :class="crawlStatus[p.id]">
                 <span class="pl-live-dot"></span>
@@ -227,9 +220,6 @@
               }}</span>
             </div>
             <div class="pl-crawl-l2">
-              <span v-if="cadence(p)" class="pl-cadence" :title="cadence(p).title">{{
-                cadence(p).label
-              }}</span>
               <template v-if="!crawlStatus[p.id]">
                 <button
                   v-if="!isCooldown(p)"
@@ -330,7 +320,7 @@ import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
 import { useTaskPoll } from '../composables/useTaskPoll.js'
-import { fmtNum, pl, relativeAgeShort } from '../utils/format'
+import { fmtNum, pl } from '../utils/format'
 import Artwork from '../components/Artwork.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
@@ -563,19 +553,6 @@ function crawlShort(p) {
   const days = crawlDays(p.last_crawled_at)
   if (days <= 0) return 'crawl auj.'
   return `crawl ${days} j`
-}
-
-// ── Cadence pill (P7) — raw freshness of the last change. Null → no pill. ──
-// `relativeAgeShort` expects a "YYYY-MM-DD" day; last_changed_at is a full ISO
-// timestamp, so slice the date part off before formatting the label.
-function cadence(p) {
-  if (!p.last_changed_at) return null
-  const days = Math.floor((Date.now() - new Date(p.last_changed_at).getTime()) / DAY_MS)
-  const since = days <= 0 ? "aujourd'hui" : days === 1 ? 'il y a 1 j' : `il y a ${days} j`
-  return {
-    label: `MAJ ${relativeAgeShort(p.last_changed_at.slice(0, 10))}`,
-    title: `Dernière nouveauté ${since}`,
-  }
 }
 
 // ── Add modal ──
@@ -906,23 +883,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ DERNIER CRAWL (P4–P7) ============ */
-/* Default (no cadence) — a single row on the baseline: date/status on the left,
-   Crawl button / cooldown pushed to the right. L2 keeps its reserved height so
-   the button revealed on hover never reflows the row vertically. */
+/* A single row on the baseline: date/status on the left, Crawl button / cooldown
+   pushed to the right. L1/L2 keep their reserved height so the button revealed on
+   hover never reflows the row vertically. */
 .pl-crawl {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: var(--space-2);
 }
-.pl-crawl:not(.pl-crawl--stacked) .pl-crawl-l2 {
+.pl-crawl .pl-crawl-l2 {
   flex: 1;
-}
-/* With a cadence pill → the 2-line stack (L1 date/status · L2 cadence + button). */
-.pl-crawl--stacked {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
 }
 .pl-crawl-l1 {
   min-height: 19px;
@@ -994,22 +965,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .pl-live.running .pl-live-dot {
     animation: pl-live 1.1s ease-in-out infinite alternate;
   }
-}
-
-/* Cadence pill (P7) — monochrome, no colour code. */
-.pl-cadence {
-  flex: none;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--space-15);
-  border-radius: var(--r-pill);
-  background: var(--surface-2);
-  color: var(--ink-3);
-  font: 500 var(--fs-nano) / 1 var(--font-mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 /* Crawl button (P5) — revealed on row hover / focus. .btn--sm shrunk to the

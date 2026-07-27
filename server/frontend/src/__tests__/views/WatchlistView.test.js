@@ -226,14 +226,13 @@ describe('WatchlistView', () => {
     expect(lastBrowseParams().sort).toBe('creator')
   })
 
-  it('shows the cadence pill only when last_changed_at is present', async () => {
+  it('never renders a freshness pill, even when last_changed_at is present', async () => {
     const wrapper = await mountView()
     const rows = wrapper.findAll('.pl-row:not(.pl-row--skel)')
-    // Row 1 has last_changed_at → a cadence pill; row 2 is null → none.
-    expect(rows[0].findAll('.pl-cadence').length).toBeGreaterThan(0)
+    // Row 1 carries last_changed_at, row 2 is null — neither shows a cadence pill.
+    expect(rows[0].find('.pl-cadence').exists()).toBe(false)
     expect(rows[1].find('.pl-cadence').exists()).toBe(false)
-    // The label is the raw freshness ("MAJ 3 j"), not a bucketed cadence word.
-    expect(rows[0].find('.pl-cadence').text()).toMatch(/^MAJ /)
+    expect(wrapper.find('.pl-cadence').exists()).toBe(false)
   })
 
   it('triggers a crawl (POST) and surfaces the live "queued" status', async () => {
