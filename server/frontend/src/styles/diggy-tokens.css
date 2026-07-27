@@ -202,6 +202,10 @@
      ============================================================ */
   --chart-deezer: oklch(0.55 0.19 293);
   --chart-beatport: oklch(0.62 0.14 165);
+  /* Teinte claire de chaque source : bande "total/parqué" en dessous de
+     laquelle la couleur pleine marque l'actionnable (même hue, L+ / C-). */
+  --chart-deezer-soft: oklch(0.74 0.09 293);
+  --chart-beatport-soft: oklch(0.78 0.075 165);
   --chart-neutral: oklch(0.62 0.03 70);
   --chart-grid: oklch(0.905 0.008 88 / 0.7);
   --chart-axis: oklch(0.615 0.01 70);
@@ -266,6 +270,9 @@
      sur --surface sombre (bande L dark, séparation CVD conservée) ---- */
   --chart-deezer: oklch(0.66 0.17 293);
   --chart-beatport: oklch(0.66 0.15 165);
+  /* Teinte muette (L- / C-) : recule sous la couleur pleine en dark. */
+  --chart-deezer-soft: oklch(0.5 0.1 293);
+  --chart-beatport-soft: oklch(0.5 0.09 165);
   --chart-neutral: oklch(0.66 0.03 92);
   --chart-grid: oklch(0.33 0.014 262 / 0.7);
   --chart-axis: oklch(0.595 0.012 92);

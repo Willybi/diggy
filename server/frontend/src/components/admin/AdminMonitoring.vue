@@ -69,7 +69,11 @@
         <div class="section-header">
           <h2 class="section-title">Backlog à traiter dans le temps</h2>
         </div>
-        <p class="mon-caption">Entrées non enrichies restantes, par source.</p>
+        <p class="mon-caption">
+          Entrées non enrichies restantes, par source. Teinte pleine = à traiter
+          maintenant (jamais cherché + à relancer) ; teinte claire = total
+          restant, dont les morceaux en attente de re-scan (30/90 j) ou abandonnés.
+        </p>
         <TimeSeriesChart
           :series="burnSeries"
           :height="220"
@@ -176,8 +180,18 @@ import SparkLine from '../charts/SparkLine.vue'
 import StatTile from '../charts/StatTile.vue'
 
 const SOURCES = [
-  { key: 'deezer', label: 'Deezer', color: 'var(--chart-deezer)' },
-  { key: 'beatport', label: 'Beatport', color: 'var(--chart-beatport)' },
+  {
+    key: 'deezer',
+    label: 'Deezer',
+    color: 'var(--chart-deezer)',
+    colorSoft: 'var(--chart-deezer-soft)',
+  },
+  {
+    key: 'beatport',
+    label: 'Beatport',
+    color: 'var(--chart-beatport)',
+    colorSoft: 'var(--chart-beatport-soft)',
+  },
 ]
 
 const TASK_LABELS = {
@@ -259,15 +273,37 @@ const catalogDelta = computed(() => {
 })
 
 // ── burn-down (backlog per source over time) ──
-const burnSeries = computed(() =>
-  SOURCES.map((s) => ({
-    label: s.label,
-    color: s.color,
-    points: backlogSeries.value
-      .map((snap) => ({ t: snap.captured_at, v: snap.payload?.enrich?.[s.key]?.total_missing }))
-      .filter((p) => Number.isFinite(p.v)),
-  })).filter((s) => s.points.length),
-)
+// Deux teintes par source : couleur pleine = backlog ACTIONNABLE (never_tried +
+// due_retry, ce que la passe traiterait maintenant), teinte claire = total
+// restant (inclut le cooldown/abandonnés en attente de re-scan). Le total est
+// tracé EN PREMIER (dessous), l'actionnable PAR-DESSUS → bande 2 tons, l'écart
+// entre les deux lignes = le stock parqué (non actionnable).
+const burnSeries = computed(() => {
+  const out = []
+  for (const s of SOURCES) {
+    const total = []
+    const actionable = []
+    for (const snap of backlogSeries.value) {
+      const b = snap.payload?.enrich?.[s.key]
+      if (!b) continue
+      if (Number.isFinite(b.total_missing)) {
+        total.push({ t: snap.captured_at, v: b.total_missing })
+      }
+      // Guard pour d'éventuels snapshots antérieurs aux tiers (never/due null).
+      if (b.never_tried != null || b.due_retry != null) {
+        actionable.push({
+          t: snap.captured_at,
+          v: (b.never_tried || 0) + (b.due_retry || 0),
+        })
+      }
+    }
+    if (total.length) out.push({ label: `${s.label} · total`, color: s.colorSoft, points: total })
+    if (actionable.length) {
+      out.push({ label: `${s.label} · à traiter`, color: s.color, points: actionable })
+    }
+  }
+  return out
+})
 
 // ── throughput aggregated by (day, source) ──
 const bySourceDay = computed(() => {
