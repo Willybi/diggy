@@ -232,6 +232,8 @@ describe('WatchlistView', () => {
     // Row 1 has last_changed_at → a cadence pill; row 2 is null → none.
     expect(rows[0].findAll('.pl-cadence').length).toBeGreaterThan(0)
     expect(rows[1].find('.pl-cadence').exists()).toBe(false)
+    // The label is the raw freshness ("MAJ 3 j"), not a bucketed cadence word.
+    expect(rows[0].find('.pl-cadence').text()).toMatch(/^MAJ /)
   })
 
   it('triggers a crawl (POST) and surfaces the live "queued" status', async () => {

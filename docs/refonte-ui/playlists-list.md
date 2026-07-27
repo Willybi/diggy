@@ -85,6 +85,11 @@ Liste des **playlists surveillées** (watchlist / sources radar).
 - **Tracks = nombre brut aligné droite** (pas d'anneau). **Créateur non cliquable** (string libre, pas d'entité Diggy → pas de besoin back `[{id,name}]`).
 - **Aucun composant transverse créé** ; pilote 100 % tokens (hex = harness bundler uniquement). **Verdict handoff : GO.**
 
+### Retour post-déploiement (2026-07-26)
+- **Pastille cadence → « fraîcheur brute »** (décision William après recette prod) : le libellé bucketé `Quotidien/Hebdo/Mensuel` était ambigu (mot de **fréquence** pour une donnée d'**activité/fraîcheur** — « ça veut dire quoi Quotidien ? »). Remplacé par l'**âge relatif de la dernière nouveauté** (ex. « MAJ 3 j » / « MAJ 2 sem »), toujours **uniquement si `last_changed_at` existe**, tooltip inchangé « Dernière nouveauté il y a X ». Tweak front copy-only, appliqué dans le **lot correctif Phase 6**.
+- **Placements à revoir** : William a ressenti des éléments « pas bien placés » (non spécifiés) → traqués par la **revue design Phase 5** (Claude Design), correctifs groupés en Phase 6.
+- Recette prod OK par ailleurs : back (`top_genres`/`last_changed_at`/tri), front (rendu desktop+mobile, cadence stricte confirmée), bouton crawl, filtres, light mode, mobile — tous validés.
+
 ## 6. Sortie next-step
 **Handoff Design**
 - [ ] Row playlist : **+ genre (StyleTag)** + **source (logo)**, **retrait `external_id`** ; layout + responsive.

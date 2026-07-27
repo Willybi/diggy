@@ -211,8 +211,12 @@
             <span v-else class="pl-null">—</span>
           </div>
 
-          <!-- Dernier crawl : 2-line block (P4–P7) -->
-          <div class="pl-cell col-crawl pl-crawl" @click.stop>
+          <!-- Dernier crawl : 1 line on the baseline, 2 lines only with a cadence (P4–P7) -->
+          <div
+            class="pl-cell col-crawl pl-crawl"
+            :class="{ 'pl-crawl--stacked': cadence(p) }"
+            @click.stop
+          >
             <div class="pl-crawl-l1">
               <span v-if="crawlStatus[p.id]" class="pl-live" :class="crawlStatus[p.id]">
                 <span class="pl-live-dot"></span>
@@ -326,7 +330,7 @@ import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
 import { useTaskPoll } from '../composables/useTaskPoll.js'
-import { fmtNum, pl } from '../utils/format'
+import { fmtNum, pl, relativeAgeShort } from '../utils/format'
 import Artwork from '../components/Artwork.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
@@ -561,15 +565,17 @@ function crawlShort(p) {
   return `crawl ${days} j`
 }
 
-// ── Cadence pill (P7) — derived from last_changed_at. Null → no pill. ──
+// ── Cadence pill (P7) — raw freshness of the last change. Null → no pill. ──
+// `relativeAgeShort` expects a "YYYY-MM-DD" day; last_changed_at is a full ISO
+// timestamp, so slice the date part off before formatting the label.
 function cadence(p) {
   if (!p.last_changed_at) return null
   const days = Math.floor((Date.now() - new Date(p.last_changed_at).getTime()) / DAY_MS)
-  let label = 'Mensuel'
-  if (days < 14) label = 'Quotidien'
-  else if (days <= 60) label = 'Hebdo'
   const since = days <= 0 ? "aujourd'hui" : days === 1 ? 'il y a 1 j' : `il y a ${days} j`
-  return { label, title: `Dernière nouveauté ${since}` }
+  return {
+    label: `MAJ ${relativeAgeShort(p.last_changed_at.slice(0, 10))}`,
+    title: `Dernière nouveauté ${since}`,
+  }
 }
 
 // ── Add modal ──
@@ -680,7 +686,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* ============ TABLE — shared grid header/rows ============ */
 .pl-table {
-  --pl-grid: minmax(0, 1fr) 190px 148px 64px 184px 80px;
+  --pl-grid: minmax(0, 1fr) 190px 128px 64px 196px 80px;
   --pl-gap: var(--space-3);
   padding-bottom: var(--space-8);
 }
@@ -733,7 +739,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   text-align: right;
 }
 .pl-arr {
-  margin-left: var(--space-05);
+  margin-left: var(--space-1);
+  letter-spacing: normal;
   color: var(--accent-ink);
 }
 
@@ -773,6 +780,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 .pl-cell--right {
   text-align: right;
+}
+/* Optical gutter compensation (E2) : Tracks is flush-right, Dernier crawl
+   flush-left, so both mono values crowd the --space-3 gutter and read as one
+   block. Pad them apart → ≥ 24px of perceived whitespace between them. Applied
+   on both the header and the body cells so the columns stay aligned. */
+.col-tracks {
+  padding-right: var(--space-2);
+}
+.col-crawl {
+  padding-left: var(--space-2);
 }
 
 /* ============ PLAYLIST CELL ============ */
@@ -823,6 +840,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   flex-wrap: wrap;
   gap: var(--space-15);
   margin-top: var(--space-05);
+}
+/* Folded chip = nano variant (E5) : the desktop column keeps StyleTag's default
+   --fs-sm / dot 7px; here it must not weigh as much as the title. */
+.pl-genre-fold :deep(.style-tag) {
+  font-size: var(--fs-nano);
+  gap: var(--space-1);
+  padding: var(--space-05) var(--space-15);
+}
+.pl-genre-fold :deep(.dot) {
+  width: 5px;
+  height: 5px;
 }
 /* Crawl meta folded under the title (< 720px, P12) — hidden by default. */
 .pl-crawl-fold {
@@ -878,9 +906,22 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ DERNIER CRAWL (P4–P7) ============ */
+/* Default (no cadence) — a single row on the baseline: date/status on the left,
+   Crawl button / cooldown pushed to the right. L2 keeps its reserved height so
+   the button revealed on hover never reflows the row vertically. */
 .pl-crawl {
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+.pl-crawl:not(.pl-crawl--stacked) .pl-crawl-l2 {
+  flex: 1;
+}
+/* With a cadence pill → the 2-line stack (L1 date/status · L2 cadence + button). */
+.pl-crawl--stacked {
   flex-direction: column;
+  align-items: stretch;
   gap: 2px;
 }
 .pl-crawl-l1 {
@@ -1251,7 +1292,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 /* ============ RESPONSIVE — column drop ============ */
 @container pl (max-width: 1039px) {
   .pl-table {
-    --pl-grid: minmax(0, 1fr) 190px 64px 184px 80px;
+    --pl-grid: minmax(0, 1fr) 190px 64px 196px 80px;
   }
   .col-creator {
     display: none;
@@ -1259,7 +1300,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 @container pl (max-width: 879px) {
   .pl-table {
-    --pl-grid: minmax(0, 1fr) 64px 184px 80px;
+    --pl-grid: minmax(0, 1fr) 64px 196px 80px;
   }
   .col-genre {
     display: none;
