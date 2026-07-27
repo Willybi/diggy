@@ -18,10 +18,11 @@ router = APIRouter(prefix="/artists", tags=["artists"])
 
 @router.get("/", response_model=ArtistListResponse)
 async def list_artists(
-    sort: str = Query("catalog", pattern="^(catalog|lib|liked|disliked|rating|alpha)$"),
+    sort: str = Query("catalog", pattern="^(catalog|lib|liked|disliked|alpha)$"),
     family: str | None = Query(None, max_length=100),
     q: str | None = Query(None, max_length=200),
     no_deezer: bool = False,
+    followed: bool = False,
     ids: str | None = Query(None, max_length=500),
     limit: int = Query(24, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -30,7 +31,7 @@ async def list_artists(
 ):
     return await artist_service.list_artists(
         db, _uid(user),
-        sort=sort, family=family, q=q, no_deezer=no_deezer,
+        sort=sort, family=family, q=q, no_deezer=no_deezer, followed=followed,
         ids=ids, limit=limit, offset=offset,
     )
 

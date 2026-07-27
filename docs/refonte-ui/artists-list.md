@@ -2,6 +2,13 @@
 
 Statut : ✅ figé  |  Vue : `views/ArtistsView.vue` + `components/ArtistCard.vue`
 
+> **Précisions pré-vol 2026-07-27 (chantier liste Artistes) — priment sur le reste de la fiche en cas d'écart.**
+> Vérifs prod (SQL read-only) + arbitrages William avant le prompt Design :
+> - **Follow — données quasi-vides mais feature GARDÉE.** Prod : **3 artistes suivis** (1 user) sur 57 687. William tranche : garder la **pastille-toggle « Suivi »** ET le **filtre « Suivis »** — la pastille EST le moyen de suivre (aujourd'hui il faut ouvrir la fiche → d'où le vide) ; feature live qui alimente le Hub « Nouveautés ». **Non-suivi = état normal de la quasi-totalité des cards, ce n'est pas un repli à masquer.**
+> - **Recap C5 — seul le toggle « sans Deezer » retenu.** **534** artistes `deezer_id IS NULL` (cible réelle ; param back `no_deezer` déjà existant). Le **nb_liked en 3e stat est REPORTÉ** en backlog : données quasi-nulles (**39** artistes sur 57 k) + surcharge la card. → la card garde **2 stats (Catalog · In Lib) + avis**.
+> - **Rating — retrait PAGE-SCOPED.** Sur les seules surfaces Artistes-liste (badge card + tri « Rating » + `avg_rating` du endpoint/service liste). Le drop de colonne DB global reste un transverse séparé (précédent Explorer/Track Detail).
+> - **État code réel vs fiche §1** : endpoints `POST/DELETE /artists/{id}/follow` **déjà là** · param `no_deezer` **déjà là** · `nb_liked` **déjà renvoyé** (non affiché) · `following` **absent** du schéma liste (à ajouter, LEFT JOIN `followed_artists`) · filtre `followed=true` à ajouter · pas de migration.
+
 ## 1. Ce qu'on a (actuel)
 
 **Données** : `/api/artists/` via `usePaginatedList` (pageSize 24 ; dimensions sort / family / query). `ArtistListItemOut` : id, name, has_artwork, **nb_catalog**, **nb_lib**, nb_liked, **avg_rating**, genres, top_track_artworks, tracks_with_artwork. Filtres opinion (liked/disliked) résolus **client-side** (opinions store + param `ids`).
@@ -68,3 +75,19 @@ Statut : ✅ figé  |  Vue : `views/ArtistsView.vue` + `components/ArtistCard.vu
 - **Transverse** : suppression Rating.
 
 **Dépend de** : suppression Rating (transverse). Sinon autonome.
+
+## 7. Handoff Design (livré 2026-07-27) — décisions DA qui raffinent les décisions figées
+
+Handoff versionné : `docs/refonte-ui/handoff-artists-list/` (BRIEF + README de provenance + check conformité PASS). Ces décisions **complètent** le §5, elles ne le contredisent pas.
+
+- **A1 — Pastille « Suivi » TOUJOURS présente** (jamais hover-only), **opacité 0,5 au repos → 1 au survol de la card**. Non-suivi = **cloche filaire** `--overlay-text` sur disque `--overlay-soft` ; suivi = **cloche pleine** `--on-accent` sur disque `--accent` (seul mauve plein de la grille). Un contrôle qui affiche un état ne peut pas être masqué (sinon l'état non-suivi — quasi-totalité des cards — devient indécouvrable).
+- **A2 — Icône = cloche** (veille/nouveautés). Explicitement **PAS étoile** (ex-rating) ni **« personne+ »** (confusion in-lib).
+- **A3 — Suivi ≠ liké porté par 3 canaux** : emplacement (art haut-gauche vs body), couleur (`--accent` vs `--pos`), forme (cloche vs cœur). **Le suivi ne touche JAMAIS la bordure de la card** (réservée au liké + à la lecture).
+- **A5 — Coin haut-droit laissé vide** après retrait du badge rating (rien n'y est déplacé).
+- **A8 — Valeur « In Lib » en `--pos-ink` quand > 0** (« — » `--ink-3` sinon) : porte seule l'info de l'ex-badge overlay. Card = **2 stats (Catalog · In Lib) + avis** (nb_liked reporté).
+- **A10 — Toggle « Sans Deezer » = interrupteur** en fin de rangée **FamilyChips** (`margin-left:auto`), pas dans le head. Off par défaut. Param `no_deezer`.
+- **A12/A13 — Grille jamais 1 colonne** : `minmax(208px,1fr)` → `minmax(168px,1fr)` < 720 → **2 colonnes fixes** < 640. **Container query PAR card** (`container-type: inline-size`) : body empilé + 2ᵉ StyleTag masqué sous 190 px de card. (Diverge du code actuel qui passait à 1 col < 380 px.)
+- **A7 — Anatomie art gardée, scrim allégé + radial central** (avatar mieux détaché, covers plus lisibles).
+- **Empty « Suivis » vide** = seul empty à pastille accent + bouton « Voir tout le catalogue » : porte l'onboarding de la nouveauté (100 % des users le verront au 1er clic, 3 suivis en prod).
+
+**Lot back confirmé (léger, pas de migration)** : `following` dans `ArtistListItemOut` (LEFT JOIN `followed_artists`) · filtre `followed=true` · retrait `avg_rating` **page-scoped** (schéma/service/endpoint liste + tri). Endpoints follow + param `no_deezer` **déjà en prod**.

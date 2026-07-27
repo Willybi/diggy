@@ -1,9 +1,13 @@
 <template>
-  <RouterLink
-    :to="`/artist/${artist.id}`"
+  <div
     class="artist-card"
-    :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked' }"
+    :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked', playing: isPlaying }"
     :data-fam="tone.pillar"
+    role="link"
+    tabindex="0"
+    :aria-label="artist.name"
+    @click="goToArtist"
+    @keydown.enter="goToArtist"
   >
     <div class="ac-art" :class="{ fallback: !hasMosaic }">
       <!-- Mosaic covers (like GenreCard) -->
@@ -35,45 +39,54 @@
         <template v-else>{{ initials }}</template>
       </div>
 
-      <!-- Rating badge -->
-      <span v-if="artist.avg_rating != null" class="ac-rating">
-        <svg viewBox="0 0 24 24">
-          <path d="M12 2.5l2.9 6.2 6.6.7-4.9 4.5 1.4 6.6L12 18.6 6 21l1.4-6.6L2.5 9.4l6.6-.7z" />
-        </svg>
-        {{ artist.avg_rating.toFixed(1) }}
-      </span>
-
-      <!-- In-lib badge -->
-      <span v-if="artist.nb_lib > 0" class="ac-lib">
-        <span class="libdot"></span>{{ artist.nb_lib }} en bib
-      </span>
+      <!-- Follow toggle (top-left) -->
+      <button
+        class="ac-follow"
+        :class="{ 'ac-follow--on': following }"
+        :aria-pressed="following"
+        :aria-label="following ? `Ne plus suivre ${artist.name}` : `Suivre ${artist.name}`"
+        :title="following ? `Ne plus suivre ${artist.name}` : `Suivre ${artist.name}`"
+        @click.stop.prevent="toggleFollow"
+      >
+        <span class="ac-follow-disc">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"
+            />
+          </svg>
+        </span>
+      </button>
 
       <!-- Play button (hover reveal) -->
       <button
         class="ac-play"
         :class="{ 'ac-play--playing': isPlaying }"
         aria-label="Lecture"
-        @click.prevent.stop="onPlay"
+        @click.stop="onPlay"
       >
-        <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        <svg v-else viewBox="0 0 24 24" fill="currentColor">
-          <path d="M6 5h4v14H6zm8 0h4v14h-4z" />
-        </svg>
+        <span class="ac-play-disc">
+          <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 5h4v14H6zm8 0h4v14h-4z" />
+          </svg>
+        </span>
       </button>
     </div>
 
     <div class="ac-body">
       <div class="ac-name">{{ artist.name }}</div>
-      <div v-if="displayGenres.length" class="ac-genres">
-        <StyleTag
+      <div class="ac-genres">
+        <RouterLink
           v-for="g in displayGenres"
           :key="g.name"
-          :name="g.name"
-          :family="g.pillar"
-          :depth="g.depth"
-        />
+          class="ac-genre-link"
+          :to="`/style/${encodeURIComponent(g.name)}`"
+          @click.stop
+        >
+          <StyleTag :name="g.name" :family="g.pillar" :depth="g.depth" />
+        </RouterLink>
       </div>
       <div class="ac-stats">
         <div class="ac-stat">
@@ -82,7 +95,7 @@
         </div>
         <div class="ac-stat">
           <span class="k">In Lib</span>
-          <span v-if="artist.nb_lib" class="v">{{ artist.nb_lib }}</span>
+          <span v-if="artist.nb_lib" class="v v-pos">{{ artist.nb_lib }}</span>
           <span v-else class="v-empty">&mdash;</span>
         </div>
         <div class="ac-avis">
@@ -93,13 +106,15 @@
         </div>
       </div>
     </div>
-  </RouterLink>
+  </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { styleTone } from '../composables/useStyleMap.js'
 
+import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
 import StyleTag from './StyleTag.vue'
@@ -109,16 +124,49 @@ const props = defineProps({
   artist: { type: Object, required: true },
 })
 
+const router = useRouter()
 const player = useAudioPlayer()
 const opinions = useOpinionsStore()
 const isPlaying = computed(() => player.artistPlaying === props.artist.id)
 const opinion = computed(() => opinions.get('artist', props.artist.id))
+
+function goToArtist(e) {
+  // Keyboard: only navigate when the card itself is focused. Without this guard,
+  // an Enter pressed on an inner control (follow/play/genre link/rating) bubbles
+  // its keydown up to the card and navigates on top of the control's own action
+  // (the controls .stop their click, but not their keydown).
+  if (e.type === 'keydown' && e.target !== e.currentTarget) return
+  router.push(`/artist/${props.artist.id}`)
+}
 
 function onPlay() {
   if (isPlaying.value) {
     player.close()
   } else {
     player.playRandomArtist(props.artist.id)
+  }
+}
+
+// -- Follow (optimistic, internal to the card) --
+const following = ref(!!props.artist.following)
+watch(
+  () => props.artist.following,
+  (v) => {
+    following.value = !!v
+  },
+)
+
+async function toggleFollow() {
+  const prev = following.value
+  following.value = !prev
+  try {
+    if (prev) {
+      await api.delete(`/api/artists/${props.artist.id}/follow`)
+    } else {
+      await api.post(`/api/artists/${props.artist.id}/follow`)
+    }
+  } catch {
+    following.value = prev
   }
 }
 
@@ -185,30 +233,32 @@ function onCoverError(e) {
 }
 
 .artist-card {
+  container-type: inline-size;
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--ct-line);
   border-radius: var(--r-md);
   overflow: hidden;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  text-decoration: none;
   color: inherit;
+  box-shadow: var(--shadow-sm);
   transition:
-    box-shadow 0.18s ease,
-    transform 0.18s ease,
-    border-color 0.18s ease;
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
 }
 .artist-card:hover {
   box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-  border-color: var(--line-2);
+}
+.artist-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ---- art zone ---- */
 .ac-art {
   position: relative;
-  height: 186px;
+  aspect-ratio: 1 / 1;
   overflow: hidden;
 }
 
@@ -219,7 +269,6 @@ function onCoverError(e) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  gap: var(--space-05);
 }
 .ac-tile {
   position: relative;
@@ -237,24 +286,39 @@ function onCoverError(e) {
   display: block;
 }
 
-/* Scrim: radial dark top + linear gradient towards family hue at bottom */
+/* Scrim: soft central radial (detaches the avatar) + lightened vertical
+   gradient toward the family hue at the bottom. */
 .ac-scrim {
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
   background:
-    radial-gradient(120% 92% at 50% 22%, transparent 0%, oklch(0.12 0.02 262 / 0.34) 100%),
+    radial-gradient(
+      66% 58% at 50% 44%,
+      oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.5) 0%,
+      transparent 70%
+    ),
     linear-gradient(
       to bottom,
-      transparent 30%,
-      oklch(var(--ct-l) calc(var(--ct-c) * 4.2) var(--th) / 0.96) 100%
+      oklch(var(--ct-l) calc(var(--ct-c) * 4.2) var(--th) / 0.1) 0%,
+      oklch(var(--ct-l) calc(var(--ct-c) * 4.2) var(--th) / 0.4) 52%,
+      oklch(var(--ct-l) calc(var(--ct-c) * 4.2) var(--th) / 0.78) 100%
     );
 }
 .artist-card[data-fam='autres'] .ac-scrim {
   background:
-    radial-gradient(120% 92% at 50% 22%, transparent 0%, oklch(0.12 0.02 262 / 0.34) 100%),
-    linear-gradient(to bottom, transparent 30%, oklch(var(--ct-l) 0 70 / 0.96) 100%);
+    radial-gradient(
+      66% 58% at 50% 44%,
+      oklch(var(--hero-scrim-l) var(--hero-scrim-c) var(--hero-scrim-h) / 0.5) 0%,
+      transparent 70%
+    ),
+    linear-gradient(
+      to bottom,
+      oklch(var(--ct-l) 0 70 / 0.1) 0%,
+      oklch(var(--ct-l) 0 70 / 0.4) 52%,
+      oklch(var(--ct-l) 0 70 / 0.78) 100%
+    );
 }
 
 /* Fallback: solid family gradient (no covers) */
@@ -284,19 +348,23 @@ function onCoverError(e) {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -56%);
-  width: 92px;
-  height: 92px;
+  width: 44%;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   background-size: cover;
   background-position: center;
   box-shadow:
-    0 0 0 4px var(--surface),
+    0 0 0 3px var(--genre-tile-ink),
     var(--shadow-md);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.18s ease;
+}
+[data-theme='dark'] .ac-avatar {
+  box-shadow:
+    0 0 0 3px var(--genre-tile-border-dark),
+    var(--shadow-md);
 }
 .ac-avatar img {
   width: 100%;
@@ -307,105 +375,128 @@ function onCoverError(e) {
 .ac-avatar.init {
   background: oklch(var(--tag-bg-l) calc(var(--tag-bg-c) * 0.9) var(--th));
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--th));
-  font: 600 var(--fs-fallback)/1 var(--font-ui);
+  font: 700 var(--fs-lg)/1 var(--font-ui);
 }
 .artist-card[data-fam='autres'] .ac-avatar.init {
   background: var(--surface-3);
   color: var(--ink-2);
 }
-.artist-card:hover .ac-avatar {
-  transform: translate(-50%, -56%) scale(1.07);
-}
 
-/* ---- rating badge ---- */
-.ac-rating {
+/* ---- follow toggle (top-left) ---- */
+.ac-follow {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 2px;
+  left: 2px;
   z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 23px;
-  padding: 0 var(--space-2);
-  border-radius: var(--r-pill);
-  background: var(--overlay-modal);
-  backdrop-filter: blur(6px);
-  color: var(--overlay-text);
-  font: 600 var(--fs-xs)/1 var(--font-mono);
-  pointer-events: none;
-}
-.ac-rating svg {
-  width: 12px;
-  height: 12px;
-  fill: var(--accent);
-  flex: none;
-}
-
-/* ---- in-lib badge ---- */
-.ac-lib {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: var(--space-15);
-  height: 22px;
-  padding: 0 var(--space-2);
-  border-radius: var(--r-pill);
-  background: var(--overlay-modal);
-  backdrop-filter: blur(6px);
-  color: var(--overlay-text);
-  font: 600 var(--fs-xs)/1 var(--font-mono);
-  pointer-events: none;
-}
-.libdot {
-  width: 7px;
-  height: 7px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  background: var(--pos);
-  flex: none;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.ac-follow-disc {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
+  opacity: 0.5;
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.ac-follow svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.artist-card:hover .ac-follow-disc,
+.ac-follow:hover .ac-follow-disc {
+  opacity: 1;
+}
+.ac-follow--on .ac-follow-disc {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-sm);
+  opacity: 1;
+}
+.ac-follow--on:hover .ac-follow-disc {
+  background: var(--accent-hover);
+}
+.ac-follow--on svg {
+  fill: currentColor;
+  stroke: none;
+}
+.ac-follow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -6px;
 }
 
 /* ---- play button ---- */
 .ac-play {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
+  right: 2px;
+  bottom: 2px;
   z-index: 4;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 0;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: transparent;
+  padding: 0;
   display: grid;
   place-items: center;
   cursor: pointer;
   opacity: 0;
-  transform: translateY(6px);
+  transition: opacity 0.12s ease;
+}
+.ac-play-disc {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
   transition:
-    opacity 0.18s ease,
-    transform 0.18s ease,
-    background 0.14s;
-  box-shadow: var(--shadow-md);
+    background 0.12s ease,
+    color 0.12s ease;
 }
 .ac-play svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
+  display: block;
   margin-left: var(--space-05);
 }
-.artist-card:hover .ac-play {
+.artist-card:hover .ac-play,
+.ac-play:focus-visible {
   opacity: 1;
-  transform: none;
 }
 .ac-play--playing {
   opacity: 1;
-  transform: none;
 }
-.ac-play:hover {
-  background: var(--accent-hover);
+.ac-play--playing .ac-play-disc {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.ac-play--playing svg {
+  margin-left: 0;
+}
+.ac-play:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -6px;
 }
 
 /* ---- body (tinted) ---- */
@@ -434,15 +525,22 @@ function onCoverError(e) {
   min-height: 22px;
   overflow: hidden;
 }
-.ac-genres :deep(.style-tag) {
+.ac-genre-link {
   min-width: 0;
   max-width: 50%;
   flex: 0 1 auto;
+  text-decoration: none;
+  display: inline-flex;
+}
+.ac-genre-link :deep(.style-tag) {
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ---- stats ---- */
 .ac-stats {
   display: flex;
+  align-items: stretch;
   margin-top: auto;
   border-top: 1px solid var(--ct-line);
   padding-top: var(--space-25);
@@ -459,16 +557,19 @@ function onCoverError(e) {
 }
 .ac-stat .k {
   font: 600 var(--fs-nano)/1 var(--font-mono);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
 .ac-stat .v {
-  font: 600 var(--fs-base)/1 var(--font-mono);
-  color: var(--ink);
+  font: 500 var(--fs-title)/1 var(--font-mono);
+  color: var(--ink-2);
+}
+.ac-stat .v-pos {
+  color: var(--pos-ink);
 }
 .v-empty {
-  font: 500 var(--fs-sm)/1 var(--font-mono);
+  font: 500 var(--fs-title)/1 var(--font-mono);
   color: var(--ink-3);
 }
 
@@ -484,12 +585,45 @@ function onCoverError(e) {
 /* ---- card liked / disliked states ---- */
 .artist-card.liked {
   border-color: var(--pos);
-  box-shadow: 0 0 0 2px var(--pos-soft);
+  box-shadow:
+    0 0 0 1px var(--pos-soft),
+    var(--shadow-sm);
+}
+.artist-card.liked:hover {
+  box-shadow:
+    0 0 0 1px var(--pos-soft),
+    var(--shadow-md);
 }
 .artist-card.disliked {
-  opacity: 0.55;
+  opacity: 0.45;
 }
 .artist-card.disliked:hover {
   opacity: 0.8;
+}
+
+/* ---- playing state (border wins over liked) ---- */
+.artist-card.playing {
+  border-color: var(--accent);
+}
+
+/* ---- narrow card (A13): stack stats, drop 2nd tag ---- */
+@container (max-width: 190px) {
+  .ac-stats {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .ac-stat + .ac-stat {
+    border-left: 0;
+  }
+  .ac-avis {
+    border-left: 0;
+    padding-left: 0;
+    margin-left: 0;
+    justify-content: center;
+  }
+  .ac-genre-link:nth-child(2) {
+    display: none;
+  }
 }
 </style>

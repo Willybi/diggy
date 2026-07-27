@@ -22,6 +22,10 @@ import { useInfiniteScroll } from './useInfiniteScroll.js'
  * @param {import('vue').MaybeRefOrGetter<string>} opts.sort    sort value to send
  * @param {import('vue').MaybeRefOrGetter<string>} [opts.family]  'all' → omitted
  * @param {import('vue').MaybeRefOrGetter<string>} [opts.query]   trimmed, empty → omitted
+ * @param {import('vue').MaybeRefOrGetter<Record<string, any> | null | undefined>} [opts.extraParams]
+ *        optional extra params (e.g. `no_deezer`, `followed`) merged into the
+ *        request. Read reactively at fetch time; a falsy value adds nothing, so
+ *        this is a NO-OP for views that don't pass it.
  * @returns {{
  *   items: import('vue').Ref<any[]>,
  *   total: import('vue').Ref<number>,
@@ -34,7 +38,7 @@ import { useInfiniteScroll } from './useInfiniteScroll.js'
  *   loadMore: () => void,
  * }}
  */
-export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query }) {
+export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query, extraParams }) {
   const items = ref([])
   const total = ref(0)
   const familyCounts = ref({})
@@ -58,6 +62,8 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query 
       if (fam && fam !== 'all') params.family = fam
       const q = (toValue(query) || '').trim()
       if (q) params.q = q
+      const extra = toValue(extraParams)
+      if (extra) Object.assign(params, extra)
 
       const { data } = await api.get(endpoint, { params })
       items.value = reset ? data.items : [...items.value, ...data.items]

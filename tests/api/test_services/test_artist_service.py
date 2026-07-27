@@ -50,6 +50,61 @@ class TestListArtists:
         assert "NoDeezer" in names
         assert "WithDeezer" not in names
 
+    async def test_followed_filter_returns_only_followed(self, db, auth_user):
+        from datetime import datetime, timezone
+
+        from models import Artist, FollowedArtist
+
+        followed = Artist(name="Followed One", normalized_name="followed one")
+        other = Artist(name="Other One", normalized_name="other one")
+        db.add_all([followed, other])
+        await db.commit()
+        await db.refresh(followed)
+        db.add(
+            FollowedArtist(
+                user_id=auth_user.id,
+                artist_id=followed.id,
+                followed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+        result = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family=None, q=None,
+            no_deezer=False, ids=None, limit=20, offset=0, followed=True
+        )
+        assert result["total"] == 1
+        assert len(result["items"]) == 1
+        assert result["items"][0]["name"] == "Followed One"
+        assert result["items"][0]["following"] is True
+
+    async def test_following_flag_reflects_state_without_filter(self, db, auth_user):
+        from datetime import datetime, timezone
+
+        from models import Artist, FollowedArtist
+
+        followed = Artist(name="Fol", normalized_name="fol")
+        plain = Artist(name="Plain", normalized_name="plain")
+        db.add_all([followed, plain])
+        await db.commit()
+        await db.refresh(followed)
+        db.add(
+            FollowedArtist(
+                user_id=auth_user.id,
+                artist_id=followed.id,
+                followed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+        result = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family=None, q=None,
+            no_deezer=False, ids=None, limit=20, offset=0, followed=False
+        )
+        by_name = {i["name"]: i for i in result["items"]}
+        assert by_name["Fol"]["following"] is True
+        assert by_name["Plain"]["following"] is False
+
 
 class TestGetDetail:
     async def test_raises_lookup_error_for_missing_artist(self, db):

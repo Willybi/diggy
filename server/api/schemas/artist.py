@@ -37,7 +37,7 @@ class ArtistListOut(BaseModel):
     nb_catalog: int = 0
     nb_lib: int = 0
     nb_liked: int = 0
-    avg_rating: Optional[float] = None
+    following: bool = False
     genres: list[GenreRef] = []
 
     model_config = {"from_attributes": True}

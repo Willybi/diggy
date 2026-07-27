@@ -7,7 +7,7 @@ Services raise LookupError (404) or ValueError (400/409), never HTTPException.
 
 from collections import defaultdict
 
-from sqlalchemy import Float, Numeric, func, insert, select, text, update
+from sqlalchemy import func, insert, literal, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -45,14 +45,26 @@ async def list_artists(
     ids: str | None,
     limit: int,
     offset: int,
+    followed: bool = False,
 ) -> dict:
-    from models import Artist, CatalogArtist, CatalogEntry, UserRadarState, UserTrack
+    from models import (
+        Artist,
+        CatalogArtist,
+        CatalogEntry,
+        FollowedArtist,
+        UserRadarState,
+        UserTrack,
+    )
 
     await ensure_pillar_cache(db)
     empty = {"items": [], "total": 0, "pillarCounts": {p: 0 for p in ALL_PILLARS}}
 
+    # A guest follows nothing → the "Suivis" filter is always empty for them.
+    if followed and user_id is None:
+        return empty
+
     lib_sub = (
-        select(UserTrack.catalog_id, UserTrack.rating)
+        select(UserTrack.catalog_id)
         .where(UserTrack.user_id == user_id)
         .subquery()
     )
@@ -61,7 +73,6 @@ async def list_artists(
             CatalogArtist.artist_id,
             func.count(func.distinct(CatalogArtist.catalog_id)).label("nb_catalog"),
             func.count(func.distinct(lib_sub.c.catalog_id)).label("nb_lib"),
-            func.avg(lib_sub.c.rating.cast(Float)).label("avg_rating"),
         )
         .outerjoin(lib_sub, CatalogArtist.catalog_id == lib_sub.c.catalog_id)
         .group_by(CatalogArtist.artist_id)
@@ -81,7 +92,20 @@ async def list_artists(
     nb_catalog_col = func.coalesce(stats_sub.c.nb_catalog, 0)
     nb_lib_col = func.coalesce(stats_sub.c.nb_lib, 0)
     nb_liked_col = func.coalesce(liked_sub.c.nb_liked, 0)
-    avg_rating_col = func.round(stats_sub.c.avg_rating.cast(Numeric), 1)
+
+    # following: does the current user follow the artist. Resolved as a LEFT JOIN
+    # on the user's followed rows — NEVER an IN-list of artist ids (the artist
+    # table exceeds asyncpg's 32767 bind-param cap; same reason as the genre note
+    # below). Guests get a constant False and no join.
+    if user_id is not None:
+        followed_select = select(FollowedArtist.artist_id).where(
+            FollowedArtist.user_id == user_id
+        )
+        followed_sub = followed_select.subquery()
+        following_col = (followed_sub.c.artist_id.isnot(None)).label("following")
+    else:
+        followed_sub = None
+        following_col = literal(False).label("following")
 
     base_query = (
         select(
@@ -91,11 +115,15 @@ async def list_artists(
             nb_catalog_col.label("nb_catalog"),
             nb_lib_col.label("nb_lib"),
             nb_liked_col.label("nb_liked"),
-            avg_rating_col.label("avg_rating"),
+            following_col,
         )
         .outerjoin(stats_sub, Artist.id == stats_sub.c.artist_id)
         .outerjoin(liked_sub, Artist.id == liked_sub.c.artist_id)
     )
+    if followed_sub is not None:
+        base_query = base_query.outerjoin(
+            followed_sub, Artist.id == followed_sub.c.artist_id
+        )
 
     id_filter_query = select(Artist.id)
     if ids:
@@ -110,6 +138,12 @@ async def list_artists(
     if no_deezer:
         base_query = base_query.where(Artist.deezer_id.is_(None))
         id_filter_query = id_filter_query.where(Artist.deezer_id.is_(None))
+    if followed and user_id is not None:
+        # Restrict to the user's followed artists via the SELECT subquery (not a
+        # materialized id list — bind-param cap). Drives both the rows and the
+        # id_filter_query (genres/pillars/total).
+        base_query = base_query.where(Artist.id.in_(followed_select))
+        id_filter_query = id_filter_query.where(Artist.id.in_(followed_select))
 
     all_ids_result = await db.execute(id_filter_query)
     all_artist_ids = [r[0] for r in all_ids_result.all()]
@@ -166,10 +200,6 @@ async def list_artists(
         base_query = base_query.order_by(nb_liked_col.desc(), nb_catalog_col.desc())
     elif sort == "disliked":
         base_query = base_query.order_by(func.lower(Artist.name))
-    elif sort == "rating":
-        base_query = base_query.order_by(
-            func.coalesce(stats_sub.c.avg_rating, -1).desc()
-        )
     elif sort == "alpha":
         base_query = base_query.order_by(func.lower(Artist.name))
 
@@ -224,7 +254,7 @@ async def list_artists(
                 "nb_catalog": row.nb_catalog,
                 "nb_lib": row.nb_lib,
                 "nb_liked": row.nb_liked,
-                "avg_rating": float(row.avg_rating) if row.avg_rating is not None else None,
+                "following": bool(row.following),
                 "genres": [
                     {"name": g, "pillar": genre_pillar(g)[0], "depth": genre_pillar(g)[1]}
                     for g in _artist_genres(row.id)
