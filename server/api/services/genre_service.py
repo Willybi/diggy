@@ -224,6 +224,10 @@ async def list_genres(
 
     if sort == "alpha":
         all_genres = sorted(all_genres, key=lambda r: r.genre.lower())
+    elif sort == "lib":
+        all_genres = sorted(
+            all_genres, key=lambda r: (-r.in_lib_count, -r.track_count, r.genre.lower())
+        )
     else:
         all_genres = sorted(all_genres, key=lambda r: -r.track_count)
 

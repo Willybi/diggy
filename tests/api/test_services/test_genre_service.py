@@ -1,4 +1,6 @@
 """Tests for services/genre_service.py — pure logic + DB."""
+import os
+
 import pytest
 
 from services.genre_service import (
@@ -106,3 +108,70 @@ class TestLookupDeezerGenres:
 
         with pytest.raises(ValueError, match="deezer_id"):
             await lookup_deezer_genres(db, catalog_id=c.id, apply=False)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="list_genres uses PostgreSQL-only SQL (PERCENTILE_CONT, unnest, CROSS JOIN LATERAL)",
+)
+class TestListGenresLibSort:
+    """`sort=lib` ranks genres by in-library track count (D6 p.7).
+
+    Tie-break mirrors the artists list `lib` sort: in_lib_count desc, then total
+    track_count desc, then name. Runs on PostgreSQL only (the stats SQL does not
+    execute on the SQLite harness).
+    """
+
+    async def _seed(self, db, user):
+        from models import CatalogEntry, UserTrack
+
+        # (genre, total catalog tracks, tracks in the user's library)
+        plan = [
+            ("ztestlibsort_a", 3, 1),
+            ("ztestlibsort_b", 2, 2),
+            ("ztestlibsort_c", 1, 1),
+            ("ztestlibsort_d", 1, 1),
+        ]
+        for genre, total, in_lib in plan:
+            for i in range(total):
+                entry = CatalogEntry(
+                    title=f"{genre}-{i}",
+                    artist="A",
+                    normalized_key=f"{genre}|{i}",
+                    genres=[genre],
+                    scope="shared",
+                )
+                db.add(entry)
+                await db.flush()
+                if i < in_lib:
+                    db.add(UserTrack(user_id=user.id, catalog_id=entry.id))
+        await db.commit()
+
+    async def test_lib_sort_orders_by_in_lib_then_tracks_then_name(self, db, auth_user):
+        from services import genre_service
+
+        await self._seed(db, auth_user)
+        res = await genre_service.list_genres(
+            db, auth_user.id, family=None, sort="lib", q=None, limit=24, offset=0
+        )
+        names = [it["name"] for it in res["items"]]
+        # b (in_lib 2) leads; a/c/d tie on in_lib 1 -> track_count desc (a=3),
+        # then c/d tie on track_count 1 -> alphabetical (c before d).
+        assert names == [
+            "ztestlibsort_b", "ztestlibsort_a", "ztestlibsort_c", "ztestlibsort_d"
+        ]
+        assert {it["name"]: it["inLibCount"] for it in res["items"]} == {
+            "ztestlibsort_b": 2, "ztestlibsort_a": 1,
+            "ztestlibsort_c": 1, "ztestlibsort_d": 1,
+        }
+
+    async def test_tracks_sort_differs_from_lib(self, db, auth_user):
+        # Control: the default `tracks` sort ranks by total track_count, so
+        # genre "a" (3 tracks) leads — proving `lib` genuinely reorders the set.
+        from services import genre_service
+
+        await self._seed(db, auth_user)
+        res = await genre_service.list_genres(
+            db, auth_user.id, family=None, sort="tracks", q=None, limit=24, offset=0
+        )
+        assert [it["name"] for it in res["items"]][0] == "ztestlibsort_a"

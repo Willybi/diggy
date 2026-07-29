@@ -53,3 +53,33 @@ class TestPillarGenreNames:
             del cache["Foo"]
             del cache["Bar"]
             del cache["Baz"]
+
+
+class TestListGenresSortParam:
+    """Router-level validation of the `sort` query param on GET /api/genres.
+
+    The genre-list SQL (PERCENTILE_CONT, unnest, CROSS JOIN LATERAL) is
+    PostgreSQL-specific and does not run on the SQLite harness, so the *ordering*
+    produced by sort=lib is covered by a PG-gated integration test in
+    test_services/test_genre_service.py. Here we only assert the pattern accepts
+    the new `lib` value and still rejects unknown ones (mirrors the sort
+    validation style of test_validation.py).
+    """
+
+    async def test_sort_lib_not_rejected_as_invalid(self, client):
+        # A 422 comes from FastAPI param validation BEFORE the service runs. On
+        # SQLite the accepted `lib` value instead reaches the PG-only SQL and
+        # raises OperationalError — which itself proves the pattern let `lib`
+        # through (on PostgreSQL the same request returns 200). Mirrors
+        # TestRadarSortValidation.test_valid_sort_not_rejected_as_invalid.
+        from sqlalchemy.exc import OperationalError
+
+        try:
+            r = await client.get("/api/genres?sort=lib")
+            assert r.status_code != 422
+        except OperationalError:
+            pass
+
+    async def test_unknown_sort_returns_422(self, client):
+        r = await client.get("/api/genres?sort=banana")
+        assert r.status_code == 422

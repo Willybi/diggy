@@ -45,7 +45,7 @@ async def random_genre_track(
 
 @router.get("", response_model=GenreListResponse)
 async def list_genres(
-    sort: str = Query("tracks", pattern="^(tracks|alpha)$"),
+    sort: str = Query("tracks", pattern="^(tracks|alpha|lib)$"),
     family: str | None = Query(None, max_length=100),
     q: str | None = Query(None, max_length=200),
     limit: int = Query(24, ge=1, le=100),
