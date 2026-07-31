@@ -7,19 +7,7 @@
     </div>
     <template v-else>
       <!-- Back link -->
-      <RouterLink to="/artists" class="dv-back">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M15 6l-6 6 6 6" />
-        </svg>
-        Artistes
-      </RouterLink>
+      <BackButton fallback="/artists" />
 
       <!-- 1. HERO — banner montage + avatar + genres + actions + repliée stats (A1-A4, A6) -->
       <section class="hero">
@@ -253,6 +241,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import BackButton from '../components/BackButton.vue'
 import StyleTag from '../components/StyleTag.vue'
 import AdminCard from '../components/AdminCard.vue'
 import ShelfCard from '../components/ShelfCard.vue'
@@ -503,25 +492,6 @@ watch(
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-4);
-}
-
-/* Back link */
-.dv-back {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: var(--space-5);
-  text-decoration: none;
-  color: var(--ink-2);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  transition: color 0.12s;
-}
-.dv-back:hover {
-  color: var(--ink);
-}
-.dv-back svg {
-  width: 16px;
-  height: 16px;
 }
 
 /* ============ HERO ============ */

@@ -7,19 +7,7 @@
     </div>
     <template v-else>
       <!-- Back link -->
-      <RouterLink to="/sets" class="dv-back">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M15 6l-6 6 6 6" />
-        </svg>
-        Sets
-      </RouterLink>
+      <BackButton fallback="/sets" />
 
       <!-- 1. Immersive hero (S1-S7) -->
       <section class="hero">
@@ -165,6 +153,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useToast } from '../stores/toast.js'
 import Artwork from '../components/Artwork.vue'
+import BackButton from '../components/BackButton.vue'
 import TrackCard from '../components/TrackCard.vue'
 import ScoreRing from '../components/ScoreRing.vue'
 import SetCard from '../components/SetCard.vue'
@@ -394,25 +383,6 @@ onMounted(() => {
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-4);
-}
-
-/* Back link */
-.dv-back {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: var(--space-5);
-  text-decoration: none;
-  color: var(--ink-2);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  transition: color 0.12s;
-}
-.dv-back:hover {
-  color: var(--ink);
-}
-.dv-back svg {
-  width: 16px;
-  height: 16px;
 }
 
 /* ============ HERO ============ */

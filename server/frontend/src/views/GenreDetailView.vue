@@ -20,7 +20,7 @@
     <!-- Content -->
     <template v-else>
       <!-- Back -->
-      <RouterLink to="/genres" class="back-link">← Genres</RouterLink>
+      <BackButton fallback="/genres" />
 
       <!-- Hero -->
       <div class="hero" :data-fam="tone.pillar">
@@ -280,6 +280,7 @@ import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { styleTone, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import { fmtDate, fmtNum } from '../utils/format'
+import BackButton from '../components/BackButton.vue'
 import StatStrip from '../components/StatStrip.vue'
 import RelBlock from '../components/RelBlock.vue'
 import StyleTag from '../components/StyleTag.vue'
