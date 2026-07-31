@@ -61,7 +61,7 @@ server/
 │                            # import_rb, sets, trends, monitoring (MON: snapshot_backlogs)
 ├── frontend/src/
 │   ├── views/               # 18 views (all routed; RadarView added D6; CatalogView renamed ExplorerView, D6)
-│   ├── components/          # 56 components (49 shared + 7 admin). The filter family
+│   ├── components/          # 57 components (49 shared + 8 admin). The filter family
 │   │                        # lives in components/filters/ (12: FilterBar/Chip/Panel/
 │   │                        # Drawer + SearchInput/RangeSlider/CamelotSelect/
 │   │                        # StyleMultiSelect/ArtistTypeAhead/SegmentedFilter/

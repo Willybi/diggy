@@ -22,24 +22,107 @@ logger = logging.getLogger(__name__)
 # beatport._ARTIST_SEPARATORS or migration 0023 (different jobs).
 FEAT_RE = re.compile(r"\s+(?:feat\.?|featuring|ft\.?|vs\.?)\s+", flags=re.IGNORECASE)
 
+# " presents " family — a stage/alias notation ("Larry Heard presents Mr. White",
+# "Antoine Clamaran pres. D-Plac"). Like feat it is a LOCAL split (no Deezer round
+# trip), but every token is a PRIMARY artist, not a featured contributor. Kept
+# separate from FEAT_RE (different role) and — like FEAT_RE — deliberately NOT
+# unified with deezer_enrich._first_artist / beatport._ARTIST_SEPARATORS /
+# migration 0023 (different jobs). "presents"/"présente" precede "pres\.?" in the
+# alternation so the long forms win; "pres\.?" covers both "pres." and bare "pres".
+PRESENTS_RE = re.compile(r"\s+(?:presents|présente|pres\.?)\s+", flags=re.IGNORECASE)
+
+# Space-bounded, case-insensitive "&"-family separators, routed through the SAME
+# "ampersand" rule as " & " / " + " / "|" (Deezer disambiguation unless a token is
+# already known). Bounded by \s+ like FEAT_RE. Unlike "&"/"+"/"|", each of these
+# can legitimately occur INSIDE a real artist name, so two pure guards protect
+# them: _is_stylized_name (a letter-by-letter name like "A X L") and
+# _article_after_separator (a group name like "Amyl and the Sniffers").
+#   " x "   — collab notation          " and " — EN "and"
+#   " y "   — ES "and"                  " e "   — PT / IT "and"
+X_RE = re.compile(r"\s+x\s+", flags=re.IGNORECASE)
+AND_RE = re.compile(r"\s+and\s+", flags=re.IGNORECASE)
+Y_RE = re.compile(r"\s+y\s+", flags=re.IGNORECASE)
+E_RE = re.compile(r"\s+e\s+", flags=re.IGNORECASE)
+
+# Right-hand articles that mark a group-name continuation after " and " / " y "
+# ("Amyl and the Sniffers", "Cortijo Y Su Maquina Del Tiempo") rather than a
+# two-artist collab. Multilingual: EN the/a/an, FR la/le/les, ES el/los/las/su/sus,
+# PT/IT os/as/o/il/i. Compared lower-cased against the FIRST word of the token that
+# follows the separator (see _article_after_separator).
+_ARTICLES = frozenset(
+    {
+        "the", "a", "an",
+        "la", "le", "les",
+        "el", "los", "las", "su", "sus",
+        "os", "as", "o", "il", "i",
+    }
+)
+
+
+def _is_stylized_name(raw):
+    """True when a name is a single artist spelled letter-by-letter — the MAJORITY
+    of its whitespace-separated tokens are one character long ("A X L",
+    "t e s t p r e s s", "J A Y E L E C T R O N I C A").
+
+    Such a name must never be split on a space-bounded separator (" x ", " and ",
+    " y ", " e "): the spacing is stylistic, not a collab. The guard therefore sits
+    AFTER the unambiguous delimiters (comma / & / + / |) and BEFORE the
+    space-bounded ones in both classify_artist_string and split_artist_parts, so
+    "A X L, SH.AH" still splits on the comma while a bare "A X L" stays single.
+    """
+    tokens = raw.split()
+    if not tokens:
+        return False
+    single = sum(1 for t in tokens if len(t) == 1)
+    return single > len(tokens) / 2
+
+
+def _article_after_separator(tokens):
+    """True when a token AFTER the first begins with an article (see _ARTICLES).
+
+    For " and " / " y " an article on the right-hand side signals a group-name
+    continuation ("Amyl and the Sniffers", "Cortijo Y Su Maquina Del Tiempo")
+    rather than a collab, so the raw string must stay a single artist instead of
+    being split. ``tokens`` is the already-split, stripped, non-empty token list.
+    """
+    for token in tokens[1:]:
+        words = token.split()
+        if words and words[0].lower() in _ARTICLES:
+            return True
+    return False
+
 
 def classify_artist_string(raw, known_norms):
     """Pure Phase A dispatch for a catalog `artist` string — no I/O, no session.
 
-    Mirrors sync_artists Phase A exactly (feat → comma → ampersand → pipe).
+    Mirrors sync_artists Phase A exactly. Precedence (a string splits on the FIRST
+    separator matched, so the order is significant):
+      1.  feat / ft / vs (FEAT_RE)       → split, contributors after the first 'featured'
+      2.  presents / pres. (PRESENTS_RE) → split LOCALLY, every token 'primary'
+      3.  ","                            → known-check → split | needs_deezer('comma')
+      4.  " & "   5. " + "   6. "|"      → known-check → split | needs_deezer('ampersand')
+      7.  stylized-name guard            → single (letter-by-letter name, never split)
+      8.  " x "                          → known-check → split | needs_deezer('ampersand')
+      9.  " and "  10. " y "             → article-after → single ; else known-check → …
+      11. " e "                          → known-check → split | needs_deezer('ampersand')
+      12. otherwise                      → single
     Returns one of:
       ("split", tokens)               — resolve locally, create each token
       ("needs_deezer", tokens, rule)  — defer to Deezer (rule 'comma'/'ampersand')
-      ("single", [raw])               — no known separator, create the string as-is
+      ("single", [raw])               — no actionable separator, create the string as-is
     `known_norms` is the live set of normalized artist/alias names; a comma/
-    ampersand/pipe pair with at least one already-known token is treated as a
-    collab and split locally, otherwise it is deferred to Deezer.
+    ampersand-family pair with at least one already-known token is treated as a
+    collab and split locally, otherwise it is deferred to Deezer. Steps 7/9-10 are
+    anti false-positive guards; feat/presents (steps 1-2) split with no Deezer call.
     """
     from utils import normalize
 
     raw = raw.strip()
     if FEAT_RE.search(raw):
         return ("split", [p.strip() for p in FEAT_RE.split(raw) if p.strip()])
+    if PRESENTS_RE.search(raw):
+        # Alias notation — a purely LOCAL split (no Deezer), every token primary.
+        return ("split", [p.strip() for p in PRESENTS_RE.split(raw) if p.strip()])
     if "," in raw:
         tokens = [p.strip() for p in raw.split(",") if p.strip()]
         if any(normalize(t) in known_norms for t in tokens):
@@ -47,6 +130,13 @@ def classify_artist_string(raw, known_norms):
         return ("needs_deezer", tokens, "comma")
     if " & " in raw:
         tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        return ("needs_deezer", tokens, "ampersand")
+    if " + " in raw:
+        # "+" reads like "&": same ampersand rule. A space-bounded " + " is never
+        # part of a real artist name, so a direct split is safe (no guard needed).
+        tokens = [p.strip() for p in raw.split(" + ") if p.strip()]
         if any(normalize(t) in known_norms for t in tokens):
             return ("split", tokens)
         return ("needs_deezer", tokens, "ampersand")
@@ -60,15 +150,49 @@ def classify_artist_string(raw, known_norms):
         # "|" reads like "&": route it through the same rule_type so Phase B
         # disambiguates it full-string-vs-tokens instead of dropping it.
         return ("needs_deezer", tokens, "ampersand")
+    if _is_stylized_name(raw):
+        # Letter-by-letter stylized name ("A X L") — never split on a space-bounded
+        # separator. Placed AFTER comma/&/+/| (so "A X L, SH.AH" still splits on the
+        # comma) and BEFORE " x "/" and "/" y "/" e ".
+        return ("single", [raw])
+    if X_RE.search(raw):
+        tokens = [p.strip() for p in X_RE.split(raw) if p.strip()]
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        return ("needs_deezer", tokens, "ampersand")
+    if AND_RE.search(raw):
+        tokens = [p.strip() for p in AND_RE.split(raw) if p.strip()]
+        if _article_after_separator(tokens):
+            # "Amyl and the Sniffers" — article after " and " = group name, not a collab.
+            return ("single", [raw])
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        return ("needs_deezer", tokens, "ampersand")
+    if Y_RE.search(raw):
+        tokens = [p.strip() for p in Y_RE.split(raw) if p.strip()]
+        if _article_after_separator(tokens):
+            # "Cortijo Y Su Maquina Del Tiempo" — article after " y " = group name.
+            return ("single", [raw])
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        return ("needs_deezer", tokens, "ampersand")
+    if E_RE.search(raw):
+        tokens = [p.strip() for p in E_RE.split(raw) if p.strip()]
+        if any(normalize(t) in known_norms for t in tokens):
+            return ("split", tokens)
+        return ("needs_deezer", tokens, "ampersand")
     return ("single", [raw])
 
 
 def split_artist_parts(raw):
     """Pure Phase C part-building — no I/O, no session.
 
-    Mirrors sync_artists Phase C exactly. Returns [(token, role, position), ...]
-    with role 'featured' for feat contributors after the first, 'primary'
-    otherwise (comma / ampersand / pipe / no-separator are all 'primary').
+    Mirrors sync_artists Phase C AND classify_artist_string exactly: the SAME
+    precedence and the SAME two guards (stylized name, article after " and "/
+    " y "). If it diverged, Phase C would try to link tokens Phase A never created.
+    Returns [(token, role, position), ...] with role 'featured' for feat
+    contributors after the first, 'primary' otherwise (presents / comma /
+    ampersand-family / no-separator are all 'primary').
     """
     raw = raw.strip()
     parts = []
@@ -76,6 +200,10 @@ def split_artist_parts(raw):
         tokens = [p.strip() for p in FEAT_RE.split(raw) if p.strip()]
         for i, token in enumerate(tokens):
             parts.append((token, "primary" if i == 0 else "featured", i))
+    elif PRESENTS_RE.search(raw):
+        tokens = [p.strip() for p in PRESENTS_RE.split(raw) if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary", i))
     elif "," in raw:
         tokens = [p.strip() for p in raw.split(",") if p.strip()]
         for i, token in enumerate(tokens):
@@ -84,8 +212,36 @@ def split_artist_parts(raw):
         tokens = [p.strip() for p in raw.split(" & ") if p.strip()]
         for i, token in enumerate(tokens):
             parts.append((token, "primary", i))
+    elif " + " in raw:
+        tokens = [p.strip() for p in raw.split(" + ") if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary", i))
     elif "|" in raw:
         tokens = [p.strip() for p in raw.split("|") if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary", i))
+    elif _is_stylized_name(raw):
+        parts.append((raw, "primary", 0))
+    elif X_RE.search(raw):
+        tokens = [p.strip() for p in X_RE.split(raw) if p.strip()]
+        for i, token in enumerate(tokens):
+            parts.append((token, "primary", i))
+    elif AND_RE.search(raw):
+        tokens = [p.strip() for p in AND_RE.split(raw) if p.strip()]
+        if _article_after_separator(tokens):
+            parts.append((raw, "primary", 0))
+        else:
+            for i, token in enumerate(tokens):
+                parts.append((token, "primary", i))
+    elif Y_RE.search(raw):
+        tokens = [p.strip() for p in Y_RE.split(raw) if p.strip()]
+        if _article_after_separator(tokens):
+            parts.append((raw, "primary", 0))
+        else:
+            for i, token in enumerate(tokens):
+                parts.append((token, "primary", i))
+    elif E_RE.search(raw):
+        tokens = [p.strip() for p in E_RE.split(raw) if p.strip()]
         for i, token in enumerate(tokens):
             parts.append((token, "primary", i))
     else:

@@ -22,8 +22,8 @@
   <section class="admin-section">
     <h2 class="section-title">Liaison Deezer (artistes)</h2>
     <p class="section-sub">
-      Cherche sur Deezer les artistes sans deezer_id et les lie sur un match exact.
-      Borné par run (budget) et sûr contre les boucles. Idempotent.
+      Cherche sur Deezer les artistes sans deezer_id et les lie sur un match exact. Borné par run
+      (budget) et sûr contre les boucles. Idempotent.
     </p>
     <div class="sync-row">
       <button class="btn-sync" :disabled="linkingArtists" @click="runLinkArtists">
@@ -179,9 +179,7 @@
               </span>
             </div>
           </div>
-          <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">
-            Aucun résultat
-          </p>
+          <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">Aucun résultat</p>
         </div>
       </div>
     </div>
@@ -197,49 +195,26 @@
       <span v-if="linkError" class="sync-error">{{ linkError }}</span>
     </div>
 
-    <!-- Manual split panel -->
+    <!-- Manual split panel (N-ary split + delete, shared component) -->
     <div v-if="splitArtist" class="split-panel">
-      <div class="split-header">
-        <span class="split-label">Splitter manuellement :</span>
-        <strong>{{ splitArtist.name }}</strong>
-        <button class="btn-row-action" @click="cancelSplit">Annuler</button>
-      </div>
-
-      <div v-if="splitIndex === null" class="split-tokens">
-        <template v-for="(word, i) in splitWords" :key="i">
-          <span class="split-word">{{ word }}</span>
-          <button
-            v-if="i < splitWords.length - 1"
-            class="split-sep"
-            :title="`Couper ici : « ${splitWords.slice(0, i + 1).join(splitSep || ' ')} » + « ${splitWords.slice(i + 1).join(splitSep || ' ')} »`"
-            @click="chooseSplit(i)"
-          >
-            ·
-          </button>
-        </template>
-      </div>
-
-      <div v-else class="split-preview">
-        <span class="split-pill">{{ splitLeft }}</span>
-        <span class="split-plus">+</span>
-        <span class="split-pill">{{ splitRight }}</span>
-      </div>
-
-      <div v-if="splitIndex !== null" class="split-actions">
-        <button class="btn-row-action" @click="splitIndex = null">Modifier</button>
-        <button class="btn-confirm-link" :disabled="splitting" @click="confirmManualSplit">
-          {{ splitting ? 'Split…' : 'Confirmer le split' }}
-        </button>
-        <span v-if="splitError" class="sync-error">{{ splitError }}</span>
-      </div>
+      <ArtistSegmentSplitter
+        :key="splitArtist.id"
+        :raw="splitArtist.name"
+        :pending="splitting"
+        :error="splitError"
+        @confirm="confirmManualSplit"
+        @cancel="cancelSplit"
+      />
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import api from '../../utils/api.js'
 import { useTaskPoll } from '../../composables/useTaskPoll.js'
+import { detectSeparator, splitUnits } from '../../utils/artistSplit.js'
+import ArtistSegmentSplitter from './ArtistSegmentSplitter.vue'
 
 const syncing = ref(false)
 const syncResult = ref(null)
@@ -414,8 +389,7 @@ async function fetchNoDeezerArtists(q = '') {
   if (q) params.q = q
   const { data } = await api.get('/api/artists/', { params })
   dbArtistResults.value = data.items || data
-  noDeezerTotal.value =
-    typeof data.total === 'number' ? data.total : dbArtistResults.value.length
+  noDeezerTotal.value = typeof data.total === 'number' ? data.total : dbArtistResults.value.length
 }
 
 function onLinkSearch() {
@@ -475,62 +449,13 @@ async function markNoDeezer(artist) {
   } catch {}
 }
 
-// Kept in parity with the backend sync detection (tasks/artists.py: FEAT_RE +
-// " & " + bare "|"), with more specific variants first so detectSeparator picks
-// the longest match. "|" and ";" are bare (no surrounding spaces) — source
-// strings glue them ("A|B", "Gyan Nishabda; Tri Atma") and neither is ever part
-// of a real name. FRONT-ONLY exceptions (human-review hints, never a backend
-// auto-split): '/' ("AC/DC") and ';' — recognised here only for the manual tool.
-const SEPARATORS = [
-  '/',
-  ' & ',
-  '|',
-  ';',
-  ', ',
-  ' feat. ',
-  ' featuring ',
-  ' feat ',
-  ' ft. ',
-  ' ft ',
-  ' vs. ',
-  ' vs ',
-]
-
-function detectSeparator(name) {
-  return SEPARATORS.find((sep) => name.includes(sep)) || null
-}
-
-// Manual split
+// Manual split. SEPARATORS + detectSeparator live in utils/artistSplit.js (shared
+// with ArtistSegmentSplitter, kept in parity with the backend auto-split
+// detection). detectSeparator here only gates the "Flagguer"/"Splitter" row
+// buttons and the blind flagArtist tokenisation.
 const splitArtist = ref(null)
-const splitIndex = ref(null)
 const splitting = ref(false)
 const splitError = ref('')
-
-// When the name carries a recognised separator (" & ", " | ", " feat "…), cut
-// on it so the two halves are clean; otherwise fall back to spaces so the admin
-// can still pick any word boundary. Rejoin with the same delimiter to
-// reconstruct each side losslessly.
-const splitSep = computed(() =>
-  splitArtist.value ? detectSeparator(splitArtist.value.name) : null,
-)
-
-const splitWords = computed(() => {
-  if (!splitArtist.value) return []
-  return splitArtist.value.name
-    .split(splitSep.value || ' ')
-    .map((w) => w.trim())
-    .filter(Boolean)
-})
-
-const splitLeft = computed(() => {
-  if (splitIndex.value === null) return ''
-  return splitWords.value.slice(0, splitIndex.value + 1).join(splitSep.value || ' ')
-})
-
-const splitRight = computed(() => {
-  if (splitIndex.value === null) return ''
-  return splitWords.value.slice(splitIndex.value + 1).join(splitSep.value || ' ')
-})
 
 function hasSpaces(name) {
   return name.trim().includes(' ')
@@ -538,36 +463,29 @@ function hasSpaces(name) {
 
 function openManualSplit(artist) {
   splitArtist.value = artist
-  splitIndex.value = null
   splitError.value = ''
 }
 
 function cancelSplit() {
   splitArtist.value = null
-  splitIndex.value = null
 }
 
-function chooseSplit(index) {
-  splitIndex.value = index
-}
-
-async function confirmManualSplit() {
-  if (!splitArtist.value || splitIndex.value === null) return
+// Kept segments come from ArtistSegmentSplitter; raw_artist_string stays the full
+// original name (it drives the backend relink + cleanup), only `tokens` varies.
+async function confirmManualSplit(tokens) {
+  if (!splitArtist.value || !tokens.length) return
   splitting.value = true
   splitError.value = ''
   try {
     const { data: flag } = await api.post('/api/admin/artists/flags/manual', {
       raw_artist_string: splitArtist.value.name,
-      tokens: [splitLeft.value, splitRight.value],
+      tokens,
       reason: 'manual',
     })
     await api.post(`/api/admin/artists/flags/${flag.id}/resolve`, { action: 'split' })
-    dbArtistResults.value = dbArtistResults.value.filter(
-      (a) => a.id !== splitArtist.value.id,
-    )
+    dbArtistResults.value = dbArtistResults.value.filter((a) => a.id !== splitArtist.value.id)
     noDeezerTotal.value = Math.max(0, noDeezerTotal.value - 1)
     splitArtist.value = null
-    splitIndex.value = null
   } catch (e) {
     splitError.value = e.response?.data?.detail || 'Erreur lors du split'
   } finally {
@@ -578,10 +496,9 @@ async function confirmManualSplit() {
 async function flagArtist(artist) {
   const sep = detectSeparator(artist.name)
   if (!sep) return
-  const tokens = artist.name
-    .split(sep)
-    .map((t) => t.trim())
-    .filter(Boolean)
+  // Split via the shared helper so the cut is case-insensitive, matching
+  // detectSeparator (a raw String.split would miss an upper-cased " AND ").
+  const tokens = splitUnits(artist.name, sep)
   try {
     await api.post('/api/admin/artists/flags/manual', {
       raw_artist_string: artist.name,
@@ -810,83 +727,9 @@ onMounted(() => {
   cursor: default;
 }
 
-/* Manual split */
+/* Manual split — the panel wraps the shared ArtistSegmentSplitter component. */
 .split-panel {
   margin-top: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-2);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
-}
-.split-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  font: 400 var(--fs-sm)/1.4 var(--font-ui);
-  color: var(--ink-2);
-}
-.split-header strong {
-  color: var(--ink);
-}
-.split-label {
-  white-space: nowrap;
-}
-.split-tokens {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  flex-wrap: wrap;
-}
-.split-word {
-  font: 500 var(--fs-base)/1 var(--font-ui);
-  color: var(--ink);
-  padding: var(--space-1) 0;
-}
-.split-sep {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 24px;
-  margin: 0 var(--space-05);
-  background: var(--accent-soft);
-  border: none;
-  border-radius: 2px;
-  cursor: pointer;
-  font: 700 var(--fs-base)/1 var(--font-mono);
-  color: var(--accent-ink);
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-.split-sep:hover {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.split-preview {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.split-pill {
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  padding: var(--space-1) var(--space-25);
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.split-plus {
-  font: 500 var(--fs-base)/1 var(--font-ui);
-  color: var(--ink-3);
-}
-.split-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-25);
 }
 .btn-row-action.split:hover {
   color: var(--accent-ink);

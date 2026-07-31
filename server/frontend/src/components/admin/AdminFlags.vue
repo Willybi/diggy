@@ -33,75 +33,87 @@
           </tr>
         </thead>
         <tbody>
-          <tr
-            v-for="flag in flags"
-            :key="flag.id"
-            :class="{ resolved: flag.status !== 'pending' }"
-          >
-            <td class="col-raw">
-              <span class="raw-string">{{ flag.raw_artist_string }}</span>
-            </td>
-            <td class="col-reason">
-              <span class="reason-badge" :class="flag.reason">{{ flag.reason }}</span>
-            </td>
-            <td class="col-tokens">
-              <div class="token-list">
-                <span v-for="t in flag.tokens" :key="t" class="token-pill">{{ t }}</span>
-              </div>
-            </td>
-            <td class="col-deezer">
-              <div class="deezer-list">
-                <span
-                  v-for="(did, name) in flag.deezer_ids"
-                  :key="name"
-                  class="deezer-entry"
-                  :class="{ found: !!did, missing: !did }"
-                >
-                  <span class="deezer-name">{{ name }}</span>
-                  <a
-                    v-if="did"
-                    :href="`https://www.deezer.com/artist/${did}`"
-                    target="_blank"
-                    class="deezer-id mono dz-link"
-                    >{{ did }}</a
-                  >
-                  <span v-else class="deezer-id mono">✗</span>
-                </span>
-              </div>
-            </td>
-            <td class="col-action">
-              <template v-if="flag.status === 'pending'">
-                <div class="action-btns">
-                  <button
-                    class="btn-split"
-                    :disabled="resolving[flag.id]"
-                    :title="`Créer: ${flag.tokens.join(', ')}`"
-                    @click="resolve(flag.id, 'split')"
-                  >
-                    Splitter
-                  </button>
-                  <button
-                    class="btn-keep"
-                    :disabled="resolving[flag.id]"
-                    :title="`Créer: ${flag.raw_artist_string}`"
-                    @click="resolve(flag.id, 'keep')"
-                  >
-                    Garder
-                  </button>
-                  <button
-                    class="btn-skip"
-                    :disabled="resolving[flag.id]"
-                    @click="resolve(flag.id, 'skip')"
-                  >
-                    Ignorer
-                  </button>
+          <template v-for="flag in flags" :key="flag.id">
+            <tr :class="{ resolved: flag.status !== 'pending' }">
+              <td class="col-raw">
+                <span class="raw-string">{{ flag.raw_artist_string }}</span>
+              </td>
+              <td class="col-reason">
+                <span class="reason-badge" :class="flag.reason">{{ flag.reason }}</span>
+              </td>
+              <td class="col-tokens">
+                <div class="token-list">
+                  <span v-for="t in flag.tokens" :key="t" class="token-pill">{{ t }}</span>
                 </div>
-              </template>
-              <template v-else>
-                <span class="status-badge" :class="flag.status">{{ flag.status }}</span>
-              </template>
-            </td>
-          </tr>
+              </td>
+              <td class="col-deezer">
+                <div class="deezer-list">
+                  <span
+                    v-for="(did, name) in flag.deezer_ids"
+                    :key="name"
+                    class="deezer-entry"
+                    :class="{ found: !!did, missing: !did }"
+                  >
+                    <span class="deezer-name">{{ name }}</span>
+                    <a
+                      v-if="did"
+                      :href="`https://www.deezer.com/artist/${did}`"
+                      target="_blank"
+                      class="deezer-id mono dz-link"
+                      >{{ did }}</a
+                    >
+                    <span v-else class="deezer-id mono">✗</span>
+                  </span>
+                </div>
+              </td>
+              <td class="col-action">
+                <template v-if="flag.status === 'pending'">
+                  <div class="action-btns">
+                    <button
+                      class="btn-split"
+                      :disabled="resolving[flag.id]"
+                      :class="{ open: editingFlagId === flag.id }"
+                      title="Éditer les segments puis splitter"
+                      @click="toggleEditor(flag)"
+                    >
+                      Splitter…
+                    </button>
+                    <button
+                      class="btn-keep"
+                      :disabled="resolving[flag.id]"
+                      :title="`Créer: ${flag.raw_artist_string}`"
+                      @click="resolve(flag.id, 'keep')"
+                    >
+                      Garder
+                    </button>
+                    <button
+                      class="btn-skip"
+                      :disabled="resolving[flag.id]"
+                      @click="resolve(flag.id, 'skip')"
+                    >
+                      Ignorer
+                    </button>
+                  </div>
+                </template>
+                <template v-else>
+                  <span class="status-badge" :class="flag.status">{{ flag.status }}</span>
+                </template>
+              </td>
+            </tr>
+            <tr v-if="editingFlagId === flag.id" class="editor-row">
+              <td :colspan="5">
+                <ArtistSegmentSplitter
+                  :key="flag.id"
+                  :raw="flag.raw_artist_string"
+                  :initial-tokens="flag.tokens"
+                  :pending="!!resolving[flag.id]"
+                  :error="editError"
+                  @confirm="onSplitConfirm(flag, $event)"
+                  @cancel="closeEditor"
+                />
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -111,11 +123,14 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import api from '../../utils/api.js'
+import ArtistSegmentSplitter from './ArtistSegmentSplitter.vue'
 
 const flags = ref([])
 const loadingFlags = ref(false)
 const filterStatus = ref('pending')
 const resolving = reactive({})
+const editingFlagId = ref(null)
+const editError = ref('')
 
 async function fetchFlags() {
   loadingFlags.value = true
@@ -134,17 +149,55 @@ async function setFilter(s) {
   await fetchFlags()
 }
 
+function applyResolved(flagId, data) {
+  const idx = flags.value.findIndex((f) => f.id === flagId)
+  if (idx !== -1) flags.value[idx] = data
+  if (filterStatus.value === 'pending') {
+    flags.value = flags.value.filter((f) => f.status === 'pending')
+  }
+}
+
 async function resolve(flagId, action) {
   resolving[flagId] = true
   try {
     const { data } = await api.post(`/api/admin/artists/flags/${flagId}/resolve`, { action })
-    const idx = flags.value.findIndex((f) => f.id === flagId)
-    if (idx !== -1) flags.value[idx] = data
-    if (filterStatus.value === 'pending') {
-      flags.value = flags.value.filter((f) => f.status === 'pending')
-    }
+    applyResolved(flagId, data)
   } finally {
     resolving[flagId] = false
+  }
+}
+
+function toggleEditor(flag) {
+  editError.value = ''
+  editingFlagId.value = editingFlagId.value === flag.id ? null : flag.id
+}
+
+function closeEditor() {
+  editingFlagId.value = null
+}
+
+// Upsert the flag with the EDITED tokens (keeping its original `reason` so its
+// category is preserved and any already-found deezer_ids are retained by the
+// backend upsert), then resolve it as a split. raw_artist_string stays verbatim.
+async function onSplitConfirm(flag, tokens) {
+  if (!tokens.length) return
+  resolving[flag.id] = true
+  editError.value = ''
+  try {
+    await api.post('/api/admin/artists/flags/manual', {
+      raw_artist_string: flag.raw_artist_string,
+      tokens,
+      reason: flag.reason,
+    })
+    const { data } = await api.post(`/api/admin/artists/flags/${flag.id}/resolve`, {
+      action: 'split',
+    })
+    editingFlagId.value = null
+    applyResolved(flag.id, data)
+  } catch (e) {
+    editError.value = e.response?.data?.detail || 'Erreur lors du split'
+  } finally {
+    resolving[flag.id] = false
   }
 }
 
@@ -340,7 +393,8 @@ onMounted(() => {
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
-.btn-split:hover:not(:disabled) {
+.btn-split:hover:not(:disabled),
+.btn-split.open {
   background: var(--accent);
   color: var(--on-accent);
 }
@@ -373,6 +427,10 @@ onMounted(() => {
 .status-badge.skipped {
   background: var(--surface-2);
   color: var(--ink-3);
+}
+.editor-row td {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  background: var(--surface-2);
 }
 .state {
   /* diverges from canonical .state: smaller font + compact padding (admin panel) */
