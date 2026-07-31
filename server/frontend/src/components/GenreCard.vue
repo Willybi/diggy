@@ -342,9 +342,9 @@ function onAvatarError(a) {
   height: 20px;
   display: inline-flex;
   align-items: center;
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-15);
   border-radius: var(--r-pill);
-  background: var(--overlay-soft);
+  background: var(--overlay-modal);
   color: var(--overlay-text);
   font: 600 var(--fs-xs)/1 var(--font-mono);
 }
@@ -457,10 +457,20 @@ function onAvatarError(a) {
     0 0 0 1px var(--pos-soft),
     var(--shadow-md);
 }
-.genre-card.disliked {
+/* Estompe on the art + body only — NEVER on .gc-acts/.gc-play: an ancestor's
+   opacity cannot be undone by a descendant, and the pinned avis button must
+   stay fully legible on a disliked card */
+.genre-card.disliked .gc-tile,
+.genre-card.disliked .gc-scrim,
+.genre-card.disliked .gc-avatars,
+.genre-card.disliked .gc-body {
   opacity: 0.45;
+  transition: opacity 0.12s ease;
 }
-.genre-card.disliked:hover {
+.genre-card.disliked:hover .gc-tile,
+.genre-card.disliked:hover .gc-scrim,
+.genre-card.disliked:hover .gc-avatars,
+.genre-card.disliked:hover .gc-body {
   opacity: 0.8;
 }
 /* Playing border wins over liked */
@@ -608,6 +618,19 @@ function onAvatarError(a) {
   }
   .gc-avatars .av:nth-child(3) {
     display: none;
+  }
+  /* Signature on two lines (pillar / BPM): never cut « 70–145 BPM » mid-unit */
+  .gc-sig {
+    flex-wrap: wrap;
+    row-gap: var(--space-05);
+  }
+  .sig-sep {
+    display: none;
+  }
+  .sig-bpm {
+    flex-basis: 100%;
+    overflow: visible;
+    text-overflow: clip;
   }
   /* Stats on two lines: Tracks + Artistes, then « En bib » alone, fer à droite */
   .gc-stats {

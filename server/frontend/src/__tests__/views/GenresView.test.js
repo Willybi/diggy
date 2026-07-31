@@ -113,6 +113,28 @@ describe('GenresView', () => {
     expect(wrapper.find('.empty-search').exists()).toBe(false)
   })
 
+  it('counts the shown items (not the server total) in the subtitle on an avis facet', async () => {
+    const wrapper = await mountView()
+    await clickSeg(wrapper, 'Liked')
+    await flushPromises()
+
+    // Nothing is liked: the client-side facet shows 0 cards, and the counter
+    // must say so — not the server-page total (1) it used to display.
+    // Right member = totalUnfiltered (sum of pillarCounts, here 17).
+    expect(wrapper.find('.sub').text()).toBe('0 / 17 genres')
+  })
+
+  it('the « Disliked » empty copy names the barred heart, not a thumb', async () => {
+    const wrapper = await mountView()
+    await clickSeg(wrapper, 'Disliked')
+    await flushPromises()
+
+    const empty = wrapper.find('.empty-facet--disliked')
+    expect(empty.exists()).toBe(true)
+    expect(empty.find('.ef-sub').text()).toContain('cœur barré')
+    expect(empty.find('.ef-sub').text()).not.toContain('pouce')
+  })
+
   it('« Voir tous les genres » returns to the Tracks segment', async () => {
     const wrapper = await mountView()
     await clickSeg(wrapper, 'Liked')

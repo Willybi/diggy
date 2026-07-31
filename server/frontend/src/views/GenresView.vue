@@ -6,7 +6,7 @@
         <h1>Genres</h1>
         <div class="sub">
           <template v-if="isFiltered"
-            >{{ fmtNum(total) }} / {{ fmtNum(totalUnfiltered) }} genres</template
+            >{{ fmtNum(shownCount) }} / {{ fmtNum(totalUnfiltered) }} genres</template
           >
           <template v-else>{{ fmtNum(totalUnfiltered) }} genres</template>
         </div>
@@ -38,7 +38,7 @@
           <b>{{ fmtNum(unclassifiedCount) }}</b> {{ pl(unclassifiedCount, 'track', 'tracks') }} sans
           genre attribué — à classer
         </span>
-        <button class="btn-admin" :disabled="classifying" @click="launchClassify">
+        <button class="btn btn--sm" :disabled="classifying" @click="launchClassify">
           {{ classifying ? 'En cours…' : 'Lancer le classement auto' }}
         </button>
       </div>
@@ -95,8 +95,8 @@
       </span>
       <p class="ef-title">Aucun genre disliké pour l'instant.</p>
       <p class="ef-sub">
-        Le pouce en haut à droite d'une card écarte un genre. Les genres dislikés sont estompés dans
-        la grille et sortent des recommandations.
+        Le cœur barré en haut à droite d'une card écarte un genre. Les genres dislikés sont
+        estompés dans la grille et sortent des recommandations.
       </p>
       <button class="btn btn--sm" @click="showAll">Voir tous les genres</button>
     </div>
@@ -195,6 +195,14 @@ const displayItems = computed(() => {
   return items.value
 })
 
+// Subtitle counter: on an avis facet the filtering is client-side (displayItems),
+// so the server-page `total` would lie (e.g. « 75 / 75 » over an empty grid).
+const shownCount = computed(() =>
+  sortBy.value === 'liked' || sortBy.value === 'disliked'
+    ? displayItems.value.length
+    : total.value,
+)
+
 function showAll() {
   sortBy.value = 'tracks'
 }
@@ -243,14 +251,14 @@ onMounted(() => {
 /* ── Header ── */
 .titles h1 {
   margin: 0;
-  font: 600 var(--fs-xl)/1.1 var(--font-ui);
+  font: 700 var(--fs-lg)/1.1 var(--font-ui);
   letter-spacing: -0.3px;
   color: var(--ink);
 }
 .sub {
   margin-top: var(--space-1);
   font: 500 var(--fs-sm)/1 var(--font-mono);
-  color: var(--ink-2);
+  color: var(--ink-3);
 }
 .head-tools {
   margin-left: auto;
@@ -282,7 +290,7 @@ onMounted(() => {
   color: var(--ink-3);
   background: var(--surface);
   border: 1px solid var(--line-2);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   padding: var(--space-1) var(--space-15);
   flex: none;
 }
@@ -294,23 +302,12 @@ onMounted(() => {
   color: var(--ink);
   font: 600 var(--fs-base) var(--font-mono);
 }
-.btn-admin {
+/* Shared .btn handles the look; scoped: right-anchor in the strip + the
+   disabled state (absent from .btn) */
+.admin-block .btn {
   margin-left: auto;
-  height: 34px;
-  padding: 0 var(--space-4);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 600 var(--fs-sm) var(--font-ui);
-  cursor: pointer;
-  white-space: nowrap;
 }
-.btn-admin:hover {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-.btn-admin:disabled {
+.admin-block .btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -455,12 +452,11 @@ onMounted(() => {
     flex-basis: 100%;
     text-wrap: pretty;
   }
-  .btn-admin {
+  .admin-block .btn {
     margin-left: 0;
     flex-basis: 100%;
     width: 100%;
     justify-content: center;
-    text-align: center;
   }
 }
 </style>
