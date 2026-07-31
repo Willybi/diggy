@@ -31,6 +31,7 @@ vi.mock('../../stores/audioPlayer', () => ({
 vi.mock('vue-router', () => ({
   useRoute: () => routeState.route,
   useRouter: () => ({ push: routerPush, replace: routeState.replace }),
+  onBeforeRouteLeave: vi.fn(),
 }))
 
 function makeItems() {

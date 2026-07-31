@@ -346,6 +346,7 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 import { useFilterState } from '../composables/useFilterState.js'
 import { useVirtualWindow } from '../composables/useVirtualWindow.js'
 import { useWindowedList } from '../composables/useWindowedList.js'
+import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { buildChips, defaultValue } from '../components/filters/criteria.js'
 import { compareCamelot, CAMELOT_KEYS } from '../components/filters/camelot.js'
 import FilterBar from '../components/filters/FilterBar.vue'
@@ -722,6 +723,16 @@ const windowItems = computed(() =>
   endIndex.value < startIndex.value ? [] : items.value.slice(startIndex.value, endIndex.value + 1),
 )
 
+// Scroll restoration on a back/forward return: snapshots { top, count } into
+// history.state on leave, and on the way back reloads the pages then re-applies
+// the offset. Owns its own onBeforeRouteLeave guard.
+const scrollRestore = useScrollRestore({
+  scroller: scrollEl,
+  getCount: () => items.value.length,
+  loadMore,
+  hasMore,
+})
+
 // ── Rows ─────────────────────────────────────────────────────────────────────
 
 function artSrc(e) {
@@ -803,7 +814,9 @@ onMounted(() => {
   scrollEl.value = findScrollParent(pageEl.value)
   document.addEventListener('click', onDocClick)
   lastFilterKey = filterKey()
-  fetchPage(true)
+  // restore() always loads page 1; on a back-return it also reloads the deeper
+  // pages and re-applies the previous scroll offset.
+  scrollRestore.restore(() => fetchPage(true))
   fetchCounts()
   fetchGenres()
   hydrateArtists()

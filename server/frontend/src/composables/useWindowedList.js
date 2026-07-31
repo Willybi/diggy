@@ -78,7 +78,8 @@ export function useWindowedList({ endpoint, buildParams }) {
 
   function loadMore() {
     if (loading.value || !hasMore.value) return
-    fetch(false)
+    // Return the promise so a caller (e.g. useScrollRestore) can await a page.
+    return fetch(false)
   }
 
   return { items, total, loading, hasMore, error, fetch, loadMore }
