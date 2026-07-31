@@ -37,7 +37,7 @@ import api from '../utils/api.js'
  *   loadMore: () => void,
  * }}
  */
-export function useWindowedList({ endpoint, buildParams }) {
+export function useWindowedList({ endpoint, buildParams, pageSize = 100 }) {
   const items = ref([])
   const total = ref(null)
   const loading = ref(false)
@@ -78,9 +78,43 @@ export function useWindowedList({ endpoint, buildParams }) {
 
   function loadMore() {
     if (loading.value || !hasMore.value) return
-    // Return the promise so a caller (e.g. useScrollRestore) can await a page.
+    // Return the promise so a caller can await a page.
     return fetch(false)
   }
 
-  return { items, total, loading, hasMore, error, fetch, loadMore }
+  // Scroll-restore fast path: reload the first `count` rows in ONE parallel
+  // burst instead of walking pages sequentially. Fires ceil(count / pageSize)
+  // requests at once (each with the page's own baked limit, so offsets stay
+  // contiguous — no gaps) and stitches them in order. Capped so a very deep
+  // scroll can't fan out an unbounded number of concurrent heavy queries.
+  const RESTORE_MAX_PAGES = 12
+  async function fetchUpTo(count) {
+    const mine = ++token
+    loading.value = true
+    const nPages = Math.min(RESTORE_MAX_PAGES, Math.max(1, Math.ceil(count / pageSize)))
+    try {
+      const pages = await Promise.all(
+        Array.from({ length: nPages }, (_, i) =>
+          api.get(endpoint, { params: buildParams(i * pageSize) }),
+        ),
+      )
+      if (mine !== token) return
+      const merged = pages.flatMap((p) => p.data.items)
+      items.value = merged
+      total.value = pages[0].data.total
+      hasMore.value = merged.length < pages[0].data.total
+      error.value = false
+    } catch {
+      if (mine === token) {
+        items.value = []
+        total.value = null
+        hasMore.value = false
+        error.value = true
+      }
+    } finally {
+      if (mine === token) loading.value = false
+    }
+  }
+
+  return { items, total, loading, hasMore, error, fetch, loadMore, fetchUpTo }
 }

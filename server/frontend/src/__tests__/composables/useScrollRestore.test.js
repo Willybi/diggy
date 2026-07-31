@@ -11,105 +11,62 @@ vi.mock('vue-router', () => ({
 
 import { useScrollRestore } from '../../composables/useScrollRestore.js'
 
-const PAGE = 20
-const TARGET = 60
-
-// A fake paginated source: initialFetch loads page 1, loadMore appends a page.
-function makeSource() {
-  const items = ref([])
-  const hasMore = ref(false)
-  const loadMore = vi.fn(() => {
-    const n = items.value.length
-    items.value = [...items.value, ...Array.from({ length: PAGE }, (_, i) => n + i)]
-    hasMore.value = items.value.length < TARGET
-    return Promise.resolve()
-  })
-  const initialFetch = vi.fn(() => {
-    items.value = Array.from({ length: PAGE }, (_, i) => i)
-    hasMore.value = true
-    return Promise.resolve()
-  })
-  return { items, hasMore, loadMore, initialFetch }
-}
-
 describe('useScrollRestore', () => {
   beforeEach(() => {
     leave.cb = null
     window.history.replaceState({}, '')
   })
 
-  it('without a snapshot: loads page 1 only and does not touch the scroller', async () => {
+  it('without a snapshot: runs initialFetch only, leaves the scroller alone', async () => {
     const node = { scrollTop: 0 }
-    const { items, hasMore, loadMore, initialFetch } = makeSource()
-    const { restore } = useScrollRestore({
-      scroller: ref(node),
-      getCount: () => items.value.length,
-      loadMore,
-      hasMore,
-    })
+    const initialFetch = vi.fn(() => Promise.resolve())
+    const hydrate = vi.fn(() => Promise.resolve())
+    const { restore } = useScrollRestore({ scroller: ref(node), getCount: () => 0 })
 
-    const restored = await restore(initialFetch)
+    const restored = await restore({ initialFetch, hydrate })
 
     expect(restored).toBe(false)
     expect(initialFetch).toHaveBeenCalledTimes(1)
-    expect(loadMore).not.toHaveBeenCalled()
+    expect(hydrate).not.toHaveBeenCalled()
     expect(node.scrollTop).toBe(0)
   })
 
-  it('with a snapshot: reloads pages up to the saved count then re-applies the offset', async () => {
-    window.history.replaceState({ __diggyScroll: { top: 300, count: TARGET } }, '')
+  it('with a snapshot: hydrates the saved count then re-applies the offset', async () => {
+    window.history.replaceState({ __diggyScroll: { top: 300, count: 240 } }, '')
     const node = { scrollTop: 0 }
-    const { items, hasMore, loadMore, initialFetch } = makeSource()
-    const { restore } = useScrollRestore({
-      scroller: ref(node),
-      getCount: () => items.value.length,
-      loadMore,
-      hasMore,
-    })
+    const initialFetch = vi.fn(() => Promise.resolve())
+    const hydrate = vi.fn(() => Promise.resolve())
+    const { restore } = useScrollRestore({ scroller: ref(node), getCount: () => 240 })
 
-    const restored = await restore(initialFetch)
+    const restored = await restore({ initialFetch, hydrate })
 
     expect(restored).toBe(true)
-    // page 1 (20) + two loadMore pages (→ 60) to reach the saved count.
-    expect(loadMore).toHaveBeenCalledTimes(2)
-    expect(items.value.length).toBe(TARGET)
+    expect(hydrate).toHaveBeenCalledWith(240)
+    expect(initialFetch).not.toHaveBeenCalled()
     expect(node.scrollTop).toBe(300)
   })
 
-  it('stops growing when the source runs dry (fewer rows than the saved count)', async () => {
-    window.history.replaceState({ __diggyScroll: { top: 999, count: 200 } }, '')
+  it('at the top of the list (top 0): treated as a fresh load, no hydrate', async () => {
+    window.history.replaceState({ __diggyScroll: { top: 0, count: 240 } }, '')
     const node = { scrollTop: 0 }
-    const { items, hasMore, loadMore, initialFetch } = makeSource()
-    const { restore } = useScrollRestore({
-      scroller: ref(node),
-      getCount: () => items.value.length,
-      loadMore,
-      hasMore,
-    })
+    const initialFetch = vi.fn(() => Promise.resolve())
+    const hydrate = vi.fn(() => Promise.resolve())
+    const { restore } = useScrollRestore({ scroller: ref(node), getCount: () => 240 })
 
-    await restore(initialFetch)
+    const restored = await restore({ initialFetch, hydrate })
 
-    // hasMore turns false at 60 → the loop stops there, offset still applied.
-    expect(items.value.length).toBe(TARGET)
-    expect(node.scrollTop).toBe(999)
+    expect(restored).toBe(false)
+    expect(initialFetch).toHaveBeenCalledTimes(1)
+    expect(hydrate).not.toHaveBeenCalled()
   })
 
-  it('snapshot() writes { top, count } into history.state on leave', async () => {
-    const node = { scrollTop: 0 }
-    const { items, loadMore, hasMore, initialFetch } = makeSource()
-    useScrollRestore({
-      scroller: ref(node),
-      getCount: () => items.value.length,
-      loadMore,
-      hasMore,
-    })
-    await initialFetch()
-    node.scrollTop = 540
+  it('snapshot() writes { top, count } into history.state on leave', () => {
+    const node = { scrollTop: 540 }
+    useScrollRestore({ scroller: ref(node), getCount: () => 120 })
 
-    // Fire the onBeforeRouteLeave guard captured at setup.
     expect(leave.cb).toBeTypeOf('function')
     leave.cb()
 
-    expect(window.history.state.__diggyScroll).toEqual({ top: 540, count: PAGE })
+    expect(window.history.state.__diggyScroll).toEqual({ top: 540, count: 120 })
   })
 })

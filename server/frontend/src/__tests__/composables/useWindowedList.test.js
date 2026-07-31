@@ -79,6 +79,25 @@ describe('useWindowedList', () => {
     expect(list.loading.value).toBe(false)
   })
 
+  it('fetchUpTo reloads N rows in one parallel burst, stitched in offset order', async () => {
+    // pageSize 2 → count 5 needs ceil(5/2) = 3 pages, fired concurrently.
+    apiGet
+      .mockResolvedValueOnce(page([{ id: 1 }, { id: 2 }], 10))
+      .mockResolvedValueOnce(page([{ id: 3 }, { id: 4 }], 10))
+      .mockResolvedValueOnce(page([{ id: 5 }, { id: 6 }], 10))
+    const list = useWindowedList({ endpoint: '/api/catalog/', buildParams: params, pageSize: 2 })
+
+    await list.fetchUpTo(5)
+
+    // One request per page, at the page-stepped skips (parallel, order preserved).
+    const skips = apiGet.mock.calls.map(([, cfg]) => cfg.params.skip)
+    expect(skips).toEqual([0, 2, 4])
+    expect(list.items.value.map((i) => i.id)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(list.total.value).toBe(10)
+    expect(list.hasMore.value).toBe(true) // 6 < 10
+    expect(list.loading.value).toBe(false)
+  })
+
   it('drops a stale response when a newer request supersedes it (race)', async () => {
     let resolveOld
     apiGet

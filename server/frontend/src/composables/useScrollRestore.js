@@ -14,6 +14,10 @@ import { onBeforeRouteLeave } from 'vue-router'
  *      to reach a deep offset — we must first reload the rows that were loaded
  *      before, THEN re-apply the offset.
  *
+ * The reload is delegated to `hydrate(count)`, which the view wires to a fast
+ * one-shot loader (e.g. useWindowedList.fetchUpTo — a single parallel burst).
+ * Walking pages sequentially here was the source of a multi-second stall.
+ *
  * Mechanism: on leave we snapshot `{ top, count }` into `history.state`. That
  * state is attached to the specific history ENTRY (Vue Router preserves custom
  * fields across its push/replace — it spreads `history.state`), so the snapshot
@@ -21,14 +25,15 @@ import { onBeforeRouteLeave } from 'vue-router'
  *
  * @param {object} opts
  * @param {import('vue').MaybeRefOrGetter<HTMLElement|null>} opts.scroller  scroll container
- * @param {() => number} opts.getCount             currently loaded row count
- * @param {() => Promise<any>|any} opts.loadMore   append the next page (awaitable)
- * @param {import('vue').Ref<boolean>} opts.hasMore
- * @returns {{ restore: (initialFetch: () => Promise<any>) => Promise<boolean>, snapshot: () => void }}
+ * @param {() => number} opts.getCount  currently loaded row count (for the snapshot)
+ * @returns {{
+ *   restore: (o: { initialFetch: () => Promise<any>, hydrate: (count: number) => Promise<any> }) => Promise<boolean>,
+ *   snapshot: () => void,
+ * }}
  */
 const STATE_KEY = '__diggyScroll'
 
-export function useScrollRestore({ scroller, getCount, loadMore, hasMore }) {
+export function useScrollRestore({ scroller, getCount }) {
   const el = () => toValue(scroller)
 
   function snapshot() {
@@ -47,24 +52,17 @@ export function useScrollRestore({ scroller, getCount, loadMore, hasMore }) {
     snapshot()
   })
 
-  async function restore(initialFetch) {
+  async function restore({ initialFetch, hydrate }) {
     const saved = window.history.state?.[STATE_KEY]
-    // The first page is always loaded — restore only ADDS the deeper pages.
-    await initialFetch()
-    if (!saved || !saved.top || !saved.count) return false
-
-    // Grow the list back to its previous length so the container regains its
-    // height. Stop on no-progress (an errored/capped loadMore) to avoid a spin.
-    let guard = 0
-    while (getCount() < saved.count && hasMore.value && guard < 500) {
-      const before = getCount()
-      await loadMore()
-      guard += 1
-      if (getCount() === before) break
+    // Fresh visit (no snapshot) or top of the list → just the normal first load.
+    if (!saved || !saved.top || !saved.count || !hydrate) {
+      await initialFetch()
+      return false
     }
-
-    // Two ticks: one for the appended rows to render, one for a virtual list's
-    // spacers (padTop/padBottom) to settle to the full height before we scroll.
+    // Back-return: reload the previously loaded rows in one shot, then jump.
+    await hydrate(saved.count)
+    // Two ticks: one for the rows to render, one for the virtual list's spacers
+    // (padTop/padBottom) to settle to the full height before we scroll.
     await nextTick()
     await nextTick()
     const node = el()

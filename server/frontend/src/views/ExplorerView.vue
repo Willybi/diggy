@@ -612,9 +612,19 @@ function buildSearchParams(skip) {
   return p
 }
 
-const { items, total, loading, hasMore, error, fetch: fetchPage, loadMore } = useWindowedList({
+const {
+  items,
+  total,
+  loading,
+  hasMore,
+  error,
+  fetch: fetchPage,
+  loadMore,
+  fetchUpTo,
+} = useWindowedList({
   endpoint: '/api/catalog/',
   buildParams: buildSearchParams,
+  pageSize: PAGE_SIZE,
 })
 
 // Filters/sort changed → the URL is the trigger (debounce already handled by
@@ -724,13 +734,11 @@ const windowItems = computed(() =>
 )
 
 // Scroll restoration on a back/forward return: snapshots { top, count } into
-// history.state on leave, and on the way back reloads the pages then re-applies
-// the offset. Owns its own onBeforeRouteLeave guard.
+// history.state on leave, and on the way back reloads the pages (one parallel
+// burst via fetchUpTo) then re-applies the offset. Owns its onBeforeRouteLeave.
 const scrollRestore = useScrollRestore({
   scroller: scrollEl,
   getCount: () => items.value.length,
-  loadMore,
-  hasMore,
 })
 
 // ── Rows ─────────────────────────────────────────────────────────────────────
@@ -814,9 +822,12 @@ onMounted(() => {
   scrollEl.value = findScrollParent(pageEl.value)
   document.addEventListener('click', onDocClick)
   lastFilterKey = filterKey()
-  // restore() always loads page 1; on a back-return it also reloads the deeper
-  // pages and re-applies the previous scroll offset.
-  scrollRestore.restore(() => fetchPage(true))
+  // On a back-return, hydrate the previously loaded rows in one burst and
+  // re-apply the scroll offset; otherwise just load page 1.
+  scrollRestore.restore({
+    initialFetch: () => fetchPage(true),
+    hydrate: (count) => fetchUpTo(count),
+  })
   fetchCounts()
   fetchGenres()
   hydrateArtists()
