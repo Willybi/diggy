@@ -66,6 +66,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C8   Fiabilite des sets TrackID            BAS         3-4 jours    A FAIRE
  E2   Analyse audio previews (BPM + Key)    MOYEN       3-5 jours    A FAIRE — cadre 2026-07-31, benchmark E2.a d'abord
  C9   Embeddings audio & reco par contenu   BAS         8-12 jours   A FAIRE — moyen/long terme, phases separables
+ D7   Admin mobile Flags + Lier (design)    BAS         2-3 jours    A FAIRE — polish mobile Flags + bloc "Lier" apres responsive d400ba8 (utilisable mais perfectible) ; chantier Claude Design
 ```
 
 ### Chantiers termines (reference)
