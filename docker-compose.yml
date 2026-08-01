@@ -57,7 +57,7 @@ services:
       resources:
         limits:
           cpus: '2'
-          memory: 1G
+          memory: 3G
     env_file: .env
     depends_on:
       postgres:
