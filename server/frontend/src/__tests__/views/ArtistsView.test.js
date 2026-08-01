@@ -1,17 +1,25 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
+import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mutable holders shared with the hoisted mocks below.
-const { apiMock, authStore } = vi.hoisted(() => ({
+const { apiMock, authStore, routeState, routerReplace } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
   // Minimal auth store stand-in: only `user` is read by the view (admin gate on
   // the « Sans Deezer » toggle). Mutate authStore.user BEFORE mounting a scenario.
   authStore: { user: null },
+  routeState: {},
+  routerReplace: vi.fn(),
 }))
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 vi.mock('../../stores/auth.js', () => ({ useAuthStore: () => authStore }))
+vi.mock('vue-router', () => ({
+  useRoute: () => routeState.route,
+  useRouter: () => ({ push: vi.fn(), replace: routerReplace }),
+  onBeforeRouteLeave: vi.fn(),
+}))
 
 // The child ArtistCard pulls in vue-router + stores; the view itself does not.
 // Stub it so this suite only exercises the view's head, filters and empty states.
@@ -71,6 +79,8 @@ describe('ArtistsView', () => {
     )
     apiMock.get.mockReset()
     apiMock.post.mockReset()
+    routerReplace.mockReset()
+    routeState.route = reactive({ path: '/artists', query: {} })
     setActivePinia(createPinia())
     authStore.user = null // default: non-admin viewer (toggle hidden)
     opinionsResponse = { artist: {} }

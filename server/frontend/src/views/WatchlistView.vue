@@ -315,10 +315,12 @@
 
 <script setup>
 import { ref, computed, watch, reactive, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { useUrlSync } from '../composables/useUrlSync.js'
+import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { useTaskPoll } from '../composables/useTaskPoll.js'
 import { fmtNum, pl } from '../utils/format'
 import Artwork from '../components/Artwork.vue'
@@ -327,6 +329,7 @@ import StyleTag from '../components/StyleTag.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SegFilter from '../components/SegFilter.vue'
 
+const route = useRoute()
 const router = useRouter()
 const opinions = useOpinionsStore()
 
@@ -342,11 +345,31 @@ const baseTotal = ref(0) // last unfiltered (all-mode) total, for the head sub-c
 // Composite sort sent server-side: leading '-' = descending.
 const sortParam = computed(() => (sortDir.value === 'desc' ? '-' : '') + sortKey.value)
 
+// Filters ↔ URL so a back-return restores them (before the refetch watchers so
+// the initial hydrate doesn't trigger a spurious fetch).
+useUrlSync(
+  [
+    { ref: sortKey, param: 'sort', default: 'title' },
+    { ref: sortDir, param: 'dir', default: 'asc' },
+    { ref: mode, param: 'avis', default: 'all' },
+  ],
+  { router, route },
+)
+
 // ── Paginated list (shared trunk, infinite scroll) ──
-const { items, total, loading, hasMore, sentinel, fetch } = usePaginatedList({
+const { items, total, loading, hasMore, sentinel, fetch, fetchUpTo } = usePaginatedList({
   endpoint: '/api/watchlist/browse',
   pageSize: 24,
   sort: () => sortParam.value,
+})
+
+// Scroll restoration on a back/forward return. The grid scrolls inside
+// .app-main (#main-content); on return we reload the rows in one burst
+// (fetchUpTo) then re-apply the offset. Opinion facets are not paginated —
+// they reload wholesale through the runFetch wrapper.
+const scrollRestore = useScrollRestore({
+  scroller: () => document.getElementById('main-content'),
+  getCount: () => items.value.length,
 })
 
 const arrow = computed(() => (sortDir.value === 'asc' ? '↑' : '↓'))
@@ -619,7 +642,10 @@ function onKeydown(e) {
 }
 
 onMounted(() => {
-  runFetch(true)
+  scrollRestore.restore({
+    initialFetch: () => runFetch(true),
+    hydrate: (count) => (isOpinionMode.value ? runFetch(true) : fetchUpTo(count)),
+  })
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))

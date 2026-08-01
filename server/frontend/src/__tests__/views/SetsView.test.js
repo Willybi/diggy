@@ -1,21 +1,26 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
+import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mutable holders shared with the hoisted mocks below.
-const { apiMock, routerPush } = vi.hoisted(() => ({
+const { apiMock, routerPush, routeState, routerReplace } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
   },
   routerPush: vi.fn(),
+  routeState: {},
+  routerReplace: vi.fn(),
 }))
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: routerPush }),
+  useRoute: () => routeState.route,
+  useRouter: () => ({ push: routerPush, replace: routerReplace }),
+  onBeforeRouteLeave: vi.fn(),
 }))
 
 function makeItems() {
@@ -107,6 +112,8 @@ describe('SetsView', () => {
     apiMock.patch.mockReset()
     apiMock.patch.mockResolvedValue({ data: {} })
     routerPush.mockReset()
+    routerReplace.mockReset()
+    routeState.route = reactive({ path: '/sets', query: {} })
     setActivePinia(createPinia())
     opinionsResponse = { set: { 1: 'liked', 2: 'disliked', 3: 'liked' } }
     listResponse = { total: 2, items: makeItems() }

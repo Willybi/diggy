@@ -1,16 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mutable holders shared with the hoisted mocks below.
-const { apiMock, authStore } = vi.hoisted(() => ({
+const { apiMock, authStore, routeState, routerReplace } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
   // Minimal auth store stand-in: only `user` is read (admin gate on the strip).
   authStore: { user: null },
+  routeState: {},
+  routerReplace: vi.fn(),
 }))
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 vi.mock('../../stores/auth.js', () => ({ useAuthStore: () => authStore }))
+vi.mock('vue-router', () => ({
+  useRoute: () => routeState.route,
+  useRouter: () => ({ push: vi.fn(), replace: routerReplace }),
+  onBeforeRouteLeave: vi.fn(),
+}))
 
 // The child GenreCard pulls in vue-router + stores; the view itself does not.
 // Stub it so this suite only exercises the view's head, filters and empty states.
@@ -69,6 +77,8 @@ describe('GenresView', () => {
     )
     apiMock.get.mockReset()
     apiMock.post.mockReset()
+    routerReplace.mockReset()
+    routeState.route = reactive({ path: '/genres', query: {} })
     setActivePinia(createPinia())
     authStore.user = null
     listResponse = {

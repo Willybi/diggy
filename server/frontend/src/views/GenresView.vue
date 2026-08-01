@@ -137,6 +137,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useToast } from '../stores/toast.js'
 import { useAuthStore } from '../stores/auth.js'
@@ -147,10 +148,14 @@ import SegFilter from '../components/SegFilter.vue'
 import FamilyChips from '../components/FamilyChips.vue'
 import SkeletonGrid from '../components/SkeletonGrid.vue'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { useUrlSync } from '../composables/useUrlSync.js'
+import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { fmtNum, pl } from '../utils/format'
 
 const auth = useAuthStore()
 const opinions = useOpinionsStore()
+const route = useRoute()
+const router = useRouter()
 
 // ── Filters ──
 const searchQuery = ref('')
@@ -159,16 +164,36 @@ const familyFilter = ref('all')
 const unclassifiedCount = ref(0)
 const classifying = ref(false)
 
+// Filters ↔ URL so a back-return restores them (must run before the refetch
+// watchers below, so the initial hydrate doesn't trigger a spurious fetch).
+useUrlSync(
+  [
+    { ref: sortBy, param: 'sort', default: 'tracks' },
+    { ref: familyFilter, param: 'fam', default: 'all' },
+    { ref: searchQuery, param: 'q', default: '', debounce: true },
+  ],
+  { router, route },
+)
+
 // ── Paginated list (shared trunk) ──
 // « lib » is a real backend sort (passed through). liked/disliked are client-side
 // facets over the 'tracks' ordering, so they map to the same server sort;
 // displayItems below applies the opinion filter.
-const { items, total, familyCounts, loading, hasMore, sentinel, fetch } = usePaginatedList({
-  endpoint: '/api/genres',
-  pageSize: 24,
-  sort: () => (sortBy.value === 'liked' || sortBy.value === 'disliked' ? 'tracks' : sortBy.value),
-  family: () => familyFilter.value,
-  query: () => searchQuery.value,
+const { items, total, familyCounts, loading, hasMore, sentinel, fetch, fetchUpTo } =
+  usePaginatedList({
+    endpoint: '/api/genres',
+    pageSize: 24,
+    sort: () => (sortBy.value === 'liked' || sortBy.value === 'disliked' ? 'tracks' : sortBy.value),
+    family: () => familyFilter.value,
+    query: () => searchQuery.value,
+  })
+
+// Scroll restoration on a back/forward return. The grid scrolls inside
+// .app-main (#main-content); on return we reload the rows in one burst
+// (fetchUpTo) then re-apply the offset.
+const scrollRestore = useScrollRestore({
+  scroller: () => document.getElementById('main-content'),
+  getCount: () => items.value.length,
 })
 
 // Total unfiltered (for subtitle)
@@ -233,7 +258,10 @@ watch(sortBy, () => fetch(true))
 watch(familyFilter, () => fetch(true))
 
 onMounted(() => {
-  fetch()
+  scrollRestore.restore({
+    initialFetch: () => fetch(true),
+    hydrate: (count) => fetchUpTo(count),
+  })
   fetchUnclassifiedCount()
 })
 </script>

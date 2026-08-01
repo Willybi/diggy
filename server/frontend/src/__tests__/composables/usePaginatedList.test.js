@@ -167,4 +167,22 @@ describe('usePaginatedList', () => {
     expect(list.items.value).toEqual([{ id: 1 }, { id: 2 }])
     expect(list.loading.value).toBe(false)
   })
+
+  it('fetchUpTo reloads N rows in one parallel burst, stitched in offset order', async () => {
+    const { list } = mountList({ endpoint: '/api/artists/', sort: () => 'catalog' })
+    // pageSize default 24 → count 40 needs ceil(40/24) = 2 pages, fired at once.
+    apiGet
+      .mockResolvedValueOnce(page([{ id: 1 }], 100))
+      .mockResolvedValueOnce(page([{ id: 2 }], 100))
+
+    await list.fetchUpTo(40)
+
+    const offsets = apiGet.mock.calls.map(([, cfg]) => cfg.params.offset)
+    expect(offsets).toEqual([0, 24])
+    expect(list.items.value).toEqual([{ id: 1 }, { id: 2 }])
+    expect(list.total.value).toBe(100)
+    expect(list.offset.value).toBe(2) // next loadMore continues from here
+    expect(list.hasMore.value).toBe(true)
+    expect(list.loading.value).toBe(false)
+  })
 })

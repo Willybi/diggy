@@ -103,6 +103,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useOpinionsStore } from '../stores/opinions.js'
@@ -112,16 +113,32 @@ import SegFilter from '../components/SegFilter.vue'
 import FamilyChips from '../components/FamilyChips.vue'
 import SkeletonGrid from '../components/SkeletonGrid.vue'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { useUrlSync } from '../composables/useUrlSync.js'
+import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { fmtNum } from '../utils/format'
 
 const auth = useAuthStore()
 const opinions = useOpinionsStore()
+const route = useRoute()
+const router = useRouter()
 
 // -- Filters --
 const searchQuery = ref('')
 const sortBy = ref('catalog')
 const familyFilter = ref('all')
 const noDeezer = ref(false)
+
+// Filters ↔ URL so a back-return restores them (before the refetch watchers so
+// the initial hydrate doesn't trigger a spurious fetch).
+useUrlSync(
+  [
+    { ref: sortBy, param: 'sort', default: 'catalog' },
+    { ref: familyFilter, param: 'fam', default: 'all' },
+    { ref: searchQuery, param: 'q', default: '', debounce: true },
+    { ref: noDeezer, param: 'nodeezer', default: false },
+  ],
+  { router, route },
+)
 
 // « Suivis » is a server filter (followed=true) sent with a valid default sort;
 // « Sans Deezer » restricts the corpus for every sort. Both ride the shared
@@ -134,7 +151,7 @@ const extraParams = () => {
 }
 
 // -- Paginated list (shared trunk) --
-const { items, total, familyCounts, loading, hasMore, sentinel, fetch } = usePaginatedList({
+const { items, total, familyCounts, loading, hasMore, sentinel, fetch, fetchUpTo } = usePaginatedList({
   endpoint: '/api/artists/',
   pageSize: 24,
   // « followed » is not a backend sort value — map it to a valid default and
@@ -143,6 +160,16 @@ const { items, total, familyCounts, loading, hasMore, sentinel, fetch } = usePag
   family: () => familyFilter.value,
   query: () => searchQuery.value,
   extraParams,
+})
+
+// Scroll restoration on a back/forward return. The grid scrolls inside
+// .app-main (#main-content); on return we reload the rows in one burst
+// (fetchUpTo) then re-apply the offset. Opinion facets (liked/disliked) are
+// not paginated — they reload wholesale through the fetchArtists wrapper.
+const isOpinionSort = () => sortBy.value === 'liked' || sortBy.value === 'disliked'
+const scrollRestore = useScrollRestore({
+  scroller: () => document.getElementById('main-content'),
+  getCount: () => items.value.length,
 })
 
 const totalUnfiltered = computed(() => {
@@ -222,7 +249,10 @@ watch(familyFilter, () => fetchArtists(true))
 watch(noDeezer, () => fetchArtists(true))
 
 onMounted(() => {
-  fetchArtists()
+  scrollRestore.restore({
+    initialFetch: () => fetchArtists(true),
+    hydrate: (count) => (isOpinionSort() ? fetchArtists(true) : fetchUpTo(count)),
+  })
 })
 </script>
 

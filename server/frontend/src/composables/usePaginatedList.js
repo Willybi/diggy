@@ -46,6 +46,21 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query,
   const offset = ref(0)
   const hasMore = ref(false)
 
+  function buildParams(off) {
+    const params = {
+      sort: toValue(sort),
+      limit: pageSize,
+      offset: off,
+    }
+    const fam = toValue(family)
+    if (fam && fam !== 'all') params.family = fam
+    const q = (toValue(query) || '').trim()
+    if (q) params.q = q
+    const extra = toValue(extraParams)
+    if (extra) Object.assign(params, extra)
+    return params
+  }
+
   async function fetch(reset = true) {
     if (reset) {
       offset.value = 0
@@ -53,19 +68,7 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query,
     }
     loading.value = true
     try {
-      const params = {
-        sort: toValue(sort),
-        limit: pageSize,
-        offset: offset.value,
-      }
-      const fam = toValue(family)
-      if (fam && fam !== 'all') params.family = fam
-      const q = (toValue(query) || '').trim()
-      if (q) params.q = q
-      const extra = toValue(extraParams)
-      if (extra) Object.assign(params, extra)
-
-      const { data } = await api.get(endpoint, { params })
+      const { data } = await api.get(endpoint, { params: buildParams(offset.value) })
       items.value = reset ? data.items : [...items.value, ...data.items]
       total.value = data.total
       familyCounts.value = data.pillarCounts || {}
@@ -83,7 +86,45 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query,
     fetch(false)
   }
 
+  // Scroll-restore fast path: reload the first `count` rows in ONE parallel
+  // burst instead of walking pages sequentially (which stalled for seconds).
+  // Fires ceil(count / pageSize) requests at once and stitches them in order.
+  // Capped so a very deep scroll can't fan out unbounded concurrent requests.
+  const RESTORE_MAX_PAGES = 12
+  async function fetchUpTo(count) {
+    const nPages = Math.min(RESTORE_MAX_PAGES, Math.max(1, Math.ceil(count / pageSize)))
+    loading.value = true
+    try {
+      const pages = await Promise.all(
+        Array.from({ length: nPages }, (_, i) =>
+          api.get(endpoint, { params: buildParams(i * pageSize) }),
+        ),
+      )
+      const merged = pages.flatMap((p) => p.data.items)
+      items.value = merged
+      total.value = pages[0].data.total
+      familyCounts.value = pages[0].data.pillarCounts || {}
+      offset.value = merged.length
+      hasMore.value = merged.length < pages[0].data.total
+    } catch {
+      items.value = []
+    } finally {
+      loading.value = false
+    }
+  }
+
   const { sentinel } = useInfiniteScroll(loadMore)
 
-  return { items, total, familyCounts, loading, offset, hasMore, sentinel, fetch, loadMore }
+  return {
+    items,
+    total,
+    familyCounts,
+    loading,
+    offset,
+    hasMore,
+    sentinel,
+    fetch,
+    loadMore,
+    fetchUpTo,
+  }
 }
