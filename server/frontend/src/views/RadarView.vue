@@ -346,6 +346,7 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 import { useFilterState } from '../composables/useFilterState.js'
 import { useVirtualWindow } from '../composables/useVirtualWindow.js'
 import { useWindowedList } from '../composables/useWindowedList.js'
+import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { buildChips, defaultValue } from '../components/filters/criteria.js'
 import { compareCamelot, CAMELOT_KEYS } from '../components/filters/camelot.js'
 import FilterBar from '../components/filters/FilterBar.vue'
@@ -614,9 +615,19 @@ function buildSearchParams(skip) {
   return p
 }
 
-const { items, total, loading, hasMore, error, fetch: fetchPage, loadMore } = useWindowedList({
+const {
+  items,
+  total,
+  loading,
+  hasMore,
+  error,
+  fetch: fetchPage,
+  loadMore,
+  fetchUpTo,
+} = useWindowedList({
   endpoint: '/api/radar/feed',
   buildParams: buildSearchParams,
+  pageSize: PAGE_SIZE,
 })
 
 // Filters/sort changed → the URL is the trigger (debounce already handled by
@@ -733,6 +744,14 @@ const windowItems = computed(() =>
   endIndex.value < startIndex.value ? [] : items.value.slice(startIndex.value, endIndex.value + 1),
 )
 
+// Scroll restoration on a back/forward return: snapshots { top, count } into
+// history.state on leave, and on the way back reloads the pages (one parallel
+// burst via fetchUpTo) then re-applies the offset. Owns its onBeforeRouteLeave.
+const scrollRestore = useScrollRestore({
+  scroller: scrollEl,
+  getCount: () => items.value.length,
+})
+
 // ── Rows ─────────────────────────────────────────────────────────────────────
 
 function artSrc(e) {
@@ -778,7 +797,12 @@ onMounted(() => {
   // useVirtualWindow watches it and binds its listeners onto it.
   scrollEl.value = findScrollParent(pageEl.value)
   lastFilterKey = filterKey()
-  fetchPage(true)
+  // On a back-return, hydrate the previously loaded rows in one burst and
+  // re-apply the scroll offset; otherwise just load page 1.
+  scrollRestore.restore({
+    initialFetch: () => fetchPage(true),
+    hydrate: (count) => fetchUpTo(count),
+  })
   fetchCounts()
   fetchGenres()
   hydrateArtists()
