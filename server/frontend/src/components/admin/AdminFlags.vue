@@ -35,18 +35,18 @@
         <tbody>
           <template v-for="flag in flags" :key="flag.id">
             <tr :class="{ resolved: flag.status !== 'pending' }">
-              <td class="col-raw">
+              <td class="col-raw" data-label="String brute">
                 <span class="raw-string">{{ flag.raw_artist_string }}</span>
               </td>
-              <td class="col-reason">
+              <td class="col-reason" data-label="Raison">
                 <span class="reason-badge" :class="flag.reason">{{ flag.reason }}</span>
               </td>
-              <td class="col-tokens">
+              <td class="col-tokens" data-label="Tokens détectés">
                 <div class="token-list">
                   <span v-for="t in flag.tokens" :key="t" class="token-pill">{{ t }}</span>
                 </div>
               </td>
-              <td class="col-deezer">
+              <td class="col-deezer" data-label="Deezer">
                 <div class="deezer-list">
                   <span
                     v-for="(did, name) in flag.deezer_ids"
@@ -105,7 +105,6 @@
                 <ArtistSegmentSplitter
                   :key="flag.id"
                   :raw="flag.raw_artist_string"
-                  :initial-tokens="flag.tokens"
                   :pending="!!resolving[flag.id]"
                   :error="editError"
                   @confirm="onSplitConfirm(flag, $event)"
@@ -208,6 +207,7 @@ onMounted(() => {
 
 <style scoped>
 .admin-section {
+  container-type: inline-size;
   margin-bottom: var(--space-8);
   padding: var(--space-5) var(--space-6);
   background: var(--surface);
@@ -448,5 +448,81 @@ onMounted(() => {
 }
 .dz-link:hover {
   text-decoration: underline;
+}
+
+/* ============ RESPONSIVE — table→cartes (palier aligné sur ExplorerView) ============ */
+@container (max-width: 859px) {
+  .table-wrap {
+    overflow-x: visible;
+  }
+  .flag-table,
+  .flag-table tbody {
+    display: block;
+  }
+  .flag-table thead {
+    display: none;
+  }
+  .flag-table tbody tr {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-25);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+  }
+  .flag-table tbody tr + tr {
+    margin-top: var(--space-25);
+  }
+  .flag-table tbody td {
+    display: block;
+    padding: 0;
+    border-bottom: none;
+  }
+  .flag-table tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: var(--space-1);
+    font: 500 var(--fs-xs)/1 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .col-raw,
+  .col-reason,
+  .col-tokens,
+  .col-deezer,
+  .col-action {
+    width: auto;
+    min-width: 0;
+  }
+  .raw-string {
+    font-size: var(--fs-base);
+  }
+  .deezer-name {
+    max-width: none;
+  }
+  .col-action {
+    margin-top: var(--space-1);
+    text-align: left;
+  }
+  .action-btns {
+    flex-direction: column;
+    gap: var(--space-15);
+  }
+  .btn-split,
+  .btn-keep,
+  .btn-skip {
+    width: 100%;
+    padding: var(--space-2) var(--space-25);
+  }
+  .flag-table tbody tr.editor-row {
+    margin-top: var(--space-1);
+    background: var(--surface-2);
+  }
+  .flag-table tbody tr.editor-row td {
+    padding: 0;
+    background: transparent;
+  }
 }
 </style>

@@ -22,16 +22,32 @@
       </template>
     </div>
 
-    <!-- Resulting segments: each can be kept or marked as an artefact to drop. -->
+    <!-- Resulting segments: each can be kept or marked as an artefact to drop.
+         A kept segment carries its live Deezer signal (display only). -->
     <div class="seg-chips">
-      <div v-for="(seg, i) in segments" :key="i" class="seg-chip" :class="{ deleted: !seg.keep }">
+      <div v-for="(seg, i) in segments" :key="i" class="seg-chip" :class="{ deleted: !seg.kept }">
         <span class="seg-chip-text">{{ seg.text }}</span>
+        <span v-if="seg.kept && seg.deezer" class="seg-deezer">
+          <span
+            v-if="seg.deezer.status === 'searching'"
+            class="seg-dz-spin"
+            title="Recherche Deezer…"
+          ></span>
+          <span
+            v-else-if="seg.deezer.status === 'found'"
+            class="seg-dz-found"
+            :title="`Match exact Deezer : ${seg.deezer.hit.name}`"
+          >
+            ✓ {{ seg.deezer.hit.name }} · {{ seg.deezer.hit.nb_fan?.toLocaleString() }} fans
+          </span>
+          <span v-else class="seg-dz-missing" title="Aucun match exact sur Deezer">✗</span>
+        </span>
         <button
           class="seg-trash"
-          :title="seg.keep ? 'Marquer comme à supprimer' : 'Rétablir'"
+          :title="seg.kept ? 'Marquer comme à supprimer' : 'Rétablir'"
           @click="toggleSegment(seg)"
         >
-          {{ seg.keep ? '🗑' : '↩' }}
+          {{ seg.kept ? '🗑' : '↩' }}
         </button>
       </div>
     </div>
@@ -51,16 +67,19 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { initSplitState, computeSegments, keptTokens } from '../../utils/artistSplit.js'
+import { ref, computed, watch, onUnmounted } from 'vue'
+import api from '../../utils/api.js'
+import {
+  initSplitState,
+  computeSegments,
+  keptTokens,
+  foldArtistName,
+} from '../../utils/artistSplit.js'
 
 const props = defineProps({
   // Full original artist string — drives the backend relink/cleanup, must reach
   // the API verbatim; here it seeds the units and is shown as context.
   raw: { type: String, required: true },
-  // Pre-made starting segments (Flags tab passes flag.tokens). Null = derive the
-  // units from `raw`.
-  initialTokens: { type: Array, default: null },
   pending: { type: Boolean, default: false },
   error: { type: String, default: '' },
   confirmLabel: { type: String, default: 'Confirmer le split' },
@@ -68,14 +87,12 @@ const props = defineProps({
 
 const emit = defineEmits(['confirm', 'cancel'])
 
-const sep = ref(' ')
 const units = ref([])
 const cuts = ref([])
 const keep = ref([])
 
 function reset() {
-  const state = initSplitState(props.raw, props.initialTokens)
-  sep.value = state.sep
+  const state = initSplitState(props.raw)
   units.value = state.units
   cuts.value = state.cuts
   keep.value = state.keep
@@ -83,21 +100,87 @@ function reset() {
 
 watch(() => props.raw, reset, { immediate: true })
 
-const segments = computed(() =>
-  computeSegments(units.value, cuts.value, sep.value).map((seg) => ({
-    ...seg,
-    keep: seg.unitIndices.some((j) => keep.value[j]),
-  })),
+const baseSegments = computed(() => computeSegments(units.value, cuts.value, keep.value))
+
+const outputTokens = computed(() => keptTokens(units.value, cuts.value, keep.value))
+
+// ── Live Deezer signal (display only) ────────────────────────────────────────
+// Every KEPT segment is searched on Deezer and shows ✓ (exact fold-match) or ✗
+// so the admin cuts with eyes open. No linking happens here and the emitted
+// tokens are untouched. Results are cached by segment text: a given text is
+// searched at most ONCE and a deleted segment never enters the queue — the
+// admin endpoint hits Deezer directly, unthrottled, hence the debounce too.
+const DEEZER_DEBOUNCE_MS = 400
+
+const deezerByText = ref({})
+const deezerQueue = new Set()
+let deezerTimer = null
+
+const keptTexts = computed(() => baseSegments.value.filter((s) => s.kept).map((s) => s.text))
+
+watch(
+  keptTexts,
+  (texts) => {
+    let queued = false
+    for (const text of texts) {
+      if (deezerByText.value[text]) continue
+      deezerByText.value[text] = { status: 'searching', hit: null }
+      deezerQueue.add(text)
+      queued = true
+    }
+    if (!queued) return
+    clearTimeout(deezerTimer)
+    deezerTimer = setTimeout(flushDeezerQueue, DEEZER_DEBOUNCE_MS)
+  },
+  { immediate: true },
 )
 
-const outputTokens = computed(() => keptTokens(units.value, cuts.value, keep.value, sep.value))
+function flushDeezerQueue() {
+  // A segment deleted (or merged away) during the debounce window is never
+  // searched: drop its entry so it re-queues if it ever comes back.
+  const stillKept = new Set(keptTexts.value)
+  const texts = [...deezerQueue]
+  deezerQueue.clear()
+  for (const text of texts) {
+    if (stillKept.has(text)) {
+      searchDeezer(text)
+    } else {
+      delete deezerByText.value[text]
+    }
+  }
+}
+
+// "Found" = a hit whose name equals the segment case- and accent-insensitively
+// (foldArtistName) — Deezer returns fuzzy hits for anything, so a non-empty
+// hit list alone proves nothing.
+async function searchDeezer(text) {
+  try {
+    const { data } = await api.get('/api/admin/artists/search-deezer', { params: { q: text } })
+    const hit = (data || []).find((h) => foldArtistName(h.name) === foldArtistName(text)) || null
+    deezerByText.value[text] = { status: hit ? 'found' : 'missing', hit }
+  } catch {
+    // 429 / network errors are toasted by the api interceptor; drop the entry
+    // so a later segment change retries instead of freezing a stale signal.
+    delete deezerByText.value[text]
+  }
+}
+
+onUnmounted(() => clearTimeout(deezerTimer))
+
+// Segments as displayed: the pure split + each kept segment's Deezer signal.
+const segments = computed(() =>
+  baseSegments.value.map((seg) => ({
+    ...seg,
+    deezer: seg.kept ? deezerByText.value[seg.text] || null : null,
+  })),
+)
 
 function toggleCut(i) {
   cuts.value[i] = !cuts.value[i]
 }
 
 function toggleSegment(seg) {
-  const next = !seg.keep
+  const next = !seg.kept
   seg.unitIndices.forEach((j) => {
     keep.value[j] = next
   })
@@ -218,6 +301,36 @@ function confirm() {
   font: 500 var(--fs-sm)/1 var(--font-ui);
   white-space: nowrap;
 }
+
+/* Live Deezer signal */
+.seg-deezer {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-05);
+  font: 400 var(--fs-xs)/1 var(--font-ui);
+  white-space: nowrap;
+}
+.seg-dz-spin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-dz-spin {
+    animation: none;
+  }
+}
+.seg-dz-found {
+  color: var(--pos-ink);
+}
+.seg-dz-missing {
+  color: var(--neg-ink);
+  font-weight: 700;
+}
+
 .seg-trash {
   display: inline-flex;
   align-items: center;

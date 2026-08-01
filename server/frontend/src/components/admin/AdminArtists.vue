@@ -92,7 +92,7 @@
   </section>
 
   <!-- Liaison manuelle artiste ↔ Deezer -->
-  <section class="admin-section">
+  <section class="admin-section link-section">
     <h2 class="section-title">Lier un artiste à Deezer</h2>
     <p class="section-sub">
       Recherche un artiste dans la DB et l'associe manuellement à un compte Deezer.
@@ -165,7 +165,7 @@
               <img v-if="h.picture" :src="h.picture" />
               <span v-else class="fallback-sm">{{ h.name?.[0] }}</span>
             </div>
-            <div>
+            <div class="row-main">
               <span class="ar-name-sm">{{ h.name }}</span>
               <span class="ar-meta mono muted">
                 {{ h.nb_fan?.toLocaleString() }} fans ·
@@ -582,6 +582,9 @@ onMounted(() => {
 }
 
 /* Manual link */
+.link-section {
+  container-type: inline-size;
+}
 .link-form {
   display: flex;
   gap: var(--space-3);
@@ -646,6 +649,10 @@ onMounted(() => {
   display: block;
   font: 500 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink);
+}
+.row-main {
+  flex: 1;
+  min-width: 0;
 }
 .ar-meta {
   display: block;
@@ -734,5 +741,41 @@ onMounted(() => {
 .btn-row-action.split:hover {
   color: var(--accent-ink);
   border-color: var(--accent);
+}
+
+/* ============ RESPONSIVE — empilement mobile (palier aligné sur ExplorerView) ============ */
+@container (max-width: 639px) {
+  .link-form {
+    flex-direction: column;
+  }
+  .link-form .form-input {
+    width: 100%;
+    min-height: var(--touch-min);
+  }
+  .link-results {
+    flex-direction: column;
+  }
+  .link-col {
+    min-width: 0;
+  }
+  .link-list {
+    max-height: 240px;
+  }
+  .result-row {
+    flex-wrap: wrap;
+    padding: var(--space-2) var(--space-25);
+  }
+  .result-row .ar-name-sm {
+    flex: 1;
+    min-width: 0;
+  }
+  /* Pas de hover en tactile : actions toujours visibles et tapables. */
+  .row-actions {
+    opacity: 1;
+  }
+  .btn-row-action {
+    padding: var(--space-2) var(--space-25);
+    min-height: var(--space-8);
+  }
 }
 </style>
