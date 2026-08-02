@@ -175,3 +175,126 @@ class TestListGenresLibSort:
             db, auth_user.id, family=None, sort="tracks", q=None, limit=24, offset=0
         )
         assert [it["name"] for it in res["items"]][0] == "ztestlibsort_a"
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="list_genre_tracks uses PostgreSQL-only SQL (= ANY(genres), unnest)",
+)
+class TestListGenreTracksArtistsAvis:
+    """Additive `artists` + `avis` fields on GET /api/genres/tracks (genre-detail
+    rebuild, Lot 0).
+
+    `artists` = structured refs from catalog_artists in `position` order (empty
+    list when the entry has none — the flat `artist` string stays as fallback).
+    `avis` = canonical COALESCE(user_opinions.opinion, user_tracks.avis), None
+    for guests and for other users' opinions. Runs on PostgreSQL only (the
+    tracks SQL does not execute on the SQLite harness).
+    """
+
+    GENRE = "ztesttracksavis"
+
+    async def _seed(self, db, user):
+        from models import Artist, CatalogArtist, CatalogEntry, UserOpinion, UserTrack
+
+        entries = {}
+        for slug in ("t0_two_artists", "t1_opinion_only", "t2_ut_avis_only", "t3_both"):
+            entry = CatalogEntry(
+                title=slug,
+                artist=f"flat {slug}",
+                normalized_key=f"{self.GENRE}|{slug}",
+                genres=[self.GENRE],
+                scope="shared",
+            )
+            db.add(entry)
+            entries[slug] = entry
+        a1 = Artist(name="ZTest Artist One", normalized_name="ztest artist one")
+        a2 = Artist(name="ZTest Artist Two", normalized_name="ztest artist two")
+        db.add_all([a1, a2])
+        await db.flush()
+
+        # Inserted with position 2 BEFORE position 1: proves ORDER BY position.
+        db.add(CatalogArtist(
+            catalog_id=entries["t0_two_artists"].id, artist_id=a2.id, position=2
+        ))
+        db.add(CatalogArtist(
+            catalog_id=entries["t0_two_artists"].id, artist_id=a1.id, position=1
+        ))
+        db.add(UserOpinion(
+            user_id=user.id, entity_type="track",
+            entity_key=str(entries["t1_opinion_only"].id), opinion="liked",
+        ))
+        db.add(UserTrack(
+            user_id=user.id, catalog_id=entries["t2_ut_avis_only"].id, avis="disliked"
+        ))
+        db.add(UserTrack(
+            user_id=user.id, catalog_id=entries["t3_both"].id, avis="disliked"
+        ))
+        db.add(UserOpinion(
+            user_id=user.id, entity_type="track",
+            entity_key=str(entries["t3_both"].id), opinion="liked",
+        ))
+        await db.commit()
+        return {slug: e.id for slug, e in entries.items()}
+
+    async def _list(self, db, user_id):
+        from services import genre_service
+
+        res = await genre_service.list_genre_tracks(
+            db, self.GENRE, user_id, sort="alpha", q=None, in_lib=None,
+            limit=50, offset=0,
+        )
+        return {it["title"]: it for it in res["items"]}
+
+    async def test_artists_returned_in_position_order(self, db, auth_user):
+        ids = await self._seed(db, auth_user)
+        by_title = await self._list(db, auth_user.id)
+        artists = by_title["t0_two_artists"]["artists"]
+        assert [a["name"] for a in artists] == ["ZTest Artist One", "ZTest Artist Two"]
+        assert all(isinstance(a["id"], int) for a in artists)
+        assert ids["t0_two_artists"] == by_title["t0_two_artists"]["id"]
+
+    async def test_no_structured_artists_gives_empty_list_and_flat_fallback(
+        self, db, auth_user
+    ):
+        await self._seed(db, auth_user)
+        by_title = await self._list(db, auth_user.id)
+        item = by_title["t1_opinion_only"]
+        assert item["artists"] == []
+        assert item["artist"] == "flat t1_opinion_only"
+
+    async def test_avis_coalesces_opinion_over_user_track(self, db, auth_user):
+        await self._seed(db, auth_user)
+        by_title = await self._list(db, auth_user.id)
+        assert by_title["t1_opinion_only"]["avis"] == "liked"  # opinion alone
+        assert by_title["t2_ut_avis_only"]["avis"] == "disliked"  # ut.avis alone
+        assert by_title["t3_both"]["avis"] == "liked"  # opinion wins the COALESCE
+        assert by_title["t0_two_artists"]["avis"] is None  # no opinion at all
+
+    async def test_avis_is_scoped_to_the_viewer(self, db, auth_user):
+        from models import User
+
+        await self._seed(db, auth_user)
+        other = User(
+            email="other@test.com", username="otheruser",
+            google_id="google-other-user", is_active=True, is_admin=False,
+        )
+        db.add(other)
+        await db.commit()
+        await db.refresh(other)
+        by_title = await self._list(db, other.id)
+        assert all(it["avis"] is None for it in by_title.values())
+
+    async def test_guest_gets_null_avis_and_still_sees_artists(self, db, auth_user):
+        await self._seed(db, auth_user)
+        by_title = await self._list(db, None)
+        assert all(it["avis"] is None for it in by_title.values())
+        assert len(by_title["t0_two_artists"]["artists"]) == 2
+
+    async def test_guest_endpoint_returns_200(self, db, auth_user, client):
+        await self._seed(db, auth_user)
+        r = await client.get(f"/api/genres/tracks/{self.GENRE}")
+        assert r.status_code == 200
+        items = r.json()["items"]
+        assert len(items) == 4
+        assert all(it["avis"] is None for it in items)

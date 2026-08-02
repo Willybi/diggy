@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel
 
+from .common import ArtistRef
+
 
 class GenreRenameIn(BaseModel):
     new_name: str
@@ -91,12 +93,14 @@ class GenreTrackItem(BaseModel):
     id: int
     title: str
     artist: str
+    artists: list[ArtistRef] = []
     bpm: float | None = None
     key: str | None = None
     durationMs: int | None = None
     hasArtwork: bool = False
     hasPreview: bool = False
     inLib: bool = False
+    avis: str | None = None
 
 
 class GenreTrackListResponse(BaseModel):

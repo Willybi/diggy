@@ -7,7 +7,7 @@ Services raise LookupError (404) or ValueError (400), never HTTPException.
 
 import logging
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
@@ -567,9 +567,12 @@ async def list_genre_tracks(
         SELECT c.id, c.title, c.artist, c.bpm, c.key, c.duration_ms,
                c.has_artwork, c.has_preview,
                CASE WHEN ut.catalog_id IS NOT NULL THEN true ELSE false END AS in_lib,
+               COALESCE(uo.opinion, ut.avis) AS avis,
                COUNT(*) OVER()::int AS total
         FROM catalog c
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
+        LEFT JOIN user_opinions uo ON uo.user_id = :user_id
+            AND uo.entity_type = 'track' AND uo.entity_key = CAST(c.id AS TEXT)
         WHERE :genre = ANY(c.genres)
           AND {catalog_visible_sql(user_id)}
           AND (:q_filter = false OR (LOWER(c.title) LIKE :q_pattern OR LOWER(c.artist) LIKE :q_pattern))
@@ -593,18 +596,40 @@ async def list_genre_tracks(
     )
     rows = result.fetchall()
     total = rows[0].total if rows else 0
+
+    # Structured artists per track: bulk-load in one query over the page's ids,
+    # mapped by catalog_id in position order (pattern: watchlist_service).
+    artists_by_catalog: dict[int, list[dict]] = {}
+    catalog_ids = [r.id for r in rows]
+    if catalog_ids:
+        from models import Artist, CatalogArtist
+
+        ca_result = await db.execute(
+            select(CatalogArtist.catalog_id, Artist.id, Artist.name, CatalogArtist.role,
+                   Artist.has_artwork)
+            .join(Artist, Artist.id == CatalogArtist.artist_id)
+            .where(CatalogArtist.catalog_id.in_(catalog_ids))
+            .order_by(CatalogArtist.catalog_id, CatalogArtist.position)
+        )
+        for ca_cid, a_id, a_name, a_role, a_art in ca_result.all():
+            artists_by_catalog.setdefault(ca_cid, []).append(
+                {"id": a_id, "name": a_name, "role": a_role, "has_artwork": a_art}
+            )
+
     return {
         "items": [
             {
                 "id": r.id,
                 "title": r.title,
                 "artist": r.artist,
+                "artists": artists_by_catalog.get(r.id, []),
                 "bpm": r.bpm,
                 "key": r.key,
                 "durationMs": r.duration_ms,
                 "hasArtwork": r.has_artwork,
                 "hasPreview": r.has_preview,
                 "inLib": r.in_lib,
+                "avis": r.avis,
             }
             for r in rows
         ],

@@ -17,7 +17,10 @@ import { useInfiniteScroll } from './useInfiniteScroll.js'
  * (opinion filters) live in the view and may write the returned refs directly.
  *
  * @param {object} opts
- * @param {string} opts.endpoint                 list URL (exact slash matters)
+ * @param {import('vue').MaybeRefOrGetter<string>} opts.endpoint  list URL (exact slash
+ *        matters). Read reactively at fetch time — like sort/query — so a detail page
+ *        whose endpoint carries a path param (e.g. /style/:genre) keeps paginating
+ *        after an in-place route update. A plain string stays a plain string.
  * @param {number} [opts.pageSize=24]            rows per page
  * @param {import('vue').MaybeRefOrGetter<string>} opts.sort    sort value to send
  * @param {import('vue').MaybeRefOrGetter<string>} [opts.family]  'all' → omitted
@@ -68,7 +71,7 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query,
     }
     loading.value = true
     try {
-      const { data } = await api.get(endpoint, { params: buildParams(offset.value) })
+      const { data } = await api.get(toValue(endpoint), { params: buildParams(offset.value) })
       items.value = reset ? data.items : [...items.value, ...data.items]
       total.value = data.total
       familyCounts.value = data.pillarCounts || {}
@@ -97,7 +100,7 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query,
     try {
       const pages = await Promise.all(
         Array.from({ length: nPages }, (_, i) =>
-          api.get(endpoint, { params: buildParams(i * pageSize) }),
+          api.get(toValue(endpoint), { params: buildParams(i * pageSize) }),
         ),
       )
       const merged = pages.flatMap((p) => p.data.items)

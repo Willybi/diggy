@@ -2,6 +2,17 @@
 
 Statut : ✅ figé  |  Vue : `views/GenreDetailView.vue`
 
+> **Pré-vol chantier (2026-08-02)** — vérifications code + données prod, arbitrages William :
+> - Dette « Admin non gardé » **obsolète** : `AdminCard` gate déjà `is_admin` en interne. Reste le **déplacement en bas** de page (structure §5).
+> - « Composant de rangée partagé (Explorer) » = **`<TrackCard>`** (la rangée Explorer est inline `xp-row`, non extraite) : couvre cover+in-lib, titre, `artists[]` cliquables (fallback chaîne plate intégré), BPM, Key, durée, play — **aucune modif de TrackCard**.
+> - **Avis sur les rangées tracklist : OUI** (tranché 2026-08-02, cohérence Explorer) — `<LikeDislike>` via le slot `end` de TrackCard.
+> - **Back lot 0 confirmé** (le §6 « rien de bloquant » était contredit par le recap C4) : `GET /api/genres/tracks/{name}` renvoie `artist` plat → ajouter `artists[]` `{id,name}` (ordre position, via `catalog_artists`). Couverture prod mesurée : **90,3 %** des entrées catalog (191 572/212 179).
+> - **Badge source des cards Playlists → glyph `<PlatformLink variant="glyph">`** (tranché 2026-08-02, convention transverse /playlists du 26/07) — remplace le badge texte deezer/spotify/tidal.
+> - Badge % des cards Sets = part des tracks du set dans CE genre — **variable en prod** (20–96 % mesuré) : gardé, pas de piège type /sets.
+> - Edge case données : **2 genres/75 sans aucun BPM** → le hero doit dégrader « 0–0 » en « — ».
+> - Tracklist : l'infinite scroll actuel est fait main (IntersectionObserver inline) → migration **`usePaginatedList`** dans le chantier.
+> - **Orphelins supprimés dans ce chantier** (tranché 2026-08-02) : `GenreTrackRow`, `LibDot`, `StatStrip` (plus aucun consommateur après refonte).
+
 ## 1. Ce qu'on a (actuel)
 
 La page la **plus complète** du site (William l'aime déjà beaucoup).
@@ -72,3 +83,12 @@ La page la **plus complète** du site (William l'aime déjà beaucoup).
 - **Transverse** : composant de rangée Explorer / `<TrackCard>`, `<Artwork>`.
 
 **Dépend de** : composant de rangée partagé (Explorer). Sinon autonome.
+
+## 7. Handoff (2026-08-02)
+
+Livré par Claude Design, versionné dans [`handoff-genre-detail/`](handoff-genre-detail/) (BRIEF + README de provenance ; conformité PASS, aucune donnée inventée, tokens 25/25 vérifiés). Décisions DA principales du round unique :
+- **Hero** : bande 340 px (288 < 640), 3 couches (voile α 0.34 + teinte pilier + scrim vertical) → contraste garanti dark/light ; titre échelle fluide `cqw` **2 lignes max, jamais d'ellipsis 1 ligne** ; stats clés Tracks·Artistes·BPM dans l'overlay, calage bas.
+- **Stats secondaires (En bib · Sets · Playlists) fusionnées avec la ligne d'actions** — la StatStrip disparaît sans équivalent réinventé.
+- **Badge % des cards Sets** : quitte l'image (et ses seuils colorés 80/45) → **pied de carte** « `NN %` de ce genre » mono neutre (aligné footer SetCard ; libellé anti-ambiguïté avec « % identifiées »).
+- **Avis par rangée** : slot `end` TrackCard, hover-reveal + **actif épinglé**, toujours visibles < 640/tactile (pattern transverse étendu aux rangées).
+- **Play hero en verre** → hover accent (un seul `.btn--accent` par page) ; **0 avatar → cluster absent** ; **teinte pilier du corps bornée** à 520 px (« autres » = chroma 0 partout) ; empty recherche avec « Réinitialiser » ; cards Artistes gagnent la ligne « N en bib » (`inLibCount` existant).
