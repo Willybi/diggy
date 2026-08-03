@@ -7,7 +7,7 @@ Services raise LookupError (404) or ValueError (400/409), never HTTPException.
 
 from collections import defaultdict
 
-from sqlalchemy import func, insert, literal, select, text, update
+from sqlalchemy import func, insert, literal, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -52,6 +52,7 @@ async def list_artists(
         CatalogArtist,
         CatalogEntry,
         FollowedArtist,
+        SetArtist,
         UserRadarState,
         UserTrack,
     )
@@ -136,8 +137,21 @@ async def list_artists(
         base_query = base_query.where(Artist.name.ilike(f"%{q}%"))
         id_filter_query = id_filter_query.where(Artist.name.ilike(f"%{q}%"))
     if no_deezer:
-        base_query = base_query.where(Artist.deezer_id.is_(None))
-        id_filter_query = id_filter_query.where(Artist.deezer_id.is_(None))
+        # Only unlinked artists still ATTACHED to something (catalog or set).
+        # Fully orphaned rows (residue of splits/merges/re-imports whose links
+        # were dropped) are dead data: linking them to Deezer improves nothing,
+        # and they used to pile up in the admin panel (303 rows, all orphans,
+        # measured 2026-08-03).
+        attached = or_(
+            select(CatalogArtist.artist_id)
+            .where(CatalogArtist.artist_id == Artist.id)
+            .exists(),
+            select(SetArtist.artist_id)
+            .where(SetArtist.artist_id == Artist.id)
+            .exists(),
+        )
+        base_query = base_query.where(Artist.deezer_id.is_(None), attached)
+        id_filter_query = id_filter_query.where(Artist.deezer_id.is_(None), attached)
     if followed and user_id is not None:
         # Restrict to the user's followed artists via the SELECT subquery (not a
         # materialized id list — bind-param cap). Drives both the rows and the

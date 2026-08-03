@@ -36,10 +36,14 @@ class TestListArtists:
         assert result["items"][0]["name"] == "Aphex Twin"
 
     async def test_no_deezer_filter(self, db, auth_user):
-        from models import Artist
+        from models import Artist, CatalogArtist, CatalogEntry
         a1 = Artist(name="WithDeezer", normalized_name="withdeezer", deezer_id="1")
         a2 = Artist(name="NoDeezer", normalized_name="nodeezer")
-        db.add_all([a1, a2])
+        orphan = Artist(name="OrphanNoDeezer", normalized_name="orphannodeezer")
+        cat = CatalogEntry(title="T", artist="NoDeezer", normalized_key="t - nodeezer")
+        db.add_all([a1, a2, orphan, cat])
+        await db.flush()
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a2.id, role="primary", position=0))
         await db.commit()
 
         result = await artist_service.list_artists(
@@ -49,6 +53,8 @@ class TestListArtists:
         names = [a["name"] for a in result["items"]]
         assert "NoDeezer" in names
         assert "WithDeezer" not in names
+        # A fully orphaned unlinked row (no catalog, no set) stays hidden.
+        assert "OrphanNoDeezer" not in names
 
     async def test_pagination_stable_on_tied_catalog_count(self, db, auth_user):
         """Regression: ex-aequo rows (same nb_catalog) must not repeat or skip

@@ -30,13 +30,23 @@ class TestListArtists:
         assert data["items"][0]["name"] == "CamelPhat"
 
     async def test_no_deezer_filter(self, client, db):
-        db.add(Artist(name="Known", normalized_name="known", deezer_id="123"))
-        db.add(Artist(name="Unknown", normalized_name="unknown"))
+        # Unlinked artists show only while ATTACHED (catalog or set); a fully
+        # orphaned row is dead data and stays out of the admin list.
+        known = Artist(name="Known", normalized_name="known", deezer_id="123")
+        via_catalog = Artist(name="Unknown", normalized_name="unknown")
+        via_set = Artist(name="SetOnly", normalized_name="setonly")
+        orphan = Artist(name="Orphan", normalized_name="orphan")
+        cat = CatalogEntry(title="Track", artist="Unknown", normalized_key="track - unknown")
+        s = DJSet(title="Live at Fabric", source="trackid")
+        db.add_all([known, via_catalog, via_set, orphan, cat, s])
+        await db.flush()
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=via_catalog.id, role="primary", position=0))
+        db.add(SetArtist(set_id=s.id, artist_id=via_set.id, role="headliner"))
         await db.commit()
         r = await client.get("/api/artists/?no_deezer=true")
         data = r.json()
-        assert len(data["items"]) == 1
-        assert data["items"][0]["name"] == "Unknown"
+        names = {a["name"] for a in data["items"]}
+        assert names == {"Unknown", "SetOnly"}
 
 
 class TestArtistDetail:
