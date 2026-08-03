@@ -103,7 +103,7 @@ class TestTransientVsGenuine:
         c = await _mk_entry(db)
         calls = _patch_deezer(monkeypatch, [_Resp(QUOTA_BODY), _Resp(OK_BODY)])
         res = await catalog_service.get_preview_url(db, c.id, None, redis=None)
-        assert res == {"preview_url": OK_BODY["preview"]}
+        assert res == {"preview_url": OK_BODY["preview"], "avis": None}
         assert calls["n"] == 2
 
     async def test_http_500_is_transient_503(self, db, monkeypatch):
@@ -141,7 +141,7 @@ class TestRedisCache:
         calls = _patch_deezer(monkeypatch, [_Resp(OK_BODY)])
         r1 = await catalog_service.get_preview_url(db, c.id, None, redis=redis)
         r2 = await catalog_service.get_preview_url(db, c.id, None, redis=redis)
-        assert r1 == r2 == {"preview_url": OK_BODY["preview"]}
+        assert r1 == r2 == {"preview_url": OK_BODY["preview"], "avis": None}
         assert calls["n"] == 1  # single Deezer hit; second served from cache
 
     async def test_redis_down_fails_open(self, db, monkeypatch):
@@ -156,7 +156,7 @@ class TestRedisCache:
         c = await _mk_entry(db)
         _patch_deezer(monkeypatch, [_Resp(OK_BODY)])
         res = await catalog_service.get_preview_url(db, c.id, None, redis=_BrokenRedis())
-        assert res == {"preview_url": OK_BODY["preview"]}
+        assert res == {"preview_url": OK_BODY["preview"], "avis": None}
 
 
 class TestRouterMapping:
@@ -178,4 +178,56 @@ class TestRouterMapping:
         _patch_deezer(monkeypatch, [_Resp(OK_BODY)])
         resp = await client.get(f"/api/catalog/{c.id}/preview-url")
         assert resp.status_code == 200
-        assert resp.json() == {"preview_url": OK_BODY["preview"]}
+        assert resp.json() == {"preview_url": OK_BODY["preview"], "avis": None}
+
+
+class TestAvisInResponse:
+    """The player bar shows like/dislike for the playing track whatever listing
+    launched it: the play request returns the viewer's current avis."""
+
+    async def test_avis_from_user_opinion(self, db, monkeypatch, auth_user):
+        from models import UserOpinion
+
+        c = await _mk_entry(db)
+        db.add(
+            UserOpinion(
+                user_id=auth_user.id,
+                entity_type="track",
+                entity_key=str(c.id),
+                opinion="liked",
+            )
+        )
+        await db.commit()
+        _patch_deezer(monkeypatch, [_Resp(OK_BODY)])
+        res = await catalog_service.get_preview_url(db, c.id, auth_user.id, redis=None)
+        assert res == {"preview_url": OK_BODY["preview"], "avis": "liked"}
+
+    async def test_avis_falls_back_to_user_track(self, db, monkeypatch, auth_user):
+        from models import UserTrack
+
+        c = await _mk_entry(db)
+        db.add(UserTrack(user_id=auth_user.id, catalog_id=c.id, avis="disliked"))
+        await db.commit()
+        _patch_deezer(monkeypatch, [_Resp(OK_BODY)])
+        res = await catalog_service.get_preview_url(db, c.id, auth_user.id, redis=None)
+        assert res == {"preview_url": OK_BODY["preview"], "avis": "disliked"}
+
+    async def test_avis_present_on_cached_url_too(self, db, monkeypatch, auth_user):
+        from models import UserOpinion
+
+        c = await _mk_entry(db)
+        db.add(
+            UserOpinion(
+                user_id=auth_user.id,
+                entity_type="track",
+                entity_key=str(c.id),
+                opinion="liked",
+            )
+        )
+        await db.commit()
+        redis = _FakeRedis()
+        calls = _patch_deezer(monkeypatch, [_Resp(OK_BODY)])
+        await catalog_service.get_preview_url(db, c.id, auth_user.id, redis=redis)
+        res = await catalog_service.get_preview_url(db, c.id, auth_user.id, redis=redis)
+        assert calls["n"] == 1  # second call served from cache…
+        assert res["avis"] == "liked"  # …and still carries the avis

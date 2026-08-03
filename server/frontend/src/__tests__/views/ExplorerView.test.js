@@ -19,6 +19,7 @@ const { apiMock, routerPush, routeState, playerMock } = vi.hoisted(() => ({
     isCurrent: () => false,
     playing: false,
     play: vi.fn(),
+    syncAvis: vi.fn(),
   },
 }))
 

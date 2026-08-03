@@ -371,14 +371,18 @@ describe('SetDetailView', () => {
   it('plays an identified row through the audioPlayer store', async () => {
     const wrapper = await mountView()
     await wrapper.findAllComponents(TrackCard)[0].vm.$emit('play')
-    expect(playerMock.play).toHaveBeenCalledWith({
-      id: 500,
-      catalog_id: 500,
-      title: 'Track A',
-      artist: 'Artist A',
-      bpm: 140,
-      key: '5A',
-    })
+    expect(playerMock.play).toHaveBeenCalledWith(
+      {
+        id: 500,
+        catalog_id: 500,
+        title: 'Track A',
+        artist: 'Artist A',
+        bpm: 140,
+        key: '5A',
+        has_preview: true,
+      },
+      expect.objectContaining({ type: 'list' }),
+    )
   })
 
   // ---- Similar sets (S10) ----

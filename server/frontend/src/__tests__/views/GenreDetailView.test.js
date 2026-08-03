@@ -23,6 +23,7 @@ vi.mock('../../stores/audioPlayer', () => ({
     play: vi.fn(),
     playRandom: vi.fn(),
     close: vi.fn(),
+    syncAvis: vi.fn(),
   }),
 }))
 

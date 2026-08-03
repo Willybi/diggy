@@ -17,7 +17,8 @@ const localStorageMock = {
 }
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, writable: true })
 
-// Mock Audio
+// Mock Audio — records listeners so tests can fire `ended` (auto-advance).
+let lastAudio = null
 class AudioMock {
   constructor() {
     this.volume = 1
@@ -25,6 +26,8 @@ class AudioMock {
     this.currentTime = 0
     this.paused = true
     this.src = ''
+    this.listeners = {}
+    lastAudio = this
   }
   play() {
     this.paused = false
@@ -33,7 +36,12 @@ class AudioMock {
   pause() {
     this.paused = true
   }
-  addEventListener() {}
+  addEventListener(type, fn) {
+    ;(this.listeners[type] ||= []).push(fn)
+  }
+  fire(type) {
+    ;(this.listeners[type] || []).forEach((fn) => fn())
+  }
 }
 globalThis.Audio = AudioMock
 
@@ -41,6 +49,7 @@ globalThis.Audio = AudioMock
 vi.mock('../../utils/api.js', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: { preview_url: 'https://example.com/preview.mp3' } })),
+    patch: vi.fn(() => Promise.resolve({ data: {} })),
   },
 }))
 
@@ -48,9 +57,12 @@ describe('audioPlayer store', () => {
   beforeEach(() => {
     Object.keys(storage).forEach((k) => delete storage[k])
     setActivePinia(createPinia())
-    // Fresh api.get per test with a default 200; individual tests queue overrides.
+    lastAudio = null
+    // Fresh api mocks per test with a default 200; individual tests queue overrides.
     api.get.mockReset()
     api.get.mockResolvedValue({ data: { preview_url: 'https://example.com/preview.mp3' } })
+    api.patch.mockReset()
+    api.patch.mockResolvedValue({ data: {} })
   })
 
   afterEach(() => {
@@ -153,5 +165,167 @@ describe('audioPlayer store', () => {
     expect(api.get).toHaveBeenCalledTimes(1) // genuine absence: no retry
     expect(player.track).toBeNull()
     expect(showSpy).not.toHaveBeenCalled() // silent, like a missing preview
+  })
+
+  it('adopts the avis returned by the preview endpoint (authoritative over the row)', async () => {
+    const player = useAudioPlayer()
+    api.get.mockResolvedValue({ data: { preview_url: 'https://x/p.mp3', avis: 'liked' } })
+
+    await player.play({ catalog_id: 3, avis: null })
+
+    expect(player.track.avis).toBe('liked')
+  })
+})
+
+describe('audioPlayer queue / auto-advance', () => {
+  const t = (id, extra = {}) => ({ id, catalog_id: id, title: `T${id}`, artist: 'A', ...extra })
+  const listOf = (items, extra = {}) => ({ type: 'list', getItems: () => items, ...extra })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    lastAudio = null
+    api.get.mockReset()
+    api.get.mockResolvedValue({ data: { preview_url: 'https://example.com/preview.mp3' } })
+    api.patch.mockReset()
+    api.patch.mockResolvedValue({ data: {} })
+  })
+
+  it('single-shot play (no source): ended just stops', async () => {
+    const player = useAudioPlayer()
+    await player.play(t(1))
+    expect(player.canNext).toBe(false)
+
+    lastAudio.fire('ended')
+    await Promise.resolve()
+
+    expect(player.track.catalog_id).toBe(1) // no advance
+  })
+
+  it('list source: ended advances to the next displayed track', async () => {
+    const player = useAudioPlayer()
+    const items = [t(1), t(2), t(3)]
+    await player.play(items[0], listOf(items))
+    expect(player.canNext).toBe(true)
+
+    lastAudio.fire('ended')
+    await vi.waitFor(() => expect(player.track?.catalog_id).toBe(2))
+  })
+
+  it('list source: skips tracks without preview', async () => {
+    const player = useAudioPlayer()
+    const items = [t(1), t(2, { has_preview: false }), t(3)]
+    await player.play(items[0], listOf(items))
+
+    await player.playNext()
+
+    expect(player.track.catalog_id).toBe(3)
+  })
+
+  it('list source: pulls the next page when the loaded window runs out', async () => {
+    const player = useAudioPlayer()
+    const items = [t(1)]
+    const loadMore = vi.fn(() => {
+      items.push(t(2))
+      return Promise.resolve()
+    })
+    await player.play(items[0], listOf(items, { loadMore }))
+
+    await player.playNext()
+
+    expect(loadMore).toHaveBeenCalledTimes(1)
+    expect(player.track.catalog_id).toBe(2)
+  })
+
+  it('list source: true end (loadMore makes no progress) → simple stop', async () => {
+    const player = useAudioPlayer()
+    const items = [t(1), t(2)]
+    const loadMore = vi.fn(() => Promise.resolve())
+    await player.play(items[1], listOf(items, { loadMore }))
+
+    await player.playNext()
+
+    expect(loadMore).toHaveBeenCalledTimes(1) // one attempt, no growth → stop
+    expect(player.track.catalog_id).toBe(2) // bar stays on the last track
+  })
+
+  it('setAvis(disliked) PATCHes, syncs the origin row and skips immediately', async () => {
+    const player = useAudioPlayer()
+    const onAvis = vi.fn()
+    const items = [t(1), t(2)]
+    await player.play(items[0], listOf(items, { onAvis }))
+
+    await player.setAvis('disliked')
+    await vi.waitFor(() => expect(player.track?.catalog_id).toBe(2))
+
+    expect(api.patch).toHaveBeenCalledWith('/api/catalog/1/avis', { avis: 'disliked' })
+    expect(onAvis).toHaveBeenCalledWith(1, 'disliked')
+  })
+
+  it('setAvis(liked) keeps playing the current track', async () => {
+    const player = useAudioPlayer()
+    const items = [t(1), t(2)]
+    await player.play(items[0], listOf(items))
+
+    await player.setAvis('liked')
+
+    expect(player.track.catalog_id).toBe(1)
+    expect(player.track.avis).toBe('liked')
+  })
+
+  it('setAvis rolls back bar + row when the PATCH fails', async () => {
+    const player = useAudioPlayer()
+    const onAvis = vi.fn()
+    api.patch.mockRejectedValue(new Error('boom'))
+    await player.play(t(1, { avis: null }), listOf([t(1)], { onAvis }))
+
+    await player.setAvis('liked')
+
+    expect(player.track.avis).toBeNull()
+    expect(onAvis).toHaveBeenNthCalledWith(1, 1, 'liked')
+    expect(onAvis).toHaveBeenNthCalledWith(2, 1, null)
+  })
+
+  it('syncAvis updates the bar only for the currently playing track', async () => {
+    const player = useAudioPlayer()
+    await player.play(t(1))
+
+    player.syncAvis(1, 'liked')
+    expect(player.track.avis).toBe('liked')
+    player.syncAvis(99, 'disliked')
+    expect(player.track.avis).toBe('liked')
+  })
+
+  it('random genre source: ended re-rolls excluding the finished track', async () => {
+    const player = useAudioPlayer()
+    let rolls = 0
+    api.get.mockImplementation((url) => {
+      if (url.includes('random-track')) {
+        rolls++
+        return Promise.resolve({
+          data: { catalog_id: rolls * 10, title: `R${rolls}`, artist: 'A' },
+        })
+      }
+      return Promise.resolve({ data: { preview_url: 'https://x/p.mp3' } })
+    })
+
+    await player.playRandom('techno')
+    expect(player.genrePlaying).toBe('techno')
+    expect(player.track.catalog_id).toBe(10)
+
+    lastAudio.fire('ended')
+    await vi.waitFor(() => expect(player.track?.catalog_id).toBe(20))
+    expect(player.genrePlaying).toBe('techno') // still the same session
+    const secondRoll = api.get.mock.calls.filter(([u]) => u.includes('random-track'))[1]
+    expect(secondRoll[1].params.exclude).toBe(10)
+  })
+
+  it('close() drops the source (no ghost auto-advance)', async () => {
+    const player = useAudioPlayer()
+    await player.play(t(1), listOf([t(1), t(2)]))
+    expect(player.canNext).toBe(true)
+
+    player.close()
+
+    expect(player.canNext).toBe(false)
   })
 })
