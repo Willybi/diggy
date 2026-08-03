@@ -306,15 +306,26 @@ async function fetchArtwork() {
   }
 }
 
-function playTrack(t) {
-  player.play({
+function toPlayerTrack(t) {
+  return {
     id: t.id,
     catalog_id: t.id,
     title: t.title,
     artist: t.artist,
     bpm: t.bpm,
     key: t.key,
-  })
+    has_preview: t.has_preview,
+  }
+}
+
+// Queue source: "next" follows the detected tracks as displayed (newest first).
+const playSource = {
+  type: 'list',
+  getItems: () => detectedCards.value.map(toPlayerTrack),
+}
+
+function playTrack(t) {
+  player.play(toPlayerTrack(t), playSource)
 }
 
 function goTrack(id) {

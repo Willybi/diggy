@@ -557,8 +557,8 @@ function openActivityTrack(item) {
   router.push(`/catalog/${item.catalog_id}`)
 }
 
-function playActivityTrack(item) {
-  player.play({
+function activityToPlayerTrack(item) {
+  return {
     id: item.catalog_id,
     catalog_id: item.catalog_id,
     title: item.title,
@@ -566,7 +566,23 @@ function playActivityTrack(item) {
     artist_id: item.artist_id,
     bpm: item.bpm,
     key: item.key,
-  })
+    has_preview: item.has_preview,
+  }
+}
+
+// Queue source: "next" follows the shelf as displayed — units and album
+// tracklists flattened in order; link-only activities (no catalog_id) skipped.
+const activitySource = {
+  type: 'list',
+  getItems: () =>
+    activityShelf.value
+      .flatMap((entry) => (entry.kind === 'album' ? entry.tracks : [entry.item]))
+      .filter((item) => item.catalog_id)
+      .map(activityToPlayerTrack),
+}
+
+function playActivityTrack(item) {
+  player.play(activityToPlayerTrack(item), activitySource)
 }
 
 // ── personalized recommendations ──
@@ -594,8 +610,8 @@ function openReco(track) {
   router.push(`/catalog/${track.id}`)
 }
 
-function playReco(track) {
-  player.play({
+function recoToPlayerTrack(track) {
+  return {
     id: track.id,
     catalog_id: track.id,
     title: track.title,
@@ -603,7 +619,18 @@ function playReco(track) {
     artist_id: track.artist_id,
     bpm: track.bpm,
     key: track.key,
-  })
+    has_preview: track.has_preview,
+  }
+}
+
+// Queue source: "next" follows the « Pour toi » shelf as displayed.
+const recoSource = {
+  type: 'list',
+  getItems: () => recoItems.value.map(recoToPlayerTrack),
+}
+
+function playReco(track) {
+  player.play(recoToPlayerTrack(track), recoSource)
 }
 
 function openTrend(track) {
@@ -614,8 +641,8 @@ function openTrend(track) {
   router.push(`/catalog/${track.catalog_id}`)
 }
 
-function playTrend(track) {
-  player.play({
+function trendToPlayerTrack(track) {
+  return {
     id: track.catalog_id,
     catalog_id: track.catalog_id,
     title: track.title,
@@ -623,7 +650,18 @@ function playTrend(track) {
     artist_id: track.artist_id,
     bpm: track.bpm,
     key: track.key,
-  })
+    has_preview: track.has_preview,
+  }
+}
+
+// Queue source: "next" follows the « Ça sort » shelf as displayed.
+const trendSource = {
+  type: 'list',
+  getItems: () => trendTracks.value.map(trendToPlayerTrack),
+}
+
+function playTrend(track) {
+  player.play(trendToPlayerTrack(track), trendSource)
 }
 
 function openSet(item) {

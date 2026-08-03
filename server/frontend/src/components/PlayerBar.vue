@@ -15,6 +15,19 @@
         </svg>
       </button>
 
+      <!-- Next (only when a queue backs the playback) -->
+      <button
+        v-if="player.canNext"
+        class="pl-next"
+        aria-label="Morceau suivant"
+        title="Morceau suivant"
+        @click="player.playNext()"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M6 18l8.5-6L6 6v12zm10-12v12h2V6h-2z" />
+        </svg>
+      </button>
+
       <!-- Equalizer -->
       <div class="pl-eq" :class="{ active: player.playing }">
         <span class="eq-bar" v-for="i in 5" :key="i" />
@@ -36,6 +49,14 @@
           {{ player.track?.artist }}
         </RouterLink>
         <span v-else class="pl-artist">{{ player.track?.artist }}</span>
+      </div>
+
+      <!-- Avis (triage while listening — always visible, all widths) -->
+      <div class="pl-avis">
+        <LikeDislike
+          :model-value="player.track?.avis ?? null"
+          @update:model-value="(v) => player.setAvis(v)"
+        />
       </div>
 
       <!-- BPM · Key -->
@@ -121,6 +142,7 @@
 <script setup>
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import LikeDislike from './LikeDislike.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtSec } from '../utils/format'
 
@@ -215,6 +237,35 @@ function onScrubStart(e) {
 .pl-play svg {
   width: 18px;
   height: 18px;
+}
+
+/* ── Next ── */
+.pl-next {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 0.12s;
+}
+.pl-next:hover {
+  color: var(--ink);
+}
+.pl-next svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── Avis ── */
+.pl-avis {
+  flex: none;
+  display: flex;
+  align-items: center;
 }
 
 /* ── Equalizer ── */
@@ -458,6 +509,8 @@ function onScrubStart(e) {
 }
 
 /* ── Container queries ── */
+/* Avis + Next survive every palier (the bar is a triage surface); the
+   decorative EQ is the first to go, then stats, times, volume. */
 @container player (max-width: 720px) {
   .pl-stats {
     display: none;
@@ -468,6 +521,9 @@ function onScrubStart(e) {
   .pl-remain {
     display: none;
   }
+  .pl-eq {
+    display: none;
+  }
 }
 @container player (max-width: 440px) {
   .pl-shell {
@@ -476,6 +532,9 @@ function onScrubStart(e) {
   }
   .pl-vol {
     display: none;
+  }
+  .pl-rail {
+    min-width: 36px;
   }
 }
 

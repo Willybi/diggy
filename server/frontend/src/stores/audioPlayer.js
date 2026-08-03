@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, shallowRef, computed } from 'vue'
 import api from '../utils/api.js'
 import { useToast } from './toast.js'
 
@@ -11,17 +11,28 @@ const PREVIEW_RETRY_MAX = 1
 const PREVIEW_RETRY_BACKOFF_MS = 800
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// A queue stage can chase "next playable" across pages; bounded so a long tail
+// of preview-less rows can't fan out endless loadMore calls.
+const NEXT_LOAD_MORE_MAX = 5
+
 export const useAudioPlayer = defineStore('audioPlayer', () => {
   // --- reactive state ---
-  const track = ref(null) // { id, catalog_id, title, artist, bpm, key } | null
+  const track = ref(null) // { id, catalog_id, title, artist, bpm, key, avis } | null
   const playing = ref(false)
   const currentTime = ref(0)
   const duration = ref(30)
   const volume = ref(parseFloat(localStorage.getItem(VOLUME_KEY)) || 0.8)
   const muted = ref(false)
   const loading = ref(false)
-  const genrePlaying = ref(null) // genre name string during playRandom
-  const artistPlaying = ref(null) // artist id during playRandomArtist
+
+  // Where "next" comes from — set by play()/playRandom*, drives the auto-advance
+  // on `ended` and the PlayerBar next button. Shapes:
+  //   null                                        → single-shot, stop at the end
+  //   { type: 'list', getItems, loadMore?, onAvis? } → the launching listing;
+  //     getItems() returns player-shaped tracks in display order, loadMore()
+  //     fetches the next page, onAvis(id, avis) syncs the origin row
+  //   { type: 'genre', name } / { type: 'artist', id } → random re-roll
+  const source = shallowRef(null)
 
   // --- non-reactive ---
   let audio = null
@@ -31,6 +42,13 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
   // --- getters ---
   const visible = computed(() => track.value !== null)
   const progress = computed(() => (duration.value > 0 ? currentTime.value / duration.value : 0))
+  const canNext = computed(() => source.value !== null)
+  const genrePlaying = computed(() =>
+    source.value?.type === 'genre' ? source.value.name : null,
+  )
+  const artistPlaying = computed(() =>
+    source.value?.type === 'artist' ? source.value.id : null,
+  )
 
   // --- helpers ---
   function isCurrent(catalogId) {
@@ -50,6 +68,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     })
     audio.addEventListener('ended', () => {
       playing.value = false
+      if (source.value) void playNext()
     })
     audio.addEventListener('play', () => {
       playing.value = true
@@ -60,14 +79,9 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     return audio
   }
 
-  // --- actions ---
-  async function play(trackObj) {
-    // Same track → toggle play/pause
-    if (track.value && track.value.catalog_id === trackObj.catalog_id && audio) {
-      toggle()
-      return
-    }
-
+  // Load & start a track, leaving `source` untouched (auto-advance keeps its
+  // queue across hops). All entry points funnel here after setting the source.
+  async function load(trackObj) {
     // Stop current
     if (audio) {
       audio.pause()
@@ -82,11 +96,10 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
       artist_id: trackObj.artist_id || null,
       bpm: trackObj.bpm,
       key: trackObj.key,
+      avis: trackObj.avis ?? null,
     }
     currentTime.value = 0
     duration.value = 30
-    genrePlaying.value = null
-    artistPlaying.value = null
     loading.value = true
 
     // Capture the target: a fast track switch mid-retry must not let a stale
@@ -104,6 +117,9 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
           suppressErrorToast: true,
         })
         if (!isCurrent(targetId)) return // user switched tracks while loading
+        // The endpoint returns the viewer's current avis — authoritative over
+        // whatever the launching row knew (some contexts know nothing).
+        if ('avis' in data) track.value.avis = data.avis ?? null
         const el = ensureAudio()
         el.src = data.preview_url
         await el.play()
@@ -124,6 +140,19 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     }
     console.warn('[audioPlayer] preview failed:', lastError)
     close()
+  }
+
+  // --- actions ---
+  async function play(trackObj, src = null) {
+    // Same track → toggle play/pause (adopting a newly provided queue so a
+    // re-click from a listing rebinds "next" to that listing).
+    if (track.value && track.value.catalog_id === trackObj.catalog_id && audio) {
+      if (src) source.value = src
+      toggle()
+      return
+    }
+    source.value = src
+    await load(trackObj)
   }
 
   function toggle() {
@@ -161,9 +190,68 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     playing.value = false
     currentTime.value = 0
     duration.value = 30
-    genrePlaying.value = null
-    artistPlaying.value = null
     loading.value = false
+    source.value = null
+  }
+
+  // Advance to the next track of the current source (auto on `ended`, manual
+  // from the PlayerBar). End of queue → simple stop, the bar stays up.
+  async function playNext() {
+    const src = source.value
+    const cur = track.value
+    if (!src || !cur) return
+
+    if (src.type === 'list') {
+      const nextAfterCurrent = (items) => {
+        const idx = items.findIndex((t) => t.catalog_id === cur.catalog_id)
+        // The list was refetched under us (filters changed) and the current
+        // track is gone: stop rather than jump somewhere unpredictable.
+        if (idx === -1) return null
+        return items.slice(idx + 1).find((t) => t.has_preview !== false) || null
+      }
+      let items = src.getItems() || []
+      let next = nextAfterCurrent(items)
+      for (let i = 0; !next && src.loadMore && i < NEXT_LOAD_MORE_MAX; i++) {
+        const before = items.length
+        try {
+          await src.loadMore()
+        } catch {
+          break
+        }
+        items = src.getItems() || []
+        if (items.length <= before) break // no progress: genuine end (or error)
+        next = nextAfterCurrent(items)
+      }
+      if (next && source.value === src) await load(next)
+      return
+    }
+
+    // Random sources: re-roll, excluding the track we just heard.
+    await playRandomNext()
+  }
+
+  // Avis on the CURRENT track, from the PlayerBar. Optimistic (pattern of the
+  // listing rows), synced back to the origin row via source.onAvis, and a
+  // dislike skips to the next track immediately — that's the triage gesture.
+  async function setAvis(avis) {
+    const cur = track.value
+    if (!cur) return
+    const id = cur.catalog_id
+    const prev = cur.avis ?? null
+    cur.avis = avis
+    source.value?.onAvis?.(id, avis)
+    const req = api.patch(`/api/catalog/${id}/avis`, { avis }).catch(() => {
+      if (track.value?.catalog_id === id) track.value.avis = prev
+      source.value?.onAvis?.(id, prev)
+    })
+    if (avis === 'disliked' && source.value) void playNext()
+    await req
+  }
+
+  // Reverse sync: a listing row's LikeDislike changed the avis of the track
+  // that happens to be playing — reflect it in the bar.
+  function syncAvis(catalogId, avis) {
+    if (track.value?.catalog_id === catalogId) track.value.avis = avis
   }
 
   async function playRandom(genreName) {
@@ -172,27 +260,8 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
       toggle()
       return
     }
-
-    try {
-      const params = { genre: genreName }
-      if (lastGenreTrack) params.exclude = lastGenreTrack
-      const { data } = await api.get('/api/genres/random-track', { params })
-      lastGenreTrack = data.catalog_id
-
-      genrePlaying.value = genreName
-      await play({
-        id: data.catalog_id,
-        catalog_id: data.catalog_id,
-        title: data.title || '',
-        artist: data.artist || '',
-        bpm: data.bpm,
-        key: data.key,
-      })
-      // Restore genrePlaying (play() clears it)
-      genrePlaying.value = genreName
-    } catch {
-      lastGenreTrack = null
-    }
+    source.value = { type: 'genre', name: genreName }
+    await playRandomNext()
   }
 
   async function playRandomArtist(artistId) {
@@ -200,15 +269,24 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
       toggle()
       return
     }
+    source.value = { type: 'artist', id: artistId }
+    await playRandomNext()
+  }
 
+  // Roll a track from the current random source (first play and every "next").
+  async function playRandomNext() {
+    const src = source.value
     try {
-      const params = { artist_id: artistId }
-      if (lastArtistTrack) params.exclude = lastArtistTrack
-      const { data } = await api.get('/api/artists/random-track', { params })
-      lastArtistTrack = data.catalog_id
-
-      artistPlaying.value = artistId
-      await play({
+      const isGenre = src.type === 'genre'
+      const params = isGenre ? { genre: src.name } : { artist_id: src.id }
+      const exclude = isGenre ? lastGenreTrack : lastArtistTrack
+      if (exclude) params.exclude = exclude
+      const url = isGenre ? '/api/genres/random-track' : '/api/artists/random-track'
+      const { data } = await api.get(url, { params })
+      if (isGenre) lastGenreTrack = data.catalog_id
+      else lastArtistTrack = data.catalog_id
+      if (source.value !== src) return
+      await load({
         id: data.catalog_id,
         catalog_id: data.catalog_id,
         title: data.title || '',
@@ -216,9 +294,9 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
         bpm: data.bpm,
         key: data.key,
       })
-      artistPlaying.value = artistId
     } catch {
-      lastArtistTrack = null
+      if (src.type === 'genre') lastGenreTrack = null
+      else lastArtistTrack = null
     }
   }
 
@@ -231,11 +309,13 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     volume,
     muted,
     loading,
+    source,
     genrePlaying,
     artistPlaying,
     // getters
     visible,
     progress,
+    canNext,
     // actions
     play,
     toggle,
@@ -243,6 +323,9 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     setVolume,
     toggleMute,
     close,
+    playNext,
+    setAvis,
+    syncAvis,
     playRandom,
     playRandomArtist,
     isCurrent,

@@ -131,8 +131,8 @@ async function fetchCollection() {
   }
 }
 
-function playTrack(t) {
-  player.play({
+function toPlayerTrack(t) {
+  return {
     id: t.catalog_id,
     catalog_id: t.catalog_id,
     title: t.title,
@@ -140,7 +140,18 @@ function playTrack(t) {
     artist_id: t.artist_id,
     bpm: t.bpm,
     key: t.key,
-  })
+    has_preview: t.has_preview,
+  }
+}
+
+// Queue source: "next" follows the collection's tracklist as displayed.
+const playSource = {
+  type: 'list',
+  getItems: () => (collection.value?.items ?? []).map(toPlayerTrack),
+}
+
+function playTrack(t) {
+  player.play(toPlayerTrack(t), playSource)
 }
 
 async function removeTrack(catalogId) {

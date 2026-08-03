@@ -283,16 +283,29 @@ function rowPlaying(id) {
   return player.isCurrent(id) && player.playing
 }
 
-function playTrack(row) {
-  const t = row.track
-  player.play({
+function toPlayerTrack(t) {
+  return {
     id: t.id,
     catalog_id: t.id,
     title: t.title,
     artist: t.artist,
     bpm: t.bpm,
     key: t.key,
-  })
+    has_preview: t.has_preview,
+  }
+}
+
+// Queue source: "next" walks the set's tracklist in play order. Identified
+// rows only (`state` undefined) — ID/unresolved rows have no playable catalog
+// entry, and every row builds a `track` object so truthiness can't filter them.
+const playSource = {
+  type: 'list',
+  getItems: () =>
+    trackRows.value.filter((r) => !r.state && r.track.id).map((r) => toPlayerTrack(r.track)),
+}
+
+function playTrack(row) {
+  player.play(toPlayerTrack(row.track), playSource)
 }
 
 // Only identified rows navigate; id/unresolved rows are inert.

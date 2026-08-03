@@ -421,6 +421,7 @@ const {
   hasMore: tracksHasMore,
   sentinel,
   fetch: fetchTracks,
+  loadMore: loadMoreTracks,
 } = usePaginatedList({
   endpoint: () => `/api/genres/tracks/${encodeURIComponent(genreName.value)}`,
   pageSize: 50,
@@ -465,10 +466,12 @@ function resetTrackFilters() {
 async function setTrackAvis(t, avis) {
   const prev = t.avis
   t.avis = avis
+  player.syncAvis(t.id, avis)
   try {
     await api.patch(`/api/catalog/${t.id}/avis`, { avis })
   } catch {
     t.avis = prev
+    player.syncAvis(t.id, prev)
   }
 }
 
@@ -485,15 +488,33 @@ function rowPlaying(id) {
   return player.isCurrent(id) && player.playing
 }
 
-function playTrack(t) {
-  player.play({
+function toPlayerTrack(t) {
+  return {
     id: t.id,
     catalog_id: t.id,
     title: t.title,
     artist: t.artist,
     bpm: t.bpm,
     key: t.key,
-  })
+    avis: t.avis,
+    has_preview: t.hasPreview,
+  }
+}
+
+// Queue source: "next" follows the tracklist as displayed (sort + filters),
+// pulling the next page when the loaded window runs out.
+const playSource = {
+  type: 'list',
+  getItems: () => tracks.value.map(toPlayerTrack),
+  loadMore: loadMoreTracks,
+  onAvis: (id, avis) => {
+    const row = tracks.value.find((r) => r.id === id)
+    if (row) row.avis = avis
+  },
+}
+
+function playTrack(t) {
+  player.play(toPlayerTrack(t), playSource)
 }
 
 function goToTrack(id) {
@@ -1005,8 +1026,19 @@ onMounted(fetchGenre)
 .shelf-artists :deep(.shelf-grid) {
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
 }
+/* Repli mono-rangée à toute largeur : rangée 1 explicite, rangées implicites à 0
+   (row-gap: 0 pour ne pas gonfler la boîte clippée ; l'item d'une rangée 0, étiré
+   et overflow:hidden, se résout à 0 et ne peint rien) — plus de max-height fragile.
+   Résidu accepté : les items masqués restent dans le DOM (liens tabbables invisibles),
+   comme le crop 180px d'origine du composant. */
 .shelf-artists :deep(.shelf) {
-  max-height: 175px;
+  grid-template-rows: auto;
+  grid-auto-rows: 0;
+  row-gap: 0;
+  max-height: none;
+}
+.shelf-artists :deep(.shelf > *) {
+  overflow: hidden;
 }
 .shelf-artists :deep(.sc-img) {
   width: 72px;

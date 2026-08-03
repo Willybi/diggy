@@ -86,7 +86,8 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query,
   function loadMore() {
     if (loading.value || !hasMore.value) return
     offset.value = items.value.length
-    fetch(false)
+    // Return the promise so a caller can await a page (player queue advance).
+    return fetch(false)
   }
 
   // Scroll-restore fast path: reload the first `count` rows in ONE parallel

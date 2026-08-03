@@ -119,6 +119,9 @@ class CatalogGenreItem(BaseModel):
 
 class PreviewUrlResponse(BaseModel):
     preview_url: str
+    # Avis courant du lecteur sur ce track (liked/disliked/None) — la PlayerBar
+    # l'affiche quel que soit le listing d'origine, avis inconnu du contexte inclus.
+    avis: str | None = None
 
 
 class AvisResponse(BaseModel):

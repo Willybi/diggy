@@ -351,8 +351,8 @@ function playRandomTrack() {
   player.playRandomArtist(artist.value.id)
 }
 
-function playTrack(t) {
-  player.play({
+function toPlayerTrack(t) {
+  return {
     id: t.id,
     catalog_id: t.id,
     title: t.title,
@@ -360,7 +360,19 @@ function playTrack(t) {
     artist_id: t.artist_id,
     bpm: t.bpm,
     key: t.key,
-  })
+    has_preview: t.has_preview,
+  }
+}
+
+// Queue source: "next" walks the artist's full tracklist — the 10-row fold is
+// purely presentational, a listening session shouldn't stop at it.
+const playSource = {
+  type: 'list',
+  getItems: () => (artist.value?.catalog_tracks ?? []).map(toPlayerTrack),
+}
+
+function playTrack(t) {
+  player.play(toPlayerTrack(t), playSource)
 }
 
 function goToTrack(id) {

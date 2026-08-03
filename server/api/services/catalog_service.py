@@ -720,7 +720,7 @@ async def _mark_no_preview(db: AsyncSession, catalog_id: int) -> None:
 async def get_preview_url(
     db: AsyncSession, catalog_id: int, user_id: int | None, redis=None
 ) -> dict:
-    from models import CatalogEntry, RadarTrack
+    from models import CatalogEntry, RadarTrack, UserOpinion, UserTrack
 
     # Visibility guard: a private entry owned by someone else is "not found".
     vis = await db.execute(
@@ -730,6 +730,34 @@ async def get_preview_url(
     )
     if not vis.scalar_one_or_none():
         raise LookupError("Catalog entry not found")
+
+    # Current avis, resolved like get_detail (canonical UserOpinion first, then
+    # the denormalized user_tracks.avis): the player bar shows like/dislike for
+    # the playing track regardless of which listing launched it, so the play
+    # request is the one moment every context shares to learn the truth.
+    avis = None
+    if user_id is not None:
+        op = (
+            await db.execute(
+                select(UserOpinion.opinion)
+                .where(
+                    UserOpinion.user_id == user_id,
+                    UserOpinion.entity_type == "track",
+                    UserOpinion.entity_key == str(catalog_id),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        avis = op or (
+            await db.execute(
+                select(UserTrack.avis)
+                .where(
+                    UserTrack.user_id == user_id,
+                    UserTrack.catalog_id == catalog_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
 
     r = await db.execute(
         select(RadarTrack.external_track_id)
@@ -753,7 +781,7 @@ async def get_preview_url(
 
     cached = await _preview_cache_get(redis, deezer_track_id)
     if cached:
-        return {"preview_url": cached}
+        return {"preview_url": cached, "avis": avis}
 
     try:
         try:
@@ -774,7 +802,7 @@ async def get_preview_url(
         raise LookupError("No preview available")
 
     await _preview_cache_set(redis, deezer_track_id, preview)
-    return {"preview_url": preview}
+    return {"preview_url": preview, "avis": avis}
 
 
 async def update_avis(

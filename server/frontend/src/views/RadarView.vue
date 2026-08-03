@@ -766,8 +766,8 @@ function openTrack(e) {
   router.push(`/catalog/${e.id}`)
 }
 
-function playTrack(e) {
-  player.play({
+function toPlayerTrack(e) {
+  return {
     id: e.id,
     catalog_id: e.id,
     title: e.title,
@@ -775,16 +775,36 @@ function playTrack(e) {
     artist_id: e.artist_id,
     bpm: e.bpm,
     key: e.key,
-  })
+    avis: e.avis,
+    has_preview: e.has_preview,
+  }
+}
+
+// Queue source: "next" follows the table as displayed (current filters + sort),
+// pulling the next page when the loaded window runs out.
+const playSource = {
+  type: 'list',
+  getItems: () => items.value.map(toPlayerTrack),
+  loadMore,
+  onAvis: (id, avis) => {
+    const row = items.value.find((r) => r.id === id)
+    if (row) row.avis = avis
+  },
+}
+
+function playTrack(e) {
+  player.play(toPlayerTrack(e), playSource)
 }
 
 async function setAvis(entry, avis) {
   const prev = entry.avis
   entry.avis = avis
+  player.syncAvis(entry.id, avis)
   try {
     await api.patch(`/api/catalog/${entry.id}/avis`, { avis })
   } catch {
     entry.avis = prev
+    player.syncAvis(entry.id, prev)
   }
 }
 
