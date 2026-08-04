@@ -1,83 +1,108 @@
 <template>
   <div class="st-page">
-    <!-- ── Head : identity + counter + search + avis filter + add ── -->
+    <!-- ── Head : identity + counter + add ── -->
     <header class="page-head st-head">
       <div class="titles">
         <h1>Sets</h1>
-        <div class="st-sub">
-          <template v-if="isOpinionMode"
-            >{{ fmtNum(baseTotal) }} sets<span class="st-sub-muted">
-              · {{ fmtNum(total) }} {{ avisLabel }}</span
-            ></template
-          >
-          <template v-else>{{ fmtNum(total) }} {{ pl(total, 'set', 'sets') }}</template>
-        </div>
+        <div class="st-sub">{{ headCount }}</div>
       </div>
-      <div class="head-tools">
-        <SearchBox
-          v-model="search"
-          placeholder="Rechercher un set…"
-          @update:modelValue="runFetch(true)"
-        />
-        <SegFilter
-          v-model="mode"
-          :options="[
-            { value: 'all', label: 'Tous' },
-            { value: 'liked', label: 'Liked', cls: 'liked' },
-            { value: 'disliked', label: 'Disliked', cls: 'disliked' },
-            { value: 'unrated', label: 'À explorer' },
-          ]"
-        />
-        <button class="btn btn--accent st-add" type="button" @click="openAdd">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            aria-hidden="true"
-          >
-            <path d="M12 5v14M5 12h14" stroke-linecap="round" />
-          </svg>
-          Ajouter
-        </button>
-      </div>
+      <button class="btn btn--accent st-add" type="button" @click="openAdd">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" stroke-linecap="round" />
+        </svg>
+        Ajouter
+      </button>
     </header>
+
+    <!-- ── Filter bar + chips + inline panel ── -->
+    <div class="st-controls">
+      <FilterBar
+        v-model:panelOpen="panelOpen"
+        v-model:drawerOpen="drawerOpen"
+        :criteria="criteria"
+        :filters="state"
+        :result-count="total"
+        :loading="loading"
+        @update:filters="applyFilters"
+      >
+        <template #search>
+          <SearchInput v-model="state.q" placeholder="Rechercher un set…" :debounce="0" />
+        </template>
+        <template #sort>
+          <span class="st-sort">
+            <SortSelect
+              :model-value="sortValue"
+              :options="SORT_OPTIONS"
+              aria-label="Trier les sets"
+              @update:model-value="onSortSelect"
+            />
+          </span>
+        </template>
+        <template #panel>
+          <FilterPanel :result-count="total" :loading="loading" @reset="resetFilters" @close="closePanel">
+            <div class="flt-field">
+              <span class="flt-label">Durée</span>
+              <SegmentedFilter v-model="state.dur" :options="DUR_OPTIONS" mono />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Année</span>
+              <RangeSlider v-model="state.year" :min="YEAR_MIN" :max="YEAR_MAX" label="Année" />
+            </div>
+            <div class="flt-field flt-field--4">
+              <span class="flt-label">Styles</span>
+              <div class="st-styles-scroll">
+                <StyleMultiSelect v-model="state.genre" :options="genreOptions" />
+              </div>
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Tracks</span>
+              <SegmentedFilter v-model="state.tracks" :options="TRACKS_OPTIONS" mono />
+            </div>
+            <div class="flt-field">
+              <span class="flt-label">Avis</span>
+              <SegmentedFilter v-model="state.avis" :options="AVIS_OPTIONS" />
+            </div>
+          </FilterPanel>
+        </template>
+      </FilterBar>
+    </div>
 
     <!-- ── Table : shared grid header/rows, infinite scroll ── -->
     <section class="st-table" aria-label="Liste des sets">
       <div v-if="showSkeleton || items.length" class="st-thead">
+        <span class="st-th col-play"></span>
         <button
           class="st-th st-th--btn col-set"
-          :class="{ 'is-sorted': sortKey === 'title' }"
+          :class="{ 'is-sorted': effSort === 'title' }"
           type="button"
-          @click="toggleSort('title')"
+          @click="onHeaderSort('title')"
         >
-          Set<span v-if="sortKey === 'title'" class="st-arr">{{ arrow }}</span>
+          Set<span v-if="effSort === 'title'" class="st-arr">{{ arrow }}</span>
         </button>
         <span class="st-th col-genre">Genre</span>
         <button
           class="st-th st-th--btn col-date"
-          :class="{ 'is-sorted': sortKey === 'date' }"
+          :class="{ 'is-sorted': effSort === 'date' }"
           type="button"
-          @click="toggleSort('date')"
+          @click="onHeaderSort('date')"
         >
-          Date<span v-if="sortKey === 'date'" class="st-arr">{{ arrow }}</span>
+          Date<span v-if="effSort === 'date'" class="st-arr">{{ arrow }}</span>
         </button>
         <button
           class="st-th st-th--btn st-th--center col-tracks"
-          :class="{ 'is-sorted': sortKey === 'tracks' }"
+          :class="{ 'is-sorted': effSort === 'tracks' }"
           type="button"
-          @click="toggleSort('tracks')"
+          @click="onHeaderSort('tracks')"
         >
-          Tracks<span v-if="sortKey === 'tracks'" class="st-arr">{{ arrow }}</span>
+          Tracks<span v-if="effSort === 'tracks'" class="st-arr">{{ arrow }}</span>
         </button>
         <button
           class="st-th st-th--btn st-th--right col-dur"
-          :class="{ 'is-sorted': sortKey === 'duration' }"
+          :class="{ 'is-sorted': effSort === 'duration' }"
           type="button"
-          @click="toggleSort('duration')"
+          @click="onHeaderSort('duration')"
         >
-          Durée<span v-if="sortKey === 'duration'" class="st-arr">{{ arrow }}</span>
+          Durée<span v-if="effSort === 'duration'" class="st-arr">{{ arrow }}</span>
         </button>
         <span class="st-th st-th--center col-avis">Avis</span>
       </div>
@@ -85,6 +110,7 @@
       <!-- Loading skeleton : 8 ghost rows in the exact grid -->
       <div v-if="showSkeleton" class="st-body" aria-hidden="true">
         <div v-for="i in 8" :key="i" class="st-row st-row--skel" :style="{ '--i': i - 1 }">
+          <div class="st-cell col-play"><span class="sk sk-play"></span></div>
           <div class="st-cell col-set st-cell--set">
             <span class="sk sk-art"></span>
             <div class="st-tx">
@@ -120,7 +146,7 @@
         </svg>
         <p class="st-empty-title">Aucun set trouvé</p>
         <p class="st-empty-sub">
-          Aucun set ne correspond à « {{ search.trim() }} ». Vérifie l’orthographe ou élargis ta
+          Aucun set ne correspond à « {{ state.q.trim() }} ». Vérifie l’orthographe ou élargis ta
           recherche.
         </p>
         <button class="btn" type="button" @click="clearSearch">Effacer la recherche</button>
@@ -143,6 +169,26 @@
         </svg>
         <p class="st-empty-title">{{ emptyAvis.title }}</p>
         <p class="st-empty-sub">{{ emptyAvis.sub }}</p>
+      </div>
+
+      <!-- Empty : active filters with no match -->
+      <div v-else-if="isEmpty && hasActiveFilters" class="st-empty">
+        <svg
+          class="st-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.2-3.2" />
+          <path d="M4 4l14 14" />
+        </svg>
+        <p class="st-empty-title">Aucun set avec ces filtres</p>
+        <p class="st-empty-sub">Retire un critère ou réinitialise la recherche.</p>
+        <button class="btn" type="button" @click="resetFilters">Réinitialiser les filtres</button>
       </div>
 
       <!-- Empty : generic fallback -->
@@ -169,11 +215,37 @@
           :key="s.id"
           class="st-row"
           :class="{
+            playing: isSetActive(s.id) && player.playing,
             liked: opinionOf(s.id) === 'liked',
             disliked: opinionOf(s.id) === 'disliked',
           }"
           @click="goToSet(s.id)"
         >
+          <div class="st-cell col-play st-cell--play">
+            <button
+              class="pbtn"
+              :class="{ 'pbtn--playing': isSetActive(s.id) && player.playing }"
+              type="button"
+              :disabled="playLoadingId === s.id"
+              :aria-label="`Écouter ${s.title}`"
+              @click.stop="playSet(s)"
+            >
+              <span v-if="playLoadingId === s.id" class="pbtn-spin"></span>
+              <svg
+                v-else-if="!(isSetActive(s.id) && player.playing)"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M8 5.5v13l11-6.5z" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="7" y="5" width="3.4" height="14" rx="1" />
+                <rect x="13.6" y="5" width="3.4" height="14" rx="1" />
+              </svg>
+            </button>
+          </div>
+
           <div class="st-cell col-set st-cell--set">
             <Artwork
               size="row"
@@ -245,6 +317,32 @@
         <span class="spin"></span>Chargement…
       </div>
     </section>
+
+    <!-- ── Mobile filter drawer (< 640) ── -->
+    <FilterDrawer v-model:open="drawerOpen" :result-count="total" :loading="loading" @reset="resetFilters">
+      <div class="flt-field">
+        <span class="flt-label">Durée</span>
+        <SegmentedFilter v-model="state.dur" :options="DUR_OPTIONS" mono variant="drawer" />
+      </div>
+      <div class="flt-field">
+        <span class="flt-label">Année</span>
+        <RangeSlider v-model="state.year" :min="YEAR_MIN" :max="YEAR_MAX" label="Année" />
+      </div>
+      <div class="flt-field">
+        <span class="flt-label">Styles</span>
+        <div class="st-styles-scroll">
+          <StyleMultiSelect v-model="state.genre" :options="genreOptions" variant="drawer" />
+        </div>
+      </div>
+      <div class="flt-field">
+        <span class="flt-label">Tracks</span>
+        <SegmentedFilter v-model="state.tracks" :options="TRACKS_OPTIONS" mono variant="drawer" />
+      </div>
+      <div class="flt-field">
+        <span class="flt-label">Avis</span>
+        <SegmentedFilter v-model="state.avis" :options="AVIS_OPTIONS" variant="drawer" />
+      </div>
+    </FilterDrawer>
 
     <!-- ── Add modal (2 tabs) ── -->
     <div v-if="showAdd" class="st-overlay" @click.self="closeAdd">
@@ -390,81 +488,233 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
+import { useAudioPlayer } from '../stores/audioPlayer.js'
+import { useToast } from '../stores/toast.js'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
-import { useUrlSync } from '../composables/useUrlSync.js'
+import { useFilterState } from '../composables/useFilterState.js'
 import { useScrollRestore } from '../composables/useScrollRestore.js'
+import { buildChips } from '../components/filters/criteria.js'
 import { fmtMs, fmtDate, fmtNum, pl } from '../utils/format'
+import FilterBar from '../components/filters/FilterBar.vue'
+import FilterPanel from '../components/filters/FilterPanel.vue'
+import FilterDrawer from '../components/filters/FilterDrawer.vue'
+import SearchInput from '../components/filters/SearchInput.vue'
+import RangeSlider from '../components/filters/RangeSlider.vue'
+import StyleMultiSelect from '../components/filters/StyleMultiSelect.vue'
+import SegmentedFilter from '../components/filters/SegmentedFilter.vue'
+import SortSelect from '../components/filters/SortSelect.vue'
 import Artwork from '../components/Artwork.vue'
 import ArtistLinks from '../components/ArtistLinks.vue'
 import StyleTag from '../components/StyleTag.vue'
 import ScoreRing from '../components/ScoreRing.vue'
 import LikeDislike from '../components/LikeDislike.vue'
-import SearchBox from '../components/SearchBox.vue'
-import SegFilter from '../components/SegFilter.vue'
+
+const GENRE_OPTIONS_MAX = 150
+const YEAR_MIN = 2005
+const YEAR_MAX = 2026
 
 const route = useRoute()
 const router = useRouter()
 const opinions = useOpinionsStore()
+const player = useAudioPlayer()
 
-// ── Filters / sort ──
-const search = ref('')
-const mode = ref('all')
-const sortKey = ref('date') // title | date | tracks | duration
-const sortDir = ref('desc') // asc | desc
-const baseTotal = ref(0) // last unfiltered (all-mode) total, for the head sub-count
+// ── Criteria (contract components/filters/criteria.js) ──────────────────────
 
+const DUR_OPTIONS = [
+  { value: 'lt1', label: '< 1h' },
+  { value: '1-2', label: '1–2h' },
+  { value: '2-3', label: '2–3h' },
+  { value: 'gt3', label: '> 3h' },
+]
+// Duration presets → API bounds in ms ([min, max], null = unbounded).
+const DUR_BOUNDS = {
+  lt1: [null, 3600000],
+  '1-2': [3600000, 7200000],
+  '2-3': [7200000, 10800000],
+  gt3: [10800000, null],
+}
+const TRACKS_OPTIONS = [
+  { value: 'lt20', label: '< 20' },
+  { value: '20-50', label: '20–50' },
+  { value: 'gt50', label: '> 50' },
+]
+const TRACKS_BOUNDS = {
+  lt20: [null, 19],
+  '20-50': [20, 50],
+  gt50: [51, null],
+}
+const AVIS_OPTIONS = [
+  { value: null, label: 'Tous' },
+  { value: 'liked', label: 'Aimés' },
+  { value: 'disliked', label: 'Rejetés' },
+  { value: 'none', label: 'À explorer' },
+]
+
+const criteria = [
+  { key: 'q', type: 'text', label: 'Recherche', chip: false },
+  { key: 'dur', type: 'segment', label: 'Durée', options: DUR_OPTIONS },
+  { key: 'year', type: 'range', label: 'Année', min: YEAR_MIN, max: YEAR_MAX },
+  { key: 'genre', type: 'multi', label: 'Style', chipPerValue: true },
+  { key: 'tracks', type: 'segment', label: 'Tracks', options: TRACKS_OPTIONS },
+  { key: 'avis', type: 'segment', label: 'Avis', options: AVIS_OPTIONS },
+]
+
+// Sort is URL state but not a filter (never a chip, never counted in the badge).
+const SORT_FIELDS = ['title', 'date', 'tracks', 'duration']
+const urlCriteria = [
+  ...criteria,
+  {
+    key: 'sort',
+    type: 'segment',
+    label: 'Tri',
+    chip: false,
+    options: SORT_FIELDS.map((v) => ({ value: v, label: v })),
+  },
+  {
+    key: 'order',
+    type: 'segment',
+    label: 'Ordre',
+    chip: false,
+    options: [
+      { value: 'asc', label: 'asc' },
+      { value: 'desc', label: 'desc' },
+    ],
+  },
+]
+
+const { state } = useFilterState(urlCriteria, { router, route })
+
+// ── Sort : select + header clicks pilot the same state (default = date desc) ──
+
+const SORT_OPTIONS = [
+  { value: 'date', label: 'Date (récent)' },
+  { value: 'title', label: 'Titre A–Z' },
+  { value: 'tracks', label: 'Nombre de tracks' },
+  { value: 'duration', label: 'Durée' },
+]
+const DEFAULT_ORDER = { title: 'asc', date: 'desc', tracks: 'desc', duration: 'desc' }
+
+// Effective sort/order — the criterion default (null) means « date desc ».
+const effSort = computed(() => state.sort || 'date')
+const effOrder = computed(() => state.order || DEFAULT_ORDER[effSort.value] || 'desc')
 // Composite sort sent server-side: leading '-' = descending.
-const sortParam = computed(() => (sortDir.value === 'desc' ? '-' : '') + sortKey.value)
+const sortParam = computed(() => (effOrder.value === 'desc' ? '-' : '') + effSort.value)
+const sortValue = computed(() => effSort.value)
+const arrow = computed(() => (effOrder.value === 'asc' ? '↑' : '↓'))
 
-// Filters ↔ URL so a back-return restores them (before the refetch watchers so
-// the initial hydrate doesn't trigger a spurious fetch).
-useUrlSync(
-  [
-    { ref: sortKey, param: 'sort', default: 'date' },
-    { ref: sortDir, param: 'dir', default: 'desc' },
-    { ref: mode, param: 'avis', default: 'all' },
-    { ref: search, param: 'q', default: '', debounce: true },
-  ],
-  { router, route },
-)
+function onSortSelect(v) {
+  state.sort = v
+  state.order = DEFAULT_ORDER[v]
+}
+
+function onHeaderSort(field) {
+  if (effSort.value === field) {
+    // Materialize the key so the flipped order sticks even from the null default.
+    state.sort = field
+    state.order = effOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    state.sort = field
+    state.order = DEFAULT_ORDER[field]
+  }
+}
+
+// ── Filter state helpers ─────────────────────────────────────────────────────
+
+const panelOpen = ref(false)
+const drawerOpen = ref(false)
+
+const activeChips = computed(() => buildChips(criteria, state))
+const hasActiveFilters = computed(() => activeChips.value.length > 0)
+
+function applyFilters(next) {
+  for (const c of criteria) {
+    if (c.key in next) state[c.key] = next[c.key]
+  }
+}
+
+function resetFilters() {
+  state.q = ''
+  state.dur = null
+  state.year = [YEAR_MIN, YEAR_MAX]
+  state.genre = []
+  state.tracks = null
+  state.avis = null
+}
+
+function closePanel() {
+  panelOpen.value = false
+}
+
+// Filter params (everything EXCEPT pagination, sort/q handled by the composable,
+// and avis handled by the opinion path). Shared by both fetch paths.
+function buildExtraParams() {
+  const p = {}
+  const [durLo, durHi] = DUR_BOUNDS[state.dur] || [null, null]
+  if (durLo != null) p.duration_min = durLo
+  if (durHi != null) p.duration_max = durHi
+  const [yLo, yHi] = state.year
+  if (yLo > YEAR_MIN) p.year_min = yLo
+  if (yHi < YEAR_MAX) p.year_max = yHi
+  const [tLo, tHi] = TRACKS_BOUNDS[state.tracks] || [null, null]
+  if (tLo != null) p.tracks_min = tLo
+  if (tHi != null) p.tracks_max = tHi
+  if (state.genre.length) p.genres = state.genre.join(',')
+  return p
+}
 
 // ── Paginated list (shared trunk) ──
 const { items, total, loading, hasMore, sentinel, fetch, fetchUpTo } = usePaginatedList({
   endpoint: '/api/sets/',
   pageSize: 24,
   sort: () => sortParam.value,
-  query: () => search.value,
+  query: () => state.q,
+  extraParams: () => buildExtraParams(),
 })
 
-// Scroll restoration on a back/forward return. The grid scrolls inside
-// .app-main (#main-content); on return we reload the rows in one burst
-// (fetchUpTo) then re-apply the offset. Opinion facets (liked/disliked/unrated)
-// are not paginated — they reload wholesale through the runFetch wrapper.
+// Independent, unfiltered base count for the head sub-line.
+const nBase = ref(null)
+const headCount = computed(() =>
+  nBase.value == null ? '…' : `${fmtNum(nBase.value)} ${pl(nBase.value, 'set', 'sets')}`,
+)
+
+async function fetchBaseCount() {
+  try {
+    const { data } = await api.get('/api/sets/', { params: { limit: 1 } })
+    nBase.value = data.total
+  } catch {
+    /* the head stays on '…' */
+  }
+}
+
+// ── Style options (GET /api/catalog/genres, sorted by count desc) ───────────
+const genreOptions = ref([])
+async function fetchGenres() {
+  try {
+    const { data } = await api.get('/api/catalog/genres')
+    genreOptions.value = (data || []).slice(0, GENRE_OPTIONS_MAX)
+  } catch {
+    /* panel simply shows no style options */
+  }
+}
+
+// Scroll restoration on a back/forward return.
 const scrollRestore = useScrollRestore({
   scroller: () => document.getElementById('main-content'),
   getCount: () => items.value.length,
 })
 
-const arrow = computed(() => (sortDir.value === 'asc' ? '↑' : '↓'))
-const isOpinionMode = computed(() => mode.value !== 'all')
-const hasSearch = computed(() => search.value.trim().length > 0)
+const isOpinionMode = computed(() => !!state.avis)
+const hasSearch = computed(() => state.q.trim().length > 0)
 const showSkeleton = computed(() => loading.value && !items.value.length)
 const isEmpty = computed(() => !loading.value && !items.value.length)
-
-const avisLabel = computed(() => {
-  if (mode.value === 'liked') return 'likés'
-  if (mode.value === 'disliked') return 'dislikés'
-  if (mode.value === 'unrated') return 'à explorer'
-  return ''
-})
 
 const emptyAvis = computed(() => {
   const map = {
     liked: { title: 'Aucun set liké', sub: 'Tu n’as encore liké aucun set.' },
     disliked: { title: 'Aucun set disliké', sub: 'Tu n’as encore disliké aucun set.' },
-    unrated: { title: 'Aucun set à explorer', sub: 'Tous tes sets ont déjà un avis.' },
+    none: { title: 'Aucun set à explorer', sub: 'Tous tes sets ont déjà un avis.' },
   }
-  return map[mode.value] || { title: 'Aucun set', sub: '' }
+  return map[state.avis] || { title: 'Aucun set', sub: '' }
 })
 
 function opinionOf(id) {
@@ -472,14 +722,14 @@ function opinionOf(id) {
 }
 
 // ── Fetch orchestration ──
-// `all` goes through the shared paginated list (infinite scroll). The opinion
-// filters resolve their id set from the opinions store in ONE non-paginated shot
-// (like ArtistsView) and write the shared refs directly: liked/disliked pass the
-// matching ids via `ids=`, unrated excludes every rated id via `exclude_ids=`.
+// `all` (avis null) goes through the shared paginated list (infinite scroll).
+// The opinion filters resolve their id set from the opinions store in ONE
+// non-paginated shot and write the shared refs directly: liked/disliked pass
+// the matching ids via `ids=`, « À explorer » excludes every rated id via
+// `exclude_ids=`. Both paths carry the panel filters (buildExtraParams).
 async function runFetch(reset = true) {
   if (!isOpinionMode.value) {
     await fetch(reset)
-    baseTotal.value = total.value
     return
   }
   if (!reset) return // opinion filters are not paginated (sentinel stays off)
@@ -488,18 +738,18 @@ async function runFetch(reset = true) {
   try {
     await opinions.load()
     const setOps = opinions.data.set || {}
-    const params = { sort: sortParam.value, limit: 200, offset: 0 }
-    const q = search.value.trim()
+    const params = { ...buildExtraParams(), sort: sortParam.value, limit: 200, offset: 0 }
+    const q = state.q.trim()
     if (q) params.q = q
 
-    if (mode.value === 'unrated') {
+    if (state.avis === 'none') {
       const ratedIds = Object.keys(setOps).filter(
         (k) => setOps[k] === 'liked' || setOps[k] === 'disliked',
       )
       if (ratedIds.length) params.exclude_ids = ratedIds.join(',')
     } else {
       const matchingIds = Object.entries(setOps)
-        .filter(([, v]) => v === mode.value)
+        .filter(([, v]) => v === state.avis)
         .map(([k]) => k)
       if (!matchingIds.length) {
         items.value = []
@@ -523,18 +773,8 @@ async function runFetch(reset = true) {
   }
 }
 
-function toggleSort(key) {
-  if (sortKey.value === key) {
-    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    sortKey.value = key
-    sortDir.value = key === 'title' ? 'asc' : 'desc'
-  }
-}
-
 function clearSearch() {
-  search.value = ''
-  runFetch(true)
+  state.q = ''
 }
 
 function goToSet(id) {
@@ -543,11 +783,69 @@ function goToSet(id) {
 
 async function setOpinion(id, val) {
   // Optimistic store update; the row recolors reactively via opinionOf().
+  // Keep the PlayerBar avis in sync if that set's track happens to be playing.
   await opinions.set('set', id, val)
 }
 
-// Mode / sort changes reload from the server.
-watch([mode, sortKey, sortDir], () => runFetch(true))
+// ── Play a set in order (frontend queue: fetch its tracklist on demand) ──
+const playLoadingId = ref(null)
+
+function isSetActive(id) {
+  return player.source?.type === 'list' && player.source?.setId === id
+}
+
+async function playSet(s) {
+  // Re-click on the active set → toggle play/pause.
+  if (isSetActive(s.id)) {
+    player.toggle()
+    return
+  }
+  playLoadingId.value = s.id
+  try {
+    const { data } = await api.get(`/api/sets/${s.id}`)
+    const tracks = (data.tracklist || [])
+      .filter((t) => !t.is_id && t.catalog_id && t.has_preview)
+      .map((t) => ({
+        id: t.catalog_id,
+        catalog_id: t.catalog_id,
+        title: t.catalog_title || t.raw_title,
+        artist: t.catalog_artist || t.raw_artist,
+        bpm: t.bpm,
+        key: t.key,
+        has_preview: t.has_preview,
+      }))
+    if (!tracks.length) {
+      useToast().show('Aucun extrait écoutable dans ce set')
+      return
+    }
+    // Queue source: "next" walks the set's tracklist in play order. setId lets
+    // the row reflect the playing state (read by isSetActive).
+    const source = { type: 'list', setId: s.id, getItems: () => tracks }
+    await player.play(tracks[0], source)
+  } catch {
+    useToast().show('Impossible de lire ce set')
+  } finally {
+    playLoadingId.value = null
+  }
+}
+
+// Filters/sort changed → the URL is the trigger (debounce handled by
+// useFilterState). Dedup on a serialized fetch key so a same-content replace
+// (e.g. an echo, or a sort→sort no-op) never refetches.
+function fetchKey() {
+  return JSON.stringify([sortParam.value, state.q.trim(), buildExtraParams(), state.avis])
+}
+let lastKey = null
+watch(
+  () => route.query,
+  () => {
+    if (route.path !== '/sets') return
+    const k = fetchKey()
+    if (k === lastKey) return
+    lastKey = k
+    runFetch(true)
+  },
+)
 
 // ── Add modal ──
 const showAdd = ref(false)
@@ -637,10 +935,13 @@ function onKeydown(e) {
 }
 
 onMounted(() => {
+  lastKey = fetchKey()
   scrollRestore.restore({
     initialFetch: () => runFetch(true),
     hydrate: (count) => (isOpinionMode.value ? runFetch(true) : fetchUpTo(count)),
   })
+  fetchBaseCount()
+  fetchGenres()
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
@@ -665,30 +966,26 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .st-sub {
   margin-top: var(--space-1);
   font: 500 var(--fs-sm) / 1 var(--font-mono);
-  color: var(--ink-2);
-}
-.st-sub-muted {
   color: var(--ink-3);
-}
-.head-tools {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.head-tools :deep(.search) {
-  flex: 1 1 200px;
-  max-width: 320px;
-  min-width: 200px;
 }
 .st-add {
   flex: none;
+  margin-left: auto;
+}
+
+/* ============ CONTROLS ============ */
+.st-controls {
+  padding: 0 var(--page-px) var(--space-4);
+}
+/* Styles field: the full genre list scrolls inside its panel cell. */
+.st-styles-scroll {
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 /* ============ TABLE — shared grid header/rows ============ */
 .st-table {
-  --st-grid: minmax(0, 1fr) 190px 104px 72px 92px 80px;
+  --st-grid: 44px minmax(0, 1fr) 190px 104px 72px 92px 80px;
   --st-gap: var(--space-3);
   padding-bottom: var(--space-8);
 }
@@ -756,6 +1053,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .st-row:hover {
   background: var(--surface-2);
 }
+.st-row.playing,
+.st-row.playing:hover {
+  background: var(--accent-wash);
+}
 .st-row.liked {
   background: var(--pos-wash);
 }
@@ -765,11 +1066,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 [data-theme='dark'] .st-row.liked {
   background: var(--pos-wash-2);
 }
-.st-row.disliked > .st-cell:not(.st-cell--avis) {
+.st-row.disliked > .st-cell:not(.st-cell--avis):not(.st-cell--play) {
   opacity: 0.45;
   transition: opacity 0.16s;
 }
-.st-row.disliked:hover > .st-cell:not(.st-cell--avis) {
+.st-row.disliked:hover > .st-cell:not(.st-cell--avis):not(.st-cell--play) {
   opacity: 0.7;
 }
 .st-cell {
@@ -781,6 +1082,60 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 .st-cell--right {
   text-align: right;
+}
+
+/* ============ PLAY ============ */
+.st-cell--play {
+  display: flex;
+  justify-content: center;
+}
+.pbtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s,
+    background 0.12s;
+}
+.st-row:hover .pbtn {
+  opacity: 1;
+}
+.pbtn:hover {
+  background: var(--surface-2);
+}
+.pbtn svg {
+  width: 11px;
+  height: 11px;
+}
+.pbtn--playing {
+  opacity: 1;
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+.pbtn:disabled {
+  cursor: default;
+}
+.pbtn-spin {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pbtn-spin {
+    animation: none;
+  }
 }
 
 /* ============ SET CELL ============ */
@@ -809,6 +1164,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.st-row.playing .st-title {
+  color: var(--accent-ink);
 }
 .st-artists {
   font: 400 var(--fs-table-sm) / 1.25 var(--font-ui);
@@ -906,6 +1264,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   border-radius: var(--r-xs);
   animation: st-pulse 1.4s ease-in-out infinite;
   animation-delay: calc(var(--i, 0) * 0.12s);
+}
+.sk-play {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
 }
 .sk-art {
   width: 44px;
@@ -1238,7 +1601,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
    masks it — no bottom-sheet override. */
 @container (max-width: 999px) {
   .st-table {
-    --st-grid: minmax(0, 1fr) 190px 104px 72px 80px;
+    --st-grid: 44px minmax(0, 1fr) 190px 104px 72px 80px;
   }
   .col-dur {
     display: none;
@@ -1246,7 +1609,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 @container (max-width: 859px) {
   .st-table {
-    --st-grid: minmax(0, 1fr) 104px 72px 80px;
+    --st-grid: 44px minmax(0, 1fr) 104px 72px 80px;
   }
   .col-genre {
     display: none;
@@ -1257,7 +1620,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 @container (max-width: 699px) {
   .st-table {
-    --st-grid: minmax(0, 1fr) 72px 80px;
+    --st-grid: 44px minmax(0, 1fr) 72px 80px;
   }
   .col-date {
     display: none;
@@ -1265,7 +1628,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 @container (max-width: 639px) {
   .st-table {
-    --st-grid: minmax(0, 1fr) 46px 84px;
+    --st-grid: 40px minmax(0, 1fr) 46px 84px;
     --st-gap: var(--space-2);
   }
   .st-thead,
@@ -1275,17 +1638,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .st-head {
     padding: var(--space-4) var(--page-px-mobile) var(--space-3);
   }
-  .head-tools {
-    width: 100%;
-    margin-left: 0;
-  }
-  .head-tools :deep(.search) {
-    flex: 1 1 100%;
-    max-width: none;
+  .st-controls {
+    padding: 0 var(--page-px-mobile) var(--space-3);
   }
   .st-sentinel,
   .st-empty {
     padding-inline: var(--page-px-mobile);
+  }
+  /* Touch: play always visible. */
+  .pbtn {
+    opacity: 1;
   }
 }
 </style>

@@ -317,6 +317,136 @@ class TestListSetsEnriched:
         ]
 
 
+class TestListSetsFilters:
+    """Panel filters (D-play chantier): duration/year/genres/tracks bounds. Each
+    filter narrows the same list query and is honoured by the total count."""
+
+    async def test_filter_by_duration_bounds(self, client, db):
+        short = DJSet(source="trackid", title="Short", duration_ms=1_800_000)  # 30min
+        mid = DJSet(source="trackid", title="Mid", duration_ms=5_400_000)  # 90min
+        long_ = DJSet(source="trackid", title="Long", duration_ms=10_800_000)  # 3h
+        nodur = DJSet(source="trackid", title="NoDur", duration_ms=None)
+        db.add_all([short, mid, long_, nodur])
+        await db.flush()
+        for s in (short, mid, long_, nodur):
+            await _attach_identified_track(db, s)
+        await db.commit()
+
+        # >= 1h keeps Mid + Long; the null-duration set drops out under any bound.
+        r = await client.get("/api/sets/?duration_min=3600000")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"Mid", "Long"}
+        assert data["total"] == 2
+
+        # 1h..2h window keeps Mid only.
+        r = await client.get("/api/sets/?duration_min=3600000&duration_max=7200000")
+        assert {it["title"] for it in r.json()["items"]} == {"Mid"}
+
+    async def test_filter_by_year_bounds(self, client, db):
+        old = DJSet(source="trackid", title="Old", played_date=date(2020, 6, 1))
+        new = DJSet(source="trackid", title="New", played_date=date(2024, 6, 1))
+        nodate = DJSet(source="trackid", title="NoDate", played_date=None)
+        db.add_all([old, new, nodate])
+        await db.flush()
+        for s in (old, new, nodate):
+            await _attach_identified_track(db, s)
+        await db.commit()
+
+        # year_min excludes the older set AND the null-date one.
+        r = await client.get("/api/sets/?year_min=2023")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"New"}
+        assert data["total"] == 1
+
+        # A closed window around 2020 keeps only Old.
+        r = await client.get("/api/sets/?year_min=2019&year_max=2021")
+        assert {it["title"] for it in r.json()["items"]} == {"Old"}
+
+    async def test_filter_by_genres(self, client, db):
+        techno = DJSet(source="trackid", title="Techno Night")
+        house = DJSet(source="trackid", title="House Party")
+        db.add_all([techno, house])
+        await db.flush()
+        await _attach_identified_track(db, techno, genres=["techno"])
+        await _attach_identified_track(db, house, genres=["house"])
+        await db.commit()
+
+        r = await client.get("/api/sets/?genres=techno")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"Techno Night"}
+        assert data["total"] == 1
+
+    async def test_filter_by_genres_multiple_is_or(self, client, db):
+        techno = DJSet(source="trackid", title="Techno Night")
+        house = DJSet(source="trackid", title="House Party")
+        trance = DJSet(source="trackid", title="Trance Journey")
+        db.add_all([techno, house, trance])
+        await db.flush()
+        await _attach_identified_track(db, techno, genres=["techno"])
+        await _attach_identified_track(db, house, genres=["house"])
+        await _attach_identified_track(db, trance, genres=["trance"])
+        await db.commit()
+
+        # CSV of styles = OR: a set matching either techno or house is kept.
+        r = await client.get("/api/sets/?genres=techno,house")
+        assert {it["title"] for it in r.json()["items"]} == {"Techno Night", "House Party"}
+
+        # blank tokens are dropped; an all-blank CSV drops the filter entirely.
+        r = await client.get("/api/sets/?genres=,")
+        assert r.json()["total"] == 3
+
+    async def test_genre_filter_respects_catalog_visible(self, auth_client, db, auth_user):
+        """A style carried ONLY by a foreign private track must not make the set
+        match for another viewer (C3 perimeter, mirrors the top_genres rule)."""
+        other = User(email="gf@test.com", username="gf", google_id="g-gf", is_active=True)
+        db.add(other)
+        await db.flush()
+        s = DJSet(source="trackid", title="Hidden Genre Set")
+        db.add(s)
+        await db.flush()
+        cat_shared = CatalogEntry(
+            title="Shared", artist="Alpha", normalized_key="alpha|shared",
+            genres=["techno"], scope="shared",
+        )
+        cat_private = CatalogEntry(
+            title="Secret", artist="Beta", normalized_key="beta|secret",
+            genres=["house"], scope="private", owner_id=other.id,
+        )
+        db.add_all([cat_shared, cat_private])
+        await db.flush()
+        db.add(SetTrack(set_id=s.id, position=1, catalog_id=cat_shared.id, raw_title="Shared"))
+        db.add(SetTrack(set_id=s.id, position=2, catalog_id=cat_private.id, raw_title="Secret"))
+        await db.commit()
+
+        # techno is visible -> the set matches
+        r = await auth_client.get("/api/sets/?genres=techno")
+        assert {it["title"] for it in r.json()["items"]} == {"Hidden Genre Set"}
+        # house is only on the foreign private track -> the set must NOT match
+        r = await auth_client.get("/api/sets/?genres=house")
+        assert r.json()["items"] == []
+        assert r.json()["total"] == 0
+
+    async def test_filter_by_tracks_count(self, client, db):
+        one = DJSet(source="trackid", title="One Track")
+        three = DJSet(source="trackid", title="Three Tracks")
+        db.add_all([one, three])
+        await db.flush()
+        await _attach_identified_track(db, one, position=1)
+        for pos in (1, 2, 3):
+            await _attach_identified_track(db, three, position=pos)
+        await db.commit()
+
+        # tracks_min keeps only the 3-track set.
+        r = await client.get("/api/sets/?tracks_min=2")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"Three Tracks"}
+        assert data["total"] == 1
+
+        # tracks_max keeps only the 1-track set.
+        r = await client.get("/api/sets/?tracks_max=1")
+        assert {it["title"] for it in r.json()["items"]} == {"One Track"}
+
+
 class TestSetDetail:
     async def test_returns_set(self, client, db):
         s = DJSet(source="trackid", title="Test Set")

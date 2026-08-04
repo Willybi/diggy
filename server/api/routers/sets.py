@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from celery_client import celery
 from database import get_db
@@ -32,7 +32,7 @@ from schemas import (
 from services.catalog_service import catalog_visible
 from services.genre_service import aggregate_top_genres, ensure_pillar_cache
 from services.opinion_sync import sync_set_opinion
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -101,12 +101,29 @@ def _parse_id_csv(raw: str | None) -> list[int] | None:
     return out or None
 
 
+def _parse_str_csv(raw: str | None) -> list[str] | None:
+    """Parse a CSV of strings defensively. Blank tokens are dropped; an empty or
+    all-blank CSV yields ``None`` (param ignored). Used for the ``genres`` filter,
+    sent CSV-joined because the app's axios default can't emit repeated params."""
+    if not raw:
+        return None
+    out = [tok.strip() for tok in raw.split(",") if tok.strip()]
+    return out or None
+
+
 @router.get("/", response_model=SetListResponse)
 async def list_sets(
     q: str | None = None,
     sort: str = Query("-date"),
     ids: str | None = None,
     exclude_ids: str | None = None,
+    genres: str | None = None,
+    duration_min: int | None = Query(None, ge=0),
+    duration_max: int | None = Query(None, ge=0),
+    year_min: int | None = Query(None, ge=1900, le=2100),
+    year_max: int | None = Query(None, ge=1900, le=2100),
+    tracks_min: int | None = Query(None, ge=0),
+    tracks_max: int | None = Query(None, ge=0),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -151,6 +168,46 @@ async def list_sets(
     exclude_parsed = _parse_id_csv(exclude_ids)
     if exclude_parsed is not None:
         stmt = stmt.where(DJSet.id.notin_(exclude_parsed))
+
+    # Duration (ms) bounds — a null duration_ms can't satisfy a bound, so it is
+    # excluded as soon as either side is set (the frontend presets are ranges).
+    if duration_min is not None:
+        stmt = stmt.where(DJSet.duration_ms >= duration_min)
+    if duration_max is not None:
+        stmt = stmt.where(DJSet.duration_ms <= duration_max)
+
+    # Played date by year bounds — expressed as Date comparisons (portable across
+    # PG/SQLite); a null played_date can't match, so it drops out when filtered.
+    if year_min is not None:
+        stmt = stmt.where(DJSet.played_date >= date(year_min, 1, 1))
+    if year_max is not None:
+        stmt = stmt.where(DJSet.played_date <= date(year_max, 12, 31))
+
+    # Style filter: keep sets that carry ≥1 VISIBLE identified track (C3 perimeter)
+    # tagged with any of the requested styles. `genres.any(g)` compiles per dialect
+    # (StringArray.array_any). Sent CSV-joined (axios can't emit repeated params
+    # through usePaginatedList's plain-object params).
+    genres_list = _parse_str_csv(genres)
+    if genres_list:
+        genre_match = or_(*[CatalogEntry.genres.any(g) for g in genres_list])
+        genre_sub = (
+            select(SetTrack.set_id)
+            .join(CatalogEntry, CatalogEntry.id == SetTrack.catalog_id)
+            .where(
+                SetTrack.is_id.is_(False),
+                SetTrack.catalog_id.isnot(None),
+                catalog_visible(uid),
+                genre_match,
+            )
+        )
+        stmt = stmt.where(DJSet.id.in_(genre_sub))
+
+    # Track-count bounds — total_tracks is an aggregate, so these are HAVING
+    # clauses (AND-ed with the identified>0 gate above).
+    if tracks_min is not None:
+        stmt = stmt.having(total_tracks_expr >= tracks_min)
+    if tracks_max is not None:
+        stmt = stmt.having(total_tracks_expr <= tracks_max)
 
     # Ordering: leading '-' = descending, else ascending. Unknown key -> -date.
     # created_at.desc() is the final tie-break everywhere.

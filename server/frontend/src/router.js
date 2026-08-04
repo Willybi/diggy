@@ -73,4 +73,34 @@ router.beforeEach((to) => {
   if (!to.meta.public && !auth.isAuthenticated) return '/'
 })
 
+// Un déploiement remplace TOUS les assets hashés. Un onglet ouvert avant le
+// déploiement 404 dès qu'il charge en lazy un chunk de route qui n'existe plus
+// (« Importing a module script failed »). On récupère en forçant UN rechargement
+// complet de la route cible — il re-télécharge index.html et ses nouveaux hash.
+// Garde anti-boucle : si un vrai déploiement est cassé (chunk réellement absent),
+// on ne recharge pas en boucle, l'erreur remonte normalement dans la console.
+const CHUNK_LOAD_ERROR =
+  /Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i
+
+function reloadForStaleChunk(targetPath) {
+  const KEY = 'diggy:chunk-reloaded-at'
+  const last = Number(sessionStorage.getItem(KEY) || 0)
+  if (Date.now() - last < 10_000) return false // déjà tenté récemment
+  sessionStorage.setItem(KEY, String(Date.now()))
+  window.location.assign(targetPath)
+  return true
+}
+
+router.onError((error, to) => {
+  if (CHUNK_LOAD_ERROR.test(error?.message || '') || error?.name === 'ChunkLoadError') {
+    reloadForStaleChunk(to?.fullPath || window.location.pathname)
+  }
+})
+
+// Vite émet cet événement sur window quand le modulepreload d'un import
+// dynamique échoue, souvent AVANT l'erreur du routeur — même garde partagée.
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadForStaleChunk(window.location.pathname)) event.preventDefault()
+})
+
 export default router

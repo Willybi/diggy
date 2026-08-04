@@ -3,8 +3,11 @@ import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
-// Mutable holders shared with the hoisted mocks below.
-const { apiMock, routerPush, routeState, routerReplace } = vi.hoisted(() => ({
+// Mutable holders shared with the hoisted mocks. `routeState.route` is REACTIVE
+// (so watch(() => route.query) fires) and `.replace` writes the new query back
+// into it — the browser round-trip that lets a post-mount filter/sort change
+// drive the refetch watch, exactly like ExplorerView.test.js.
+const { apiMock, routerPush, routeState, playerMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -12,14 +15,24 @@ const { apiMock, routerPush, routeState, routerReplace } = vi.hoisted(() => ({
   },
   routerPush: vi.fn(),
   routeState: {},
-  routerReplace: vi.fn(),
+  playerMock: {
+    source: null,
+    playing: false,
+    isCurrent: () => false,
+    toggle: vi.fn(),
+    play: vi.fn(),
+  },
 }))
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 
+vi.mock('../../stores/audioPlayer.js', () => ({
+  useAudioPlayer: () => playerMock,
+}))
+
 vi.mock('vue-router', () => ({
   useRoute: () => routeState.route,
-  useRouter: () => ({ push: routerPush, replace: routerReplace }),
+  useRouter: () => ({ push: routerPush, replace: routeState.replace }),
   onBeforeRouteLeave: vi.fn(),
 }))
 
@@ -56,34 +69,53 @@ function makeItems() {
   ]
 }
 
-// Opinions returned by GET /api/opinions/ (consumed by the store's load()).
 let opinionsResponse
 let listResponse
+let detailResponse
 
 function installApiMock() {
   apiMock.get.mockImplementation((url) => {
     if (url === '/api/opinions/') return Promise.resolve({ data: opinionsResponse })
+    if (url === '/api/catalog/genres') return Promise.resolve({ data: [] })
     if (url === '/api/sets/') return Promise.resolve({ data: listResponse })
     if (url === '/api/sets/search') return Promise.resolve({ data: [] })
+    if (url === '/api/sets/1') return Promise.resolve({ data: detailResponse })
     return Promise.resolve({ data: {} })
   })
 }
 
-// Only the list endpoint, in call order — the opinions/search calls hit other URLs.
-function setsCalls() {
-  return apiMock.get.mock.calls.filter(([url]) => url === '/api/sets/')
+// The real list fetches (initial page / avis one-shot). The head base-count call
+// hits the same URL with limit:1 — filter it out so ordering can't confuse us.
+function listCalls() {
+  return apiMock.get.mock.calls.filter(
+    ([url, cfg]) => url === '/api/sets/' && cfg?.params?.limit !== 1,
+  )
 }
-function lastSetsParams() {
-  const calls = setsCalls()
+function lastListParams() {
+  const calls = listCalls()
   return calls[calls.length - 1][1].params
 }
 
-function clickSeg(wrapper, label) {
-  const btn = wrapper.findAll('.filterseg button').find((b) => b.text() === label)
-  return btn.trigger('click')
+async function openPanel(wrapper) {
+  // jsdom width 0 → FilterBar routes the toggle to the inline panel.
+  await wrapper.find('.fbar-toggle').trigger('click')
+  await flushPromises()
 }
 
-async function mountView() {
+function fieldByLabel(wrapper, label) {
+  return wrapper.findAll('.flt-field').find((f) => f.find('.flt-label').text() === label)
+}
+
+async function clickAvis(wrapper, label) {
+  const field = fieldByLabel(wrapper, 'Avis')
+  const pill = field.findAll('.seg-pill').find((b) => b.text() === label)
+  await pill.trigger('click')
+  await flushPromises()
+}
+
+async function mountView(query = {}) {
+  routeState.route.path = '/sets'
+  routeState.route.query = query
   const { default: SetsView } = await import('../../views/SetsView.vue')
   const wrapper = mount(SetsView, {
     global: {
@@ -97,8 +129,8 @@ async function mountView() {
 
 describe('SetsView', () => {
   beforeEach(() => {
-    // useInfiniteScroll (via usePaginatedList) instantiates an IntersectionObserver
-    // in onMounted — jsdom has none, so provide an inert stub.
+    // usePaginatedList instantiates an IntersectionObserver in onMounted — jsdom
+    // has none, so provide an inert stub.
     vi.stubGlobal(
       'IntersectionObserver',
       class {
@@ -112,17 +144,55 @@ describe('SetsView', () => {
     apiMock.patch.mockReset()
     apiMock.patch.mockResolvedValue({ data: {} })
     routerPush.mockReset()
-    routerReplace.mockReset()
+    playerMock.play.mockReset()
+    playerMock.toggle.mockReset()
+    playerMock.source = null
+    playerMock.playing = false
+    // Fresh REACTIVE route per test; router.replace writes the query back so the
+    // URL→refetch watch fires.
     routeState.route = reactive({ path: '/sets', query: {} })
+    routeState.replace = vi.fn((loc) => {
+      routeState.route.query = { ...(loc.query || {}) }
+    })
     setActivePinia(createPinia())
     opinionsResponse = { set: { 1: 'liked', 2: 'disliked', 3: 'liked' } }
     listResponse = { total: 2, items: makeItems() }
+    detailResponse = {
+      id: 1,
+      title: 'Boiler Room Berlin',
+      tracklist: [
+        {
+          id: 90,
+          catalog_id: 500,
+          is_id: false,
+          has_preview: true,
+          catalog_title: 'Opener',
+          catalog_artist: 'A1',
+          raw_title: 'Opener',
+          bpm: 128,
+          key: '8A',
+        },
+        {
+          id: 91,
+          catalog_id: 501,
+          is_id: false,
+          has_preview: true,
+          catalog_title: 'Peak',
+          catalog_artist: 'A2',
+          raw_title: 'Peak',
+          bpm: 130,
+          key: '9A',
+        },
+        // Unidentified / preview-less rows are dropped from the queue.
+        { id: 92, catalog_id: null, is_id: true, has_preview: false, raw_title: 'ID' },
+      ],
+    }
     installApiMock()
   })
 
   it('fetches the paginated list with no ids/exclude on mount (all mode, default -date)', async () => {
     await mountView()
-    const p = lastSetsParams()
+    const p = lastListParams()
     expect(p.sort).toBe('-date')
     expect(p.limit).toBe(24)
     expect(p.offset).toBe(0)
@@ -130,12 +200,12 @@ describe('SetsView', () => {
     expect(p.exclude_ids).toBeUndefined()
   })
 
-  it('resolves the Liked filter to ids= from the opinions store', async () => {
+  it('resolves the Aimés avis filter to ids= from the opinions store', async () => {
     const wrapper = await mountView()
-    await clickSeg(wrapper, 'Liked')
-    await flushPromises()
+    await openPanel(wrapper)
+    await clickAvis(wrapper, 'Aimés')
 
-    const p = lastSetsParams()
+    const p = lastListParams()
     // Only sets opinion-tagged liked → ids 1 and 3, no exclusion.
     expect(p.ids).toBe('1,3')
     expect(p.exclude_ids).toBeUndefined()
@@ -146,10 +216,10 @@ describe('SetsView', () => {
 
   it('resolves À explorer to exclude_ids= (every rated set, liked ∪ disliked)', async () => {
     const wrapper = await mountView()
-    await clickSeg(wrapper, 'À explorer')
-    await flushPromises()
+    await openPanel(wrapper)
+    await clickAvis(wrapper, 'À explorer')
 
-    const p = lastSetsParams()
+    const p = lastListParams()
     expect(p.exclude_ids).toBe('1,2,3')
     expect(p.ids).toBeUndefined()
   })
@@ -157,15 +227,28 @@ describe('SetsView', () => {
   it('shows the avis-empty state (no request) when no set carries the opinion', async () => {
     opinionsResponse = { set: { 2: 'disliked' } } // no liked set
     const wrapper = await mountView()
-    const before = setsCalls().length
-    await clickSeg(wrapper, 'Liked')
-    await flushPromises()
+    await openPanel(wrapper)
+    const before = listCalls().length
+    await clickAvis(wrapper, 'Aimés')
 
     // No matching id → the view short-circuits without hitting the list endpoint.
-    expect(setsCalls().length).toBe(before)
+    expect(listCalls().length).toBe(before)
     const empty = wrapper.find('.st-empty')
     expect(empty.exists()).toBe(true)
     expect(empty.text()).toContain('Aucun set liké')
+  })
+
+  it('translates a duration preset into duration_min/max params', async () => {
+    const wrapper = await mountView()
+    await openPanel(wrapper)
+    // Durée options: [< 1h, 1–2h, 2–3h, > 3h] → index 1 = the 1h–2h window.
+    const field = fieldByLabel(wrapper, 'Durée')
+    await field.findAll('.seg-pill')[1].trigger('click')
+    await flushPromises()
+
+    const p = lastListParams()
+    expect(p.duration_min).toBe(3_600_000)
+    expect(p.duration_max).toBe(7_200_000)
   })
 
   it('renders an enriched row: title, clickable artist links, genre StyleTag, identified-tracks ring', async () => {
@@ -203,15 +286,32 @@ describe('SetsView', () => {
     expect(routerPush).toHaveBeenCalledWith('/set/1')
   })
 
-  it('sends the composite sort (-date → tracks desc) when a header is clicked', async () => {
+  it('plays a set in order: fetches its tracklist and queues the playable tracks', async () => {
     const wrapper = await mountView()
-    const before = setsCalls().length
+    // Play button is the leftmost cell of the row; @click.stop → no navigation.
+    await wrapper.find('.st-row:not(.st-row--skel) .pbtn').trigger('click')
+    await flushPromises()
+
+    expect(routerPush).not.toHaveBeenCalled()
+    expect(playerMock.play).toHaveBeenCalledTimes(1)
+    const [firstTrack, source] = playerMock.play.mock.calls[0]
+    // First playable track leads the queue.
+    expect(firstTrack.catalog_id).toBe(500)
+    // The source is a set-tagged list; getItems() returns only playable tracks.
+    expect(source.type).toBe('list')
+    expect(source.setId).toBe(1)
+    expect(source.getItems().map((t) => t.catalog_id)).toEqual([500, 501])
+  })
+
+  it('sends the composite sort (-date → -tracks) when a header is clicked', async () => {
+    const wrapper = await mountView()
+    const before = listCalls().length
     const tracksHeader = wrapper.findAll('.st-th--btn').find((h) => h.text().startsWith('Tracks'))
     await tracksHeader.trigger('click')
     await flushPromises()
 
-    expect(setsCalls().length).toBe(before + 1)
+    expect(listCalls().length).toBe(before + 1)
     // New column → default descending (leading '-').
-    expect(lastSetsParams().sort).toBe('-tracks')
+    expect(lastListParams().sort).toBe('-tracks')
   })
 })
