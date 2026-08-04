@@ -401,18 +401,32 @@ function onScrubStart(e) {
 .pl-rail {
   flex: 1;
   min-width: 60px;
-  height: 4px;
-  background: var(--line-2);
-  border-radius: 2px;
+  /* Enlarged hit area (20px) for easy hand-scrubbing; the visible 4px
+     track is drawn by ::before so the bar still READS thin. */
+  height: 20px;
   cursor: pointer;
   position: relative;
   touch-action: none;
 }
+.pl-rail::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  background: var(--line-2);
+  border-radius: 2px;
+}
 .pl-fill {
-  height: 100%;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
   background: var(--accent);
   border-radius: 2px;
-  position: relative;
 }
 .pl-thumb {
   position: absolute;
@@ -426,9 +440,11 @@ function onScrubStart(e) {
   transition: transform 0.12s;
 }
 .pl-rail:focus-visible {
+  outline: none;
+}
+.pl-rail:focus-visible::before {
   outline: 2px solid var(--accent-soft);
-  outline-offset: 2px;
-  border-radius: 2px;
+  outline-offset: 3px;
 }
 .pl-rail:hover .pl-thumb,
 .pl-rail:active .pl-thumb,
