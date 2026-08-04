@@ -153,7 +153,6 @@ Composite PK: (`user_id`, `catalog_id`)
 | `rb_bpm` | Float | yes |  |  |  |
 | `rb_key` | String(10) | yes |  |  |  |
 | `rb_mytags` | JSON | yes |  |  | server_default='[]', default=func |
-| `rating` | Integer | yes |  |  |  |
 | `avis` | String(20) | yes |  |  |  |
 | `has_artwork` | Boolean | yes |  |  | default=False |
 | `created_at` | DateTime(tz) | yes |  |  | server_default=now() |

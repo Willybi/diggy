@@ -813,7 +813,7 @@ class TestExplorerRatingRemoved:
         db.add(cat)
         await db.commit()
         await db.refresh(cat)
-        db.add(UserTrack(user_id=auth_user.id, catalog_id=cat.id, source="test", rating=5))
+        db.add(UserTrack(user_id=auth_user.id, catalog_id=cat.id, source="test"))
         await db.commit()
 
         r = await auth_client.get("/api/catalog/")

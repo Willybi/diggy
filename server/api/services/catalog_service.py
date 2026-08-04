@@ -558,7 +558,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
             .subquery()
         )
         sa_ut_sub = (
-            select(UserTrack.catalog_id, UserTrack.rating)
+            select(UserTrack.catalog_id)
             .where(UserTrack.user_id == user_id)
             .subquery()
         )
@@ -573,12 +573,11 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 CatalogEntry.has_artwork,
                 CatalogEntry.has_preview,
                 sa_ut_sub.c.catalog_id.label("sa_ut_cid"),
-                sa_ut_sub.c.rating,
             )
             .outerjoin(sa_ut_sub, CatalogEntry.id == sa_ut_sub.c.catalog_id)
             .where(CatalogEntry.id.in_(select(shared_catalog_ids.c.catalog_id)))
             .where(catalog_visible(user_id))
-            .order_by(sa_ut_sub.c.rating.desc().nulls_last())
+            .order_by(sa_ut_sub.c.catalog_id.desc().nulls_last(), CatalogEntry.id)
             .limit(10)
         )
         sa_rows = sa_result.all()

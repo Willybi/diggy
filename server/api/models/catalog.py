@@ -154,7 +154,6 @@ class UserTrack(Base):
     rb_bpm = Column(Float, nullable=True)
     rb_key = Column(String(10), nullable=True)
     rb_mytags = Column(JSON, server_default="[]", default=list, nullable=True)
-    rating = Column(Integer, nullable=True)
     avis = Column(String(20), nullable=True)
     has_artwork = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

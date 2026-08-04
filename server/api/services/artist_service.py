@@ -318,7 +318,6 @@ async def get_detail(
 
     lib_sub = select(
         UserTrack.catalog_id,
-        UserTrack.rating,
         UserTrack.rb_mytags.label("tags"),
         UserTrack.rb_bpm.label("bpm"),
         UserTrack.rb_key.label("key"),
@@ -328,7 +327,6 @@ async def get_detail(
         select(
             CatalogEntry,
             lib_sub.c.catalog_id.label("lib_cid"),
-            lib_sub.c.rating.label("lib_rating"),
             lib_sub.c.tags.label("lib_tags"),
             lib_sub.c.bpm.label("lib_bpm"),
             lib_sub.c.key.label("lib_key"),
@@ -336,7 +334,7 @@ async def get_detail(
         .join(CatalogArtist, CatalogArtist.catalog_id == CatalogEntry.id)
         .outerjoin(lib_sub, CatalogEntry.id == lib_sub.c.catalog_id)
         .where(CatalogArtist.artist_id == artist_id, catalog_visible(user_id))
-        .order_by(lib_sub.c.rating.desc().nulls_last(), CatalogEntry.title)
+        .order_by(lib_sub.c.catalog_id.desc().nulls_last(), CatalogEntry.title)
         .limit(200)
     )
     cat_rows = cat_result.all()
@@ -352,19 +350,15 @@ async def get_detail(
 
     catalog_tracks = []
     nb_lib = 0
-    ratings = []
     for row in cat_rows:
         entry = row[0]
         is_in_lib = row[1] is not None
-        rating = row[2]
-        lib_tags = row[3]
-        lib_bpm = row[4]
-        lib_key = row[5]
+        lib_tags = row[2]
+        lib_bpm = row[3]
+        lib_key = row[4]
 
         if is_in_lib:
             nb_lib += 1
-        if rating and rating > 0:
-            ratings.append(rating)
 
         lib_style = None
         if lib_tags:
@@ -458,7 +452,6 @@ async def get_detail(
 
     following = await following_service.is_following(db, user_id, artist_id)
 
-    avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
     genre_counts: dict[str, int] = {}
     for row in cat_rows:
         for g in row[0].genres or []:
@@ -486,7 +479,6 @@ async def get_detail(
             "nb_catalog": nb_catalog_total,
             "nb_lib": nb_lib,
             "nb_sets": len(sets),
-            "avg_rating": avg_rating,
         },
         following=following,
     )

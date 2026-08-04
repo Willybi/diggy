@@ -19,7 +19,6 @@ class TrackImport(BaseModel):
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration: Optional[int] = None
-    rating: Optional[int] = None
     file_path: Optional[str] = None
     date_added: Optional[datetime] = None
     tags: list[str] = []

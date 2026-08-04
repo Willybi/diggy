@@ -330,13 +330,9 @@ class TestMergeRepoint:
     def test_user_tracks_conflict_merges_null_fields(self, sync_session):
         canon = _cat(sync_session)
         loser = _cat(sync_session)
-        # Same user owns both: canonical is missing avis/rating, loser has them.
-        sync_session.add(
-            UserTrack(user_id=3, catalog_id=canon.id, avis=None, rating=None)
-        )
-        sync_session.add(
-            UserTrack(user_id=3, catalog_id=loser.id, avis="love", rating=5)
-        )
+        # Same user owns both: canonical is missing avis, loser has it.
+        sync_session.add(UserTrack(user_id=3, catalog_id=canon.id, avis=None))
+        sync_session.add(UserTrack(user_id=3, catalog_id=loser.id, avis="love"))
         sync_session.commit()
 
         merge_catalog_entries(sync_session, canon.id, loser.id)
@@ -347,17 +343,12 @@ class TestMergeRepoint:
         row = rows[0]
         assert row.user_id == 3 and row.catalog_id == canon.id
         assert row.avis == "love"  # filled from loser
-        assert row.rating == 5
 
     def test_user_tracks_conflict_keeps_canonical_non_null(self, sync_session):
         canon = _cat(sync_session)
         loser = _cat(sync_session)
-        sync_session.add(
-            UserTrack(user_id=3, catalog_id=canon.id, avis="keepme", rating=1)
-        )
-        sync_session.add(
-            UserTrack(user_id=3, catalog_id=loser.id, avis="drop", rating=9)
-        )
+        sync_session.add(UserTrack(user_id=3, catalog_id=canon.id, avis="keepme"))
+        sync_session.add(UserTrack(user_id=3, catalog_id=loser.id, avis="drop"))
         sync_session.commit()
 
         merge_catalog_entries(sync_session, canon.id, loser.id)
@@ -365,7 +356,6 @@ class TestMergeRepoint:
 
         row = sync_session.execute(select(UserTrack)).scalar_one()
         assert row.avis == "keepme"  # canonical's own value is not overwritten
-        assert row.rating == 1
 
     def test_set_tracks_move(self, sync_session):
         canon = _cat(sync_session)

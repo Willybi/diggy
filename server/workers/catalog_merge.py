@@ -264,14 +264,12 @@ def merge_catalog_entries(
     _repoint_composite(session, CatalogArtist, CatalogArtist.artist_id, canonical_id, loser_id)
 
     # user_tracks (PK user_id+catalog_id, ON DELETE RESTRICT): where the same
-    # user owns both rows, fill the canonical's avis/rating from the loser
+    # user owns both rows, fill the canonical's avis from the loser
     # BEFORE the colliding loser row is dropped; then move the rest.
     session.execute(
         text(
             "UPDATE user_tracks SET "
             "avis = COALESCE(avis, (SELECT l.avis FROM user_tracks l "
-            "WHERE l.user_id = user_tracks.user_id AND l.catalog_id = :loser)), "
-            "rating = COALESCE(rating, (SELECT l.rating FROM user_tracks l "
             "WHERE l.user_id = user_tracks.user_id AND l.catalog_id = :loser)) "
             "WHERE catalog_id = :canonical AND EXISTS "
             "(SELECT 1 FROM user_tracks l WHERE l.user_id = user_tracks.user_id "

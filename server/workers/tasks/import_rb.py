@@ -156,7 +156,6 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                         rb_bpm=t.bpm,
                         rb_key=t.key,
                         rb_mytags=json.dumps(tags),
-                        rating=t.rating,
                         has_artwork=False,
                     ).on_conflict_do_update(
                         index_elements=["user_id", "catalog_id"],
@@ -167,7 +166,6 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                             "rb_bpm": t.bpm,
                             "rb_key": t.key,
                             "rb_mytags": json.dumps(tags),
-                            "rating": t.rating,
                         },
                     )
                     conn.execute(stmt)

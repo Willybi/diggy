@@ -132,7 +132,7 @@ const opinion = computed(() => opinions.get('artist', props.artist.id))
 
 function goToArtist(e) {
   // Keyboard: only navigate when the card itself is focused. Without this guard,
-  // an Enter pressed on an inner control (follow/play/genre link/rating) bubbles
+  // an Enter pressed on an inner control (follow/play/genre link) bubbles
   // its keydown up to the card and navigates on top of the control's own action
   // (the controls .stop their click, but not their keydown).
   if (e.type === 'keydown' && e.target !== e.currentTarget) return

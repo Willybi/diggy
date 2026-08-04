@@ -67,15 +67,6 @@ def parse_rekordbox_xml(content: bytes) -> list:
             except ValueError:
                 pass
 
-        rating: Optional[int] = None
-        rating_str = elem.get("Rating")
-        if rating_str:
-            try:
-                # Rekordbox stores ratings as 0/51/102/153/204/255, convert to 0-5
-                rating = round(int(rating_str) / 51)
-            except ValueError:
-                pass
-
         date_added: Optional[datetime] = None
         date_str = elem.get("DateAdded")
         if date_str:
@@ -92,7 +83,6 @@ def parse_rekordbox_xml(content: bytes) -> list:
                 bpm=bpm,
                 key=elem.get("Tonality") or None,
                 duration=duration,
-                rating=rating,
                 date_added=date_added,
                 file_path=elem.get("Location") or None,
                 tags=[],
