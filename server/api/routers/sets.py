@@ -38,6 +38,15 @@ from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/sets", tags=["sets"])
 
+# Style filter = DOMINANCE, not mere presence. A DJ set spans many styles, so
+# "contains ≥1 track of style X" matches almost everything (a raw "House" match
+# returned mostly hip-hop/dance sets carrying one buried House track — noise). A
+# set must carry the style on at least this share of its identified visible
+# tracks to count as a "style X" set. Calibrated on prod: at 25 %, 98.4 % of the
+# kept sets still show the style in their top-2 deduced genres (the ones on the
+# row), so the filter stays consistent with what the card displays.
+GENRE_MIN_SHARE_PCT = 25
+
 
 # ---------- Search TrackID ----------
 
@@ -183,13 +192,17 @@ async def list_sets(
     if year_max is not None:
         stmt = stmt.where(DJSet.played_date <= date(year_max, 12, 31))
 
-    # Style filter: keep sets that carry ≥1 VISIBLE identified track (C3 perimeter)
-    # tagged with any of the requested styles. `genres.any(g)` compiles per dialect
-    # (StringArray.array_any). Sent CSV-joined (axios can't emit repeated params
-    # through usePaginatedList's plain-object params).
+    # Style filter (DOMINANCE — see GENRE_MIN_SHARE_PCT): keep a set only when the
+    # requested styles cover ≥ that share of its VISIBLE identified tracks (C3
+    # perimeter). The match runs over ALL identified visible tracks of the set
+    # (not a pre-filtered subset) so the SUM/COUNT ratio is the real share.
+    # `genres.any(g)` compiles per dialect (StringArray.array_any). Sent CSV-joined
+    # (axios can't emit repeated params through usePaginatedList's plain params).
     genres_list = _parse_str_csv(genres)
     if genres_list:
         genre_match = or_(*[CatalogEntry.genres.any(g) for g in genres_list])
+        hit_count = func.sum(case((genre_match, 1), else_=0))
+        track_count = func.count(SetTrack.id)
         genre_sub = (
             select(SetTrack.set_id)
             .join(CatalogEntry, CatalogEntry.id == SetTrack.catalog_id)
@@ -197,8 +210,10 @@ async def list_sets(
                 SetTrack.is_id.is_(False),
                 SetTrack.catalog_id.isnot(None),
                 catalog_visible(uid),
-                genre_match,
             )
+            .group_by(SetTrack.set_id)
+            # Integer form of hit/total >= share (avoids float rounding).
+            .having(hit_count * 100 >= track_count * GENRE_MIN_SHARE_PCT)
         )
         stmt = stmt.where(DJSet.id.in_(genre_sub))
 

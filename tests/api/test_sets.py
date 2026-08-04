@@ -376,6 +376,31 @@ class TestListSetsFilters:
         assert {it["title"] for it in data["items"]} == {"Techno Night"}
         assert data["total"] == 1
 
+    async def test_genre_filter_requires_dominance(self, client, db):
+        """The style must be DOMINANT (>= GENRE_MIN_SHARE_PCT of the identified
+        tracks), not merely present — a single house track in a hip-hop set does
+        NOT make it a house set."""
+        # 1 house track out of 10 (10 % share) → below the 25 % threshold.
+        incidental = DJSet(source="trackid", title="Mostly HipHop")
+        db.add(incidental)
+        await db.flush()
+        await _attach_identified_track(db, incidental, position=1, genres=["House"])
+        for pos in range(2, 11):
+            await _attach_identified_track(db, incidental, position=pos, genres=["Hip-Hop"])
+        # 3 house tracks out of 4 (75 %) → a genuine house set.
+        housey = DJSet(source="trackid", title="House All Night")
+        db.add(housey)
+        await db.flush()
+        for pos in (1, 2, 3):
+            await _attach_identified_track(db, housey, position=pos, genres=["House"])
+        await _attach_identified_track(db, housey, position=4, genres=["Techno"])
+        await db.commit()
+
+        r = await client.get("/api/sets/?genres=House")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"House All Night"}
+        assert data["total"] == 1
+
     async def test_filter_by_genres_multiple_is_or(self, client, db):
         techno = DJSet(source="trackid", title="Techno Night")
         house = DJSet(source="trackid", title="House Party")
