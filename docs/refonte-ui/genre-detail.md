@@ -67,7 +67,8 @@ La page la **plus complète** du site (William l'aime déjà beaucoup).
 - **Hero immersif** : mosaïque **agrandie**, **titre + pilier + stats par-dessus** (**Tracks · Artistes · BPM range**), avatars, play ; le reste des stats (En bib / Sets / Playlists) en petit dessous.
 - **Actions** : Écouter un aperçu + LikeDislike. **« Tout filtrer dans Catalog » retiré.**
 - **Shelves** Artistes / Sets / Playlists : gardés.
-- **Tracks** : rangées = **Explorer sans la colonne genre** (cover + in-lib, titre, artiste, BPM, Key, durée, play) via le **composant de rangée partagé** + `<Artwork>` ; garde search + sort + toggle En bib + infinite scroll.
+- **Tracks** : rangées = **Explorer sans la colonne genre** (cover + in-lib, titre, artiste, BPM, Key, durée, play) via le **composant de rangée partagé** + `<Artwork>` ; garde search + sort + toggle En bib.
+  - **AMENDÉ 2026-08-04 (D8.b, anticipé)** : ~~infinite scroll~~ → **aperçu BORNÉ** (une page de 50 par état de filtre) + lien **« Voir les N autres dans Explorer »** sous la liste → `/explorer?genre=<genre>`. Motif : sous 15 600 tracks le scroll infini rendait « Genres proches » inatteignable, et l'exploration complète appartient à la page liste (grammaire Hub top-9 → destination). La fonction de l'ex-bouton « Tout filtrer dans Catalog » (retirée du hero) revient donc ici, mieux placée (pied de la section Tracks, contextuelle). Le canal de file de lecture (player « suivant ») garde son chargement de page PROGRAMMATIQUE (`playSource.loadMore`) — seul le déclencheur au scroll disparaît.
 - **(recap C4)** : la tracklist doit recevoir des **artistes structurés** — l'endpoint genre/tracks envoie une **chaîne plate** aujourd'hui → liens multi-artistes morts ; le passage au composant Explorer ne les répare que si le back renvoie `artists[]`.
 - **Genres proches** : gardés.
 - **Admin** → `is_admin`.

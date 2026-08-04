@@ -1627,7 +1627,7 @@ Etat des lieux verifie (2026-08-03) : Explorer sait DEJA filtrer par genre (`lis
 
 - [ ] Chips/etat URL sur les 3 listes (la tuyauterie `useUrlSync`/`useFilterState` existe, X2) : `/sets?genre=X`, `/playlists?genre=X`, `/artists?genre=X` + chip retirable affichee
 - [ ] Genre Detail : « Voir les N autres » des shelves Sets/Playlists/Artistes → RouterLink vers la liste pre-filtree (remplace l'append inline et le mode deplie pagine)
-- [ ] Genre Detail : tracklist → APERCU BORNE (N pages max, N a trancher) + « Tout voir dans Explorer » pre-filtre genre → regle l'inaccessibilite des Genres proches (pain declencheur)
+- [x] Genre Detail : tracklist → APERCU BORNE (1 page de 50) + « Voir les N autres dans Explorer » (`/explorer?genre=`) → regle l'inaccessibilite des Genres proches (pain declencheur) — **LIVRE PAR ANTICIPATION 2026-08-04** (mini-lot post-refonte, scroll infini retire, canal player programmatique preserve ; fiche genre-detail.md §5 amendee). Le reste de D8.b (chips URL + renvois shelves Sets/Playlists/Artistes) reste a faire (exige D8.a back)
 - [ ] Amender la fiche `genre-detail.md` §5 : « infinite scroll » → apercu borne + renvoi Explorer ; assumer la re-introduction CONTEXTUELLE de la fonction de l'ex-bouton « Tout filtrer dans Catalog » (retire du hero au chantier 80285ef — la fonction revient en pied de section, mieux placee)
 
 ### D8.c — Generalisation opportuniste (autres pages detail)
