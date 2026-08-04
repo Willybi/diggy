@@ -109,16 +109,9 @@ async function mountView() {
 }
 
 beforeEach(() => {
-  // useInfiniteScroll (via usePaginatedList) instantiates an IntersectionObserver
-  // in onMounted — jsdom has none, so provide an inert stub.
-  vi.stubGlobal(
-    'IntersectionObserver',
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  )
+  // No IntersectionObserver stub on purpose: the view renders no sentinel
+  // (finite tracklist, D8.b) so useInfiniteScroll never instantiates one —
+  // jsdom having none would make any sentinel reintroduction fail loudly here.
   apiMock.get.mockReset()
   apiMock.post.mockReset()
   apiMock.patch.mockReset()
@@ -312,6 +305,52 @@ describe('GenreDetailView tracks', () => {
     await flushPromises()
     const params = tracksCalls().at(-1)[1].params
     expect(params.inLib).toBe(1)
+  })
+
+  it('refetches page 1 with q when the search input settles (debounce)', async () => {
+    const wrapper = await mountView()
+    const before = tracksCalls().length
+    vi.useFakeTimers()
+    await wrapper.find('.tracks-tools .search input').setValue('spastik')
+    vi.advanceTimersByTime(300)
+    vi.useRealTimers()
+    await flushPromises()
+    const calls = tracksCalls()
+    expect(calls.length).toBe(before + 1)
+    const params = calls.at(-1)[1].params
+    expect(params.q).toBe('spastik')
+    expect(params.offset).toBe(0)
+  })
+
+  it('loads a single finite page: no infinite-scroll sentinel in the DOM', async () => {
+    responses.tracks = { items: [makeTrack()], total: 15664 }
+    const wrapper = await mountView()
+    expect(wrapper.find('.tracks-sentinel').exists()).toBe(false)
+    const calls = tracksCalls()
+    expect(calls.length).toBe(1)
+    expect(calls[0][1].params.limit).toBe(50)
+    expect(calls[0][1].params.offset).toBe(0)
+  })
+
+  it('links « Voir les N autres dans Explorer » (genre-only query) when the page overflows', async () => {
+    responses.tracks = { items: [makeTrack()], total: 15664 }
+    const wrapper = await mountView()
+    const link = wrapper
+      .findAllComponents(RouterLinkStub)
+      .find((l) => String(l.props('to')).startsWith('/explorer'))
+    expect(link).toBeTruthy()
+    expect(link.props('to')).toBe('/explorer?genre=Techno')
+    expect(link.text()).toMatch(/^Voir les 15\s?663 autres dans Explorer$/)
+    expect(link.classes()).toContain('load-more')
+  })
+
+  it('hides the Explorer link when the whole tracklist fits on the page', async () => {
+    responses.tracks = { items: [makeTrack()], total: 1 }
+    const wrapper = await mountView()
+    const link = wrapper
+      .findAllComponents(RouterLinkStub)
+      .find((l) => String(l.props('to')).startsWith('/explorer'))
+    expect(link).toBeUndefined()
   })
 })
 

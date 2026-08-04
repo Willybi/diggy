@@ -210,7 +210,8 @@ function onScrubStart(e) {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-25) var(--space-4);
+  /* Vertical padding tuned so the bar reads at ~68px (was ~58px, felt thin). */
+  padding: 14px var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -528,7 +529,7 @@ function onScrubStart(e) {
 @container player (max-width: 440px) {
   .pl-shell {
     gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-3);
   }
   .pl-vol {
     display: none;

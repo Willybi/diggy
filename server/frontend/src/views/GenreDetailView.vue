@@ -189,71 +189,72 @@
           {{ playlistsLoading ? 'Chargement…' : `Voir les ${playlistsTotal - playlists.length} autres` }}
         </button>
       </RelBlock>
-    </template>
-
-    <!-- 6. Tracks — monté en permanence (v-show) : la sentinelle d'infinite scroll
-         doit exister au montage pour que l'observer du composable s'y attache. -->
-    <section v-show="!loading && genre" class="tracks-section">
-      <header class="tracks-head">
-        <h2 class="sec-title">
-          Tracks <span class="sec-count">{{ fmtNum(trackTotal) }}</span>
-        </h2>
-        <div class="tracks-tools">
-          <SearchBox
-            v-model="trackSearch"
-            placeholder="Rechercher…"
-            @update:modelValue="fetchTracks(true)"
-          />
-          <div class="sortseg" role="group" aria-label="Trier les tracks">
+      <!-- 6. Tracks — aperçu fini : une seule page par état de filtre, la suite
+           se consulte dans Explorer pré-filtré sur le genre (D8.b). -->
+      <section class="tracks-section">
+        <header class="tracks-head">
+          <h2 class="sec-title">
+            Tracks <span class="sec-count">{{ fmtNum(trackTotal) }}</span>
+          </h2>
+          <div class="tracks-tools">
+            <SearchBox
+              v-model="trackSearch"
+              placeholder="Rechercher…"
+              @update:modelValue="fetchTracks(true)"
+            />
+            <div class="sortseg" role="group" aria-label="Trier les tracks">
+              <button
+                v-for="opt in sortOptions"
+                :key="opt.value"
+                class="seg"
+                :class="{ active: trackSort === opt.value }"
+                @click="setSort(opt.value)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
             <button
-              v-for="opt in sortOptions"
-              :key="opt.value"
-              class="seg"
-              :class="{ active: trackSort === opt.value }"
-              @click="setSort(opt.value)"
+              class="lib-toggle"
+              :class="{ active: trackInLib === 1 }"
+              :aria-pressed="trackInLib === 1"
+              @click="toggleLib"
             >
-              {{ opt.label }}
+              <span class="lt-dot"></span>En bib
             </button>
           </div>
-          <button
-            class="lib-toggle"
-            :class="{ active: trackInLib === 1 }"
-            :aria-pressed="trackInLib === 1"
-            @click="toggleLib"
-          >
-            <span class="lt-dot"></span>En bib
-          </button>
+        </header>
+
+        <div v-if="!tracks.length && !tracksLoading" class="tracks-empty">
+          <span class="te-msg">Aucune track ne correspond.</span>
+          <button class="btn btn--sm" @click="resetTrackFilters">Réinitialiser</button>
         </div>
-      </header>
+        <div v-else class="track-list">
+          <TrackCard
+            v-for="t in tracks"
+            :key="t.id"
+            :track="toCard(t)"
+            :class="{ liked: t.avis === 'liked', disliked: t.avis === 'disliked' }"
+            show-artist
+            show-duration
+            :playing="rowPlaying(t.id)"
+            @play="playTrack(t)"
+            @click="goToTrack(t.id)"
+          >
+            <template #end>
+              <LikeDislike :model-value="t.avis" @update:model-value="(v) => setTrackAvis(t, v)" />
+            </template>
+          </TrackCard>
+        </div>
 
-      <div v-if="!tracks.length && !tracksLoading" class="tracks-empty">
-        <span class="te-msg">Aucune track ne correspond.</span>
-        <button class="btn btn--sm" @click="resetTrackFilters">Réinitialiser</button>
-      </div>
-      <div v-else class="track-list">
-        <TrackCard
-          v-for="t in tracks"
-          :key="t.id"
-          :track="toCard(t)"
-          :class="{ liked: t.avis === 'liked', disliked: t.avis === 'disliked' }"
-          show-artist
-          show-duration
-          :playing="rowPlaying(t.id)"
-          @play="playTrack(t)"
-          @click="goToTrack(t.id)"
+        <RouterLink
+          v-if="!tracksLoading && trackTotal > tracks.length"
+          class="load-more load-more--link"
+          :to="`/explorer?genre=${encodeURIComponent(genreName)}`"
         >
-          <template #end>
-            <LikeDislike :model-value="t.avis" @update:model-value="(v) => setTrackAvis(t, v)" />
-          </template>
-        </TrackCard>
-      </div>
+          Voir les {{ fmtNum(trackTotal - tracks.length) }} autres dans Explorer
+        </RouterLink>
+      </section>
 
-      <div ref="sentinel" class="tracks-sentinel" :class="{ on: tracksHasMore }">
-        Chargement des tracks suivantes…
-      </div>
-    </section>
-
-    <template v-if="!loading && genre">
       <!-- 7. Genres proches -->
       <RelBlock
         v-if="neighbors.length"
@@ -414,12 +415,13 @@ const trackSearch = ref('')
 const trackSort = ref('recent')
 const trackInLib = ref(null)
 
+// Pas de sentinelle rendue (aperçu fini, D8.b) : l'observer du composable reste
+// sans ref liée = no-op. loadMoreTracks survit à la sentinelle — c'est le canal
+// PROGRAMMATIQUE de la file de lecture (playNext tire la page suivante).
 const {
   items: tracks,
   total: trackTotal,
   loading: tracksLoading,
-  hasMore: tracksHasMore,
-  sentinel,
   fetch: fetchTracks,
   loadMore: loadMoreTracks,
 } = usePaginatedList({
@@ -1140,6 +1142,12 @@ onMounted(fetchGenre)
   opacity: 0.6;
   cursor: default;
 }
+/* Variante lien (renvoi Explorer) : ancre centrée sans soulignement au repos —
+   le hover du .load-more le rétablit. */
+.load-more--link {
+  width: fit-content;
+  text-decoration: none;
+}
 
 /* ══ 6. Tracks ══ */
 .tracks-section {
@@ -1311,33 +1319,6 @@ onMounted(fetchGenre)
 .te-msg {
   font: 400 var(--fs-base)/1.4 var(--font-ui);
   color: var(--ink-2);
-}
-
-/* Sentinelle de fin — pulse, disparaît quand tout est chargé */
-.tracks-sentinel {
-  display: none;
-  justify-content: center;
-  padding: var(--space-4);
-  font: 500 var(--fs-xs)/1 var(--font-mono);
-  color: var(--ink-3);
-}
-.tracks-sentinel.on {
-  display: flex;
-  animation: sentinel-pulse 1.2s ease-in-out infinite;
-}
-@keyframes sentinel-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tracks-sentinel.on {
-    animation: none;
-  }
 }
 
 /* ══ 7. Genres proches ══ */
