@@ -83,11 +83,11 @@
           </div>
           <div class="sstat">
             <span class="ss-k">Sets</span>
-            <span class="ss-v">{{ fmtNum(genre.setCount || 0) }}</span>
+            <span class="ss-v">{{ fmtNum(setsTotal) }}</span>
           </div>
           <div class="sstat">
             <span class="ss-k">Playlists</span>
-            <span class="ss-v">{{ fmtNum(genre.playlistCount || 0) }}</span>
+            <span class="ss-v">{{ fmtNum(playlistsTotal) }}</span>
           </div>
         </div>
         <div class="sline-actions">
@@ -157,7 +157,7 @@
           :disabled="setsLoading"
           @click="fetchSets(true)"
         >
-          {{ setsLoading ? 'Chargement…' : `Voir les ${setsTotal - sets.length} autres` }}
+          {{ setsLoading ? 'Chargement…' : `Voir les ${fmtNum(setsTotal - sets.length)} autres` }}
         </button>
       </RelBlock>
 
@@ -186,7 +186,7 @@
           :disabled="playlistsLoading"
           @click="fetchPlaylists(true)"
         >
-          {{ playlistsLoading ? 'Chargement…' : `Voir les ${playlistsTotal - playlists.length} autres` }}
+          {{ playlistsLoading ? 'Chargement…' : `Voir les ${fmtNum(playlistsTotal - playlists.length)} autres` }}
         </button>
       </RelBlock>
       <!-- 6. Tracks — aperçu fini : une seule page par état de filtre, la suite
@@ -1065,7 +1065,7 @@ onMounted(fetchGenre)
 /* ── 4-5. Sets & Playlists (grille 4 → 3 → 2, cartes fer à gauche) ── */
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-4);
   padding: var(--space-4);
 }
@@ -1092,6 +1092,10 @@ onMounted(fetchGenre)
 .cards-grid :deep(.sc-sub) {
   font: 400 var(--fs-nano)/1 var(--font-mono);
   text-align: left;
+  /* white-space: nowrap hérité de ShelfCard : un owner trop long s'ellipse dans
+     la cellule (grille bornée minmax(0,1fr)) au lieu de déborder. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Pied de carte sous hairline (G7/G8) */
 .card-foot {
@@ -1430,7 +1434,7 @@ onMounted(fetchGenre)
 /* ══ Responsive — container queries uniquement, seuils 720 / 640 ══ */
 @container (max-width: 720px) {
   .cards-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .tracks-tools {
     margin-left: 0;
@@ -1483,7 +1487,7 @@ onMounted(fetchGenre)
     grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   }
   .cards-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .seg,
   .lib-toggle {
