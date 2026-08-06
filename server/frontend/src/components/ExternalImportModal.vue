@@ -73,7 +73,9 @@
               <!-- import error on this row -->
               <span v-else-if="stateOf(item) === 'error'" class="row-error">
                 <span class="row-error-msg">{{ importError[resultKey(item)] }}</span>
-                <button class="btn-import" type="button" @click="importItem(item)">Réessayer</button>
+                <button class="btn-import" type="button" @click="importItem(item)">
+                  Réessayer
+                </button>
               </span>
 
               <!-- importable -->
@@ -167,7 +169,8 @@ async function importItem(item) {
   rowState[key] = 'importing'
   delete importError[key]
 
-  const body = item.source === 'deezer' ? { deezer_id: item.external_id } : { tidal_id: item.external_id }
+  const body =
+    item.source === 'deezer' ? { deezer_id: item.external_id } : { tidal_id: item.external_id }
 
   try {
     const { data } = await api.post('/api/catalog/import', body)

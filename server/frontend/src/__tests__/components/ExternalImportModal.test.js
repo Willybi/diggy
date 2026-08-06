@@ -40,9 +40,7 @@ const tidalItem = {
 
 async function mountWith(items) {
   apiGet.mockResolvedValue({ data: { items } })
-  const { default: ExternalImportModal } = await import(
-    '../../components/ExternalImportModal.vue'
-  )
+  const { default: ExternalImportModal } = await import('../../components/ExternalImportModal.vue')
   const wrapper = mount(ExternalImportModal)
   // Bypass the SearchBox debounce by emitting the model update directly.
   wrapper.findComponent({ name: 'SearchBox' }).vm.$emit('update:modelValue', 'query')

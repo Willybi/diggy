@@ -63,7 +63,9 @@
               <span class="stat-label">Identifiées</span>
               <span class="ident-val">
                 <ScoreRing mode="pct" size="md" :score="identifiedRatio" :label="identifiedLabel" />
-                <span class="ident-frac">{{ djSet.identified_tracks }}/{{ djSet.total_tracks }}</span>
+                <span class="ident-frac"
+                  >{{ djSet.identified_tracks }}/{{ djSet.total_tracks }}</span
+                >
               </span>
             </div>
           </div>
@@ -110,7 +112,9 @@
       <section v-if="similarSets.length" class="similar">
         <header class="sec-head">
           <h2 class="sec-title">Sets similaires</h2>
-          <span class="sec-count">{{ similarSets.length }} {{ pl(similarSets.length, 'set', 'sets') }}</span>
+          <span class="sec-count"
+            >{{ similarSets.length }} {{ pl(similarSets.length, 'set', 'sets') }}</span
+          >
         </header>
         <div class="similar-grid">
           <SetCard v-for="s in similarSets" :key="s.id" :set="s" />
@@ -341,7 +345,7 @@ async function addSetArtist(artistId) {
     saQuery.value = ''
     saResults.value = []
   } catch {
-    useToast().show('Erreur lors de l\'ajout de l\'artiste')
+    useToast().show("Erreur lors de l'ajout de l'artiste")
   }
 }
 
@@ -351,7 +355,7 @@ async function removeSetArtist(artistId) {
     await api.delete(`/api/admin/sets/${djSet.value.id}/artists/${artistId}`)
     djSet.value.artists = djSet.value.artists.filter((a) => a.artist_id !== artistId)
   } catch {
-    useToast().show('Erreur lors de la suppression de l\'artiste')
+    useToast().show("Erreur lors de la suppression de l'artiste")
   }
 }
 

@@ -54,7 +54,11 @@ describe('TimeSeriesChart', () => {
 
   it('handles a single sparse point without crashing (marker still shown)', () => {
     const wrapper = mount(TimeSeriesChart, {
-      props: { series: [{ label: 'X', color: 'var(--chart-neutral)', points: [{ t: '2026-07-22', v: 5 }] }] },
+      props: {
+        series: [
+          { label: 'X', color: 'var(--chart-neutral)', points: [{ t: '2026-07-22', v: 5 }] },
+        ],
+      },
     })
     // One line path element exists (a lone "M" moveto) plus a last-point dot.
     expect(wrapper.findAll('.tsc-dot').length).toBeGreaterThanOrEqual(1)

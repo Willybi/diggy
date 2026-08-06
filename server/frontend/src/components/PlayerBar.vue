@@ -35,10 +35,7 @@
 
       <!-- Identity -->
       <div class="pl-id">
-        <RouterLink
-          class="pl-title pl-link"
-          :to="`/catalog/${player.track?.catalog_id}`"
-        >
+        <RouterLink class="pl-title pl-link" :to="`/catalog/${player.track?.catalog_id}`">
           {{ player.track?.title }}
         </RouterLink>
         <RouterLink

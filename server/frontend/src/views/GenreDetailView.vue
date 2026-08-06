@@ -1,5 +1,9 @@
 <template>
-  <div class="detail-view" :data-fam="genre ? tone.pillar : null" :style="genre ? `--d:${tone.depth}` : null">
+  <div
+    class="detail-view"
+    :data-fam="genre ? tone.pillar : null"
+    :style="genre ? `--d:${tone.depth}` : null"
+  >
     <!-- États page -->
     <div v-if="loading" class="state">Chargement…</div>
     <div v-else-if="!genre" class="state state--empty">
@@ -35,7 +39,12 @@
                 class="hero-av"
                 :aria-label="a.name"
               >
-                <img :src="a.image" :alt="a.name" loading="lazy" @error="() => (brokenAvatars[a.id] = true)" />
+                <img
+                  :src="a.image"
+                  :alt="a.name"
+                  loading="lazy"
+                  @error="() => (brokenAvatars[a.id] = true)"
+                />
               </RouterLink>
               <span v-if="avatarsMore > 0" class="hero-av-more">+{{ fmtNum(avatarsMore) }}</span>
             </div>
@@ -78,7 +87,9 @@
         <div class="sline-stats">
           <div class="sstat">
             <span class="ss-k">En bib</span>
-            <span v-if="genre.inLibCount > 0" class="ss-v ss-v--pos">{{ fmtNum(genre.inLibCount) }}</span>
+            <span v-if="genre.inLibCount > 0" class="ss-v ss-v--pos">{{
+              fmtNum(genre.inLibCount)
+            }}</span>
             <span v-else class="ss-v ss-v--empty">—</span>
           </div>
           <div class="sstat">
@@ -162,7 +173,12 @@
       </RelBlock>
 
       <!-- 5. Shelf Playlists — masquée si 0 ; pied glyph source + N tracks (G8) -->
-      <RelBlock v-if="playlists.length" class="shelf-panel" title="Playlists" :count="playlistsTotal">
+      <RelBlock
+        v-if="playlists.length"
+        class="shelf-panel"
+        title="Playlists"
+        :count="playlistsTotal"
+      >
         <div class="cards-grid">
           <ShelfCard
             v-for="p in playlists"
@@ -186,7 +202,11 @@
           :disabled="playlistsLoading"
           @click="fetchPlaylists(true)"
         >
-          {{ playlistsLoading ? 'Chargement…' : `Voir les ${fmtNum(playlistsTotal - playlists.length)} autres` }}
+          {{
+            playlistsLoading
+              ? 'Chargement…'
+              : `Voir les ${fmtNum(playlistsTotal - playlists.length)} autres`
+          }}
         </button>
       </RelBlock>
       <!-- 6. Tracks — aperçu fini : une seule page par état de filtre, la suite

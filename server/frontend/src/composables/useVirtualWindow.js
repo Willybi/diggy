@@ -94,7 +94,9 @@ export function useVirtualWindow({
     if (scroller) {
       scrollTop = scroller.scrollTop
       viewportHeight = scroller.clientHeight
-      offsetTop = el ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop : 0
+      offsetTop = el
+        ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+        : 0
     } else {
       scrollTop = window.scrollY
       viewportHeight = window.innerHeight

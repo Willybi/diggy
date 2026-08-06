@@ -7,11 +7,7 @@
       custom
       v-slot="{ isActive, navigate }"
     >
-      <button
-        class="bottom-nav-item"
-        :class="{ 'is-active': isActive }"
-        @click="navigate"
-      >
+      <button class="bottom-nav-item" :class="{ 'is-active': isActive }" @click="navigate">
         <span class="bottom-nav-icon" v-html="item.icon" />
         <span v-if="item.badge && newCount > 0" class="bottom-nav-badge">{{ newCount }}</span>
         <span class="bottom-nav-label">{{ item.label }}</span>

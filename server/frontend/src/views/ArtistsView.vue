@@ -151,16 +151,17 @@ const extraParams = () => {
 }
 
 // -- Paginated list (shared trunk) --
-const { items, total, familyCounts, loading, hasMore, sentinel, fetch, fetchUpTo } = usePaginatedList({
-  endpoint: '/api/artists/',
-  pageSize: 24,
-  // « followed » is not a backend sort value — map it to a valid default and
-  // carry the filter through extraParams.
-  sort: () => (sortBy.value === 'followed' ? 'catalog' : sortBy.value),
-  family: () => familyFilter.value,
-  query: () => searchQuery.value,
-  extraParams,
-})
+const { items, total, familyCounts, loading, hasMore, sentinel, fetch, fetchUpTo } =
+  usePaginatedList({
+    endpoint: '/api/artists/',
+    pageSize: 24,
+    // « followed » is not a backend sort value — map it to a valid default and
+    // carry the filter through extraParams.
+    sort: () => (sortBy.value === 'followed' ? 'catalog' : sortBy.value),
+    family: () => familyFilter.value,
+    query: () => searchQuery.value,
+    extraParams,
+  })
 
 // Scroll restoration on a back/forward return. The grid scrolls inside
 // .app-main (#main-content); on return we reload the rows in one burst

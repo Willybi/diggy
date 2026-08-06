@@ -3,7 +3,9 @@
     <div class="page-head">
       <div class="titles">
         <h1>Collections</h1>
-        <div class="sub">{{ collections.length }} collection{{ collections.length !== 1 ? 's' : '' }}</div>
+        <div class="sub">
+          {{ collections.length }} collection{{ collections.length !== 1 ? 's' : '' }}
+        </div>
       </div>
       <div class="head-tools">
         <button class="btn-add" @click="showCreateModal = true">
@@ -31,12 +33,22 @@
       >
         <div class="coll-name">{{ coll.name }}</div>
         <div class="coll-meta">
-          <span class="coll-count">{{ coll.item_count }} track{{ coll.item_count !== 1 ? 's' : '' }}</span>
+          <span class="coll-count"
+            >{{ coll.item_count }} track{{ coll.item_count !== 1 ? 's' : '' }}</span
+          >
           <span class="coll-date">{{ fmtDate(coll.created_at) }}</span>
         </div>
         <button class="coll-del" title="Supprimer" @click.stop="confirmDelete(coll)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-            <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+          >
+            <path
+              d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"
+            />
           </svg>
         </button>
       </div>
@@ -224,7 +236,9 @@ onMounted(async () => {
   border-radius: var(--r-xs);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.14s, color 0.14s;
+  transition:
+    opacity 0.14s,
+    color 0.14s;
 }
 .coll-card:hover .coll-del {
   opacity: 1;

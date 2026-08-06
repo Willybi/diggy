@@ -7,7 +7,13 @@
         <div class="st-sub">{{ headCount }}</div>
       </div>
       <button class="btn btn--accent st-add" type="button" @click="openAdd">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          aria-hidden="true"
+        >
           <path d="M12 5v14M5 12h14" stroke-linecap="round" />
         </svg>
         Ajouter
@@ -39,7 +45,12 @@
           </span>
         </template>
         <template #panel>
-          <FilterPanel :result-count="total" :loading="loading" @reset="resetFilters" @close="closePanel">
+          <FilterPanel
+            :result-count="total"
+            :loading="loading"
+            @reset="resetFilters"
+            @close="closePanel"
+          >
             <div class="flt-field">
               <span class="flt-label">Durée</span>
               <SegmentedFilter v-model="state.dur" :options="DUR_OPTIONS" mono />
@@ -319,7 +330,12 @@
     </section>
 
     <!-- ── Mobile filter drawer (< 640) ── -->
-    <FilterDrawer v-model:open="drawerOpen" :result-count="total" :loading="loading" @reset="resetFilters">
+    <FilterDrawer
+      v-model:open="drawerOpen"
+      :result-count="total"
+      :loading="loading"
+      @reset="resetFilters"
+    >
       <div class="flt-field">
         <span class="flt-label">Durée</span>
         <SegmentedFilter v-model="state.dur" :options="DUR_OPTIONS" mono variant="drawer" />

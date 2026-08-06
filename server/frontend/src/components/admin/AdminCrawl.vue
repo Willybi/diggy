@@ -6,11 +6,7 @@
         <span v-if="crawlTotal" class="flag-count">{{ crawlTotal }}</span>
       </h2>
       <div class="crawl-filters">
-        <select
-          v-model="crawlTaskType"
-          class="crawl-select"
-          @change="setCrawlFilter(crawlFilter)"
-        >
+        <select v-model="crawlTaskType" class="crawl-select" @change="setCrawlFilter(crawlFilter)">
           <option value="">Tous les types</option>
           <option v-for="t in crawlTaskTypes" :key="t" :value="t">{{ t }}</option>
         </select>
@@ -103,7 +99,9 @@
 
     <div v-if="crawlTotalPages > 1" class="crawl-pagination">
       <button :disabled="crawlPage <= 1" @click="prevCrawlPage()">Prev</button>
-      <span class="mono" style="font-size: var(--fs-sm)">{{ crawlPage }} / {{ crawlTotalPages }}</span>
+      <span class="mono" style="font-size: var(--fs-sm)"
+        >{{ crawlPage }} / {{ crawlTotalPages }}</span
+      >
       <button :disabled="crawlPage >= crawlTotalPages" @click="nextCrawlPage()">Next</button>
     </div>
   </section>

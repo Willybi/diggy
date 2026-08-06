@@ -15,19 +15,41 @@
           :aria-expanded="menuOpen"
           @click="toggleMenu"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
         <div v-if="menuOpen" class="xp-menu" role="menu">
           <button class="xp-menu-item" type="button" role="menuitem" @click="openExternalImport">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
               <path d="M12 5v14M5 12h14" />
             </svg>
             Ajouter un track
           </button>
           <button class="xp-menu-item" type="button" role="menuitem" @click="openXmlImport">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
               <path d="M12 3v12M7 10l5 5 5-5" />
               <path d="M4 19h16" />
             </svg>
@@ -62,7 +84,12 @@
           </span>
         </template>
         <template #panel>
-          <FilterPanel :result-count="total" :loading="loading" @reset="resetFilters" @close="closePanel">
+          <FilterPanel
+            :result-count="total"
+            :loading="loading"
+            @reset="resetFilters"
+            @close="closePanel"
+          >
             <div class="flt-field">
               <span class="flt-label">BPM</span>
               <RangeSlider v-model="state.bpm" :min="BPM_MIN" :max="BPM_MAX" label="BPM" />
@@ -95,7 +122,12 @@
             </div>
             <div class="flt-field">
               <span class="flt-label">Label</span>
-              <SearchInput v-model="state.label" :icon="false" placeholder="Defected, Drumcode…" :debounce="0" />
+              <SearchInput
+                v-model="state.label"
+                :icon="false"
+                placeholder="Defected, Drumcode…"
+                :debounce="0"
+              />
             </div>
             <div class="flt-field">
               <span class="flt-label">Avis</span>
@@ -162,16 +194,30 @@
             </span>
           </span>
           <span class="xp-cell col-style"><span class="sk sk-line sk-line--tag"></span></span>
-          <span class="xp-cell xp-cell--right col-bpm"><span class="sk sk-line sk-line--num"></span></span>
+          <span class="xp-cell xp-cell--right col-bpm"
+            ><span class="sk sk-line sk-line--num"></span
+          ></span>
           <span class="xp-cell col-key"><span class="sk sk-line sk-line--num"></span></span>
-          <span class="xp-cell xp-cell--right col-dur"><span class="sk sk-line sk-line--num"></span></span>
-          <span class="xp-cell xp-cell--avis"><span class="sk sk-round"></span><span class="sk sk-round"></span></span>
+          <span class="xp-cell xp-cell--right col-dur"
+            ><span class="sk sk-line sk-line--num"></span
+          ></span>
+          <span class="xp-cell xp-cell--avis"
+            ><span class="sk sk-round"></span><span class="sk sk-round"></span
+          ></span>
         </div>
       </div>
 
       <!-- Error state : a fetch failure is not an empty result (offer a retry) -->
       <div v-else-if="isError" class="xp-empty">
-        <svg class="xp-empty-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <svg
+          class="xp-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5" />
           <path d="M12 16h.01" />
@@ -183,7 +229,15 @@
 
       <!-- Empty state (E10) : removable chips repair the search -->
       <div v-else-if="isEmpty" class="xp-empty">
-        <svg class="xp-empty-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <svg
+          class="xp-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.2-3.2" />
           <path d="M4 4l14 14" />
@@ -200,7 +254,9 @@
             @remove="removeChip(chip)"
           />
         </div>
-        <button class="btn" type="button" @click="resetFilters">Réinitialiser tous les filtres</button>
+        <button class="btn" type="button" @click="resetFilters">
+          Réinitialiser tous les filtres
+        </button>
       </div>
 
       <!-- Windowed rows : only the visible slice is rendered between spacers -->
@@ -227,7 +283,12 @@
                 :aria-label="`Écouter ${e.title}`"
                 @click.stop="playTrack(e)"
               >
-                <svg v-if="!(player.isCurrent(e.id) && player.playing)" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <svg
+                  v-if="!(player.isCurrent(e.id) && player.playing)"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
                   <path d="M8 5.5v13l11-6.5z" />
                 </svg>
                 <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -241,7 +302,9 @@
               <span class="xp-tx">
                 <span class="xp-title-row">
                   <span class="xp-title">{{ e.title }}</span>
-                  <span v-if="e.trend_rank && e.trend_rank <= 50" class="xp-rank">#{{ e.trend_rank }}</span>
+                  <span v-if="e.trend_rank && e.trend_rank <= 50" class="xp-rank"
+                    >#{{ e.trend_rank }}</span
+                  >
                 </span>
                 <span class="xp-artists" @click.stop>
                   <ArtistLinks :artists="e.artists" :fallback="e.artist" />
@@ -255,7 +318,11 @@
                   :to="`/style/${encodeURIComponent(e.genres[0].name)}`"
                   @click.stop
                 >
-                  <StyleTag :name="e.genres[0].name" :family="e.genres[0].pillar" :depth="e.genres[0].depth" />
+                  <StyleTag
+                    :name="e.genres[0].name"
+                    :family="e.genres[0].pillar"
+                    :depth="e.genres[0].depth"
+                  />
                 </RouterLink>
                 <span v-if="e.genres.length > 1" class="xp-more">+{{ e.genres.length - 1 }}</span>
               </template>
@@ -263,13 +330,17 @@
               <span v-else class="xp-null">—</span>
             </span>
             <span class="xp-cell xp-cell--right col-bpm">
-              <span :class="e.bpm != null ? 'xp-bpm' : 'xp-null'">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span>
+              <span :class="e.bpm != null ? 'xp-bpm' : 'xp-null'">{{
+                e.bpm != null ? Math.round(e.bpm) : '—'
+              }}</span>
             </span>
             <span class="xp-cell col-key">
               <span :class="e.key ? 'xp-key' : 'xp-null'">{{ e.key || '—' }}</span>
             </span>
             <span class="xp-cell xp-cell--right col-dur">
-              <span :class="e.duration_ms > 0 ? 'xp-dur' : 'xp-null'">{{ e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—' }}</span>
+              <span :class="e.duration_ms > 0 ? 'xp-dur' : 'xp-null'">{{
+                e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—'
+              }}</span>
             </span>
             <span class="xp-cell xp-cell--avis" @click.stop>
               <LikeDislike :model-value="e.avis" @update:model-value="(v) => setAvis(e, v)" />
@@ -282,7 +353,12 @@
     </section>
 
     <!-- ── Mobile filter drawer (< 640) ── -->
-    <FilterDrawer v-model:open="drawerOpen" :result-count="total" :loading="loading" @reset="resetFilters">
+    <FilterDrawer
+      v-model:open="drawerOpen"
+      :result-count="total"
+      :loading="loading"
+      @reset="resetFilters"
+    >
       <div class="flt-field">
         <span class="flt-label">BPM</span>
         <RangeSlider v-model="state.bpm" :min="BPM_MIN" :max="BPM_MAX" label="BPM" />
@@ -311,11 +387,21 @@
       </div>
       <div class="flt-field">
         <span class="flt-label">Artiste</span>
-        <ArtistTypeAhead :model-value="state.artist_id" variant="drawer" @update:model-value="setArtists" />
+        <ArtistTypeAhead
+          :model-value="state.artist_id"
+          variant="drawer"
+          @update:model-value="setArtists"
+        />
       </div>
       <div class="flt-field">
         <span class="flt-label">Label</span>
-        <SearchInput v-model="state.label" :icon="false" placeholder="Defected, Drumcode…" variant="drawer" :debounce="0" />
+        <SearchInput
+          v-model="state.label"
+          :icon="false"
+          placeholder="Defected, Drumcode…"
+          variant="drawer"
+          :debounce="0"
+        />
       </div>
       <div class="flt-field">
         <span class="flt-label">Avis</span>
@@ -327,7 +413,11 @@
       </div>
     </FilterDrawer>
 
-    <ImportRekordboxModal v-if="showImportModal" @close="showImportModal = false" @done="onImportDone" />
+    <ImportRekordboxModal
+      v-if="showImportModal"
+      @close="showImportModal = false"
+      @done="onImportDone"
+    />
 
     <ExternalImportModal
       v-if="showExternalImportModal"

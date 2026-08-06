@@ -4,14 +4,18 @@ import ToggleChip from '../../../components/filters/ToggleChip.vue'
 
 describe('ToggleChip', () => {
   it('renders the label and aria-pressed=false when off (criterion absent)', () => {
-    const wrapper = mount(ToggleChip, { props: { modelValue: false, label: 'Écoutable uniquement' } })
+    const wrapper = mount(ToggleChip, {
+      props: { modelValue: false, label: 'Écoutable uniquement' },
+    })
     expect(wrapper.text()).toContain('Écoutable uniquement')
     expect(wrapper.attributes('aria-pressed')).toBe('false')
     expect(wrapper.classes()).not.toContain('on')
   })
 
   it('reflects the on state through aria-pressed and the accent class', () => {
-    const wrapper = mount(ToggleChip, { props: { modelValue: true, label: 'Écoutable uniquement' } })
+    const wrapper = mount(ToggleChip, {
+      props: { modelValue: true, label: 'Écoutable uniquement' },
+    })
     expect(wrapper.attributes('aria-pressed')).toBe('true')
     expect(wrapper.classes()).toContain('on')
   })

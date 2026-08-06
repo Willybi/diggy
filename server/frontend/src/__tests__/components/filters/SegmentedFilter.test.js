@@ -18,14 +18,18 @@ const presets = [
 describe('SegmentedFilter', () => {
   it('tri-state: « Tous » is the active pill when the value is null', () => {
     const wrapper = mount(SegmentedFilter, { props: { modelValue: null, options: triState } })
-    const active = wrapper.findAll('.seg-pill').filter((p) => p.attributes('aria-pressed') === 'true')
+    const active = wrapper
+      .findAll('.seg-pill')
+      .filter((p) => p.attributes('aria-pressed') === 'true')
     expect(active).toHaveLength(1)
     expect(active[0].text()).toBe('Tous')
   })
 
   it('tri-state: exactly one pill active for a set value', () => {
     const wrapper = mount(SegmentedFilter, { props: { modelValue: 'in', options: triState } })
-    const active = wrapper.findAll('.seg-pill').filter((p) => p.attributes('aria-pressed') === 'true')
+    const active = wrapper
+      .findAll('.seg-pill')
+      .filter((p) => p.attributes('aria-pressed') === 'true')
     expect(active).toHaveLength(1)
     expect(active[0].text()).toBe('Dans ma bib')
   })
@@ -55,7 +59,9 @@ describe('SegmentedFilter', () => {
 
   it('presets: nothing active when the value is null', () => {
     const wrapper = mount(SegmentedFilter, { props: { modelValue: null, options: presets } })
-    const active = wrapper.findAll('.seg-pill').filter((p) => p.attributes('aria-pressed') === 'true')
+    const active = wrapper
+      .findAll('.seg-pill')
+      .filter((p) => p.attributes('aria-pressed') === 'true')
     expect(active).toHaveLength(0)
   })
 

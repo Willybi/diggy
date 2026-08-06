@@ -3,10 +3,7 @@
 const NUMBERS = Array.from({ length: 12 }, (_, i) => i + 1)
 
 /** Row A (minors) first, then row B (majors) — the CamelotSelect grid reading order. */
-export const CAMELOT_KEYS = [
-  ...NUMBERS.map((n) => `${n}A`),
-  ...NUMBERS.map((n) => `${n}B`),
-]
+export const CAMELOT_KEYS = [...NUMBERS.map((n) => `${n}A`), ...NUMBERS.map((n) => `${n}B`)]
 
 /**
  * Harmonic sort for chip display: letter first (A minors before B majors),

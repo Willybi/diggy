@@ -221,7 +221,9 @@ describe('RadarView', () => {
     const wrapper = await mountView({})
     // Default: Tendance is the resolved sort → its header/cells are active.
     expect(wrapper.find('.rd-th--score.col-trend').classes()).toContain('is-sorted')
-    expect(wrapper.find('.rd-row:not(.rd-row--skel) .col-trend').classes()).toContain('is-active-col')
+    expect(wrapper.find('.rd-row:not(.rd-row--skel) .col-trend').classes()).toContain(
+      'is-active-col',
+    )
     expect(wrapper.find('.rd-th--score.col-reco').classes()).not.toContain('is-sorted')
 
     const before = mainListCalls().length
@@ -235,7 +237,9 @@ describe('RadarView', () => {
     expect(p.get('order')).toBe('desc')
     // The band moved to the Pour toi column.
     expect(wrapper.find('.rd-th--score.col-reco').classes()).toContain('is-sorted')
-    expect(wrapper.find('.rd-row:not(.rd-row--skel) .col-reco').classes()).toContain('is-active-col')
+    expect(wrapper.find('.rd-row:not(.rd-row--skel) .col-reco').classes()).toContain(
+      'is-active-col',
+    )
 
     // Clicking the same header again toggles the order asc.
     await wrapper.find('.rd-th--score.col-reco').trigger('click')
@@ -263,7 +267,9 @@ describe('RadarView', () => {
     const cold = wrapper.find('.rd-cold')
     expect(cold.exists()).toBe(true)
     expect(cold.text()).toContain('Débloque Pour toi')
-    expect(wrapper.find('.rd-sub').text()).toBe(`1${NNBSP}240 tendances · Pour toi en attente de tes likes`)
+    expect(wrapper.find('.rd-sub').text()).toBe(
+      `1${NNBSP}240 tendances · Pour toi en attente de tes likes`,
+    )
 
     // The Pour toi column is entirely « — » (no ring anywhere).
     expect(wrapper.findAll('.col-reco .score-ring')).toHaveLength(0)

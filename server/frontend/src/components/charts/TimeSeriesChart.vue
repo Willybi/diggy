@@ -220,9 +220,7 @@ function areaPath(pts) {
   return `M${x0} 100 ${body} L${xN} 100 Z`
 }
 
-const yTicks = computed(() =>
-  [0, 0.25, 0.5, 0.75, 1].map((f) => ({ f, v: niceMax.value * f })),
-)
+const yTicks = computed(() => [0, 0.25, 0.5, 0.75, 1].map((f) => ({ f, v: niceMax.value * f })))
 
 const xTicks = computed(() => {
   const ts = allTs.value
@@ -289,9 +287,7 @@ function tipStyle() {
 
 const ariaLabel = computed(() => {
   const names = norm.value.filter((s) => s.points.length).map((s) => s.label)
-  return names.length
-    ? `Graphique temporel : ${names.join(', ')}`
-    : 'Graphique temporel'
+  return names.length ? `Graphique temporel : ${names.join(', ')}` : 'Graphique temporel'
 })
 </script>
 

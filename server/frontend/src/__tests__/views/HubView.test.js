@@ -406,7 +406,8 @@ describe('HubView search scope counters', () => {
       if (url === '/api/radar/trends') {
         return Promise.resolve({ data: { items: [], family_counts: {} } })
       }
-      if (url === '/api/following/activity/new-count') return Promise.resolve({ data: { count: 0 } })
+      if (url === '/api/following/activity/new-count')
+        return Promise.resolve({ data: { count: 0 } })
       if (url === '/api/following/activity') return Promise.resolve({ data: { items: [] } })
       if (url === '/api/recommendations/') return Promise.resolve({ data: { items: [] } })
       return Promise.resolve({ data: {} })

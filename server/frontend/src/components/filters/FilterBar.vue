@@ -8,7 +8,13 @@
         :aria-expanded="panelOpen"
         @click="onToggleClick"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
           <path d="M4 8h9M17 8h3M4 16h5M13 16h7" stroke-linecap="round" />
           <circle cx="15" cy="8" r="2" />
           <circle cx="11" cy="16" r="2" />

@@ -73,9 +73,7 @@ function py(v) {
 }
 
 const linePath = computed(() =>
-  vals.value
-    .map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(2)} ${py(v).toFixed(2)}`)
-    .join(' '),
+  vals.value.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(2)} ${py(v).toFixed(2)}`).join(' '),
 )
 const areaPath = computed(() => {
   const vs = vals.value

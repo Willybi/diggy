@@ -370,7 +370,13 @@
       <div class="comp-row">
         <ToggleChip v-model="fltDemo.preview" label="Écoutable uniquement">
           <template #icon>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
               <path d="M8 5v14l11-7z" stroke-linejoin="round" />
             </svg>
           </template>
@@ -379,14 +385,18 @@
         <SortSelect v-model="fltSort" :options="demoSortOptions" />
       </div>
 
-      <h3 class="ds-h3 mono">FilterChip · chip / valeur longue / variante empty-state (hover --neg)</h3>
+      <h3 class="ds-h3 mono">
+        FilterChip · chip / valeur longue / variante empty-state (hover --neg)
+      </h3>
       <div class="comp-row">
         <FilterChip label="BPM" value="120–133" />
         <FilterChip label="Key" value="5A 6A 7A 6B" />
         <FilterChip label="Style" value="Tech House" empty />
       </div>
 
-      <h3 class="ds-h3 mono">FilterBar · assemblage complet (barre + badge + chips + panneau inline)</h3>
+      <h3 class="ds-h3 mono">
+        FilterBar · assemblage complet (barre + badge + chips + panneau inline)
+      </h3>
       <FilterBar
         v-model:filters="fltDemo"
         v-model:panelOpen="fltPanelOpen"
@@ -432,7 +442,11 @@
             </div>
             <div class="flt-field">
               <span class="flt-label">Label</span>
-              <SearchInput v-model="fltDemo.label" :icon="false" placeholder="Defected, Drumcode…" />
+              <SearchInput
+                v-model="fltDemo.label"
+                :icon="false"
+                placeholder="Defected, Drumcode…"
+              />
             </div>
             <div class="flt-field">
               <span class="flt-label">Extrait audio</span>

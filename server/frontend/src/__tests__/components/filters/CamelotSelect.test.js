@@ -21,7 +21,9 @@ describe('CamelotSelect', () => {
       .filter((c) => c.attributes('aria-pressed') === 'true')
       .map((c) => c.text())
     expect(pressed).toEqual(['5A', '6B'])
-    const rest = wrapper.findAll('.cam-cell').filter((c) => c.attributes('aria-pressed') === 'false')
+    const rest = wrapper
+      .findAll('.cam-cell')
+      .filter((c) => c.attributes('aria-pressed') === 'false')
     expect(rest).toHaveLength(22)
   })
 

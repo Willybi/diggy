@@ -3,8 +3,8 @@
   <section class="admin-section">
     <h2 class="section-title">Reclassifier tous les genres</h2>
     <p class="section-sub">
-      Efface tous les genres et re-fetche : Deezer (album) d'abord, fallback Beatport. ~5200
-      tracks, peut prendre plusieurs heures.
+      Efface tous les genres et re-fetche : Deezer (album) d'abord, fallback Beatport. ~5200 tracks,
+      peut prendre plusieurs heures.
     </p>
     <div class="sync-row">
       <label class="batch-label">
@@ -75,7 +75,9 @@
             </td>
             <td>
               <span v-if="m.nodeLabel" class="token-pill">{{ m.nodeLabel }}</span>
-              <span v-else class="muted" style="font-size: var(--fs-sm); color: var(--ink-3)">—</span>
+              <span v-else class="muted" style="font-size: var(--fs-sm); color: var(--ink-3)"
+                >—</span
+              >
             </td>
             <td>
               <div class="mapping-search-wrap">

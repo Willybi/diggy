@@ -75,7 +75,11 @@ describe('ScoreRing', () => {
   })
 
   it('renders the arc when the fraction is above 0 (both modes)', () => {
-    expect(mount(ScoreRing, { props: { score: 0.5 } }).find('.sr-arc').exists()).toBe(true)
+    expect(
+      mount(ScoreRing, { props: { score: 0.5 } })
+        .find('.sr-arc')
+        .exists(),
+    ).toBe(true)
     expect(
       mount(ScoreRing, { props: { score: 0.5, mode: 'pct' } })
         .find('.sr-arc')

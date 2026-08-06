@@ -126,7 +126,12 @@ export function buildChips(criteria, state) {
         break
       case 'segment': {
         const opt = (c.options || []).find((o) => o.value === value)
-        chips.push({ id: c.key, key: c.key, label: c.label, value: opt ? opt.label : String(value) })
+        chips.push({
+          id: c.key,
+          key: c.key,
+          label: c.label,
+          value: opt ? opt.label : String(value),
+        })
         break
       }
       case 'toggle':

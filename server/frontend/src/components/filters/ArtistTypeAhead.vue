@@ -9,7 +9,13 @@
           :aria-label="`Retirer ${artist.name}`"
           @click.stop="removeArtist(artist)"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            aria-hidden="true"
+          >
             <path d="M18 6 6 18M6 6l12 12" stroke-linecap="round" />
           </svg>
         </button>

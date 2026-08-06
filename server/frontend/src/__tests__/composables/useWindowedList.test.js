@@ -63,7 +63,9 @@ describe('useWindowedList', () => {
   it('guards loadMore while a load is in flight', async () => {
     let resolveFirst
     apiGet
-      .mockImplementationOnce(() => new Promise((r) => (resolveFirst = () => r(page([{ id: 1 }], 4)))))
+      .mockImplementationOnce(
+        () => new Promise((r) => (resolveFirst = () => r(page([{ id: 1 }], 4)))),
+      )
       .mockResolvedValue(page([{ id: 2 }], 4))
     const list = useWindowedList({ endpoint: '/api/catalog/', buildParams: params })
 
@@ -102,7 +104,9 @@ describe('useWindowedList', () => {
     let resolveOld
     apiGet
       // Old request A: resolves LAST, must be discarded.
-      .mockImplementationOnce(() => new Promise((r) => (resolveOld = () => r(page([{ id: 'old' }], 1)))))
+      .mockImplementationOnce(
+        () => new Promise((r) => (resolveOld = () => r(page([{ id: 'old' }], 1)))),
+      )
       // New request B: resolves first with the winning payload.
       .mockResolvedValueOnce(page([{ id: 'new' }], 1))
     const list = useWindowedList({ endpoint: '/api/catalog/', buildParams: params })

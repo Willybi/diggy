@@ -33,7 +33,12 @@
           </span>
         </template>
         <template #panel>
-          <FilterPanel :result-count="total" :loading="loading" @reset="resetFilters" @close="closePanel">
+          <FilterPanel
+            :result-count="total"
+            :loading="loading"
+            @reset="resetFilters"
+            @close="closePanel"
+          >
             <div class="flt-field">
               <span class="flt-label">BPM</span>
               <RangeSlider v-model="state.bpm" :min="BPM_MIN" :max="BPM_MAX" label="BPM" />
@@ -66,7 +71,12 @@
             </div>
             <div class="flt-field">
               <span class="flt-label">Label</span>
-              <SearchInput v-model="state.label" :icon="false" placeholder="Defected, Drumcode…" :debounce="0" />
+              <SearchInput
+                v-model="state.label"
+                :icon="false"
+                placeholder="Defected, Drumcode…"
+                :debounce="0"
+              />
             </div>
             <div class="flt-field">
               <span class="flt-label">Avis</span>
@@ -85,15 +95,27 @@
     <div v-if="showColdStart" class="rd-cold">
       <span class="rd-cold-ic" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+          <path
+            d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+          />
         </svg>
       </span>
       <span class="rd-cold-tx">
         <span class="rd-cold-title">Débloque Pour toi</span>
-        <span class="rd-cold-sub">Like quelques sons pour activer tes recommandations personnalisées. En attendant, tu vois le classement Tendance.</span>
+        <span class="rd-cold-sub"
+          >Like quelques sons pour activer tes recommandations personnalisées. En attendant, tu vois
+          le classement Tendance.</span
+        >
       </span>
       <button class="rd-cold-x" type="button" aria-label="Fermer" @click="dismissColdStart">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
@@ -145,17 +167,29 @@
             </span>
           </span>
           <span class="rd-cell col-style"><span class="sk sk-line sk-line--tag"></span></span>
-          <span class="rd-cell rd-cell--right col-bpm"><span class="sk sk-line sk-line--num"></span></span>
+          <span class="rd-cell rd-cell--right col-bpm"
+            ><span class="sk sk-line sk-line--num"></span
+          ></span>
           <span class="rd-cell col-key"><span class="sk sk-line sk-line--num"></span></span>
           <span class="rd-cell rd-cell--score col-trend"><span class="sk sk-disc"></span></span>
           <span class="rd-cell rd-cell--score col-reco"><span class="sk sk-disc"></span></span>
-          <span class="rd-cell rd-cell--avis"><span class="sk sk-round"></span><span class="sk sk-round"></span></span>
+          <span class="rd-cell rd-cell--avis"
+            ><span class="sk sk-round"></span><span class="sk sk-round"></span
+          ></span>
         </div>
       </div>
 
       <!-- Error state : a fetch failure is not an empty result (offer a retry) -->
       <div v-else-if="isError" class="rd-empty">
-        <svg class="rd-empty-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <svg
+          class="rd-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5" />
           <path d="M12 16h.01" />
@@ -167,7 +201,15 @@
 
       <!-- Empty state : removable chips repair the search -->
       <div v-else-if="isEmpty" class="rd-empty">
-        <svg class="rd-empty-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <svg
+          class="rd-empty-ic"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.2-3.2" />
           <path d="M4 4l14 14" />
@@ -184,7 +226,9 @@
             @remove="removeChip(chip)"
           />
         </div>
-        <button class="btn" type="button" @click="resetFilters">Réinitialiser tous les filtres</button>
+        <button class="btn" type="button" @click="resetFilters">
+          Réinitialiser tous les filtres
+        </button>
       </div>
 
       <!-- Windowed rows : only the visible slice is rendered between spacers -->
@@ -211,7 +255,12 @@
                 :aria-label="`Écouter ${e.title}`"
                 @click.stop="playTrack(e)"
               >
-                <svg v-if="!(player.isCurrent(e.id) && player.playing)" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <svg
+                  v-if="!(player.isCurrent(e.id) && player.playing)"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
                   <path d="M8 5.5v13l11-6.5z" />
                 </svg>
                 <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -225,7 +274,9 @@
               <span class="rd-tx">
                 <span class="rd-title-row">
                   <span class="rd-title">{{ e.title }}</span>
-                  <span v-if="e.trend_rank && e.trend_rank <= 50" class="rd-rank">#{{ e.trend_rank }}</span>
+                  <span v-if="e.trend_rank && e.trend_rank <= 50" class="rd-rank"
+                    >#{{ e.trend_rank }}</span
+                  >
                 </span>
                 <span class="rd-artists" @click.stop>
                   <ArtistLinks :artists="e.artists" :fallback="e.artist" />
@@ -239,7 +290,11 @@
                   :to="`/style/${encodeURIComponent(e.genres[0].name)}`"
                   @click.stop
                 >
-                  <StyleTag :name="e.genres[0].name" :family="e.genres[0].pillar" :depth="e.genres[0].depth" />
+                  <StyleTag
+                    :name="e.genres[0].name"
+                    :family="e.genres[0].pillar"
+                    :depth="e.genres[0].depth"
+                  />
                 </RouterLink>
                 <span v-if="e.genres.length > 1" class="rd-more">+{{ e.genres.length - 1 }}</span>
               </template>
@@ -247,7 +302,9 @@
               <span v-else class="rd-null">—</span>
             </span>
             <span class="rd-cell rd-cell--right col-bpm">
-              <span :class="e.bpm != null ? 'rd-bpm' : 'rd-null'">{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span>
+              <span :class="e.bpm != null ? 'rd-bpm' : 'rd-null'">{{
+                e.bpm != null ? Math.round(e.bpm) : '—'
+              }}</span>
             </span>
             <span class="rd-cell col-key">
               <span :class="e.key ? 'rd-key' : 'rd-null'">{{ e.key || '—' }}</span>
@@ -263,7 +320,9 @@
                   :label="`Tendance ${Math.round(e.trend_score_10)} sur 10`"
                 />
                 <span v-if="isRising(e)" class="rd-velo" title="Monte vite" aria-label="Monte vite">
-                  <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0.5 9.5 9.5H0.5z" fill="currentColor" /></svg>
+                  <svg viewBox="0 0 10 10" aria-hidden="true">
+                    <path d="M5 0.5 9.5 9.5H0.5z" fill="currentColor" />
+                  </svg>
                 </span>
               </span>
               <span v-else class="rd-dash" role="img" aria-label="Pas de score Tendance">—</span>
@@ -291,7 +350,12 @@
     </section>
 
     <!-- ── Mobile filter drawer (< 640) ── -->
-    <FilterDrawer v-model:open="drawerOpen" :result-count="total" :loading="loading" @reset="resetFilters">
+    <FilterDrawer
+      v-model:open="drawerOpen"
+      :result-count="total"
+      :loading="loading"
+      @reset="resetFilters"
+    >
       <div class="flt-field">
         <span class="flt-label">BPM</span>
         <RangeSlider v-model="state.bpm" :min="BPM_MIN" :max="BPM_MAX" label="BPM" />
@@ -320,11 +384,21 @@
       </div>
       <div class="flt-field">
         <span class="flt-label">Artiste</span>
-        <ArtistTypeAhead :model-value="state.artist_id" variant="drawer" @update:model-value="setArtists" />
+        <ArtistTypeAhead
+          :model-value="state.artist_id"
+          variant="drawer"
+          @update:model-value="setArtists"
+        />
       </div>
       <div class="flt-field">
         <span class="flt-label">Label</span>
-        <SearchInput v-model="state.label" :icon="false" placeholder="Defected, Drumcode…" variant="drawer" :debounce="0" />
+        <SearchInput
+          v-model="state.label"
+          :icon="false"
+          placeholder="Defected, Drumcode…"
+          variant="drawer"
+          :debounce="0"
+        />
       </div>
       <div class="flt-field">
         <span class="flt-label">Avis</span>

@@ -93,7 +93,13 @@
               </td>
               <td class="end" @click.stop>
                 <button class="rm-btn" title="Retirer" @click="removeTrack(t.catalog_id)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  >
                     <path d="M18 6L6 18M6 6l12 12" />
                   </svg>
                 </button>
@@ -217,7 +223,9 @@ onMounted(fetchCollection)
   font: 500 var(--fs-sm) var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.12s, border-color 0.12s;
+  transition:
+    color 0.12s,
+    border-color 0.12s;
 }
 .btn-del:hover {
   color: var(--neg-ink);
@@ -301,7 +309,9 @@ table.tt td {
   place-items: center;
   border-radius: 50%;
   padding: 0;
-  transition: color 0.12s, background 0.12s;
+  transition:
+    color 0.12s,
+    background 0.12s;
 }
 .play-btn svg {
   width: 16px;
@@ -387,7 +397,9 @@ table.tt td {
   border-radius: var(--r-xs);
   padding: 0;
   opacity: 0;
-  transition: opacity 0.14s, color 0.14s;
+  transition:
+    opacity 0.14s,
+    color 0.14s;
 }
 table.tt tbody tr:hover .rm-btn {
   opacity: 1;

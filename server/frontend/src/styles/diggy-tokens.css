@@ -76,9 +76,7 @@
      solide avec un override dark explicite). --pos-wash (0.06) = repos light ;
      --pos-wash-2 (0.1) = hover light + repos dark. À terme --accent-wash
      pourrait migrer vers cette même mécanique. */
-  --pos-wash: oklch(
-    var(--pos-l) var(--pos-c) var(--pos-h) / 0.06
-  );
+  --pos-wash: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.06);
   --pos-wash-2: oklch(var(--pos-l) var(--pos-c) var(--pos-h) / 0.1);
 
   /* ---- negative / dislike (Wildflower terracotta, hue 28) ---- */

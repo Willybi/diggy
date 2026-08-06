@@ -6,9 +6,7 @@
     <template v-else>
       <div class="mon-toolbar">
         <div class="mon-toolbar-left">
-          <span class="mon-snapshot">
-            Dernier instantané : {{ snapshotAge }}
-          </span>
+          <span class="mon-snapshot"> Dernier instantané : {{ snapshotAge }} </span>
           <span v-if="lockActive" class="lock-chip">🔒 Enrichissement en cours</span>
         </div>
         <div class="mon-toolbar-right">
@@ -38,14 +36,14 @@
           <StatTile
             label="Artistes à lier"
             :value="fmtInt(artists.backlog_link)"
-            :sublabel="artists.backlog_artwork != null ? `${fmtInt(artists.backlog_artwork)} sans pochette` : ''"
+            :sublabel="
+              artists.backlog_artwork != null
+                ? `${fmtInt(artists.backlog_artwork)} sans pochette`
+                : ''
+            "
             tone="neutral"
           />
-          <StatTile
-            label="Sets à recrawler"
-            :value="fmtInt(sets.recrawl_backlog)"
-            tone="neutral"
-          />
+          <StatTile label="Sets à recrawler" :value="fmtInt(sets.recrawl_backlog)" tone="neutral" />
           <StatTile
             label="Catalogue"
             :value="fmtInt(catalog.total)"
@@ -70,9 +68,9 @@
           <h2 class="section-title">Backlog à traiter dans le temps</h2>
         </div>
         <p class="mon-caption">
-          Entrées non enrichies restantes, par source. Teinte pleine = à traiter
-          maintenant (jamais cherché + à relancer) ; teinte claire = total
-          restant, dont les morceaux en attente de re-scan (30/90 j) ou abandonnés.
+          Entrées non enrichies restantes, par source. Teinte pleine = à traiter maintenant (jamais
+          cherché + à relancer) ; teinte claire = total restant, dont les morceaux en attente de
+          re-scan (30/90 j) ou abandonnés.
         </p>
         <TimeSeriesChart
           :series="burnSeries"
@@ -244,8 +242,7 @@ function enrichBucket(src) {
 function enrichTotal(src) {
   const b = enrichBucket(src)
   if (b.total_missing != null) return b.total_missing
-  const sum =
-    (b.never_tried || 0) + (b.due_retry || 0) + (b.cooldown || 0) + (b.abandoned || 0)
+  const sum = (b.never_tried || 0) + (b.due_retry || 0) + (b.cooldown || 0) + (b.abandoned || 0)
   return sum || (b.total_linked != null ? 0 : null)
 }
 function enrichSub(src) {
@@ -352,13 +349,9 @@ const hitRateChart = computed(() =>
 const errorsByDay = computed(() => {
   const m = new Map()
   for (const r of throughputSeries.value) m.set(r.day, (m.get(r.day) || 0) + (r.errors || 0))
-  return [...m.entries()]
-    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([day, v]) => ({ t: day, v }))
+  return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([day, v]) => ({ t: day, v }))
 })
-const totalErrors = computed(() =>
-  throughputSeries.value.reduce((s, r) => s + (r.errors || 0), 0),
-)
+const totalErrors = computed(() => throughputSeries.value.reduce((s, r) => s + (r.errors || 0), 0))
 const totalRuns = computed(() => throughputSeries.value.reduce((s, r) => s + (r.runs || 0), 0))
 const maxDuration = computed(() => {
   let m = 0
@@ -368,7 +361,9 @@ const maxDuration = computed(() => {
   return m || null
 })
 const enrichLastRuns = computed(() =>
-  lastRuns.value.filter((r) => r.task_type === 'enrich_catalog' || r.task_type === 'enrich_beatport'),
+  lastRuns.value.filter(
+    (r) => r.task_type === 'enrich_catalog' || r.task_type === 'enrich_beatport',
+  ),
 )
 
 // ── status ──

@@ -20,7 +20,8 @@
                 v-for="(title, i) in flag.member_titles"
                 :key="i"
                 class="flag-set-title flag-member"
-              >{{ title }}</span>
+                >{{ title }}</span
+              >
             </div>
           </template>
           <template v-else>

@@ -95,8 +95,8 @@
       </span>
       <p class="ef-title">Aucun genre disliké pour l'instant.</p>
       <p class="ef-sub">
-        Le cœur barré en haut à droite d'une card écarte un genre. Les genres dislikés sont
-        estompés dans la grille et sortent des recommandations.
+        Le cœur barré en haut à droite d'une card écarte un genre. Les genres dislikés sont estompés
+        dans la grille et sortent des recommandations.
       </p>
       <button class="btn btn--sm" @click="showAll">Voir tous les genres</button>
     </div>
@@ -223,9 +223,7 @@ const displayItems = computed(() => {
 // Subtitle counter: on an avis facet the filtering is client-side (displayItems),
 // so the server-page `total` would lie (e.g. « 75 / 75 » over an empty grid).
 const shownCount = computed(() =>
-  sortBy.value === 'liked' || sortBy.value === 'disliked'
-    ? displayItems.value.length
-    : total.value,
+  sortBy.value === 'liked' || sortBy.value === 'disliked' ? displayItems.value.length : total.value,
 )
 
 function showAll() {

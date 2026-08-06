@@ -1,10 +1,5 @@
 <template>
-  <div
-    class="modal-overlay"
-    @dragover.prevent
-    @drop.prevent
-    @click.self="handleOverlayClick"
-  >
+  <div class="modal-overlay" @dragover.prevent @drop.prevent @click.self="handleOverlayClick">
     <div class="modal-box">
       <h2 class="modal-title">Importer depuis Rekordbox</h2>
 
@@ -17,7 +12,13 @@
           @dragleave="onDragLeave"
           @drop.prevent="onDrop"
         >
-          <svg class="drop-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.8">
+          <svg
+            class="drop-icon"
+            viewBox="0 0 48 48"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
             <rect x="6" y="8" width="36" height="32" rx="3" />
             <path d="M16 20h16M16 27h10" stroke-linecap="round" />
             <path d="M30 34l4-4-4-4" stroke-linecap="round" stroke-linejoin="round" />
@@ -72,7 +73,8 @@
             <span class="progress-pct">{{ progressPct }}%</span>
           </div>
           <p class="state-label">
-            {{ stats.inserted }} importés · {{ stats.updated }} mis à jour · {{ stats.total }} tracks
+            {{ stats.inserted }} importés · {{ stats.updated }} mis à jour ·
+            {{ stats.total }} tracks
           </p>
         </div>
       </template>
@@ -145,12 +147,12 @@ const importPoll = useTaskPoll((id) => `/api/import/status/${id}`, {
       phase.value = 'done'
     } else if (data.status === 'error') {
       stop()
-      errorMsg.value = 'Erreur lors de l\'import, réessayez'
+      errorMsg.value = "Erreur lors de l'import, réessayez"
       phase.value = 'error'
     }
   },
   onError() {
-    errorMsg.value = 'Erreur lors de l\'import, réessayez'
+    errorMsg.value = "Erreur lors de l'import, réessayez"
     phase.value = 'error'
   },
 })
@@ -188,7 +190,7 @@ function onDrop(e) {
 
 function validateFile(file) {
   if (!file.name.toLowerCase().endsWith('.xml')) {
-    return 'Ce fichier n\'est pas un export XML Rekordbox valide'
+    return "Ce fichier n'est pas un export XML Rekordbox valide"
   }
   if (file.size > 10 * 1024 * 1024) {
     return 'Fichier trop volumineux (max 10 Mo)'
@@ -217,7 +219,7 @@ async function processFile(file) {
       body: formData,
     })
   } catch {
-    errorMsg.value = 'Erreur lors de l\'import, réessayez'
+    errorMsg.value = "Erreur lors de l'import, réessayez"
     phase.value = 'error'
     return
   }
@@ -228,9 +230,9 @@ async function processFile(file) {
     } else if (res.status === 413) {
       errorMsg.value = 'Fichier trop volumineux (max 10 Mo)'
     } else if (res.status === 422) {
-      errorMsg.value = 'Ce fichier n\'est pas un export XML Rekordbox valide'
+      errorMsg.value = "Ce fichier n'est pas un export XML Rekordbox valide"
     } else {
-      errorMsg.value = 'Erreur lors de l\'import, réessayez'
+      errorMsg.value = "Erreur lors de l'import, réessayez"
     }
     phase.value = 'error'
     return

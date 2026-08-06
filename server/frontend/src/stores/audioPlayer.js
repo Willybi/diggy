@@ -43,12 +43,8 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
   const visible = computed(() => track.value !== null)
   const progress = computed(() => (duration.value > 0 ? currentTime.value / duration.value : 0))
   const canNext = computed(() => source.value !== null)
-  const genrePlaying = computed(() =>
-    source.value?.type === 'genre' ? source.value.name : null,
-  )
-  const artistPlaying = computed(() =>
-    source.value?.type === 'artist' ? source.value.id : null,
-  )
+  const genrePlaying = computed(() => (source.value?.type === 'genre' ? source.value.name : null))
+  const artistPlaying = computed(() => (source.value?.type === 'artist' ? source.value.id : null))
 
   // --- helpers ---
   function isCurrent(catalogId) {
