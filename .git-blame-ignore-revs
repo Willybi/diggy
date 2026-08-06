@@ -1,0 +1,6 @@
+# Revisions to ignore in `git blame` (bulk reformats, no logic change).
+# GitHub applies this file automatically. Locally, run once:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style(frontend): applique Prettier sur tout src/ (formatage seul)
+0dec964f251d863c98cd2b0f29dddf66695a9d13

@@ -136,9 +136,10 @@ DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/diggy_test pytest tes
 # Frontend tests
 cd server/frontend && npx vitest run
 
-# Lint - BOTH must pass before any commit (push to master deploys to prod)
+# Lint - ALL must pass before any commit (push to master deploys to prod)
 ruff check server/
-cd server/frontend && npm run lint
+cd server/frontend && npm run lint          # eslint
+cd server/frontend && npm run format:check  # prettier (gated in CI since 2026-08-06)
 
 # Alembic (alembic.ini lives in server/api/). Use the `alembic` binary: `python -m alembic`
 # breaks outside the container (the local alembic/ migrations dir shadows the package)
