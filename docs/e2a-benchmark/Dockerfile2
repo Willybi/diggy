@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+# ffmpeg = decode; build-essential + libfftw3-dev + libav*-dev = build the `keyfinder` C++ extension
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ffmpeg wget build-essential pkg-config cmake git libfftw3-dev \
+        libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# TempoCNN model graphs (perceptual tempo)
+RUN mkdir -p /models \
+    && wget -q https://essentia.upf.edu/models/tempo/tempocnn/deeptemp-k16-3.pb -O /models/deeptemp-k16-3.pb \
+    && wget -q https://essentia.upf.edu/models/tempo/tempocnn/deepsquare-k16-3.pb -O /models/deepsquare-k16-3.pb
+
+# essentia-tensorflow supersedes essentia (adds TempoCNN); keeps RhythmExtractor2013/KeyExtractor/Resample
+RUN pip install --no-cache-dir essentia-tensorflow numpy requests
+
+# real libkeyfinder: build the C++ lib from source (mixxxdj), then the `keyfinder` Python binding.
+# Non-fatal (|| echo ...) so the image ships even if this fails; the harness auto-detects via try-import.
+RUN git clone --depth 1 https://github.com/mixxxdj/libkeyfinder /tmp/libkeyfinder \
+    && cmake -S /tmp/libkeyfinder -B /tmp/libkeyfinder/build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /tmp/libkeyfinder/build --parallel \
+    && cmake --install /tmp/libkeyfinder/build \
+    && ldconfig \
+    && ( pip install --no-cache-dir keyfinder && echo "KEYFINDER_OK" || echo "KEYFINDER_UNAVAILABLE" )
+
+WORKDIR /work

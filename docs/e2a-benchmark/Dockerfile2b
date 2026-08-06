@@ -1,0 +1,25 @@
+# Debian BULLSEYE base: FFmpeg 4.x keeps the old libav API (channel_layout/channels) that the
+# `keyfinder` Python binding requires — bookworm's FFmpeg 5.x removed it (-> ch_layout) and the
+# unmaintained binding won't compile there. Everything else identical to Dockerfile2.
+FROM python:3.11-slim-bullseye
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ffmpeg wget build-essential pkg-config cmake git libfftw3-dev \
+        libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /models \
+    && wget -q https://essentia.upf.edu/models/tempo/tempocnn/deeptemp-k16-3.pb -O /models/deeptemp-k16-3.pb \
+    && wget -q https://essentia.upf.edu/models/tempo/tempocnn/deepsquare-k16-3.pb -O /models/deepsquare-k16-3.pb
+
+RUN pip install --no-cache-dir essentia-tensorflow numpy requests
+
+RUN git clone --depth 1 https://github.com/mixxxdj/libkeyfinder /tmp/libkeyfinder \
+    && cmake -S /tmp/libkeyfinder -B /tmp/libkeyfinder/build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /tmp/libkeyfinder/build --parallel \
+    && cmake --install /tmp/libkeyfinder/build \
+    && ldconfig \
+    && ( pip install --no-cache-dir keyfinder && echo "KEYFINDER_OK" || echo "KEYFINDER_UNAVAILABLE" )
+
+WORKDIR /work
