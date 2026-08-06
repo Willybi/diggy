@@ -234,6 +234,7 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 | `/roadmap_update` | Updates roadmap statuses after a finished chantier (cross-checks session + git log) |
 | `/schema_doc` | Regenerates `docs/database-schema.md` from models and shows the diff |
 | `/refonte_page <page>` | Full page-redesign pipeline (fiche → Claude Design prompt/handoff → work_manager lots → deploy → design review round → FIX triage → closure), with the guardrails learned on Track Detail |
+| `/audit_global [périmètre]` | Periodic codebase health audit (tech debt, security, perf, dead code): tooled inventory → parallel dimension agents → consolidation → arbitrage → roadmap proposal. Reports in `docs/audits/<AAAA-MM>/`, cross-audit tracking in `docs/audits/LEDGER.md` |
 
 Prefer these over ad-hoc equivalents. Suggest them to the user when relevant. `.claude/commands/` is versioned in the repo (the command definitions ship with the code).
 
@@ -256,6 +257,7 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant. `.
 | Similarity/scoring work (C2) | `docs/similarity_calibration.ipynb` |
 | UI change on an existing view | Historical design handoffs are archived in `docs/completed/design/` (read-only, frozen); new handoffs come from the Claude Design project |
 | Backup/restore operation, data incident | `docs/restore.md` (GPG + psql + offsite fetch; keep the "last tested" date honest) |
+| Code health audit (running one, or checking a finding's status) | `docs/audits/README.md` + `docs/audits/LEDGER.md` (run `/audit_global`; first historical audit: `docs/audit_2026-07/`) |
 | Anything about past decisions | `docs/completed/` contains FROZEN archives: read-only, never treat as current state, NEVER modify |
 
 ## Maintaining This File
