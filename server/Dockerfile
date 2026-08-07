@@ -4,6 +4,12 @@ COPY api/requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 FROM python:3.13-slim
+# ffmpeg = MP3 decode backend for Essentia's MonoLoader (E2.c BPM analysis of
+# Deezer previews). The slim base has no ffmpeg; installed here in the final
+# stage. --no-install-recommends + apt list cleanup keep the layer minimal.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd -m -u 1000 diggy
 COPY --from=builder /root/.local /home/diggy/.local
 ENV PATH=/home/diggy/.local/bin:$PATH

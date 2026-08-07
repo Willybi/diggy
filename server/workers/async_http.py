@@ -180,3 +180,18 @@ class HttpPool:
             return resp.content
         except Exception:
             return None
+
+    async def download_audio(self, url: str) -> bytes | None:
+        """Download an audio file (e.g. a Deezer 30s preview MP3) without rate
+        limiting (direct CDN URL). Returns bytes, or None on failure/empty.
+
+        Mirror of :meth:`download_image` minus the tiny-file placeholder guard:
+        an audio preview has no placeholder equivalent and a short clip is still
+        analyzable, so any non-empty body is returned. A longer timeout than the
+        image path accommodates the larger payload (~0.5-1 MB)."""
+        try:
+            resp = await self._client.get(url, timeout=30.0)
+            resp.raise_for_status()
+            return resp.content or None
+        except Exception:
+            return None

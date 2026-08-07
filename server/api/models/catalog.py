@@ -53,6 +53,13 @@ class CatalogEntry(Base):
     )
     bpm_source = Column(String(20), nullable=True)
     key_source = Column(String(20), nullable=True)
+    # E2.c — BPM analysis tracking (estimated BPM from Deezer previews). Stamped
+    # once an analysis produced a VERDICT (ok OR low_conf), never on a transient
+    # network failure, so a candidate is not re-analyzed forever.
+    bpm_analyzed_at = Column(DateTime(timezone=True), nullable=True)
+    bpm_analysis_attempts = Column(
+        Integer, nullable=False, server_default="0", default=0
+    )
     label = Column(String(255), nullable=True)
     needs_reconciliation = Column(Boolean, server_default="false", nullable=True)
     deezer_searched_at = Column(DateTime(timezone=True), nullable=True)
@@ -105,6 +112,21 @@ class CatalogEntry(Base):
         back_populates="catalog",
         cascade="all, delete-orphan",
     )
+
+
+def bpm_analysis_candidate_filter():
+    """Source unique du prédicat backlog analyse BPM (E2.c), partagé par la tâche
+    nocturne et l'admin. Une entrée est candidate à l'estimation de BPM depuis sa
+    preview Deezer si : elle a une preview, n'a pas encore de BPM, possède un
+    deezer_id réel (pas le sentinelle NOT_FOUND) et n'a jamais été analysée.
+    Conditions ET-combinables via .where(*bpm_analysis_candidate_filter())."""
+    return [
+        CatalogEntry.has_preview.is_(True),
+        CatalogEntry.bpm.is_(None),
+        CatalogEntry.deezer_id.isnot(None),
+        CatalogEntry.deezer_id != "NOT_FOUND",
+        CatalogEntry.bpm_analyzed_at.is_(None),
+    ]
 
 
 class CatalogArtist(Base):

@@ -720,6 +720,7 @@ async def get_backlog(
         GenreMapping,
         SetArtist,
         WatchedEntity,
+        bpm_analysis_candidate_filter,
     )
 
     # ── From the latest snapshot payload (defensive .get, tolerates a partial or
@@ -767,6 +768,17 @@ async def get_backlog(
         await db.execute(
             select(func.count(CatalogEntry.id)).where(
                 func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0
+            )
+        )
+    ).scalar_one()
+
+    # Candidats à l'analyse BPM (E2.c) — même prédicat partagé que la tâche
+    # nocturne (source unique bpm_analysis_candidate_filter) : preview mais pas de
+    # BPM, deezer_id réel, jamais analysé. Renvoi neutre vers le monitoring.
+    bpm_missing = (
+        await db.execute(
+            select(func.count(CatalogEntry.id)).where(
+                *bpm_analysis_candidate_filter()
             )
         )
     ).scalar_one()
@@ -826,5 +838,6 @@ async def get_backlog(
             "unclassified": unclassified,
             "mappings_unmapped": mappings_unmapped,
         },
+        "catalog": {"bpm_missing": bpm_missing},
         "crawl": {"playlists_due": playlists_due, "dlq": dlq},
     }

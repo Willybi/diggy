@@ -170,6 +170,69 @@ class TestBacklogResponse:
         assert r.status_code == 200
         assert r.json()["artists"]["to_link"] == 1
 
+    async def test_catalog_bpm_missing(self, admin_client, db):
+        # E2.c: catalog.bpm_missing counts entries eligible for BPM analysis
+        # (bpm_analysis_candidate_filter): has a preview, no BPM, a REAL deezer_id,
+        # never analyzed. One candidate counts; four non-candidates are excluded.
+        db.add(
+            CatalogEntry(
+                title="Candidate",
+                normalized_key="bpm-candidate",
+                has_preview=True,
+                bpm=None,
+                deezer_id="111",
+                bpm_analyzed_at=None,
+            )
+        )
+        # bpm already present → excluded.
+        db.add(
+            CatalogEntry(
+                title="Has BPM",
+                normalized_key="bpm-has",
+                has_preview=True,
+                bpm=128.0,
+                deezer_id="222",
+            )
+        )
+        # no preview → excluded.
+        db.add(
+            CatalogEntry(
+                title="No Preview",
+                normalized_key="bpm-nopreview",
+                has_preview=False,
+                bpm=None,
+                deezer_id="333",
+            )
+        )
+        # NOT_FOUND sentinel deezer_id → excluded.
+        db.add(
+            CatalogEntry(
+                title="Not On Deezer",
+                normalized_key="bpm-notfound",
+                has_preview=True,
+                bpm=None,
+                deezer_id="NOT_FOUND",
+            )
+        )
+        # already analyzed → excluded.
+        db.add(
+            CatalogEntry(
+                title="Analyzed",
+                normalized_key="bpm-analyzed",
+                has_preview=True,
+                bpm=None,
+                deezer_id="444",
+                bpm_analyzed_at=_now(),
+            )
+        )
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/backlog")
+        assert r.status_code == 200
+        bpm_missing = r.json()["catalog"]["bpm_missing"]
+        assert isinstance(bpm_missing, int)
+        assert bpm_missing == 1
+
     async def test_playlists_due_excludes_recently_crawled(self, admin_client, db):
         # Crawled 2h ago → NOT due; never crawled → due. Only the latter counts.
         db.add(
@@ -199,6 +262,7 @@ class TestBacklogResponse:
         assert data["sets"] == {"recrawl": 0, "flags_pending": 0}
         assert data["artist_flags"]["pending"] == 0
         assert data["genres"] == {"unclassified": 0, "mappings_unmapped": 0}
+        assert data["catalog"] == {"bpm_missing": 0}
         assert data["crawl"]["playlists_due"] == 0
 
     async def test_partial_payload_does_not_raise(self, admin_client, db):

@@ -20,3 +20,9 @@ tidalapi==0.8.11
 spotifyscraper==3.7.0
 sentry-sdk[fastapi,celery]==2.29.1
 python-json-logger==3.3.0
+# E2.c — estimated-BPM analysis of Deezer previews (worker only). Pulls a large
+# native audio stack (~doubles the image, acté) and needs ffmpeg at runtime for
+# MonoLoader (installed in the Dockerfile final stage). Pinned to a dev build
+# because the 2.1 line ships only pre-releases on PyPI; this is the newest with a
+# cp313 manylinux_x86_64 wheel (matches the py3.13 Linux image — no source build).
+essentia==2.1b6.dev1389

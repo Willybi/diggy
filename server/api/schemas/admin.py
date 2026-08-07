@@ -203,6 +203,10 @@ class GenresBacklog(BaseModel):
     mappings_unmapped: int
 
 
+class CatalogBacklog(BaseModel):
+    bpm_missing: int
+
+
 class CrawlBacklog(BaseModel):
     playlists_due: int
     dlq: int | None = None
@@ -216,4 +220,5 @@ class BacklogResponse(BaseModel):
     sets: SetsBacklog
     artist_flags: ArtistFlagsBacklog
     genres: GenresBacklog
+    catalog: CatalogBacklog
     crawl: CrawlBacklog

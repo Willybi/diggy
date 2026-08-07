@@ -7,6 +7,7 @@ from workers.tasks.artists import (
     link_set_artists,
     sync_artists,
 )
+from workers.tasks.bpm import analyze_bpm_previews
 from workers.tasks.catalog import enrich_catalog, enrich_catalog_beatport
 from workers.tasks.genres import (
     finalize_reclassify,
@@ -31,6 +32,7 @@ __all__ = [
     "crawl_single_playlist",
     "enrich_catalog",
     "enrich_catalog_beatport",
+    "analyze_bpm_previews",
     "resolve_set_tracks",
     "enrich_set_tracks",
     "recrawl_incomplete_sets",

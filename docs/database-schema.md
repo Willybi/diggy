@@ -103,6 +103,8 @@ PK: `id`
 | `status` | String(20) | no |  |  | server_default='official', default='official' |
 | `bpm_source` | String(20) | yes |  |  |  |
 | `key_source` | String(20) | yes |  |  |  |
+| `bpm_analyzed_at` | DateTime(tz) | yes |  |  |  |
+| `bpm_analysis_attempts` | Integer | no |  |  | server_default='0', default=0 |
 | `label` | String(255) | yes |  |  |  |
 | `needs_reconciliation` | Boolean | yes |  |  | server_default='false' |
 | `deezer_searched_at` | DateTime(tz) | yes |  |  |  |
@@ -111,18 +113,18 @@ PK: `id`
 | `beatport_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 
 **Indexes:**
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_scope`: `scope`
 - `ix_catalog_deezer_id`: `deezer_id`
+- `ix_catalog_genres`: `genres`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
 - `ix_catalog_key`: `key`
-- `ix_catalog_beatport_id`: `beatport_id`
 - `ix_catalog_created_at`: `created_at`
 - `ix_catalog_beatport_searched_at`: `beatport_searched_at`
 - `ix_catalog_duration_ms`: `duration_ms`
 - `ix_catalog_bpm`: `bpm`
-- `ix_catalog_genres`: `genres`
-- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_beatport_id`: `beatport_id`
 - `ix_catalog_release_date`: `release_date`
-- `ix_catalog_scope`: `scope`
 
 ### `catalog_artists`
 

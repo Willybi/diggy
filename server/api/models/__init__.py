@@ -11,7 +11,12 @@ from .artist import (  # noqa: F401
     FollowedArtist,
 )
 from .base import StringArray  # noqa: F401
-from .catalog import CatalogArtist, CatalogEntry, UserTrack  # noqa: F401
+from .catalog import (  # noqa: F401
+    CatalogArtist,
+    CatalogEntry,
+    UserTrack,
+    bpm_analysis_candidate_filter,
+)
 from .collection import CollectionItem, UserCollection  # noqa: F401
 from .genre import GenreEdge, GenreMapping, GenreNode  # noqa: F401
 from .monitoring import MetricSnapshot  # noqa: F401
