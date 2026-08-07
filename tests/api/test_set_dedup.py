@@ -329,15 +329,20 @@ def _auto_result(candidate_id):
         signals=MatchSignals(overlap=0.9, title_sim=0.8, date_match=True, first_track_match=True),
         verdict=MatchVerdict.AUTO_ATTACH,
         flag_type=None,
+        confidence=0.95,
     )
 
 
 def _flag_result(candidate_id):
     return MatchResult(
         candidate_id=candidate_id,
-        signals=MatchSignals(overlap=0.6, title_sim=0.7, date_match=False, first_track_match=False),
+        signals=MatchSignals(
+            overlap=0.6, title_sim=0.7, date_match=False, first_track_match=False,
+            weighted_overlap=0.55, date_gap_days=12, order_corr=0.8,
+        ),
         verdict=MatchVerdict.FLAG,
         flag_type="duplicate_candidate",
+        confidence=0.62,
     )
 
 
@@ -347,6 +352,7 @@ def _nothing_result(candidate_id):
         signals=MatchSignals(overlap=0.1, title_sim=0.1, date_match=False, first_track_match=False),
         verdict=MatchVerdict.NOTHING,
         flag_type=None,
+        confidence=0.05,
     )
 
 
@@ -388,10 +394,14 @@ class TestApplyMatchResults:
         assert flag.set_id_b == max(s1.id, s2.id)
         assert flag.flag_type == SetFlagType.duplicate_candidate
         assert flag.status == SetFlagStatus.pending
-        assert flag.confidence == pytest.approx(0.6)
+        # Stored confidence is the composite score, no longer the raw overlap
+        assert flag.confidence == pytest.approx(0.62)
         assert flag.signals["overlap"] == pytest.approx(0.6)
         assert flag.signals["title_sim"] == pytest.approx(0.7)
         assert flag.signals["date_match"] is False
+        assert flag.signals["weighted_overlap"] == pytest.approx(0.55)
+        assert flag.signals["date_gap_days"] == 12
+        assert flag.signals["order_corr"] == pytest.approx(0.8)
 
     async def test_flag_is_idempotent(self, db):
         """Calling apply_match_results twice for the same pair inserts only 1 flag."""

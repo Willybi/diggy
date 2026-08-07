@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import Enum
+from math import log2
 from statistics import median as _median
 
 from sqlalchemy import delete, func, select
@@ -188,6 +189,11 @@ def normalize_set_title(
 # Matching types (L3)
 # ---------------------------------------------------------------------------
 
+# Composite confidence below this never flags (title-identical rule aside)
+FLAG_CONFIDENCE_THRESHOLD = 0.45
+# Two known played_dates further apart than this block AUTO_ATTACH
+AUTO_ATTACH_MAX_DATE_GAP_DAYS = 2
+
 
 class MatchVerdict(str, Enum):
     AUTO_ATTACH = "auto_attach"
@@ -201,6 +207,12 @@ class MatchSignals:
     title_sim: float
     date_match: bool
     first_track_match: bool
+    # IDF-weighted overlap: anthems shared across many sets weigh less
+    weighted_overlap: float = 0.0
+    # Absolute gap in days between played_dates; None if either is unknown
+    date_gap_days: int | None = None
+    # Spearman rank correlation on shared-track positions; None if < 3 shared
+    order_corr: float | None = None
 
 
 @dataclass
@@ -216,6 +228,7 @@ class MatchResult:
     signals: MatchSignals
     verdict: MatchVerdict
     flag_type: str | None  # "duplicate_candidate" or None
+    confidence: float = 0.0
 
 
 @dataclass
@@ -501,19 +514,72 @@ async def _build_group_match_result(
 # ---------------------------------------------------------------------------
 
 
+def _idf_weight(df: int) -> float:
+    """IDF weight of a track: 1 / log2(1 + df). df=1 (unique) → 1.0."""
+    return 1.0 / log2(1 + max(df, 1))
+
+
+def _weighted_overlap(
+    mtids_a: list[int],
+    mtids_b: list[int],
+    mtid_df: dict[int, int],
+) -> float:
+    """Rarity-weighted overlap: shared weight / total weight of the smaller set.
+
+    Anthems (high df) contribute little; rare tracks dominate. Same denominator
+    convention as the raw overlap: the set with fewer identified mtids.
+    """
+    set_a, set_b = set(mtids_a), set(mtids_b)
+    smaller = set_a if len(mtids_a) <= len(mtids_b) else set_b
+    denom = sum(_idf_weight(mtid_df.get(m, 1)) for m in smaller)
+    if denom == 0:
+        return 0.0
+    shared = sum(_idf_weight(mtid_df.get(m, 1)) for m in set_a & set_b)
+    return shared / denom
+
+
+def _order_correlation(mtids_a: list[int], mtids_b: list[int]) -> float | None:
+    """Spearman rank correlation on shared-track positions (first occurrence).
+
+    A re-upload of the same set shares the ORDER of its tracks; two different
+    sets sharing genre anthems do not. None if fewer than 3 shared tracks.
+    """
+    idx_a: dict[int, int] = {}
+    for i, m in enumerate(mtids_a):
+        idx_a.setdefault(m, i)
+    idx_b: dict[int, int] = {}
+    for i, m in enumerate(mtids_b):
+        idx_b.setdefault(m, i)
+
+    shared = [m for m in idx_a if m in idx_b]
+    n = len(shared)
+    if n < 3:
+        return None
+
+    rank_a = {m: r for r, m in enumerate(sorted(shared, key=lambda m: idx_a[m]))}
+    rank_b = {m: r for r, m in enumerate(sorted(shared, key=lambda m: idx_b[m]))}
+    d_squared = sum((rank_a[m] - rank_b[m]) ** 2 for m in shared)
+    return 1.0 - 6.0 * d_squared / (n * (n * n - 1))
+
+
 def compute_signals(
     set_a_data: dict,
     set_b_data: dict,
     shared_count: int,
+    mtid_df: dict[int, int] | None = None,
 ) -> MatchSignals:
     """Compute matching signals from injected set data (no DB access, fully testable).
 
-    set_a_data / set_b_data keys: normalized_title, played_date, identified_mtids.
+    set_a_data / set_b_data keys: normalized_title, played_date, identified_mtids
+    (ordered by position). mtid_df maps mtid → nb of distinct sets containing it
+    (missing key → 1, i.e. unique track).
     """
     mtids_a = set_a_data["identified_mtids"]
     mtids_b = set_b_data["identified_mtids"]
     min_len = min(len(mtids_a), len(mtids_b))
     overlap = shared_count / min_len if min_len > 0 else 0.0
+
+    weighted_overlap = _weighted_overlap(mtids_a, mtids_b, mtid_df or {})
 
     title_sim = token_set_ratio(
         set_a_data["normalized_title"] or "",
@@ -522,11 +588,12 @@ def compute_signals(
 
     date_a = set_a_data["played_date"]
     date_b = set_b_data["played_date"]
-    date_match = (
-        abs((date_a - date_b).days) <= 1
+    date_gap_days = (
+        abs((date_a - date_b).days)
         if date_a is not None and date_b is not None
-        else False
+        else None
     )
+    date_match = date_gap_days is not None and date_gap_days <= 1
 
     first_track_match = bool(mtids_a and mtids_b and mtids_a[0] == mtids_b[0])
 
@@ -535,7 +602,41 @@ def compute_signals(
         title_sim=title_sim,
         date_match=date_match,
         first_track_match=first_track_match,
+        weighted_overlap=weighted_overlap,
+        date_gap_days=date_gap_days,
+        order_corr=_order_correlation(mtids_a, mtids_b),
     )
+
+
+def compute_confidence(signals: MatchSignals) -> float:
+    """Composite confidence in [0, 1] from weighted signals.
+
+    Weighted overlap dominates; title, track order and first track corroborate;
+    the date gap acts as a multiplier (same day boosts, distant dates crush).
+    """
+    order_component = (
+        max(0.0, signals.order_corr) if signals.order_corr is not None else 0.0
+    )
+    base = (
+        0.55 * signals.weighted_overlap
+        + 0.25 * signals.title_sim
+        + 0.10 * order_component
+        + 0.10 * (1.0 if signals.first_track_match else 0.0)
+    )
+
+    gap = signals.date_gap_days
+    if gap is None:
+        date_factor = 1.0
+    elif gap <= 1:
+        date_factor = 1.15
+    elif gap == 2:
+        date_factor = 1.0
+    elif gap <= 30:
+        date_factor = 0.6
+    else:
+        date_factor = 0.3
+
+    return min(1.0, round(base * date_factor, 4))
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +646,7 @@ def compute_signals(
 
 def decide_verdict(
     signals: MatchSignals,
+    confidence: float,
     set_a_part: int | None,
     set_b_part: int | None,
 ) -> tuple[MatchVerdict, str | None]:
@@ -556,8 +658,15 @@ def decide_verdict(
     if set_a_part is not None and set_b_part is not None and set_a_part != set_b_part:
         return MatchVerdict.NOTHING, None
     if signals.overlap >= 0.80 and (signals.title_sim >= 0.50 or signals.date_match):
+        if (
+            signals.date_gap_days is not None
+            and signals.date_gap_days > AUTO_ATTACH_MAX_DATE_GAP_DAYS
+        ):
+            # Two clearly distinct dates = two performances: a bad merge costs
+            # more than an unmerged duplicate — demote to admin review
+            return MatchVerdict.FLAG, "duplicate_candidate"
         return MatchVerdict.AUTO_ATTACH, None
-    if 0.50 <= signals.overlap < 0.80:
+    if confidence >= FLAG_CONFIDENCE_THRESHOLD:
         return MatchVerdict.FLAG, "duplicate_candidate"
     if signals.title_sim >= 0.90 and signals.overlap >= 0.30:
         return MatchVerdict.FLAG, "duplicate_candidate"
@@ -569,12 +678,10 @@ def decide_verdict(
 # ---------------------------------------------------------------------------
 
 
-async def match_set(
-    db: AsyncSession, set_id: int
-) -> tuple[list[MatchResult], list[GroupMatchResult]]:
-    """Full matching pipeline: load set → candidates → signals → verdicts.
+async def _load_set_scoring_data(db: AsyncSession, set_id: int):
+    """Load a set row + the dict expected by compute_signals.
 
-    Returns (pair_results, group_results).
+    Returns (row, set_data) or None if the set does not exist.
     """
     from models import DJSet, SetTrack
 
@@ -582,64 +689,111 @@ async def match_set(
         await db.execute(select(DJSet).where(DJSet.id == set_id))
     ).scalar_one_or_none()
     if row is None:
-        return [], []
+        return None
 
-    tracks = (
+    mtids = (
         await db.execute(
-            select(SetTrack)
-            .where(SetTrack.set_id == set_id, SetTrack.is_id.is_(False))
+            select(SetTrack.trackid_music_track_id)
+            .where(
+                SetTrack.set_id == set_id,
+                SetTrack.is_id.is_(False),
+                SetTrack.trackid_music_track_id.isnot(None),
+            )
             .order_by(SetTrack.position)
         )
     ).scalars().all()
 
-    incoming_mtids = [
-        t.trackid_music_track_id
-        for t in tracks
-        if t.trackid_music_track_id is not None
-    ]
+    return row, {
+        "normalized_title": row.normalized_title or "",
+        "played_date": row.played_date,
+        "identified_mtids": list(mtids),
+    }
+
+
+async def _load_mtid_df(db: AsyncSession, mtids: set[int]) -> dict[int, int]:
+    """Document frequency per mtid: nb of distinct sets containing it (is_id=False)."""
+    from models import SetTrack
+
+    if not mtids:
+        return {}
+
+    rows = (
+        await db.execute(
+            select(
+                SetTrack.trackid_music_track_id,
+                func.count(func.distinct(SetTrack.set_id)),
+            )
+            .where(
+                SetTrack.trackid_music_track_id.in_(mtids),
+                SetTrack.is_id.is_(False),
+            )
+            .group_by(SetTrack.trackid_music_track_id)
+        )
+    ).all()
+    return {mtid: df for mtid, df in rows}
+
+
+async def score_pair(
+    db: AsyncSession, set_id_a: int, set_id_b: int
+) -> tuple[MatchSignals, float] | None:
+    """Score an arbitrary pair of sets — entry point for flag re-scoring.
+
+    Returns (signals, confidence), or None if either set is missing or virtual.
+    """
+    loaded_a = await _load_set_scoring_data(db, set_id_a)
+    loaded_b = await _load_set_scoring_data(db, set_id_b)
+    if loaded_a is None or loaded_b is None:
+        return None
+    row_a, data_a = loaded_a
+    row_b, data_b = loaded_b
+    if row_a.is_virtual or row_b.is_virtual:
+        return None
+
+    mtids_a = set(data_a["identified_mtids"])
+    mtids_b = set(data_b["identified_mtids"])
+    mtid_df = await _load_mtid_df(db, mtids_a | mtids_b)
+
+    signals = compute_signals(data_a, data_b, len(mtids_a & mtids_b), mtid_df)
+    return signals, compute_confidence(signals)
+
+
+async def match_set(
+    db: AsyncSession, set_id: int
+) -> tuple[list[MatchResult], list[GroupMatchResult]]:
+    """Full matching pipeline: load set → candidates → signals → verdicts.
+
+    Returns (pair_results, group_results).
+    """
+    loaded = await _load_set_scoring_data(db, set_id)
+    if loaded is None:
+        return [], []
+    row, set_a_data = loaded
+    incoming_mtids = set_a_data["identified_mtids"]
 
     candidates = await get_match_candidates(db, set_id, incoming_mtids)
 
-    set_a_data = {
-        "normalized_title": row.normalized_title or "",
-        "played_date": row.played_date,
-        "identified_mtids": incoming_mtids,
-    }
+    # Load candidate tracklists sequentially (one shared session — never
+    # gather db.execute calls), then ONE batched df query over all mtids.
+    loaded_candidates = []
+    all_mtids: set[int] = set(incoming_mtids)
+    for candidate in candidates:
+        cand_loaded = await _load_set_scoring_data(db, candidate.set_id)
+        if cand_loaded is None:
+            continue
+        cand_row, set_b_data = cand_loaded
+        loaded_candidates.append((candidate, cand_row, set_b_data))
+        all_mtids.update(set_b_data["identified_mtids"])
+
+    mtid_df = await _load_mtid_df(db, all_mtids) if loaded_candidates else {}
 
     pair_results: list[MatchResult] = []
-    for candidate in candidates:
-        cand_row = (
-            await db.execute(select(DJSet).where(DJSet.id == candidate.set_id))
-        ).scalar_one_or_none()
-        if cand_row is None:
-            continue
-
-        cand_tracks = (
-            await db.execute(
-                select(SetTrack)
-                .where(
-                    SetTrack.set_id == candidate.set_id,
-                    SetTrack.is_id.is_(False),
-                )
-                .order_by(SetTrack.position)
-            )
-        ).scalars().all()
-
-        cand_mtids = [
-            t.trackid_music_track_id
-            for t in cand_tracks
-            if t.trackid_music_track_id is not None
-        ]
-
-        set_b_data = {
-            "normalized_title": cand_row.normalized_title or "",
-            "played_date": cand_row.played_date,
-            "identified_mtids": cand_mtids,
-        }
-
-        signals = compute_signals(set_a_data, set_b_data, candidate.shared_count)
+    for candidate, cand_row, set_b_data in loaded_candidates:
+        signals = compute_signals(
+            set_a_data, set_b_data, candidate.shared_count, mtid_df
+        )
+        confidence = compute_confidence(signals)
         verdict, flag_type = decide_verdict(
-            signals, row.part_number, cand_row.part_number
+            signals, confidence, row.part_number, cand_row.part_number
         )
 
         pair_results.append(
@@ -648,6 +802,7 @@ async def match_set(
                 signals=signals,
                 verdict=verdict,
                 flag_type=flag_type,
+                confidence=confidence,
             )
         )
 
@@ -997,12 +1152,15 @@ async def apply_match_results(
                         set_id_a=a_id,
                         set_id_b=b_id,
                         flag_type=SetFlagType[result.flag_type],
-                        confidence=result.signals.overlap,
+                        confidence=result.confidence,
                         signals={
                             "overlap": result.signals.overlap,
                             "title_sim": result.signals.title_sim,
                             "date_match": result.signals.date_match,
                             "first_track_match": result.signals.first_track_match,
+                            "weighted_overlap": result.signals.weighted_overlap,
+                            "date_gap_days": result.signals.date_gap_days,
+                            "order_corr": result.signals.order_corr,
                         },
                         status=SetFlagStatus.pending,
                         created_at=now,

@@ -30,6 +30,7 @@ Ce répertoire est du **tooling hors runtime** : rien ici n'est déclenché auto
 | `import_trackid_sets.py` | Importe des sets TrackID.net par channel ou mot-clé (`--resolve` pour résoudre les tracklists) | rejouable |
 | `populate_artists.py` | Peuple la table `artists` depuis `catalog.artist` (split feat/&/virgule + flags d'ambiguïté) ; explicitement idempotent | rejouable |
 | `populate_has_preview.py` | Renseigne `has_preview` en interrogeant l'API Deezer track | rejouable |
+| `rescore_set_flags.py` | Re-score les flags `duplicate_candidate` (paires, `pending`) avec le moteur composite et auto-rejette le bruit évident (`--apply` pour écrire, `--threshold` pour le seuil d'auto-rejet, défaut 0.30) | rejouable |
 | `backfill_deezer_id.py` | Renseigne `deezer_id` sur les entrées `has_preview` sans radar_track lié | one-shot — exécuté (2026-07-01) |
 | `backfill_set_artworks.py` | Récupère les artworks des sets existants depuis TrackID `artworkUrl` | one-shot — exécuté (2026-07-01) |
 | `backfill_set_slugs.py` | Backfill `external_slug` des sets TrackID existants | one-shot — exécuté (2026-07-01) |

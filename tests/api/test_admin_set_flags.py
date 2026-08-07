@@ -73,6 +73,55 @@ class TestListSetFlags:
         r_attached = await admin_client.get("/api/admin/set-flags?status=attached")
         assert r_attached.json()["total"] == 0
 
+    async def test_orders_by_confidence_desc(self, admin_client, db):
+        """Flags surface by confidence DESC (created_at only breaks ties), so the
+        most-confident candidate comes first regardless of how old it is."""
+        s1 = _set("S1")
+        s2 = _set("S2")
+        s3 = _set("S3")
+        db.add(s1)
+        db.add(s2)
+        db.add(s3)
+        await db.flush()
+        # High confidence created EARLIER, low confidence created LATER: a
+        # created_at-only sort would rank the low one first — confidence must win.
+        high = _flag(s1, s2, confidence=0.92)
+        high.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        low = _flag(s1, s3, confidence=0.40)
+        low.created_at = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        db.add(high)
+        db.add(low)
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/set-flags?status=pending")
+        assert r.status_code == 200
+        confidences = [i["confidence"] for i in r.json()["items"]]
+        assert confidences == pytest.approx([0.92, 0.40])
+
+    async def test_null_confidence_sorts_last(self, admin_client, db):
+        """A flag with no confidence is pushed to the end (nulls_last), even when
+        it is the most recently created."""
+        s1 = _set("S1")
+        s2 = _set("S2")
+        s3 = _set("S3")
+        db.add(s1)
+        db.add(s2)
+        db.add(s3)
+        await db.flush()
+        scored = _flag(s1, s2, confidence=0.30)
+        scored.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        unscored = _flag(s1, s3, confidence=None)
+        unscored.created_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        db.add(scored)
+        db.add(unscored)
+        await db.commit()
+
+        items = (await admin_client.get("/api/admin/set-flags?status=pending")).json()[
+            "items"
+        ]
+        assert items[0]["confidence"] == pytest.approx(0.30)
+        assert items[1]["confidence"] is None
+
     async def test_pagination(self, admin_client, db):
         s1 = _set("S1")
         s2 = _set("S2")

@@ -348,7 +348,7 @@ async def list_set_flags(
             .join(SetA, SetFlag.set_id_a == SetA.id)
             .outerjoin(SetB, SetFlag.set_id_b == SetB.id)
             .where(SetFlag.status == status)
-            .order_by(SetFlag.created_at.desc())
+            .order_by(SetFlag.confidence.desc().nulls_last(), SetFlag.created_at.desc())
             .limit(limit)
             .offset(offset)
         )

@@ -41,6 +41,9 @@
           <span v-if="flag.signals?.date_span_days > 0" class="flag-conf">
             Écart : {{ flag.signals.date_span_days }} j
           </span>
+          <span v-if="typeof flag.signals?.date_gap_days === 'number'" class="flag-conf">
+            Écart : {{ flag.signals.date_gap_days }} j
+          </span>
         </div>
         <div class="flag-actions">
           <button
