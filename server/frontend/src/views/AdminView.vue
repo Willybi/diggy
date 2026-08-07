@@ -2,7 +2,7 @@
   <div class="admin-view">
     <header class="view-header">
       <h1 class="view-title">Admin</h1>
-      <div class="tab-bar">
+      <div ref="tabBar" class="tab-bar">
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -24,7 +24,7 @@
       :loading="loadingBacklog"
       :error="errorBacklog && !backlog"
       @refresh="loadBacklog"
-      @navigate="activeTab = $event"
+      @navigate="navigateTo"
     />
     <AdminArtists v-else-if="activeTab === 'artists'" />
     <AdminFlags v-else-if="activeTab === 'flags'" />
@@ -37,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import api from '../utils/api.js'
 import AdminOverview from '../components/admin/AdminOverview.vue'
 import AdminArtists from '../components/admin/AdminArtists.vue'
@@ -60,6 +60,23 @@ const tabs = [
 ]
 
 const activeTab = ref('overview')
+const tabBar = ref(null)
+
+// Navigation PROGRAMMATIQUE (clic sur une carte de renvoi de l'Aperçu) : l'onglet
+// cible peut être hors-écran en mobile → on l'amène dans la vue de la barre. Les
+// clics DIRECTS dans la barre gardent `@click="activeTab = tab.id"` et ne scrollent
+// pas (l'onglet est déjà sous le doigt).
+function navigateTo(id) {
+  activeTab.value = id
+  nextTick(() => {
+    const bar = tabBar.value
+    if (!bar || typeof bar.scrollBy !== 'function') return
+    const active = bar.querySelector('.tab-btn.active')
+    if (!active) return
+    const delta = active.getBoundingClientRect().left - bar.getBoundingClientRect().left - 16
+    bar.scrollBy({ left: delta, behavior: 'smooth' })
+  })
+}
 
 // ── Backlog (A8) : un seul fetch alimente ET les badges d'onglets ET l'Aperçu. ──
 const backlog = ref(null)

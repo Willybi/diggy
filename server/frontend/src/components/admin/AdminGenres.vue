@@ -473,6 +473,19 @@ onMounted(async () => {
 
 /* ============ RESPONSIVE — table mappings → cartes (grammaire AdminFlags, palier 859) ============ */
 @container (max-width: 859px) {
+  /* En-tête empilé : titre (+ badge) sur la 1re ligne, segments Tous/Non mappé sur
+     la 2e — sinon le contrôle déborde et se coupe au bord droit. */
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .section-header .filter-group {
+    align-self: flex-start;
+  }
+  .filter-btn {
+    min-height: var(--touch-min);
+  }
   .table-wrap {
     overflow-x: visible;
   }

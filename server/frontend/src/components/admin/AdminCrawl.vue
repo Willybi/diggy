@@ -45,11 +45,11 @@
             <td class="log-date mono" data-label="Date">
               {{ formatDate(log.started_at) }}
             </td>
-            <td data-label="Type">
+            <td data-label="Type" :class="{ 'log-type--dup': !log.target_label }">
               <span class="token-pill">{{ log.task_type }}</span>
             </td>
             <td class="raw-string log-target" data-lead>
-              {{ log.target_label || '-' }}
+              {{ log.target_label || log.task_type }}
             </td>
             <td data-label="Source">
               <span v-if="log.source" class="token-pill">{{ log.source }}</span>
@@ -359,6 +359,21 @@ onMounted(() => {
 
 /* ============ RESPONSIVE — table logs → cartes (grammaire AdminFlags, palier 859) ============ */
 @container (max-width: 859px) {
+  /* En-tête empilé : titre (+ badge) sur la 1re ligne, filtres sur la 2e —
+     sinon le dernier contrôle déborde et se coupe au bord droit. */
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .crawl-filters {
+    flex-wrap: wrap;
+    gap: var(--space-15);
+  }
+  .crawl-select,
+  .filter-btn {
+    min-height: var(--touch-min);
+  }
   .table-wrap {
     overflow-x: visible;
   }
@@ -398,6 +413,12 @@ onMounted(() => {
   /* Cible = ligne de tête : remontée en haut de la carte sans toucher l'ordre desktop. */
   .flag-table tbody td[data-lead] {
     order: -1;
+  }
+  /* Tête = target_label || task_type. Quand elle retombe sur le task_type (logs
+     sans cible, ex. enrich_beatport), la rangée Type ferait doublon → on l'omet
+     de la carte. Desktop garde la colonne Type intacte. */
+  .flag-table tbody td.log-type--dup {
+    display: none;
   }
   .raw-string {
     font-size: var(--fs-base);

@@ -8,6 +8,7 @@ const { apiMock } = vi.hoisted(() => ({ apiMock: { get: vi.fn() } }))
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 
 import AdminView from '../../views/AdminView.vue'
+import AdminOverview from '../../components/admin/AdminOverview.vue'
 
 function backlogFixture() {
   return {
@@ -69,6 +70,16 @@ describe('AdminView', () => {
     const wrapper = await mountView()
     await tabByLabel(wrapper, 'Artistes').trigger('click')
     expect(wrapper.find('.stub-artists').exists()).toBe(true)
+    expect(wrapper.find('.stub-overview').exists()).toBe(false)
+  })
+
+  // Programmatic nav (a renvoi card in Aperçu emits `navigate`) must switch the
+  // active tab. The smooth-scroll into view needs layout → not asserted here.
+  it('updates the active tab on a programmatic navigate', async () => {
+    const wrapper = await mountView()
+    wrapper.findComponent(AdminOverview).vm.$emit('navigate', 'crawl')
+    await flushPromises()
+    expect(tabByLabel(wrapper, 'Crawl').classes()).toContain('active')
     expect(wrapper.find('.stub-overview').exists()).toBe(false)
   })
 
