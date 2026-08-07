@@ -7,11 +7,14 @@ CatalogEntry / WatchedEntity). Modelled on test_monitoring.py.
 from datetime import datetime, timedelta, timezone
 
 from models import (
+    Artist,
     ArtistFlag,
+    CatalogArtist,
     CatalogEntry,
     DJSet,
     GenreMapping,
     MetricSnapshot,
+    SetArtist,
     SetFlag,
     SetFlagStatus,
     SetFlagType,
@@ -62,10 +65,19 @@ async def _seed_snapshot(db, *, captured_at=None, payload=None):
 
 async def _seed_live_counts(db):
     """One pending SetFlag, one pending ArtistFlag, one unmapped GenreMapping,
-    one un-genred CatalogEntry, one never-crawled playlist → each live count = 1."""
+    one un-genred CatalogEntry, one never-crawled playlist → each live count = 1.
+
+    Plus a to_link fixture: one unlinked artist ATTACHED (via SetArtist to the set
+    below) that MUST be counted, and one unlinked ORPHAN that MUST be excluded →
+    to_link = 1 (same filter as the list_artists no_deezer panel)."""
     s = DJSet(source="trackid", title="Set A")
     db.add(s)
     await db.flush()
+    attached = Artist(name="Attached", normalized_name="attached", deezer_id=None)
+    orphan = Artist(name="Orphan", normalized_name="orphan", deezer_id=None)
+    db.add_all([attached, orphan])
+    await db.flush()
+    db.add(SetArtist(set_id=s.id, artist_id=attached.id, role="dj", position=0))
     db.add(
         SetFlag(
             set_id_a=s.id,
@@ -122,7 +134,10 @@ class TestBacklogResponse:
         # From the snapshot payload
         assert data["beatport"] == {"pending": 25, "total_missing": 50, "abandoned": 15}
         assert data["deezer"] == {"pending": 5, "total_missing": 10, "abandoned": 3}
-        assert data["artists"] == {"to_link": 3, "no_artwork": 7}
+        # to_link is now a LIVE count (not the snapshot backlog_link=3): only the
+        # unlinked+attached artist counts, the orphan is excluded. no_artwork stays
+        # from the snapshot payload.
+        assert data["artists"] == {"to_link": 1, "no_artwork": 7}
         assert data["sets"]["recrawl"] == 2
         # Live COUNTs
         assert data["sets"]["flags_pending"] == 1
@@ -132,6 +147,28 @@ class TestBacklogResponse:
         assert data["crawl"]["playlists_due"] == 1
         # DLQ: FakeRedis.llen on an empty store → 0 (fail-open not triggered).
         assert data["crawl"]["dlq"] == 0
+
+    async def test_to_link_excludes_orphans(self, admin_client, db):
+        # Two unlinked (deezer_id=None) artists: one attached to a catalog entry
+        # via CatalogArtist (counts), one fully orphaned (excluded) → to_link == 1.
+        entry = CatalogEntry(
+            title="T", artist="Attached", normalized_key="t-attached", genres=["house"]
+        )
+        db.add(entry)
+        attached = Artist(name="Att", normalized_name="att", deezer_id=None)
+        orphan = Artist(name="Orph", normalized_name="orph", deezer_id=None)
+        db.add_all([entry, attached, orphan])
+        await db.flush()
+        db.add(
+            CatalogArtist(
+                catalog_id=entry.id, artist_id=attached.id, role="main", position=0
+            )
+        )
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/backlog")
+        assert r.status_code == 200
+        assert r.json()["artists"]["to_link"] == 1
 
     async def test_playlists_due_excludes_recently_crawled(self, admin_client, db):
         # Crawled 2h ago → NOT due; never crawled → due. Only the latter counts.

@@ -714,7 +714,13 @@ async def get_backlog(
     computed by snapshot_backlogs); the rest are live COUNTs. Thin — the snapshot
     read is delegated to monitoring_service. Admin aggregate: no catalog_visible.
     """
-    from models import CatalogEntry, GenreMapping, WatchedEntity
+    from models import (
+        CatalogArtist,
+        CatalogEntry,
+        GenreMapping,
+        SetArtist,
+        WatchedEntity,
+    )
 
     # ── From the latest snapshot payload (defensive .get, tolerates a partial or
     # absent payload — every missing key collapses to 0 / None). ──
@@ -781,6 +787,22 @@ async def get_backlog(
         )
     ).scalar_one()
 
+    # to_link = même filtre que le panneau list_artists no_deezer (délié ET
+    # rattaché) — exclut les orphelins morts, sinon la carte sur-compte vs le panneau.
+    attached = or_(
+        select(CatalogArtist.artist_id)
+        .where(CatalogArtist.artist_id == Artist.id)
+        .exists(),
+        select(SetArtist.artist_id)
+        .where(SetArtist.artist_id == Artist.id)
+        .exists(),
+    )
+    to_link = (
+        await db.execute(
+            select(func.count(Artist.id)).where(Artist.deezer_id.is_(None), attached)
+        )
+    ).scalar_one()
+
     # DLQ is a Redis LIST → LLEN. Fail-open like every other Redis read.
     try:
         dlq = await redis.llen("dead_letter")
@@ -792,7 +814,7 @@ async def get_backlog(
         "beatport": _enrich("beatport"),
         "deezer": _enrich("deezer"),
         "artists": {
-            "to_link": artists_p.get("backlog_link") or 0,
+            "to_link": to_link,
             "no_artwork": artists_p.get("backlog_artwork") or 0,
         },
         "sets": {
