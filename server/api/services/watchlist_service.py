@@ -244,6 +244,7 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
             CatalogEntry.genres,
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
+            CatalogEntry.bpm_source,
             func.max(RadarTrack.detected_at).label("detected_at"),
         )
         .select_from(RadarTrack)
@@ -298,6 +299,9 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
             artists=artists_by_catalog.get(row.catalog_id, []),
             bpm=row.bpm,
             key=row.key,
+            # Playlist tracks show the catalog bpm (no rb coalesce), so the catalog
+            # provenance carries straight through (may be 'analysis' → "estimé").
+            bpm_source=row.bpm_source,
             duration_ms=row.duration_ms,
             has_artwork=row.has_artwork,
             has_preview=row.has_preview,

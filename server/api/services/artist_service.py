@@ -376,6 +376,9 @@ async def get_detail(
                 isrc=entry.isrc,
                 bpm=lib_bpm if lib_bpm else entry.bpm,
                 key=lib_key if lib_key else entry.key,
+                # A coalesced Rekordbox bpm is 'rekordbox'; otherwise the catalog
+                # provenance (may be 'analysis' → front flags "estimé").
+                bpm_source="rekordbox" if lib_bpm else entry.bpm_source,
                 duration_ms=entry.duration_ms,
                 genres=[
                     GenreRef(name=g, pillar=genre_pillar(g)[0], depth=genre_pillar(g)[1])

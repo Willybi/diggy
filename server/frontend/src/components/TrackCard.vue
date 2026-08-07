@@ -49,7 +49,15 @@
       </span>
     </div>
 
-    <span class="tk-bpm" :class="{ 'tk-bpm--empty': bpmEmpty }">{{ bpmText }}</span>
+    <span class="tk-bpm" :class="{ 'tk-bpm--empty': bpmEmpty }"
+      ><span
+        v-if="bpmEstimated"
+        class="tk-bpm-est"
+        title="BPM estimé (analyse audio)"
+        aria-label="BPM estimé"
+        >~</span
+      >{{ bpmText }}</span
+    >
     <span class="tk-key" :class="{ 'tk-key--empty': keyEmpty }">{{ keyText }}</span>
     <span v-if="showDuration" class="tk-dur" :class="{ 'tk-dur--empty': durEmpty }">{{
       durText
@@ -137,6 +145,11 @@ const durText = computed(() => {
 })
 // Dimmed dash only for a genuinely-missing normal cell (states color their own cells).
 const bpmEmpty = computed(() => !props.state && !props.track.bpm)
+// "estimé" marker: the BPM was derived from preview audio analysis, not a
+// trusted source (Beatport/Rekordbox). Only on a real row with a real value.
+const bpmEstimated = computed(
+  () => !props.state && props.track.bpm_source === 'analysis' && props.track.bpm != null,
+)
 const keyEmpty = computed(() => !props.state && !props.track.key)
 const durEmpty = computed(() => !props.state && !props.track.duration_ms)
 
@@ -297,6 +310,12 @@ function emitPlay() {
   font: 400 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-2);
   text-align: right;
+}
+/* "estimé" tilde prefix — dimmed, discreet, tooltip-carried (BPM from audio
+   analysis, not a trusted source). Reads as "~128" without widening the cell. */
+.tk-bpm-est {
+  color: var(--ink-3);
+  cursor: help;
 }
 .tk-key {
   font: 500 var(--fs-sm)/1 var(--font-mono);

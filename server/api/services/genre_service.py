@@ -564,7 +564,7 @@ async def list_genre_tracks(
 
     result = await db.execute(
         text(f"""
-        SELECT c.id, c.title, c.artist, c.bpm, c.key, c.duration_ms,
+        SELECT c.id, c.title, c.artist, c.bpm, c.key, c.bpm_source, c.duration_ms,
                c.has_artwork, c.has_preview,
                CASE WHEN ut.catalog_id IS NOT NULL THEN true ELSE false END AS in_lib,
                COALESCE(uo.opinion, ut.avis) AS avis,
@@ -625,6 +625,9 @@ async def list_genre_tracks(
                 "artists": artists_by_catalog.get(r.id, []),
                 "bpm": r.bpm,
                 "key": r.key,
+                # Genre tracks show the catalog bpm (no rb coalesce); catalog
+                # provenance carries through (may be 'analysis' → "estimé").
+                "bpm_source": r.bpm_source,
                 "durationMs": r.duration_ms,
                 "hasArtwork": r.has_artwork,
                 "hasPreview": r.has_preview,

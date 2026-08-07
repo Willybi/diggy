@@ -40,6 +40,54 @@ class TestListCatalog:
         assert result.total == 5
         assert len(result.items) == 2
 
+    async def test_bpm_source_analysis_surfaces_without_rb(self, db, auth_user):
+        """An estimated ('analysis') catalog BPM keeps its provenance when no
+        Rekordbox override applies, so the front can flag it as estimated."""
+        from models import CatalogEntry
+
+        db.add(
+            CatalogEntry(
+                title="Estimated",
+                artist="A",
+                normalized_key="a|estimated",
+                bpm=128.0,
+                bpm_source="analysis",
+            )
+        )
+        await db.commit()
+
+        result = await catalog_service.list_catalog(db, auth_user.id, skip=0, limit=20)
+        assert result.total == 1
+        assert result.items[0].bpm == 128.0
+        assert result.items[0].bpm_source == "analysis"
+
+    async def test_bpm_source_rekordbox_when_rb_override(self, db, auth_user):
+        """When the shown BPM is the viewer's Rekordbox value (coalesce hit), the
+        provenance becomes 'rekordbox' — never the catalog's 'analysis'."""
+        from models import CatalogEntry, UserTrack
+
+        cat = CatalogEntry(
+            title="Overridden",
+            artist="A",
+            normalized_key="a|rb-override",
+            bpm=128.0,
+            bpm_source="analysis",
+        )
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(
+            UserTrack(
+                user_id=auth_user.id, catalog_id=cat.id, source="test", rb_bpm=130.0
+            )
+        )
+        await db.commit()
+
+        result = await catalog_service.list_catalog(db, auth_user.id, skip=0, limit=20)
+        assert result.total == 1
+        assert result.items[0].bpm == 130.0
+        assert result.items[0].bpm_source == "rekordbox"
+
     async def test_catalog_ids_restricts_to_given_ids(self, db, auth_user):
         """The additive catalog_ids param filters to exactly those ids; None
         (default) leaves the Explorer behaviour unchanged."""
@@ -86,6 +134,50 @@ class TestGetDetail:
         result = await catalog_service.get_detail(db, c.id, auth_user.id)
         assert result.title == "Test Track"
         assert result.artist == "Test Artist"
+
+    async def test_bpm_source_analysis_without_rb(self, db, auth_user):
+        """Detail surfaces the catalog 'analysis' provenance when no rb override."""
+        from models import CatalogEntry
+
+        c = CatalogEntry(
+            title="Estimated",
+            artist="A",
+            normalized_key="a|detail-analysis",
+            bpm=124.0,
+            bpm_source="analysis",
+        )
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+
+        result = await catalog_service.get_detail(db, c.id, auth_user.id)
+        assert result.bpm == 124.0
+        assert result.bpm_source == "analysis"
+
+    async def test_bpm_source_rekordbox_when_rb_override(self, db, auth_user):
+        """A coalesced Rekordbox BPM flips the detail provenance to 'rekordbox'."""
+        from models import CatalogEntry, UserTrack
+
+        c = CatalogEntry(
+            title="Overridden",
+            artist="A",
+            normalized_key="a|detail-rb",
+            bpm=124.0,
+            bpm_source="analysis",
+        )
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+        db.add(
+            UserTrack(
+                user_id=auth_user.id, catalog_id=c.id, source="test", rb_bpm=126.0
+            )
+        )
+        await db.commit()
+
+        result = await catalog_service.get_detail(db, c.id, auth_user.id)
+        assert result.bpm == 126.0
+        assert result.bpm_source == "rekordbox"
 
 
 class TestUpdateAvis:

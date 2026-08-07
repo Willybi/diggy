@@ -83,6 +83,60 @@ class TestArtistDetail:
         assert len(data["catalog_tracks"]) == 1
         assert data["catalog_tracks"][0]["title"] == "Cola"
 
+    async def test_catalog_tracks_bpm_source_analysis(self, client, db):
+        """An estimated ('analysis') BPM keeps its provenance on the artist detail
+        track list when no Rekordbox override applies."""
+        a = Artist(name="Estimator", normalized_name="estimator")
+        cat = CatalogEntry(
+            title="Guessed",
+            artist="Estimator",
+            normalized_key="estimator|guessed",
+            bpm=126.0,
+            bpm_source="analysis",
+        )
+        db.add_all([a, cat])
+        await db.commit()
+        await db.refresh(a)
+        await db.refresh(cat)
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        await db.commit()
+
+        r = await client.get(f"/api/artists/{a.id}")
+        data = r.json()
+        assert data["catalog_tracks"][0]["bpm"] == 126.0
+        assert data["catalog_tracks"][0]["bpm_source"] == "analysis"
+
+    async def test_catalog_tracks_bpm_source_rekordbox_override(
+        self, auth_client, db, auth_user
+    ):
+        """A coalesced Rekordbox BPM flips the provenance to 'rekordbox'."""
+        from models import UserTrack
+
+        a = Artist(name="Estimator", normalized_name="estimator")
+        cat = CatalogEntry(
+            title="Guessed",
+            artist="Estimator",
+            normalized_key="estimator|guessed",
+            bpm=126.0,
+            bpm_source="analysis",
+        )
+        db.add_all([a, cat])
+        await db.commit()
+        await db.refresh(a)
+        await db.refresh(cat)
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        db.add(
+            UserTrack(
+                user_id=auth_user.id, catalog_id=cat.id, source="test", rb_bpm=128.0
+            )
+        )
+        await db.commit()
+
+        r = await auth_client.get(f"/api/artists/{a.id}")
+        data = r.json()
+        assert data["catalog_tracks"][0]["bpm"] == 128.0
+        assert data["catalog_tracks"][0]["bpm_source"] == "rekordbox"
+
     async def test_detail_includes_aliases(self, client, db):
         a = Artist(name="CamelPhat", normalized_name="camelphat")
         db.add(a)

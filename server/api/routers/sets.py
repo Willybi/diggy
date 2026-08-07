@@ -494,6 +494,9 @@ async def get_set_detail(
                 else [],
                 bpm=cat.bpm if cat else None,
                 key=cat.key if cat else None,
+                # Catalog bpm (no rb coalesce); provenance carries through so the
+                # front flags "estimé" on an 'analysis' value.
+                bpm_source=cat.bpm_source if cat else None,
                 duration_ms=cat.duration_ms if cat else None,
                 has_artwork=cat.has_artwork if cat else False,
                 in_lib=t.catalog_id in lib_set if t.catalog_id else False,

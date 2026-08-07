@@ -57,7 +57,15 @@
           <div class="hero-stats">
             <div class="stat-cell">
               <span class="stat-label">BPM</span>
-              <span class="stat-val">{{ fmtBpm(track.bpm) }}</span>
+              <span class="stat-val"
+                >{{ fmtBpm(track.bpm)
+                }}<sup
+                  v-if="track.bpm_source === 'analysis' && track.bpm != null"
+                  class="stat-est"
+                  title="BPM estimé (analyse audio)"
+                  >estimé</sup
+                ></span
+              >
             </div>
             <div class="stat-cell">
               <span class="stat-label">Key</span>
@@ -745,6 +753,15 @@ onMounted(() => loadTrack(route.params.id))
 }
 .stat-val--key {
   color: var(--accent-ink);
+}
+/* "estimé" marker — the hero BPM was derived from audio analysis, not a trusted
+   source. Roomy surface → the explicit French word (tables use a compact tilde). */
+.stat-est {
+  margin-left: var(--space-1);
+  font: 500 var(--fs-nano)/1 var(--font-mono);
+  color: var(--ink-3);
+  vertical-align: super;
+  cursor: help;
 }
 
 /* Actions */

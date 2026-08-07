@@ -330,9 +330,15 @@
               <span v-else class="xp-null">—</span>
             </span>
             <span class="xp-cell xp-cell--right col-bpm">
-              <span :class="e.bpm != null ? 'xp-bpm' : 'xp-null'">{{
-                e.bpm != null ? Math.round(e.bpm) : '—'
-              }}</span>
+              <span :class="e.bpm != null ? 'xp-bpm' : 'xp-null'"
+                ><span
+                  v-if="e.bpm != null && e.bpm_source === 'analysis'"
+                  class="xp-bpm-est"
+                  title="BPM estimé (analyse audio)"
+                  aria-label="BPM estimé"
+                  >~</span
+                >{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span
+              >
             </span>
             <span class="xp-cell col-key">
               <span :class="e.key ? 'xp-key' : 'xp-null'">{{ e.key || '—' }}</span>
@@ -1241,6 +1247,12 @@ onUnmounted(() => {
 .xp-null {
   font: 500 var(--fs-table) var(--font-mono);
   color: var(--ink-3);
+}
+/* "estimé" tilde prefix — BPM derived from audio analysis, not a trusted source.
+   Dimmed, tooltip-carried, doesn't widen the cell (reads "~128"). */
+.xp-bpm-est {
+  color: var(--ink-3);
+  cursor: help;
 }
 
 /* ============ AVIS (shared LikeDislike, local deltas only) ============ */

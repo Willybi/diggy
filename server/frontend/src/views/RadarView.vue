@@ -302,9 +302,15 @@
               <span v-else class="rd-null">—</span>
             </span>
             <span class="rd-cell rd-cell--right col-bpm">
-              <span :class="e.bpm != null ? 'rd-bpm' : 'rd-null'">{{
-                e.bpm != null ? Math.round(e.bpm) : '—'
-              }}</span>
+              <span :class="e.bpm != null ? 'rd-bpm' : 'rd-null'"
+                ><span
+                  v-if="e.bpm != null && e.bpm_source === 'analysis'"
+                  class="rd-bpm-est"
+                  title="BPM estimé (analyse audio)"
+                  aria-label="BPM estimé"
+                  >~</span
+                >{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span
+              >
             </span>
             <span class="rd-cell col-key">
               <span :class="e.key ? 'rd-key' : 'rd-null'">{{ e.key || '—' }}</span>
@@ -1242,6 +1248,12 @@ onMounted(() => {
 .rd-null {
   font: 500 var(--fs-table) var(--font-mono);
   color: var(--ink-3);
+}
+/* "estimé" tilde prefix — BPM derived from audio analysis, not a trusted source.
+   Dimmed, tooltip-carried, doesn't widen the cell (reads "~128"). */
+.rd-bpm-est {
+  color: var(--ink-3);
+  cursor: help;
 }
 
 /* ============ SCORE CELLS (Tendance / Pour toi) ============ */

@@ -51,6 +51,33 @@ describe('TrackCard', () => {
     expect(wrapper.find('.tk-bpm').classes()).not.toContain('tk-bpm--empty')
   })
 
+  it('flags an "estimé" marker only when bpm_source is analysis', () => {
+    const est = mount(TrackCard, { props: { track: makeTrack({ bpm_source: 'analysis' }) } })
+    const marker = est.find('.tk-bpm-est')
+    expect(marker.exists()).toBe(true)
+    expect(marker.attributes('title')).toContain('estimé')
+    // The tilde prefixes the value in the same cell (reads "~128").
+    expect(est.find('.tk-bpm').text()).toBe('~128')
+  })
+
+  it('does not flag the "estimé" marker for a trusted or absent bpm_source', () => {
+    const trusted = mount(TrackCard, { props: { track: makeTrack({ bpm_source: 'beatport' }) } })
+    expect(trusted.find('.tk-bpm-est').exists()).toBe(false)
+    expect(trusted.find('.tk-bpm').text()).toBe('128')
+
+    // No bpm_source at all (the common case) → no marker.
+    const bare = mount(TrackCard, { props: { track: makeTrack() } })
+    expect(bare.find('.tk-bpm-est').exists()).toBe(false)
+  })
+
+  it('does not flag "estimé" when the bpm itself is missing', () => {
+    const wrapper = mount(TrackCard, {
+      props: { track: makeTrack({ bpm_source: 'analysis', bpm: null }) },
+    })
+    expect(wrapper.find('.tk-bpm-est').exists()).toBe(false)
+    expect(wrapper.find('.tk-bpm').text()).toBe('—')
+  })
+
   it('hides the artist by default and shows it when showArtist is true', () => {
     const hidden = mount(TrackCard, { props: { track: makeTrack() } })
     expect(hidden.find('.tk-artist').exists()).toBe(false)

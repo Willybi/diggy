@@ -43,6 +43,7 @@ class PlaylistTrackOut(BaseModel):
     artists: list[ArtistRef] = []
     bpm: Optional[float] = None
     key: Optional[str] = None
+    bpm_source: Optional[str] = None
     duration_ms: Optional[int] = None
     has_artwork: bool = False
     has_preview: bool = False

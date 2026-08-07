@@ -411,6 +411,11 @@ async def list_catalog(
                 isrc=entry.isrc,
                 bpm=ut_bpm if ut_bpm is not None else entry.bpm,
                 key=ut_key if ut_key is not None else entry.key,
+                # When the shown BPM is the viewer's Rekordbox value (coalesce hit),
+                # its provenance is 'rekordbox', not the catalog's bpm_source — so the
+                # front only flags "estimé" when the displayed value is the catalog
+                # 'analysis' bpm. key_source is untouched (key is not backfilled).
+                bpm_source="rekordbox" if ut_bpm is not None else entry.bpm_source,
                 duration_ms=entry.duration_ms,
                 genres=genre_refs,
                 release_date=entry.release_date,
@@ -572,6 +577,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 CatalogEntry.duration_ms,
                 CatalogEntry.has_artwork,
                 CatalogEntry.has_preview,
+                CatalogEntry.bpm_source,
                 sa_ut_sub.c.catalog_id.label("sa_ut_cid"),
             )
             .outerjoin(sa_ut_sub, CatalogEntry.id == sa_ut_sub.c.catalog_id)
@@ -610,7 +616,10 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 duration_ms=r[5],
                 has_artwork=r[6],
                 has_preview=r[7],
-                in_lib=r[8] is not None,
+                # These related tracks show the catalog bpm (no rb coalesce), so the
+                # catalog provenance carries straight through.
+                bpm_source=r[8],
+                in_lib=r[9] is not None,
                 artists=sa_artists_map.get(r[0], []),
             )
             for r in sa_rows
@@ -629,6 +638,9 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
         isrc=entry.isrc,
         bpm=ut.rb_bpm if ut and ut.rb_bpm else entry.bpm,
         key=ut.rb_key if ut and ut.rb_key else entry.key,
+        # Same override as list_catalog: a coalesced Rekordbox bpm is 'rekordbox',
+        # otherwise the catalog provenance (may be 'analysis' → front flags "estimé").
+        bpm_source="rekordbox" if ut and ut.rb_bpm else entry.bpm_source,
         duration_ms=entry.duration_ms,
         genres=genre_refs,
         label=entry.label,
