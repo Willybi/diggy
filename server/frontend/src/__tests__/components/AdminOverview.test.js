@@ -8,8 +8,8 @@ vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 
 import AdminOverview from '../../components/admin/AdminOverview.vue'
 
-// 7 chantiers en backlog (compteur > 0), 4 à jour (compteur 0). Reprend les
-// valeurs prod 06/08 du BRIEF.
+// 8 chantiers en backlog (compteur > 0), 4 à jour (compteur 0). Reprend les
+// valeurs prod 06/08 du BRIEF (+ catalog.bpm_missing pour la 12ᵉ carte E2.c).
 function backlogFixture() {
   return {
     captured_at: '2026-08-06T11:30:00Z',
@@ -19,6 +19,7 @@ function backlogFixture() {
     sets: { recrawl: 501, flags_pending: 158 },
     artist_flags: { pending: 0 },
     genres: { unclassified: 42031, mappings_unmapped: 0 },
+    catalog: { bpm_missing: 1234 },
     crawl: { playlists_due: 56, dlq: 0 },
   }
 }
@@ -37,18 +38,18 @@ describe('AdminOverview', () => {
     apiMock.post.mockResolvedValue({ data: { task_id: 'job-1' } })
   })
 
-  it('renders the 11 chantier cards', () => {
+  it('renders the 12 chantier cards', () => {
     const wrapper = mountOverview()
-    expect(wrapper.findAll('.oc-card')).toHaveLength(11)
+    expect(wrapper.findAll('.oc-card')).toHaveLength(12)
   })
 
   it('splits cards into backlog vs à-jour by their own counter', () => {
     const wrapper = mountOverview()
-    // 7 backlog / 4 à jour.
-    expect(wrapper.findAll('.oc-card--backlog')).toHaveLength(7)
+    // 8 backlog / 4 à jour.
+    expect(wrapper.findAll('.oc-card--backlog')).toHaveLength(8)
     expect(wrapper.findAll('.oc-card--ok')).toHaveLength(4)
     // Backlog cards show a big mono value; à-jour cards show « À jour », never a 0.
-    expect(wrapper.findAll('.oc-value')).toHaveLength(7)
+    expect(wrapper.findAll('.oc-value')).toHaveLength(8)
     expect(wrapper.findAll('.oc-uptodate')).toHaveLength(4)
     expect(wrapper.text()).not.toContain('0 tracks')
     // Beatport backlog value surfaced (fr-FR thin space normalised away).
@@ -60,12 +61,33 @@ describe('AdminOverview', () => {
   it('writes the synthesis count and a snapshot stamp', () => {
     const wrapper = mountOverview()
     expect(wrapper.find('.oc-summary-line').text()).toBe(
-      '7 chantiers sur 11 ont du travail en attente.',
+      '8 chantiers sur 12 ont du travail en attente.',
     )
     expect(wrapper.find('.oc-snapshot').text()).toMatch(/Snapshot \d{2}\/\d{2} · \d{2}:\d{2}/)
   })
 
-  it('reads « Les 11 chantiers sont à jour. » when nothing is pending', () => {
+  it('renders the unknown regime for a null counter (DLQ Redis down), excluded from the pending count', () => {
+    const b = backlogFixture()
+    b.crawl.dlq = null // Redis injoignable → compteur null, ni backlog ni « à jour ».
+    const wrapper = mountOverview({ backlog: b })
+    // Régimes : 8 backlog · 1 unknown (DLQ) · 3 ok (dlq n'est plus « à jour »).
+    expect(wrapper.findAll('.oc-card--backlog')).toHaveLength(8)
+    expect(wrapper.findAll('.oc-card--unknown')).toHaveLength(1)
+    expect(wrapper.findAll('.oc-card--ok')).toHaveLength(3)
+    // La carte DLQ rend un « — » (pas de pastille verte, pas de chiffre) + contexte Redis.
+    const dlq = wrapper.findAll('.oc-card').find((c) => c.text().includes("File d'échec"))
+    expect(dlq.classes()).toContain('oc-card--unknown')
+    expect(dlq.find('.oc-unknown').text()).toBe('—')
+    expect(dlq.find('.oc-check').exists()).toBe(false)
+    expect(dlq.find('.oc-value').exists()).toBe(false)
+    expect(dlq.text()).toContain('Redis injoignable')
+    // Unknown n'est PAS « en attente » : la synthèse compte toujours 8 backlog.
+    expect(wrapper.find('.oc-summary-line').text()).toBe(
+      '8 chantiers sur 12 ont du travail en attente.',
+    )
+  })
+
+  it('reads « Les 12 chantiers sont à jour. » when nothing is pending', () => {
     const clean = backlogFixture()
     clean.beatport.pending = 0
     clean.artists.to_link = 0
@@ -73,10 +95,11 @@ describe('AdminOverview', () => {
     clean.sets.recrawl = 0
     clean.sets.flags_pending = 0
     clean.genres.unclassified = 0
+    clean.catalog.bpm_missing = 0
     clean.crawl.playlists_due = 0
     const wrapper = mountOverview({ backlog: clean })
-    expect(wrapper.findAll('.oc-card--ok')).toHaveLength(11)
-    expect(wrapper.find('.oc-summary-line').text()).toBe('Les 11 chantiers sont à jour.')
+    expect(wrapper.findAll('.oc-card--ok')).toHaveLength(12)
+    expect(wrapper.find('.oc-summary-line').text()).toBe('Les 12 chantiers sont à jour.')
   })
 
   it('emits navigate with the target tab from a renvoi button', async () => {
@@ -84,6 +107,20 @@ describe('AdminOverview', () => {
     const monBtn = wrapper.findAll('button').find((b) => b.text() === 'Voir le monitoring')
     await monBtn.trigger('click')
     expect(wrapper.emitted('navigate')[0]).toEqual(['monitoring'])
+  })
+
+  it('renders the catalog-bpm card as a NEUTRAL nav renvoi to monitoring', async () => {
+    // E2.c 12ᵉ carte : renvoi neutre (jamais btn--accent, jamais de job) vers le
+    // monitoring — le drain BPM est une tâche nocturne automatique.
+    const wrapper = mountOverview()
+    const bpm = wrapper.findAll('.oc-card').find((c) => c.text().includes('À analyser (BPM)'))
+    expect(bpm).toBeTruthy()
+    const btn = bpm.find('button')
+    expect(btn.text()).toBe('Voir le monitoring')
+    expect(btn.classes()).not.toContain('btn--accent')
+    expect(bpm.find('.oc-job').exists()).toBe(false)
+    await btn.trigger('click')
+    expect(wrapper.emitted('navigate').at(-1)).toEqual(['monitoring'])
   })
 
   it('emits refresh from the Actualiser button', async () => {
@@ -105,9 +142,9 @@ describe('AdminOverview', () => {
     expect(beatport.find('button').attributes('disabled')).toBeDefined()
   })
 
-  it('shows 11 skeleton cards on first load (no backlog yet)', () => {
+  it('shows 12 skeleton cards on first load (no backlog yet)', () => {
     const wrapper = mountOverview({ backlog: null, loading: true })
-    expect(wrapper.findAll('.oc-card--skel')).toHaveLength(11)
+    expect(wrapper.findAll('.oc-card--skel')).toHaveLength(12)
     expect(wrapper.find('.oc-value').exists()).toBe(false)
   })
 

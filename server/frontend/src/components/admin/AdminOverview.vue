@@ -44,7 +44,7 @@
         </button>
       </div>
 
-      <!-- ── Grille des 11 cartes ── -->
+      <!-- ── Grille des 12 cartes ── -->
       <div class="oc-grid">
         <!-- Squelette 1er affichage : forme de grille connue, aucun saut de layout -->
         <template v-if="!backlog">
@@ -61,13 +61,17 @@
             v-for="card in resolvedCards"
             :key="card.id"
             class="oc-card"
-            :class="card.upToDate ? 'oc-card--ok' : 'oc-card--backlog'"
+            :class="`oc-card--${card.regime}`"
           >
             <span class="oc-eyebrow">{{ card.eyebrow }}</span>
             <h3 class="oc-title">{{ card.title }}</h3>
 
             <div class="oc-counter">
-              <template v-if="card.upToDate">
+              <template v-if="card.regime === 'backlog'">
+                <span class="oc-value">{{ fmtInt(card.counter) }}</span>
+                <span class="oc-unit">{{ card.unit }}</span>
+              </template>
+              <template v-else-if="card.regime === 'ok'">
                 <span class="oc-check">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M20 6 9 17l-5-5" />
@@ -76,12 +80,15 @@
                 <span class="oc-uptodate">À jour</span>
               </template>
               <template v-else>
-                <span class="oc-value">{{ fmtInt(card.counter) }}</span>
-                <span class="oc-unit">{{ card.unit }}</span>
+                <span class="oc-unknown">—</span>
               </template>
             </div>
 
-            <p v-if="card.contextText" class="oc-context">{{ card.contextText }}</p>
+            <p v-if="card.contextSegments" class="oc-context">
+              <span v-for="(seg, i) in card.contextSegments" :key="i" :class="{ mono: seg.mono }">{{
+                seg.text
+              }}</span>
+            </p>
 
             <p v-if="isRunning(card.id)" class="oc-job">
               <svg class="oc-arc" viewBox="0 0 24 24" aria-hidden="true">
@@ -94,7 +101,7 @@
               <template v-if="card.action.kind === 'job'">
                 <button
                   class="btn btn--sm"
-                  :class="{ 'btn--accent': !card.upToDate }"
+                  :class="{ 'btn--accent': card.regime === 'backlog' }"
                   :disabled="isRunning(card.id)"
                   @click="runJob(card)"
                 >
@@ -126,7 +133,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['refresh', 'navigate'])
 
-// ── Les 11 cartes de chantier (A1 : une carte = un compteur actionnable). ──
+// ── Les 12 cartes de chantier (A1 : une carte = un compteur actionnable). ──
 // `group`/`field` pointent dans la réponse de /api/admin/backlog.
 // `action.kind` : 'job' → POST + lien secondaire de renvoi (A6) ; 'nav' → renvoi neutre.
 const CARDS = [
@@ -137,8 +144,13 @@ const CARDS = [
     group: 'beatport',
     field: 'pending',
     unit: 'tracks',
-    context: (b) =>
-      `sur ${fmtInt(b.beatport.total_missing)} manquantes · ${fmtInt(b.beatport.abandoned)} abandonnées`,
+    context: (b) => [
+      { text: 'sur ' },
+      { text: fmtInt(b.beatport.total_missing), mono: true },
+      { text: ' manquantes · ' },
+      { text: fmtInt(b.beatport.abandoned), mono: true },
+      { text: ' abandonnées' },
+    ],
     action: {
       kind: 'job',
       label: "Lancer l'enrichissement",
@@ -154,8 +166,22 @@ const CARDS = [
     group: 'deezer',
     field: 'pending',
     unit: 'tracks',
-    context: (b) =>
-      `${fmtInt(b.deezer.total_missing)} manquantes, en cooldown · ${fmtInt(b.deezer.abandoned)} abandonnées`,
+    context: (b) => [
+      { text: fmtInt(b.deezer.total_missing), mono: true },
+      { text: ' manquantes, en cooldown · ' },
+      { text: fmtInt(b.deezer.abandoned), mono: true },
+      { text: ' abandonnées' },
+    ],
+    action: { kind: 'nav', label: 'Voir le monitoring', navTab: 'monitoring' },
+  },
+  {
+    id: 'catalog-bpm',
+    eyebrow: 'Beatport',
+    title: 'À analyser (BPM)',
+    group: 'catalog',
+    field: 'bpm_missing',
+    unit: 'tracks',
+    context: () => [{ text: 'analyse audio nocturne automatique' }],
     action: { kind: 'nav', label: 'Voir le monitoring', navTab: 'monitoring' },
   },
   {
@@ -197,7 +223,7 @@ const CARDS = [
     group: 'sets',
     field: 'recrawl',
     unit: 'sets',
-    context: () => 'recrawl_status ≠ final',
+    context: () => [{ text: 'recrawl_status ≠ final' }],
     action: { kind: 'nav', label: "Ouvrir l'onglet Sets", navTab: 'sets' },
   },
   {
@@ -207,7 +233,7 @@ const CARDS = [
     group: 'sets',
     field: 'flags_pending',
     unit: 'paires',
-    context: () => 'revue manuelle',
+    context: () => [{ text: 'revue manuelle' }],
     action: { kind: 'nav', label: 'Ouvrir la revue', navTab: 'sets' },
   },
   {
@@ -217,7 +243,7 @@ const CARDS = [
     group: 'artist_flags',
     field: 'pending',
     unit: 'paires',
-    context: () => 'fusions à valider',
+    context: () => [{ text: 'fusions à valider' }],
     action: { kind: 'nav', label: 'Ouvrir la revue', navTab: 'flags' },
   },
   {
@@ -237,7 +263,7 @@ const CARDS = [
     group: 'genres',
     field: 'mappings_unmapped',
     unit: 'mappings',
-    context: () => 'nom brut sans node',
+    context: () => [{ text: 'nom brut sans node' }],
     action: { kind: 'nav', label: 'Voir les mappings', navTab: 'genres' },
   },
   {
@@ -247,7 +273,7 @@ const CARDS = [
     group: 'crawl',
     field: 'playlists_due',
     unit: 'playlists',
-    context: () => 'cadence crawl_radar',
+    context: () => [{ text: 'cadence crawl_radar' }],
     action: { kind: 'nav', label: 'Voir la file', navTab: 'crawl' },
   },
   {
@@ -257,42 +283,47 @@ const CARDS = [
     group: 'crawl',
     field: 'dlq',
     unit: 'entrées',
-    context: (b) => (b.crawl.dlq == null ? 'indisponible' : 'clé Redis dead_letter'),
+    context: (b) => [{ text: b.crawl.dlq == null ? 'Redis injoignable' : 'clé Redis dead_letter' }],
     action: { kind: 'nav', label: 'Voir la DLQ', navTab: 'crawl' },
   },
 ]
 
-// Une carte est en régime « backlog » quand SON compteur actionnable est > 0.
-// À 0 — ou null (DLQ Redis injoignable) — elle bascule en « À jour ✓ » (le zéro
-// n'est jamais écrit).
+// Chaque carte a 3 régimes selon SON compteur actionnable :
+//   'backlog' → compteur > 0 (chantier en attente)
+//   'ok'      → compteur === 0 (« À jour ✓ », le zéro n'est jamais écrit)
+//   'unknown' → compteur == null (seul cas : DLQ quand Redis est injoignable —
+//               un faux « à jour » serait trompeur ; ce n'est PAS « en attente »)
 function counterOf(card) {
   const g = props.backlog?.[card.group]
   return g ? g[card.field] : null
 }
-function isBacklog(card) {
+function regimeOf(card) {
   const c = counterOf(card)
-  return typeof c === 'number' && c > 0
+  if (c == null) return 'unknown'
+  return c > 0 ? 'backlog' : 'ok'
 }
 
 const resolvedCards = computed(() =>
   CARDS.map((card) => {
-    const backlog = isBacklog(card)
     return {
       ...card,
       counter: counterOf(card),
-      upToDate: !backlog,
-      contextText: card.context && props.backlog ? card.context(props.backlog) : null,
+      regime: regimeOf(card),
+      contextSegments: card.context && props.backlog ? card.context(props.backlog) : null,
     }
   }),
 )
 
-const backlogCount = computed(() => resolvedCards.value.filter((c) => !c.upToDate).length)
+// Seul le régime « backlog » compte comme travail en attente (unknown exclu).
+const backlogCount = computed(
+  () => resolvedCards.value.filter((c) => c.regime === 'backlog').length,
+)
 
 const summaryLine = computed(() => {
   const n = backlogCount.value
-  if (n === 0) return 'Les 11 chantiers sont à jour.'
-  if (n === 1) return '1 chantier sur 11 a du travail en attente.'
-  return `${n} chantiers sur 11 ont du travail en attente.`
+  if (n === 0) return 'Les 12 chantiers sont à jour.'
+  if (n === 1) return '1 chantier sur 12 a du travail en attente.'
+  return `${n} chantiers sur 12 ont du travail en attente.`
 })
 
 const snapshotLabel = computed(() => {
@@ -403,13 +434,24 @@ function fmtInt(n) {
   border-radius: var(--r-md);
   border: 1px solid var(--line);
 }
-/* Backlog : posée (surface + ombre). À jour : enfoncée (bg, sans ombre). */
+/* Backlog : posée (surface + ombre). À jour : enfoncée (bg, sans ombre).
+   Inconnu (compteur null, ex. DLQ Redis down) : neutre, bordure un cran plus nette. */
 .oc-card--backlog {
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 .oc-card--ok {
   background: var(--bg);
+}
+.oc-card--unknown {
+  background: var(--bg);
+  border-color: var(--line-2);
+}
+/* À jour : eyebrow + titre reculent (--ink-3) pour laisser dominer les cartes en
+   retard (titre --ink + gros chiffre mono). La pastille verte garde son intensité. */
+.oc-card--ok .oc-eyebrow,
+.oc-card--ok .oc-title {
+  color: var(--ink-3);
 }
 
 .oc-eyebrow {
@@ -439,9 +481,17 @@ function fmtInt(n) {
   font: 400 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
 }
-/* Régime à jour : pastille + check, pas de chiffre. */
+.oc-unknown {
+  font: 600 var(--fs-display)/1 var(--font-mono);
+  color: var(--ink-3);
+}
+/* Régime à jour : pastille + check, pas de chiffre. Le slot ne réserve plus la
+   hauteur d'un gros chiffre (min-height:0) — sinon la pastille ~24px top-alignée
+   creuse un écart avant le contexte plus grand que sur une carte à chiffre. Le
+   contexte reste ainsi à distance constante (le gap flex) du bloc compteur. */
 .oc-counter:has(.oc-check) {
   align-items: center;
+  min-height: 0;
 }
 .oc-check {
   display: inline-flex;
