@@ -54,7 +54,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C3   Ouverture aux amis                    MOYEN       5-7 jours    TERMINE (2026-07-13 ; ouverture effective = decision William)
  C4   Reco personnalisee                    BAS         3-5 jours    TERMINE (2026-07-13)
  C5   Collections v2 (polymorphe + dossiers) BAS       3-5 jours    A FAIRE — standalone
- D4   Pages Detail (Vague 3)               BAS         5-7 jours    EN COURS — Track + Playlist + Set + Artist Detail TERMINES (2026-07-20) ; reste Admin Vague 5
+ D4   Pages Detail (Vague 3)               BAS         5-7 jours    EN COURS — Track + Playlist + Set + Artist Detail TERMINES (2026-07-20) ; reste Admin Vague 5 (build avance : onglet Apercu + badges + responsive 12b7b87, fix d212522 ; revue design a venir)
  D6   Refonte UI listes + Radar + transverses BAS      8-12 jours   TERMINE (2026-08-06) — 8 pages (Explorer/Radar/Hub/Sets/Playlists/Artistes/Genres/Genre Detail) + D6.0 Suppression Rating + revue design Genre Detail soldee (lot correctif 8417615) ; D6.d (/new-releases, Collections liste) hors DoD
  X1   Dedup catalog (fusion deezer/beatport) HAUT      3-5 jours    TERMINE (2026-07-22 ; garde same_track, 588 doublons fusionnes, index unique abandonne)
  X2   Explorer — etat de navigation (filtre+scroll) BAS 1-2 jours   TERMINE (2026-08-02 ; restauration scroll + filtres URL depuis la fiche detail — Explorer/Radar + etendu aux 4 grilles ; bouton retour = vrai back)
@@ -65,10 +65,11 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  N3   Decoupage verifie chaines multi-artistes sans separateur BAS 2-3 jours A FAIRE — inscrit 2026-08-03 (proposition William) ; N3.0 dimensionnement d'abord
  C7   Entite Album (M2M catalog_albums)     BAS         5-7 jours    A FAIRE
  C8   Fiabilite des sets TrackID            BAS         3-4 jours    A FAIRE
- E2   Analyse audio previews (BPM + Key)    MOYEN       3-5 jours    EN COURS — E2.a benchmark FAIT (2026-08-06, docs/e2a-benchmark/) : BPM GO ~84% gate / KEY NO-GO ; E2.b BPM-only a cadrer
+ E2   Analyse audio previews (BPM + Key)    MOYEN       3-5 jours    EN COURS — E2.a benchmark FAIT (2026-08-06, docs/e2a-benchmark/) : BPM GO ~84% gate / KEY NO-GO ; E2.b BPM-only outil livre (e49ca04, worker/bpm_backfill local) + pilote ~170 lignes en prod ; reste backfill de masse (~57,6k candidats au 2026-08-07) + fil de l'eau
  C9   Embeddings audio & reco par contenu   BAS         8-12 jours   A FAIRE — moyen/long terme, phases separables
  D7   Admin mobile Flags + Lier (design)    BAS         2-3 jours    A FAIRE — polish mobile Flags + bloc "Lier" apres responsive d400ba8 (utilisable mais perfectible) ; chantier Claude Design
  D8   Voir-plus contextuels (sous-boites → listes pre-filtrees) BAS 2-3 jours A FAIRE — inscrit 2026-08-03 (retour usage Genre Detail)
+ D9   Fluidite de navigation (cache vues + skeletons + prefetch) MOYEN 2-3 jours A FAIRE — inscrit 2026-08-07 (delai percu a chaque nav : refetch de zero, pas de KeepAlive)
 ```
 
 ### Chantiers termines (reference)
@@ -1028,7 +1029,7 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 **Priorite : BAS**
 **Estimation : 5-7 jours**
 **Depend de : D5 (composants partages) — TERMINE, aucune dependance bloquante**
-**Statut : EN COURS — page 1 (Track Detail) TERMINEE (2026-07-17, commit 0c47a8c, deployee, /deploy_verify SAIN, checklist humaine validee). Livree via le handoff Claude Design `docs/refonte-ui/handoff-track-detail/` (round 2 acte dans la fiche `docs/refonte-ui/track-detail.md`) : 4 composants transverses crees (Artwork, TrackCard ligne, ScoreRing, PlatformLink — logos PLACEHOLDERS, reliquat roadmap) + refonte TrackDetailView (StatStrip supprimee, stats dans le hero, Decouverte avant « Ou on l'entend », troncatures, glyphes source, Rating retire de la page). +36 tests front (125 verts). Page 2 (Playlist Detail) TERMINEE (2026-07-17, commits ef8505f + FIX bcb3845, deployee, /deploy_verify SAIN, checklist humaine validee, revue design FIX round unique solde : 3 ecarts corriges, 1 clos non-ecart donnee, 1 rejete conforme au brief). La contradiction back de la fiche a ete TRANCHEE en pre-vol et LIVREE en lot 0 : `GET /api/watchlist/{id}` renvoie desormais top_artists/top_genres (caps 6/5, pct), in_lib et artists[] peuples, calcules sur le perimetre `catalog_visible` (etancheite C3) ; + extension ADDITIVE de TrackCard (duree + artistes cliquables, zero regression Track Detail) + refonte PlaylistDetailView (hero cover+infos, bloc « Dans cette playlist » enfin cable, bouton Suivre retire de l'UI — decision produit, mecanisme back conserve —, AdminCard en bas). +35 tests (pytest 1221, vitest 155). Page 3 (Set Detail) TERMINEE (2026-07-19, commits 41e9315 + FIX ef7117f, deployee, /deploy_verify SAIN x2, checklist humaine validee, revue design FIX round unique solde : 5 acceptes / 2 clos non-ecarts / 1 rejete conforme). Livree via le handoff `docs/refonte-ui/handoff-set-detail/` : lot 0 back (bpm/key/duree sur la tracklist, top_genres[] miroir playlist perimetre catalog_visible, NOUVEL endpoint `GET /api/sets/{id}/similar` — moteur C2 agrege au niveau set, cache Redis par (set_id, viewer) TTL 6h + seed cap 12 poses au FIX apres mesure prod 21s → 11,6s froid / 0,12s chaud) + extension ADDITIVE TrackCard « set » (position/timecode/etats id-unresolved, zero regression) + ScoreRing mode pct + NOUVEAU composant SetCard reutilisable (future liste /sets) + refonte SetDetailView (hero immersif floute, StatStrip/RingPct/blocs morts retires, AdminCard conservee). +29 pytest (1250), +66 vitest (221). La moitie « Set Detail » de la verif FIX est SOLDEE par la refonte complete. Page 4 (Artist Detail) TERMINEE (2026-07-20, commits cb88318 + FIX c81b7e3/01548f4/fbbec21/8411317, deployee, /deploy_verify SAIN, verification visuelle headless authentifiee au pixel, revue design 2 rounds soldes : round 1 #1-#4 acceptes = UNE cause racine layout (rangees fr du montage = minmax(auto,1fr), covers 250x250 debordaient et peignaient par-dessus le bloc sous-banner — corrige minmax(0,1fr) + overflow hidden + avatar positionne), #5 accepte (crop 1-rangee ExpandableShelf neutralise par override scoped), #6 rejete → transverse, #7 clos arbitrage, #8 clos donnee ; round 2 : conforme, #9 clos mesure (ring = --surface exact), #10 accepte (dedup genres par libelle visible — troncature StyleTag). Livree via le handoff `docs/refonte-ui/handoff-artist-detail/` : lot 0 back (ArtistSetOut + artists[] noms ordre position + duration_ms, fetch groupe compat SQLite) + refonte ArtistDetailView (hero banner montage cycle/placeholder + stats repliees sans Rating, code mort real_name/country/bio/soundcloud retire, logos PlatformLink avec sentinelle NOT_FOUND masquee, tracks → TrackCard expand 10+N, sets → grille SetCard 4/3/2 footer badge % identifiees, proches polish, aliases, dv-back) — AUCUN composant cree ni etendu (1er chantier D4 dans ce cas). +4 pytest (1254), +23 vitest (244). La verif FIX Artist Detail est SOLDEE par la refonte complete. Reste : Admin (Vague 5).**
+**Statut : EN COURS — page 1 (Track Detail) TERMINEE (2026-07-17, commit 0c47a8c, deployee, /deploy_verify SAIN, checklist humaine validee). Livree via le handoff Claude Design `docs/refonte-ui/handoff-track-detail/` (round 2 acte dans la fiche `docs/refonte-ui/track-detail.md`) : 4 composants transverses crees (Artwork, TrackCard ligne, ScoreRing, PlatformLink — logos PLACEHOLDERS, reliquat roadmap) + refonte TrackDetailView (StatStrip supprimee, stats dans le hero, Decouverte avant « Ou on l'entend », troncatures, glyphes source, Rating retire de la page). +36 tests front (125 verts). Page 2 (Playlist Detail) TERMINEE (2026-07-17, commits ef8505f + FIX bcb3845, deployee, /deploy_verify SAIN, checklist humaine validee, revue design FIX round unique solde : 3 ecarts corriges, 1 clos non-ecart donnee, 1 rejete conforme au brief). La contradiction back de la fiche a ete TRANCHEE en pre-vol et LIVREE en lot 0 : `GET /api/watchlist/{id}` renvoie desormais top_artists/top_genres (caps 6/5, pct), in_lib et artists[] peuples, calcules sur le perimetre `catalog_visible` (etancheite C3) ; + extension ADDITIVE de TrackCard (duree + artistes cliquables, zero regression Track Detail) + refonte PlaylistDetailView (hero cover+infos, bloc « Dans cette playlist » enfin cable, bouton Suivre retire de l'UI — decision produit, mecanisme back conserve —, AdminCard en bas). +35 tests (pytest 1221, vitest 155). Page 3 (Set Detail) TERMINEE (2026-07-19, commits 41e9315 + FIX ef7117f, deployee, /deploy_verify SAIN x2, checklist humaine validee, revue design FIX round unique solde : 5 acceptes / 2 clos non-ecarts / 1 rejete conforme). Livree via le handoff `docs/refonte-ui/handoff-set-detail/` : lot 0 back (bpm/key/duree sur la tracklist, top_genres[] miroir playlist perimetre catalog_visible, NOUVEL endpoint `GET /api/sets/{id}/similar` — moteur C2 agrege au niveau set, cache Redis par (set_id, viewer) TTL 6h + seed cap 12 poses au FIX apres mesure prod 21s → 11,6s froid / 0,12s chaud) + extension ADDITIVE TrackCard « set » (position/timecode/etats id-unresolved, zero regression) + ScoreRing mode pct + NOUVEAU composant SetCard reutilisable (future liste /sets) + refonte SetDetailView (hero immersif floute, StatStrip/RingPct/blocs morts retires, AdminCard conservee). +29 pytest (1250), +66 vitest (221). La moitie « Set Detail » de la verif FIX est SOLDEE par la refonte complete. Page 4 (Artist Detail) TERMINEE (2026-07-20, commits cb88318 + FIX c81b7e3/01548f4/fbbec21/8411317, deployee, /deploy_verify SAIN, verification visuelle headless authentifiee au pixel, revue design 2 rounds soldes : round 1 #1-#4 acceptes = UNE cause racine layout (rangees fr du montage = minmax(auto,1fr), covers 250x250 debordaient et peignaient par-dessus le bloc sous-banner — corrige minmax(0,1fr) + overflow hidden + avatar positionne), #5 accepte (crop 1-rangee ExpandableShelf neutralise par override scoped), #6 rejete → transverse, #7 clos arbitrage, #8 clos donnee ; round 2 : conforme, #9 clos mesure (ring = --surface exact), #10 accepte (dedup genres par libelle visible — troncature StyleTag). Livree via le handoff `docs/refonte-ui/handoff-artist-detail/` : lot 0 back (ArtistSetOut + artists[] noms ordre position + duration_ms, fetch groupe compat SQLite) + refonte ArtistDetailView (hero banner montage cycle/placeholder + stats repliees sans Rating, code mort real_name/country/bio/soundcloud retire, logos PlatformLink avec sentinelle NOT_FOUND masquee, tracks → TrackCard expand 10+N, sets → grille SetCard 4/3/2 footer badge % identifiees, proches polish, aliases, dv-back) — AUCUN composant cree ni etendu (1er chantier D4 dans ce cas). +4 pytest (1254), +23 vitest (244). La verif FIX Artist Detail est SOLDEE par la refonte complete. Reste : Admin (Vague 5) — build avance (onglet Apercu backlog + badges + finition responsive mobile 12b7b87, fix compteur carte « A lier sur Deezer » d212522, constate 2026-08-07) ; revue design a venir.**
 
 ### Taches
 
@@ -1046,7 +1047,7 @@ Ajouter un niveau hiérarchique au-dessus des collections, dans l'esprit des dos
 **Priorite : BAS**
 **Estimation : 8-12 jours (page par page, chaque page = un livrable deployable via `/refonte_page`)**
 **Depend de : D4 (composants transverses livres : Artwork, TrackCard, SetCard, ScoreRing, PlatformLink) — lancable en parallele de la fin de D4 (Admin). Source de verite : fiches FIGEES de `docs/refonte-ui/` (INDEX.md = registre, TRANSVERSE.md = sujets transverses).**
-**Statut : EN COURS — Explorer (p.1) livre 2026-07-21 + Radar (p.2) livre 2026-07-23 (commits 4675445 + 53b1d62) + Hub (p.3) livre 2026-07-23 (commit 74376da) ; le cadrage est DEJA FAIT (fiches ✅ figees avec William, revue page par page 2026-07-14). Ce chantier inscrit a la roadmap le reliquat refonte UI hors pages detail, qui n'etait planifie nulle part (constat 2026-07-20).**
+**Statut : TERMINE (2026-08-06) — 8 pages livrees (Explorer/Radar/Hub/Sets/Playlists/Artistes/Genres/Genre Detail) + D6.0 Suppression Rating + revue design Genre Detail soldee (lot correctif 8417615) ; D6.d (/new-releases, Collections liste) hors DoD. Le cadrage etait DEJA FAIT (fiches ✅ figees avec William, revue page par page 2026-07-14). Ce chantier inscrivait a la roadmap le reliquat refonte UI hors pages detail, qui n'etait planifie nulle part (constat 2026-07-20).**
 
 ### Objectif
 
@@ -1500,7 +1501,7 @@ Ajouter le predicat d'exclusion aux sites recenses (enquete 2026-07-14) :
 **Priorite : MOYEN**
 **Estimation : 3-5 jours (hors temps de calcul du backfill, qui court en tache de fond)**
 **Depend de : rien de bloquant (E1/X3 TERMINES — etat de recherche et provenance deja en place). Ordre interne impose : E2.a (benchmark) AVANT E2.b (industrialisation). Synergique avec C9 (meme tuyauterie preview→analyse).**
-**Statut : EN COURS — E2.a benchmark TERMINE le 2026-08-06 : BPM GO (~84% gate conf>=2.0) / KEY NO-GO (edma~=shaath, real libkeyfinder le pire) ; livrable docs/e2a-benchmark/. E2.b (BPM-only, moteur leger RhythmExtractor2013, backfill local A7-07) a cadrer.**
+**Statut : EN COURS — E2.a benchmark TERMINE le 2026-08-06 : BPM GO (~84% gate conf>=2.0) / KEY NO-GO (edma~=shaath, real libkeyfinder le pire) ; livrable docs/e2a-benchmark/. E2.b (BPM-only, moteur leger RhythmExtractor2013, backfill local A7-07) EN COURS : outil livre (commit e49ca04, `worker/bpm_backfill/` en conteneur Docker local, gate conf>=2.0, garde `bpm IS NULL`, dry-run/--apply via canal ssh psql) + pilote ~170 lignes `bpm_source='analysis'` ecrites en prod ; restent le backfill de masse (~57,6k candidats mesures 2026-08-07) et le fil de l'eau.**
 
 ### Objectif
 
@@ -1643,6 +1644,49 @@ Etat des lieux verifie (2026-08-03) : Explorer sait DEJA filtrer par genre (`lis
 # Tracklist Genre Detail bornee + « Tout voir dans Explorer » ; « Genres proches » atteignable au scroll
 # /sets /playlists /artists acceptent ?genre= (URL-synce, catalog_visible)
 # Fiche genre-detail.md amendee (apercu borne assume)
+```
+
+---
+
+## D9 — Fluidite de navigation (cache des vues + skeletons + prefetch)
+
+**Priorite : MOYEN**
+**Estimation : 2-3 jours**
+**Depend de : rien de bloquant — front-only, s'appuie sur les composables de liste existants (usePaginatedList/useWindowedList) et useScrollRestore (X2). AUCUN back, AUCUNE migration.**
+**Statut : A FAIRE — inscrit 2026-08-07, retour d'usage William : delai d'affichage a chaque ouverture de page.**
+
+### Constat (retour usage 2026-08-07)
+
+A chaque navigation vers une liste (Radar, Explorer, Sets, Playlists, Artistes, Genres), un delai d'affichage systematique. Diagnostic code : (1) le `<RouterView>` n'est PAS enveloppe dans `<KeepAlive>` (`App.vue`) → Vue DETRUIT la vue quittee et RE-MONTE la cible de zero a chaque aller-retour, et le `onMounted` relance un fetch complet (`RadarView.vue` et jumelles) ; (2) chaque vue attend son aller-retour API avant tout affichage — aucun store ne garde la derniere liste, `usePaginatedList`/`useWindowedList` repartent a `offset:0` a chaque montage ; (3) 1re visite d'une page = telechargement du chunk JS (routes lazy `() => import(...)`, `router.js`) — one-shot, cache navigateur ensuite. Le delai ressenti = surtout le round-trip API (2) a CHAQUE arrivee, maximal sur `/radar` (endpoint le plus lourd, ~550 MB/req, cf. reliquat `api-oom-radar-feed`).
+
+Idee initiale ECARTEE (arbitrage 2026-08-07) : « precharger les 100 premieres lignes de CHAQUE page a l'arrivee sur le site ». Rejetee tel quel — (a) declencher l'endpoint le plus memoire-intensif (`/radar/feed`) a chaque demarrage de session, en salve avec le boot, est exactement le scenario du 502 OOM (incident X2) ; (b) deplace le delai au demarrage au lieu de le supprimer ; (c) fetch 6-7 pages pour 1-2 reellement ouvertes, donnees vite perimees. Les leviers ci-dessous obtiennent le meme benefice sans ces couts.
+
+### D9.a — Cache des vues visitees (KeepAlive)
+
+- [ ] Envelopper le `<RouterView>` dans `<KeepAlive>` pour les vues LISTE (Radar/Explorer/Sets/Playlists/Artistes/Genres) : retour a une page deja ouverte = instantane (0 refetch, scroll + filtres + etat preserves en memoire)
+- [ ] Borner le cache (`:include` limite aux listes, ou `:max`) — ne pas empiler les grosses vues (Radar/Explorer) indefiniment en RAM
+- [ ] Reconcilier avec `useScrollRestore` (X2) : KeepAlive preserve DEJA scroll + etat nativement → le mecanisme de restauration via `history.state` se simplifie (voire devient redondant) pour ces vues ; garder `onActivated` pour un refresh doux optionnel en arriere-plan si la donnee doit rester fraiche
+- [ ] NE PAS cacher les pages detail (`/catalog/:id`, `/artist/:id`, `/set/:id`, `/style/:genre`…) — elles varient par param de route
+
+### D9.b — Skeletons instantanes (perceived-perf)
+
+- [ ] Afficher `<SkeletonGrid>` (composant DEJA existant) des le montage, avant la resolution du fetch — le delai *ressenti* chute meme si l'API met le meme temps ; cheap, zero risque back
+- [ ] Generaliser aux vues tableau (Explorer/Sets/Playlists) et grilles (Artistes/Genres/Radar) qui montrent aujourd'hui un blanc ou un spinner
+
+### D9.c — Prefetch au survol/focus du lien de nav (version CIBLEE de l'idee initiale)
+
+- [ ] Au survol (desktop) / focus (clavier) d'un lien Sidebar/BottomNav, declencher le fetch de la page cible — au clic (~200-300 ms plus tard) la donnee arrive deja
+- [ ] Ciblage self-limite : SEULE la page que l'utilisateur s'apprete a ouvrir est prefetchee (pas les 6-7 d'un coup) → aucun risque de salve OOM sur `/radar`
+- [ ] Optionnel : prefetch du chunk JS de la route au meme evenement (supporte par vue-router)
+
+### Definition of Done
+
+```bash
+# Retour sur une liste deja visitee = instantane (aucun spinner, scroll + filtres conserves)
+# 1re arrivee sur une liste = skeleton immediat puis contenu (plus de blanc fige)
+# Survol d'un lien de nav = fetch anticipe, page quasi-prete au clic
+# /radar jamais fetche au demarrage de session (pas de regression OOM)
+# Front-only : 0 migration, 0 endpoint touche ; tests front verts
 ```
 
 ---
