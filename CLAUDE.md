@@ -31,7 +31,7 @@ server/
 │   ├── rate_limit.py        # Per-IP/endpoint rate limiting
 │   ├── alembic/             # Migrations (alembic.ini is in server/api/)
 │   ├── trackid/             # TrackID.net set importer
-│   ├── routers/             # 15 routers, 104 endpoints:
+│   ├── routers/             # 15 routers, 105 endpoints (admin gained GET /admin/backlog — Aperçu backlog dashboard):
 │   │                        # catalog, radar, watchlist, artists, following, sets,
 │   │                        # genres, taxonomy, search, collections, opinions,
 │   │                        # import_rb, auth, admin, recommendations (taxonomy = 11
@@ -61,7 +61,7 @@ server/
 │                            # import_rb, sets, trends, monitoring (MON: snapshot_backlogs)
 ├── frontend/src/
 │   ├── views/               # 18 views (all routed; RadarView added D6; CatalogView renamed ExplorerView, D6)
-│   ├── components/          # 56 components (48 shared + 8 admin; GenreTrackRow/LibDot/
+│   ├── components/          # 57 components (48 shared + 9 admin, AdminOverview = admin Aperçu backlog; GenreTrackRow/LibDot/
 │   │                        # StatStrip purged with the Genre Detail rebuild). The filter family
 │   │                        # lives in components/filters/ (12: FilterBar/Chip/Panel/
 │   │                        # Drawer + SearchInput/RangeSlider/CamelotSelect/

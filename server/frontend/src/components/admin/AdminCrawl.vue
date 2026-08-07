@@ -42,53 +42,32 @@
         </thead>
         <tbody>
           <tr v-for="log in crawlLogs" :key="log.id">
-            <td class="mono" style="font-size: var(--fs-xs); white-space: nowrap">
+            <td class="log-date mono" data-label="Date">
               {{ formatDate(log.started_at) }}
             </td>
-            <td>
+            <td data-label="Type">
               <span class="token-pill">{{ log.task_type }}</span>
             </td>
-            <td
-              class="raw-string"
-              style="
-                max-width: 200px;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-              "
-            >
+            <td class="raw-string log-target" data-lead>
               {{ log.target_label || '-' }}
             </td>
-            <td>
+            <td data-label="Source">
               <span v-if="log.source" class="token-pill">{{ log.source }}</span>
               <span v-else class="muted">-</span>
             </td>
-            <td>
+            <td data-label="Statut">
               <span class="status-badge" :class="log.status">{{ log.status }}</span>
             </td>
-            <td class="mono" style="font-size: var(--fs-xs)">
+            <td class="log-duration mono" data-label="Durée">
               {{ log.duration_ms != null ? formatDuration(log.duration_ms) : '-' }}
             </td>
-            <td
-              style="
-                font-size: var(--fs-xs);
-                display: flex;
-                flex-wrap: wrap;
-                gap: var(--space-05);
-                align-items: center;
-              "
-            >
+            <td class="log-stats" data-label="Stats">
               <template v-if="log.stats">
                 <span v-for="(v, k) in log.stats" :key="k" class="stat-chip">
                   {{ k }}: {{ v }}
                 </span>
               </template>
-              <span
-                v-if="log.error_message"
-                class="sync-error"
-                style="font-size: var(--fs-xs)"
-                :title="log.error_message"
-              >
+              <span v-if="log.error_message" class="log-error" :title="log.error_message">
                 {{ log.error_message.slice(0, 60) }}
               </span>
             </td>
@@ -189,6 +168,7 @@ onMounted(() => {
 
 <style scoped>
 .admin-section {
+  container-type: inline-size;
   margin-bottom: var(--space-8);
   padding: var(--space-5) var(--space-6);
   background: var(--surface);
@@ -295,8 +275,8 @@ onMounted(() => {
   background: var(--neg-soft);
   color: var(--neg-ink);
 }
-.sync-error {
-  font-size: var(--fs-sm);
+.log-error {
+  font-size: var(--fs-xs);
   color: var(--neg-ink);
 }
 .state {
@@ -353,5 +333,84 @@ onMounted(() => {
 .crawl-pagination button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Log cell styles (extracted from inline styles so the mobile card can restack them). */
+.log-date {
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.log-target {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-duration {
+  font-size: var(--fs-xs);
+}
+.log-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-05);
+  align-items: center;
+  font-size: var(--fs-xs);
+}
+
+/* ============ RESPONSIVE — table logs → cartes (grammaire AdminFlags, palier 859) ============ */
+@container (max-width: 859px) {
+  .table-wrap {
+    overflow-x: visible;
+  }
+  .flag-table,
+  .flag-table tbody {
+    display: block;
+  }
+  .flag-table thead {
+    display: none;
+  }
+  .flag-table tbody tr {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-25);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+  }
+  .flag-table tbody tr + tr {
+    margin-top: var(--space-25);
+  }
+  .flag-table tbody td {
+    display: block;
+    padding: 0;
+    border-bottom: none;
+  }
+  .flag-table tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: var(--space-1);
+    font: 500 var(--fs-xs)/1 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  /* Cible = ligne de tête : remontée en haut de la carte sans toucher l'ordre desktop. */
+  .flag-table tbody td[data-lead] {
+    order: -1;
+  }
+  .raw-string {
+    font-size: var(--fs-base);
+  }
+  .log-target {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+  /* Stats : le label ::before doit se poser AU-DESSUS des chips (pas dans la rangée flex). */
+  .log-stats {
+    display: block;
+  }
 }
 </style>

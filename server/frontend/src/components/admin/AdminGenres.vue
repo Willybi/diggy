@@ -70,16 +70,16 @@
         </thead>
         <tbody>
           <tr v-for="m in mappings" :key="m.id">
-            <td>
+            <td data-lead>
               <span class="raw-string">{{ m.rawName }}</span>
             </td>
-            <td>
+            <td data-label="Nœud taxonomique">
               <span v-if="m.nodeLabel" class="token-pill">{{ m.nodeLabel }}</span>
               <span v-else class="muted" style="font-size: var(--fs-sm); color: var(--ink-3)"
                 >—</span
               >
             </td>
-            <td>
+            <td data-label="Recherche">
               <div class="mapping-search-wrap">
                 <input
                   v-model="mappingSearch[m.id]"
@@ -101,7 +101,7 @@
                 </div>
               </div>
             </td>
-            <td>
+            <td data-act>
               <button
                 v-if="mappingSelected[m.id]"
                 class="btn-sync"
@@ -266,6 +266,7 @@ onMounted(async () => {
 
 <style scoped>
 .admin-section {
+  container-type: inline-size;
   margin-bottom: var(--space-8);
   padding: var(--space-5) var(--space-6);
   background: var(--surface);
@@ -468,5 +469,56 @@ onMounted(async () => {
 .mapping-option-qid {
   font-size: var(--fs-xs);
   color: var(--ink-3);
+}
+
+/* ============ RESPONSIVE — table mappings → cartes (grammaire AdminFlags, palier 859) ============ */
+@container (max-width: 859px) {
+  .table-wrap {
+    overflow-x: visible;
+  }
+  .flag-table,
+  .flag-table tbody {
+    display: block;
+  }
+  .flag-table thead {
+    display: none;
+  }
+  .flag-table tbody tr {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-25);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+  }
+  .flag-table tbody tr + tr {
+    margin-top: var(--space-25);
+  }
+  .flag-table tbody td {
+    display: block;
+    padding: 0;
+    border-bottom: none;
+  }
+  .flag-table tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: var(--space-1);
+    font: 500 var(--fs-xs)/1 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .raw-string {
+    font-size: var(--fs-base);
+  }
+  /* Node search input: 16px min to prevent iOS zoom-on-focus. */
+  .mapping-search-input {
+    font-size: var(--fs-input);
+  }
+  .flag-table tbody td[data-act] .btn-sync {
+    width: 100%;
+    min-height: var(--touch-min);
+  }
 }
 </style>

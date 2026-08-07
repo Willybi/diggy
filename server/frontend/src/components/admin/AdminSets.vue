@@ -248,6 +248,7 @@ async function runEnrichSets() {
 
 <style scoped>
 .admin-section {
+  container-type: inline-size;
   margin-bottom: var(--space-8);
   padding: var(--space-5) var(--space-6);
   background: var(--surface);
@@ -371,5 +372,39 @@ async function runEnrichSets() {
   background: transparent;
   color: var(--neg-ink);
   border: 1px solid var(--neg-ink);
+}
+
+/* ============ RESPONSIVE — empilement set-flags + cibles tactiles (palier 859) ============ */
+@container (max-width: 859px) {
+  /* Paire empilée : les deux titres passent l'un sous l'autre. */
+  .flag-sets {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  /* Le séparateur ↔ vertical devient une bande horizontale pleine largeur. */
+  .flag-sep {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 20px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .flag-meta {
+    flex-wrap: wrap;
+  }
+  /* Actions empilées, Attacher au-dessus de Rejeter. L'ordre DOM est déjà
+     [Attacher, Rejeter] → flex-direction: column suffit (voir compte rendu). */
+  .flag-actions {
+    flex-direction: column;
+  }
+  .flag-actions .btn-sync {
+    width: 100%;
+  }
+  /* Cibles tactiles sur tous les boutons de job de l'onglet (les 3 sections). */
+  .btn-sync {
+    min-height: var(--touch-min);
+  }
 }
 </style>

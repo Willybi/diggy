@@ -173,3 +173,47 @@ class MonitoringResponse(BaseModel):
     backlog_series: list[BacklogSnapshotItem]
     throughput_series: list[ThroughputItem]
     status: MonitoringStatus
+
+
+# ── Backlog dashboard (GET /admin/backlog) ──
+
+
+class EnrichBacklog(BaseModel):
+    pending: int
+    total_missing: int
+    abandoned: int
+
+
+class ArtistsBacklog(BaseModel):
+    to_link: int
+    no_artwork: int
+
+
+class SetsBacklog(BaseModel):
+    recrawl: int
+    flags_pending: int
+
+
+class ArtistFlagsBacklog(BaseModel):
+    pending: int
+
+
+class GenresBacklog(BaseModel):
+    unclassified: int
+    mappings_unmapped: int
+
+
+class CrawlBacklog(BaseModel):
+    playlists_due: int
+    dlq: int | None = None
+
+
+class BacklogResponse(BaseModel):
+    captured_at: str | None = None
+    beatport: EnrichBacklog
+    deezer: EnrichBacklog
+    artists: ArtistsBacklog
+    sets: SetsBacklog
+    artist_flags: ArtistFlagsBacklog
+    genres: GenresBacklog
+    crawl: CrawlBacklog

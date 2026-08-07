@@ -146,6 +146,30 @@ async def get_throughput_series(db: AsyncSession, since: datetime) -> list[dict]
     return series
 
 
+async def get_latest_snapshot(db: AsyncSession) -> dict | None:
+    """Most recent backlog snapshot as ``{captured_at (ISO), payload}``, or None.
+
+    Lean twin of the snapshot read inside :func:`get_current_status` — the admin
+    /backlog dashboard needs only this one row, not the full status assembly, so
+    it does no crawl_logs work.
+    """
+    from models import MetricSnapshot
+
+    latest = (
+        await db.execute(
+            select(MetricSnapshot)
+            .order_by(MetricSnapshot.captured_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest is None:
+        return None
+    return {
+        "captured_at": latest.captured_at.isoformat(),
+        "payload": latest.payload or {},
+    }
+
+
 async def get_current_status(db: AsyncSession) -> dict:
     """Latest run per task_type + the most recent backlog snapshot.
 

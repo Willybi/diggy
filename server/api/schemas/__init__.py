@@ -3,6 +3,7 @@
 from .admin import (
     ArtistDeezerIn,
     ArtistFlagOut,
+    BacklogResponse,
     BacklogSnapshotItem,
     CrawlLogItem,
     CrawlLogsResponse,
@@ -296,6 +297,7 @@ __all__ = [
     "FetchPlaylistArtworksResponse",
     "CrawlLogItem",
     "CrawlLogsResponse",
+    "BacklogResponse",
     "BacklogSnapshotItem",
     "ThroughputItem",
     "LastRunItem",

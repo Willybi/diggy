@@ -517,6 +517,7 @@ onMounted(() => {
 
 <style scoped>
 .admin-section {
+  container-type: inline-size;
   margin-bottom: var(--space-8);
   padding: var(--space-5) var(--space-6);
   background: var(--surface);
@@ -741,6 +742,22 @@ onMounted(() => {
 .btn-row-action.split:hover {
   color: var(--accent-ink);
   border-color: var(--accent);
+}
+
+/* ============ RESPONSIVE — sections sync : bouton pleine largeur + tactile (palier 859) ============ */
+@container (max-width: 859px) {
+  .sync-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sync-row .btn-sync {
+    width: 100%;
+    min-height: var(--touch-min);
+  }
+  /* Ligne de résultat mono en pied, wrap sur mobile. */
+  .sync-result {
+    flex-wrap: wrap;
+  }
 }
 
 /* ============ RESPONSIVE — empilement mobile (palier aligné sur ExplorerView) ============ */

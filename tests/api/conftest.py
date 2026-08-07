@@ -191,6 +191,12 @@ class FakeRedis:
     async def delete(self, key):
         return 1 if self._store.pop(key, None) is not None else 0
 
+    async def llen(self, key):
+        # Minimal LIST length stand-in for the /admin/backlog DLQ read; a stored
+        # list returns its length, an absent key returns 0.
+        val = self._store.get(key)
+        return len(val) if isinstance(val, list) else 0
+
     async def aclose(self):
         pass
 
