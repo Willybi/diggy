@@ -90,7 +90,7 @@ class TestImportCompatibility:
         expected = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
+            "resolve_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
             "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres",
@@ -106,7 +106,7 @@ class TestImportCompatibility:
         task_names = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
+            "resolve_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
             "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
@@ -156,7 +156,7 @@ class TestRetryPolicies:
         non_orchestrators = [
             "crawl_single_playlist",
             "enrich_catalog",
-            "enrich_set_tracks", "recrawl_incomplete_sets",
+            "recrawl_incomplete_sets",
             "sync_artists", "link_set_artists",
             "reclassify_genres_chunk", "compute_trends",
         ]
@@ -219,7 +219,7 @@ class TestRetryPolicies:
         for tname in [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
+            "resolve_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
             "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",
@@ -308,7 +308,7 @@ class TestTimeLimits:
         task_names = [
             "crawl_radar", "crawl_single_playlist",
             "enrich_catalog", "enrich_catalog_beatport",
-            "resolve_set_tracks", "enrich_set_tracks", "recrawl_incomplete_sets",
+            "resolve_set_tracks", "recrawl_incomplete_sets",
             "sync_artists", "fetch_artist_artworks", "link_artists_deezer",
             "link_set_artists",
             "reclassify_genres_chunk", "reclassify_all_genres", "compute_trends",

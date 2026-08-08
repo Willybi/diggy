@@ -21,7 +21,6 @@ from workers.tasks.radar import crawl_radar, crawl_single_playlist
 from workers.tasks.sets import (
     backfill_trackid_sets,
     crawl_trackid_latest,
-    enrich_set_tracks,
     recrawl_incomplete_sets,
     resolve_set_tracks,
 )
@@ -34,7 +33,6 @@ __all__ = [
     "enrich_catalog_beatport",
     "analyze_bpm_previews",
     "resolve_set_tracks",
-    "enrich_set_tracks",
     "recrawl_incomplete_sets",
     "crawl_trackid_latest",
     "backfill_trackid_sets",

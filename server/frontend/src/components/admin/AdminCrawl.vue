@@ -112,7 +112,6 @@ const crawlTaskTypes = [
   'sync_artists',
   'fetch_artworks',
   'resolve_set_tracks',
-  'enrich_set_tracks',
 ]
 
 function prevCrawlPage() {

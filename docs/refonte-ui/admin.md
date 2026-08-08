@@ -9,7 +9,7 @@ Statut : ✅ figé (fiche v1) → **arbitrages chantier ajoutés §7 (2026-08-06
 Page `require_admin`. **6 onglets** (chacun un composant), surtout **orientés action** :
 - **Artistes** : sync artists, fetch-artworks, link-deezer (+ playlists artworks), recherche/lien Deezer par artiste, no-deezer, flags manuels.
 - **Flags** : flags de fusion d'artistes (pending / validated / skipped) + résolution (split). Badge count.
-- **Sets** : set-flags (pending) attach/reject, link-artists, enrich-tracks.
+- **Sets** : set-flags (pending) attach/reject, link-artists. _(enrich-tracks retiré le 2026-08-08 : tâche redondante avec l'enrich nocturne + plantages ObjectDeletedError/soft-timeout.)_
 - **Genres** : mappings taxonomie (mappés / non mappés), reclassify, recherche de nodes. Badge count.
 - **Crawl** : logs de crawl (badge total).
 - **Beatport** : déclencher enrich-beatport.

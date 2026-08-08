@@ -82,25 +82,6 @@
       <span v-if="linkSetsError" class="sync-error">{{ linkSetsError }}</span>
     </div>
   </section>
-
-  <!-- Enrich set tracks -->
-  <section class="admin-section">
-    <h2 class="section-title">Enrichir tracks des sets</h2>
-    <p class="section-sub">
-      Enrichit via Deezer + Beatport les tracks des sets sans infos. Ne touche pas aux tracks déjà
-      enrichies.
-    </p>
-    <div class="sync-row">
-      <button class="btn-sync" :disabled="enrichingSets" @click="runEnrichSets">
-        {{ enrichingSets ? 'Enrichissement…' : 'Enrichir sets' }}
-      </button>
-      <div v-if="enrichSetsResult" class="sync-result">
-        <span class="result-item ok">✓ {{ enrichSetsResult.enriched }} enrichis</span>
-        <span class="result-item muted">/ {{ enrichSetsResult.total }} tracks</span>
-      </div>
-      <span v-if="enrichSetsError" class="sync-error">{{ enrichSetsError }}</span>
-    </div>
-  </section>
 </template>
 
 <script setup>
@@ -170,9 +151,6 @@ onMounted(loadFlags)
 const linkingSets = ref(false)
 const linkSetsResult = ref(null)
 const linkSetsError = ref('')
-const enrichingSets = ref(false)
-const enrichSetsResult = ref(null)
-const enrichSetsError = ref('')
 
 const linkSetsPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
   intervalMs: 2000,
@@ -208,43 +186,6 @@ async function runLinkSets() {
   } catch (e) {
     linkSetsError.value = e.response?.data?.detail || 'Erreur'
     linkingSets.value = false
-  }
-}
-
-const enrichSetsPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
-  intervalMs: 3000,
-  maxAttempts: 300,
-  onData(st, { stop }) {
-    if (st.status === 'done') {
-      enrichSetsResult.value = st.result
-      enrichingSets.value = false
-      stop()
-    } else if (st.status === 'error') {
-      enrichSetsError.value = st.error || 'Erreur'
-      enrichingSets.value = false
-      stop()
-    }
-  },
-  onError(err) {
-    enrichSetsError.value = 'Erreur polling: ' + (err.message || 'inconnue')
-    enrichingSets.value = false
-  },
-  onMaxAttempts() {
-    enrichSetsError.value = 'Timeout'
-    enrichingSets.value = false
-  },
-})
-
-async function runEnrichSets() {
-  enrichingSets.value = true
-  enrichSetsResult.value = null
-  enrichSetsError.value = ''
-  try {
-    const { data } = await api.post('/api/admin/sets/enrich-tracks')
-    enrichSetsPoll.start(data.task_id)
-  } catch (e) {
-    enrichSetsError.value = e.response?.data?.detail || 'Erreur'
-    enrichingSets.value = false
   }
 }
 </script>
