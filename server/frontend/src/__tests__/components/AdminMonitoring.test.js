@@ -12,7 +12,7 @@ import StatTile from '../../components/charts/StatTile.vue'
 // A representative MonitoringResponse: 3 hourly snapshots (full enrich buckets),
 // throughput across 2 days × 2 sources, and a couple of last-run rows.
 function sampleResponse() {
-  const snap = (iso, dz, bp, cat) => ({
+  const snap = (iso, dz, bp, cat, bpm) => ({
     captured_at: iso,
     payload: {
       enrich: {
@@ -35,14 +35,14 @@ function sampleResponse() {
       },
       artists: { backlog_link: 4, backlog_artwork: 7 },
       sets: { recrawl_backlog: 2 },
-      catalog: { total: cat },
+      catalog: { total: cat, bpm_missing: bpm },
     },
   })
   return {
     backlog_series: [
-      snap('2026-07-20T05:00:00Z', 50, 200, 6000),
-      snap('2026-07-21T05:00:00Z', 40, 180, 6050),
-      snap('2026-07-22T05:00:00Z', 30, 150, 6120),
+      snap('2026-07-20T05:00:00Z', 50, 200, 6000, 900),
+      snap('2026-07-21T05:00:00Z', 40, 180, 6050, 850),
+      snap('2026-07-22T05:00:00Z', 30, 150, 6120, 800),
     ],
     throughput_series: [
       {
@@ -127,7 +127,7 @@ function sampleResponse() {
           },
           artists: { backlog_link: 4, backlog_artwork: 7 },
           sets: { recrawl_backlog: 2 },
-          catalog: { total: 6120 },
+          catalog: { total: 6120, bpm_missing: 800 },
         },
       },
     },
@@ -172,6 +172,11 @@ describe('AdminMonitoring', () => {
     // Charts actually drew lines (not the empty state).
     expect(wrapper.findAll('.tsc-line').length).toBeGreaterThan(0)
     expect(wrapper.find('.run-list').exists()).toBe(true)
+
+    // E2.c: BPM analysis backlog surfaced as a burn-down series (first chart).
+    const burnChart = wrapper.findAllComponents(TimeSeriesChart)[0]
+    const burnLabels = burnChart.props('series').map((s) => s.label)
+    expect(burnLabels).toContain('BPM · à analyser')
   })
 
   it('renders without error and shows empty states when every series is empty', async () => {

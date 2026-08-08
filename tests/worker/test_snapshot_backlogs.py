@@ -97,6 +97,17 @@ class TestSnapshotBacklogs:
                     title="Track", artist="A", normalized_key="track - a"
                 )
             )
+            # BPM analysis candidate: preview + real deezer_id + no bpm + not yet
+            # analyzed → bpm_analysis_candidate_filter() matches it.
+            s.add(
+                CatalogEntry(
+                    title="Preview",
+                    artist="B",
+                    normalized_key="preview - b",
+                    has_preview=True,
+                    deezer_id="dz-preview",
+                )
+            )
             s.add(
                 Artist(name="Linked", normalized_name="linked", deezer_id="dz-1")
             )  # backlog_artwork (has_artwork NULL/False)
@@ -134,7 +145,9 @@ class TestSnapshotBacklogs:
         assert payload["artists"]["backlog_link"] == 1
         assert payload["artists"]["backlog_artwork"] == 1
         assert payload["sets"]["recrawl_backlog"] == 1
-        assert payload["catalog"]["total"] == 1
+        assert payload["catalog"]["total"] == 2
+        # E2.c: only the preview-without-bpm row is a BPM-analysis candidate.
+        assert payload["catalog"]["bpm_missing"] == 1
 
     def test_runs_on_empty_db(self, monitoring_task, fake_self):
         result = monitoring_task.mod.snapshot_backlogs(fake_self)
@@ -142,6 +155,7 @@ class TestSnapshotBacklogs:
         with Session(monitoring_task.engine) as s:
             assert len(s.execute(select(MetricSnapshot)).scalars().all()) == 1
         assert result["catalog"]["total"] == 0
+        assert result["catalog"]["bpm_missing"] == 0
         assert result["enrich"]["deezer"]["total_missing"] == 0
 
     def test_task_has_no_autoretry(self, monitoring_task):

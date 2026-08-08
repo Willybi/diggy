@@ -204,6 +204,9 @@
      laquelle la couleur pleine marque l'actionnable (même hue, L+ / C-). */
   --chart-deezer-soft: oklch(0.74 0.09 293);
   --chart-beatport-soft: oklch(0.78 0.075 165);
+  /* BPM à analyser (E2.c) — teinte ambre/orangée, distincte du violet deezer
+     et du vert beatport (hue ≈ 60, séparation ≫ 90° des deux). */
+  --chart-bpm: oklch(0.68 0.16 60);
   --chart-neutral: oklch(0.62 0.03 70);
   --chart-grid: oklch(0.905 0.008 88 / 0.7);
   --chart-axis: oklch(0.615 0.01 70);
@@ -271,6 +274,8 @@
   /* Teinte muette (L- / C-) : recule sous la couleur pleine en dark. */
   --chart-deezer-soft: oklch(0.5 0.1 293);
   --chart-beatport-soft: oklch(0.5 0.09 165);
+  /* BPM à analyser (E2.c) — ambre éclairci pour le fond sombre. */
+  --chart-bpm: oklch(0.74 0.15 60);
   --chart-neutral: oklch(0.66 0.03 92);
   --chart-grid: oklch(0.33 0.014 262 / 0.7);
   --chart-axis: oklch(0.595 0.012 92);

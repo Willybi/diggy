@@ -30,7 +30,13 @@ def snapshot_backlogs(self):
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
-    from models import Artist, CatalogEntry, DJSet, MetricSnapshot
+    from models import (
+        Artist,
+        CatalogEntry,
+        DJSet,
+        MetricSnapshot,
+        bpm_analysis_candidate_filter,
+    )
     from workers.db import get_engine
     from workers.enrichment import count_enrich_backlog
 
@@ -76,6 +82,13 @@ def snapshot_backlogs(self):
             },
             "catalog": {
                 "total": _count(CatalogEntry.id),
+                # BPM analysis backlog (E2.c): time-series twin of the live
+                # count exposed by /admin/backlog. Same shared predicate
+                # (bpm_analysis_candidate_filter): preview but no BPM, real
+                # deezer_id, never analyzed.
+                "bpm_missing": _count(
+                    CatalogEntry.id, *bpm_analysis_candidate_filter()
+                ),
             },
         }
 

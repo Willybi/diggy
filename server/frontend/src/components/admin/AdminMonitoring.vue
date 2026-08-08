@@ -59,6 +59,12 @@
               :height="24"
             />
           </StatTile>
+          <StatTile
+            label="BPM à analyser"
+            :value="fmtInt(catalog.bpm_missing)"
+            sublabel="preview sans BPM"
+            tone="neutral"
+          />
         </div>
       </section>
 
@@ -298,6 +304,15 @@ const burnSeries = computed(() => {
     if (actionable.length) {
       out.push({ label: `${s.label} · à traiter`, color: s.color, points: actionable })
     }
+  }
+  // BPM à analyser (E2.c) : morceaux avec preview mais sans BPM. Même clé de
+  // temps que les séries voisines ; garde Number.isFinite → démarre au 1er
+  // snapshot qui porte la clé (les anciens ne l'ont pas).
+  const bpm = backlogSeries.value
+    .map((snap) => ({ t: snap.captured_at, v: snap.payload?.catalog?.bpm_missing }))
+    .filter((p) => Number.isFinite(p.v))
+  if (bpm.length) {
+    out.push({ label: 'BPM · à analyser', color: 'var(--chart-bpm)', points: bpm })
   }
   return out
 })
