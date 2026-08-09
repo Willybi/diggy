@@ -70,6 +70,15 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  D7   Admin mobile Flags + Lier (design)    BAS         2-3 jours    TERMINE (2026-08-08) — ABSORBE par D4 Vague 5 (perimetre = sous-ensemble strict de la finition responsive mobile livree : 12b7b87 + d212522 + revue design 667ceed)
  D8   Voir-plus contextuels (sous-boites → listes pre-filtrees) BAS 2-3 jours A FAIRE — inscrit 2026-08-03 (retour usage Genre Detail) ; D8.b livre 2026-08-04 avec la refonte Genre Detail (3574e1d)
  D9   Fluidite de navigation (cache vues + skeletons + prefetch) MOYEN 2-3 jours A FAIRE — inscrit 2026-08-07 (delai percu a chaque nav : refetch de zero, pas de KeepAlive)
+ AV1  Quick wins audit 2026-08              HAUT        1-2 jours    A FAIRE — ~22 items S arbitres (Q1) : fuite Artist Detail M1, admin auto-classify + DLQ, buckets rate-limit (radar/feed, preview-url, similar, sets/search), lissage fetchUpTo, bump MinIO 3G (Q7), tie-breaks, like_escape, canal alerte backup
+ AV2  Dependances backend & gate CI         HAUT        1-2 jours    A FAIRE — ordre imperatif (Q2) : jose 3.4 + multipart, puis fastapi+starlette, PUIS gate pip-audit bloquant ; + pins images restants
+ AV3  Perf data & OOM (cache + index + drops) MOYEN     2 jours      A FAIRE — cache Redis /similar (Q3a), migration groupee : index Explorer/radar_trends/backlog BPM + drops colonnes mortes (Q5) + retention 13 mois ; I/O sync x5
+ AV4  Robustesse workers v2                 MOYEN       2 jours      A FAIRE — BeatportHTTPError (outage != attempt), purge autoretry x8-11, locks x6, CrawlLogger running, routing enrich
+ AV5  Dette frontend — table partagee       MOYEN       2-3 jours    A FAIRE — extraction table Explorer/Radar/Sets/Watchlist (~2100 lignes dupliquees), helper opinion, split HubView ; verif CDP obligatoire (Q6) ; gel des evolutions de tables d'ici la
+ AV6  Backend archi & suppressions          BAS         1-2 jours    A FAIRE — de-engraissement routers (sets/admin/radar), suppressions Q4 : surface Radar v1, GET /watchlist/, composants morts
+ AV7  Doc & tests (cloture serie AV)        BAS         1 jour       A FAIRE — lot doc CLAUDE.md (9 divergences), /schema_doc post-migration AV3, tests auth callback + upsert RB, catalog_visible external search, LEDGER solde
+ N4   Majeurs frontend (vite 8, pinia 4...) BAS         2-3 jours    A FAIRE — inscrit 2026-08-09 (audit Q8) : vite 5→8 + vitest 3→4 ensemble, puis pinia 2→4 + vue-router 4→5 ; APRES AV5 (surface reduite) ; re-validation 18 vues + verif CDP
+ C10  Pool similarite precalcule (nightly)  BAS         3-5 jours    CONDITIONNEL — inscrit 2026-08-09 (audit Q3b) : le « fix durable » du pool par requete ; declenche SEULEMENT si les mesures post-AV3 (RSS, latence /similar) restent insuffisantes
 ```
 
 ### Chantiers termines (reference)
@@ -1692,6 +1701,227 @@ Idee initiale ECARTEE (arbitrage 2026-08-07) : « precharger les 100 premieres l
 
 ---
 
+## Serie AV — audit global 2026-08
+
+> Issue de l'audit `docs/audits/2026-08/` (68 findings uniques : 0 critique, 8 hautes toutes contre-verifiees), arbitree le 2026-08-09 dans `docs/audits/2026-08/DECISIONS.md` (Q1-Q8). Suivi inter-audits : `docs/audits/LEDGER.md` (chaque finding EN ROADMAP pointe son lot AVn).
+> **Sequencement : AV1 -> AV2 -> AV3 ∥ AV4 (zones disjointes, parallelisables) -> AV5 -> AV6 -> AV7.**
+> Contraintes transverses : AV2 a un ordre INTERNE imperatif (upgrades AVANT gate bloquant) ; AV5 impose un gel des evolutions fonctionnelles des tables listes tant que l'extraction n'est pas faite.
+
+## AV1 — Quick wins audit 2026-08
+
+**Priorite : HAUT**
+**Estimation : 1-2 jours**
+**Depend de : rien**
+**Statut : A FAIRE**
+
+### Taches
+
+- [ ] M1 (A1-01) : filtrer `lib_sub` par `user_id` dans `artist_service.get_detail` (fuite inter-users rb_bpm/rb_key/rb_mytags + in_lib union + doublons) + test jumeau 2 users (pattern test_scope_visibility)
+- [ ] A3-01 + A3-06 : reparer le dispatch `genre_only` du bouton admin auto-classify (contrat routeur↔tache teste) + supprimer le garde `retries < max_retries` du hook DLQ (echec provoque en staging → carte admin monte a 1)
+- [ ] A6-02 + M5 (A1-07) : buckets `RATE_LIMITS` pour `/api/radar/feed`, `/api/sets/search`, preview-url, `/similar` (tracks + sets) — respecter l'ordre d'insertion des prefixes
+- [ ] A4-02 : limiter la concurrence de `fetchUpTo` (12 → 2-3) dans `useWindowedList` ET `usePaginatedList`
+- [ ] A1-03 : invalidation du cache reco depuis `catalog_service.update_avis` (ou dans `sync_track_opinion`)
+- [ ] A1-04 : commit manquant de `fetch_playlist_artworks` (has_artwork persiste)
+- [ ] A1-06 : tie-break id sur les 4 tris de Genre Detail (la part `list_followed` tombe avec AV6)
+- [ ] A4-03 : facette liked/disliked GenresView — charger toutes les pages avant le filtre client
+- [ ] A5-02 : canal d'alerte backup (push sur echec du freshness check) + logrotate `/var/log/diggy-*.log` + `--quiet` sur le mirror
+- [ ] A5-03 (Q7) : MinIO cap 2G→3G + GOMEMLIMIT 2700MiB + commentaire compose corrige
+- [ ] A6-06 : `like_escape` sur les 6-8 sites LIKE restants (catalog/radar/artist/genre/sets)
+- [ ] A6-09 : `Depends(get_current_user)` sur `GET /watchlist/{id}/crawl-status`
+- [ ] A4-08 : `onScopeDispose(clearTimeout)` dans useUrlSync + useFilterState
+- [ ] A4-09 : echec preview non-503 en mode file → `playNext()` borne au lieu de `close()`
+- [ ] 2026-07/A1-11 : garde `is_virtual` sur le delete parent de `detach_set`
+- [ ] A1-11 : logger les 3 excepts muets Deezer admin
+- [ ] Suppressions simples (Q4) : `TrackIDClient.get_styles`, `DEFAULT_ANALYSIS_BPM_BATCH_SIZE` (ou reference beat), `workers/db.get_session`
+- [ ] A7-03 : 3 lignes manquantes au triage `server/api/scripts/README.md` (dedup_catalog, reverify_platform_ids, dedup_artists_deezer)
+- [ ] A5-07 volet 1 : `npm audit fix` (brace-expansion, nanoid, postcss — sans breaking)
+
+### Definition of Done
+
+```bash
+# Test 2-users M1 vert ; guest sur Artist Detail : in_lib=False partout, bpm catalogue
+# Echec de tache provoque → carte DLQ admin = 1 ; bouton auto-classify lance un run reel
+# Salve sur /api/radar/feed et preview-url → 429 ; fetchUpTo max 3 requetes simultanees
+# pytest + vitest + ruff + eslint verts
+```
+
+---
+
+## AV2 — Dependances backend & gate CI
+
+**Priorite : HAUT**
+**Estimation : 1-2 jours**
+**Depend de : AV1 (rien de bloquant, mais la serie s'execute dans l'ordre)**
+**Statut : A FAIRE — ORDRE INTERNE IMPERATIF (Q2) : (1) upgrades, (2) fastapi+starlette, (3) gate**
+
+### Taches
+
+- [ ] A6-03 (1) : python-jose 3.3.0→3.4.0 + python-multipart 0.0.9→≥0.0.18 (drop-in, tests verts)
+- [ ] A6-03 (2) : lot fastapi + starlette (≥0.47/1.x selon compat) + requests/curl-cffi/python-dotenv — filet = suite API complete, verifier login OAuth en prod apres deploy
+- [ ] A5-01 (3) : gate pip-audit BLOQUANT (`needs:` du job deploy + retrait `continue-on-error`) ; avis sans fix (PYSEC-2025-185 si encore la) via `--ignore-vuln` explicites commentes
+- [ ] A5-06 : pin `nginx:1.29-alpine` (compose + frontend Dockerfile)
+
+### Definition of Done
+
+```bash
+# pip-audit vert en CI (ignore-vuln documentes) ET bloquant pour deploy
+# python -c "from jose import jwt" + login Google verifie en prod
+# 1655+ tests verts sur les nouvelles versions
+```
+
+---
+
+## AV3 — Perf data & OOM (cache + index + drops)
+
+**Priorite : MOYEN**
+**Estimation : 2 jours**
+**Depend de : AV1 (buckets poses). Parallelisable avec AV4 (zones disjointes).**
+**Statut : A FAIRE — perimetre Q3(a) ; le pool precalcule (C10) reste CONDITIONNEL hors serie**
+
+### Taches
+
+- [ ] A1-02 : cache Redis resultat sur `get_similar_tracks` par (seed_id, viewer) TTL 6h — pattern similar_sets existant ; ne PAS toucher au bareme C2
+- [ ] Migration groupee : A2-01 (index composite `created_at DESC NULLS LAST, id DESC` en remplacement de ix_catalog_created_at), A2-02 (`ix_radar_trends_family_rank` + `ix_radar_trends_rank_global`), A2-07 (index partiel backlog BPM), + drops Q5 : `catalog.needs_reconciliation`, `catalog.status`, `catalog.origin`, `sets.platform` — declares aux modeles
+- [ ] A2-06 (Q5) : purge >13 mois de `metric_snapshots` + `crawl_logs` dans `snapshot_backlogs`
+- [ ] A2-09 : tie-break `DJSet.id.desc()` sur /api/sets/ (la denormalisation track_count reste differee)
+- [ ] 2026-07/A1-04 : I/O sync restante ×5 (httpx async pour les 2 appels Deezer, run_in_threadpool pour BeatportClient/boucle artworks/upload import)
+- [ ] `/schema_doc` APRES la migration (MANUAL block purge des lignes needs_reconciliation/status)
+
+### Definition of Done
+
+```bash
+# EXPLAIN prod du tri Explorer par defaut = Index Scan (plus de Sort 256k)
+# /similar cache-hit < 100 ms ; RSS api stable sous salve de 3 fetchUpTo
+# Colonnes droppees absentes du schema doc regenere ; retention active (lignes >13 mois purgees)
+```
+
+---
+
+## AV4 — Robustesse workers v2
+
+**Priorite : MOYEN**
+**Estimation : 2 jours**
+**Depend de : rien (parallelisable avec AV3, zones disjointes)**
+**Statut : A FAIRE**
+
+### Taches
+
+- [ ] M2 (A3-02) : `BeatportHTTPError` typee sur non-200 dans les 3 helpers async → catch `errors += 1` SANS `_mark_searched` (miroir exact du fix Deezer ; outage ≠ attempt)
+- [ ] A3-03 : jumeau `enrich_catalog` Deezer — retirer autoretry, catch SoftTimeLimitExceeded + flush partiel, lock `lock:enrich_deezer` TTL ≥ 9000 (clot la fiche memoire enrich-beatport-autoretry)
+- [ ] M3 (A3-04) : purge `autoretry_for=(Exception,)` des taches a soft-limit restantes (reclassify_genres_chunk 16200s et backfill_multi_artists en priorite) ; retry conserve UNIQUEMENT sur exceptions typees des taches courtes idempotentes
+- [ ] A8-03 : locks SET NX EX sur les 6 taches longues restantes (sync_artists, backfill_multi_artists, crawl_trackid_latest, link_set_artists, reclassify_genres_chunk + enrich_catalog via A3-03)
+- [ ] A3-05 : clause-guard `except SoftTimeLimitExceeded: raise` dans les boucles par-item de recrawl_incomplete_sets + crawl_trackid_latest (pattern backfill) + catch niveau tache
+- [ ] A3-07 : CrawlLogger — commit de la ligne `running` au `__enter__`, `__exit__` = UPDATE (transactions courtes, runs tues visibles)
+- [ ] A3-08 : routes `enrich` pour sync_artists, backfill_multi_artists, reclassify_genres_chunk
+- [ ] A3-09 : merge_catalog_entries reporte bpm_analyzed_at/bpm_analysis_attempts
+- [ ] A3-12 : backfill_multi_artists — commit hors gather (chunks pattern fetch_artist_artworks)
+
+### Definition of Done
+
+```bash
+# 0 autoretry_for=(Exception,) sur tache a soft-limit ; 16/16 taches longues lockees
+# Vague de 403 Beatport simulee → errors comptes, AUCUN beatport_searched_at stampe
+# Run tue (SIGKILL) → ligne crawl_logs 'running' orpheline visible dans l'admin
+```
+
+---
+
+## AV5 — Dette frontend : table partagee + Hub
+
+**Priorite : MOYEN**
+**Estimation : 2-3 jours**
+**Depend de : AV2 (serie) ; GEL des evolutions fonctionnelles des tables listes d'ici la (Q6)**
+**Statut : A FAIRE**
+
+### Taches
+
+- [ ] A4-01 : extraire la table virtualisee partagee Explorer/Radar (thead trie + rows + paliers container-query + wiring windowing/scroll-restore) — Radar n'ajoute que ses 2 ScoreRing et son tri defaut
+- [ ] A4-04 : etendre l'extraction a Sets/Watchlist (ou a minima blocs verbatim : thead, socle CSS, modal add)
+- [ ] A4-05 : helper `useOpinionOneShot` partage ×3 + traitement du plafond silencieux 100/200 (« N premiers affiches » si total > items)
+- [ ] A4-06 : split HubView — sections lazy sous le fold (defineAsyncComponent), mesure vite build avant/apres (recurrence 2026-07/A4-09, cliquet verifie 211,6 kB)
+- [ ] M6 (A4-10) : bloc opacity de table.css → `@media (hover: none)` (bouge avec l'extraction)
+
+### Definition of Done
+
+```bash
+# Verif RENDU CDP (pipeline verif-visuelle-headless) sur Explorer/Radar/Sets/Playlists : zero diff visuel
+# 1 seule implementation de la table triable virtualisee ; bundle principal < 150 kB (mesure)
+# vitest verts (suites des 4 vues + nouveaux composants)
+```
+
+---
+
+## AV6 — Backend archi & suppressions
+
+**Priorite : BAS**
+**Estimation : 1-2 jours**
+**Depend de : AV4 (admin.py touche par A3-01) ; decisions Q4 actees**
+**Statut : A FAIRE**
+
+### Taches
+
+- [ ] A1-05 (Q4) : supprimer la surface Radar v1 — GET /radar/full, PATCH /{id}/state, PATCH /state/batch, DELETE /{id} + list_full/update_state/batch_update_state/add_track + leurs tests (UserRadarState et opinion_sync INTACTS)
+- [ ] 2026-07/A1-07 (Q4) : supprimer `GET /api/watchlist/` + reecrire les tests follow sur /browse
+- [ ] A1-08 : extraire `set_service.list_sets` (dominance genre reutilisable), `monitoring_service.get_backlog_counters`, `radar_service.list_trends` — mouvement mecanique, zero changement de comportement
+- [ ] 2026-07/A1-10 : deplacer attach/detach dedup sets dans `set_dedup_service` (router = 404/audit/commit)
+- [ ] A4-07 (Q4) : supprimer PageHero.vue, RingPct.vue, ScorePill.vue/InLibBadge.vue + leurs sections DesignSystemView
+
+### Definition of Done
+
+```bash
+# Routers sets/admin/radar delegent aux services ; grep des endpoints supprimes = 0 hit front
+# pytest + vitest verts ; compteur composants CLAUDE.md mis a jour en AV7
+```
+
+---
+
+## AV7 — Doc & tests (cloture serie AV)
+
+**Priorite : BAS**
+**Estimation : 1 jour**
+**Depend de : AV3 (migration faite → /schema_doc), AV6 (suppressions actees → compteurs)**
+**Statut : A FAIRE**
+
+### Taches
+
+- [ ] Lot doc CLAUDE.md (9 divergences) : A7-01 (compteurs tasks/composables/classes/tests), A5-04 (image ~850 Mo, pas 312), A5-05 (localhost:8080 vs Q6), A8-01 (invariant #1 re-scope : relocate_tracks = exception locale assumee), A8-05 (uq_artists_deezer_id porte par 0034), A1-09 (primitives reelles de la reco), A3-11 (commentaires backfill 1000 + visibility_timeout), A7-04 (chemins server/api/scripts/)
+- [ ] A6-05 : `catalog_visible` dans `external_search_service._match_catalog` + documenter l'exception d'integrite du lookup dedup d'import_external
+- [ ] A6-07 (2026-07/A6-14) : 3 tests branches google_callback (google_failed, collision username, picture update)
+- [ ] A6-08 (2026-07/A6-08) : test PG-only de l'upsert import RB (import → re-import → compteurs corrects)
+- [ ] LEDGER : solder les lignes AV livrees (statut CORRIGE + commit) — cloture de la serie
+
+### Definition of Done
+
+```bash
+# CLAUDE.md exact (compteurs re-verifies mecaniquement) ; schema doc regenere sans drift
+# Upsert PG teste en CI ; branches callback couvertes
+# docs/audits/LEDGER.md : plus aucune ligne EN ROADMAP sur la serie AV
+```
+
+---
+
+## N4 — Majeurs frontend (vite 8, pinia 4, vue-router 5, vitest 4)
+
+**Priorite : BAS**
+**Estimation : 2-3 jours**
+**Depend de : AV5 (l'extraction de la table partagee reduit la surface a re-valider)**
+**Statut : A FAIRE — inscrit 2026-08-09 (audit 2026-08, decision Q8). Le retard s'accumule (4 majeurs) et le saut grossit a chaque cycle ; pinia 2→4 et vue-router 4→5 touchent du code applicatif.**
+
+- [ ] Lot 1 : vite 5→8 + vitest 3→4 + @vitejs/plugin-vue 6 (ensemble — ferme aussi la vuln moderate esbuild du dev-server)
+- [ ] Lot 2 : pinia 2→4, puis vue-router 4→5
+- [ ] Re-validation des 18 vues + verif CDP ; `npm audit` = 0 vuln attendu en sortie
+
+---
+
+## C10 — Pool similarite precalcule (nightly)
+
+**Priorite : BAS**
+**Estimation : 3-5 jours**
+**Depend de : AV3 (palliatifs Q3a livres + mesures)**
+**Statut : CONDITIONNEL — inscrit 2026-08-09 (audit 2026-08, decision Q3b). NE SE DECLENCHE QUE si les mesures post-AV3 (RSS par requete, latence /similar et /radar/feed) restent insuffisantes. Le « fix durable » deja note dans RecommendationConfig : pool de candidats construit 1×/nuit au lieu d'une materialisation ~256k lignes par requete. Ne PAS toucher au bareme C2 (invariant #5 : jamais de LLM dans le scoring).**
+
+---
+
 ## Reliquats hors chantiers (opportunistes)
 
 | Point | Quand |
@@ -1759,6 +1989,9 @@ Idee initiale ECARTEE (arbitrage 2026-08-07) : « precharger les 100 premieres l
 | D4 | Pages Detail (Track/Playlist, binome Claude Design) | Au choix (standalone) | D5 (TERMINE) |
 | D6 | Refonte UI : listes + Radar + transverses | Au choix, apres/avec la fin de D4 | D4 (composants partages) ; fiches figees docs/refonte-ui/ |
 | N1 | Nettoyage residus (auth legacy + TagsView morte) | Opportuniste | Rien |
+| AV1-AV7 | Serie audit 2026-08 (quick wins → doc) | AV1 immediat, puis AV2 → AV3 ∥ AV4 → AV5 → AV6 → AV7 | docs/audits/2026-08/DECISIONS.md (Q1-Q8) |
+| N4 | Majeurs frontend (vite 8, pinia 4, vue-router 5, vitest 4) | Apres AV5 | AV5 (surface reduite) |
+| C10 | Pool similarite precalcule nightly | CONDITIONNEL — si mesures post-AV3 insuffisantes | AV3 (palliatifs + mesures) |
 
 Notes :
 - La velocite sur les ajouts (C1.b) est calculable des maintenant depuis `radar_tracks`. Seul le signal de retrait (`removed_at`) necessite d'accumuler de l'historique a partir de C0.1.
