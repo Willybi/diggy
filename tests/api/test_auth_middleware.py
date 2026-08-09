@@ -166,3 +166,64 @@ class TestOptionsPreflightAllowed:
         # FastAPI returns 405 for OPTIONS on routes without explicit OPTIONS handler,
         # but the middleware should NOT block it with 401
         assert r.status_code != 401
+
+    async def test_cors_preflight_returns_headers(self, mw_client):
+        # A real preflight (Origin + Access-Control-Request-Method) is answered by
+        # CORSMiddleware with 200 + the allow-origin header, ahead of the JWT
+        # middleware — proves the outermost CORS layer still short-circuits under
+        # the Starlette bump.
+        client, _ = mw_client
+        r = await client.options(
+            "/api/collections/",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert r.status_code == 200
+        assert r.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+class TestErrorPropagation:
+    """The app's catch-all ``Exception`` handler must still convert an unhandled
+    error into the JSON 500 *through* the two BaseHTTPMiddleware layers (JWTAuth
+    + RateLimit). BaseHTTPMiddleware is the most-rewritten Starlette API on a
+    major bump, and the CI suite normally runs with the middleware DISABLED — so
+    this is the only place the full stack + ServerErrorMiddleware are exercised
+    end to end. Both the 401 short-circuit and the 500 pass-through are asserted
+    on the same protected route to cover both directions of the stack.
+    """
+
+    async def test_401_and_catch_all_500_through_full_stack(self, mw_client):
+        _, user = mw_client
+        token = create_token(user.id)
+
+        async def _boom():
+            raise RuntimeError("boom through the middleware stack")
+
+        # Protected path (not in the public GET allowlist): a JWT is required.
+        app.add_api_route("/api/_mw_boom", _boom, methods=["GET"])
+        try:
+            # raise_app_exceptions=False: ServerErrorMiddleware re-raises after
+            # sending the 500, so we must let httpx swallow it to read the body.
+            transport = ASGITransport(app=app, raise_app_exceptions=False)
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                # (1) No token -> JWTAuthMiddleware short-circuits before the route.
+                r401 = await c.get("/api/_mw_boom")
+                assert r401.status_code == 401
+                assert r401.json()["detail"] == "Not authenticated"
+
+                # (2) Valid token -> traverses JWTAuth + RateLimit, the route
+                #     raises, ServerErrorMiddleware returns the app JSON 500
+                #     (not a bare Starlette 500 page).
+                r500 = await c.get(
+                    "/api/_mw_boom", headers={"Authorization": f"Bearer {token}"}
+                )
+                assert r500.status_code == 500
+                assert r500.json() == {"detail": "Internal server error"}
+        finally:
+            app.router.routes = [
+                rt
+                for rt in app.router.routes
+                if getattr(rt, "path", None) != "/api/_mw_boom"
+            ]

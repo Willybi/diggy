@@ -12,7 +12,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine AS production
+FROM nginx:1.29-alpine AS production
 RUN apk update && apk upgrade --no-cache
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.prod.conf /etc/nginx/conf.d/default.conf
