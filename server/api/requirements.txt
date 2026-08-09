@@ -2,6 +2,11 @@ fastapi==0.141.1
 # starlette is fastapi's ASGI core (transitive) — pinned explicitly so pip-audit
 # resolves the coupled fastapi/starlette pair deterministically. Bump the two together.
 starlette==1.6.0
+# jinja2: since starlette 1.x, `starlette.templating` raises ImportError AT IMPORT
+# when jinja2 is absent, and sentry-sdk's StarletteIntegration imports it
+# unconditionally at init — so it is now a hard runtime dep even though Diggy uses
+# no server-side templates. (Broke prod on the AV2 starlette 0.38→1.6 bump.)
+jinja2==3.1.6
 uvicorn[standard]==0.32.0
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
