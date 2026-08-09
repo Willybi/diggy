@@ -261,6 +261,7 @@ fichier constaté à ~22 Mo sans rotation). Poser une entrée logrotate :
 ```
 # /etc/logrotate.d/diggy
 /var/log/diggy-*.log {
+    su root root
     weekly
     rotate 8
     compress
@@ -272,8 +273,14 @@ fichier constaté à ~22 Mo sans rotation). Poser une entrée logrotate :
 ```
 
 `copytruncate` évite d'avoir à signaler un process (les logs sont écrits par des
-`docker compose run --rm` éphémères, il n'y a pas de démon à relancer). Vérifier
-la config sans rien tourner : `logrotate -d /etc/logrotate.d/diggy`.
+`docker compose run --rm` éphémères, il n'y a pas de démon à relancer). `su root root`
+est **obligatoire** : `/var/log` est `root:syslog` avec le bit group-write (défaut
+Ubuntu pour rsyslog), ce que logrotate refuse par sécurité sans directive `su`
+explicite (« parent directory has insecure permissions »). Ne PAS `chmod` `/var/log`
+(casserait rsyslog) ; les fichiers `diggy-*.log` sont `root:root`, donc `su root root`
+convient. Vérifier la config sans rien tourner : `logrotate -d /etc/logrotate.d/diggy`
+(doit ne plus afficher d'erreur), puis forcer une rotation de test :
+`logrotate -f /etc/logrotate.d/diggy`.
 
 ## Snapshots Hostinger
 
