@@ -18,7 +18,7 @@ docs/audits/
     └── DECISIONS.md     # Phase 3 : arbitrages de William (Q1..Qn)
 ```
 
-Le premier audit (2026-07) vit à son chemin historique `docs/audit_2026-07/` et n'est pas déplacé. **Dernier audit complet : `docs/audit_2026-07/`** (mettre à jour cette ligne à chaque audit).
+Le premier audit (2026-07) vit à son chemin historique `docs/audit_2026-07/` et n'est pas déplacé. **Dernier audit complet : `docs/audits/2026-08/`** (mettre à jour cette ligne à chaque audit).
 
 ## Pipeline (résumé — le détail est dans `.claude/commands/audit_global.md`)
 
