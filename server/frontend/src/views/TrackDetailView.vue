@@ -143,6 +143,12 @@
             </div>
           </div>
 
+          <!-- Preview fallback — official Beatport embed when no Deezer preview exists -->
+          <BeatportEmbed
+            v-if="!track.has_preview && track.beatport_id"
+            :beatport-id="track.beatport_id"
+          />
+
           <!-- External links + label -->
           <div v-if="track.beatport_id || track.deezer_id || track.label" class="hero-links">
             <PlatformLink v-if="track.beatport_id" platform="beatport" :href="beatportUrl" />
@@ -351,6 +357,7 @@ import ScoreRing from '../components/ScoreRing.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
 import HeroPlayer from '../components/HeroPlayer.vue'
+import BeatportEmbed from '../components/BeatportEmbed.vue'
 import AdminCard from '../components/AdminCard.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'

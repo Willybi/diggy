@@ -243,6 +243,22 @@ describe('TrackDetailView', () => {
     expect(wrapper.find('.hero-label-name').text()).toBe('mau5trap')
   })
 
+  it('renders the Beatport embed fallback only without Deezer preview AND with a beatport_id', async () => {
+    // Deezer preview present → native player untouched, no iframe (even with a beatport_id)
+    let wrapper = await mountView(makeTrack({ beatport_id: 111 }))
+    expect(wrapper.find('.bp-embed').exists()).toBe(false)
+
+    // No preview + beatport_id → embed block with its Beatport link
+    wrapper = await mountView(makeTrack({ has_preview: false, beatport_id: 111 }))
+    const embed = wrapper.find('.bp-embed')
+    expect(embed.exists()).toBe(true)
+    expect(embed.find('.bp-link').attributes('href')).toBe('https://www.beatport.com/track/-/111')
+
+    // No preview, no beatport_id → no audio block at all
+    wrapper = await mountView(makeTrack({ has_preview: false }))
+    expect(wrapper.find('.bp-embed').exists()).toBe(false)
+  })
+
   it('shows the not-found state with a return button', async () => {
     const wrapper = await mountView(null)
     expect(wrapper.find('.state--empty').text()).toContain('Track introuvable')
