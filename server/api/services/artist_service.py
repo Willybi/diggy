@@ -5,6 +5,7 @@ Beatport reset/enrich.
 Services raise LookupError (404) or ValueError (400/409), never HTTPException.
 """
 
+import logging
 from collections import defaultdict
 
 from sqlalchemy import func, insert, literal, or_, select, text, update
@@ -17,6 +18,8 @@ from services.genre_service import (
     ensure_pillar_cache,
     genre_pillar,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str) -> None:
@@ -134,8 +137,13 @@ async def list_artists(
         base_query = base_query.where(Artist.id.in_(id_list))
         id_filter_query = id_filter_query.where(Artist.id.in_(id_list))
     if q:
-        base_query = base_query.where(Artist.name.ilike(f"%{q}%"))
-        id_filter_query = id_filter_query.where(Artist.name.ilike(f"%{q}%"))
+        from utils import like_escape
+
+        q_pattern = f"%{like_escape(q)}%"
+        base_query = base_query.where(Artist.name.ilike(q_pattern, escape="\\"))
+        id_filter_query = id_filter_query.where(
+            Artist.name.ilike(q_pattern, escape="\\")
+        )
     if no_deezer:
         # Only unlinked artists still ATTACHED to something (catalog or set).
         # Fully orphaned rows (residue of splits/merges/re-imports whose links
@@ -316,12 +324,22 @@ async def get_detail(
     if not artist:
         raise LookupError("Artist not found")
 
-    lib_sub = select(
-        UserTrack.catalog_id,
-        UserTrack.rb_mytags.label("tags"),
-        UserTrack.rb_bpm.label("bpm"),
-        UserTrack.rb_key.label("key"),
-    ).subquery()
+    # Scope the library subquery to THIS viewer (same pattern as list_artists):
+    # without it the outerjoin unions every user's user_tracks, leaking another
+    # user's private Rekordbox rb_bpm/rb_key/rb_mytags (served as
+    # bpm_source='rekordbox') and their library membership, and duplicating a
+    # track held by 2+ users. Guests (user_id is None → no matching row) get
+    # in_lib=False everywhere and fall back to catalog values.
+    lib_sub = (
+        select(
+            UserTrack.catalog_id,
+            UserTrack.rb_mytags.label("tags"),
+            UserTrack.rb_bpm.label("bpm"),
+            UserTrack.rb_key.label("key"),
+        )
+        .where(UserTrack.user_id == user_id)
+        .subquery()
+    )
 
     cat_result = await db.execute(
         select(
@@ -553,7 +571,12 @@ async def link_to_deezer(
         deezer_name = data.get("name")
         pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
     except Exception:
-        pass
+        logger.warning(
+            "Deezer fetch failed while linking artist %s to deezer_id %s",
+            artist_id,
+            deezer_id,
+            exc_info=True,
+        )
 
     # Check if another artist already owns this deezer_id → merge
     existing_result = await db.execute(

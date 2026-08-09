@@ -176,6 +176,7 @@ async def list_catalog(
     )
     from schemas import ArtistRef, CatalogEntryOut, CatalogList, GenreRef
     from sqlalchemy import or_
+    from utils import like_escape
 
     radar_count = (
         select(
@@ -273,11 +274,11 @@ async def list_catalog(
     if genre:
         query = query.where(or_(*[CatalogEntry.genres.any(g) for g in genre]))
     if search:
-        pattern = f"%{search}%"
+        pattern = f"%{like_escape(search)}%"
         query = query.where(
-            CatalogEntry.title.ilike(pattern)
-            | CatalogEntry.artist.ilike(pattern)
-            | CatalogEntry.label.ilike(pattern)
+            CatalogEntry.title.ilike(pattern, escape="\\")
+            | CatalogEntry.artist.ilike(pattern, escape="\\")
+            | CatalogEntry.label.ilike(pattern, escape="\\")
         )
     if bpm_min is not None:
         query = query.where(bpm_col >= bpm_min)
@@ -311,7 +312,9 @@ async def list_catalog(
     if year_max is not None:
         query = query.where(CatalogEntry.release_date <= date(year_max, 12, 31))
     if label:
-        query = query.where(CatalogEntry.label.ilike(f"%{label}%"))
+        query = query.where(
+            CatalogEntry.label.ilike(f"%{like_escape(label)}%", escape="\\")
+        )
 
     await ensure_pillar_cache(db)
 
@@ -817,10 +820,11 @@ async def get_preview_url(
 
 
 async def update_avis(
-    db: AsyncSession, catalog_id: int, user_id: int, avis: str | None
+    db: AsyncSession, catalog_id: int, user_id: int, avis: str | None, redis=None
 ) -> dict:
     from models import CatalogEntry, UserTrack
 
+    from services import recommendation_service
     from services.opinion_sync import sync_track_opinion
 
     # Verify catalog entry exists and is visible to this user
@@ -844,6 +848,13 @@ async def update_avis(
 
     await sync_track_opinion(db, user_id, catalog_id, avis)
     await db.commit()
+
+    # Invalidate the reco cache AFTER the commit: doing it before opens a race
+    # where a concurrent GET recomputes and re-caches the pre-commit state for
+    # the whole TTL. Track opinions only (they are the reco seeds).
+    # Best-effort / fail-open (redis None tolerated).
+    await recommendation_service.invalidate_user(redis, user_id)
+
     return {"catalog_id": catalog_id, "avis": avis}
 
 

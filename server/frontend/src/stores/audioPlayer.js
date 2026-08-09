@@ -15,6 +15,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 // of preview-less rows can't fan out endless loadMore calls.
 const NEXT_LOAD_MORE_MAX = 5
 
+// In a queue, a track whose preview is marked available but dies at fetch time
+// (404, expired Deezer CDN url) should advance to the next track rather than
+// close the session. Bounded by consecutive dead loads so an entirely-dead
+// queue can't loop load→fail→advance forever; a successful load resets it.
+const DEAD_PREVIEW_MAX = 5
+
 export const useAudioPlayer = defineStore('audioPlayer', () => {
   // --- reactive state ---
   const track = ref(null) // { id, catalog_id, title, artist, bpm, key, avis } | null
@@ -38,6 +44,8 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
   let audio = null
   let lastGenreTrack = null
   let lastArtistTrack = null
+  // Consecutive failed preview loads while auto-advancing a queue (see load()).
+  let deadPreviewStreak = 0
 
   // --- getters ---
   const visible = computed(() => track.value !== null)
@@ -49,6 +57,14 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
   // --- helpers ---
   function isCurrent(catalogId) {
     return track.value?.catalog_id === catalogId
+  }
+
+  // Fire-and-forget auto-advance that can NEVER leak an unhandled rejection: a
+  // failed auto-advance must degrade quietly, not throw into the void (a stray
+  // rejection would otherwise surface in whatever runs next). Used by the three
+  // fire-and-forget advance points (ended, dead-preview, dislike).
+  function autoAdvance() {
+    return playNext().catch((e) => console.warn('[audioPlayer] auto-advance failed', e))
   }
 
   function ensureAudio() {
@@ -64,7 +80,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
     })
     audio.addEventListener('ended', () => {
       playing.value = false
-      if (source.value) void playNext()
+      if (source.value) void autoAdvance()
     })
     audio.addEventListener('play', () => {
       playing.value = true
@@ -119,7 +135,10 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
         const el = ensureAudio()
         el.src = data.preview_url
         await el.play()
-        if (isCurrent(targetId)) loading.value = false
+        if (isCurrent(targetId)) {
+          loading.value = false
+          deadPreviewStreak = 0 // a real play resets the dead-preview chase
+        }
         return
       } catch (e) {
         if (!isCurrent(targetId)) return // stale attempt (track switched) — ignore
@@ -135,6 +154,15 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
       useToast().show('Preview temporairement indisponible, réessayez.')
     }
     console.warn('[audioPlayer] preview failed:', lastError)
+    // In a queue (source set), one dead preview shouldn't end the session —
+    // advance to the next track. Bounded so an all-dead queue stops instead of
+    // looping load→fail→advance forever. Single-shot (no source) just closes.
+    if (source.value && deadPreviewStreak < DEAD_PREVIEW_MAX) {
+      deadPreviewStreak++
+      void autoAdvance()
+      return
+    }
+    deadPreviewStreak = 0
     close()
   }
 
@@ -240,7 +268,7 @@ export const useAudioPlayer = defineStore('audioPlayer', () => {
       if (track.value?.catalog_id === id) track.value.avis = prev
       source.value?.onAvis?.(id, prev)
     })
-    if (avis === 'disliked' && source.value) void playNext()
+    if (avis === 'disliked' && source.value) void autoAdvance()
     await req
   }
 

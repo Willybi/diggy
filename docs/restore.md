@@ -230,6 +230,51 @@ Dernier test réussi : **2026-07-10** (AU2-L4) — dump chiffré récupéré dep
 Google Drive (offsite) → restauré dans la base jetable `diggy_restore_test` ;
 counts `catalog` / `users` / `alembic_version` identiques à la prod.
 
+## Alerte de fraîcheur & rotation des logs (VPS)
+
+Configuration côté VPS uniquement (hors repo — à poser à la main sur la machine).
+
+### Canal d'alerte (`BACKUP_ALERT_WEBHOOK`)
+
+Le check de fraîcheur (cron 09:00) écrit une ligne `ALERT:` **et** sort en non-zéro
+quand un dump (local ou offsite) est absent ou périmé. Pour que l'alerte atteigne
+un humain plutôt que de finir dans le log cron, renseigner `BACKUP_ALERT_WEBHOOK`
+dans `/root/diggy/.env` (jamais dans git) : à l'échec, le script POST une ligne
+sur cette URL. Provider-agnostique — topic [ntfy.sh](https://ntfy.sh), webhook
+Discord/Slack, ou toute URL acceptant un corps POST. Exemple :
+
+```sh
+# dans /root/diggy/.env sur le VPS
+BACKUP_ALERT_WEBHOOK=https://ntfy.sh/diggy-backup-<suffixe-privé>
+```
+
+Une notif ratée (endpoint down) ne fait jamais échouer le check (`|| true` interne).
+Vérification manuelle : cf. la note de test du lot AV1 (run avec `$PG_DIR` vide +
+webhook jetable → l'alerte part et `exit=1` ; dump frais → `OK`, `exit=0`, aucun POST).
+
+### Rotation des logs (`/etc/logrotate.d/diggy`)
+
+Les crons backup (01:30) et fraîcheur (09:00) redirigent stdout+stderr vers
+`/var/log/diggy-*.log` (le `mc mirror` logge par objet → des centaines de lignes/nuit,
+fichier constaté à ~22 Mo sans rotation). Poser une entrée logrotate :
+
+```
+# /etc/logrotate.d/diggy
+/var/log/diggy-*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+```
+
+`copytruncate` évite d'avoir à signaler un process (les logs sont écrits par des
+`docker compose run --rm` éphémères, il n'y a pas de démon à relancer). Vérifier
+la config sans rien tourner : `logrotate -d /etc/logrotate.d/diggy`.
+
 ## Snapshots Hostinger
 
 Filet de sécurité indépendant du dispositif rclone, géré par Hostinger

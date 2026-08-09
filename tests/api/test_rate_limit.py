@@ -10,7 +10,38 @@ os.environ.setdefault("JWT_SECRET", "test-secret")
 
 import pytest
 import rate_limit
-from rate_limit import _get_real_ip, RATE_LIMITS, RateLimitMiddleware
+from rate_limit import (
+    _get_real_ip,
+    RATE_LIMIT_SUFFIXES,
+    RATE_LIMITS,
+    RateLimitMiddleware,
+)
+
+
+def _is_rate_limited(path):
+    """Run the middleware for ``path`` and report whether a bucket claimed it.
+
+    The middleware only touches Redis (``incr``) once a prefix OR suffix bucket
+    matches; an unmatched path passes straight through. So ``incr.called`` is a
+    faithful probe of the matcher without exposing its internals.
+    """
+    middleware = RateLimitMiddleware(app=MagicMock())
+    mock_r = MagicMock()
+    mock_r.incr.return_value = 1
+    mock_r.ttl.return_value = 60
+
+    request = MagicMock()
+    request.method = "GET"
+    request.url.path = path
+    request.headers = {}
+    request.client.host = "127.0.0.1"
+
+    async def mock_next(req):
+        return MagicMock()
+
+    with patch("rate_limit._get_redis", return_value=mock_r):
+        asyncio.run(middleware.dispatch(request, mock_next))
+    return mock_r.incr.called
 
 
 class TestGetRealIp:
@@ -63,6 +94,38 @@ class TestRateLimitConfig:
         keys = list(RATE_LIMITS)
         assert "/api/admin/artists/search-deezer" in keys
         assert keys.index("/api/admin/artists/search-deezer") < keys.index("/api/admin")
+
+    def test_radar_feed_bucket_defined(self):
+        assert RATE_LIMITS["/api/radar/feed"] == (10, 60)
+
+    def test_sets_search_bucket_defined(self):
+        assert RATE_LIMITS["/api/sets/search"] == (10, 60)
+
+    def test_suffix_buckets_defined(self):
+        assert RATE_LIMIT_SUFFIXES["/preview-url"] == (30, 60)
+        assert RATE_LIMIT_SUFFIXES["/similar"] == (20, 60)
+
+
+class TestSuffixMatching:
+    """The suffix table throttles the costly per-id read endpoints (id in the
+    middle of the path) without touching the list/detail paths."""
+
+    def test_catalog_preview_url_is_throttled(self):
+        assert _is_rate_limited("/api/catalog/123/preview-url")
+
+    def test_catalog_similar_is_throttled(self):
+        assert _is_rate_limited("/api/catalog/123/similar")
+
+    def test_sets_similar_is_throttled(self):
+        assert _is_rate_limited("/api/sets/45/similar")
+
+    def test_catalog_list_is_not_throttled(self):
+        """The Explorer list path must stay unthrottled."""
+        assert not _is_rate_limited("/api/catalog")
+        assert not _is_rate_limited("/api/catalog/")
+
+    def test_catalog_detail_is_not_throttled(self):
+        assert not _is_rate_limited("/api/catalog/123")
 
 
 class TestRateLimitMiddleware:
@@ -248,3 +311,29 @@ class TestRateLimitIntegration:
         for _ in range(20):
             resp = await client.get("/api/health")
             assert resp.status_code != 429
+
+    @pytest.mark.asyncio
+    async def test_radar_feed_429_after_limit(self, auth_client):
+        """Burst /api/radar/feed (JWT valid) beyond its cap → 429 + Retry-After."""
+        cap = RATE_LIMITS["/api/radar/feed"][0]
+        for i in range(cap):
+            resp = await auth_client.get("/api/radar/feed")
+            assert resp.status_code != 429, f"Got 429 on request {i + 1}"
+
+        resp = await auth_client.get("/api/radar/feed")
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
+
+    @pytest.mark.asyncio
+    async def test_preview_url_suffix_429_after_limit_for_guest(self, client):
+        """Burst a per-id preview-url (guest) beyond the suffix cap → 429 +
+        Retry-After. The guard must hold with no auth (public catalog route)."""
+        cap = RATE_LIMIT_SUFFIXES["/preview-url"][0]
+        path = "/api/catalog/1/preview-url"
+        for i in range(cap):
+            resp = await client.get(path)
+            assert resp.status_code != 429, f"Got 429 on request {i + 1}"
+
+        resp = await client.get(path)
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers

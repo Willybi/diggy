@@ -159,12 +159,17 @@ def enrich_catalog(self):
     soft_time_limit=3000,
     time_limit=3300,
 )
-def enrich_catalog_beatport(self, batch_size: int = 0):
+def enrich_catalog_beatport(self, batch_size: int = 0, *, genre_only: bool = False):
     """
     Enrichit les entrées catalog via Beatport (concurrent async scraping).
     Uses 2 concurrent scrapers with Redis caching.
     Single-instance: a Redis lock skips the run if another one is in flight
     (beat run vs admin-triggered run, or broker re-delivery).
+
+    ``genre_only`` (keyword-only, default False, back-compat with the by-name
+    ``send_task`` dispatch from both the beat and admin): when True the run
+    targets catalog rows with NO genre instead of rows missing a beatport_id —
+    backs the admin "auto-classifier" button (A3-01).
     """
     import redis as redis_lib
 
@@ -181,14 +186,14 @@ def enrich_catalog_beatport(self, batch_size: int = 0):
         return {"skipped": "already_running", "holder": holder}
 
     try:
-        return _run_enrich_catalog_beatport(self, batch_size)
+        return _run_enrich_catalog_beatport(self, batch_size, genre_only=genre_only)
     finally:
         # Release only if we still own it (TTL may have expired mid-run)
         if r.get(lock_key) == self.request.id:
             r.delete(lock_key)
 
 
-def _run_enrich_catalog_beatport(task, batch_size: int):
+def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = False):
     from services.image_service import BUCKET_CATALOG, ImageService
     from sqlalchemy.orm import Session
     from workers.db import get_engine
@@ -239,6 +244,7 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
                             source="beatport",
                             budget=effective_budget,
                             now=datetime.now(timezone.utc),
+                            genre_only=genre_only,
                         )
                         progress["total"] = len(entries)
 
@@ -280,6 +286,9 @@ def _run_enrich_catalog_beatport(task, batch_size: int):
 
             result = dict(progress)
             result["soft_limit_hit"] = soft_limit_hit
+            # Recorded in crawl_logs so a genre-classify run is distinguishable
+            # from a normal drain in monitoring (A3-01 observability).
+            result["genre_only"] = genre_only
             clog.set_stats(result)
 
     return result

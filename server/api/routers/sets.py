@@ -35,6 +35,7 @@ from services.opinion_sync import sync_set_opinion
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from utils import like_escape
 
 router = APIRouter(prefix="/sets", tags=["sets"])
 
@@ -169,7 +170,7 @@ async def list_sets(
     )
 
     if q:
-        stmt = stmt.where(DJSet.title.ilike(f"%{q}%"))
+        stmt = stmt.where(DJSet.title.ilike(f"%{like_escape(q)}%", escape="\\"))
 
     ids_parsed = _parse_id_csv(ids)
     if ids_parsed is not None:

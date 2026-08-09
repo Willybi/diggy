@@ -4,16 +4,19 @@ import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mutable holders shared with the hoisted mocks below.
-const { apiMock, authStore, routeState, routerReplace } = vi.hoisted(() => ({
+const { apiMock, authStore, opinionsStore, routeState, routerReplace } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
   // Minimal auth store stand-in: only `user` is read (admin gate on the strip).
   authStore: { user: null },
+  // Minimal opinions store stand-in: only `get(kind, name)` is read (facets).
+  opinionsStore: { get: vi.fn(() => null) },
   routeState: {},
   routerReplace: vi.fn(),
 }))
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 vi.mock('../../stores/auth.js', () => ({ useAuthStore: () => authStore }))
+vi.mock('../../stores/opinions.js', () => ({ useOpinionsStore: () => opinionsStore }))
 vi.mock('vue-router', () => ({
   useRoute: () => routeState.route,
   useRouter: () => ({ push: vi.fn(), replace: routerReplace }),
@@ -77,6 +80,8 @@ describe('GenresView', () => {
     )
     apiMock.get.mockReset()
     apiMock.post.mockReset()
+    opinionsStore.get.mockReset()
+    opinionsStore.get.mockReturnValue(null)
     routerReplace.mockReset()
     routeState.route = reactive({ path: '/genres', query: {} })
     setActivePinia(createPinia())
@@ -155,6 +160,49 @@ describe('GenresView', () => {
 
     expect(lastGenresParams().sort).toBe('tracks')
     expect(wrapper.find('.empty-facet--liked').exists()).toBe(false)
+  })
+
+  it('« Liked » facet pulls every page so a genre liked past the first page still shows', async () => {
+    // Two pages (total 26 > pageSize 24); the liked genre lives on page 2, so the
+    // old page-1-only load would never surface it.
+    const likedGenre = { name: 'DeepFav', pillar: 'house', depth: 0, trackCount: 5, inLibCount: 3 }
+    const page1 = Array.from({ length: 24 }, (_, i) => ({
+      name: `G${i}`,
+      pillar: 'house',
+      depth: 0,
+      trackCount: 100 - i,
+      inLibCount: 0,
+    }))
+    const page2 = [
+      likedGenre,
+      { name: 'G24', pillar: 'house', depth: 0, trackCount: 1, inLibCount: 0 },
+    ]
+    apiMock.get.mockImplementation((url, cfg) => {
+      if (url === '/api/genres') {
+        const offset = cfg?.params?.offset ?? 0
+        return Promise.resolve({
+          data: { total: 26, items: offset === 0 ? page1 : page2, pillarCounts: { house: 26 } },
+        })
+      }
+      if (url === '/api/admin/genres/unclassified-count')
+        return Promise.resolve({ data: { count: 0 } })
+      return Promise.resolve({ data: {} })
+    })
+    opinionsStore.get.mockImplementation((kind, name) =>
+      kind === 'genre' && name === 'DeepFav' ? 'liked' : null,
+    )
+
+    const wrapper = await mountView() // mounts on 'tracks' → page 1 only, sets total
+    await clickSeg(wrapper, 'Liked')
+    await flushPromises()
+
+    // The facet pulled BOTH pages (offset 0 AND 24), not just the first.
+    const offsets = genresCalls().map(([, cfg]) => cfg.params.offset)
+    expect(offsets).toContain(0)
+    expect(offsets).toContain(24)
+
+    // The liked genre from page 2 is rendered despite living past page 1.
+    expect(wrapper.find('.genre-grid').text()).toContain('DeepFav')
   })
 
   it('hides the admin strip for a non-admin viewer and shows it for an admin', async () => {

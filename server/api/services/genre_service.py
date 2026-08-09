@@ -9,6 +9,7 @@ import logging
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from utils import like_escape
 
 log = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ async def list_genres(
         if not family_genres:
             return {"items": [], "total": 0, "pillarCounts": {p: 0 for p in ALL_PILLARS}}
 
-    q_pattern = f"%{q.lower()}%" if q else ""
+    q_pattern = f"%{like_escape(q.lower())}%" if q else ""
 
     stats_result = await db.execute(
         text("""
@@ -209,7 +210,7 @@ async def list_genres(
         CROSS JOIN LATERAL unnest(c.genres) AS g
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
         WHERE (:family_filter = false OR g = ANY(:family_genres))
-          AND (:q_filter = false OR LOWER(g) LIKE :q_pattern)
+          AND (:q_filter = false OR LOWER(g) LIKE :q_pattern ESCAPE '\\')
         GROUP BY g
     """),
         {
@@ -441,7 +442,7 @@ async def list_genre_artists(
         LEFT JOIN user_tracks ut ON ut.catalog_id = c.id AND ut.user_id = :user_id
         WHERE :genre = ANY(c.genres) AND c.artist IS NOT NULL AND c.artist != ''
         GROUP BY a.id, a.name, a.has_artwork
-        ORDER BY track_count DESC, a.name
+        ORDER BY track_count DESC, a.name, a.id DESC
         LIMIT :limit OFFSET :offset
     """),
         {"genre": genre, "user_id": user_id, "limit": limit, "offset": offset},
@@ -479,7 +480,7 @@ async def list_genre_sets(db: AsyncSession, name: str, limit: int, offset: int) 
         ) total_sub
         WHERE s.parent_set_id IS NULL
         GROUP BY s.id, s.title, s.played_date, s.has_artwork, total_sub.total_tracks
-        ORDER BY genre_track_count DESC, s.played_date DESC NULLS LAST
+        ORDER BY genre_track_count DESC, s.played_date DESC NULLS LAST, s.id DESC
         LIMIT :limit OFFSET :offset
     """),
         {"genre": genre, "limit": limit, "offset": offset},
@@ -513,7 +514,7 @@ async def list_genre_playlists(db: AsyncSession, name: str, limit: int, offset: 
         JOIN radar_tracks rt ON rt.watched_entity_id = we.id
         JOIN catalog c ON c.id = rt.catalog_id AND :genre = ANY(c.genres)
         GROUP BY we.id, we.title, we.source, we.has_artwork, we.owner
-        ORDER BY genre_track_count DESC
+        ORDER BY genre_track_count DESC, we.id DESC
         LIMIT :limit OFFSET :offset
     """),
         {"genre": genre, "limit": limit, "offset": offset},
@@ -549,18 +550,21 @@ async def list_genre_tracks(
     from services.catalog_service import catalog_visible_sql
 
     genre = await resolve_genre(db, name)
+    # Each ORDER BY ends on the PK (c.id DESC) so ex-aequo rows keep a total order
+    # across offset pages (infinite scroll) — without it, ties reshuffle between
+    # two LIMIT/OFFSET pages and rows are duplicated or skipped.
     order_clauses = {
-        "recent": "c.created_at DESC NULLS LAST",
-        "bpm": "c.bpm ASC NULLS LAST",
-        "alpha": "LOWER(c.title) ASC",
+        "recent": "c.created_at DESC NULLS LAST, c.id DESC",
+        "bpm": "c.bpm ASC NULLS LAST, c.id DESC",
+        "alpha": "LOWER(c.title) ASC, c.id DESC",
         "key": (
             "CASE WHEN c.key IS NULL OR c.key = '' THEN 1 ELSE 0 END,"
             " CAST(regexp_replace(c.key, '[^0-9]', '', 'g') AS int),"
-            " SUBSTRING(c.key FROM '[A-Ba-b]$')"
+            " SUBSTRING(c.key FROM '[A-Ba-b]$'), c.id DESC"
         ),
     }
     order_sql = order_clauses[sort]
-    q_pattern = f"%{q.lower()}%" if q else ""
+    q_pattern = f"%{like_escape(q.lower())}%" if q else ""
 
     result = await db.execute(
         text(f"""
@@ -575,7 +579,7 @@ async def list_genre_tracks(
             AND uo.entity_type = 'track' AND uo.entity_key = CAST(c.id AS TEXT)
         WHERE :genre = ANY(c.genres)
           AND {catalog_visible_sql(user_id)}
-          AND (:q_filter = false OR (LOWER(c.title) LIKE :q_pattern OR LOWER(c.artist) LIKE :q_pattern))
+          AND (:q_filter = false OR (LOWER(c.title) LIKE :q_pattern ESCAPE '\\' OR LOWER(c.artist) LIKE :q_pattern ESCAPE '\\'))
           AND (:lib_filter = false OR
                (:in_lib = 1 AND ut.catalog_id IS NOT NULL) OR
                (:in_lib = 0 AND ut.catalog_id IS NULL))

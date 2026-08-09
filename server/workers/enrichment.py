@@ -72,28 +72,45 @@ def _source_columns(source: str) -> tuple:
 
 
 def select_enrich_candidates(
-    session: Session, *, source: str, budget: int, now: datetime
+    session: Session,
+    *,
+    source: str,
+    budget: int,
+    now: datetime,
+    genre_only: bool = False,
 ) -> list:
-    """Pick catalog entries missing a {source}_id to enrich, under a budget.
+    """Pick catalog entries to enrich, under a budget.
 
+    Default (``genre_only=False``): entries missing a ``{source}_id``.
     Tier 1: never searched, newest first (id DESC as freshness proxy).
     Tier 2: 1 attempt, searched more than RESCAN_TIER2_DAYS ago.
     Tier 3: 2 attempts, searched more than RESCAN_TIER3_DAYS ago.
     MAX_SEARCH_ATTEMPTS and beyond: abandoned, never re-selected.
     Retries (tiers 2-3, oldest search first) only consume the budget
     left over by tier 1; total never exceeds ``budget``.
+
+    ``genre_only=True`` (admin "auto-classify", A3-01): target entries with NO
+    genre instead of entries missing a ``{source}_id`` — the id-missing tier
+    guard is relaxed to an empty-genres one, so a row that already carries a
+    beatport_id but no genre is still picked. The re-scan tiering (never / 30d /
+    90d backoff, budget split) is otherwise unchanged. The default path is
+    strictly untouched (same predicate as ``count_enrich_backlog`` mirrors).
     """
     from models import CatalogEntry
+    from models.base import array_is_empty
 
     id_col, searched_col, attempts_col = _source_columns(source)
 
     if budget <= 0:
         return []
 
+    # The tier "base" predicate: id-missing (default) or genre-missing (gated).
+    base = array_is_empty(CatalogEntry.genres) if genre_only else id_col.is_(None)
+
     fresh = (
         session.execute(
             select(CatalogEntry)
-            .where(id_col.is_(None), searched_col.is_(None))
+            .where(base, searched_col.is_(None))
             .order_by(CatalogEntry.id.desc())
             .limit(budget)
         )
@@ -109,7 +126,7 @@ def select_enrich_candidates(
         session.execute(
             select(CatalogEntry)
             .where(
-                id_col.is_(None),
+                base,
                 or_(
                     and_(
                         attempts_col == 1,

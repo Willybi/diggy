@@ -79,6 +79,21 @@ class TestListSets:
         assert data["total"] == 1
         assert data["items"][0]["title"] == "Boiler Room London"
 
+    async def test_filter_escapes_like_wildcards(self, client, db):
+        """A6-06: a literal % in the set-title filter matches literally — 'A%B'
+        must not also match 'AXB' (a raw LIKE wildcard would)."""
+        s1 = DJSet(source="trackid", title="A%B")
+        s2 = DJSet(source="trackid", title="AXB")
+        db.add_all([s1, s2])
+        await db.flush()
+        await _attach_identified_track(db, s1)
+        await _attach_identified_track(db, s2)
+        await db.commit()
+        r = await client.get("/api/sets/", params={"q": "A%B"})
+        assert r.status_code == 200
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"A%B"}
+
     async def test_includes_track_counts(self, client, db):
         s = DJSet(source="trackid", title="Test Set")
         db.add(s)

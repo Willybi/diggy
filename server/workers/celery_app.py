@@ -193,9 +193,15 @@ def on_task_failure(
     **kw,
 ):
     """Route permanently failed tasks to the dead_letter Redis queue."""
-    task = sender
-    # Only route to DLQ after all retries are exhausted
-    if hasattr(task, "request") and task.request.retries < task.max_retries:
+    # `task_failure` only fires on a FINAL failure (a retry emits `task_retry`),
+    # so by the time we get here the failure is terminal by definition. The old
+    # `task.request.retries < task.max_retries` guard wrongly dropped every
+    # modern task WITHOUT autoretry (Celery's default `max_retries=3`, but they
+    # fail with `retries=0 < 3`) → the DLQ was structurally empty (A3-06).
+    # Belt-and-suspenders: still ignore a `Retry` if one ever reaches here.
+    from celery.exceptions import Retry
+
+    if isinstance(exception, Retry):
         return
 
     import json

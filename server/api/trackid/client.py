@@ -95,11 +95,6 @@ class TrackIDClient:
         result = data.get("result", {})
         return result.get("musicTracks", []), result.get("rowCount", 0)
 
-    async def get_styles(self) -> list[dict]:
-        """Get all available styles/genres."""
-        data = await self._get("/styles")
-        return data.get("result", [])
-
     def merge_tracklist(self, detail: dict) -> list[dict]:
         """Merge all detectionProcesses, deduplicate on musicTrackId, sort by startTime."""
         seen = {}

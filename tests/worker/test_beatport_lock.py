@@ -101,7 +101,8 @@ class TestBeatportLock:
         result = catalog_mod.enrich_catalog_beatport(fake_self, 10)
 
         assert result == {"enriched": 42}
-        run.assert_called_once_with(fake_self, 10)
+        # genre_only is forwarded (default False) since the A3-01 signature change
+        run.assert_called_once_with(fake_self, 10, genre_only=False)
         _, kwargs = fake_redis.set.call_args
         assert kwargs.get("nx") is True
         assert kwargs.get("ex") == catalog_mod.BEATPORT_LOCK_TTL
@@ -141,3 +142,23 @@ class TestBeatportLock:
             catalog_mod.BEATPORT_LOCK_TTL
             >= catalog_mod.enrich_catalog_beatport.time_limit
         )
+
+    def test_admin_kwargs_contract_no_typeerror(
+        self, catalog_mod, fake_redis, fake_self, monkeypatch
+    ):
+        """Contract routeur↔tâche (A3-01): POST /admin/genres/auto-classify
+        dispatches send_task(..., kwargs={'genre_only': True}). Calling the task
+        with EXACTLY those kwargs must not raise TypeError — the regression was a
+        silent TypeError on every trigger because the kwarg never existed on the
+        task signature (invisible: 200 'queued', no crawl_logs row, no DLQ)."""
+        run = MagicMock(return_value={"enriched": 0, "genre_only": True})
+        monkeypatch.setattr(catalog_mod, "_run_enrich_catalog_beatport", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-abc"
+
+        # EXACTLY the router's dispatch kwargs (server/api/routers/admin.py)
+        result = catalog_mod.enrich_catalog_beatport(fake_self, **{"genre_only": True})
+
+        assert result == {"enriched": 0, "genre_only": True}
+        # batch_size defaults to 0; genre_only is forwarded to the runner
+        run.assert_called_once_with(fake_self, 0, genre_only=True)

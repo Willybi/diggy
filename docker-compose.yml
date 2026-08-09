@@ -210,22 +210,26 @@ services:
       resources:
         limits:
           cpus: '1'
-          # Raised 1G->2G (2026-07-22): MinIO working-set crept to ~98% of 1G
-          # (Go RSS + object-metadata cache); host has ample free RAM. Takes
-          # effect on the next deploy (up -d recreates the container; a plain
-          # restart does NOT re-read the limit). A weekly `restart minio` cron
-          # (Mon 00:30 Europe/Paris) trims RSS as extra hygiene.
-          memory: 2G
+          # Raised 2G->3G (2026-08-09): at the prior 2G cap (itself raised from
+          # 1G on 2026-07-22) the working-set stayed pinned at ~99.5% of the cap
+          # within ~5 days (Go RSS + object-metadata cache); host has ample free
+          # RAM (~11G), so the tight cap was artificial. Takes effect on the next
+          # deploy (up -d recreates the container; a plain restart does NOT
+          # re-read the limit). A weekly `restart minio` cron (Mon 00:30
+          # Europe/Paris) trims RSS as extra hygiene.
+          memory: 3G
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
-      # Soft heap ceiling BELOW the 2G cgroup limit above: Go's GC targets this
+      # Soft heap ceiling BELOW the 3G cgroup limit above: Go's GC targets this
       # and runs harder as RSS approaches it, so an OOM-kill (hard cgroup limit)
       # becomes cheap GC pressure instead. MinIO RSS creeps up over ~a day (heap
-      # not returned to the OS + the data-usage scanner walking ~190k objects);
-      # this keeps it bounded. 1800MiB leaves ~250MiB for off-heap/goroutines.
-      GOMEMLIMIT: 1800MiB
+      # not returned to the OS + the data-usage scanner walking ~190k objects)
+      # and settles near this ceiling rather than falling back — the weekly
+      # restart, not GOMEMLIMIT, is what actually trims it back down. 2700MiB
+      # leaves ~300MiB for off-heap/goroutines under the 3G cap.
+      GOMEMLIMIT: 2700MiB
     volumes:
       - minio_data:/data
     networks:

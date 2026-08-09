@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAudioPlayer } from '../../stores/audioPlayer.js'
 import { useToast } from '../../stores/toast.js'
@@ -190,6 +191,14 @@ describe('audioPlayer queue / auto-advance', () => {
     api.patch.mockResolvedValue({ data: {} })
   })
 
+  // Neutralise any in-flight fire-and-forget auto-advance chain so it can't
+  // spill promises onto the next test file in the same vitest worker: close()
+  // nulls source/track, making a surviving playNext() return immediately.
+  afterEach(() => {
+    useAudioPlayer().close()
+    vi.useRealTimers()
+  })
+
   it('single-shot play (no source): ended just stops', async () => {
     const player = useAudioPlayer()
     await player.play(t(1))
@@ -317,6 +326,40 @@ describe('audioPlayer queue / auto-advance', () => {
     expect(player.genrePlaying).toBe('techno') // still the same session
     const secondRoll = api.get.mock.calls.filter(([u]) => u.includes('random-track'))[1]
     expect(secondRoll[1].params.exclude).toBe(10)
+  })
+
+  it('list source: a dead preview (404) advances to the next track instead of closing', async () => {
+    const player = useAudioPlayer()
+    const items = [t(1), t(2)]
+    // track 1's preview is dead (404), track 2's is fine.
+    api.get.mockImplementation((url) =>
+      url === '/api/catalog/1/preview-url'
+        ? Promise.reject({ response: { status: 404 } })
+        : Promise.resolve({ data: { preview_url: 'https://x/p.mp3' } }),
+    )
+
+    await player.play(items[0], listOf(items))
+    await vi.waitFor(() => expect(player.track?.catalog_id).toBe(2))
+    await flushPromises() // drain the in-flight advance so nothing outlives the test
+
+    expect(player.canNext).toBe(true) // the session survived the dead preview
+  })
+
+  it('list source: an all-dead queue stops within the dead-preview bound (no infinite loop)', async () => {
+    const player = useAudioPlayer()
+    const items = Array.from({ length: 10 }, (_, i) => t(i + 1))
+    api.get.mockRejectedValue({ response: { status: 404 } }) // every preview dead
+
+    await player.play(items[0], listOf(items))
+    // The bounded advance chain ends by closing the session (track → null).
+    await vi.waitFor(() => expect(player.track).toBeNull()) // gave up cleanly
+    await flushPromises() // drain any residual advance so nothing outlives the test
+
+    const previewCalls = api.get.mock.calls.filter(([u]) => u.includes('preview-url'))
+    // Bounded: 1 initial load + at most DEAD_PREVIEW_MAX (5) advances = ≤ 6,
+    // and strictly fewer than exhausting the whole 10-track list.
+    expect(previewCalls.length).toBeLessThanOrEqual(6)
+    expect(previewCalls.length).toBeLessThan(10)
   })
 
   it('close() drops the source (no ghost auto-advance)', async () => {

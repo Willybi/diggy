@@ -129,6 +129,7 @@ async def crawl_playlist(
 async def crawl_status(
     entry_id: int,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Check crawl status for a playlist via Celery task state."""
     try:

@@ -240,6 +240,119 @@ class TestGetDetail:
         result = await artist_service.get_detail(db, a.id)
         assert result.sets == []
 
+    async def test_lib_data_scoped_to_viewer_no_cross_user_leak(self, db):
+        """Regression A1-01/A6-01: the library subquery MUST be scoped to the
+        viewer. Otherwise Artist Detail unions every user's user_tracks — leaking
+        another user's private Rekordbox bpm/key/mytags (served as
+        bpm_source='rekordbox') and their library membership, and duplicating a
+        track held by several users.
+
+        Each get_detail runs in its OWN session (faithful to the real per-request
+        sessions) — this sidesteps the SQLite pillar-cache rollback expiring ORM
+        objects when several calls share a single reused session.
+        """
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from models import Artist, CatalogArtist, CatalogEntry, User, UserTrack
+
+        def _mk_user(email, gid):
+            return User(
+                email=email, username=email.split("@")[0], google_id=gid,
+                is_active=True, is_admin=False,
+            )
+
+        owner = _mk_user("owner@t.com", "g-owner")
+        other = _mk_user("other@t.com", "g-other")
+        second_holder = _mk_user("second@t.com", "g-second")
+        artist = Artist(name="Shared Act", normalized_name="shared act")
+        db.add_all([owner, other, second_holder, artist])
+        await db.flush()
+
+        entry = CatalogEntry(
+            title="Common Track", artist="Shared Act",
+            normalized_key="shared act|common track", scope="shared",
+            bpm=120.0, key="8A", bpm_source="beatport",
+        )
+        db.add(entry)
+        await db.flush()
+        db.add(CatalogArtist(
+            catalog_id=entry.id, artist_id=artist.id, role="primary", position=0
+        ))
+        # owner AND second_holder both hold the same catalog row, with distinct
+        # private Rekordbox values.
+        db.add(UserTrack(
+            user_id=owner.id, catalog_id=entry.id, source="rekordbox_import",
+            rb_bpm=130.0, rb_key="9A", rb_mytags=["Peak Time"],
+        ))
+        db.add(UserTrack(
+            user_id=second_holder.id, catalog_id=entry.id, source="rekordbox_import",
+            rb_bpm=88.0, rb_key="1A", rb_mytags=["Warmup"],
+        ))
+        await db.commit()
+        artist_id, owner_id, other_id = artist.id, owner.id, other.id
+
+        maker = async_sessionmaker(db.bind, expire_on_commit=False)
+
+        async def detail_for(viewer_id):
+            async with maker() as session:
+                return await artist_service.get_detail(session, artist_id, viewer_id)
+
+        # A viewer who does NOT hold the track and a guest see catalog values
+        # only — never another user's Rekordbox data — and a single row.
+        for viewer_id in (other_id, None):
+            detail = await detail_for(viewer_id)
+            assert len(detail.catalog_tracks) == 1  # no dup despite 2 holders
+            t = detail.catalog_tracks[0]
+            assert t.in_lib is False
+            assert t.bpm == 120.0 and t.key == "8A"
+            assert t.bpm_source == "beatport"  # not the leaked 'rekordbox'
+            assert t.style is None
+            assert detail.stats["nb_lib"] == 0
+
+        # Positive control: the owner still sees THEIR own library row (the fix
+        # scopes, it does not blank), and only theirs (not second_holder's).
+        own = await detail_for(owner_id)
+        assert len(own.catalog_tracks) == 1
+        ot = own.catalog_tracks[0]
+        assert ot.in_lib is True
+        assert ot.bpm == 130.0 and ot.key == "9A"
+        assert ot.bpm_source == "rekordbox"
+        assert ot.style == "Peak Time"
+        assert own.stats["nb_lib"] == 1
+
+
+class TestListArtistsLikeEscape:
+    """A6-06: a literal % / _ in the artist search must match literally, not as
+    a LIKE wildcard. Without like_escape, 'A%B' would also match 'AXB'."""
+
+    @staticmethod
+    async def _seed(db):
+        from models import Artist
+
+        db.add_all([
+            Artist(name="A%B", normalized_name="a%b"),
+            Artist(name="AXB", normalized_name="axb"),
+            Artist(name="A_B", normalized_name="a_b"),
+            Artist(name="AZB", normalized_name="azb"),
+        ])
+        await db.commit()
+
+    async def test_percent_matches_literally(self, db, auth_user):
+        await self._seed(db)
+        res = await artist_service.list_artists(
+            db, auth_user.id, sort="alpha", family=None, q="A%B",
+            no_deezer=False, ids=None, limit=20, offset=0,
+        )
+        assert {i["name"] for i in res["items"]} == {"A%B"}
+
+    async def test_underscore_matches_literally(self, db, auth_user):
+        await self._seed(db)
+        res = await artist_service.list_artists(
+            db, auth_user.id, sort="alpha", family=None, q="A_B",
+            no_deezer=False, ids=None, limit=20, offset=0,
+        )
+        assert {i["name"] for i in res["items"]} == {"A_B"}
+
 
 class TestLinkToDeezer:
     @staticmethod

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { reactive, nextTick } from 'vue'
+import { reactive, nextTick, effectScope } from 'vue'
 import {
   useFilterState,
   serializeValue,
@@ -148,6 +148,25 @@ describe('useFilterState', () => {
     expect(state.bpm).toEqual([60, 200])
     expect(state.q).toBe('')
     expect(router.replace).toHaveBeenLastCalledWith({ query: { tab: 'sets' } })
+  })
+
+  it('clears a pending debounced push on scope disposal (no leak onto the next route)', async () => {
+    const route = reactive({ query: {} })
+    const router = { replace: vi.fn() }
+    const scope = effectScope()
+    let state
+    scope.run(() => {
+      state = useFilterState(criteria, { router, route }).state
+    })
+
+    state.q = 'drum' // arm the 250ms debounced push (text criterion)
+    await nextTick()
+    expect(router.replace).not.toHaveBeenCalled() // still inside the debounce window
+
+    scope.stop() // component unmounts before the timer fires
+    vi.advanceTimersByTime(300) // past debounceMs
+
+    expect(router.replace).not.toHaveBeenCalled() // timer was cleared, no stale write
   })
 
   it('honours per-criterion custom serializers (artists: ids in URL)', async () => {

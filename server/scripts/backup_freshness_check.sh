@@ -6,10 +6,11 @@ set -eu
 #
 # Verifies that the most recent PostgreSQL dump is no older than
 # BACKUP_MAX_AGE_HOURS (default 26h), both in the local backups volume and,
-# when RCLONE_REMOTE is set, on the offsite remote. Prints an "ALERT:" line
-# and exits non-zero when backups are missing or stale, so a cron wrapper can
-# forward the message to its notification channel. The local and offsite
-# checks run independently: either one can trigger the alert.
+# when RCLONE_REMOTE is set, on the offsite remote. Prints an "ALERT:" line and
+# exits non-zero when backups are missing or stale; on failure it also POSTs a
+# one-line alert to BACKUP_ALERT_WEBHOOK when that var is set (see below), so
+# the alert reaches a human instead of only the unwatched cron log. The local
+# and offsite checks run independently: either one can trigger the alert.
 #
 # Expected layout (produced by backup.sh):
 #   /backups/postgres/diggy_YYYYmmdd_HHMMSS.sql.gz[.gpg]      (local)
@@ -20,6 +21,9 @@ set -eu
 #   BACKUP_MAX_AGE_HOURS  staleness threshold in hours (default: 26)
 #   RCLONE_REMOTE         rclone remote holding offsite dumps
 #                         (e.g. gdrive:diggy-backups); unset = local check only
+#   BACKUP_ALERT_WEBHOOK  URL POSTed a one-line message when the check fails
+#                         (ntfy.sh topic, Discord/Slack webhook, any URL taking
+#                         a POST body); unset = no notification (log only)
 #
 # Usage (from host, with docker compose — needs the backups volume mounted):
 #   docker compose run --rm --entrypoint /freshness.sh backup
@@ -103,6 +107,16 @@ else
       fi
     fi
   fi
+fi
+
+# --------------------------- Notification ----------------------------------
+# On failure, push a one-line alert to BACKUP_ALERT_WEBHOOK when set
+# (provider-agnostic: ntfy.sh topic, Discord/Slack webhook, any URL accepting a
+# POST body). Keeps the alert out of the unwatched cron log. A failed
+# notification must never turn a green check red, hence the trailing `|| true`.
+if [ "$STATUS" -ne 0 ] && [ -n "${BACKUP_ALERT_WEBHOOK:-}" ]; then
+  curl -fsS --max-time 10 -d "Diggy backup ALERT: freshness check failed" \
+    "$BACKUP_ALERT_WEBHOOK" || true
 fi
 
 exit $STATUS

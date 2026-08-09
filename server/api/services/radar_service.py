@@ -11,6 +11,7 @@ from sqlalchemy import and_, func, literal, literal_column, select
 from sqlalchemy import desc as sa_desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from utils import like_escape
 
 
 async def list_full(
@@ -121,9 +122,10 @@ async def list_full(
     if playlist_id:
         base = base.where(RadarTrack.watched_entity_id == playlist_id)
     if search:
-        term = f"%{search}%"
+        term = f"%{like_escape(search)}%"
         base = base.where(
-            CatalogEntry.title.ilike(term) | CatalogEntry.artist.ilike(term)
+            CatalogEntry.title.ilike(term, escape="\\")
+            | CatalogEntry.artist.ilike(term, escape="\\")
         )
 
     count_q = select(func.count()).select_from(base.subquery())

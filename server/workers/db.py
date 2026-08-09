@@ -29,10 +29,6 @@ def get_engine():
     return _engine
 
 
-def get_session() -> Session:
-    return Session(get_engine())
-
-
 def bulk_get_or_create_catalog(
     session: Session,
     tracks: list[dict],

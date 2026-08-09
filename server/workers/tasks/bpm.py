@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 ANALYSIS_BPM_LOCK_TTL = int(os.environ.get("ANALYSIS_BPM_LOCK_TTL", "3900"))
 
 # Nightly budget = safety ceiling on candidates per RUN (min()-bound below the
-# per-run batch_size). 4 slots (00h-03h) × batch_size 2000 ≈ 8000/night.
-DEFAULT_ANALYSIS_BPM_BATCH_SIZE = 2000
+# per-run batch_size, which the beat passes as batch_size=2000). 4 slots
+# (00h-03h) × 2000 ≈ 8000/night.
 DEFAULT_ANALYSIS_BPM_NIGHTLY_BUDGET = 8000
 
 # Executor width: 2 threads so the CPU analysis of one preview overlaps the

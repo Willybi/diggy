@@ -1,5 +1,7 @@
 """Tests for /api/admin endpoints."""
-from models import Artist, ArtistAlias, ArtistFlag, DJSet, SetArtist
+from sqlalchemy import select
+
+from models import Artist, ArtistAlias, ArtistFlag, DJSet, SetArtist, WatchedEntity
 
 
 class TestAdminRequired:
@@ -26,6 +28,46 @@ class TestFetchArtworks:
         r = await admin_client.post("/api/admin/artists/fetch-artworks")
         assert r.status_code == 200
         assert r.json()["status"] == "queued"
+
+
+class TestFetchPlaylistArtworks:
+    async def test_persists_has_artwork_flag(self, admin_client, db, mocker):
+        """The has_artwork flag set during the fetch must survive the request's
+        session closing: get_db does not commit on exit, so the service's own
+        commit is what persists it (A1-04). Assert the DB state, not the dict."""
+        pl = WatchedEntity(
+            external_id="pl-123", source="deezer", title="PL", has_artwork=False
+        )
+        db.add(pl)
+        await db.commit()
+        await db.refresh(pl)
+        pl_id = pl.id
+
+        # Deezer returns a cover URL and the MinIO upload succeeds.
+        mocker.patch(
+            "services.image_service.requests.get",
+            return_value=type(
+                "R", (), {"json": lambda self: {"picture_xl": "http://img/xl.jpg"}}
+            )(),
+        )
+        mocker.patch(
+            "services.image_service.ImageService.ensure_bucket", return_value=None
+        )
+        mocker.patch(
+            "services.image_service.ImageService.upload_from_url", return_value=True
+        )
+
+        r = await admin_client.post("/api/admin/playlists/fetch-artworks")
+        assert r.status_code == 200
+        assert r.json()["fetched"] == 1
+
+        # Fresh read: without the commit, the flag would be rolled back when the
+        # request session closes and this would still read False.
+        db.expire_all()
+        refreshed = (
+            await db.execute(select(WatchedEntity).where(WatchedEntity.id == pl_id))
+        ).scalar_one()
+        assert refreshed.has_artwork is True
 
 
 class TestLinkArtistsDeezerTask:

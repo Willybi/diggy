@@ -348,6 +348,36 @@ class TestDetachSet:
         ).scalar_one_or_none()
         assert p is not None
 
+    async def test_detach_never_deletes_a_real_parent(self, admin_client, db):
+        """Only a VIRTUAL parent is collapsed when its last child detaches — a
+        real set (and its set_tracks) must never be deleted (invariant #4)."""
+        parent = DJSet(source="trackid", title="Real Parent", is_virtual=False)
+        s1 = _set("Child 1")
+        s2 = _set("Child 2")
+        db.add(parent)
+        db.add(s1)
+        db.add(s2)
+        await db.flush()
+        s1.parent_set_id = parent.id
+        s2.parent_set_id = parent.id
+        await db.commit()
+        s1_id, parent_id = s1.id, parent.id  # capture before expire_all
+
+        # Detaching s1 leaves a single sibling → the <=1 collapse branch fires.
+        r = await admin_client.post(f"/api/admin/sets/{s1_id}/detach")
+        assert r.status_code == 200
+
+        db.expire_all()
+        child1 = (await db.execute(select(DJSet).where(DJSet.id == s1_id))).scalar_one()
+        assert child1.parent_set_id is None
+
+        # The real parent survives even though the collapse branch ran.
+        p = (
+            await db.execute(select(DJSet).where(DJSet.id == parent_id))
+        ).scalar_one_or_none()
+        assert p is not None
+        assert p.is_virtual is False
+
     async def test_set_without_parent_returns_400(self, admin_client, db):
         s = _set("Orphan")
         db.add(s)

@@ -168,9 +168,12 @@ async def update_avis(
     catalog_id: int,
     body: CatalogAvisUpdate,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
     user: User = Depends(get_current_user),
 ):
     try:
-        return await catalog_service.update_avis(db, catalog_id, user.id, body.avis)
+        return await catalog_service.update_avis(
+            db, catalog_id, user.id, body.avis, redis=redis
+        )
     except LookupError as e:
         raise HTTPException(404, str(e))

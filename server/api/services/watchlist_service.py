@@ -6,6 +6,7 @@ Services raise LookupError (404), ValueError (400/409/429) or RuntimeError (500)
 never HTTPException.
 """
 
+import logging
 from datetime import datetime, timezone
 
 import httpx
@@ -13,6 +14,8 @@ from celery_client import celery
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
 
 DEEZER_API = "https://api.deezer.com"
 
@@ -34,6 +37,9 @@ async def _fetch_deezer_playlist(external_id: str) -> dict:
             or data.get("picture_medium"),
         }
     except Exception:
+        logger.warning(
+            "Deezer playlist fetch failed for %s", external_id, exc_info=True
+        )
         return {}
 
 

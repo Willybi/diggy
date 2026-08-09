@@ -35,6 +35,33 @@ RATE_LIMITS = {
     # Personalised reco can trigger a full on-the-fly similarity compute on a
     # cache miss (bounded by SEED_CAP), so keep it modestly capped.
     "/api/recommendations": (30, 60),
+    # Bi-score radar feed runs a full similarity compute PLUS a catalog list over
+    # the trend union — strictly costlier than /api/recommendations (capped
+    # above) and the documented OOM culprit (prod, cap raised 1G->3G 2026-08-01).
+    # Cap tolerates the post-AV1 fetchUpTo concurrency (capped at 3) plus a probe.
+    # Insert BEFORE any future generic /api/radar prefix (startswith, first
+    # insertion-order match wins) — there is none today, don't add one.
+    "/api/radar/feed": (10, 60),
+    # Public TrackID set search hits the DB per query; the JWT middleware runs
+    # BEFORE this on public routes, so this bucket is the real guard against
+    # anonymous abuse. Keep it AHEAD of any future generic /api/sets prefix
+    # (there is none today, don't add one).
+    "/api/sets/search": (10, 60),
+}
+
+# path suffix -> (max_requests, window_seconds).
+# The costly per-id read endpoints carry the id in the MIDDLE of the path
+# (/api/catalog/{id}/preview-url, /api/catalog/{id}/similar, /api/sets/{id}/similar),
+# so a prefix bucket can't reach them without also throttling the list/detail
+# paths (/api/catalog, /api/sets) that Explorer browsing relies on. These
+# suffixes target ONLY those endpoints: preview-url triggers a live Deezer fetch
+# on a cache miss, /similar rebuilds the viewer's candidate pool per request.
+# Matched AFTER the prefix table (prefix always wins), so the list/detail paths
+# — which match no prefix and no suffix — stay unthrottled.
+RATE_LIMIT_SUFFIXES = {
+    # Wide enough for normal playback plus queue prefetch.
+    "/preview-url": (30, 60),
+    "/similar": (20, 60),
 }
 
 _redis = None
@@ -69,6 +96,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if path == prefix or path == prefix + "/" or path.startswith(prefix + "/"):
                 limit_config = config
                 break
+
+        # Only when no prefix bucket claimed the path: throttle the explicit set
+        # of costly per-id suffixes without touching the list/detail paths.
+        if limit_config is None:
+            for suffix, config in RATE_LIMIT_SUFFIXES.items():
+                if path.endswith(suffix):
+                    limit_config = config
+                    break
 
         if limit_config is None:
             return await call_next(request)

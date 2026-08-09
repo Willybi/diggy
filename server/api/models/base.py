@@ -33,6 +33,32 @@ def _array_any_sqlite(element, compiler, **kw):
     )
 
 
+class array_is_empty(FunctionElement):
+    """True when a :class:`StringArray` column is empty or NULL.
+
+    Compiled per dialect so the same ORM expression runs on PostgreSQL
+    (``TEXT[]``) and on SQLite, where :class:`StringArray` is stored as JSON
+    (test harness). Mirrors the empty-genres predicate of
+    ``genres_unclassified_count`` (``coalesce(array_length(col, 1), 0) = 0``).
+    """
+
+    type = Boolean()
+    name = "array_is_empty"
+    inherit_cache = True
+
+
+@compiles(array_is_empty)
+def _array_is_empty_default(element, compiler, **kw):
+    (col,) = list(element.clauses)
+    return f"coalesce(array_length({compiler.process(col, **kw)}, 1), 0) = 0"
+
+
+@compiles(array_is_empty, "sqlite")
+def _array_is_empty_sqlite(element, compiler, **kw):
+    (col,) = list(element.clauses)
+    return f"coalesce(json_array_length({compiler.process(col, **kw)}), 0) = 0"
+
+
 class StringArray(TypeDecorator):
     """ARRAY(Text) on PostgreSQL, JSON on other dialects (e.g. SQLite for tests)."""
 

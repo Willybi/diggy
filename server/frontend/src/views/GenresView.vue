@@ -175,18 +175,36 @@ useUrlSync(
   { router, route },
 )
 
+const PAGE_SIZE = 24
+// Most rows a facet can pull in one burst: pageSize × fetchUpTo's RESTORE cap.
+const FACET_MAX_ITEMS = PAGE_SIZE * 12
+
+// liked/disliked aren't real server sorts — they filter client-side (displayItems)
+// over the 'tracks' ordering, with the infinite-scroll sentinel OFF.
+const isFacet = () => sortBy.value === 'liked' || sortBy.value === 'disliked'
+
 // ── Paginated list (shared trunk) ──
-// « lib » is a real backend sort (passed through). liked/disliked are client-side
-// facets over the 'tracks' ordering, so they map to the same server sort;
-// displayItems below applies the opinion filter.
+// « lib » is a real backend sort (passed through). liked/disliked map to the
+// same server sort; displayItems below applies the opinion filter.
 const { items, total, familyCounts, loading, hasMore, sentinel, fetch, fetchUpTo } =
   usePaginatedList({
     endpoint: '/api/genres',
-    pageSize: 24,
-    sort: () => (sortBy.value === 'liked' || sortBy.value === 'disliked' ? 'tracks' : sortBy.value),
+    pageSize: PAGE_SIZE,
+    sort: () => (isFacet() ? 'tracks' : sortBy.value),
     family: () => familyFilter.value,
     query: () => searchQuery.value,
   })
+
+// A facet filters client-side with the sentinel off, so it must eagerly load
+// EVERY page (bounded by fetchUpTo's RESTORE cap) before displayItems filters —
+// otherwise a genre liked past the first page (24 rows) would never appear.
+// Prefer the known genre count; before it's known (hydrate) saturate the cap.
+function facetFetch() {
+  return fetchUpTo(total.value || FACET_MAX_ITEMS)
+}
+function reload() {
+  return isFacet() ? facetFetch() : fetch(true)
+}
 
 // Scroll restoration on a back/forward return. The grid scrolls inside
 // .app-main (#main-content); on return we reload the rows in one burst
@@ -251,14 +269,14 @@ async function launchClassify() {
   classifying.value = false
 }
 
-// ── Sort & family filter: immediate reload ──
-watch(sortBy, () => fetch(true))
-watch(familyFilter, () => fetch(true))
+// ── Sort & family filter: immediate reload (a facet pulls all pages) ──
+watch(sortBy, reload)
+watch(familyFilter, reload)
 
 onMounted(() => {
   scrollRestore.restore({
     initialFetch: () => fetch(true),
-    hydrate: (count) => fetchUpTo(count),
+    hydrate: (count) => (isFacet() ? facetFetch() : fetchUpTo(count)),
   })
   fetchUnclassifiedCount()
 })

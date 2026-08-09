@@ -82,23 +82,32 @@ export function useWindowedList({ endpoint, buildParams, pageSize = 100 }) {
     return fetch(false)
   }
 
-  // Scroll-restore fast path: reload the first `count` rows in ONE parallel
-  // burst instead of walking pages sequentially. Fires ceil(count / pageSize)
-  // requests at once (each with the page's own baked limit, so offsets stay
-  // contiguous — no gaps) and stitches them in order. Capped so a very deep
-  // scroll can't fan out an unbounded number of concurrent heavy queries.
+  // Scroll-restore fast path: reload the first `count` rows quickly instead of
+  // walking pages one after another. Fires ceil(count / pageSize) requests (each
+  // with the page's own baked limit, so offsets stay contiguous — no gaps) in
+  // SEQUENTIAL batches of RESTORE_MAX_CONCURRENCY and stitches them in order.
+  // Two caps: RESTORE_MAX_PAGES bounds the total pages (a very deep scroll can't
+  // fan out unboundedly), RESTORE_MAX_CONCURRENCY bounds how many fire at once
+  // (a heavy endpoint like /radar/feed can't recreate the OOM burst).
   const RESTORE_MAX_PAGES = 12
+  const RESTORE_MAX_CONCURRENCY = 3
   async function fetchUpTo(count) {
     const mine = ++token
     loading.value = true
     const nPages = Math.min(RESTORE_MAX_PAGES, Math.max(1, Math.ceil(count / pageSize)))
     try {
-      const pages = await Promise.all(
-        Array.from({ length: nPages }, (_, i) =>
-          api.get(endpoint, { params: buildParams(i * pageSize) }),
-        ),
-      )
-      if (mine !== token) return
+      const pages = []
+      for (let start = 0; start < nPages; start += RESTORE_MAX_CONCURRENCY) {
+        const batch = await Promise.all(
+          Array.from({ length: Math.min(RESTORE_MAX_CONCURRENCY, nPages - start) }, (_, j) =>
+            api.get(endpoint, { params: buildParams((start + j) * pageSize) }),
+          ),
+        )
+        // Re-check the token per batch: a filter change mid-burst supersedes this
+        // restore, so drop the stale work before touching state.
+        if (mine !== token) return
+        pages.push(...batch)
+      }
       const merged = pages.flatMap((p) => p.data.items)
       items.value = merged
       total.value = pages[0].data.total

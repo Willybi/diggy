@@ -243,6 +243,55 @@ class TestSelectEnrichCandidatesBudget:
         assert result == []
 
 
+class TestSelectEnrichCandidatesGenreOnly:
+    """A3-01: genre_only=True targets rows with NO genre (relaxing the
+    id-missing tier guard so a row that already carries a beatport_id but no
+    genre is still picked); genre_only=False is the unchanged id-missing path.
+    Backs the admin 'auto-classifier' button, which dispatches the task with
+    kwargs={'genre_only': True}."""
+
+    def test_genre_only_returns_only_empty_genre_rows(self, sync_session):
+        empty = _make_row(sync_session, 1)  # genres default to []
+        _make_row(sync_session, 2, genres=["House"])  # classified → excluded
+
+        result = select_enrich_candidates(
+            sync_session, source="beatport", budget=10, now=NOW, genre_only=True
+        )
+
+        assert [e.id for e in result] == [empty.id]
+
+    def test_genre_only_relaxes_id_guard(self, sync_session):
+        # A row already carrying a beatport_id but with no genre IS a candidate
+        # under genre_only (the id guard is relaxed to empty-genres)...
+        linked_no_genre = _make_row(sync_session, 1, beatport_id="456")
+
+        assert [
+            e.id
+            for e in select_enrich_candidates(
+                sync_session, source="beatport", budget=10, now=NOW, genre_only=True
+            )
+        ] == [linked_no_genre.id]
+
+        # ...but NOT under the default id-missing selection (unchanged path).
+        assert (
+            select_enrich_candidates(
+                sync_session, source="beatport", budget=10, now=NOW
+            )
+            == []
+        )
+
+    def test_default_path_ignores_genres(self, sync_session):
+        # genre_only=False is strictly unchanged: a classified row still missing
+        # an id is selected (genres are irrelevant to the default path).
+        classified_missing_id = _make_row(sync_session, 1, genres=["Techno"])
+
+        result = select_enrich_candidates(
+            sync_session, source="beatport", budget=10, now=NOW
+        )
+
+        assert [e.id for e in result] == [classified_missing_id.id]
+
+
 class TestNotRecentlySearched:
     """E1: inline enrichment (sets/radar) must skip entries the nightly sweep
     searched within the last 24h — same clause as the dz_entries/bp_entries

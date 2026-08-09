@@ -118,6 +118,21 @@ class TestListCatalog:
         )
         assert empty.total == 0
 
+    async def test_search_escapes_like_wildcards(self, db, auth_user):
+        """A6-06: a literal % in Explorer search matches literally — 'A%B' must
+        not also match 'AXB' (which a raw LIKE wildcard would)."""
+        from models import CatalogEntry
+        db.add_all([
+            CatalogEntry(title="A%B", artist="X", normalized_key="x|apctb"),
+            CatalogEntry(title="AXB", artist="X", normalized_key="x|axb"),
+        ])
+        await db.commit()
+
+        res = await catalog_service.list_catalog(
+            db, auth_user.id, skip=0, limit=20, search="A%B",
+        )
+        assert {it.title for it in res.items} == {"A%B"}
+
 
 class TestGetDetail:
     async def test_raises_lookup_error_for_missing_entry(self, db, auth_user):
@@ -180,6 +195,24 @@ class TestGetDetail:
         assert result.bpm_source == "rekordbox"
 
 
+class _RecordingRedis:
+    """In-memory Redis stand-in that records the keys passed to delete()."""
+
+    def __init__(self):
+        self.store = {}
+        self.deleted = []
+
+    async def get(self, key):
+        return self.store.get(key)
+
+    async def setex(self, key, ttl, value):
+        self.store[key] = value
+
+    async def delete(self, key):
+        self.deleted.append(key)
+        return 1 if self.store.pop(key, None) is not None else 0
+
+
 class TestUpdateAvis:
     async def test_raises_lookup_error_for_missing_catalog(self, db, auth_user):
         with pytest.raises(LookupError, match="not found"):
@@ -195,6 +228,44 @@ class TestUpdateAvis:
         result = await catalog_service.update_avis(db, c.id, auth_user.id, "like")
         assert result["catalog_id"] == c.id
         assert result["avis"] == "like"
+
+    async def test_invalidates_reco_cache(self, db, auth_user):
+        """A1-03: posting an avis via the main path drops the per-user reco cache
+        so Radar 'Pour toi' recomputes (the invalidation lives AFTER the commit,
+        mirroring routers/opinions.py)."""
+        from models import CatalogEntry
+        from services.recommendation_service import _cache_key
+
+        c = CatalogEntry(title="T", artist="A", normalized_key="a|t-reco")
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+
+        redis = _RecordingRedis()
+        key = _cache_key(auth_user.id)
+        redis.store[key] = b"stale-reco-list"
+
+        result = await catalog_service.update_avis(
+            db, c.id, auth_user.id, "liked", redis=redis
+        )
+        assert result["avis"] == "liked"
+        # The seed's user reco cache was invalidated…
+        assert key in redis.deleted
+        # …and the entry is gone (a subsequent GET recomputes).
+        assert key not in redis.store
+
+    async def test_redis_none_is_fail_open(self, db, auth_user):
+        """redis defaults to None (invalidate_user tolerates it) — the avis path
+        still commits without raising."""
+        from models import CatalogEntry
+
+        c = CatalogEntry(title="T", artist="A", normalized_key="a|t-none")
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+
+        result = await catalog_service.update_avis(db, c.id, auth_user.id, "disliked")
+        assert result["avis"] == "disliked"
 
 
 class TestGetOrCreateCatalog:

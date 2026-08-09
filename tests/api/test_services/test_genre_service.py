@@ -298,3 +298,192 @@ class TestListGenreTracksArtistsAvis:
         items = r.json()["items"]
         assert len(items) == 4
         assert all(it["avis"] is None for it in items)
+
+
+_PG_ONLY = pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="Genre Detail builders use PostgreSQL-only SQL (= ANY, unnest, LATERAL)",
+)
+
+
+@_PG_ONLY
+class TestGenreDetailPaginationTieBreak:
+    """A1-06: every Genre Detail builder ends its ORDER BY on the table PK so
+    ex-aequo rows keep a total order across offset pages. Without the id
+    tiebreak, ties reshuffle between two LIMIT/OFFSET pages and rows are
+    duplicated or skipped in the infinite scroll. Runs on PostgreSQL only."""
+
+    GENRE = "ztestpagetiebreak"
+
+    @staticmethod
+    def _assert_two_pages_cover(ids1, ids2, expected):
+        assert len(ids1) == 3 and len(ids2) == 3
+        assert set(ids1).isdisjoint(ids2)  # no row on both pages
+        assert len(set(ids1 + ids2)) == expected  # no hole
+
+    async def test_tracks_bpm_ties_stable(self, db, auth_user):
+        from models import CatalogEntry
+        from services import genre_service
+
+        for i in range(6):
+            db.add(CatalogEntry(
+                title=f"pgtrack-{i}", artist="A",
+                normalized_key=f"{self.GENRE}|trk{i}",
+                genres=[self.GENRE], bpm=128.0, scope="shared",
+            ))
+        await db.commit()
+
+        async def page(offset):
+            res = await genre_service.list_genre_tracks(
+                db, self.GENRE, auth_user.id, sort="bpm", q=None, in_lib=None,
+                limit=3, offset=offset,
+            )
+            return [it["id"] for it in res["items"]]
+
+        p1, p2 = await page(0), await page(3)
+        self._assert_two_pages_cover(p1, p2, 6)
+        # All bpm equal → order is purely c.id DESC across the two pages.
+        assert (p1 + p2) == sorted(p1 + p2, reverse=True)
+
+    async def test_sets_count_ties_stable(self, db, auth_user):
+        from models import CatalogEntry, DJSet, SetTrack
+        from services import genre_service
+
+        for i in range(6):
+            s = DJSet(source="trackid", title=f"pgset-{i}")
+            db.add(s)
+            await db.flush()
+            cat = CatalogEntry(
+                title=f"pgset-trk-{i}", artist="A",
+                normalized_key=f"{self.GENRE}|set{i}",
+                genres=[self.GENRE], scope="shared",
+            )
+            db.add(cat)
+            await db.flush()
+            db.add(SetTrack(
+                set_id=s.id, position=1, catalog_id=cat.id,
+                raw_title=cat.title, is_id=False,
+            ))
+        await db.commit()
+
+        async def page(offset):
+            res = await genre_service.list_genre_sets(
+                db, self.GENRE, limit=3, offset=offset,
+            )
+            return [it["id"] for it in res["items"]]
+
+        p1, p2 = await page(0), await page(3)
+        # Equal genre_track_count + NULL played_date → order is s.id DESC.
+        self._assert_two_pages_cover(p1, p2, 6)
+        assert (p1 + p2) == sorted(p1 + p2, reverse=True)
+
+    async def test_playlists_count_ties_stable(self, db, auth_user):
+        from models import CatalogEntry, RadarTrack, WatchedEntity
+        from services import genre_service
+
+        for i in range(6):
+            we = WatchedEntity(
+                external_id=f"pgwe-{i}", source="deezer", title=f"pgpl-{i}",
+            )
+            db.add(we)
+            await db.flush()
+            cat = CatalogEntry(
+                title=f"pgpl-trk-{i}", artist="A",
+                normalized_key=f"{self.GENRE}|pl{i}",
+                genres=[self.GENRE], scope="shared",
+            )
+            db.add(cat)
+            await db.flush()
+            db.add(RadarTrack(
+                watched_entity_id=we.id, external_track_id=f"pgrt-{i}",
+                source="deezer", title=cat.title, catalog_id=cat.id,
+            ))
+        await db.commit()
+
+        async def page(offset):
+            res = await genre_service.list_genre_playlists(
+                db, self.GENRE, limit=3, offset=offset,
+            )
+            return [it["id"] for it in res["items"]]
+
+        p1, p2 = await page(0), await page(3)
+        # Equal genre_track_count → order is we.id DESC.
+        self._assert_two_pages_cover(p1, p2, 6)
+        assert (p1 + p2) == sorted(p1 + p2, reverse=True)
+
+    async def test_artists_count_ties_stable(self, db, auth_user):
+        from models import Artist, CatalogEntry
+        from services import genre_service
+
+        for i in range(6):
+            name = f"PgArtist{i}"
+            db.add(Artist(name=name, normalized_name=name.lower()))
+            db.add(CatalogEntry(
+                title=f"pgart-trk-{i}", artist=name,
+                normalized_key=f"{self.GENRE}|art{i}",
+                genres=[self.GENRE], scope="shared",
+            ))
+        await db.commit()
+
+        async def page(offset):
+            res = await genre_service.list_genre_artists(
+                db, self.GENRE, auth_user.id, limit=3, offset=offset,
+            )
+            return [it["id"] for it in res["items"]]
+
+        p1, p2 = await page(0), await page(3)
+        # Equal track_count; a.name (then a.id DESC) gives the total order — the
+        # point is that no artist is duplicated or skipped across pages.
+        self._assert_two_pages_cover(p1, p2, 6)
+
+
+@_PG_ONLY
+class TestGenreDetailLikeEscape:
+    """A6-06: literal % / _ in a Genre Detail query must match literally, not as
+    a LIKE wildcard. Runs on PostgreSQL only (raw SQL builders)."""
+
+    GENRE = "ztestgenreescape"
+
+    async def test_tracklist_query_escapes_wildcards(self, db, auth_user):
+        from models import CatalogEntry
+        from services import genre_service
+
+        db.add_all([
+            CatalogEntry(
+                title="A%B", artist="X", normalized_key=f"{self.GENRE}|apctb",
+                genres=[self.GENRE], scope="shared",
+            ),
+            CatalogEntry(
+                title="AXB", artist="X", normalized_key=f"{self.GENRE}|axb",
+                genres=[self.GENRE], scope="shared",
+            ),
+        ])
+        await db.commit()
+
+        res = await genre_service.list_genre_tracks(
+            db, self.GENRE, auth_user.id, sort="alpha", q="A%B", in_lib=None,
+            limit=50, offset=0,
+        )
+        assert {it["title"] for it in res["items"]} == {"A%B"}
+
+    async def test_genre_name_query_escapes_wildcards(self, db, auth_user):
+        from models import CatalogEntry
+        from services import genre_service
+
+        db.add_all([
+            CatalogEntry(
+                title="g1", artist="X", normalized_key="x|g1",
+                genres=["a%b"], scope="shared",
+            ),
+            CatalogEntry(
+                title="g2", artist="X", normalized_key="x|g2",
+                genres=["axb"], scope="shared",
+            ),
+        ])
+        await db.commit()
+
+        res = await genre_service.list_genres(
+            db, auth_user.id, family=None, sort="tracks", q="a%b",
+            limit=24, offset=0,
+        )
+        assert {it["name"] for it in res["items"]} == {"a%b"}

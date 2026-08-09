@@ -1,4 +1,4 @@
-import { watch } from 'vue'
+import { watch, onScopeDispose } from 'vue'
 
 /**
  * Two-way mirror between a set of plain refs and the URL query string.
@@ -55,6 +55,10 @@ export function useUrlSync(fields, { router, route, debounceMs = 300 }) {
     if (debounce) timer = setTimeout(write, debounceMs)
     else write()
   }
+
+  // Kill a pending debounced write on unmount: a timer still armed after the
+  // view is gone would fire router.replace on the NEXT route, polluting its URL.
+  onScopeDispose(() => clearTimeout(timer))
 
   for (const field of fields) {
     watch(field.ref, () => schedule(!!field.debounce))

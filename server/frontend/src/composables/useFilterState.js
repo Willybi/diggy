@@ -1,4 +1,4 @@
-import { reactive, watch } from 'vue'
+import { reactive, watch, onScopeDispose } from 'vue'
 import { defaultValue } from '../components/filters/criteria.js'
 
 /*
@@ -133,6 +133,10 @@ export function useFilterState(criteria, { router, route, debounceMs = 250 }) {
     if (immediate) push()
     else timer = setTimeout(push, debounceMs)
   }
+
+  // Kill a pending debounced push on unmount: a timer still armed after the view
+  // is gone would fire router.replace on the NEXT route, polluting its URL.
+  onScopeDispose(() => clearTimeout(timer))
 
   for (const c of criteria) {
     watch(

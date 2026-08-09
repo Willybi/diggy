@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { ref, reactive, nextTick } from 'vue'
+import { ref, reactive, nextTick, effectScope } from 'vue'
 import { useUrlSync } from '../../composables/useUrlSync.js'
 
 // A route/router pair where router.replace round-trips the new query back onto
@@ -55,5 +55,35 @@ describe('useUrlSync', () => {
     route.query = {} // browser back to the default entry
     await nextTick()
     expect(sort.value).toBe('tracks')
+  })
+
+  it('clears a pending debounced write on scope disposal (no leak onto the next route)', async () => {
+    vi.useFakeTimers()
+    try {
+      const route = reactive({ query: {} })
+      const replace = vi.fn((arg) => {
+        route.query = arg.query
+      })
+      const q = ref('')
+      const scope = effectScope()
+      scope.run(() => {
+        useUrlSync([{ ref: q, param: 'q', default: '', debounce: true }], {
+          router: { replace },
+          route,
+          debounceMs: 300,
+        })
+      })
+
+      q.value = 'house' // arm the debounced timer
+      await nextTick() // let the watcher schedule the setTimeout
+      expect(replace).not.toHaveBeenCalled() // still inside the debounce window
+
+      scope.stop() // component unmounts before the timer fires
+      vi.advanceTimersByTime(400) // past debounceMs
+
+      expect(replace).not.toHaveBeenCalled() // timer was cleared, no stale write
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

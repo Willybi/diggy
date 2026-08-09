@@ -154,4 +154,9 @@ class ImageService:
             except Exception:
                 failed += 1
 
+        # Persist the has_artwork flags: get_db does not commit on exit, so
+        # without this the mutations are dropped and every run re-downloads the
+        # same playlists (the has_artwork.is_(False) filter never empties).
+        # Mirrors the unit path watchlist_service.fetch_artwork.
+        await db.commit()
         return {"fetched": fetched, "failed": failed, "total": len(playlists)}

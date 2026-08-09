@@ -168,6 +168,27 @@ describe('usePaginatedList', () => {
     expect(list.loading.value).toBe(false)
   })
 
+  it('fetchUpTo caps the burst at 3 concurrent in-flight requests', async () => {
+    let inFlight = 0
+    let peak = 0
+    apiGet.mockImplementation(() => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      // Resolve on the microtask queue and decrement only once settled, so a
+      // batch fully drains before the next batch dispatches.
+      return Promise.resolve(page([{ id: 1 }], 100)).finally(() => {
+        inFlight--
+      })
+    })
+    // pageSize 1 → 8 pages; the old single Promise.all would fire all 8 at once.
+    const { list } = mountList({ endpoint: '/api/artists/', pageSize: 1, sort: () => 'catalog' })
+
+    await list.fetchUpTo(8)
+
+    expect(apiGet).toHaveBeenCalledTimes(8)
+    expect(peak).toBeLessThanOrEqual(3)
+  })
+
   it('fetchUpTo reloads N rows in one parallel burst, stitched in offset order', async () => {
     const { list } = mountList({ endpoint: '/api/artists/', sort: () => 'catalog' })
     // pageSize default 24 → count 40 needs ceil(40/24) = 2 pages, fired at once.

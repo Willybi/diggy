@@ -90,20 +90,27 @@ export function usePaginatedList({ endpoint, pageSize = 24, sort, family, query,
     return fetch(false)
   }
 
-  // Scroll-restore fast path: reload the first `count` rows in ONE parallel
-  // burst instead of walking pages sequentially (which stalled for seconds).
-  // Fires ceil(count / pageSize) requests at once and stitches them in order.
-  // Capped so a very deep scroll can't fan out unbounded concurrent requests.
+  // Scroll-restore fast path: reload the first `count` rows quickly instead of
+  // walking pages one after another (which stalled for seconds). Fires
+  // ceil(count / pageSize) requests in SEQUENTIAL batches of
+  // RESTORE_MAX_CONCURRENCY and stitches them in order. RESTORE_MAX_PAGES bounds
+  // the total pages; RESTORE_MAX_CONCURRENCY bounds how many fire at once so a
+  // deep-scroll restore can't fan out a dozen simultaneous requests.
   const RESTORE_MAX_PAGES = 12
+  const RESTORE_MAX_CONCURRENCY = 3
   async function fetchUpTo(count) {
     const nPages = Math.min(RESTORE_MAX_PAGES, Math.max(1, Math.ceil(count / pageSize)))
     loading.value = true
     try {
-      const pages = await Promise.all(
-        Array.from({ length: nPages }, (_, i) =>
-          api.get(toValue(endpoint), { params: buildParams(i * pageSize) }),
-        ),
-      )
+      const pages = []
+      for (let start = 0; start < nPages; start += RESTORE_MAX_CONCURRENCY) {
+        const batch = await Promise.all(
+          Array.from({ length: Math.min(RESTORE_MAX_CONCURRENCY, nPages - start) }, (_, j) =>
+            api.get(toValue(endpoint), { params: buildParams((start + j) * pageSize) }),
+          ),
+        )
+        pages.push(...batch)
+      }
       const merged = pages.flatMap((p) => p.data.items)
       items.value = merged
       total.value = pages[0].data.total

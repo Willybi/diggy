@@ -24,6 +24,15 @@ async def client(auth_user):
     app.dependency_overrides.pop(get_current_user_optional, None)
 
 
+@pytest_asyncio.fixture
+async def anon_client():
+    """Client with NO auth override, so the real get_current_user dependency runs
+    (existence + is_active checks). auth_middleware is disabled in tests, so this
+    is how a missing/invalid/inactive token reaches the dependency."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def playlist_payload(**overrides):
@@ -359,3 +368,56 @@ class TestDeleteWatched:
         # Opinion should be gone
         opinions = (await client.get("/api/opinions/")).json()
         assert "playlist" not in opinions or str(entry_id) not in opinions.get("playlist", {})
+
+
+# ── GET /api/watchlist/{id}/crawl-status ─────────────────────────────────────
+
+class TestCrawlStatusAuth:
+    """A6-09: crawl_status must require an authenticated, existing, active user
+    (it has a write side effect: it nulls current_task_id)."""
+
+    async def test_no_bearer_returns_401(self, anon_client):
+        r = await anon_client.get("/api/watchlist/1/crawl-status")
+        assert r.status_code == 401
+
+    async def test_invalid_bearer_returns_401(self, anon_client):
+        r = await anon_client.get(
+            "/api/watchlist/1/crawl-status",
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+        assert r.status_code == 401
+
+    async def test_authenticated_non_admin_returns_200(self, client, mocker):
+        """A valid non-admin user (the `client` fixture's auth_user) gets 200.
+        A freshly followed playlist has no current_task_id -> status None."""
+        _mock_deezer(mocker)
+        post_r = await client.post("/api/watchlist/", json=playlist_payload())
+        entry_id = post_r.json()["id"]
+
+        r = await client.get(f"/api/watchlist/{entry_id}/crawl-status")
+        assert r.status_code == 200
+        assert r.json()["status"] is None
+
+    async def test_inactive_user_returns_401(self, anon_client, db):
+        """A deactivated user still holding a valid JWT is rejected by
+        get_current_user (is_active check), unlike the old middleware-only path."""
+        from auth import create_token
+        from models import User, WatchedEntity
+
+        user = User(
+            email="inactive@test.com",
+            username="inactive",
+            google_id="google-inactive",
+            is_active=False,
+            is_admin=False,
+        )
+        entity = WatchedEntity(external_id="cs-inactive", source="deezer", title="P")
+        db.add_all([user, entity])
+        await db.commit()
+
+        token = create_token(user.id)
+        r = await anon_client.get(
+            f"/api/watchlist/{entity.id}/crawl-status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 401

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -48,6 +49,8 @@ from services import (
 from services.image_service import ImageService
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -143,6 +146,7 @@ async def search_deezer_artist(
             for h in resp.json().get("data", [])
         ]
     except Exception:
+        logger.warning("Deezer artist search failed for %r", q, exc_info=True)
         return []
 
 
@@ -528,7 +532,13 @@ async def detach_set(
     if len(siblings) <= 1:
         if len(siblings) == 1:
             siblings[0].parent_set_id = None
-        await db.execute(sa_delete(DJSet).where(DJSet.id == parent_id))
+        # Only ever delete a virtual parent — a real set (and its set_tracks)
+        # must never be removed by detaching a child (invariant #4).
+        await db.execute(
+            sa_delete(DJSet).where(
+                DJSet.id == parent_id, DJSet.is_virtual.is_(True)
+            )
+        )
 
     await _audit(
         db, admin, "detach_set", "set", set_id, {"parent_id": parent_id}

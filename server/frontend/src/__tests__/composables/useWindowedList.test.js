@@ -100,6 +100,27 @@ describe('useWindowedList', () => {
     expect(list.loading.value).toBe(false)
   })
 
+  it('fetchUpTo caps the burst at 3 concurrent in-flight requests', async () => {
+    let inFlight = 0
+    let peak = 0
+    apiGet.mockImplementation(() => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      // Resolve on the microtask queue and decrement only once settled, so a
+      // batch fully drains before the next batch dispatches.
+      return Promise.resolve(page([{ id: 1 }], 100)).finally(() => {
+        inFlight--
+      })
+    })
+    // pageSize 1 → 8 pages; the old single Promise.all would fire all 8 at once.
+    const list = useWindowedList({ endpoint: '/api/catalog/', buildParams: params, pageSize: 1 })
+
+    await list.fetchUpTo(8)
+
+    expect(apiGet).toHaveBeenCalledTimes(8)
+    expect(peak).toBeLessThanOrEqual(3)
+  })
+
   it('drops a stale response when a newer request supersedes it (race)', async () => {
     let resolveOld
     apiGet
