@@ -8,7 +8,7 @@ backlog sampled over time — that is what this task adds, as a single
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from workers.celery_app import celery_app
 
@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 # value, so it never falls into the id-missing (link) backlog on its own.
 _ARTIST_NOT_FOUND = "NOT_FOUND"
 
+# Retention window (AV3) for the append-only time-series tables purged by this
+# task: metric_snapshots + crawl_logs grow one row per run forever. ~13 months
+# keeps a full year of history plus a month of slack for year-over-year reads.
+RETENTION_DAYS = 396
+
 
 @celery_app.task(name="workers.tasks.snapshot_backlogs", bind=True)
 def snapshot_backlogs(self):
@@ -26,13 +31,14 @@ def snapshot_backlogs(self):
     Read-only over the domain tables (no external API), so it is loop-safe and
     carries NO autoretry — a transient DB blip is simply retried next hour.
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import delete, func, select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import (
         Artist,
         CatalogEntry,
+        CrawlLog,
         DJSet,
         MetricSnapshot,
         bpm_analysis_candidate_filter,
@@ -96,4 +102,36 @@ def snapshot_backlogs(self):
         session.commit()
 
     logger.info("snapshot_backlogs wrote a metric_snapshots row at %s", now)
+
+    # Retention purge (AV3): metric_snapshots + crawl_logs are append-only and
+    # would grow without bound. Drop everything older than RETENTION_DAYS. This
+    # is a SEPARATE step run AFTER the snapshot is committed above, so a purge
+    # failure never costs us the freshly-written snapshot (it stays committed).
+    # Idempotent by construction: the next run finds nothing old enough left.
+    # admin_audit_log is deliberately NOT purged (audit trail kept indefinitely).
+    cutoff = now - timedelta(days=RETENTION_DAYS)
+    try:
+        with Session(engine) as session:
+            purged_snapshots = session.execute(
+                delete(MetricSnapshot).where(MetricSnapshot.captured_at < cutoff)
+            ).rowcount
+            purged_logs = session.execute(
+                delete(CrawlLog).where(CrawlLog.started_at < cutoff)
+            ).rowcount
+            session.commit()
+        logger.info(
+            "snapshot_backlogs purged %d metric_snapshots + %d crawl_logs "
+            "older than %s",
+            purged_snapshots or 0,
+            purged_logs or 0,
+            cutoff,
+        )
+    except Exception:
+        # A purge blip must never mask an already-written snapshot; retried next
+        # hour. No autoretry on this task, so we swallow and log rather than fail.
+        logger.warning(
+            "snapshot_backlogs retention purge failed (snapshot kept)",
+            exc_info=True,
+        )
+
     return payload

@@ -128,7 +128,6 @@ def import_rekordbox_xml(self, task_id: str, user_id: int):
                             normalized_key=norm_key,
                             scope="private",
                             owner_id=user_id,
-                            origin="rekordbox",
                         )
                         session.add(cat_entry)
                         session.flush()

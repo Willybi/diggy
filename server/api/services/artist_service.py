@@ -8,9 +8,11 @@ Services raise LookupError (404) or ValueError (400/409), never HTTPException.
 import logging
 from collections import defaultdict
 
+import httpx
 from sqlalchemy import func, insert, literal, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.concurrency import run_in_threadpool
 
 from services.catalog_service import catalog_visible, catalog_visible_sql
 from services.genre_service import (
@@ -542,7 +544,6 @@ async def link_to_deezer(
     db: AsyncSession, artist_id: int, deezer_id: str
 ) -> dict:
     """Manually link a deezer_id to an artist (fetch name + artwork, merge if duplicate)."""
-    import requests as req
     from models import Artist, CatalogArtist, SetArtist
     from sqlalchemy import delete as sa_delete
     from sqlalchemy import update as sa_update
@@ -566,8 +567,9 @@ async def link_to_deezer(
     deezer_name = None
     pic_url = None
     try:
-        resp = req.get(f"https://api.deezer.com/artist/{deezer_id}", timeout=5)
-        data = resp.json()
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"https://api.deezer.com/artist/{deezer_id}")
+            data = resp.json()
         deezer_name = data.get("name")
         pic_url = data.get("picture_xl") or data.get("picture_big") or data.get("picture")
     except Exception:
@@ -631,7 +633,12 @@ async def link_to_deezer(
         await db.delete(artist)
         await db.flush()
         if pic_url and not canonical.has_artwork:
-            if ImageService.upload_from_url(pic_url, BUCKET_ARTIST, f"{canonical.id}.jpg"):
+            if await run_in_threadpool(
+                ImageService.upload_from_url,
+                pic_url,
+                BUCKET_ARTIST,
+                f"{canonical.id}.jpg",
+            ):
                 canonical.has_artwork = True
         await db.commit()
         await db.refresh(canonical)
@@ -654,7 +661,9 @@ async def link_to_deezer(
 
     if pic_url:
         try:
-            if ImageService.upload_from_url(pic_url, BUCKET_ARTIST, f"{artist.id}.jpg"):
+            if await run_in_threadpool(
+                ImageService.upload_from_url, pic_url, BUCKET_ARTIST, f"{artist.id}.jpg"
+            ):
                 artist.has_artwork = True
         except Exception:
             pass
@@ -833,10 +842,14 @@ async def enrich_single_beatport(
     client = BeatportClient()
     bp_track = None
 
+    # BeatportClient scrapes pages synchronously (requests + a 1.5s rate-limit
+    # sleep, ~3s/call): keep it off the event loop.
     if entry.isrc:
-        bp_track = client.search_track_by_isrc(entry.isrc)
+        bp_track = await run_in_threadpool(client.search_track_by_isrc, entry.isrc)
     if not bp_track and entry.title:
-        bp_track = client.search_track_validated(entry.title, entry.artist)
+        bp_track = await run_in_threadpool(
+            client.search_track_validated, entry.title, entry.artist
+        )
 
     if not bp_track:
         if force_genre and entry.genres:

@@ -749,6 +749,95 @@ async def similar_from_context(
     )
 
 
+# Result cache — every call rebuilds the whole similarity context (pool build +
+# in-memory scoring, expensive on a large catalog) and the pool only changes on
+# the nightly recompute, so the ranked result is cached per
+# (seed, viewer, top_n, score_floor, in_lib) with no active invalidation. Unlike
+# the sets cache (which varies only by limit), get_similar_tracks exposes
+# top_n/score_floor/in_lib, which all change the result → they enter the key to
+# keep the public contract exact. The full ranked list is stored and sliced per
+# request, so one entry serves every ``limit`` — cf. _similar_sets_cache_*.
+# Fail-open: an unavailable Redis just recomputes (availability > a warm cache).
+_TRACK_SIMILAR_CACHE_PREFIX = "track_similar"
+_TRACK_SIMILAR_CACHE_TTL = 21600  # 6h, aligned with the similarity-context TTL
+
+
+def _track_similar_cache_key(
+    catalog_id: int,
+    user_id: int | None,
+    top_n: int,
+    score_floor: float,
+    in_lib: bool | None,
+) -> str:
+    viewer = user_id if user_id is not None else "anon"
+    return (
+        f"{_TRACK_SIMILAR_CACHE_PREFIX}:{catalog_id}:{viewer}"
+        f":{top_n}:{score_floor}:{in_lib}"
+    )
+
+
+async def _track_similar_cache_get(
+    redis,
+    catalog_id: int,
+    user_id: int | None,
+    top_n: int,
+    score_floor: float,
+    in_lib: bool | None,
+) -> list[dict] | None:
+    """Read the cached ranked list; None on miss / unavailable Redis / bad payload.
+
+    The stored JSON carries date fields (``release_date``, ``created_at`` …) as
+    ISO strings; validating it back through ``SimilarTrackOut`` reparses them, so
+    the returned dicts match the freshly-computed shape field for field.
+    """
+    if redis is None:
+        return None
+    try:
+        raw = await redis.get(
+            _track_similar_cache_key(catalog_id, user_id, top_n, score_floor, in_lib)
+        )
+    except Exception as exc:  # fail-open: Redis down/unsupported → recompute
+        logger.warning("track_similar cache read skipped (Redis unavailable): %s", exc)
+        return None
+    if not raw:
+        return None
+    try:
+        from pydantic import TypeAdapter
+        from schemas import SimilarTrackOut
+
+        adapter = TypeAdapter(list[SimilarTrackOut])
+        return [m.model_dump() for m in adapter.validate_json(raw)]
+    except Exception:  # corrupt/legacy payload → recompute
+        return None
+
+
+async def _track_similar_cache_set(
+    redis,
+    catalog_id: int,
+    user_id: int | None,
+    top_n: int,
+    score_floor: float,
+    in_lib: bool | None,
+    result: list[dict],
+) -> None:
+    """Serialize the ranked list to JSON via ``SimilarTrackOut`` (date → ISO). Fail-open."""
+    if redis is None:
+        return
+    try:
+        from pydantic import TypeAdapter
+        from schemas import SimilarTrackOut
+
+        adapter = TypeAdapter(list[SimilarTrackOut])
+        payload = adapter.dump_json(adapter.validate_python(result)).decode()
+        await redis.setex(
+            _track_similar_cache_key(catalog_id, user_id, top_n, score_floor, in_lib),
+            _TRACK_SIMILAR_CACHE_TTL,
+            payload,
+        )
+    except Exception as exc:  # fail-open
+        logger.warning("track_similar cache write skipped (Redis unavailable): %s", exc)
+
+
 async def get_similar_tracks(
     db: AsyncSession,
     catalog_id: int,
@@ -758,16 +847,29 @@ async def get_similar_tracks(
     top_n: int = CFG.TOP_N,
     score_floor: float = CFG.SCORE_FLOOR,
     in_lib: bool | None = None,
+    redis=None,
 ) -> list[dict]:
     """Similar tracks for one seed (public contract unchanged).
 
-    Loads a fresh :class:`SimilarityContext`, scores via the shared core, then
-    applies ``limit``.
+    Cached per (seed, viewer, top_n, score_floor, in_lib): a hit returns the
+    stored ranked list sliced to ``limit``; a miss loads a fresh
+    :class:`SimilarityContext`, scores via the shared core, caches the full list
+    (6h, fail-open) and returns the slice. Propagates ``LookupError`` (unknown
+    seed) from the compute path — a 404 is never cached.
     """
+    cached = await _track_similar_cache_get(
+        redis, catalog_id, user_id, top_n, score_floor, in_lib
+    )
+    if cached is not None:
+        return cached[:limit]
+
     ctx = await load_similarity_context(db)
     results = await _similar_core(
         db, ctx, catalog_id, user_id,
         top_n=top_n, score_floor=score_floor, in_lib=in_lib,
+    )
+    await _track_similar_cache_set(
+        redis, catalog_id, user_id, top_n, score_floor, in_lib, results
     )
     return results[:limit]
 

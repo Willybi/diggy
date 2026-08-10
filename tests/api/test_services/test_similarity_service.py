@@ -448,6 +448,148 @@ class TestGetSimilarTracks:
 
 
 # ---------------------------------------------------------------------------
+# Redis result cache on get_similar_tracks
+# ---------------------------------------------------------------------------
+
+
+class _DictRedis:
+    """Minimal async Redis double (get/setex) backed by a dict."""
+
+    def __init__(self):
+        self.store = {}
+
+    async def get(self, key):
+        return self.store.get(key)
+
+    async def setex(self, key, ttl, value):
+        self.store[key] = value
+
+
+class _BoomRedis:
+    """A Redis whose every op raises — exercises the fail-open path."""
+
+    async def get(self, key):
+        raise RuntimeError("redis down")
+
+    async def setex(self, key, ttl, value):
+        raise RuntimeError("redis down")
+
+
+class TestGetSimilarTracksCache:
+    """Redis result cache on get_similar_tracks (per seed+viewer+top_n+score_floor+in_lib, TTL 6h, fail-open)."""
+
+    async def _create_tracks(self, db, tracks):
+        from models import CatalogEntry
+
+        entries = []
+        for i, data in enumerate(tracks):
+            entry = CatalogEntry(
+                title=data.get("title", f"Track {i}"),
+                artist=data.get("artist", "Artist"),
+                normalized_key=data.get("normalized_key", f"artist|cache{i}"),
+                bpm=data.get("bpm"),
+                key=data.get("key"),
+                release_date=data.get("release_date"),
+            )
+            db.add(entry)
+            entries.append(entry)
+        await db.commit()
+        for e in entries:
+            await db.refresh(e)
+        return entries
+
+    async def test_miss_then_hit_skips_recompute(self, db, monkeypatch):
+        import services.similarity_service as sim
+
+        entries = await self._create_tracks(db, [
+            {"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|cache-ref",
+             "release_date": date(2025, 1, 1)},
+            {"title": "Close", "bpm": 129.0, "key": "8A", "normalized_key": "a|cache-close",
+             "release_date": date(2025, 3, 1)},
+        ])
+
+        calls = {"n": 0}
+        orig = sim._similar_core
+
+        async def counting(*args, **kwargs):
+            calls["n"] += 1
+            return await orig(*args, **kwargs)
+
+        monkeypatch.setattr(sim, "_similar_core", counting)
+
+        redis = _DictRedis()
+        r1 = await sim.get_similar_tracks(db, entries[0].id, score_floor=0.0, redis=redis)  # miss → score + cache
+        r2 = await sim.get_similar_tracks(db, entries[0].id, score_floor=0.0, redis=redis)  # hit → no rescore
+
+        assert [x["id"] for x in r1] == [entries[1].id]
+        assert [x["id"] for x in r2] == [entries[1].id]
+        assert calls["n"] == 1  # second call served from cache
+        # release_date survives the JSON round-trip (date → ISO → date via SimilarTrackOut).
+        assert r2[0]["release_date"] == date(2025, 3, 1)
+
+    async def test_hit_returns_cached_sliced_to_limit(self, db):
+        import services.similarity_service as sim
+
+        tracks = [{"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|cache-lim-ref"}]
+        for i in range(5):
+            tracks.append({"title": f"T{i}", "bpm": 128.0 + i, "key": "8A",
+                           "normalized_key": f"a|cache-lim-{i}"})
+        entries = await self._create_tracks(db, tracks)
+
+        redis = _DictRedis()
+        # miss with a large limit populates the full ranked list...
+        full = await sim.get_similar_tracks(db, entries[0].id, limit=50, score_floor=0.0, redis=redis)
+        assert len(full) > 2
+        full_ids = [x["id"] for x in full]
+        # ...exactly one entry was written, keyed by (seed, viewer, top_n, score_floor, in_lib).
+        assert sim._track_similar_cache_key(entries[0].id, None, CFG.TOP_N, 0.0, None) in redis.store
+        # a later call with a smaller limit reuses that SAME entry, sliced to limit.
+        sliced = await sim.get_similar_tracks(db, entries[0].id, limit=2, score_floor=0.0, redis=redis)
+        assert [x["id"] for x in sliced] == full_ids[:2]
+
+    async def test_cache_key_varies_by_params(self, db):
+        import services.similarity_service as sim
+
+        entries = await self._create_tracks(db, [
+            {"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|cache-key-ref"},
+            {"title": "Close", "bpm": 129.0, "key": "8A", "normalized_key": "a|cache-key-close"},
+        ])
+
+        redis = _DictRedis()
+        await sim.get_similar_tracks(db, entries[0].id, score_floor=0.0, top_n=20, redis=redis)
+        # only the exact (seed, anon, top_n=20, score_floor=0.0, in_lib=None) entry exists;
+        # a different top_n / score_floor / viewer / in_lib is a distinct key.
+        assert sim._track_similar_cache_key(entries[0].id, None, 20, 0.0, None) in redis.store
+        assert sim._track_similar_cache_key(entries[0].id, None, 10, 0.0, None) not in redis.store
+        assert sim._track_similar_cache_key(entries[0].id, None, 20, 0.5, None) not in redis.store
+        assert sim._track_similar_cache_key(entries[0].id, 1, 20, 0.0, None) not in redis.store
+        assert sim._track_similar_cache_key(entries[0].id, None, 20, 0.0, True) not in redis.store
+
+    async def test_fail_open_when_redis_raises(self, db):
+        import services.similarity_service as sim
+
+        entries = await self._create_tracks(db, [
+            {"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|cache-boom-ref"},
+            {"title": "Close", "bpm": 129.0, "key": "8A", "normalized_key": "a|cache-boom-close"},
+        ])
+
+        # get() and setex() both raise → the service must still compute and return.
+        r = await sim.get_similar_tracks(db, entries[0].id, score_floor=0.0, redis=_BoomRedis())
+        assert [x["id"] for x in r] == [entries[1].id]
+
+    async def test_no_redis_computes_live(self, db):
+        import services.similarity_service as sim
+
+        entries = await self._create_tracks(db, [
+            {"title": "Ref", "bpm": 128.0, "key": "8A", "normalized_key": "a|cache-nr-ref"},
+            {"title": "Close", "bpm": 129.0, "key": "8A", "normalized_key": "a|cache-nr-close"},
+        ])
+
+        r = await sim.get_similar_tracks(db, entries[0].id, score_floor=0.0)  # redis omitted → cache disabled
+        assert [x["id"] for x in r] == [entries[1].id]
+
+
+# ---------------------------------------------------------------------------
 # L1: shared context + reusable per-seed primitive
 # ---------------------------------------------------------------------------
 

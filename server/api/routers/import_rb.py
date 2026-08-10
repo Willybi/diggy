@@ -10,6 +10,7 @@ from dependencies import get_current_user, get_redis
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from models import User
 from schemas import ImportQueuedResponse, ImportStatusResponse
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("diggy")
 
@@ -57,14 +58,15 @@ async def upload_rekordbox_xml(
         )
 
     try:
-        # Upload XML to MinIO (bucket import-jobs)
-        ImageService.ensure_bucket(BUCKET_IMPORT)
-        s3 = ImageService._get_s3()
-        s3.upload_fileobj(
+        # Upload XML to MinIO (bucket import-jobs) — boto3 is synchronous, so
+        # keep both the bucket check and the upload off the event loop.
+        await run_in_threadpool(ImageService.ensure_bucket, BUCKET_IMPORT)
+        await run_in_threadpool(
+            ImageService.upload_fileobj,
             io.BytesIO(content),
             BUCKET_IMPORT,
             f"{user.id}/{task_id}.xml",
-            ExtraArgs={"ContentType": "application/xml"},
+            "application/xml",
         )
 
         # Progress init (TTL 3600s)

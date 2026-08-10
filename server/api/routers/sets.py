@@ -226,7 +226,9 @@ async def list_sets(
         stmt = stmt.having(total_tracks_expr <= tracks_max)
 
     # Ordering: leading '-' = descending, else ascending. Unknown key -> -date.
-    # created_at.desc() is the final tie-break everywhere.
+    # id.desc() is the final tie-break everywhere: created_at is NOT unique, so a
+    # non-unique tie-break let the windowed pagination duplicate/omit a row across
+    # pages; id is unique and stable (same lesson as catalog_service/artist_service).
     # "tracks" sorts by the total track COUNT: the import stores only identified
     # tracks, so the identified/total ratio is always ~100% and would sort nothing.
     sort_columns = {
@@ -242,7 +244,7 @@ async def list_sets(
         key, descending = "date", True
     col = sort_columns[key]
     primary = (col.desc() if descending else col.asc()).nulls_last()
-    stmt = stmt.order_by(primary, DJSet.created_at.desc())
+    stmt = stmt.order_by(primary, DJSet.id.desc())
 
     # Total count
     count_result = await db.execute(select(func.count()).select_from(stmt.subquery()))

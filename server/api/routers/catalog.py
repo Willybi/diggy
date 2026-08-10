@@ -118,6 +118,7 @@ async def get_similar_tracks(
     score_floor: float = Query(0.10, ge=0, le=1),
     in_lib: bool | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
     user: User | None = Depends(get_current_user_optional),
 ):
     try:
@@ -125,6 +126,7 @@ async def get_similar_tracks(
             db, catalog_id, _uid(user),
             limit=limit, top_n=top_n,
             score_floor=score_floor, in_lib=in_lib,
+            redis=redis,
         )
     except LookupError as e:
         raise HTTPException(404, str(e))

@@ -99,31 +99,29 @@ PK: `id`
 | `created_at` | DateTime(tz) | yes |  |  |  |
 | `scope` | String(10) | no |  |  | server_default='shared', default='shared' |
 | `owner_id` | Integer | yes |  | FK → users.id ON DELETE SET NULL |  |
-| `origin` | String(50) | no |  |  | server_default='deezer', default='deezer' |
-| `status` | String(20) | no |  |  | server_default='official', default='official' |
 | `bpm_source` | String(20) | yes |  |  |  |
 | `key_source` | String(20) | yes |  |  |  |
 | `bpm_analyzed_at` | DateTime(tz) | yes |  |  |  |
 | `bpm_analysis_attempts` | Integer | no |  |  | server_default='0', default=0 |
 | `label` | String(255) | yes |  |  |  |
-| `needs_reconciliation` | Boolean | yes |  |  | server_default='false' |
 | `deezer_searched_at` | DateTime(tz) | yes |  |  |  |
 | `beatport_searched_at` | DateTime(tz) | yes |  |  |  |
 | `deezer_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 | `beatport_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 
 **Indexes:**
-- `ix_catalog_owner`: `owner_id`
-- `ix_catalog_scope`: `scope`
 - `ix_catalog_deezer_id`: `deezer_id`
-- `ix_catalog_genres`: `genres`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
 - `ix_catalog_key`: `key`
-- `ix_catalog_created_at`: `created_at`
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
-- `ix_catalog_duration_ms`: `duration_ms`
-- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_created_at_id`: 
 - `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_scope`: `scope`
+- `ix_catalog_duration_ms`: `duration_ms`
+- `ix_catalog_bpm_analysis_backlog`: `id`
+- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_genres`: `genres`
 - `ix_catalog_release_date`: `release_date`
 
 ### `catalog_artists`
@@ -279,9 +277,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
-- `ix_radar_tracks_catalog`: `catalog_id`
 - `ix_radar_tracks_source_detected`: `source`
 - `ix_radar_tracks_watched_entity`: `watched_entity_id`
+- `ix_radar_tracks_catalog`: `catalog_id`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -302,6 +300,10 @@ PK: `catalog_id`
 | `velocity` | Float | yes |  |  |  |
 | `source_count` | Integer | yes |  |  |  |
 | `computed_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_radar_trends_rank_global`: `rank_global`
+- `ix_radar_trends_family_rank`: `family`, `rank_in_family`
 
 ### `user_radar_state`
 
@@ -432,7 +434,6 @@ PK: `id`
 | `last_crawled_at` | DateTime(tz) | yes |  |  |  |
 | `parent_set_id` | Integer | yes |  | FK → sets.id ON DELETE SET NULL |  |
 | `is_virtual` | Boolean | no |  |  | server_default='false', default=False |
-| `platform` | String(32) | yes |  |  |  |
 | `normalized_title` | String(500) | yes |  |  |  |
 | `part_number` | Integer | yes |  |  |  |
 | `part_total` | Integer | yes |  |  |  |
@@ -478,9 +479,9 @@ PK: `id`
 | `trackid_music_track_id` | Integer | yes |  |  |  |
 
 **Indexes:**
+- `ix_set_tracks_catalog_id`: `catalog_id`
 - `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 - `ix_set_tracks_set_id`: `set_id`
-- `ix_set_tracks_catalog_id`: `catalog_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -588,8 +589,8 @@ PK: `id`
 | `created_at` | DateTime(tz) | no |  |  |  |
 
 **Indexes:**
-- `ix_admin_audit_log_action`: `action`
 - `ix_admin_audit_log_user_id`: `user_id`
+- `ix_admin_audit_log_action`: `action`
 
 ### `crawl_logs`
 

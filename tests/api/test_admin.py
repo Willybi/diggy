@@ -90,9 +90,21 @@ class TestLinkDeezer:
         await db.commit()
         await db.refresh(a)
 
-        mocker.patch("requests.get", return_value=type("R", (), {
-            "json": lambda self: {"name": "Official Name", "picture_xl": None}
-        })())
+        # link_to_deezer now fetches over httpx (async), not requests: stub the
+        # AsyncClient async-context-manager instead of requests.get.
+        class _FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get(self, *a, **k):
+                return type(
+                    "R", (), {"json": lambda self: {"name": "Official Name", "picture_xl": None}}
+                )()
+
+        mocker.patch("services.artist_service.httpx.AsyncClient", return_value=_FakeClient())
         mocker.patch("services.image_service.ImageService.upload_from_url", return_value=False)
 
         r = await admin_client.patch(f"/api/admin/artists/{a.id}/deezer", json={"deezer_id": "12345"})

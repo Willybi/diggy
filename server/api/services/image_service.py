@@ -12,6 +12,7 @@ import tempfile
 import boto3
 import requests
 from botocore.client import Config
+from starlette.concurrency import run_in_threadpool
 
 MINIO_URL = os.environ.get("MINIO_URL", "http://minio:9000")
 MINIO_USER = os.environ.get("MINIO_USER", "")
@@ -98,6 +99,23 @@ class ImageService:
         return f"/storage/{bucket}/{key}"
 
     @classmethod
+    def upload_fileobj(
+        cls,
+        fileobj,
+        bucket: str,
+        key: str,
+        content_type: str = "application/octet-stream",
+    ) -> None:
+        """Upload a file-like object (blocking boto3 call).
+
+        Public wrapper over the boto3 client so callers never reach for the
+        private `_get_s3()`; run it via `run_in_threadpool` from async code.
+        """
+        cls._get_s3().upload_fileobj(
+            fileobj, bucket, key, ExtraArgs={"ContentType": content_type}
+        )
+
+    @classmethod
     def copy_object(cls, bucket: str, src_key: str, dst_key: str) -> bool:
         """Copy an object within the same bucket. Returns True on success."""
         if src_key == dst_key:
@@ -109,6 +127,31 @@ class ImageService:
                 Key=dst_key,
             )
             return True
+        except Exception:
+            return False
+
+    @classmethod
+    def _fetch_playlist_artwork(cls, external_id: str, playlist_id: int) -> bool:
+        """Download a playlist's Deezer artwork and upload to MinIO (blocking).
+
+        Network (requests) + boto3 are synchronous, so this runs off the event
+        loop via `run_in_threadpool`. Returns True on a successful fetch+upload,
+        False on any network/upload failure (an error is a non-fetch, not a raise).
+        """
+        try:
+            resp = requests.get(
+                f"https://api.deezer.com/playlist/{external_id}", timeout=5
+            )
+            data = resp.json()
+            pic_url = (
+                data.get("picture_xl")
+                or data.get("picture_big")
+                or data.get("picture_medium")
+            )
+            return bool(
+                pic_url
+                and cls.upload_from_url(pic_url, BUCKET_PLAYLIST, f"{playlist_id}.jpg")
+            )
         except Exception:
             return False
 
@@ -131,27 +174,17 @@ class ImageService:
         if not playlists:
             return {"fetched": 0, "failed": 0, "total": 0}
 
-        cls.ensure_bucket(BUCKET_PLAYLIST)
+        await run_in_threadpool(cls.ensure_bucket, BUCKET_PLAYLIST)
 
         fetched = 0
         failed = 0
         for pl in playlists:
-            try:
-                resp = requests.get(
-                    f"https://api.deezer.com/playlist/{pl.external_id}", timeout=5
-                )
-                data = resp.json()
-                pic_url = (
-                    data.get("picture_xl")
-                    or data.get("picture_big")
-                    or data.get("picture_medium")
-                )
-                if pic_url and cls.upload_from_url(pic_url, BUCKET_PLAYLIST, f"{pl.id}.jpg"):
-                    pl.has_artwork = True
-                    fetched += 1
-                else:
-                    failed += 1
-            except Exception:
+            if await run_in_threadpool(
+                cls._fetch_playlist_artwork, pl.external_id, pl.id
+            ):
+                pl.has_artwork = True
+                fetched += 1
+            else:
                 failed += 1
 
         # Persist the has_artwork flags: get_db does not commit on exit, so

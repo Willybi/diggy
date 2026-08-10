@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import httpx
 from celery_client import celery
 from database import get_db
 from dependencies import get_redis, require_admin
@@ -128,14 +129,13 @@ async def search_deezer_artist(
     _: User = Depends(require_admin),
 ):
     """Search Deezer for an artist by name."""
-    import requests as req
-
     try:
-        resp = req.get(
-            "https://api.deezer.com/search/artist",
-            params={"q": q, "limit": 10},
-            timeout=5,
-        )
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                "https://api.deezer.com/search/artist",
+                params={"q": q, "limit": 10},
+            )
+            data = resp.json()
         return [
             DeezerArtistHit(
                 deezer_id=str(h["id"]),
@@ -143,7 +143,7 @@ async def search_deezer_artist(
                 picture=h.get("picture_medium"),
                 nb_fan=h.get("nb_fan"),
             )
-            for h in resp.json().get("data", [])
+            for h in data.get("data", [])
         ]
     except Exception:
         logger.warning("Deezer artist search failed for %r", q, exc_info=True)

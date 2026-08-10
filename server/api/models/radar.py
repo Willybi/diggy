@@ -129,4 +129,10 @@ class RadarTrend(Base):
     source_count = Column(Integer, nullable=True)
     computed_at = Column(DateTime(timezone=True))
 
+    __table_args__ = (
+        # radar_service.list_bi_score: per-family ranking + global rank lookups
+        Index("ix_radar_trends_family_rank", "family", "rank_in_family"),
+        Index("ix_radar_trends_rank_global", "rank_global"),
+    )
+
     catalog = relationship("CatalogEntry")

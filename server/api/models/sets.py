@@ -43,7 +43,6 @@ class DJSet(Base):
         Integer, ForeignKey("sets.id", ondelete="SET NULL"), nullable=True, index=True
     )
     is_virtual = Column(Boolean, nullable=False, default=False, server_default="false")
-    platform = Column(String(32), nullable=True)
     normalized_title = Column(String(500), nullable=True)
     part_number = Column(Integer, nullable=True)
     part_total = Column(Integer, nullable=True)

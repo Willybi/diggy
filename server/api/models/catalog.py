@@ -45,12 +45,6 @@ class CatalogEntry(Base):
     owner_id = Column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    origin = Column(
-        String(50), nullable=False, server_default="deezer", default="deezer"
-    )
-    status = Column(
-        String(20), nullable=False, server_default="official", default="official"
-    )
     bpm_source = Column(String(20), nullable=True)
     key_source = Column(String(20), nullable=True)
     # E2.c — BPM analysis tracking (estimated BPM from Deezer previews). Stamped
@@ -61,7 +55,6 @@ class CatalogEntry(Base):
         Integer, nullable=False, server_default="0", default=0
     )
     label = Column(String(255), nullable=True)
-    needs_reconciliation = Column(Boolean, server_default="false", nullable=True)
     deezer_searched_at = Column(DateTime(timezone=True), nullable=True)
     beatport_searched_at = Column(DateTime(timezone=True), nullable=True)
     deezer_search_attempts = Column(
@@ -104,7 +97,26 @@ class CatalogEntry(Base):
         Index("ix_catalog_key", "key"),
         Index("ix_catalog_duration_ms", "duration_ms"),
         Index("ix_catalog_release_date", "release_date"),
-        Index("ix_catalog_created_at", "created_at"),
+        # Explorer sort default: created_at DESC then id DESC (stable window
+        # tie-break). Prod (PG) adds NULLS LAST via migration 0044 to match the
+        # ORDER BY exactly; it is omitted here because SQLite's CREATE INDEX
+        # rejects NULLS LAST (it only allows it in ORDER BY) and the test suite
+        # builds this schema via create_all on SQLite — where DESC already
+        # orders NULLs last anyway, so the two are equivalent on that dialect.
+        Index(
+            "ix_catalog_created_at_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+        # AV3 — partial index mirroring bpm_analysis_candidate_filter() (E2.c backlog)
+        Index(
+            "ix_catalog_bpm_analysis_backlog",
+            "id",
+            postgresql_where=text(
+                "has_preview AND bpm IS NULL AND bpm_analyzed_at IS NULL "
+                "AND deezer_id IS NOT NULL AND deezer_id <> 'NOT_FOUND'"
+            ),
+        ),
     )
 
     artist_links = relationship(

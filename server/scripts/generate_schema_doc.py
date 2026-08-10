@@ -99,8 +99,6 @@ is auto-generated — do not edit it directly.
 
 ### Lifecycle & radar columns
 - `catalog.scope`: `"shared"` (default) or `"private"` (Rekordbox-only entries before enrichment).
-- `catalog.origin`: how the entry entered the catalog (`"deezer"`, `"rekordbox"`, etc.).
-- `catalog.status`: `"official"` (default), `"pending"`, etc.
 - `radar_tracks.removed_at`: soft-delete timestamp for tracks removed from a playlist.
 - `radar_tracks.is_initial_detection`: `true` for tracks present at first crawl
   (avoids inflating trend scores).
@@ -114,6 +112,11 @@ is auto-generated — do not edit it directly.
 - This doc reflects SQLAlchemy model declarations. The actual DB may diverge
   if a migration altered a constraint manually (e.g. `ON DELETE`). When in
   doubt, check `alembic/versions/`.
+- `ix_catalog_created_at_id` (AV3, migration 0044): prod PG carries
+  `(created_at DESC NULLS LAST, id DESC)` to match the Explorer default sort
+  exactly; the model declares `(created_at DESC, id DESC)` without the
+  `NULLS LAST` token because SQLite's `CREATE INDEX` rejects it (test suite
+  builds via `create_all` on SQLite, where `DESC` orders NULLs last anyway).
 <!-- MANUAL:END -->"""
 
 

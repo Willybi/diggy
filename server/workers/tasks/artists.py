@@ -1633,8 +1633,8 @@ def _crawl_track(session, hit):
     Reuses the shared sync enrichment helpers (deezer_id, isrc, duration,
     has_preview, cover upload + multi-artist linking) so a crawled release track
     is indistinguishable from any other catalog track. New entries default to
-    scope='shared' / origin='deezer' (model defaults) — visible to everyone, as
-    with radar/enrichment tracks. Raises IntegrityError (norm_key race or the
+    scope='shared' (model default) — visible to everyone, as with
+    radar/enrichment tracks. Raises IntegrityError (norm_key race or the
     partial-unique artist deezer_id guard) so the caller can roll back and fall
     back to a link-only activity card.
     """

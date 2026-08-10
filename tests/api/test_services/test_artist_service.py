@@ -356,15 +356,32 @@ class TestListArtistsLikeEscape:
 
 class TestLinkToDeezer:
     @staticmethod
-    def _stub_requests(monkeypatch, name="Canonical"):
-        """Avoid the real Deezer call (returns a name, no picture)."""
-        import requests
+    def _stub_httpx(monkeypatch, name="Canonical"):
+        """Avoid the real Deezer call (returns a name, no picture).
+
+        link_to_deezer now fetches over httpx (async) rather than requests, so
+        the stub swaps httpx.AsyncClient for an async-context-manager fake.
+        """
+        from services import artist_service
 
         class _Resp:
             def json(self):
                 return {"name": name}
 
-        monkeypatch.setattr(requests, "get", lambda *a, **k: _Resp())
+        class _FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get(self, *a, **k):
+                return _Resp()
+
+        monkeypatch.setattr(artist_service.httpx, "AsyncClient", _FakeClient)
 
     async def _catalog_entry(self, db, key):
         from datetime import datetime, timezone
@@ -388,7 +405,7 @@ class TestLinkToDeezer:
         from models import Artist, CatalogArtist
         from sqlalchemy import select
 
-        self._stub_requests(monkeypatch)
+        self._stub_httpx(monkeypatch)
 
         dup = Artist(name="Dup Name", normalized_name="dup name")
         canonical = Artist(
@@ -422,7 +439,7 @@ class TestLinkToDeezer:
         from models import Artist, CatalogArtist
         from sqlalchemy import select
 
-        self._stub_requests(monkeypatch)
+        self._stub_httpx(monkeypatch)
 
         dup = Artist(name="Dup2", normalized_name="dup2")
         canonical = Artist(name="Canon2", normalized_name="canon2", deezer_id="888")
@@ -457,7 +474,7 @@ class TestLinkToDeezer:
         from models import Artist, CatalogArtist
         from sqlalchemy import select
 
-        self._stub_requests(monkeypatch)
+        self._stub_httpx(monkeypatch)
 
         dup = Artist(name="DupPre", normalized_name="duppre")
         canonical = Artist(name="CanonPre", normalized_name="canonpre", deezer_id="999")

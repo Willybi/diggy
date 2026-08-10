@@ -53,8 +53,10 @@ _celery_mock.task.side_effect = _task_decorator
 _celery_app_mod = MagicMock(celery_app=_celery_mock)
 sys.modules["workers.celery_app"] = _celery_app_mod
 
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
 from database import Base  # noqa: E402
-from models import Artist, CatalogEntry, DJSet, MetricSnapshot  # noqa: E402
+from models import Artist, CatalogEntry, CrawlLog, DJSet, MetricSnapshot  # noqa: E402
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -161,3 +163,64 @@ class TestSnapshotBacklogs:
     def test_task_has_no_autoretry(self, monitoring_task):
         # Loop-safe: a transient DB blip is retried next hour, never re-looped.
         assert monitoring_task.mod.snapshot_backlogs.autoretry_for == ()
+
+
+class TestRetentionPurge:
+    """AV3: metric_snapshots + crawl_logs are purged past RETENTION_DAYS."""
+
+    def test_purges_old_rows_keeps_recent(self, monitoring_task, fake_self):
+        engine = monitoring_task.engine
+        retention_days = monitoring_task.mod.RETENTION_DAYS
+        now = datetime.now(timezone.utc)
+        old_ts = now - timedelta(days=retention_days + 30)  # well past the cutoff
+        recent_ts = now - timedelta(days=10)  # comfortably inside the window
+
+        with Session(engine) as s:
+            s.add(MetricSnapshot(captured_at=old_ts, payload={"old": True}))
+            s.add(MetricSnapshot(captured_at=recent_ts, payload={"recent": True}))
+            s.add(
+                CrawlLog(task_type="enrich_catalog", started_at=old_ts, status="success")
+            )
+            s.add(
+                CrawlLog(
+                    task_type="enrich_catalog", started_at=recent_ts, status="success"
+                )
+            )
+            s.commit()
+
+        monitoring_task.mod.snapshot_backlogs(fake_self)
+
+        with Session(engine) as s:
+            snap_dates = s.execute(
+                select(MetricSnapshot.captured_at)
+            ).scalars().all()
+            log_dates = s.execute(select(CrawlLog.started_at)).scalars().all()
+
+        # No row older than the cutoff survives on either table. SQLite reads
+        # tz-aware columns back as naive, so compare on a naive UTC basis.
+        def _naive(d):
+            return d.replace(tzinfo=None) if d.tzinfo else d
+
+        cutoff = (now - timedelta(days=retention_days)).replace(tzinfo=None)
+        assert all(_naive(d) >= cutoff for d in snap_dates), snap_dates
+        assert all(_naive(d) >= cutoff for d in log_dates), log_dates
+        # The recent seed + the snapshot the run just wrote remain; the old is gone.
+        assert len(snap_dates) == 2
+        assert len(log_dates) == 1
+
+    def test_purge_is_idempotent_on_second_run(self, monitoring_task, fake_self):
+        engine = monitoring_task.engine
+        now = datetime.now(timezone.utc)
+        old_ts = now - timedelta(days=monitoring_task.mod.RETENTION_DAYS + 30)
+        with Session(engine) as s:
+            s.add(MetricSnapshot(captured_at=old_ts, payload={"old": True}))
+            s.commit()
+
+        monitoring_task.mod.snapshot_backlogs(fake_self)  # purges the old row
+        monitoring_task.mod.snapshot_backlogs(fake_self)  # nothing old left to purge
+
+        with Session(engine) as s:
+            rows = s.execute(select(MetricSnapshot)).scalars().all()
+        # Two runs → two fresh snapshots, the pre-existing old one is gone.
+        assert len(rows) == 2
+        assert all(r.payload != {"old": True} for r in rows)

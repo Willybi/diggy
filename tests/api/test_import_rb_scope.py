@@ -61,7 +61,6 @@ async def _import_track(db, user_id: int, title: str, artist: str) -> CatalogEnt
             normalized_key=norm_key,
             scope="private",
             owner_id=user_id,
-            origin="rekordbox",
         )
         db.add(entry)
         await db.flush()

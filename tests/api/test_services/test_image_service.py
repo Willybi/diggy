@@ -67,6 +67,33 @@ class TestUploadBytes:
             ImageService._client = None
 
 
+class TestUploadFileobj:
+    def test_delegates_to_s3_with_content_type(self):
+        mock_s3 = MagicMock()
+        ImageService._client = mock_s3
+        try:
+            fileobj = object()
+            ImageService.upload_fileobj(fileobj, "bucket", "key.xml", "application/xml")
+            mock_s3.upload_fileobj.assert_called_once_with(
+                fileobj,
+                "bucket",
+                "key.xml",
+                ExtraArgs={"ContentType": "application/xml"},
+            )
+        finally:
+            ImageService._client = None
+
+    def test_defaults_content_type(self):
+        mock_s3 = MagicMock()
+        ImageService._client = mock_s3
+        try:
+            ImageService.upload_fileobj(object(), "bucket", "key")
+            _, kwargs = mock_s3.upload_fileobj.call_args
+            assert kwargs["ExtraArgs"] == {"ContentType": "application/octet-stream"}
+        finally:
+            ImageService._client = None
+
+
 class TestConstants:
     def test_bucket_names(self):
         assert BUCKET_ARTWORKS == "artworks"
