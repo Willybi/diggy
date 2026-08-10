@@ -79,7 +79,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AV7  Doc & tests (cloture serie AV)        BAS         1 jour       A FAIRE — lot doc CLAUDE.md (9 divergences), /schema_doc post-migration AV3, tests auth callback + upsert RB, catalog_visible external search, LEDGER solde
  N4   Majeurs frontend (vite 8, pinia 4...) BAS         2-3 jours    A FAIRE — inscrit 2026-08-09 (audit Q8) : vite 5→8 + vitest 3→4 ensemble, puis pinia 2→4 + vue-router 4→5 ; APRES AV5 (surface reduite) ; re-validation 18 vues + verif CDP
  C10  Pool similarite precalcule (nightly)  BAS         3-5 jours    CONDITIONNEL — inscrit 2026-08-09 (audit Q3b) : le « fix durable » du pool par requete ; declenche SEULEMENT si les mesures post-AV3 (RSS, latence /similar) restent insuffisantes
- X4   Liaisons plateforme erronees v2 (reliquats X3 + artiste divergent) MOYEN 3-5 jours A FAIRE — inscrit 2026-08-10 (diagnostic /catalog/15952) : reverify X3 n'a nettoye que les ids PARTAGES → ~73k beatport / ~106k deezer ids pre-X3 a id UNIQUE jamais revus ; + BUG ACTIF le matcher valide contre catalog.artist (colonne plate) alors que l'UI montre catalog_artists (M2M) — 3670 divergences franches dont 1664 POST-X3. ORDRE : correctif champ artiste AVANT re-drain
+ X4   Integrite artiste & liaisons plateforme v2 (reliquats X3) MOYEN 4-6 jours A FAIRE — inscrit 2026-08-10 (diagnostics /catalog/15952 + artiste « t e s t p r e s s ») : (1) reverify X3 n'a nettoye que les ids PARTAGES → ~73k beatport / ~106k deezer ids UNIQUES pre-X3 jamais revus ; (2) matcher valide contre catalog.artist (plat) != catalog_artists (M2M affiche) — 3670 divergences dont 1664 POST-X3 ; (3) 29101 lignes (~11%) sans lien catalog_artists → artiste non cliquable (fallback texte ArtistLinks) ; (4) recherche non insensible aux espaces → 41 artistes « espaces » introuvables. ORDRE : fix champ/liens AVANT re-drain
 ```
 
 ### Chantiers termines (reference)
@@ -172,7 +172,7 @@ C9 ─────────> E2 conseille avant (meme tuyauterie preview→an
 D8 ─────────> Rien de bloquant — s'appuie sur l'existant : filtres URL des listes (X2, useUrlSync/useFilterState) + filtre genres[] d'Explorer (D6 p.1). Amende la fiche genre-detail (tracklist « infinite scroll » → apercu borne)
 
 --- liaisons plateforme v2 (diagnostic 2026-08-10) ---
-X4 ─────────> X3 (TERMINE, prevention A/B en place). ORDRE INTERNE IMPERATIF : X4.a (correctif champ artiste) + X4.b (reconciliation) AVANT X4.c (re-drain), sinon le re-scan re-pose les memes mauvais ids. Complementaire de N3 (donnees artiste) et AV4 (workers)
+X4 ─────────> X3 (TERMINE, prevention A/B en place). ORDRE INTERNE IMPERATIF : X4.a (correctif champ artiste) + X4.b (reconciliation) + X4.e (backfill liens M2M) AVANT X4.c (re-drain), sinon le re-scan re-pose les memes mauvais ids. N3 = sous-ensemble de X4.e (decoupage multi-artistes sans separateur). Complementaire de AV4 (workers)
 ```
 
 ### Decisions produit actees
@@ -1423,16 +1423,16 @@ X1 a montre que `deezer_id`/`beatport_id` ne sont pas une identite par enregistr
 
 ---
 
-## X4 — Liaisons plateforme erronees v2 (reliquats X3 + artiste divergent)
+## X4 — Integrite artiste & liaisons plateforme v2 (reliquats X3)
 
 **Priorite : MOYEN**
-**Estimation : 3-5 jours (dont ~7-8 jours de drain Beatport en tache de fond, non bloquant)**
-**Depend de : X3 (TERMINE, prevention A/B en place). ORDRE INTERNE IMPERATIF : X4.a + X4.b AVANT X4.c. Coordination conseillee avec N3 (donnees artiste) et AV4 (workers).**
-**Statut : A FAIRE — inscrit 2026-08-10 (diagnostic declenche par /catalog/15952 : « Rhythm Of The House » affiche Carl Cox, mais l'embed Beatport pointe beatport_id 29099904 = « Rhythm Of The House » d'Ejeca / Alex Culross).**
+**Estimation : 4-6 jours (dont ~7-8 jours de drain Beatport en tache de fond, non bloquant)**
+**Depend de : X3 (TERMINE, prevention A/B en place). ORDRE INTERNE IMPERATIF : X4.a + X4.b + X4.e AVANT X4.c. Coordination conseillee avec N3 (decoupage multi-artistes sans separateur, sous-ensemble de X4.e) et AV4 (workers).**
+**Statut : A FAIRE — inscrit 2026-08-10 (diagnostic /catalog/15952 : « Rhythm Of The House » affiche Carl Cox mais l'embed Beatport pointe beatport_id 29099904 = « Rhythm Of The House » d'Ejeca / Alex Culross ; elargi le meme jour par le cas artiste « t e s t p r e s s » : non cliquable + introuvable).**
 
 ### Objectif
 
-X3 a pose une validation AVANT stamping (artiste + titre remix-aware) mais a ete cloture « TERMINE » en laissant DEUX trous : l'un dans le nettoyage de l'existant, l'autre encore ACTIF dans le code. Cote utilisateur, l'effet est direct : des previews Deezer et des embeds Beatport qui ne correspondent pas au morceau affiche — ce qui ebranle la confiance dans les donnees. Ce chantier ferme les deux trous et re-derive les lignes concernees. Garde-fou repris de X3 : mieux vaut ne rien poser qu'un mauvais id (l'entree reste eligible au backoff E1).
+X3 a pose une validation AVANT stamping (artiste + titre remix-aware) mais a ete cloture « TERMINE » en laissant DEUX trous : l'un dans le nettoyage de l'existant, l'autre encore ACTIF dans le code. S'y ajoutent deux symptomes de MEME racine remontes le 2026-08-10 (les deux representations d'artiste `catalog.artist` plat vs `catalog_artists` M2M ne sont pas maintenues coherentes ni completes) : des artistes non cliquables et des artistes introuvables. Cote utilisateur, l'effet cumule est direct : previews/embeds qui ne correspondent pas au morceau, et artistes qu'on ne peut ni ouvrir ni chercher — ce qui ebranle la confiance dans les donnees. Ce chantier traite l'ensemble et re-derive les lignes concernees. Garde-fou repris de X3 : mieux vaut ne rien poser qu'un mauvais id (l'entree reste eligible au backoff E1).
 
 ### Constat (mesures prod 2026-08-10)
 
@@ -1445,7 +1445,11 @@ X3 a pose une validation AVANT stamping (artiste + titre remix-aware) mais a ete
 - 98% (3591/3670) portent un `deezer_id` : le M2M a ete (re)resolu via Deezer (`link_catalog_artist_from_hit` / `link_artists_deezer`) sans re-synchroniser la colonne plate `catalog.artist`.
 - Exemple /catalog/15952 : `catalog.artist='Alex Culross'` alors que `catalog_artists`=Carl Cox (artist 1295, deezer_id 3951). Le matcher a « valide » Alex Culross → track Ejeca/Alex Culross, tout en affichant Carl Cox.
 
-**Consequence croisee (justifie l'ordre des lots)** : re-enrichir (Trou 1) SANS corriger le champ artiste (Trou 2) re-posera le meme mauvais id sur ces lignes, puisque l'entree du matcher est elle-meme fausse. D'ou X4.a + X4.b AVANT X4.c.
+**Consequence croisee (justifie l'ordre des lots)** : re-enrichir (Trou 1) SANS corriger le champ artiste (Trou 2) re-posera le meme mauvais id sur ces lignes, puisque l'entree du matcher est elle-meme fausse. D'ou X4.a + X4.b + X4.e AVANT X4.c.
+
+**Symptomes additionnels (meme racine, diagnostic 2026-08-10) :**
+- **Artiste non cliquable — 29101 lignes (~11% du catalog).** Elles ont `catalog.artist` non vide mais AUCUN lien `catalog_artists`. `components/ArtistLinks.vue` rend un `RouterLink` par artiste M2M et, liste vide, retombe sur la chaine plate en TEXTE non cliquable (Explorer via `<ArtistLinks>` + Track Detail) → aucun chemin vers la page artiste. Le peuplement M2M depend d'un hit Deezer avec `contributors` (`link_catalog_artist_from_hit`) ou de l'import ; les lignes arrivees autrement (Beatport-only, jamais matchees Deezer, crawl) gardent la chaine plate sans lien. Ex. /artiste « t e s t p r e s s » (id 2613) : 4 titres non/partiellement lies (160095 FLOW, 263547 PEOPLE IN THE BACK, 112328 SHOOT TO KILL, 200230 BOUNCE N BREAK). Sous-ensemble SANS separateur (`t e s t p r e s s Kichta`) = perimetre N3.
+- **Recherche artiste aveugle aux espaces — 41 artistes.** Les noms stylises « lettres espacees » (ex. `t e s t p r e s s`, nom Deezer REEL de l'artiste 2613, confirme via l'API) sont introuvables : la recherche fait un match sous-chaine (`ILIKE '%q%'`) et `utils.normalize` ne collapse pas les espaces internes, donc « testpress » (et meme « test ») ne matche rien. La page existe (HTTP 200) mais n'est atteignable que par la forme espacee exacte ou un clic depuis un titre (quand le lien M2M existe).
 
 ### X4.a — Correctif code : source de verite artiste unique pour l'enrichissement
 
@@ -1462,13 +1466,24 @@ X3 a pose une validation AVANT stamping (artiste + titre remix-aware) mais a ete
 ### X4.c — Reset cible + re-drain des reliquats pre-X3
 
 - [ ] Etendre `reverify_platform_ids.py` (ou nouveau script) pour resetter l'etat de recherche (`*_id`, `*_searched_at`, `*_search_attempts`, bpm/key beatport-source, `has_preview` deezer-stale) des lignes recherchees AVANT 2026-07-22 — PAS seulement les ids partages. Idempotent, dry-run par defaut, DUMP PROD avant `--apply`.
-- [ ] Lancer APRES X4.a + X4.b (sinon re-stamp des mauvais ids). Dimensionnement : ~73k beatport / ~9900/j ≈ 7-8 j de drain horaire ; ~106k deezer sur le sweep nocturne (surveiller la capacite / le rate-limit Deezer). Etaler, suivre via la page Monitoring et les crawl-logs.
+- [ ] Lancer APRES X4.a + X4.b + X4.e (sinon re-stamp des mauvais ids / matcher aveugle aux liens fraichement crees). Dimensionnement : ~73k beatport / ~9900/j ≈ 7-8 j de drain horaire ; ~106k deezer sur le sweep nocturne (surveiller la capacite / le rate-limit Deezer). Etaler, suivre via la page Monitoring et les crawl-logs.
 - [ ] Alternative a evaluer au dimensionnement : ne resetter que le sous-ensemble a divergence franche + un echantillon de controle, plutot que 73k en bloc, pour borner la churn de re-enrichissement.
 - [ ] Verifier /catalog/15952 corrige (id correct ou vide).
 
 ### X4.d — Observabilite (optionnel)
 
-- [ ] Exposer les compteurs « divergence artiste » et « lignes a id pre-X3 » dans `/admin/monitoring` (ou une requete admin) pour suivre la non-regression dans le temps.
+- [ ] Exposer les compteurs « divergence artiste », « lignes a id pre-X3 » et « lignes sans lien catalog_artists » dans `/admin/monitoring` (ou une requete admin) pour suivre la non-regression dans le temps.
+
+### X4.e — Backfill des liens `catalog_artists` manquants (~29101 lignes)
+
+- [ ] Script (dry-run/`--apply`, idempotent) qui re-peuple `catalog_artists` depuis la chaine plate `catalog.artist` pour les lignes a M2M vide : split par separateur reconnu (`,`/`&`/`feat`/`ft`/`x`/`vs`/`|`), resolution/creation d'artiste (reutiliser `deezer_enrich._resolve_or_create_artist` + alias), lien avec role/position.
+- [ ] Sous-ensemble SANS separateur (ex. `t e s t p r e s s Kichta`) : NE PAS deviner le decoupage — deleguer a N3 (decoupage verifie) ou laisser en l'etat et lister a part (invariant #4, erreur vers la separation).
+- [ ] A executer AVEC/AVANT X4.c : un lien M2M correct est aussi ce que X4.a veut valider — un backfill posterieur au re-drain manquerait la fenetre. Verifier que l'artiste redevient cliquable en Explorer + Track Detail sur les 4 titres testpress cites.
+
+### X4.f — Recherche artiste insensible aux espaces
+
+- [ ] Rendre la recherche (`artist_service.list_artists` filtre `q` + `search_service` / `/search` global) insensible aux espaces internes : comparer une forme « compacte » (`replace(x,' ','')`) cote requete ET cote nom indexe, ou materialiser une cle de recherche compacte. Debloque les 41 noms « espaces » d'un coup.
+- [ ] Ne PAS renommer les artistes (le nom espace est le nom canonique Deezer, invariant : Diggy reste fidele a la source). Complement ponctuel possible : alias « testpress » sur l'artiste 2613 (mecanisme d'alias existant).
 
 ### Divergence doc a corriger (flag)
 
@@ -1481,6 +1496,8 @@ CLAUDE.md et la roadmap marquent X3 « TERMINE — rollout X3.c applique » sans
 # 0 nouvelle ligne enrichie POST-fix avec divergence franche artiste sur un beatport_id/deezer_id frais
 # catalog.artist re-synchronise (ou deprecie) : divergence franche ~0 apres X4.b
 # reliquats pre-X3 reset et en cours de re-drain ; /catalog/15952 corrige (id correct ou vide)
+# artiste cliquable partout : 0 ligne servie avec un artiste en texte plat quand un lien est resolvable (backfill X4.e ; sous-ensemble sans separateur explicitement liste/delegue N3)
+# recherche « testpress » (sans espaces) trouve l'artiste 2613 ; les 41 noms « espaces » redeviennent trouvables
 # CLAUDE.md + roadmap : note X3->X4 posee ; database-schema.md regenere si le statut de catalog.artist change
 ```
 
