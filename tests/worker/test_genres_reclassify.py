@@ -343,7 +343,8 @@ class TestReclassifyOrchestrator:
         monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
         genres_tasks.finalize_reclassify.s.reset_mock()
 
-        out = genres_tasks.reclassify_all_genres(MagicMock(), num_chunks=2)
+        # chunk_size=3 over 5 entries → ceil(5/3) = 2 chunks
+        out = genres_tasks.reclassify_all_genres(MagicMock(), chunk_size=3)
 
         assert out == {"dispatched": 2, "total": 5}
         genres_tasks.finalize_reclassify.s.assert_called_once_with(total=5)
@@ -354,7 +355,7 @@ class TestReclassifyOrchestrator:
         monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
         genres_tasks.finalize_reclassify.s.reset_mock()
 
-        out = genres_tasks.reclassify_all_genres(MagicMock(), num_chunks=3)
+        out = genres_tasks.reclassify_all_genres(MagicMock(), chunk_size=3)
 
         assert out == {"dispatched": 0, "total": 0}
         genres_tasks.finalize_reclassify.s.assert_not_called()

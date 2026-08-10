@@ -150,15 +150,15 @@ class TestRetryPolicies:
 
     def test_non_orchestrators_have_autoretry(self):
         wt = self._get_tasks()
-        # fetch_artist_artworks, link_artists_deezer, resolve_set_tracks and
-        # enrich_catalog_beatport are deliberately EXCLUDED: see
-        # test_backlog_tasks_have_no_exception_autoretry.
+        # fetch_artist_artworks, link_artists_deezer, resolve_set_tracks,
+        # enrich_catalog_beatport and reclassify_genres_chunk are deliberately
+        # EXCLUDED: see test_backlog_tasks_have_no_exception_autoretry.
         non_orchestrators = [
             "crawl_single_playlist",
             "enrich_catalog",
             "recrawl_incomplete_sets",
             "sync_artists", "link_set_artists",
-            "reclassify_genres_chunk", "compute_trends",
+            "compute_trends",
         ]
         for tname in non_orchestrators:
             task = getattr(wt, tname)
@@ -178,13 +178,18 @@ class TestRetryPolicies:
         to the nightly enrich tasks (same footgun applied to its 7200s limit).
         enrich_catalog_beatport joined it with the hourly-drain switch (Lot A):
         the short time_limit + Redis lock guard the run, and an autoretry over
-        SoftTimeLimitExceeded would loop the Beatport scrape all over again."""
+        SoftTimeLimitExceeded would loop the Beatport scrape all over again.
+        reclassify_genres_chunk joined it after the 2026-08-10 prod incident: the
+        global task_acks_late + task_reject_on_worker_lost already requeue a
+        crashed chunk once, so autoretry_for=(Exception,) on top turned an OOM
+        (a too-large chunk) into an infinite crash-loop that pegged the worker."""
         wt = self._get_tasks()
         for tname in (
             "fetch_artist_artworks",
             "link_artists_deezer",
             "resolve_set_tracks",
             "enrich_catalog_beatport",
+            "reclassify_genres_chunk",
         ):
             task = getattr(wt, tname)
             assert Exception not in (task.autoretry_for or ()), (

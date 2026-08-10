@@ -15,11 +15,15 @@ logger = logging.getLogger(__name__)
 @celery_app.task(
     name="workers.tasks.reclassify_genres_chunk",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
-    soft_time_limit=14400,
-    time_limit=16200,
+    # NO autoretry_for=(Exception,): the global config is task_acks_late=True +
+    # task_reject_on_worker_lost=True, so a chunk that dies (OOM/SIGKILL or
+    # soft-timeout) is ALREADY requeued once by the broker. Adding autoretry on
+    # top turns any resource failure into an infinite OOM crash-loop — this bit
+    # prod on 2026-08-10 (a fixed-COUNT split loaded ~58k ORM rows per chunk →
+    # OOM every 2-3s forever). Per-entry source errors are caught inside the
+    # loop; a genuine chunk-level failure surfaces via the chord errback/DLQ.
+    soft_time_limit=1800,
+    time_limit=2100,
 )
 def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
     """
@@ -28,6 +32,10 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
     Existing genres are only cleared when both sources answered without
     error and found nothing; on source failure they are kept, so re-running
     the task after a network incident never destroys valid classifications.
+
+    Chunks are sized by the orchestrator (fixed number of ids, ~500) so the
+    up-front `SELECT ... WHERE id IN (...)` never loads more than a bounded set
+    of ORM rows into memory — keep it that way (a whole-catalog chunk OOMs).
     """
     from sqlalchemy import select
     from sqlalchemy.orm import Session
@@ -178,13 +186,17 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
 @celery_app.task(
     name="workers.tasks.reclassify_all_genres",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    # NO autoretry: a retry would dispatch a SECOND chord of hundreds of chunks
+    # on top of the first. If the dispatch itself fails, re-run manually.
 )
-def reclassify_all_genres(self, num_chunks: int = 3):
+def reclassify_all_genres(self, chunk_size: int = 500):
     """
-    Orchestrator: splits catalog into N chunks and dispatches them as a chord.
+    Orchestrator: splits the catalog into fixed-SIZE chunks and dispatches them
+    as a chord. Chunk by size (~500 ids), never by a fixed COUNT: a fixed count
+    over a growing catalog makes each chunk unbounded (~58k ids at 175k tracks),
+    and `reclassify_genres_chunk` loads every chunk's rows into memory at once →
+    OOM. A fixed size keeps per-chunk memory constant as the catalog grows.
+
     Returns immediately (no result.get() inside a task); finalize_reclassify
     aggregates the stats and writes the crawl_logs line once all chunks are done.
     """
@@ -195,6 +207,9 @@ def reclassify_all_genres(self, num_chunks: int = 3):
     sys.path.insert(0, "/app")
     from models import CatalogEntry
     from workers.db import get_engine
+
+    if chunk_size < 1:
+        chunk_size = 500
 
     engine = get_engine()
 
@@ -211,11 +226,10 @@ def reclassify_all_genres(self, num_chunks: int = 3):
         logger.info("Reclassify: catalog is empty, nothing to dispatch")
         return {"dispatched": 0, "total": 0}
 
-    chunk_size = (total + num_chunks - 1) // num_chunks
     chunks = [all_ids[i : i + chunk_size] for i in range(0, total, chunk_size)]
 
     logger.info(
-        "Reclassify: dispatching %d chunks (%d tracks total, ~%d per chunk)",
+        "Reclassify: dispatching %d chunks (%d tracks total, %d per chunk)",
         len(chunks),
         total,
         chunk_size,
