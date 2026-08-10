@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import logging
 import math
 import os
@@ -48,6 +49,14 @@ class SimilarityConfig:
 
 
 CFG = SimilarityConfig()
+
+# Similarity-pool observability canary. ``load_candidate_pool`` materialises the
+# ENTIRE visible catalog per compute; past ~this many candidates a cold reco
+# compute risks the uvicorn-worker RSS spike that OOM'd prod on 2026-08-10. We
+# LOG rather than truncate on purpose: a hard ``.limit()`` on the pool query
+# could silently drop the SEED row itself → LookupError, a worse failure than a
+# large-but-correct pool. The real memory bound is the heapq in the scorer.
+POOL_SIZE_WARN = 300_000
 
 # ---------------------------------------------------------------------------
 # Camelot helpers
@@ -432,6 +441,14 @@ async def load_candidate_pool(
             playlists=ctx.playlist_map.get(cid, frozenset()),
             sets=ctx.set_map.get(cid, frozenset()),
         )
+    if len(pool) > POOL_SIZE_WARN:
+        logger.warning(
+            "similarity pool exceeds %d candidates (%d, user=%s) — a cold reco "
+            "compute may pressure uvicorn-worker memory",
+            POOL_SIZE_WARN,
+            len(pool),
+            user_id,
+        )
     return pool
 
 
@@ -445,6 +462,7 @@ def _score_seed_against_pool(
     *,
     score_floor: float,
     restrict_ids: set[int] | None = None,
+    limit: int | None = None,
 ) -> list[tuple[int, float, dict[str, float], list[str]]]:
     """Score every candidate in ``pool`` against one ``seed``, purely in memory.
 
@@ -461,9 +479,13 @@ def _score_seed_against_pool(
       only library rows are scored.
 
     Returns ``(cand_id, score_pct, components, available)`` sorted by RAW
-    ``score_pct`` descending, floor-filtered, NOT truncated (the caller applies
-    ``top_n``). ``score_pct`` stays raw (rounding only at output), so the sort
-    order matches the pre-pool behavior exactly.
+    ``score_pct`` descending, floor-filtered. ``score_pct`` stays raw (rounding
+    only at output), so the sort order matches the pre-pool behavior exactly.
+
+    When ``limit`` is given, only the top ``limit`` are returned via a bounded
+    heap — identical ranking to the full sort (same tie order), but O(limit)
+    transient memory instead of one tuple per pool candidate. When ``limit`` is
+    None the full ranked list is returned (the caller truncates).
     """
     seed_id = seed.id
     seed_bpm = seed.bpm
@@ -500,68 +522,80 @@ def _score_seed_against_pool(
         ):
             cooc_only.append(cand)
 
-    scored: list[tuple[int, float, dict[str, float], list[str]]] = []
-    for cand in (*bpm_members, *cooc_only):
-        # Genre (candidate genres pre-expanded once in the pool)
-        gj = (
-            sim_genre(seed_genres, cand.expanded_genres)
-            if (seed_genres and cand.expanded_genres)
-            else 0.0
-        )
+    def _iter_scored():
+        for cand in (*bpm_members, *cooc_only):
+            # Genre (candidate genres pre-expanded once in the pool)
+            gj = (
+                sim_genre(seed_genres, cand.expanded_genres)
+                if (seed_genres and cand.expanded_genres)
+                else 0.0
+            )
 
-        # BPM factor
-        if seed_bpm is not None and cand.bpm is not None:
-            bf = bpm_factor(seed_bpm, cand.bpm)
-        else:
-            bf = CFG.BPM_FACTOR_FLOOR
+            # BPM factor
+            if seed_bpm is not None and cand.bpm is not None:
+                bf = bpm_factor(seed_bpm, cand.bpm)
+            else:
+                bf = CFG.BPM_FACTOR_FLOOR
 
-        # Style
-        s_style = score_style(gj, bf)
+            # Style
+            s_style = score_style(gj, bf)
 
-        # Context (label validity pre-checked once in the pool)
-        lm = (
-            sim_label(seed_label, cand.label)
-            if (seed_label_valid and cand.label_valid)
-            else 0.0
-        )
-        es = (
-            sim_era(seed_release, cand.release_date)
-            if (seed_release and cand.release_date)
-            else 0.0
-        )
-        s_context = score_context(lm, es)
+            # Context (label validity pre-checked once in the pool)
+            lm = (
+                sim_label(seed_label, cand.label)
+                if (seed_label_valid and cand.label_valid)
+                else 0.0
+            )
+            es = (
+                sim_era(seed_release, cand.release_date)
+                if (seed_release and cand.release_date)
+                else 0.0
+            )
+            s_context = score_context(lm, es)
 
-        # Co-occurrence
-        n_pl = len(seed_playlists & cand.playlists)
-        s_playlists = score_cooc(n_pl, CFG.K_PLAYLISTS, CFG.CAP_PLAYLISTS)
+            # Co-occurrence
+            n_pl = len(seed_playlists & cand.playlists)
+            s_playlists = score_cooc(n_pl, CFG.K_PLAYLISTS, CFG.CAP_PLAYLISTS)
 
-        n_st = len(seed_sets & cand.sets)
-        s_sets = score_cooc(n_st, CFG.K_SETS, CFG.CAP_SETS)
+            n_st = len(seed_sets & cand.sets)
+            s_sets = score_cooc(n_st, CFG.K_SETS, CFG.CAP_SETS)
 
-        total_pts = s_sets + s_playlists + s_style + s_context
-        score_pct = total_pts / CFG.SCORE_TOTAL_CAP
+            total_pts = s_sets + s_playlists + s_style + s_context
+            score_pct = total_pts / CFG.SCORE_TOTAL_CAP
 
-        if score_pct < score_floor:
-            continue
+            if score_pct < score_floor:
+                continue
 
-        available: list[str] = []
-        components = {
-            "sets": round(s_sets, 4),
-            "playlists": round(s_playlists, 4),
-            "style": round(s_style, 4),
-            "context": round(s_context, 4),
-        }
-        if n_st > 0:
-            available.append("sets")
-        if n_pl > 0:
-            available.append("playlists")
-        if gj > 0:
-            available.append("style")
-        if lm > 0 or es > 0:
-            available.append("context")
+            available: list[str] = []
+            components = {
+                "sets": round(s_sets, 4),
+                "playlists": round(s_playlists, 4),
+                "style": round(s_style, 4),
+                "context": round(s_context, 4),
+            }
+            if n_st > 0:
+                available.append("sets")
+            if n_pl > 0:
+                available.append("playlists")
+            if gj > 0:
+                available.append("style")
+            if lm > 0 or es > 0:
+                available.append("context")
 
-        scored.append((cand.id, score_pct, components, available))
+            yield (cand.id, score_pct, components, available)
 
+    # ``limit`` given: keep only the top ``limit`` via a bounded heap fed by the
+    # lazy generator, so at most ``limit`` result tuples are ever held at once
+    # instead of one per pool candidate (~175k). heapq.nlargest equals
+    # ``sorted(reverse=True)[:limit]`` INCLUDING tie order (it decorates each
+    # item with a descending counter, replicating the stable-sort tie-break the
+    # docstring guarantees), so the ranked output is identical. This bounded
+    # transient is the fix for the 2026-08-10 uvicorn-worker OOM: a cold reco
+    # compute scored the full pool up to 24× and each pass built a ~175k list.
+    if limit is not None:
+        return heapq.nlargest(limit, _iter_scored(), key=lambda x: x[1])
+
+    scored = list(_iter_scored())
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored
 
@@ -720,7 +754,7 @@ async def _similar_core(
 
     # 3. Score every candidate in memory, sort, keep top_n.
     scored = _score_seed_against_pool(
-        pool, seed, score_floor=score_floor, restrict_ids=restrict_ids
+        pool, seed, score_floor=score_floor, restrict_ids=restrict_ids, limit=top_n
     )
     top = scored[:top_n]
 
@@ -1057,9 +1091,9 @@ async def _compute_similar_sets(
     for cid in seeds:
         for sid in ctx.set_map.get(cid, ()):  # exact tracklist overlap
             set_scores[sid] = set_scores.get(sid, 0.0) + 1.0
-        scored = _score_seed_against_pool(pool, pool[cid], score_floor=0.0)[
-            :SIMILAR_SETS_CAND_TRUNC
-        ]
+        scored = _score_seed_against_pool(
+            pool, pool[cid], score_floor=0.0, limit=SIMILAR_SETS_CAND_TRUNC
+        )[:SIMILAR_SETS_CAND_TRUNC]
         for cand_id, score_pct, _components, _available in scored:
             weight = score_pct * SIMILAR_SETS_PROXIMITY_W
             if weight <= 0.0:

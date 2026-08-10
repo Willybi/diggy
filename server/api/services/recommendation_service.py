@@ -195,7 +195,7 @@ async def _compute(db: AsyncSession, user_id: int):
         if seed is None:  # deleted/invisible seed → skip (was LookupError→[])
             continue
         scored = _score_seed_against_pool(
-            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR
+            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED
         )[: CFG.CAND_PER_SEED]
         for cid, score_pct, components, available in scored:
             if cid in excluded:
@@ -214,7 +214,7 @@ async def _compute(db: AsyncSession, user_id: int):
         if seed is None:
             continue
         scored = _score_seed_against_pool(
-            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR
+            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED
         )[: CFG.CAND_PER_SEED]
         for cid, score_pct, components, available in scored:
             if cid in excluded or cid not in reco_score:
