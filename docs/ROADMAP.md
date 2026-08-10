@@ -58,7 +58,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  D6   Refonte UI listes + Radar + transverses BAS      8-12 jours   TERMINE (2026-08-06) — 8 pages (Explorer/Radar/Hub/Sets/Playlists/Artistes/Genres/Genre Detail) + D6.0 Suppression Rating + revue design Genre Detail soldee (lot correctif 8417615) ; D6.d (/new-releases, Collections liste) hors DoD
  X1   Dedup catalog (fusion deezer/beatport) HAUT      3-5 jours    TERMINE (2026-07-22 ; garde same_track, 588 doublons fusionnes, index unique abandonne)
  X2   Explorer — etat de navigation (filtre+scroll) BAS 1-2 jours   TERMINE (2026-08-02 ; restauration scroll + filtres URL depuis la fiche detail — Explorer/Radar + etendu aux 4 grilles ; bouton retour = vrai back)
- X3   Fiabilite matching enrichissement    MOYEN       3-5 jours    TERMINE (2026-07-22 ; prevention A/B deployee + rollout X3.c applique : 2779 deezer + 10111 beatport reset, 20212 bpm/key re-derives)
+ X3   Fiabilite matching enrichissement    MOYEN       3-5 jours    TERMINE (2026-07-22 ; prevention A/B deployee + rollout X3.c applique : 2779 deezer + 10111 beatport reset, 20212 bpm/key re-derives) — reliquats decouverts 2026-08-10 (ids UNIQUES pre-X3 non nettoyes + champ artiste divergent) traites en X4
  N1   Nettoyage residus                     BAS         1 jour       TERMINE (2026-07-13)
  P2   Correctifs UX/admin (revue 07-14)     MOYEN       1 jour       TERMINE (2026-07-16)
  N2   Split artiste multi + separateur "|"  MOYEN       1-2 jours    TERMINE (2026-07-16)
@@ -79,6 +79,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AV7  Doc & tests (cloture serie AV)        BAS         1 jour       A FAIRE — lot doc CLAUDE.md (9 divergences), /schema_doc post-migration AV3, tests auth callback + upsert RB, catalog_visible external search, LEDGER solde
  N4   Majeurs frontend (vite 8, pinia 4...) BAS         2-3 jours    A FAIRE — inscrit 2026-08-09 (audit Q8) : vite 5→8 + vitest 3→4 ensemble, puis pinia 2→4 + vue-router 4→5 ; APRES AV5 (surface reduite) ; re-validation 18 vues + verif CDP
  C10  Pool similarite precalcule (nightly)  BAS         3-5 jours    CONDITIONNEL — inscrit 2026-08-09 (audit Q3b) : le « fix durable » du pool par requete ; declenche SEULEMENT si les mesures post-AV3 (RSS, latence /similar) restent insuffisantes
+ X4   Liaisons plateforme erronees v2 (reliquats X3 + artiste divergent) MOYEN 3-5 jours A FAIRE — inscrit 2026-08-10 (diagnostic /catalog/15952) : reverify X3 n'a nettoye que les ids PARTAGES → ~73k beatport / ~106k deezer ids pre-X3 a id UNIQUE jamais revus ; + BUG ACTIF le matcher valide contre catalog.artist (colonne plate) alors que l'UI montre catalog_artists (M2M) — 3670 divergences franches dont 1664 POST-X3. ORDRE : correctif champ artiste AVANT re-drain
 ```
 
 ### Chantiers termines (reference)
@@ -169,6 +170,9 @@ C9 ─────────> E2 conseille avant (meme tuyauterie preview→an
 
 --- voir-plus contextuels (retour usage 2026-08-03) ---
 D8 ─────────> Rien de bloquant — s'appuie sur l'existant : filtres URL des listes (X2, useUrlSync/useFilterState) + filtre genres[] d'Explorer (D6 p.1). Amende la fiche genre-detail (tracklist « infinite scroll » → apercu borne)
+
+--- liaisons plateforme v2 (diagnostic 2026-08-10) ---
+X4 ─────────> X3 (TERMINE, prevention A/B en place). ORDRE INTERNE IMPERATIF : X4.a (correctif champ artiste) + X4.b (reconciliation) AVANT X4.c (re-drain), sinon le re-scan re-pose les memes mauvais ids. Complementaire de N3 (donnees artiste) et AV4 (workers)
 ```
 
 ### Decisions produit actees
@@ -1390,6 +1394,7 @@ Depuis Explorer, cliquer un son ouvre la fiche detail ; le bouton retour « ‹ 
 **Estimation : 3-5 jours**
 **Depend de : rien de bloquant. Complementaire de C7 (la moitie Beatport/release peut etre absorbee par la modelisation Album).**
 **Statut : TERMINE (2026-07-22) — prevention X3.a (Deezer) + X3.b (Beatport) deployee (bedd997) ; script X3.c `scripts/reverify_platform_ids.py` etendu pour re-deriver le bpm/key beatport-source (15016d0, garde invariant #2) ; rollout `--apply` execute en prod apres dump chiffre : 2779 deezer + 10111 beatport ids effaces + 20212 champs bpm/key nulles, `Remaining suspect groups: 0` verifie (+ dry-run frais + spot-check SQL). Les lignes reparees re-derivent id + bpm/key corrects au re-scan E1 nocturne (drain 1-3 nuits, watch crawl-logs). Correctif de suivi 5de55a1 : la passe deezer reset aussi le `has_preview` obsolete (sinon bouton Play qui 404 sur ~2333 lignes) — prod remediee + script patche/teste, deploye.**
+**⚠️ Cloture prematuree (diagnostic 2026-08-10) : deux trous restaient et sont traites en X4 — (1) `reverify_platform_ids.py` ne nettoie QUE les ids PARTAGES (`_duplicate_values`) → les ~73k beatport / ~106k deezer ids pre-X3 a id UNIQUE (mismatch titre-seul) n'ont jamais ete revus ; (2) le matcher valide l'artiste contre la colonne plate `catalog.artist` alors que l'UI affiche `catalog_artists` (M2M) — divergence franche sur 3670 lignes dont 1664 POST-X3, bug encore actif. Ne PAS re-ouvrir X3 : suivi en X4.**
 
 ### Objectif
 
@@ -1414,6 +1419,69 @@ X1 a montre que `deezer_id`/`beatport_id` ne sont pas une identite par enregistr
 # un deezer_id/beatport_id n'est pose que si le morceau trouve correspond (titre/ISRC/duree)
 # plus de nouveaux faux positifs d'id plateforme (remix -> id de l'original, EP -> id partage)
 # lignes existantes mal-tagguees re-verifiees / re-enrichies
+```
+
+---
+
+## X4 — Liaisons plateforme erronees v2 (reliquats X3 + artiste divergent)
+
+**Priorite : MOYEN**
+**Estimation : 3-5 jours (dont ~7-8 jours de drain Beatport en tache de fond, non bloquant)**
+**Depend de : X3 (TERMINE, prevention A/B en place). ORDRE INTERNE IMPERATIF : X4.a + X4.b AVANT X4.c. Coordination conseillee avec N3 (donnees artiste) et AV4 (workers).**
+**Statut : A FAIRE — inscrit 2026-08-10 (diagnostic declenche par /catalog/15952 : « Rhythm Of The House » affiche Carl Cox, mais l'embed Beatport pointe beatport_id 29099904 = « Rhythm Of The House » d'Ejeca / Alex Culross).**
+
+### Objectif
+
+X3 a pose une validation AVANT stamping (artiste + titre remix-aware) mais a ete cloture « TERMINE » en laissant DEUX trous : l'un dans le nettoyage de l'existant, l'autre encore ACTIF dans le code. Cote utilisateur, l'effet est direct : des previews Deezer et des embeds Beatport qui ne correspondent pas au morceau affiche — ce qui ebranle la confiance dans les donnees. Ce chantier ferme les deux trous et re-derive les lignes concernees. Garde-fou repris de X3 : mieux vaut ne rien poser qu'un mauvais id (l'entree reste eligible au backoff E1).
+
+### Constat (mesures prod 2026-08-10)
+
+**Trou 1 — reliquats pre-X3 a id UNIQUE, jamais inspectes.** `scripts/reverify_platform_ids.py` (X3.c) part de `_duplicate_values` : il ne nettoie QUE les ids partages par 2+ enregistrements distincts (6320 groupes sur 178981 ids distincts). Un mauvais id UNIQUE a une seule ligne — le cas majoritaire d'un mismatch titre-seul — n'est jamais examine. Prod :
+- 73767 lignes portent un `beatport_id` dont la derniere recherche est ANTERIEURE au correctif X3 (2026-07-22), dont 73692 avec `bpm_source='beatport'` (BPM derive du mauvais morceau — ex. /catalog/15952 : BPM 132 issu du track Ejeca).
+- 106116 lignes idem pour `deezer_id` (105652 avec `has_preview`) → la meme classe de bug touche le bouton Play (preview Deezer), pas seulement l'embed Beatport.
+
+**Trou 2 — le matcher valide contre le MAUVAIS champ (BUG ENCORE ACTIF).** `enrich_beatport_batch` appelle `_search_beatport_async(pool, entry.title, entry.artist, ...)` (`server/workers/enrichment.py`) : la validation artiste porte sur la colonne denormalisee `catalog.artist`. Mais l'UI (`TrackDetailView.vue` → `track.artists`) affiche la relation M2M `catalog_artists`. Les deux ont diverge :
+- 3670 lignes enrichies Beatport ont un desaccord FRANC (aucun des deux noms n'est inclus dans l'autre) entre `catalog.artist` et le 1er `catalog_artists` (position 0) ; dont 2006 pre-X3 et **1664 POST-X3** (ce n'est donc pas que du legacy, ca se reproduit).
+- 98% (3591/3670) portent un `deezer_id` : le M2M a ete (re)resolu via Deezer (`link_catalog_artist_from_hit` / `link_artists_deezer`) sans re-synchroniser la colonne plate `catalog.artist`.
+- Exemple /catalog/15952 : `catalog.artist='Alex Culross'` alors que `catalog_artists`=Carl Cox (artist 1295, deezer_id 3951). Le matcher a « valide » Alex Culross → track Ejeca/Alex Culross, tout en affichant Carl Cox.
+
+**Consequence croisee (justifie l'ordre des lots)** : re-enrichir (Trou 1) SANS corriger le champ artiste (Trou 2) re-posera le meme mauvais id sur ces lignes, puisque l'entree du matcher est elle-meme fausse. D'ou X4.a + X4.b AVANT X4.c.
+
+### X4.a — Correctif code : source de verite artiste unique pour l'enrichissement
+
+- [ ] Faire valider l'enrichissement (Beatport `_search_beatport_async` + `beatport/client.py`, Deezer `search_deezer` / `_search_deezer_async`) contre les noms de `catalog_artists` (source de verite affichee), pas la colonne plate `catalog.artist`. Passer la liste des noms M2M (ordonnee par `position`) au matcher, ou reconstruire la chaine depuis le M2M.
+- [ ] Trancher le statut de `catalog.artist` : (a) champ derive re-synchronise depuis le M2M, ou (b) deprecie au profit du M2M. Attention : `catalog_service.list_catalog` l'utilise pour le tri `sort=artist` et le search `ilike` — tout basculement doit couvrir ces chemins.
+- [ ] Tests : un morceau dont `catalog.artist` != `catalog_artists` n'obtient pas d'id contre le mauvais nom (Beatport + Deezer, twins sync + async).
+
+### X4.b — Reconciliation donnees catalog.artist <-> catalog_artists
+
+- [ ] Confirmer la cause racine (probable : le M2M est mis a jour par la resolution Deezer / l'import sans jamais re-ecrire `catalog.artist`). Documenter le sens de verite retenu.
+- [ ] Script one-shot (dry-run/`--apply`) qui re-synchronise `catalog.artist` depuis `catalog_artists` (concat ordonnee), ou l'inverse selon (a)/(b). Invariant #4 : sur ambiguite (les deux plausibles), NE PAS trancher automatiquement — laisser tel quel et lister.
+- [ ] Compteur de controle : requete « lignes a divergence franche » avant/apres (~3670 → ~0 attendu).
+
+### X4.c — Reset cible + re-drain des reliquats pre-X3
+
+- [ ] Etendre `reverify_platform_ids.py` (ou nouveau script) pour resetter l'etat de recherche (`*_id`, `*_searched_at`, `*_search_attempts`, bpm/key beatport-source, `has_preview` deezer-stale) des lignes recherchees AVANT 2026-07-22 — PAS seulement les ids partages. Idempotent, dry-run par defaut, DUMP PROD avant `--apply`.
+- [ ] Lancer APRES X4.a + X4.b (sinon re-stamp des mauvais ids). Dimensionnement : ~73k beatport / ~9900/j ≈ 7-8 j de drain horaire ; ~106k deezer sur le sweep nocturne (surveiller la capacite / le rate-limit Deezer). Etaler, suivre via la page Monitoring et les crawl-logs.
+- [ ] Alternative a evaluer au dimensionnement : ne resetter que le sous-ensemble a divergence franche + un echantillon de controle, plutot que 73k en bloc, pour borner la churn de re-enrichissement.
+- [ ] Verifier /catalog/15952 corrige (id correct ou vide).
+
+### X4.d — Observabilite (optionnel)
+
+- [ ] Exposer les compteurs « divergence artiste » et « lignes a id pre-X3 » dans `/admin/monitoring` (ou une requete admin) pour suivre la non-regression dans le temps.
+
+### Divergence doc a corriger (flag)
+
+CLAUDE.md et la roadmap marquent X3 « TERMINE — rollout X3.c applique » sans mentionner que seuls les ids PARTAGES ont ete nettoyes ni le bug du champ artiste. A amender a la cloture de X4 (X3 pointe deja vers X4 ci-dessus ; ne pas re-ouvrir X3).
+
+### Definition of Done
+
+```bash
+# l'enrichissement valide contre catalog_artists (source UI) — test Beatport + Deezer, twins sync+async
+# 0 nouvelle ligne enrichie POST-fix avec divergence franche artiste sur un beatport_id/deezer_id frais
+# catalog.artist re-synchronise (ou deprecie) : divergence franche ~0 apres X4.b
+# reliquats pre-X3 reset et en cours de re-drain ; /catalog/15952 corrige (id correct ou vide)
+# CLAUDE.md + roadmap : note X3->X4 posee ; database-schema.md regenere si le statut de catalog.artist change
 ```
 
 ---
