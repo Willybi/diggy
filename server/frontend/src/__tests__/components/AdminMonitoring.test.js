@@ -133,7 +133,6 @@ function sampleResponse() {
     },
     integrity: {
       artist_divergence: 2,
-      platform_ids_pre_x3: 1500,
       missing_m2m_link: 29101,
     },
   }
@@ -143,7 +142,7 @@ const emptyResponse = () => ({
   backlog_series: [],
   throughput_series: [],
   status: { last_runs: [], latest_snapshot: null },
-  integrity: { artist_divergence: 0, platform_ids_pre_x3: 0, missing_m2m_link: 0 },
+  integrity: { artist_divergence: 0, missing_m2m_link: 0 },
 })
 
 describe('AdminMonitoring', () => {
@@ -187,7 +186,6 @@ describe('AdminMonitoring', () => {
     // X4.d: artist-integrity counters surfaced as tiles.
     expect(wrapper.text()).toContain('Intégrité artiste')
     expect(wrapper.text()).toContain('Divergence artiste')
-    expect(wrapper.text()).toContain('IDs plateforme pré-X3')
     expect(wrapper.text()).toContain('Sans lien artiste')
     // artist_divergence value (2) rendered.
     expect(wrapper.text()).toContain('2')

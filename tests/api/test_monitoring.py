@@ -118,7 +118,6 @@ class TestMonitoringResponse:
         assert "latest_snapshot" in data["status"]
         assert set(data["integrity"]) == {
             "artist_divergence",
-            "platform_ids_pre_x3",
             "missing_m2m_link",
         }
 
@@ -210,7 +209,6 @@ class TestIntegrityCounters:
         r = await admin_client.get("/api/admin/monitoring")
         assert r.json()["integrity"] == {
             "artist_divergence": 0,
-            "platform_ids_pre_x3": 0,
             "missing_m2m_link": 0,
         }
 
@@ -262,37 +260,6 @@ class TestIntegrityCounters:
 
         r = await admin_client.get("/api/admin/monitoring")
         assert r.json()["integrity"]["artist_divergence"] == 1
-
-    async def test_platform_ids_pre_x3(self, admin_client, db):
-        # Beatport id searched BEFORE the X3 fix → counted.
-        await _seed_catalog(
-            db,
-            title="Pre",
-            artist="A",
-            key="pre - a",
-            beatport_id="900",
-            beatport_searched_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
-        )
-        # Deezer id searched AFTER the fix → not counted.
-        await _seed_catalog(
-            db,
-            title="Post",
-            artist="B",
-            key="post - b",
-            deezer_id="901",
-            deezer_searched_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
-        )
-        # Id present but searched_at NULL → not counted (NULL comparison).
-        await _seed_catalog(
-            db,
-            title="NullDate",
-            artist="C",
-            key="nulldate - c",
-            deezer_id="902",
-        )
-
-        r = await admin_client.get("/api/admin/monitoring")
-        assert r.json()["integrity"]["platform_ids_pre_x3"] == 1
 
     async def test_missing_m2m_link(self, admin_client, db):
         # Flat artist, no M2M link → counted (un-clickable artist).
