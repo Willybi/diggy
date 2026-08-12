@@ -133,6 +133,75 @@ class TestListCatalog:
         )
         assert {it.title for it in res.items} == {"A%B"}
 
+    async def test_search_space_insensitive_on_artist(self, db, auth_user):
+        """X4.g: a track by a letter-spaced stylised artist ("t e s t p r e s s")
+        is found by its collapsed spelling ("testpress") via the compact clause.
+        The plain ILIKE alone would miss it (spaces)."""
+        from models import CatalogEntry
+        db.add(
+            CatalogEntry(
+                title="Some Track",
+                artist="t e s t p r e s s",
+                normalized_key="testpress|some track",
+            )
+        )
+        await db.commit()
+
+        res = await catalog_service.list_catalog(
+            db, auth_user.id, skip=0, limit=20, search="testpress",
+        )
+        assert res.total == 1
+        assert res.items[0].artist == "t e s t p r e s s"
+
+    async def test_search_space_insensitive_on_title(self, db, auth_user):
+        """X4.g: a spaced-out TITLE is found by its compacted form too."""
+        from models import CatalogEntry
+        db.add(
+            CatalogEntry(
+                title="s p a c e d",
+                artist="Someone",
+                normalized_key="someone|s p a c e d",
+            )
+        )
+        await db.commit()
+
+        res = await catalog_service.list_catalog(
+            db, auth_user.id, skip=0, limit=20, search="spaced",
+        )
+        assert res.total == 1
+        assert res.items[0].title == "s p a c e d"
+
+    async def test_search_normal_still_matches(self, db, auth_user):
+        """X4.g is strictly additive: a plain substring search still works
+        (case-insensitive), 'love' finds a title 'Love'."""
+        from models import CatalogEntry
+        db.add(
+            CatalogEntry(title="Love", artist="Band", normalized_key="band|love")
+        )
+        await db.commit()
+
+        res = await catalog_service.list_catalog(
+            db, auth_user.id, skip=0, limit=20, search="love",
+        )
+        assert res.total == 1
+        assert res.items[0].title == "Love"
+
+    async def test_search_compact_form_escapes_like_wildcards(self, db, auth_user):
+        """X4.g: LIKE metacharacters stay literal on the compact form too. A
+        spaced search 'A % B' collapses to 'A%B' and must match a literal 'A%B'
+        (the % escaped), not 'AXB' (which a raw wildcard would)."""
+        from models import CatalogEntry
+        db.add_all([
+            CatalogEntry(title="A%B", artist="X", normalized_key="x|apctb-g"),
+            CatalogEntry(title="AXB", artist="X", normalized_key="x|axb-g"),
+        ])
+        await db.commit()
+
+        res = await catalog_service.list_catalog(
+            db, auth_user.id, skip=0, limit=20, search="A % B",
+        )
+        assert {it.title for it in res.items} == {"A%B"}
+
 
 class TestGetDetail:
     async def test_raises_lookup_error_for_missing_entry(self, db, auth_user):

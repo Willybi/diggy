@@ -275,10 +275,19 @@ async def list_catalog(
         query = query.where(or_(*[CatalogEntry.genres.any(g) for g in genre]))
     if search:
         pattern = f"%{like_escape(search)}%"
+        # X4.g: mirror the artist search fix (X4.f) — also match a space-insensitive
+        # "compact" form on TITLE and ARTIST so a track by a letter-spaced stylised
+        # name ("t e s t p r e s s") is found by its collapsed spelling
+        # ("testpress"). Additive OR — never removes an existing result. Label is
+        # out of scope (title + artist only). Stripping spaces before escaping is
+        # correct: a space is not a LIKE metacharacter.
+        compact = f"%{like_escape(search.replace(' ', ''))}%"
         query = query.where(
             CatalogEntry.title.ilike(pattern, escape="\\")
             | CatalogEntry.artist.ilike(pattern, escape="\\")
             | CatalogEntry.label.ilike(pattern, escape="\\")
+            | func.replace(CatalogEntry.title, " ", "").ilike(compact, escape="\\")
+            | func.replace(CatalogEntry.artist, " ", "").ilike(compact, escape="\\")
         )
     if bpm_min is not None:
         query = query.where(bpm_col >= bpm_min)
