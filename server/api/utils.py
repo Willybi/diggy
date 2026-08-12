@@ -1,6 +1,8 @@
 import re
 import unicodedata
 
+from sqlalchemy import func, or_
+
 
 def normalize(s: str) -> str:
     s = (s or "").lower().strip()
@@ -31,3 +33,44 @@ def like_escape(value: str) -> str:
     unlike PostgreSQL, and tests run on SQLite.
     """
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def space_insensitive_ilike(q: str, *cols):
+    """Build an ``or_`` matching ``q`` against each column both verbatim AND in a
+    space-collapsed "compact" form.
+
+    Shared mirror of the X4.f/X4.g artist/catalog search fix: a stylised Deezer
+    name spelled letter-by-letter ("t e s t p r e s s") is only findable by its
+    collapsed spelling ("testpress"). For EACH column it ORs the plain ILIKE with
+    a ``replace(col, ' ', '')`` ILIKE on ``q`` stripped of spaces. Strictly
+    additive — it only ever widens the plain match, never removes a result.
+
+    Stripping spaces before escaping is correct (a space is not a LIKE
+    metacharacter); the explicit ``escape="\\\\"`` is required because SQLite has
+    no default LIKE escape char (the test suite runs on SQLite).
+    """
+    plain = f"%{like_escape(q)}%"
+    compact = f"%{like_escape(q.replace(' ', ''))}%"
+    clauses = []
+    for col in cols:
+        clauses.append(col.ilike(plain, escape="\\"))
+        clauses.append(func.replace(col, " ", "").ilike(compact, escape="\\"))
+    return or_(*clauses)
+
+
+def space_insensitive_contains(q: str, *texts) -> bool:
+    """In-memory twin of :func:`space_insensitive_ilike` for already-materialised
+    rows (the radar bi-score feed filters in Python, not SQL).
+
+    True when ``q`` (lowercased) is a substring of at least one text, OR when
+    ``q`` stripped of spaces is a substring of that text stripped of spaces.
+    Mirrors the additive space-insensitive matching so the same stylised name is
+    found on both surfaces. ``None``/empty texts are handled defensively.
+    """
+    ql = (q or "").lower()
+    q_compact = ql.replace(" ", "")
+    for t in texts:
+        tl = (t or "").lower()
+        if ql in tl or q_compact in tl.replace(" ", ""):
+            return True
+    return False

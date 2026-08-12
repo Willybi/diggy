@@ -11,7 +11,7 @@ from sqlalchemy import and_, func, literal, literal_column, select
 from sqlalchemy import desc as sa_desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from utils import like_escape
+from utils import space_insensitive_contains, space_insensitive_ilike
 
 
 async def list_full(
@@ -122,10 +122,10 @@ async def list_full(
     if playlist_id:
         base = base.where(RadarTrack.watched_entity_id == playlist_id)
     if search:
-        term = f"%{like_escape(search)}%"
+        # X4.h: space-insensitive on title + artist (shared helper), so a
+        # letter-spaced Deezer name is found by its collapsed spelling.
         base = base.where(
-            CatalogEntry.title.ilike(term, escape="\\")
-            | CatalogEntry.artist.ilike(term, escape="\\")
+            space_insensitive_ilike(search, CatalogEntry.title, CatalogEntry.artist)
         )
 
     count_q = select(func.count()).select_from(base.subquery())
@@ -220,10 +220,8 @@ def _feed_passes_filters(
     A NULL value never satisfies a bound (same as the SQL ``>=``/``<=`` there).
     """
     if search:
-        term = search.lower()
-        if term not in (item.title or "").lower() and term not in (
-            item.artist or ""
-        ).lower():
+        # X4.h: in-memory twin of the SQL space-insensitive match (title + artist).
+        if not space_insensitive_contains(search, item.title, item.artist):
             return False
     if genre:
         wanted = {g.lower() for g in genre}

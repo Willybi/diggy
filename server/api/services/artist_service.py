@@ -139,19 +139,14 @@ async def list_artists(
         base_query = base_query.where(Artist.id.in_(id_list))
         id_filter_query = id_filter_query.where(Artist.id.in_(id_list))
     if q:
-        from utils import like_escape
+        from utils import space_insensitive_ilike
 
-        # X4.f: match a space-insensitive "compact" form ON TOP OF the plain ILIKE
-        # so an artist whose Deezer name is spaced out letter-by-letter
+        # X4.f/X4.h: match a space-insensitive "compact" form ON TOP OF the plain
+        # ILIKE so an artist whose Deezer name is spaced out letter-by-letter
         # ("t e s t p r e s s") is found by its collapsed spelling ("testpress").
         # Additive OR — never regresses the existing filter. A functional,
         # non-sargable predicate is acceptable (the filter is already `%...%`).
-        q_pattern = f"%{like_escape(q)}%"
-        q_compact = f"%{like_escape(q.replace(' ', ''))}%"
-        name_match = or_(
-            Artist.name.ilike(q_pattern, escape="\\"),
-            func.replace(Artist.name, " ", "").ilike(q_compact, escape="\\"),
-        )
+        name_match = space_insensitive_ilike(q, Artist.name)
         base_query = base_query.where(name_match)
         id_filter_query = id_filter_query.where(name_match)
     if no_deezer:

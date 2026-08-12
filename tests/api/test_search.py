@@ -228,6 +228,57 @@ class TestSearchArtistSpaceInsensitive:
         assert data["items"][0]["name"] == "a b_c"
 
 
+class TestSearchSpaceInsensitive:
+    """X4.h: space-insensitive matching extended to the Tracks / Sets / Playlists
+    scopes via the shared helper. A letter-spaced Deezer name is found by its
+    collapsed spelling, and the `total` count stays consistent with the items."""
+
+    async def test_tracks_spaced_artist_found_by_compact(self, client, db):
+        db.add(CatalogEntry(
+            title="Some Track", artist="t e s t p r e s s",
+            normalized_key="some track - t e s t p r e s s",
+        ))
+        db.add(CatalogEntry(title="Other", artist="Carl Cox", normalized_key="other - carl cox"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "testpress", "scope": "track"})
+        data = r.json()
+        assert data["totals"]["track"] == 1
+        assert data["items"][0]["artist"] == "t e s t p r e s s"
+
+    async def test_tracks_normal_query_still_matches(self, client, db):
+        db.add(CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "cola", "scope": "track"})
+        assert r.json()["totals"]["track"] == 1
+
+    async def test_sets_spaced_title_found_and_total_consistent(self, client, db):
+        db.add(DJSet(title="t e s t p r e s s", source="trackid"))
+        db.add(DJSet(title="Radio Show", source="trackid"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "testpress", "scope": "set"})
+        data = r.json()
+        set_items = [i for i in data["items"] if i["type"] == "set"]
+        # total==1 proves the SEPARATE count query got the compact clause too.
+        assert data["totals"]["set"] == 1
+        assert data["totals"]["set"] == len(set_items)
+        assert set_items[0]["title"] == "t e s t p r e s s"
+
+    async def test_playlists_spaced_title_found_and_total_consistent(self, client, db):
+        db.add(WatchedEntity(external_id="p1", source="deezer", title="t e s t p r e s s"))
+        db.add(WatchedEntity(external_id="p2", source="deezer", title="Techno Picks"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "testpress", "scope": "playlist"})
+        data = r.json()
+        pl_items = [i for i in data["items"] if i["type"] == "playlist"]
+        assert data["totals"]["playlist"] == 1
+        assert data["totals"]["playlist"] == len(pl_items)
+        assert pl_items[0]["title"] == "t e s t p r e s s"
+
+
 class TestSearchPagination:
     """A1-02: LIMIT must be deterministic (ORDER BY) and single-scope offset real."""
 

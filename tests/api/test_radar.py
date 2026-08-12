@@ -169,6 +169,52 @@ class TestRadarFeed:
         assert r.status_code == 422
 
 
+class TestRadarFeedSpaceInsensitive:
+    """X4.h: /api/radar/feed filters `search` space-insensitively (in-memory twin
+    of the SQL helper), so a letter-spaced Deezer artist is found by its
+    collapsed spelling."""
+
+    async def _add_trend(self, db, title, artist, rank):
+        from models import RadarTrend
+        cat = CatalogEntry(
+            title=title, artist=artist,
+            normalized_key=f"{title.lower()} - {(artist or '').lower()}",
+        )
+        db.add(cat)
+        await db.commit()
+        await db.refresh(cat)
+        db.add(RadarTrend(
+            catalog_id=cat.id, trend_score=5.0, family="house",
+            rank_in_family=rank, rank_global=rank, velocity=0.5,
+        ))
+        await db.commit()
+        return cat
+
+    async def test_feed_search_matches_spaced_artist(self, client, db, auth_user):
+        spaced = await self._add_trend(db, "Some Track", "t e s t p r e s s", 1)
+        other = await self._add_trend(db, "Other Track", "Carl Cox", 2)
+
+        r = await client.get("/api/radar/feed", params={"search": "testpress"})
+        assert r.status_code == 200
+        data = r.json()
+        ids = [it["id"] for it in data["items"]]
+        assert spaced.id in ids
+        assert other.id not in ids  # non-matching item is excluded
+        assert data["total"] == 1
+
+    async def test_feed_normal_search_still_works(self, client, db, auth_user):
+        spaced = await self._add_trend(db, "Some Track", "t e s t p r e s s", 1)
+        carl = await self._add_trend(db, "Other Track", "Carl Cox", 2)
+
+        r = await client.get("/api/radar/feed", params={"search": "carl"})
+        assert r.status_code == 200
+        data = r.json()
+        ids = [it["id"] for it in data["items"]]
+        assert carl.id in ids
+        assert spaced.id not in ids
+        assert data["total"] == 1
+
+
 # ── GET /api/radar/trends ─────────────────────────────────────────────────────
 
 class TestTrends:

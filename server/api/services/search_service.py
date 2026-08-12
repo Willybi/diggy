@@ -17,9 +17,9 @@ from models import (
     WatchedEntity,
 )
 from schemas import SearchItem, SearchResponse, SearchTotals
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils import like_escape
+from utils import like_escape, space_insensitive_ilike
 
 from services.catalog_service import catalog_visible
 from services.genre_service import ensure_pillar_cache, genre_pillar
@@ -50,8 +50,6 @@ async def _search_tracks(
     limit: int,
     offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
-    pattern = f"%{like_escape(q)}%"
-
     ut_sub = select(UserTrack.catalog_id).where(UserTrack.user_id == user_id).subquery()
 
     base = (
@@ -67,10 +65,8 @@ async def _search_tracks(
             ut_sub.c.catalog_id.label("ut_cid"),
         )
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
-        .where(
-            CatalogEntry.title.ilike(pattern, escape="\\")
-            | CatalogEntry.artist.ilike(pattern, escape="\\")
-        )
+        # X4.h: space-insensitive on title + artist (shared helper).
+        .where(space_insensitive_ilike(q, CatalogEntry.title, CatalogEntry.artist))
         .where(catalog_visible(user_id))
         .order_by(CatalogEntry.title, CatalogEntry.id)
     )
@@ -107,20 +103,12 @@ async def _search_artists(
     limit: int,
     offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
-    # X4.f: additive "compact" clause matches an artist whose spaced-out Deezer
-    # name ("t e s t p r e s s") is searched by its collapsed spelling
+    # X4.f/X4.h: additive "compact" clause matches an artist whose spaced-out
+    # Deezer name ("t e s t p r e s s") is searched by its collapsed spelling
     # ("testpress"). Never regresses the plain ILIKE (only the artist branch).
-    pattern = f"%{like_escape(q)}%"
-    compact = f"%{like_escape(q.replace(' ', ''))}%"
-
     base = (
         select(Artist.id, Artist.name, Artist.has_artwork)
-        .where(
-            or_(
-                Artist.name.ilike(pattern, escape="\\"),
-                func.replace(Artist.name, " ", "").ilike(compact, escape="\\"),
-            )
-        )
+        .where(space_insensitive_ilike(q, Artist.name))
         .order_by(Artist.name, Artist.id)
     )
 
@@ -185,7 +173,9 @@ async def _search_sets(
     limit: int,
     offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
-    pattern = f"%{like_escape(q)}%"
+    # X4.h: space-insensitive on the set title (shared helper). Applied to BOTH
+    # the items query AND the separate count query so `total` stays in sync.
+    title_match = space_insensitive_ilike(q, DJSet.title)
 
     base = (
         select(
@@ -197,7 +187,7 @@ async def _search_sets(
         )
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
         .where(
-            DJSet.title.ilike(pattern, escape="\\"),
+            title_match,
             DJSet.parent_set_id.is_(None),
         )
         .group_by(DJSet.id)
@@ -208,7 +198,7 @@ async def _search_sets(
     count_q = select(func.count()).select_from(
         select(DJSet.id)
         .where(
-            DJSet.title.ilike(pattern, escape="\\"),
+            title_match,
             DJSet.parent_set_id.is_(None),
         )
         .subquery()
@@ -238,8 +228,9 @@ async def _search_playlists(
     limit: int,
     offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
-    pattern = f"%{like_escape(q)}%"
-
+    # X4.h: space-insensitive on the playlist title (shared helper). The single
+    # `base` query backs both the items and the count subquery, so `total` is
+    # always consistent with the returned window.
     base = (
         select(
             WatchedEntity.id,
@@ -248,7 +239,7 @@ async def _search_playlists(
             WatchedEntity.track_count,
             WatchedEntity.has_artwork,
         )
-        .where(WatchedEntity.title.ilike(pattern, escape="\\"))
+        .where(space_insensitive_ilike(q, WatchedEntity.title))
         .order_by(WatchedEntity.title, WatchedEntity.id)
     )
 
