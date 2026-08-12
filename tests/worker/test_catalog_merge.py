@@ -667,6 +667,45 @@ class TestMergeMetadata:
         assert canon.beatport_search_attempts == 2  # from loser (canon had 0)
         assert canon.beatport_searched_at == datetime(2022, 1, 1)
 
+    def test_bpm_analysis_markers_kept_from_loser(self, sync_session):
+        # A3-09: the loser carries the "already analyzed" markers, the canonical
+        # has none — after the merge the canonical must inherit them so the
+        # nightly analyze_bpm_previews task does not re-analyze it forever.
+        canon = _cat(
+            sync_session, bpm_analysis_attempts=0, bpm_analyzed_at=None
+        )
+        loser = _cat(
+            sync_session,
+            bpm_analysis_attempts=2,
+            bpm_analyzed_at=datetime(2022, 6, 1),
+        )
+
+        merge_catalog_entries(sync_session, canon.id, loser.id)
+        sync_session.commit()
+
+        assert canon.bpm_analysis_attempts == 2  # from loser (canon had 0)
+        assert canon.bpm_analyzed_at == datetime(2022, 6, 1)  # latest
+
+    def test_bpm_analysis_markers_keep_canonical_when_newer(self, sync_session):
+        # Inverse direction: the canonical is the more-recently analyzed / more-
+        # attempted row — the merge keeps the max attempts and the latest stamp.
+        canon = _cat(
+            sync_session,
+            bpm_analysis_attempts=3,
+            bpm_analyzed_at=datetime(2023, 1, 1),
+        )
+        loser = _cat(
+            sync_session,
+            bpm_analysis_attempts=1,
+            bpm_analyzed_at=datetime(2022, 1, 1),
+        )
+
+        merge_catalog_entries(sync_session, canon.id, loser.id)
+        sync_session.commit()
+
+        assert canon.bpm_analysis_attempts == 3  # max
+        assert canon.bpm_analyzed_at == datetime(2023, 1, 1)  # canonical latest
+
     def test_shared_scope_wins_over_private(self, sync_session):
         canon = _cat(sync_session, scope="private", owner_id=42)
         loser = _cat(sync_session, scope="shared", owner_id=None)

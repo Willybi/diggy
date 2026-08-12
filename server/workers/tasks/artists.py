@@ -280,6 +280,10 @@ ARTIST_ARTWORK_DEFAULT_BUDGET = 10000
 # cannot expire while a legitimate run is still in progress.
 LINK_ARTISTS_LOCK_TTL = 1800  # > link time_limit (1500)
 FETCH_ARTIST_ARTWORKS_LOCK_TTL = 3600  # > artwork time_limit (3300)
+SYNC_ARTISTS_LOCK_TTL = 4800  # > sync_artists time_limit (4500)
+# link_set_artists has no explicit time_limit → the global CELERY_TIME_LIMIT (3600)
+LINK_SET_ARTISTS_LOCK_TTL = 4200  # > global time_limit (3600)
+BACKFILL_MULTI_ARTISTS_LOCK_TTL = 9300  # > backfill time_limit (9000)
 
 # Batch commit size: a kill after any chunk keeps the committed chunks (the old
 # single final commit lost everything on a timeout).
@@ -734,9 +738,6 @@ def _assign_deezer_id(artist, dz_id, used_deezer_ids):
 @celery_app.task(
     name="workers.tasks.sync_artists",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
     soft_time_limit=3600,
     time_limit=4500,
 )
@@ -746,7 +747,34 @@ def sync_artists(self):
     Phase A: local resolution (CPU-only, fast).
     Phase B: Deezer disambiguation for ambiguous names (concurrent).
     Artwork deferred to fetch_artist_artworks task.
+
+    Single-instance: a Redis lock (SET NX EX, conditional release) makes
+    overlapping runs (beat vs admin, or broker re-delivery) a no-op — the same
+    pattern as link_artists_deezer / check_followed_artists. NO
+    autoretry_for=(Exception,): SoftTimeLimitExceeded IS an Exception, so that
+    decorator would turn a soft timeout into an infinite retry loop.
     """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:sync_artists"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=SYNC_ARTISTS_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning("sync_artists already running (task %s), skipping", holder)
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_sync_artists(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_sync_artists(task):
     from datetime import datetime, timezone
 
     from sqlalchemy import select
@@ -766,7 +794,7 @@ def sync_artists(self):
     # Start crawl log (running) — manual enter/exit to avoid re-indenting the entire body
     _log_session = Session(engine)
     _clog = CrawlLogger(
-        _log_session, task_type="sync_artists", celery_task_id=self.request.id
+        _log_session, task_type="sync_artists", celery_task_id=task.request.id
     )
     _clog.__enter__()
     _clog_exc = None
@@ -1335,15 +1363,39 @@ def _run_fetch_artist_artworks(task, budget=None):
 @celery_app.task(
     name="workers.tasks.link_set_artists",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
 )
 def link_set_artists(self):
     """
     Parse set titles to extract artist names and link them to the artists table.
     Matches against known artists (by name and aliases). Idempotent.
+
+    Single-instance: a Redis lock (SET NX EX, conditional release) makes
+    overlapping runs a no-op — the same pattern as link_artists_deezer /
+    check_followed_artists. NO autoretry_for=(Exception,): SoftTimeLimitExceeded
+    IS an Exception, so that decorator would turn a soft timeout into an
+    infinite retry loop.
     """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:link_set_artists"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=LINK_SET_ARTISTS_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning("link_set_artists already running (task %s), skipping", holder)
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_link_set_artists(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_link_set_artists(task):
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
@@ -1357,7 +1409,7 @@ def link_set_artists(self):
 
     with Session(engine) as log_session:
         with CrawlLogger(
-            log_session, task_type="link_set_artists", celery_task_id=self.request.id
+            log_session, task_type="link_set_artists", celery_task_id=task.request.id
         ) as clog:
             # Build lookup: normalized name/alias → artist_id
             with Session(engine) as session:
@@ -1435,9 +1487,6 @@ def link_set_artists(self):
 @celery_app.task(
     name="workers.tasks.backfill_multi_artists",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
     soft_time_limit=7200,
     time_limit=9000,
 )
@@ -1446,7 +1495,38 @@ def backfill_multi_artists(self):
 
     Uses the /track/{deezer_id} endpoint which returns a ``contributors`` array,
     then calls link_catalog_artist_from_hit to add missing artist links.
+
+    Single-instance: a Redis lock (SET NX EX, conditional release) makes
+    overlapping runs a no-op — the same pattern as link_artists_deezer /
+    check_followed_artists. NO autoretry_for=(Exception,): SoftTimeLimitExceeded
+    IS an Exception, so that decorator would turn a soft timeout into an
+    infinite retry loop.
     """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:backfill_multi_artists"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(
+        lock_key, self.request.id, nx=True, ex=BACKFILL_MULTI_ARTISTS_LOCK_TTL
+    ):
+        holder = r.get(lock_key)
+        logger.warning(
+            "backfill_multi_artists already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_backfill_multi_artists(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_backfill_multi_artists(task):
     from sqlalchemy import func, select
     from sqlalchemy.orm import Session
 
@@ -1461,7 +1541,7 @@ def backfill_multi_artists(self):
     _clog = CrawlLogger(
         _log_session,
         task_type="backfill_multi_artists",
-        celery_task_id=self.request.id,
+        celery_task_id=task.request.id,
     )
     _clog.__enter__()
 
@@ -1506,10 +1586,12 @@ def backfill_multi_artists(self):
                     len(entries),
                 )
 
-                batch = 0
-
                 async def _process_one(entry):
-                    nonlocal enriched, errors, batch
+                    # Fetch + link ONLY — never commit here (A3-12). Committing a
+                    # shared session from inside asyncio.gather flushes the other
+                    # coroutines' partial work at an arbitrary point (project
+                    # pitfall); the orchestrator commits BETWEEN chunks instead.
+                    nonlocal enriched, errors
                     try:
                         hit = await pool.deezer_get(f"/track/{entry.deezer_id}")
                         if not hit.get("id"):
@@ -1521,12 +1603,6 @@ def backfill_multi_artists(self):
 
                         link_catalog_artist_from_hit(session, entry.id, hit)
                         enriched += 1
-                        batch += 1
-                        if batch % 50 == 0:
-                            session.commit()
-                            logger.info(
-                                "backfill_multi_artists: committed %d", batch
-                            )
                     except Exception as e:
                         errors += 1
                         logger.warning(
@@ -1535,8 +1611,20 @@ def backfill_multi_artists(self):
                             e,
                         )
 
-                await asyncio.gather(*[_process_one(e) for e in entries])
-                session.commit()
+                # Process in bounded chunks and commit AFTER each chunk, in the
+                # orchestrating coroutine — never inside the gather. A kill after
+                # any chunk keeps the committed chunks (pattern:
+                # fetch_artist_artworks).
+                for i in range(0, len(entries), ARTIST_BACKLOG_BATCH):
+                    chunk = entries[i : i + ARTIST_BACKLOG_BATCH]
+                    await asyncio.gather(*[_process_one(e) for e in chunk])
+                    session.commit()
+                    logger.info(
+                        "backfill_multi_artists progress: %d/%d (enriched=%d)",
+                        min(i + ARTIST_BACKLOG_BATCH, len(entries)),
+                        len(entries),
+                        enriched,
+                    )
 
         return {"enriched": enriched, "errors": errors, "total": len(entries)}
 
@@ -1945,9 +2033,6 @@ def _check_new_sets(engine, followed_ids, now):
 @celery_app.task(
     name="workers.tasks.check_followed_artists",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
     soft_time_limit=3600,
     time_limit=3900,
 )
@@ -1957,7 +2042,9 @@ def check_followed_artists(self):
     Two volets — new Deezer releases and newly imported sets that feature the
     artist. Single-instance: a Redis lock (SET NX EX, conditional release) keeps
     overlapping runs from doubling external traffic, same pattern as
-    resolve_set_tracks.
+    resolve_set_tracks. NO autoretry_for=(Exception,): SoftTimeLimitExceeded IS
+    an Exception, so that decorator would turn a soft timeout into an infinite
+    retry loop.
     """
     import redis as redis_lib
 

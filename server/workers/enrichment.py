@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 import redis as redis_lib
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
-from workers.async_http import DeezerHTTPError
+from workers.async_http import BeatportHTTPError, DeezerHTTPError
 from workers.catalog_merge import CatalogEntryMerged
 
 logger = logging.getLogger(__name__)
@@ -577,7 +577,7 @@ async def _search_beatport_async(
         path = f"/search?q={urllib.parse.quote(q)}&type=tracks"
         resp = await pool.beatport_get(path)
         if resp.status_code != 200:
-            return []
+            raise BeatportHTTPError(resp.status_code, path)
         data = _extract_next_data(resp.text)
         raw = _extract_tracks(data)
         results = [_normalize_track(t) for t in raw]
@@ -604,7 +604,7 @@ async def _search_beatport_async(
         path = f"/search?q={urllib.parse.quote(q)}&type=releases"
         resp = await pool.beatport_get(path)
         if resp.status_code != 200:
-            return []
+            raise BeatportHTTPError(resp.status_code, path)
         data = _extract_next_data(resp.text)
         releases = []
         for query in _extract_queries(data):
@@ -649,9 +649,10 @@ async def _search_beatport_async(
                 pass
 
         slug = re.sub(r"[^a-z0-9]+", "-", release_name.lower()).strip("-")
-        resp = await pool.beatport_get(f"/release/{slug}/{release_id}")
+        path = f"/release/{slug}/{release_id}"
+        resp = await pool.beatport_get(path)
         if resp.status_code != 200:
-            return []
+            raise BeatportHTTPError(resp.status_code, path)
         data = _extract_next_data(resp.text)
         tracks = []
         for query in _extract_queries(data):
@@ -757,6 +758,13 @@ async def enrich_beatport_batch(
             else:
                 not_found += 1
             _mark_searched(entry, "beatport", datetime.now(timezone.utc))
+        except BeatportHTTPError as e:
+            # Beatport outage (e.g. 403 Cloudflare), not a "not found": leave
+            # beatport_searched_at unset so the entry is retried next drain — an
+            # outage must not burn one of the 3 re-scan attempts (twin of the
+            # Deezer guard above).
+            logger.warning("Beatport HTTP error for catalog %s: %s", entry.id, e)
+            errors += 1
         except Exception as e:
             logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
             errors += 1

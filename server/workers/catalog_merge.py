@@ -255,6 +255,8 @@ def merge_catalog_entries(
     loser_deezer_attempts = loser.deezer_search_attempts or 0
     loser_beatport_searched_at = loser.beatport_searched_at
     loser_beatport_attempts = loser.beatport_search_attempts or 0
+    loser_bpm_analyzed_at = loser.bpm_analyzed_at
+    loser_bpm_analysis_attempts = loser.bpm_analysis_attempts or 0
     loser_scope = loser.scope
     canonical_genres = list(canonical.genres or [])
 
@@ -373,6 +375,15 @@ def merge_catalog_entries(
     )
     canonical.beatport_searched_at = _latest(
         canonical.beatport_searched_at, loser_beatport_searched_at
+    )
+
+    # Carry the BPM-analysis markers (E2.c) so the canonical is not re-analyzed
+    # forever by the nightly analyze_bpm_previews task after a merge.
+    canonical.bpm_analysis_attempts = max(
+        canonical.bpm_analysis_attempts or 0, loser_bpm_analysis_attempts
+    )
+    canonical.bpm_analyzed_at = _latest(
+        canonical.bpm_analyzed_at, loser_bpm_analyzed_at
     )
 
     # Never downgrade a shared row to private.

@@ -70,6 +70,7 @@ from models import (
     DJSet,
     SetArtist,
 )
+from workers.crawl_logger import CrawlLogger
 
 
 @pytest.fixture
@@ -132,3 +133,70 @@ class TestLinkSetArtistsCrawlLog:
         assert log.status == "success"
         assert log.stats == {"linked": 1, "skipped": 0}
         assert log.celery_task_id == "task-obs"
+
+
+class TestCrawlLoggerDurability:
+    """A3-07: the "running" row is committed at __enter__ so a worker killed
+    mid-run (SIGKILL on deploy, OOM) before __exit__ still leaves a visible row.
+
+    Uses the plain (non-AUTOCOMMIT) ``sync_engine`` on purpose: on an AUTOCOMMIT
+    engine a flush() is already durable, so it could not tell the old (flush)
+    behaviour apart from the new (commit-at-enter) one.
+    """
+
+    def test_enter_commits_running_row(self, sync_engine):
+        # __enter__ then simulate the worker dying mid-run: its connection is
+        # reaped and whatever it had uncommitted is rolled back by the DB. The
+        # "running" marker must already be durable — a plain flush() would be
+        # undone by this rollback and the run would vanish.
+        log_session = Session(sync_engine)
+        clog = CrawlLogger(
+            log_session, task_type="unit_running", target_label="Killed run"
+        )
+        clog.__enter__()
+        log_session.rollback()
+        log_session.close()
+
+        with Session(sync_engine) as verify:
+            row = verify.execute(
+                select(CrawlLog).where(CrawlLog.task_type == "unit_running")
+            ).scalar_one()
+        assert row.status == "running"
+        assert row.finished_at is None
+        assert row.duration_ms is None
+
+    def test_exit_updates_same_row_to_final(self, sync_engine):
+        # A normal run: __exit__ must UPDATE the row committed at __enter__,
+        # not INSERT a second one.
+        with Session(sync_engine) as s:
+            with CrawlLogger(s, task_type="unit_success") as clog:
+                clog.set_stats({"done": 1})
+
+        with Session(sync_engine) as verify:
+            rows = (
+                verify.execute(
+                    select(CrawlLog).where(CrawlLog.task_type == "unit_success")
+                )
+                .scalars()
+                .all()
+            )
+        assert len(rows) == 1  # UPDATE, not a second INSERT
+        assert rows[0].status == "success"
+        assert rows[0].stats == {"done": 1}
+        assert rows[0].finished_at is not None
+        assert rows[0].duration_ms is not None
+
+    def test_exit_records_error_and_reraises(self, sync_engine):
+        log_session = Session(sync_engine)
+        with pytest.raises(ValueError, match="boom"):
+            with CrawlLogger(log_session, task_type="unit_error"):
+                raise ValueError("boom")
+        log_session.close()
+
+        with Session(sync_engine) as verify:
+            row = verify.execute(
+                select(CrawlLog).where(CrawlLog.task_type == "unit_error")
+            ).scalar_one()
+        assert row.status == "error"
+        assert row.error_message == "boom"
+        assert row.finished_at is not None

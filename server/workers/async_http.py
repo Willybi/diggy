@@ -50,6 +50,20 @@ class DeezerHTTPError(Exception):
         super().__init__(f"Deezer API returned {status_code} on {path}")
 
 
+class BeatportHTTPError(Exception):
+    """Beatport returned a non-200 status (e.g. a 403 Cloudflare block/outage).
+
+    Twin of :class:`DeezerHTTPError`: lets callers distinguish a scrape failure
+    from a legitimate empty result, so entries are not marked as searched during
+    a Beatport outage.
+    """
+
+    def __init__(self, status_code: int, path: str):
+        self.status_code = status_code
+        self.path = path
+        super().__init__(f"Beatport returned {status_code} on {path}")
+
+
 class HttpPool:
     """Async HTTP client pool with per-source rate limiting and retry."""
 

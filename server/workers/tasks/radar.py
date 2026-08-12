@@ -162,9 +162,10 @@ def _is_initial_crawl(last_crawled_at, now) -> bool:
 @celery_app.task(
     name="workers.tasks.crawl_radar",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    # NO autoretry_for=(Exception,): acks_late + reject_on_worker_lost already
+    # re-deliver a crashed run once. crawl_radar is an idempotent daily beat that
+    # only fans out crawl_single_playlist jobs (each self-locked), so a failed
+    # dispatch is simply retried at the next beat — no retry decorator needed.
 )
 def crawl_radar(self):
     """
@@ -250,11 +251,13 @@ def crawl_radar(self):
 @celery_app.task(
     name="workers.tasks.crawl_single_playlist",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
     soft_time_limit=3600,
     time_limit=4500,
+    # NO autoretry_for=(Exception,): the run holds a Redis lock and can run up to
+    # the 3600s soft limit; a retry over SoftTimeLimitExceeded (which IS an
+    # Exception) would loop the whole playlist crawl. acks_late +
+    # reject_on_worker_lost re-deliver a genuine crash once, and any playlist
+    # missed this pass is re-dispatched at the next crawl_radar beat.
 )
 def crawl_single_playlist(self, playlist_id: int):
     """
@@ -314,8 +317,9 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
     try:
         meta = fetch_meta(external_id)
     except PlaylistGoneError:
-        # Source confirmed the playlist no longer exists; any other
-        # exception propagates and lets Celery autoretry the task.
+        # Source confirmed the playlist no longer exists; any other exception
+        # propagates and fails the task (captured in the DLQ) — the playlist is
+        # re-dispatched at the next crawl_radar beat.
         logger.warning(
             "Playlist %s (%s) no longer exists on %s — removing",
             playlist_id,

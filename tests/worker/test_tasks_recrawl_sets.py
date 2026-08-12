@@ -40,6 +40,20 @@ for _mod in _MOCK_MODULES:
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 
+
+# Since Lot L5 recrawl_incomplete_sets re-raises SoftTimeLimitExceeded ahead of
+# its generic per-item handler (soft-limit guard), so _run_recrawl_incomplete_sets
+# imports it from celery.exceptions. celery is absent in the test env, so expose a
+# REAL exception subclass — a bare MagicMock attribute would break
+# `except SoftTimeLimitExceeded`, which needs a class inheriting BaseException.
+# Same technique as test_dlq.py's _FakeRetry.
+class _FakeSoftTimeLimitExceeded(Exception):
+    pass
+
+
+_celery_exceptions = sys.modules.setdefault("celery.exceptions", MagicMock())
+_celery_exceptions.SoftTimeLimitExceeded = _FakeSoftTimeLimitExceeded
+
 _celery_mock = MagicMock()
 
 
@@ -634,3 +648,30 @@ class TestRecrawlCrawlOutcomes:
         assert _reload_set(task_engine, child_id).last_recrawl_at is not None
         log = _get_crawl_log(task_engine)
         assert log.status == "success"
+
+    def test_soft_time_limit_interrupts_cleanly(
+        self, tasks_env, task_engine, fake_self, monkeypatch
+    ):
+        """L5 guard: a SoftTimeLimitExceeded raised while crawling a set is
+        re-raised PAST the generic per-item handler and caught at the task
+        level, which flushes a partial 'interrupted' log and kicks resolution
+        instead of routing to the DLQ (no autoretry absorbs it)."""
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        with Session(task_engine) as s:
+            _make_set(s, "boom-1", unidentified=1, created_days_ago=1.0)
+            s.commit()
+
+        async def soft_timeout_import(db, client, audiostream, min_age_hours=168):
+            raise SoftTimeLimitExceeded()
+
+        _install_trackid_mocks(monkeypatch, soft_timeout_import)
+        result = tasks_env.sets.recrawl_incomplete_sets(fake_self)
+
+        assert result["status"] == "interrupted"
+        assert result["eligible"] == 1
+        # Progress persisted per set + resolution kicked, run logged as success
+        tasks_env.sets.resolve_set_tracks.delay.assert_called_once()
+        log = _get_crawl_log(task_engine)
+        assert log.status == "success"
+        assert log.stats == result

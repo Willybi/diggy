@@ -584,3 +584,104 @@ class TestFetchArtworksLock:
         # lock TTL must exceed the artwork time_limit (3300) so it cannot expire
         # mid-run — otherwise a concurrent run could start during a long drain
         assert tasks_env.artists.FETCH_ARTIST_ARTWORKS_LOCK_TTL > 3300
+
+
+# ── sync_artists / backfill_multi_artists single-instance locks (Lot L6) ──────
+# Same SET NX EX + conditional-release wrapper as link_artists_deezer, verified
+# by mocking the _run_* helper (the lock lives entirely in the task wrapper).
+
+
+class TestSyncArtistsLock:
+    def test_skips_when_lock_held(self, tasks_env, fake_redis, fake_self, monkeypatch):
+        run = MagicMock()
+        monkeypatch.setattr(tasks_env.artists, "_run_sync_artists", run)
+        fake_redis.set.return_value = False  # nx=True: lock already held
+        fake_redis.get.return_value = "task-other"
+
+        result = tasks_env.artists.sync_artists(fake_self)
+
+        assert result == {"skipped": "already_running", "holder": "task-other"}
+        run.assert_not_called()
+        fake_redis.delete.assert_not_called()
+
+    def test_acquires_runs_and_releases(
+        self, tasks_env, fake_redis, fake_self, monkeypatch
+    ):
+        run = MagicMock(return_value={"created": 4})
+        monkeypatch.setattr(tasks_env.artists, "_run_sync_artists", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-x"
+
+        result = tasks_env.artists.sync_artists(fake_self)
+
+        assert result == {"created": 4}
+        run.assert_called_once_with(fake_self)
+        _, kwargs = fake_redis.set.call_args
+        assert kwargs.get("nx") is True
+        assert kwargs.get("ex") == tasks_env.artists.SYNC_ARTISTS_LOCK_TTL
+        fake_redis.delete.assert_called_once_with("lock:sync_artists")
+
+    def test_does_not_release_lock_it_no_longer_owns(
+        self, tasks_env, fake_redis, fake_self, monkeypatch
+    ):
+        run = MagicMock(return_value={"created": 0})
+        monkeypatch.setattr(tasks_env.artists, "_run_sync_artists", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-newer"  # someone else owns it now
+
+        tasks_env.artists.sync_artists(fake_self)
+
+        fake_redis.delete.assert_not_called()
+
+    def test_lock_ttl_covers_task_time_limit(self, tasks_env):
+        # TTL must exceed the sync_artists time_limit (4500) so it cannot expire
+        # mid-run.
+        assert tasks_env.artists.SYNC_ARTISTS_LOCK_TTL > 4500
+
+
+class TestBackfillMultiArtistsLock:
+    def test_skips_when_lock_held(self, tasks_env, fake_redis, fake_self, monkeypatch):
+        run = MagicMock()
+        monkeypatch.setattr(tasks_env.artists, "_run_backfill_multi_artists", run)
+        fake_redis.set.return_value = False  # nx=True: lock already held
+        fake_redis.get.return_value = "task-other"
+
+        result = tasks_env.artists.backfill_multi_artists(fake_self)
+
+        assert result == {"skipped": "already_running", "holder": "task-other"}
+        run.assert_not_called()
+        fake_redis.delete.assert_not_called()
+
+    def test_acquires_runs_and_releases(
+        self, tasks_env, fake_redis, fake_self, monkeypatch
+    ):
+        run = MagicMock(return_value={"enriched": 3})
+        monkeypatch.setattr(tasks_env.artists, "_run_backfill_multi_artists", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-x"
+
+        result = tasks_env.artists.backfill_multi_artists(fake_self)
+
+        assert result == {"enriched": 3}
+        run.assert_called_once_with(fake_self)
+        _, kwargs = fake_redis.set.call_args
+        assert kwargs.get("nx") is True
+        assert kwargs.get("ex") == tasks_env.artists.BACKFILL_MULTI_ARTISTS_LOCK_TTL
+        fake_redis.delete.assert_called_once_with("lock:backfill_multi_artists")
+
+    def test_does_not_release_lock_it_no_longer_owns(
+        self, tasks_env, fake_redis, fake_self, monkeypatch
+    ):
+        run = MagicMock(return_value={"enriched": 0})
+        monkeypatch.setattr(tasks_env.artists, "_run_backfill_multi_artists", run)
+        fake_redis.set.return_value = True
+        fake_redis.get.return_value = "task-newer"  # someone else owns it now
+
+        tasks_env.artists.backfill_multi_artists(fake_self)
+
+        fake_redis.delete.assert_not_called()
+
+    def test_lock_ttl_covers_task_time_limit(self, tasks_env):
+        # TTL must exceed the backfill time_limit (9000) so it cannot expire
+        # mid-run.
+        assert tasks_env.artists.BACKFILL_MULTI_ARTISTS_LOCK_TTL > 9000

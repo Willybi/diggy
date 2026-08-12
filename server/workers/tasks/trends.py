@@ -117,9 +117,12 @@ def _purge_stale_trends(session, run_computed_at):
 @celery_app.task(
     name="workers.tasks.compute_trends",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    # NO autoretry_for=(Exception,): the global config is task_acks_late=True +
+    # task_reject_on_worker_lost=True, so a crashed run is ALREADY re-delivered
+    # once by the broker. compute_trends is an idempotent daily beat (it UPSERTs
+    # then purges stale rows), so a failed run is simply recomputed at the next
+    # beat; a retry decorator over the global soft time limit would only risk
+    # looping the whole recompute (SoftTimeLimitExceeded IS an Exception).
 )
 def compute_trends(self, window_days=30):
     """Compute trend scores v2 for radar catalog entries."""

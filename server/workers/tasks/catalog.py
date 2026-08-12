@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 # 3900s = 65 min, just above the hourly-drain 3300s time_limit.
 BEATPORT_LOCK_TTL = 3900
 
+# Same invariant for the Deezer sweep (TTL ≥ time_limit): the Deezer task runs a
+# single nightly pass with a much longer time_limit (9000s), so its lock TTL must
+# stay above it. 9300s = just above the 9000s time_limit.
+DEEZER_LOCK_TTL = 9300
+
 # Max catalog entries per sweep, PER SOURCE. Deezer (official API, 10 req/s)
 # clears the full daily inflow in minutes, so its budget is high. Beatport
 # (scraped, 0.66 req/s anti-ban) is throughput-bound and now drained by an
@@ -52,9 +57,6 @@ def _nightly_budget(source: str) -> int:
 @celery_app.task(
     name="workers.tasks.enrich_catalog",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
     soft_time_limit=7200,
     time_limit=9000,
 )
@@ -62,7 +64,33 @@ def enrich_catalog(self):
     """
     Enrichit les entrées catalog sans deezer_id via Deezer.
     Concurrent async enrichment (5 parallel requests).
+    Single-instance: a Redis lock skips the run if another one is in flight
+    (beat run vs admin trigger, or broker re-delivery) — twin of the Beatport
+    drain. No autoretry_for=(Exception,): SoftTimeLimitExceeded IS an Exception,
+    so that decorator would loop the whole Deezer sweep; the soft-limit catch +
+    the lock guard the run instead.
     """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:enrich_deezer"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=DEEZER_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning("enrich_catalog already running (task %s), skipping", holder)
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_enrich_catalog(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_enrich_catalog(task):
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
@@ -81,10 +109,18 @@ def enrich_catalog(self):
             log_session,
             task_type="enrich_catalog",
             source="deezer",
-            celery_task_id=self.request.id,
+            celery_task_id=task.request.id,
         ) as clog:
 
             budget = _nightly_budget("deezer")
+
+            # Hoisted so a SoftTimeLimitExceeded mid-run still yields the work
+            # committed so far (each 100-batch is committed before the next).
+            progress = {
+                "enriched": 0,
+                "errors": 0,
+                "merged": 0,
+            }
 
             async def _async_enrich():
                 from datetime import datetime, timezone
@@ -116,19 +152,16 @@ def enrich_catalog(self):
                         )
 
                         if not entries:
-                            return {"enriched": 0, "errors": 0, "merged": 0}
+                            return
 
-                        total_enriched = 0
-                        total_errors = 0
-                        total_merged = 0
                         for i in range(0, len(entries), 100):
                             batch = entries[i : i + 100]
                             stats = await enrich_deezer_batch(
                                 session, batch, pool, None, existing_isrcs
                             )
-                            total_enriched += stats.get("enriched", 0)
-                            total_errors += stats.get("errors", 0)
-                            total_merged += stats.get("merged", 0)
+                            progress["enriched"] += stats.get("enriched", 0)
+                            progress["errors"] += stats.get("errors", 0)
+                            progress["merged"] += stats.get("merged", 0)
                             session.commit()
                             logger.info(
                                 "Deezer enrich progress: %d/%d",
@@ -136,21 +169,26 @@ def enrich_catalog(self):
                                 len(entries),
                             )
 
-                        return {
-                            "enriched": total_enriched,
-                            "errors": total_errors,
-                            "merged": total_merged,
-                        }
+            # Catch the soft limit so the run ends cleanly (status success) with
+            # the partial stats flushed, and the Redis lock is released by the
+            # outer `finally` — instead of propagating to a hard-limit SIGKILL
+            # that skips the lock release and orphans it (twin of enrich_beatport).
+            from celery.exceptions import SoftTimeLimitExceeded
 
             try:
-                stats = asyncio.run(_async_enrich())
+                asyncio.run(_async_enrich())
+            except SoftTimeLimitExceeded:
+                logger.warning(
+                    "enrich_catalog hit soft time limit; flushing partial stats: %s",
+                    progress,
+                )
             except Exception:
                 logger.exception("enrich_catalog failed")
                 raise
 
-            clog.set_stats(stats)
+            clog.set_stats(progress)
 
-    return stats
+    return progress
 
 
 @celery_app.task(

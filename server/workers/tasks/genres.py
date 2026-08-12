@@ -11,6 +11,38 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# Single-instance lock for the WHOLE reclassify run (A8-03). The orchestrator
+# acquires it and the chord callback/errback release it — the orchestrator must
+# NOT release it, because the chord runs asynchronously AFTER the orchestrator
+# returns. The TTL is a generous auto-heal ceiling covering a full run (hundreds
+# of chunks, each up to soft_time_limit=1800s): if the callback/errback that
+# releases the lock never runs (whole chord lost), the lock frees itself after
+# this TTL instead of blocking every future run. Same SET NX EX /
+# conditional-release pattern as enrich_catalog_beatport (tasks/catalog.py).
+RECLASSIFY_LOCK_KEY = "lock:reclassify_genres"
+RECLASSIFY_LOCK_TTL = 21600  # 6h
+
+
+def _release_reclassify_lock(lock_token):
+    """Conditionally release the reclassify single-instance lock.
+
+    Deletes the key only when it is still owned by ``lock_token`` (a conditional
+    release, in case the TTL already expired mid-run and another run took
+    ownership). ``None`` → no-op. Best-effort: a Redis hiccup must never fail the
+    caller (chord callback / orchestrator early return).
+    """
+    if lock_token is None:
+        return
+    try:
+        import redis as redis_lib
+        from workers.celery_app import REDIS_URL
+
+        r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+        if r.get(RECLASSIFY_LOCK_KEY) == lock_token:
+            r.delete(RECLASSIFY_LOCK_KEY)
+    except Exception as e:
+        logger.warning("Failed to release reclassify lock: %s", e)
+
 
 @celery_app.task(
     name="workers.tasks.reclassify_genres_chunk",
@@ -197,16 +229,35 @@ def reclassify_all_genres(self, chunk_size: int = 500):
     and `reclassify_genres_chunk` loads every chunk's rows into memory at once →
     OOM. A fixed size keeps per-chunk memory constant as the catalog grows.
 
+    Single-instance (A8-03): a Redis lock skips the run if another full
+    reclassify is already in flight — two overlapping runs would double the
+    external API traffic and the work. The lock is released by the chord
+    callback (finalize_reclassify) on the nominal path and by the errback
+    (reclassify_genres_error) on failure, NOT here: the chord runs
+    asynchronously after this orchestrator returns.
+
     Returns immediately (no result.get() inside a task); finalize_reclassify
     aggregates the stats and writes the crawl_logs line once all chunks are done.
     """
+    import redis as redis_lib
     from celery import chord, group
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import CatalogEntry
+    from workers.celery_app import REDIS_URL
     from workers.db import get_engine
+
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(
+        RECLASSIFY_LOCK_KEY, self.request.id, nx=True, ex=RECLASSIFY_LOCK_TTL
+    ):
+        holder = r.get(RECLASSIFY_LOCK_KEY)
+        logger.warning(
+            "reclassify_all_genres already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
 
     if chunk_size < 1:
         chunk_size = 500
@@ -223,7 +274,11 @@ def reclassify_all_genres(self, chunk_size: int = 500):
 
     total = len(all_ids)
     if not all_ids:
+        # No chord is dispatched, so neither the callback nor the errback will
+        # run to release the lock — release it here (conditionally, in case the
+        # TTL already expired and another run took ownership).
         logger.info("Reclassify: catalog is empty, nothing to dispatch")
+        _release_reclassify_lock(self.request.id)
         return {"dispatched": 0, "total": 0}
 
     chunks = [all_ids[i : i + chunk_size] for i in range(0, total, chunk_size)]
@@ -235,9 +290,11 @@ def reclassify_all_genres(self, chunk_size: int = 500):
         chunk_size,
     )
 
-    callback = finalize_reclassify.s(total=total).on_error(
-        reclassify_genres_error.s()
-    )
+    # Pass the owner token to the callback for a conditional lock release; the
+    # errback releases it best-effort (it does not carry the token).
+    callback = finalize_reclassify.s(
+        total=total, lock_token=self.request.id
+    ).on_error(reclassify_genres_error.s())
     chord(
         group(reclassify_genres_chunk.s(chunk, i) for i, chunk in enumerate(chunks))
     )(callback)
@@ -248,14 +305,21 @@ def reclassify_all_genres(self, chunk_size: int = 500):
 @celery_app.task(
     name="workers.tasks.finalize_reclassify",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    # NO autoretry_for=(Exception,): this is the chord callback. acks_late +
+    # reject_on_worker_lost re-deliver it once on a crash; a retry decorator
+    # would re-run the aggregation (a duplicate crawl_logs line) and re-release
+    # the orchestrator lock.
 )
-def finalize_reclassify(self, results, total: int = 0):
+def finalize_reclassify(self, results, total: int = 0, lock_token: str | None = None):
     """
     Chord callback: aggregates per-chunk stats and records the single
-    crawl_logs line for the whole reclassify run.
+    crawl_logs line for the whole reclassify run, then releases the
+    reclassify_all_genres single-instance lock.
+
+    ``lock_token`` (default None, keeps the callback back-compatible) is the
+    owner token set by the orchestrator: the lock is released only when it still
+    matches (conditional release, in case the 6h TTL already expired mid-run and
+    another run took ownership). None → no release.
     """
     from sqlalchemy.orm import Session
 
@@ -280,6 +344,8 @@ def finalize_reclassify(self, results, total: int = 0):
         ) as clog:
             clog.set_stats(agg)
 
+    _release_reclassify_lock(lock_token)
+
     logger.info("Reclassify complete: %s", agg)
     return agg
 
@@ -287,9 +353,11 @@ def finalize_reclassify(self, results, total: int = 0):
 @celery_app.task(name="workers.tasks.reclassify_genres_error", bind=True)
 def reclassify_genres_error(self, request, exc, traceback):
     """
-    Chord errback: a chunk (or the finalize callback) failed after its retries,
-    so finalize_reclassify never ran normally. Record the failure in crawl_logs
-    so the run does not fail invisibly.
+    Chord errback: a chunk (or the finalize callback) failed, so
+    finalize_reclassify never ran normally. Record the failure in crawl_logs so
+    the run does not fail invisibly, and release the reclassify single-instance
+    lock (best-effort, unconditional: the errback does not carry the owner token,
+    and the 6h TTL is the ultimate backstop).
     """
     from datetime import datetime, timezone
 
@@ -319,3 +387,15 @@ def reclassify_genres_error(self, request, exc, traceback):
             )
         )
         session.commit()
+
+    # Best-effort release so a failed run does not hold the single-instance lock
+    # for the full TTL. Unconditional (no token check): the errback does not
+    # receive the owner token; the 6h TTL is the backstop if this delete misses.
+    try:
+        import redis as redis_lib
+        from workers.celery_app import REDIS_URL
+
+        r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+        r.delete(RECLASSIFY_LOCK_KEY)
+    except Exception as e:
+        logger.warning("Failed to release reclassify lock in errback: %s", e)

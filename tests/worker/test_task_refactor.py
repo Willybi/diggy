@@ -151,15 +151,19 @@ class TestRetryPolicies:
     def test_non_orchestrators_have_autoretry(self):
         wt = self._get_tasks()
         # fetch_artist_artworks, link_artists_deezer, resolve_set_tracks,
-        # enrich_catalog_beatport and reclassify_genres_chunk are deliberately
-        # EXCLUDED: see test_backlog_tasks_have_no_exception_autoretry.
-        non_orchestrators = [
-            "crawl_single_playlist",
-            "enrich_catalog",
-            "recrawl_incomplete_sets",
-            "sync_artists", "link_set_artists",
-            "compute_trends",
-        ]
+        # enrich_catalog, enrich_catalog_beatport and reclassify_genres_chunk are
+        # deliberately EXCLUDED: see test_backlog_tasks_have_no_exception_autoretry.
+        # crawl_radar, crawl_single_playlist, compute_trends and finalize_reclassify
+        # ALSO dropped their autoretry in Lot L7 (soft-limit loop footgun) — they
+        # are asserted in test_backlog_tasks_have_no_exception_autoretry instead.
+        # sync_artists and link_set_artists dropped theirs in Lot L6 (same footgun,
+        # now Redis-locked) and moved to that assertion too.
+        # recrawl_incomplete_sets and crawl_trackid_latest dropped theirs in Lot L5
+        # (same footgun; both now Redis-locked with SoftTimeLimitExceeded guards) —
+        # asserted in test_backlog_tasks_have_no_exception_autoretry as well. No task
+        # legitimately keeps an autoretry_for=(Exception,) anymore, so this list is
+        # intentionally empty (kept as a guard against a new one being added blindly).
+        non_orchestrators = []
         for tname in non_orchestrators:
             task = getattr(wt, tname)
             assert task.autoretry_for, (
@@ -182,14 +186,40 @@ class TestRetryPolicies:
         reclassify_genres_chunk joined it after the 2026-08-10 prod incident: the
         global task_acks_late + task_reject_on_worker_lost already requeue a
         crashed chunk once, so autoretry_for=(Exception,) on top turned an OOM
-        (a too-large chunk) into an infinite crash-loop that pegged the worker."""
+        (a too-large chunk) into an infinite crash-loop that pegged the worker.
+        enrich_catalog (Deezer) joined it in Lot A3-03 to match its Beatport twin:
+        it gained a single-instance Redis lock + a SoftTimeLimitExceeded catch, and
+        autoretry over that soft limit would loop the whole nightly Deezer sweep.
+        crawl_radar, crawl_single_playlist, compute_trends and finalize_reclassify
+        joined it in Lot L7: acks_late + reject_on_worker_lost already re-deliver a
+        crash once, and these are idempotent beats/callbacks re-run at the next beat
+        — an autoretry over their (soft-)limit would loop the crawl/recompute.
+        sync_artists, link_set_artists, backfill_multi_artists and
+        check_followed_artists joined it in Lot L6: each gained a single-instance
+        Redis lock, and an autoretry over their soft limit would loop the whole
+        Deezer/catalog pass all over again.
+        recrawl_incomplete_sets and crawl_trackid_latest joined it in Lot L5: both
+        are Redis-locked with per-item and task-level SoftTimeLimitExceeded guards
+        (backfill_trackid_sets was already conformant), so an autoretry over their
+        soft limit would loop the whole TrackID crawl/re-crawl pass."""
         wt = self._get_tasks()
         for tname in (
             "fetch_artist_artworks",
             "link_artists_deezer",
             "resolve_set_tracks",
+            "enrich_catalog",
             "enrich_catalog_beatport",
             "reclassify_genres_chunk",
+            "crawl_radar",
+            "crawl_single_playlist",
+            "compute_trends",
+            "finalize_reclassify",
+            "sync_artists",
+            "link_set_artists",
+            "backfill_multi_artists",
+            "check_followed_artists",
+            "recrawl_incomplete_sets",
+            "crawl_trackid_latest",
         ):
             task = getattr(wt, tname)
             assert Exception not in (task.autoretry_for or ()), (

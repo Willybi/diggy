@@ -22,6 +22,11 @@ RECRAWL_INCOMPLETE_SETS_LOCK_TTL = 4200
 # Same rule for backfill_trackid_sets (time_limit 3900s)
 BACKFILL_TRACKID_SETS_LOCK_TTL = 4200
 
+# crawl_trackid_latest has no explicit time_limit, so it inherits the global
+# hard limit (3600s); keep the lock TTL above it so a legitimate run never
+# loses its lock mid-flight.
+CRAWL_TRACKID_LATEST_LOCK_TTL = 4200
+
 # recrawl_incomplete_sets' beat fires every 24h sharp, but the reference is
 # stamped during the previous run. Without slack, a set re-crawled last night
 # reads ~23h55 < 1.0d at the next beat and would wait a whole extra day (daily
@@ -273,9 +278,11 @@ def _apply_recrawl_outcome(dj_set, old_pct, new_pct, now) -> str | None:
 @celery_app.task(
     name="workers.tasks.recrawl_incomplete_sets",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    # Deliberately NO autoretry_for=(Exception,): SoftTimeLimitExceeded IS an
+    # Exception, so that decorator would turn a soft timeout into a retry loop
+    # (same footgun as backfill_trackid_sets / the artist backlog tasks). The
+    # Redis lock + the per-item and task-level SoftTimeLimitExceeded guards
+    # below are what bound the run.
     soft_time_limit=3600,
     time_limit=3900,
 )
@@ -310,6 +317,7 @@ def recrawl_incomplete_sets(self):
 
 
 def _run_recrawl_incomplete_sets(task):
+    from celery.exceptions import SoftTimeLimitExceeded
     from sqlalchemy import case, func, select
     from sqlalchemy.orm import Session
 
@@ -495,6 +503,14 @@ def _run_recrawl_incomplete_sets(task):
                                                 parent_set_id,
                                                 exc_info=True,
                                             )
+                        except SoftTimeLimitExceeded:
+                            # Re-raise BEFORE the generic handler:
+                            # SoftTimeLimitExceeded IS an Exception, so without
+                            # this clause the soft limit would be counted as a
+                            # per-set error and the loop would run to the hard
+                            # time_limit SIGKILL. Sets already handled were
+                            # committed inline.
+                            raise
                         except Exception:
                             errors += 1
                             logger.exception(
@@ -505,7 +521,31 @@ def _run_recrawl_incomplete_sets(task):
                 await async_engine.dispose()
                 return crawled, completed, stale, errors
 
-            crawled, completed, finalized_stale, errors = asyncio.run(_crawl_all())
+            try:
+                crawled, completed, finalized_stale, errors = asyncio.run(
+                    _crawl_all()
+                )
+            except SoftTimeLimitExceeded:
+                # Soft limit hit mid-crawl: every set was committed inline, so DB
+                # progress is persisted; the in-flight per-set counters are lost
+                # with the re-raise (see the per-item guard). Kick resolution of
+                # what was crawled and flush a partial log instead of routing to
+                # the DLQ (no autoretry is present to absorb it). The next run
+                # re-evaluates eligibility from the persisted set state.
+                logger.warning(
+                    "recrawl_incomplete_sets: cut by soft time limit "
+                    "(progress persisted per set, next run resumes)"
+                )
+                resolve_set_tracks.delay()
+                result = {
+                    "status": "interrupted",
+                    "eligible": eligible,
+                    "finalized_complete": finalized_complete,
+                    "finalized_age": finalized_age,
+                    "dropped_by_cap": dropped_by_cap,
+                }
+                clog.set_stats(result)
+                return result
             finalized_complete += completed
 
             # Trigger track resolution for updated sets
@@ -529,20 +569,51 @@ def _run_recrawl_incomplete_sets(task):
 @celery_app.task(
     name="workers.tasks.crawl_trackid_latest",
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 60},
-    retry_backoff=True,
+    # Deliberately NO autoretry_for=(Exception,): SoftTimeLimitExceeded IS an
+    # Exception, so that decorator would turn a soft timeout into a retry loop
+    # (same footgun as backfill_trackid_sets / recrawl_incomplete_sets). No
+    # explicit time_limit → inherits the global hard limit (3600s). The Redis
+    # lock + the per-item and task-level SoftTimeLimitExceeded guards bound the
+    # run.
 )
 def crawl_trackid_latest(self):
     """
     Crawl TrackID.net for sets published since last run.
     Uses Redis cursor trackid_crawl_last_run (ISO 8601 UTC).
     First run (no cursor): crawls last 24h.
+    Single-instance: a Redis lock skips the run if another one is still in
+    flight, same pattern as recrawl_incomplete_sets.
     """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:crawl_trackid_latest"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(
+        lock_key, self.request.id, nx=True, ex=CRAWL_TRACKID_LATEST_LOCK_TTL
+    ):
+        holder = r.get(lock_key)
+        logger.warning(
+            "crawl_trackid_latest already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+
+    try:
+        return _run_crawl_trackid_latest(self)
+    finally:
+        # Release only if we still own it (TTL may have expired mid-run)
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_crawl_trackid_latest(task):
     import asyncio
     from datetime import datetime, timedelta, timezone
 
     import redis as redis_lib
+    from celery.exceptions import SoftTimeLimitExceeded
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
@@ -632,6 +703,13 @@ def crawl_trackid_latest(self):
                             imported += 1
                         else:
                             skipped += 1
+                    except SoftTimeLimitExceeded:
+                        # Re-raise BEFORE the generic handler:
+                        # SoftTimeLimitExceeded IS an Exception, so without this
+                        # clause the soft limit would be counted as a per-set
+                        # skip and the loop would run to the hard time_limit
+                        # SIGKILL. Imported sets were committed inline.
+                        raise
                     except Exception:
                         logger.exception(
                             "crawl_trackid_latest: failed for audiostream %s",
@@ -651,9 +729,26 @@ def crawl_trackid_latest(self):
         with CrawlLogger(
             log_session,
             task_type="crawl_trackid_latest",
-            celery_task_id=self.request.id,
+            celery_task_id=task.request.id,
         ) as clog:
-            imported, skipped, pages = asyncio.run(_crawl_all())
+            try:
+                imported, skipped, pages = asyncio.run(_crawl_all())
+            except SoftTimeLimitExceeded:
+                # Soft limit hit mid-crawl: every imported set was committed
+                # inline, so DB progress is persisted; the in-flight counters are
+                # lost with the re-raise. Do NOT advance the cursor — newer sets
+                # past the interruption point were not all imported, so the next
+                # run must re-scan from the unchanged cursor (re-import is
+                # idempotent via dedup). Resolve what was imported and flush a
+                # partial log instead of routing to the DLQ (no autoretry).
+                logger.warning(
+                    "crawl_trackid_latest: cut by soft time limit "
+                    "(cursor unchanged, next run resumes)"
+                )
+                resolve_set_tracks.delay()
+                result = {"status": "interrupted"}
+                clog.set_stats(result)
+                return result
 
             r.set("trackid_crawl_last_run", run_start.isoformat())
 

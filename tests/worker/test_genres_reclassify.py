@@ -133,6 +133,24 @@ def _make_entry(session, **overrides):
     return entry
 
 
+def _install_redis(monkeypatch, *, acquired=True, holder=None):
+    """Install a redis mock so the reclassify orchestrator lock (A8-03) is
+    exercised. ``acquired`` is the SET NX EX result (True = lock taken); ``holder``
+    is what GET returns (the current owner — read by the skip branch and by the
+    conditional release). Returns the fake client for assertions.
+
+    from_url always returns the SAME client, so the orchestrator's acquire client
+    and _release_reclassify_lock's fresh client are the same mock object.
+    """
+    client = MagicMock()
+    client.set.return_value = acquired
+    client.get.return_value = holder
+    redis_mod = MagicMock()
+    redis_mod.from_url.return_value = client
+    monkeypatch.setitem(sys.modules, "redis", redis_mod)
+    return client
+
+
 def _run_chunk(monkeypatch, sync_engine, catalog_ids, beatport=None, deezer=None):
     """Run reclassify_genres_chunk with both sources faked.
 
@@ -341,21 +359,101 @@ class TestReclassifyOrchestrator:
                 sync_session, title=f"T{i}", normalized_key=f"t{i} - artist"
             )
         monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        _install_redis(monkeypatch, acquired=True)
         genres_tasks.finalize_reclassify.s.reset_mock()
 
+        self_mock = MagicMock()
+        self_mock.request.id = "orch-1"
         # chunk_size=3 over 5 entries → ceil(5/3) = 2 chunks
-        out = genres_tasks.reclassify_all_genres(MagicMock(), chunk_size=3)
+        out = genres_tasks.reclassify_all_genres(self_mock, chunk_size=3)
 
         assert out == {"dispatched": 2, "total": 5}
-        genres_tasks.finalize_reclassify.s.assert_called_once_with(total=5)
+        # the owner token is threaded to the callback for a conditional release
+        genres_tasks.finalize_reclassify.s.assert_called_once_with(
+            total=5, lock_token="orch-1"
+        )
 
     def test_empty_catalog_dispatches_nothing(
         self, monkeypatch, sync_engine, sync_session
     ):
         monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        client = _install_redis(monkeypatch, acquired=True, holder="orch-empty")
         genres_tasks.finalize_reclassify.s.reset_mock()
 
-        out = genres_tasks.reclassify_all_genres(MagicMock(), chunk_size=3)
+        self_mock = MagicMock()
+        self_mock.request.id = "orch-empty"
+        out = genres_tasks.reclassify_all_genres(self_mock, chunk_size=3)
 
         assert out == {"dispatched": 0, "total": 0}
         genres_tasks.finalize_reclassify.s.assert_not_called()
+        # no chord/callback fires → the empty path must release the lock itself
+        client.delete.assert_called_once_with(genres_tasks.RECLASSIFY_LOCK_KEY)
+
+
+class TestReclassifyOrchestratorLock:
+    """A8-03: reclassify_all_genres is single-instance via lock:reclassify_genres,
+    released by the chord callback (finalize) or the errback."""
+
+    def test_skips_when_lock_already_held(
+        self, monkeypatch, sync_engine, sync_session
+    ):
+        # Even with a full catalog, a held lock must short-circuit before dispatch
+        for i in range(5):
+            _make_entry(
+                sync_session, title=f"T{i}", normalized_key=f"t{i} - artist"
+            )
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        client = _install_redis(monkeypatch, acquired=False, holder="other-task")
+        genres_tasks.finalize_reclassify.s.reset_mock()
+
+        self_mock = MagicMock()
+        self_mock.request.id = "orch-blocked"
+        out = genres_tasks.reclassify_all_genres(self_mock, chunk_size=3)
+
+        assert out == {"skipped": "already_running", "holder": "other-task"}
+        genres_tasks.finalize_reclassify.s.assert_not_called()
+        # the lock belongs to another run → we must never delete it
+        client.delete.assert_not_called()
+
+    def test_finalize_releases_lock_when_token_matches(
+        self, monkeypatch, sync_engine, sync_session
+    ):
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        client = _install_redis(monkeypatch, holder="orch-token")
+        self_mock = MagicMock()
+        self_mock.request.id = "finalize-task"
+
+        genres_tasks.finalize_reclassify(
+            self_mock, [], total=0, lock_token="orch-token"
+        )
+
+        client.delete.assert_called_once_with(genres_tasks.RECLASSIFY_LOCK_KEY)
+
+    def test_finalize_keeps_lock_when_token_mismatches(
+        self, monkeypatch, sync_engine, sync_session
+    ):
+        # TTL expired mid-run and another run took the lock → do NOT steal it
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        client = _install_redis(monkeypatch, holder="someone-else")
+        self_mock = MagicMock()
+        self_mock.request.id = "finalize-task"
+
+        genres_tasks.finalize_reclassify(
+            self_mock, [], total=0, lock_token="orch-token"
+        )
+
+        client.delete.assert_not_called()
+
+    def test_finalize_without_token_never_touches_redis(
+        self, monkeypatch, sync_engine, sync_session
+    ):
+        # Back-compat: a manual finalize with no lock held must not touch redis
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        client = _install_redis(monkeypatch, holder="whatever")
+        self_mock = MagicMock()
+        self_mock.request.id = "finalize-task"
+
+        genres_tasks.finalize_reclassify(self_mock, [], total=0)
+
+        client.get.assert_not_called()
+        client.delete.assert_not_called()

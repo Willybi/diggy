@@ -5,8 +5,9 @@ Usage:
                       target_label="My Playlist", source="deezer") as log:
         # ... pipeline logic ...
         log.set_stats({"inserted": 12, "enriched": 8})
-    # Auto-commits with duration_ms and status="success"
-    # On exception: status="error", error_message=str(e)
+    # The "running" row is committed at __enter__ so a killed worker's run
+    # stays visible in admin; __exit__ UPDATEs it with duration_ms + status.
+    # On success: status="success"; on exception: status="error", error_message=str(e)
 """
 
 import logging
@@ -53,8 +54,14 @@ class CrawlLogger:
         self._log.stats.update(kwargs)
 
     def __enter__(self):
+        # Commit the "running" row up front (short transaction) so a worker
+        # killed mid-run (SIGKILL on deploy, OOM) before __exit__ still leaves
+        # a durable, visible row in crawl_logs. A plain flush() would stay in an
+        # open transaction and be rolled back when the dead connection is reaped,
+        # making the killed run invisible in admin. The row stays attached to the
+        # session so __exit__ can UPDATE it in place.
         self._session.add(self._log)
-        self._session.flush()
+        self._session.commit()
         self._start_mono = time.monotonic()
         return self
 
@@ -76,6 +83,7 @@ class CrawlLogger:
         else:
             self._log.status = "success"
 
+        # UPDATE of the row already persisted at __enter__ (running → final).
         try:
             self._session.commit()
         except Exception:
