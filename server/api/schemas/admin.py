@@ -169,10 +169,18 @@ class MonitoringStatus(BaseModel):
     latest_snapshot: BacklogSnapshotItem | None = None
 
 
+class IntegrityCounters(BaseModel):
+    # Instant artist-integrity counters (X4 non-regression tracking).
+    artist_divergence: int
+    platform_ids_pre_x3: int
+    missing_m2m_link: int
+
+
 class MonitoringResponse(BaseModel):
     backlog_series: list[BacklogSnapshotItem]
     throughput_series: list[ThroughputItem]
     status: MonitoringStatus
+    integrity: IntegrityCounters
 
 
 # ── Backlog dashboard (GET /admin/backlog) ──

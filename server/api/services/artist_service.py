@@ -141,11 +141,19 @@ async def list_artists(
     if q:
         from utils import like_escape
 
+        # X4.f: match a space-insensitive "compact" form ON TOP OF the plain ILIKE
+        # so an artist whose Deezer name is spaced out letter-by-letter
+        # ("t e s t p r e s s") is found by its collapsed spelling ("testpress").
+        # Additive OR — never regresses the existing filter. A functional,
+        # non-sargable predicate is acceptable (the filter is already `%...%`).
         q_pattern = f"%{like_escape(q)}%"
-        base_query = base_query.where(Artist.name.ilike(q_pattern, escape="\\"))
-        id_filter_query = id_filter_query.where(
-            Artist.name.ilike(q_pattern, escape="\\")
+        q_compact = f"%{like_escape(q.replace(' ', ''))}%"
+        name_match = or_(
+            Artist.name.ilike(q_pattern, escape="\\"),
+            func.replace(Artist.name, " ", "").ilike(q_compact, escape="\\"),
         )
+        base_query = base_query.where(name_match)
+        id_filter_query = id_filter_query.where(name_match)
     if no_deezer:
         # Only unlinked artists still ATTACHED to something (catalog or set).
         # Fully orphaned rows (residue of splits/merges/re-imports whose links

@@ -17,7 +17,7 @@ from models import (
     WatchedEntity,
 )
 from schemas import SearchItem, SearchResponse, SearchTotals
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import like_escape
 
@@ -107,11 +107,20 @@ async def _search_artists(
     limit: int,
     offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
+    # X4.f: additive "compact" clause matches an artist whose spaced-out Deezer
+    # name ("t e s t p r e s s") is searched by its collapsed spelling
+    # ("testpress"). Never regresses the plain ILIKE (only the artist branch).
     pattern = f"%{like_escape(q)}%"
+    compact = f"%{like_escape(q.replace(' ', ''))}%"
 
     base = (
         select(Artist.id, Artist.name, Artist.has_artwork)
-        .where(Artist.name.ilike(pattern, escape="\\"))
+        .where(
+            or_(
+                Artist.name.ilike(pattern, escape="\\"),
+                func.replace(Artist.name, " ", "").ilike(compact, escape="\\"),
+            )
+        )
         .order_by(Artist.name, Artist.id)
     )
 

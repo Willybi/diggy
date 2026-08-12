@@ -10,12 +10,39 @@ session (never asyncio.gather on a shared AsyncSession — it wedges asyncpg).
 """
 
 import logging
-from datetime import datetime
+import unicodedata
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+# X3 (2026-07-22) added enrichment match-validation before an id is stamped. A
+# platform id stamped by a search that ran BEFORE that date may point at the
+# wrong recording (its bpm/cover/embed follow the wrong track) — see the X4
+# chantier. Aware datetime so the comparison stays valid against the TIMESTAMPTZ
+# columns on both dialects.
+_PRE_X3_CUTOFF = datetime(2026, 7, 22, tzinfo=timezone.utc)
+
+# coalesce sentinel to sort a NULL catalog_artists.position last without the
+# NULLS LAST token (SQLite historically rejects it in a subquery ORDER BY).
+_NULL_POSITION_LAST = 2_147_483_647
+
+
+def _fold(s: str | None) -> str:
+    """Lowercase + strip diacritics for accent-insensitive comparison.
+
+    Local copy of ``workers.deezer_enrich._fold`` — the API service stays
+    autonomous (no worker import from the API layer)."""
+    if not s:
+        return ""
+    return (
+        unicodedata.normalize("NFD", s.lower())
+        .encode("ascii", "ignore")
+        .decode()
+        .strip()
+    )
 
 # Latest-run status is reported for these tasks in a fixed order; any other
 # task_type present in crawl_logs is appended after them (alphabetically).
@@ -225,3 +252,109 @@ async def get_current_status(db: AsyncSession) -> dict:
     )
 
     return {"last_runs": last_runs, "latest_snapshot": latest_snapshot}
+
+
+async def get_integrity_counters(db: AsyncSession) -> dict:
+    """Instant artist-integrity counters (X4 non-regression tracking).
+
+    Three on-the-fly counts over ``catalog`` — no snapshot, no time-series:
+
+    - ``artist_divergence``: enriched rows (a platform id present) whose flat
+      ``catalog.artist`` diverges FRANKLY from the first ``catalog_artists``
+      name (min ``position``) — fold + non-containment. The min-position name and
+      a cheap case-insensitive pre-filter are computed in SQL; only rows that
+      already differ under ``lower(trim(...))`` reach Python (equal under
+      ``lower`` ⟹ equal under fold ⟹ contained ⟹ never a frank divergence), so
+      the folded comparison runs on the small candidate set, not the whole
+      catalog. Cost: one indexed LIMIT-1 correlated lookup per enriched row.
+    - ``platform_ids_pre_x3``: rows carrying a ``beatport_id`` OR ``deezer_id``
+      whose matching ``*_searched_at`` predates the X3 match-validation fix.
+    - ``missing_m2m_link``: rows with a non-blank flat ``catalog.artist`` but no
+      ``catalog_artists`` link at all (the artist renders as un-clickable text).
+
+    Read-only aggregation; awaited SEQUENTIALLY on the one session.
+    """
+    from models import Artist, CatalogArtist, CatalogEntry
+
+    enriched = or_(
+        CatalogEntry.beatport_id.isnot(None),
+        CatalogEntry.deezer_id.isnot(None),
+    )
+    has_flat_artist = and_(
+        CatalogEntry.artist.isnot(None),
+        func.trim(CatalogEntry.artist) != "",
+    )
+
+    # ── (1) Artist divergence — flat catalog.artist vs first M2M name ──
+    first_m2m_name = (
+        select(Artist.name)
+        .where(
+            CatalogArtist.artist_id == Artist.id,
+            CatalogArtist.catalog_id == CatalogEntry.id,
+        )
+        .order_by(
+            func.coalesce(CatalogArtist.position, _NULL_POSITION_LAST).asc(),
+            CatalogArtist.artist_id.asc(),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+    candidates = (
+        select(
+            CatalogEntry.artist.label("flat"),
+            first_m2m_name.label("m2m"),
+        )
+        .where(enriched, has_flat_artist)
+        .subquery()
+    )
+    pairs = (
+        await db.execute(
+            select(candidates.c.flat, candidates.c.m2m).where(
+                candidates.c.m2m.isnot(None),
+                func.lower(func.trim(candidates.c.flat))
+                != func.lower(func.trim(candidates.c.m2m)),
+            )
+        )
+    ).all()
+    artist_divergence = 0
+    for flat, m2m in pairs:
+        a = _fold(flat)
+        b = _fold(m2m)
+        if a and b and a not in b and b not in a:
+            artist_divergence += 1
+
+    # ── (2) Pre-X3 platform ids ──
+    platform_ids_pre_x3 = (
+        await db.execute(
+            select(func.count(CatalogEntry.id)).where(
+                or_(
+                    and_(
+                        CatalogEntry.beatport_id.isnot(None),
+                        CatalogEntry.beatport_searched_at < _PRE_X3_CUTOFF,
+                    ),
+                    and_(
+                        CatalogEntry.deezer_id.isnot(None),
+                        CatalogEntry.deezer_searched_at < _PRE_X3_CUTOFF,
+                    ),
+                )
+            )
+        )
+    ).scalar_one()
+
+    # ── (3) Flat artist present but no M2M link (un-clickable artist) ──
+    missing_m2m_link = (
+        await db.execute(
+            select(func.count(CatalogEntry.id)).where(
+                has_flat_artist,
+                ~select(CatalogArtist.catalog_id)
+                .where(CatalogArtist.catalog_id == CatalogEntry.id)
+                .exists(),
+            )
+        )
+    ).scalar_one()
+
+    return {
+        "artist_divergence": int(artist_divergence),
+        "platform_ids_pre_x3": int(platform_ids_pre_x3),
+        "missing_m2m_link": int(missing_m2m_link),
+    }

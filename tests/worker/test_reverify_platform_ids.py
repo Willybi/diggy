@@ -21,12 +21,18 @@ _SERVER_PATH = os.path.join(os.path.dirname(__file__), "../../server")
 if _SERVER_PATH not in sys.path:
     sys.path.insert(0, _SERVER_PATH)
 
-from models import CatalogEntry  # noqa: E402
+from models import Artist, CatalogArtist, CatalogEntry  # noqa: E402
 
-from scripts.reverify_platform_ids import reverify_by_column  # noqa: E402
+from scripts.reverify_platform_ids import (  # noqa: E402
+    reverify_by_column,
+    reverify_pre_x3_by_column,
+)
 
 _nk = itertools.count(1)
 _SEARCHED = datetime(2026, 1, 1)
+# The X3 matcher fix landed 2026-07-22 — one instant on each side of it.
+_BEFORE_X3 = datetime(2026, 7, 1)
+_AFTER_X3 = datetime(2026, 8, 1)
 
 
 def _cat(session, *, commit=True, **fields):
@@ -41,6 +47,19 @@ def _cat(session, *, commit=True, **fields):
     session.add(entry)
     session.commit() if commit else session.flush()
     return entry
+
+
+def _link_artist(session, entry, name, *, position=0):
+    """Create an Artist and link it to ``entry`` via catalog_artists (M2M)."""
+    n = next(_nk)
+    artist = Artist(name=name, normalized_name=f"norm-{n}")
+    session.add(artist)
+    session.flush()
+    session.add(
+        CatalogArtist(catalog_id=entry.id, artist_id=artist.id, position=position)
+    )
+    session.commit()
+    return artist
 
 
 class TestSuspectGroups:
@@ -590,3 +609,218 @@ class TestDeezerHasPreviewReset:
         assert stats["preview_cleared"] == 2  # counted...
         for row_id in (orig.id, remix.id):
             assert sync_session.get(CatalogEntry, row_id).has_preview is True  # ...not mutated
+
+
+class TestPreX3Mode:
+    """X4.c: --pre-x3 resets EVERY id searched before the X3 fix (2026-07-22),
+    not only the shared-id groups the default mode sees.
+
+    Same reset semantics (id + search state + conditional beatport bpm/key + stale
+    has_preview) — only the SELECTION differs: a lone row carrying a wrong,
+    row-unique id (invisible to the shared-id pass) is now reset when its search
+    predates the fix.
+    """
+
+    def test_pre_x3_id_before_fix_is_reset(self, sync_session):
+        # (a) A solo id (shared by nothing) searched before the fix → reset.
+        row = _cat(
+            sync_session,
+            title="Meridian",
+            deezer_id="SOLO1",
+            deezer_searched_at=_BEFORE_X3,
+            deezer_search_attempts=2,
+        )
+
+        stats = reverify_pre_x3_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["candidates"] == 1
+        assert stats["matched"] == 1
+        assert stats["reset"] == 1
+        row = sync_session.get(CatalogEntry, row.id)
+        assert row.deezer_id is None
+        assert row.deezer_searched_at is None
+        assert row.deezer_search_attempts == 0
+
+    def test_pre_x3_id_after_fix_is_left_intact(self, sync_session):
+        # (b) An id searched at/after the fix was stamped by the guarded matcher →
+        # never a candidate.
+        row = _cat(
+            sync_session,
+            title="Meridian",
+            deezer_id="POSTFIX",
+            deezer_searched_at=_AFTER_X3,
+            deezer_search_attempts=1,
+        )
+
+        stats = reverify_pre_x3_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["candidates"] == 0
+        assert stats["reset"] == 0
+        row = sync_session.get(CatalogEntry, row.id)
+        assert row.deezer_id == "POSTFIX"
+        assert row.deezer_searched_at == _AFTER_X3
+        assert row.deezer_search_attempts == 1
+
+    def test_pre_x3_beatport_clears_beatport_bpm_keeps_authoritative(self, sync_session):
+        # (c) The beatport pass nulls a beatport-sourced bpm/key (re-open the
+        # enrich guard) but NEVER a rekordbox/deezer-sourced one (invariant #2).
+        bp = _cat(
+            sync_session,
+            title="Funk Solo",
+            beatport_id="SOLO-BP",
+            bpm=128.0,
+            key="8A",
+            bpm_source="beatport",
+            key_source="beatport",
+            beatport_searched_at=_BEFORE_X3,
+            beatport_search_attempts=3,
+        )
+        rb = _cat(
+            sync_session,
+            title="Funk Duo",
+            beatport_id="SOLO-BP2",
+            bpm=126.0,
+            key="7A",
+            bpm_source="rekordbox",
+            key_source="rekordbox",
+            beatport_searched_at=_BEFORE_X3,
+        )
+        dz = _cat(
+            sync_session,
+            title="Funk Trio",
+            beatport_id="SOLO-BP3",
+            bpm=124.0,
+            bpm_source="deezer",
+            beatport_searched_at=_BEFORE_X3,
+        )
+
+        stats = reverify_pre_x3_by_column(sync_session, "beatport_id", apply=True)
+
+        assert stats["candidates"] == 3
+        assert stats["reset"] == 3
+        assert stats["meta_cleared"] == 2  # only bp's bpm + key
+
+        bp = sync_session.get(CatalogEntry, bp.id)
+        assert bp.beatport_id is None
+        assert bp.bpm is None and bp.bpm_source is None
+        assert bp.key is None and bp.key_source is None
+        # Authoritative bpm/key survive the id reset.
+        rb = sync_session.get(CatalogEntry, rb.id)
+        assert rb.beatport_id is None
+        assert rb.bpm == 126.0 and rb.bpm_source == "rekordbox"
+        assert rb.key == "7A" and rb.key_source == "rekordbox"
+        dz = sync_session.get(CatalogEntry, dz.id)
+        assert dz.bpm == 124.0 and dz.bpm_source == "deezer"
+
+    def test_pre_x3_only_divergent_restricts_to_franc_mismatch(self, sync_session):
+        # (d) --only-divergent resets only rows whose flat artist franchement
+        # diverges from the first linked artist; an agreeing/containing pair is kept.
+        divergent = _cat(
+            sync_session,
+            title="Wrong Match",
+            artist="Totally Different Guy",
+            deezer_id="DIV1",
+            deezer_searched_at=_BEFORE_X3,
+        )
+        _link_artist(sync_session, divergent, "The Real Artist")
+
+        agreeing = _cat(
+            sync_session,
+            title="Good Match",
+            artist="Nick Leon",  # contained in the linked "Nick Leon & Friend"
+            deezer_id="AGR1",
+            deezer_searched_at=_BEFORE_X3,
+        )
+        _link_artist(sync_session, agreeing, "Nick Leon & Friend")
+
+        unlinked = _cat(
+            sync_session,
+            title="No Link",
+            artist="Some Artist",
+            deezer_id="UNL1",
+            deezer_searched_at=_BEFORE_X3,
+        )  # no catalog_artists row → no reference → skipped
+
+        stats = reverify_pre_x3_by_column(
+            sync_session, "deezer_id", apply=True, only_divergent=True
+        )
+
+        assert stats["candidates"] == 3
+        assert stats["matched"] == 1
+        assert stats["skipped_non_divergent"] == 2
+        assert sync_session.get(CatalogEntry, divergent.id).deezer_id is None
+        assert sync_session.get(CatalogEntry, agreeing.id).deezer_id == "AGR1"
+        assert sync_session.get(CatalogEntry, unlinked.id).deezer_id == "UNL1"
+
+    def test_pre_x3_searched_at_null_is_edge_not_reset(self, sync_session):
+        # (e) An id with searched_at NULL (never stamped — legacy) is outside the
+        # measured pre-X3 population: counted as an edge, NEVER reset by default.
+        legacy = _cat(sync_session, title="Legacy", deezer_id="NULLSRCH")
+
+        stats = reverify_pre_x3_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["candidates"] == 0
+        assert stats["reset"] == 0
+        assert stats["stale_null_searched"] == 1
+        assert sync_session.get(CatalogEntry, legacy.id).deezer_id == "NULLSRCH"
+
+    def test_pre_x3_limit_takes_the_oldest_first(self, sync_session):
+        # --limit N caps to the N oldest (by searched_at) rows.
+        old = _cat(
+            sync_session, title="Old", deezer_id="OLD",
+            deezer_searched_at=datetime(2026, 2, 1),
+        )
+        _cat(
+            sync_session, title="Newer", deezer_id="NEWER",
+            deezer_searched_at=datetime(2026, 6, 1),
+        )
+
+        stats = reverify_pre_x3_by_column(
+            sync_session, "deezer_id", apply=True, limit=1
+        )
+
+        assert stats["candidates"] == 1
+        assert stats["reset"] == 1
+        # The oldest row was the one reset; the newer one is untouched.
+        assert sync_session.get(CatalogEntry, old.id).deezer_id is None
+
+    def test_pre_x3_dry_run_mutates_nothing(self, sync_session):
+        row = _cat(
+            sync_session, title="Meridian", deezer_id="DRY1",
+            deezer_searched_at=_BEFORE_X3, deezer_search_attempts=2,
+        )
+
+        stats = reverify_pre_x3_by_column(sync_session, "deezer_id", apply=False)
+
+        assert stats["candidates"] == 1 and stats["matched"] == 1
+        assert stats["reset"] == 0  # dry-run
+        row = sync_session.get(CatalogEntry, row.id)
+        assert row.deezer_id == "DRY1"
+        assert row.deezer_searched_at == _BEFORE_X3
+        assert row.deezer_search_attempts == 2
+
+    def test_pre_x3_is_idempotent(self, sync_session):
+        _cat(
+            sync_session, title="Meridian", deezer_id="IDEM",
+            deezer_searched_at=_BEFORE_X3,
+        )
+
+        first = reverify_pre_x3_by_column(sync_session, "deezer_id", apply=True)
+        assert first["reset"] == 1
+
+        # The cleared id is NULL → out of the selection on a re-run.
+        second = reverify_pre_x3_by_column(sync_session, "deezer_id", apply=True)
+        assert second["candidates"] == 0 and second["reset"] == 0
+
+    def test_pre_x3_deezer_resets_stale_has_preview(self, sync_session):
+        # Reset semantics carry over: a suspect deezer id with an orphaned
+        # has_preview and no deezer radar source has has_preview reset too.
+        row = _cat(
+            sync_session, title="Meridian", deezer_id="PREV1",
+            deezer_searched_at=_BEFORE_X3, has_preview=True,
+        )
+
+        stats = reverify_pre_x3_by_column(sync_session, "deezer_id", apply=True)
+
+        assert stats["preview_cleared"] == 1
+        assert sync_session.get(CatalogEntry, row.id).has_preview is False

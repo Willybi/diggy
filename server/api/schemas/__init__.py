@@ -12,6 +12,7 @@ from .admin import (
     EnrichBeatportResponse,
     FetchPlaylistArtworksResponse,
     FlagManualIn,
+    IntegrityCounters,
     LastRunItem,
     LinkDeezerResponse,
     MonitoringResponse,
@@ -303,6 +304,7 @@ __all__ = [
     "LastRunItem",
     "MonitoringStatus",
     "MonitoringResponse",
+    "IntegrityCounters",
     # auth
     "UserOut",
     "GoogleLoginResponse",

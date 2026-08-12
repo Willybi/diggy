@@ -189,6 +189,45 @@ class TestSearchLikeEscape:
         assert data["items"][0]["name"] == "100% Techno"
 
 
+class TestSearchArtistSpaceInsensitive:
+    """X4.f: a spaced-out Deezer artist name is findable by its collapsed spelling."""
+
+    async def test_spaced_name_found_by_compact_query(self, client, db):
+        # Real Deezer name spelled letter-by-letter; searching the collapsed
+        # spelling must find it (the plain ILIKE alone would miss).
+        db.add(Artist(name="t e s t p r e s s", normalized_name="t e s t p r e s s"))
+        db.add(Artist(name="Carl Cox", normalized_name="carl cox"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "testpress", "scope": "artist"})
+        data = r.json()
+        assert data["totals"]["artist"] == 1
+        assert data["items"][0]["name"] == "t e s t p r e s s"
+
+    async def test_normal_query_still_matches(self, client, db):
+        db.add(Artist(name="Carl Cox", normalized_name="carl cox"))
+        db.add(Artist(name="ANNA", normalized_name="anna"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "carl", "scope": "artist"})
+        data = r.json()
+        assert data["totals"]["artist"] == 1
+        assert data["items"][0]["name"] == "Carl Cox"
+
+    async def test_compact_query_metachar_stays_literal(self, client, db):
+        # The compact clause must escape LIKE metacharacters too: "_" is a literal,
+        # not a wildcard, even against the space-collapsed name.
+        db.add(Artist(name="a b_c", normalized_name="a b_c"))
+        db.add(Artist(name="a b X c", normalized_name="a b x c"))
+        await db.commit()
+
+        # "ab_" collapses to "ab_"; only "ab_c" (compact of "a b_c") matches literally.
+        r = await client.get("/api/search", params={"q": "ab_", "scope": "artist"})
+        data = r.json()
+        assert data["totals"]["artist"] == 1
+        assert data["items"][0]["name"] == "a b_c"
+
+
 class TestSearchPagination:
     """A1-02: LIMIT must be deterministic (ORDER BY) and single-scope offset real."""
 

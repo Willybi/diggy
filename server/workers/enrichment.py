@@ -225,6 +225,52 @@ def _mark_searched(entry, source: str, now: datetime) -> None:
         entry.beatport_search_attempts = (entry.beatport_search_attempts or 0) + 1
 
 
+def _load_m2m_artist_names(session, entries) -> dict[int, str]:
+    """Batch-load the catalog_artists (M2M) names for ``entries`` in ONE query.
+
+    X4.a — the enrichment matcher must validate a platform hit against the
+    artists the UI actually shows (the ``catalog_artists`` M2M, via
+    ``track.artists``), NOT the denormalized ``catalog.artist`` column. When the
+    two diverge, matching on the flat column confirms a hit against an artist the
+    user never sees and stamps a WRONG platform id (measured: 1664 rows post-X3).
+
+    Returns ``{catalog_id: "Name1, Name2"}`` — names joined by ", " (the matchers
+    already split on that separator), ordered by ``position`` (NULLs last, handled
+    defensively). An entry with NO M2M link is simply absent from the map, so the
+    caller falls back to ``entry.artist`` — which is correct for inline-crawled
+    rows (resolve_set_tracks / radar) whose fresh M2M is still empty and whose
+    flat ``artist`` comes straight from the source.
+
+    ONE query on purpose: never ``asyncio.gather`` several ``session.execute`` on
+    the same Session (asyncpg wedges on concurrent access) — the map is built
+    here, synchronously, BEFORE the async gather in the batch functions.
+    """
+    from models import Artist, CatalogArtist
+
+    ids = [e.id for e in entries]
+    if not ids:
+        return {}
+
+    rows = session.execute(
+        select(CatalogArtist.catalog_id, Artist.name)
+        .join(Artist, Artist.id == CatalogArtist.artist_id)
+        .where(CatalogArtist.catalog_id.in_(ids))
+        .order_by(
+            CatalogArtist.catalog_id,
+            # NULL positions sort last (dialect-neutral: false<true on both PG
+            # and SQLite), so a properly-positioned primary artist leads.
+            CatalogArtist.position.is_(None),
+            CatalogArtist.position,
+        )
+    ).all()
+
+    grouped: dict[int, list[str]] = {}
+    for catalog_id, name in rows:
+        if name:
+            grouped.setdefault(catalog_id, []).append(name)
+    return {cid: ", ".join(names) for cid, names in grouped.items()}
+
+
 # ── Deezer enrichment (async) ──
 
 
@@ -393,6 +439,12 @@ async def enrich_deezer_batch(
     errors = 0
     merged = 0
 
+    # X4.a — validate against the artists the UI shows (catalog_artists M2M),
+    # not the flat catalog.artist column. Loaded ONCE, synchronously, before the
+    # async gather (never gather session.execute on one Session — asyncpg wedges).
+    # session is None for legacy callers → fall back to entry.artist everywhere.
+    m2m_names = _load_m2m_artist_names(session, entries) if session is not None else {}
+
     async def _enrich_one(entry):
         nonlocal enriched, errors, merged
         try:
@@ -409,8 +461,11 @@ async def enrich_deezer_batch(
                     _mark_searched(entry, "deezer", now)
                     return
             else:
+                # M2M names when present (the displayed truth), else the flat
+                # column — correct for inline-crawled rows whose M2M is empty.
+                match_artist = m2m_names.get(entry.id) or entry.artist
                 hit = await _search_deezer_async(
-                    pool, entry.artist, entry.title, isrc=entry.isrc
+                    pool, match_artist, entry.title, isrc=entry.isrc
                 )
                 if not hit:
                     logger.debug("Deezer not found for catalog %s", entry.id)
@@ -667,11 +722,20 @@ async def enrich_beatport_batch(
     errors = 0
     merged = 0
 
+    # X4.a — validate against the artists the UI shows (catalog_artists M2M),
+    # not the flat catalog.artist column. Loaded ONCE, synchronously, before the
+    # async gather (never gather session.execute on one Session — asyncpg wedges).
+    # session is None for legacy callers → fall back to entry.artist everywhere.
+    m2m_names = _load_m2m_artist_names(session, entries) if session is not None else {}
+
     async def _enrich_one(entry):
         nonlocal enriched, not_found, errors, merged
         try:
+            # M2M names when present (the displayed truth), else the flat column —
+            # correct for inline-crawled rows whose M2M is empty.
+            match_artist = m2m_names.get(entry.id) or entry.artist
             bp_track = await _search_beatport_async(
-                pool, entry.title, entry.artist, entry.isrc, rcache=rcache
+                pool, entry.title, match_artist, entry.isrc, rcache=rcache
             )
             if bp_track:
                 try:

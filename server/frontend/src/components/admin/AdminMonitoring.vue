@@ -68,6 +68,37 @@
         </div>
       </section>
 
+      <!-- ── Intégrité artiste (X4) ── -->
+      <section class="admin-section">
+        <div class="section-header">
+          <h2 class="section-title">Intégrité artiste</h2>
+        </div>
+        <p class="mon-caption">
+          Compteurs instantanés de non-régression (chantier X4) : liaisons artiste incohérentes ou
+          manquantes dans le catalogue.
+        </p>
+        <div class="tiles">
+          <StatTile
+            label="Divergence artiste"
+            :value="fmtInt(integrity.artist_divergence)"
+            sublabel="artiste plat ≠ 1er lien"
+            :tone="integrityTone(integrity.artist_divergence)"
+          />
+          <StatTile
+            label="IDs plateforme pré-X3"
+            :value="fmtInt(integrity.platform_ids_pre_x3)"
+            sublabel="recherche avant le 22/07"
+            :tone="integrityTone(integrity.platform_ids_pre_x3)"
+          />
+          <StatTile
+            label="Sans lien artiste"
+            :value="fmtInt(integrity.missing_m2m_link)"
+            sublabel="artiste non cliquable"
+            :tone="integrityTone(integrity.missing_m2m_link)"
+          />
+        </div>
+      </section>
+
       <!-- ── Burn-down backlog dans le temps ── -->
       <section class="admin-section">
         <div class="section-header">
@@ -240,6 +271,12 @@ const latest = computed(() => data.value?.status?.latest_snapshot?.payload || {}
 const artists = computed(() => latest.value.artists || {})
 const sets = computed(() => latest.value.sets || {})
 const catalog = computed(() => latest.value.catalog || {})
+
+// ── artist-integrity instant counters (X4) ──
+const integrity = computed(() => data.value?.integrity || {})
+function integrityTone(n) {
+  return Number(n) > 0 ? 'neg' : 'pos'
+}
 
 // ── backlog tiles ──
 function enrichBucket(src) {

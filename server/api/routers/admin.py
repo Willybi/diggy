@@ -699,6 +699,7 @@ async def get_monitoring(
         "backlog_series": await monitoring_service.get_backlog_series(db, since),
         "throughput_series": await monitoring_service.get_throughput_series(db, since),
         "status": await monitoring_service.get_current_status(db),
+        "integrity": await monitoring_service.get_integrity_counters(db),
     }
 
 

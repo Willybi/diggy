@@ -29,6 +29,37 @@ class TestListArtists:
         assert len(data["items"]) == 1
         assert data["items"][0]["name"] == "CamelPhat"
 
+    async def test_search_filter_space_insensitive(self, client, db):
+        # X4.f: a spaced-out Deezer name is found by its collapsed spelling, and the
+        # total stays coherent (both base_query and id_filter_query get the OR).
+        db.add(Artist(name="t e s t p r e s s", normalized_name="t e s t p r e s s"))
+        db.add(Artist(name="ANNA", normalized_name="anna"))
+        await db.commit()
+        r = await client.get("/api/artists/?q=testpress")
+        data = r.json()
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "t e s t p r e s s"
+
+    async def test_search_filter_normal_still_matches(self, client, db):
+        db.add(Artist(name="Carl Cox", normalized_name="carl cox"))
+        db.add(Artist(name="ANNA", normalized_name="anna"))
+        await db.commit()
+        r = await client.get("/api/artists/?q=carl")
+        data = r.json()
+        assert data["total"] == 1
+        assert data["items"][0]["name"] == "Carl Cox"
+
+    async def test_search_filter_metachar_stays_literal(self, client, db):
+        # The compact clause must escape LIKE metacharacters: "_" is literal.
+        db.add(Artist(name="a b_c", normalized_name="a b_c"))
+        db.add(Artist(name="a b X c", normalized_name="a b x c"))
+        await db.commit()
+        r = await client.get("/api/artists/?q=ab_")
+        data = r.json()
+        assert data["total"] == 1
+        assert data["items"][0]["name"] == "a b_c"
+
     async def test_no_deezer_filter(self, client, db):
         # Unlinked artists show only while ATTACHED (catalog or set); a fully
         # orphaned row is dead data and stays out of the admin list.

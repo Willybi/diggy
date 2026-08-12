@@ -5,11 +5,52 @@ by the conftest create_all (writing a row through the ORM would fail otherwise).
 """
 from datetime import datetime, timedelta, timezone
 
-from models import CrawlLog, MetricSnapshot
+from models import Artist, CatalogArtist, CatalogEntry, CrawlLog, MetricSnapshot
+from sqlalchemy import select
 
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+async def _seed_catalog(
+    db,
+    *,
+    title,
+    artist,
+    key,
+    deezer_id=None,
+    beatport_id=None,
+    deezer_searched_at=None,
+    beatport_searched_at=None,
+    m2m_names=None,
+):
+    """Seed a catalog row + optional catalog_artists links (get-or-create the
+    artists by a lower() normalized_name so repeated names reuse one row)."""
+    entry = CatalogEntry(
+        title=title,
+        artist=artist,
+        normalized_key=key,
+        deezer_id=deezer_id,
+        beatport_id=beatport_id,
+        deezer_searched_at=deezer_searched_at,
+        beatport_searched_at=beatport_searched_at,
+        created_at=_now(),
+    )
+    db.add(entry)
+    await db.flush()
+    for pos, name in enumerate(m2m_names or []):
+        norm = name.lower()
+        art = (
+            await db.execute(select(Artist).where(Artist.normalized_name == norm))
+        ).scalar_one_or_none()
+        if art is None:
+            art = Artist(name=name, normalized_name=norm)
+            db.add(art)
+            await db.flush()
+        db.add(CatalogArtist(catalog_id=entry.id, artist_id=art.id, position=pos))
+    await db.commit()
+    return entry
 
 
 async def _seed_snapshot(db, *, captured_at=None, payload=None):
@@ -59,16 +100,27 @@ class TestMonitoringAuth:
 
 
 class TestMonitoringResponse:
-    async def test_returns_three_sections(self, admin_client, db):
+    async def test_returns_sections(self, admin_client, db):
         await _seed_snapshot(db)
         await _seed_crawl_log(db)
 
         r = await admin_client.get("/api/admin/monitoring")
         assert r.status_code == 200
         data = r.json()
-        assert set(data) == {"backlog_series", "throughput_series", "status"}
+        # X4.d (L6) added the additive "integrity" block alongside the original 3.
+        assert set(data) == {
+            "backlog_series",
+            "throughput_series",
+            "status",
+            "integrity",
+        }
         assert "last_runs" in data["status"]
         assert "latest_snapshot" in data["status"]
+        assert set(data["integrity"]) == {
+            "artist_divergence",
+            "platform_ids_pre_x3",
+            "missing_m2m_link",
+        }
 
     async def test_empty_db_ok(self, admin_client):
         r = await admin_client.get("/api/admin/monitoring")
@@ -149,3 +201,116 @@ class TestMonitoringResponse:
 
         r2 = await admin_client.get("/api/admin/monitoring?days=60")
         assert len(r2.json()["backlog_series"]) == 1
+
+
+class TestIntegrityCounters:
+    """X4.d (L6) — instant artist-integrity counters exposed under `integrity`."""
+
+    async def test_empty_db_all_zero(self, admin_client):
+        r = await admin_client.get("/api/admin/monitoring")
+        assert r.json()["integrity"] == {
+            "artist_divergence": 0,
+            "platform_ids_pre_x3": 0,
+            "missing_m2m_link": 0,
+        }
+
+    async def test_artist_divergence(self, admin_client, db):
+        # (1) Divergent: enriched, flat "Ejeca" vs first M2M "Carl Cox" → counted.
+        await _seed_catalog(
+            db,
+            title="Rhythm Of The House",
+            artist="Ejeca",
+            key="rhythm - ejeca",
+            deezer_id="111",
+            m2m_names=["Carl Cox"],
+        )
+        # (2) Coherent: flat == first M2M → not counted (dropped by SQL pre-filter).
+        await _seed_catalog(
+            db,
+            title="Coherent",
+            artist="Carl Cox",
+            key="coherent - carl cox",
+            deezer_id="222",
+            m2m_names=["Carl Cox"],
+        )
+        # (3) Accent-only difference: folds equal → contained → not counted.
+        await _seed_catalog(
+            db,
+            title="Accented",
+            artist="Zoë",
+            key="accented - zoe",
+            deezer_id="333",
+            m2m_names=["Zoe"],
+        )
+        # (4) Divergent BUT not enriched (no platform id) → excluded by the gate.
+        await _seed_catalog(
+            db,
+            title="Not Enriched",
+            artist="Someone",
+            key="not enriched - someone",
+            m2m_names=["Different Person"],
+        )
+        # (5) Containment (multi-artist flat contains the M2M name) → not counted.
+        await _seed_catalog(
+            db,
+            title="Multi",
+            artist="Carl Cox, Green Velvet",
+            key="multi - carl cox",
+            beatport_id="444",
+            m2m_names=["Carl Cox"],
+        )
+
+        r = await admin_client.get("/api/admin/monitoring")
+        assert r.json()["integrity"]["artist_divergence"] == 1
+
+    async def test_platform_ids_pre_x3(self, admin_client, db):
+        # Beatport id searched BEFORE the X3 fix → counted.
+        await _seed_catalog(
+            db,
+            title="Pre",
+            artist="A",
+            key="pre - a",
+            beatport_id="900",
+            beatport_searched_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        )
+        # Deezer id searched AFTER the fix → not counted.
+        await _seed_catalog(
+            db,
+            title="Post",
+            artist="B",
+            key="post - b",
+            deezer_id="901",
+            deezer_searched_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        )
+        # Id present but searched_at NULL → not counted (NULL comparison).
+        await _seed_catalog(
+            db,
+            title="NullDate",
+            artist="C",
+            key="nulldate - c",
+            deezer_id="902",
+        )
+
+        r = await admin_client.get("/api/admin/monitoring")
+        assert r.json()["integrity"]["platform_ids_pre_x3"] == 1
+
+    async def test_missing_m2m_link(self, admin_client, db):
+        # Flat artist, no M2M link → counted (un-clickable artist).
+        await _seed_catalog(
+            db, title="Solo", artist="Solo Artist", key="solo - solo artist"
+        )
+        # Flat artist WITH a link → not counted.
+        await _seed_catalog(
+            db,
+            title="Linked",
+            artist="Linked Artist",
+            key="linked - linked artist",
+            m2m_names=["Linked Artist"],
+        )
+        # Blank flat artist, no link → not counted (trimmed empty).
+        await _seed_catalog(db, title="Blank", artist="   ", key="blank - x")
+        # NULL flat artist → not counted.
+        await _seed_catalog(db, title="NullArtist", artist=None, key="nullartist - x")
+
+        r = await admin_client.get("/api/admin/monitoring")
+        assert r.json()["integrity"]["missing_m2m_link"] == 1
