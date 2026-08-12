@@ -85,12 +85,6 @@
             :tone="integrityTone(integrity.artist_divergence)"
           />
           <StatTile
-            label="IDs plateforme pré-X3"
-            :value="fmtInt(integrity.platform_ids_pre_x3)"
-            sublabel="recherche avant le 22/07"
-            :tone="integrityTone(integrity.platform_ids_pre_x3)"
-          />
-          <StatTile
             label="Sans lien artiste"
             :value="fmtInt(integrity.missing_m2m_link)"
             sublabel="artiste non cliquable"
