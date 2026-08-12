@@ -73,7 +73,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AV1  Quick wins audit 2026-08              HAUT        1-2 jours    TERMINE (2026-08-09 ; a09fafd, deploy_verify SAIN) — 21 items S / 6 lots : fuite Artist Detail M1, admin auto-classify + DLQ, buckets rate-limit + matcher suffixes (radar/feed, sets/search, preview-url, similar), lissage fetchUpTo (cap 3), bump MinIO 3G (Q7), tie-breaks, like_escape, alerte backup + logrotate
  AV2  Dependances backend & gate CI         HAUT        1-2 jours    TERMINE (2026-08-10 ; 50a1e39 + hotfix jinja2 3c0c8b6, deploy_verify SAIN) — jose 3.3→3.5 (pas 3.4 : plafond pyasn1) + multipart 0.0.32 + fastapi 0.141.1/starlette 1.6.0 + requests/curl-cffi/dotenv ; gate pip-audit BLOQUANT (ignore-vuln PYSEC-2025-185/2026-1325) ; nginx 1.29-alpine
  AV3  Perf data & OOM (cache + index + drops) MOYEN     2 jours      TERMINE (2026-08-10 ; 593ab47, deploy_verify SAIN) — cache Redis /similar (Q3a), migration groupee : index Explorer/radar_trends/backlog BPM + drops colonnes mortes (Q5) + retention 13 mois ; I/O sync x5
- AV4  Robustesse workers v2                 MOYEN       2 jours      A FAIRE — BeatportHTTPError (outage != attempt), purge autoretry x8-11, locks x6, CrawlLogger running, routing enrich
+ AV4  Robustesse workers v2                 MOYEN       2 jours      TERMINE (2026-08-12 ; aad0a07, deploy_verify SAIN) — BeatportHTTPError (outage != attempt) + guard enrich_beatport ; 0 autoretry_for=(Exception,) restant dans workers/tasks ; locks enrich_deezer/crawl_trackid_latest/sync_artists/link_set_artists/backfill + orchestrateur reclassify ; CrawlLogger running visible (A3-07) ; routing enrich x3 ; merge carry-over bpm_analyzed_at ; 1821 tests verts
  AV5  Dette frontend — table partagee       MOYEN       2-3 jours    A FAIRE — extraction table Explorer/Radar/Sets/Watchlist (~2100 lignes dupliquees), helper opinion, split HubView ; verif CDP obligatoire (Q6) ; gel des evolutions de tables d'ici la
  AV6  Backend archi & suppressions          BAS         1-2 jours    A FAIRE — de-engraissement routers (sets/admin/radar), suppressions Q4 : surface Radar v1, GET /watchlist/, composants morts
  AV7  Doc & tests (cloture serie AV)        BAS         1 jour       A FAIRE — lot doc CLAUDE.md (9 divergences), /schema_doc post-migration AV3, tests auth callback + upsert RB, catalog_visible external search, LEDGER solde
@@ -1887,7 +1887,7 @@ Idee initiale ECARTEE (arbitrage 2026-08-07) : « precharger les 100 premieres l
 **Priorite : MOYEN**
 **Estimation : 2 jours**
 **Depend de : rien (parallelisable avec AV3, zones disjointes)**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-08-12 ; aad0a07, deploy_verify SAIN) — 7 lots / 9 taches (A3-02/03/04/05/07/08/09/12 + A8-03) ; 0 autoretry_for=(Exception,) restant dans workers/tasks ; nouveaux locks single-instance (enrich_deezer/crawl_trackid_latest/sync_artists/link_set_artists/backfill) + lock orchestrateur reclassify_genres ; CrawlLogger commit la ligne running (runs tues visibles) ; 1821 tests verts, ruff clean**
 
 ### Taches
 
