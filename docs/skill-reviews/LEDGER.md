@@ -18,4 +18,9 @@
 
 | ID | Titre | Catégorie | Skill concerné | 1ʳᵉ vue | Dernière vue | Récurrences | Statut | Résolution |
 |----|-------|-----------|----------------|---------|--------------|-------------|--------|------------|
-| _(vide — premier `/skill_review` à venir)_ | | | | | | | | |
+| SR-01 | Smoke tests sans slash final → 307 au lieu du JSON | DÉRIVE | deploy_verify | 2026-08-13 | 2026-08-13 | 1 | CORRIGÉ | `deploy_verify.md` : slash final sur `/api/catalog/` + `/api/artists/` + note 307 (2026-08-13) |
+| SR-02 | « parallèle » sans garde « un seul working tree = série » | FRICTION | work_manager | 2026-08-13 | 2026-08-13 | 1 | CORRIGÉ | `work_manager.md` Phase 2 : garde parallélisme (série par défaut, worktree pour du vrai parallèle) (2026-08-13) |
+| SR-03 | Vérif RENDU (CDP) absente du gate pré-commit | FRICTION | work_manager | 2026-08-13 | 2026-08-13 | 1 | CORRIGÉ | `work_manager.md` Phase 5 : point de gate 4 (vérif RENDU pour chantier visuel) (2026-08-13) |
+| SR-04 | Recette CDP « instance locale pré-commit » non capitalisée | GAP | verif-visuelle-headless (mémoire) | 2026-08-13 | 2026-08-13 | 1 | CORRIGÉ | Nouveau doc versionné `docs/verif-visuelle-locale.md` + pointeurs CLAUDE.md (Doc Pointers) & mémoire (2026-08-13) |
+| SR-05 | Traitement du journal de tête sous-spécifié | FRICTION | roadmap_update | 2026-08-13 | 2026-08-13 | 1 | CORRIGÉ | `roadmap_update.md` Étape 2 : journal de tête EN périmètre (entrée concise + bump date) (2026-08-13) |
+| SR-06 | CRLF fait échouer `format:check` local (blob LF propre) | habitude/gotcha | — (CLAUDE.md) | 2026-08-13 | 2026-08-13 | 1 | CORRIGÉ | Note CLAUDE.md Dev Commands (vérif LF-normalisée avant de « corriger ») (2026-08-13) |

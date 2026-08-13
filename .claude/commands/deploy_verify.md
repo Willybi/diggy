@@ -24,9 +24,11 @@ Toujours exécuter :
 - curl -s https://diggy-music.fr/api/health (attendu : réponse OK)
 - curl -sI http://diggy-music.fr (attendu : 301 vers HTTPS)
 - curl -sI https://diggy-music.fr (attendu : 200, page servie)
-- curl -s "https://diggy-music.fr/api/catalog?limit=1"
-- curl -s "https://diggy-music.fr/api/artists?limit=1"
+- curl -s "https://diggy-music.fr/api/catalog/?limit=1"
+- curl -s "https://diggy-music.fr/api/artists/?limit=1"
 - curl -s "https://diggy-music.fr/api/genres"
+
+Slash final OBLIGATOIRE sur les endpoints de liste (`/api/catalog/`, `/api/artists/`) : montés avec slash → sans slash tu obtiens un **307** (body vide), pas le JSON. `/api/genres` est un bare-prefix sans slash. Si un check renvoie 307, rejoue avec le slash canonique avant de conclure.
 
 Pour chaque réponse : vérifie le code HTTP ET la structure du JSON (pas seulement un 200 ; un 200 avec un body d'erreur ou vide est un échec).
 

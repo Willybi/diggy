@@ -18,6 +18,7 @@ Modifie UNIQUEMENT les statuts des chantiers existants :
 - passer en "terminé" ce qui est achevé
 - passer en "en cours" ou noter l'avancement partiel si le chantier n'est pas fini
 - ajouter la date du jour au chantier terminé si la roadmap date ses entrées
+- **journal de tête** : si la roadmap tient un journal de clôtures (ex. un paragraphe « Dernière mise à jour » où chaque chantier terminé laisse une entrée), c'est un **log de statut → dans le périmètre** : ajoutes-y une entrée CONCISE (date + code chantier + 1 phrase de résumé) et bump la date de tête, dans le style exact des entrées existantes. C'est la seule addition tolérée hors des champs de statut ; ne touche à rien d'autre.
 
 Contraintes strictes :
 - ne crée AUCUN nouveau chantier, même si le travail a révélé des besoins

@@ -153,6 +153,10 @@ cd server/frontend && npx vitest run
 ruff check server/
 cd server/frontend && npm run lint          # eslint
 cd server/frontend && npm run format:check  # prettier (gated in CI since 2026-08-06)
+# NB Windows: core.autocrlf=true + no .gitattributes → working tree is CRLF, the committed blob is LF.
+# So `format:check` LOCAL can flag files ONLY for CRLF while the committed content (LF) is clean and CI
+# (Linux) passes. Before "fixing", confirm on the LF-normalized content — e.g.
+#   tr -d '\r' < f | npx prettier --stdin-filepath f | diff - <(tr -d '\r' < f)   # empty diff = clean
 
 # Alembic (alembic.ini lives in server/api/). Use the `alembic` binary: `python -m alembic`
 # breaks outside the container (the local alembic/ migrations dir shadows the package)
@@ -275,6 +279,7 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant. `.
 | Starting work on a chantier | Its agent prompt in `docs/prompts/` and its brief in `docs/`. If none exist yet for the target chantier, create them via `/work_manager`. |
 | Similarity/scoring work (C2) | `docs/similarity_calibration.ipynb` |
 | UI change on an existing view | Historical design handoffs are archived in `docs/completed/design/` (read-only, frozen); new handoffs come from the Claude Design project |
+| Visual verification (RENDER) of a front chantier before commit (undeployed code) | `docs/verif-visuelle-locale.md` (local stack standup + seed + headless CDP). The PROD pipeline (deployed code) lives in the `verif-visuelle-headless` memory |
 | Backup/restore operation, data incident | `docs/restore.md` (GPG + psql + offsite fetch; keep the "last tested" date honest) |
 | Code health audit (running one, or checking a finding's status) | `docs/audits/README.md` + `docs/audits/LEDGER.md` (run `/audit_global`; first historical audit: `docs/audit_2026-07/`) |
 | Anything about past decisions | `docs/completed/` contains FROZEN archives: read-only, never treat as current state, NEVER modify |

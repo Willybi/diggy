@@ -19,6 +19,7 @@ Unique exception à la règle "aucun code" : la maintenance documentaire du gate
 Découpe le chantier en lots selon ces critères :
 - chaque lot est livrable et testable indépendamment
 - minimise les dépendances entre lots ; si dépendance il y a, indique l'ordre imposé et ce qui peut tourner en parallèle
+  - **Garde parallélisme** : dans le modèle où l'humain relaie les prompts à des sessions séparées mais dans UN SEUL working tree, « parallèle » n'est PAS sûr (les diffs se mêlent, un lot à moitié fini casse les tests d'un autre — c'est le piège collision-tree). Par défaut, énonce un **ORDRE SÉRIEL** ; ne présente du vrai parallèle que si chaque lot est isolé dans un **worktree séparé**. Deux lots qui touchent des fichiers communs : impose l'ordre, jamais en même temps.
 - taille cible : ce qu'un agent peut traiter en une session sans se disperser
 
 Présente le plan sous forme de tableau : Lot | Objectif | Fichiers concernés | Dépend de | Statut. Attends ma validation du plan avant de passer en phase 3.
@@ -69,6 +70,7 @@ Quand tous les lots sont validés :
 1. **Schema doc** : si le chantier a touché `server/api/models/` ou créé/modifié une migration Alembic, lance `python server/scripts/generate_schema_doc.py` (équivalent de `/schema_doc`), inclus le fichier `docs/database-schema.md` régénéré dans les changements à commiter et mentionne-le explicitement dans le corps du message de commit proposé.
 2. **Cohérence CLAUDE.md** : liste les structures ou conventions modifiées par le chantier (arborescence, renommages, splits, nouveaux patterns, nouvelles commandes, pitfalls découverts). Pour chacune, vérifie la section correspondante du `CLAUDE.md` parmi : Architecture, Database, Known Pitfalls, Dev Commands, Slash Commands, Documentation Pointers. Corrige toute divergence, inclus les corrections dans les changements à commiter et mentionne-les explicitement dans le corps du message de commit proposé.
 3. **Date de vérification** : si des corrections ont été apportées au `CLAUDE.md`, mets à jour la ligne `Last verified:` avec la date du jour.
+4. **Vérif RENDU (si le chantier touche le layout / CSS / composants visibles)** : la vérification headless des pages impactées (pipeline `verif-visuelle-headless` ; pour du code non encore déployé, voir `docs/verif-visuelle-locale.md`) fait partie de la clôture — c'est une **porte**, pas un bonus (vitest ne valide pas le layout). Si l'instance n'est pas disponible, dis-le explicitement : ne prétends jamais l'avoir faite et n'annonce pas « zéro diff visuel » sans preuve.
 
 Tant que ce gate n'est pas passé, **aucun message de commit ne doit être proposé**.
 
