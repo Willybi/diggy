@@ -194,6 +194,13 @@ class _FakeRedis:
     async def get(self, key):
         return self.store.get(key)
 
+    async def set(self, key, value, nx=False, ex=None):
+        # Emulate SET NX: refuse if the key already holds a value.
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        return True
+
     async def setex(self, key, ttl, value):
         self.store[key] = value
 
@@ -203,6 +210,9 @@ class _FakeRedis:
 
 class _BrokenRedis:
     async def get(self, key):
+        raise RuntimeError("redis down")
+
+    async def set(self, key, value, nx=False, ex=None):
         raise RuntimeError("redis down")
 
     async def setex(self, key, ttl, value):
@@ -257,3 +267,77 @@ class TestRecommendationCache:
             db, auth_user.id, redis=_BrokenRedis()
         )
         assert {i.id for i in result.items} == {b.id}
+
+
+class TestSingleFlight:
+    """The holder computes once + releases the lock; a concurrent caller reuses
+    the holder's cached result instead of launching its own ~30s compute."""
+
+    async def test_holder_computes_caches_and_releases_lock(self, db, auth_user):
+        redis = _FakeRedis()
+        seed = await _mk_track(db, "Seed", "a|seed")
+        b = await _mk_track(db, "B", "a|b")
+        await _put_in_set(db, [seed.id, b.id])
+        await _opine(db, auth_user.id, seed.id, "liked")
+
+        result = await recommendation_service.get_recommendations(
+            db, auth_user.id, redis=redis
+        )
+        assert {i.id for i in result.items} == {b.id}
+        # Cache populated, lock released (not left behind).
+        assert recommendation_service._cache_key(auth_user.id) in redis.store
+        assert recommendation_service._lock_key(auth_user.id) not in redis.store
+
+    async def test_waiter_reuses_cached_result_from_holder(
+        self, db, auth_user, monkeypatch
+    ):
+        # Lock already held by another request AND that holder has published its
+        # result to the cache. Calling _single_flight_compute directly (the
+        # top-level get_recommendations would short-circuit on the cache hit
+        # before ever reaching the lock) must return the holder's cached list and
+        # never launch its own compute.
+        redis = _FakeRedis()
+        seed = await _mk_track(db, "Seed", "a|seed")
+        b = await _mk_track(db, "B", "a|b")
+        await _put_in_set(db, [seed.id, b.id])
+        await _opine(db, auth_user.id, seed.id, "liked")
+
+        # Publish a genuine computed result to the cache (the "holder"'s output),
+        # then hold the lock and forbid any further compute.
+        holder_result = await recommendation_service._compute(db, auth_user.id)
+        assert {i.id for i in holder_result.items} == {b.id}
+        redis.store[recommendation_service._cache_key(auth_user.id)] = (
+            holder_result.model_dump_json()
+        )
+        redis.store[recommendation_service._lock_key(auth_user.id)] = "held"
+        monkeypatch.setattr(recommendation_service, "_POLL_INTERVAL_S", 0.001)
+
+        async def _boom(*a, **k):
+            raise AssertionError("waiter must not compute while the lock is held")
+
+        monkeypatch.setattr(recommendation_service, "_compute", _boom)
+
+        result = await recommendation_service._single_flight_compute(
+            db, auth_user.id, redis
+        )
+        assert {i.id for i in result.items} == {b.id}
+
+    async def test_waiter_degrades_to_empty_when_compute_overruns(
+        self, db, auth_user, monkeypatch
+    ):
+        # Lock held, cache never appears within the poll budget → the waiter
+        # returns an empty list (never a 504) rather than computing.
+        redis = _FakeRedis()
+        redis.store[recommendation_service._lock_key(auth_user.id)] = "held"
+        monkeypatch.setattr(recommendation_service, "_POLL_INTERVAL_S", 0.001)
+        monkeypatch.setattr(recommendation_service, "_POLL_MAX_S", 0.005)
+
+        async def _boom(*a, **k):
+            raise AssertionError("waiter must not compute while the lock is held")
+
+        monkeypatch.setattr(recommendation_service, "_compute", _boom)
+
+        result = await recommendation_service._single_flight_compute(
+            db, auth_user.id, redis
+        )
+        assert result.items == []

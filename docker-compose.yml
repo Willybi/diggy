@@ -88,7 +88,11 @@ services:
       resources:
         limits:
           cpus: '2'
-          memory: 1G
+          # 2G (not 1G): the nightly precompute_recommendations task peaks a
+          # single reco compute at ~433 MB over the ~615 MB worker baseline
+          # (~1.05 GB total) — over a 1G cap it would OOM-kill the worker
+          # mid-run. Host has ~11 GB free (mesuré 2026-08-13).
+          memory: 2G
     env_file: .env
     depends_on:
       postgres:

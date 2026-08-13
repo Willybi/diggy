@@ -12,6 +12,7 @@ Services raise LookupError (404) or ValueError (400), never HTTPException.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -46,13 +47,31 @@ class RecommendationConfig:
     # How many ranked candidates to keep cached (>= the endpoint's max limit,
     # so a single cache entry serves every limit).
     MAX_ITEMS: int = 100
-    # Cache
-    CACHE_TTL: int = 3600      # seconds
+    # Cache. TTL long enough (25h) to bridge two nightly precompute runs
+    # (workers.tasks.precompute_recommendations, daily): the cache is written
+    # nightly for every active user, so the interactive feed always hits the warm
+    # ~1.7s path instead of the ~30s cold compute that timed out under nginx (504,
+    # mesuré 2026-08-13). An opinion change still invalidates eagerly.
+    CACHE_TTL: int = 90000     # seconds (~25h)
 
 
 CFG = RecommendationConfig()
 
 _CACHE_PREFIX = "reco"
+
+# Single-flight: the cold compute is ~30s (candidate pool over the ~270k-row
+# visible catalog + multi-seed scoring). Without a per-user lock, N concurrent
+# cache-miss requests each recompute and saturate the two uvicorn workers past
+# the 60s nginx proxy timeout → 504 on every /radar tab (mesuré 2026-08-13). One
+# holder computes and caches; concurrent callers poll for its result and reuse
+# it, degrading to an empty list only if the compute overruns the poll budget
+# (Tendance still renders; Pour toi fills on the next request). The nightly
+# precompute keeps the cache warm so this cold path is hit only by a brand-new
+# active user or right after an opinion change.
+_LOCK_PREFIX = "lock:reco"
+_LOCK_TTL_S = 120          # > the ~30-35s compute; auto-heals a dead holder
+_POLL_INTERVAL_S = 1.5
+_POLL_MAX_S = 48.0         # stays under the 60s nginx proxy_read_timeout
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +82,10 @@ def _cache_key(user_id: int) -> str:
     # Not keyed by ``limit``: we cache the full ranked list (MAX_ITEMS) and slice
     # per request, so one entry serves every limit and invalidation is one key.
     return f"{_CACHE_PREFIX}:{user_id}"
+
+
+def _lock_key(user_id: int) -> str:
+    return f"{_LOCK_PREFIX}:{user_id}"
 
 
 async def _cache_get(redis, user_id: int):
@@ -238,6 +261,57 @@ async def _compute(db: AsyncSession, user_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Single-flight compute (per-user Redis lock, fail-open)
+# ---------------------------------------------------------------------------
+
+async def _compute_and_cache(db: AsyncSession, user_id: int, redis):
+    full = await _compute(db, user_id)
+    if redis is not None:
+        await _cache_set(redis, user_id, full)
+    return full
+
+
+async def _single_flight_compute(db: AsyncSession, user_id: int, redis):
+    """Compute the reco list under a per-user Redis lock (fail-open).
+
+    The lock holder computes and caches; a concurrent caller polls the cache for
+    the holder's result instead of launching its own ~30s compute. No Redis
+    (tests/direct calls) or an unavailable Redis → plain compute.
+    """
+    from schemas import RecommendationList
+
+    if redis is None:
+        return await _compute(db, user_id)
+
+    try:
+        got = await redis.set(_lock_key(user_id), "1", nx=True, ex=_LOCK_TTL_S)
+    except Exception as exc:  # Redis down → fail-open, compute directly
+        logger.warning("reco lock skipped (Redis unavailable): %s", exc)
+        return await _compute_and_cache(db, user_id, redis)
+
+    if got:
+        try:
+            return await _compute_and_cache(db, user_id, redis)
+        finally:
+            try:
+                await redis.delete(_lock_key(user_id))
+            except Exception:  # TTL will expire it
+                pass
+
+    # Another request holds the lock: poll for its cached result.
+    waited = 0.0
+    while waited < _POLL_MAX_S:
+        await asyncio.sleep(_POLL_INTERVAL_S)
+        waited += _POLL_INTERVAL_S
+        full = await _cache_get(redis, user_id)
+        if full is not None:
+            return full
+    # Overran the poll budget → degrade gracefully (empty Pour toi this once;
+    # the holder fills the cache for the next request). Never a 504.
+    return RecommendationList(items=[])
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -259,8 +333,6 @@ async def get_recommendations(
     if redis is not None:
         full = await _cache_get(redis, user_id)
     if full is None:
-        full = await _compute(db, user_id)
-        if redis is not None:
-            await _cache_set(redis, user_id, full)
+        full = await _single_flight_compute(db, user_id, redis)
 
     return RecommendationList(items=full.items[:limit])

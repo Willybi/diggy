@@ -136,6 +136,17 @@ celery_app.conf.update(
             "task": "workers.tasks.compute_trends",
             "schedule": crontab(hour=7, minute=0),  # tous les jours à 7h
         },
+        # Pré-calcul nightly des recos "Pour toi" — pré-chauffe le cache Redis
+        # reco:<uid> de chaque user actif pour que le feed /radar tape toujours
+        # le chemin chaud (~1,7s) au lieu du cold compute ~30s qui timeoutait
+        # sous nginx (504, mesuré 2026-08-13). Queue "celery" (aucune API externe)
+        # à 05h45, créneau où diggy_worker est idle (crawls finis à 04h, trends à
+        # 07h) ; un run est un no-op rapide si aucun user actif. Pic mémoire d'un
+        # compte ~433 Mo → cap worker relevé 1G→2G.
+        "precompute-recommendations-daily": {
+            "task": "workers.tasks.precompute_recommendations",
+            "schedule": crontab(hour=5, minute=45),  # tous les jours à 5h45
+        },
         # Estimation BPM depuis les previews Deezer — drain HORAIRE borné 00h→03h
         # (E2.c). Placé AVANT la fenêtre Deezer (enrich_catalog 05h) et la fenêtre
         # Beatport (06h→23h) pour ne pas se disputer le rate limit Deezer, et hors

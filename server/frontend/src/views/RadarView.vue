@@ -551,6 +551,14 @@ const {
   endpoint: '/api/radar/feed',
   buildParams: buildSearchParams,
   pageSize: PAGE_SIZE,
+  // Head counters ride along on the list response (RadarFeedList carries
+  // trend_count/reco_count) — no separate feed?limit=1 call, which used to fire
+  // a SECOND full ~30s reco compute concurrently and helped push both past the
+  // nginx 60s timeout → 504 (fix 2026-08-13).
+  onData: (data) => {
+    trendCount.value = data.trend_count
+    recoCount.value = data.reco_count
+  },
 })
 
 // Filters/sort changed → the URL is the trigger (debounce already handled by
@@ -587,15 +595,8 @@ const headCount = computed(() => {
   return `${t} tendances · ${recoCount.value.toLocaleString('fr-FR')} pour toi`
 })
 
-async function fetchCounts() {
-  try {
-    const { data } = await api.get('/api/radar/feed', { params: { limit: 1 } })
-    trendCount.value = data.trend_count
-    recoCount.value = data.reco_count
-  } catch {
-    /* the header stays on '…' */
-  }
-}
+// The counters come from the list response via useWindowedList's onData hook
+// above (RadarFeedList carries trend_count/reco_count) — no separate fetch.
 
 // ── Cold-start (R7) : no reco at all → Pour toi is all « — » + an invite ─────
 
@@ -746,7 +747,6 @@ onMounted(() => {
     initialFetch: () => fetchPage(true),
     hydrate: (count) => fetchUpTo(count),
   })
-  fetchCounts()
   fetchGenres()
   hydrateArtists()
 })

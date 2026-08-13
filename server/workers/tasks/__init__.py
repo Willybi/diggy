@@ -18,6 +18,7 @@ from workers.tasks.genres import (
 from workers.tasks.import_rb import import_rekordbox_xml
 from workers.tasks.monitoring import snapshot_backlogs
 from workers.tasks.radar import crawl_radar, crawl_single_playlist
+from workers.tasks.recommendations import precompute_recommendations
 from workers.tasks.sets import (
     backfill_trackid_sets,
     crawl_trackid_latest,
@@ -49,4 +50,5 @@ __all__ = [
     "backfill_multi_artists",
     "check_followed_artists",
     "snapshot_backlogs",
+    "precompute_recommendations",
 ]

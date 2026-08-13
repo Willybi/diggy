@@ -80,13 +80,13 @@ function makeItems() {
   ]
 }
 
-// The main feed fetch uses URLSearchParams (repeated params); the head-counter
-// fetch uses a plain object ({ limit: 1 }) — that difference routes the mock.
+// The feed is fetched once per page load (URLSearchParams, repeated params); the
+// head counters (trend_count/reco_count) ride along on that SAME response via
+// useWindowedList's onData hook — no separate feed?limit=1 call anymore.
 let listResponse
-let countsResponse
 
 function installApiMock() {
-  apiMock.get.mockImplementation((url, cfg = {}) => {
+  apiMock.get.mockImplementation((url) => {
     if (url === '/api/catalog/genres') {
       return Promise.resolve({
         data: [{ name: 'House', count: 100, pillar: 'house', depth: 0 }],
@@ -96,12 +96,7 @@ function installApiMock() {
       return Promise.resolve({ data: { items: [{ id: 7, name: 'Kaskade', has_artwork: false }] } })
     }
     if (url === '/api/radar/feed') {
-      const params = cfg.params
-      if (params instanceof URLSearchParams) {
-        return Promise.resolve({ data: listResponse })
-      }
-      // Head counters fetch (plain { limit: 1 }).
-      return Promise.resolve({ data: countsResponse })
+      return Promise.resolve({ data: listResponse })
     }
     return Promise.resolve({ data: {} })
   })
@@ -154,7 +149,6 @@ describe('RadarView', () => {
       routeState.route.query = { ...(loc.query || {}) }
     })
     listResponse = { total: 2, trend_count: 1240, reco_count: 100, items: makeItems() }
-    countsResponse = { total: 2, trend_count: 1240, reco_count: 100, items: [] }
     installApiMock()
   })
 
@@ -267,7 +261,6 @@ describe('RadarView', () => {
       reco_count: 0,
       items: makeItems().map((e) => ({ ...e, reco_score_10: null })),
     }
-    countsResponse = { total: 2, trend_count: 1240, reco_count: 0, items: [] }
     const wrapper = await mountView({})
 
     const cold = wrapper.find('.rd-cold')

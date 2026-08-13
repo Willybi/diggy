@@ -27,6 +27,11 @@ import api from '../utils/api.js'
  * @param {(skip: number) => any} opts.buildParams  page-built request params for
  *   a given skip offset (the value passed straight to axios `{ params }`;
  *   the page bakes its own page size into it as the request's `limit`)
+ * @param {(data: any) => void} [opts.onData]  optional hook called with the raw
+ *   response body of a successful reset fetch (fetch(true) / fetchUpTo). Lets a
+ *   page read extra top-level fields (e.g. the radar feed's trend_count /
+ *   reco_count head counters) from the SAME response instead of firing a second,
+ *   equally expensive request for them.
  * @returns {{
  *   items: import('vue').Ref<any[]>,
  *   total: import('vue').Ref<number | null>,
@@ -37,7 +42,7 @@ import api from '../utils/api.js'
  *   loadMore: () => void,
  * }}
  */
-export function useWindowedList({ endpoint, buildParams, pageSize = 100 }) {
+export function useWindowedList({ endpoint, buildParams, pageSize = 100, onData }) {
   const items = ref([])
   const total = ref(null)
   const loading = ref(false)
@@ -61,6 +66,7 @@ export function useWindowedList({ endpoint, buildParams, pageSize = 100 }) {
       total.value = data.total
       hasMore.value = items.value.length < data.total
       error.value = false
+      if (reset) onData?.(data)
     } catch {
       if (mine === token && reset) {
         // Distinguish a failure from an empty result: clear the list, leave
@@ -113,6 +119,7 @@ export function useWindowedList({ endpoint, buildParams, pageSize = 100 }) {
       total.value = pages[0].data.total
       hasMore.value = merged.length < pages[0].data.total
       error.value = false
+      onData?.(pages[0].data)
     } catch {
       if (mine === token) {
         items.value = []

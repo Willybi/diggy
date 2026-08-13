@@ -142,6 +142,40 @@ describe('useWindowedList', () => {
     expect(list.loading.value).toBe(false)
   })
 
+  it('calls onData with the raw response on a reset fetch, not on append', async () => {
+    const onData = vi.fn()
+    apiGet
+      .mockResolvedValueOnce({ data: { items: [{ id: 1 }], total: 3, trend_count: 42 } })
+      .mockResolvedValueOnce({ data: { items: [{ id: 2 }], total: 3, trend_count: 42 } })
+    const list = useWindowedList({ endpoint: '/api/radar/feed', buildParams: params, onData })
+
+    await list.fetch(true)
+    expect(onData).toHaveBeenCalledTimes(1)
+    expect(onData).toHaveBeenCalledWith({ items: [{ id: 1 }], total: 3, trend_count: 42 })
+
+    // loadMore (append) must NOT re-fire onData — the counters don't change.
+    list.loadMore()
+    await flushPromises()
+    expect(onData).toHaveBeenCalledTimes(1)
+  })
+
+  it('fetchUpTo fires onData once with the first page response', async () => {
+    const onData = vi.fn()
+    apiGet
+      .mockResolvedValueOnce({ data: { items: [{ id: 1 }], total: 4, reco_count: 7 } })
+      .mockResolvedValueOnce({ data: { items: [{ id: 2 }], total: 4, reco_count: 7 } })
+    const list = useWindowedList({
+      endpoint: '/api/radar/feed',
+      buildParams: params,
+      pageSize: 1,
+      onData,
+    })
+
+    await list.fetchUpTo(2)
+    expect(onData).toHaveBeenCalledTimes(1)
+    expect(onData).toHaveBeenCalledWith({ items: [{ id: 1 }], total: 4, reco_count: 7 })
+  })
+
   it('on a reset error flags error (total null, not 0); on a loadMore error keeps them', async () => {
     const list = useWindowedList({ endpoint: '/api/catalog/', buildParams: params })
 
