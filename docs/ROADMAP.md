@@ -74,7 +74,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AV2  Dependances backend & gate CI         HAUT        1-2 jours    TERMINE (2026-08-10 ; 50a1e39 + hotfix jinja2 3c0c8b6, deploy_verify SAIN) — jose 3.3→3.5 (pas 3.4 : plafond pyasn1) + multipart 0.0.32 + fastapi 0.141.1/starlette 1.6.0 + requests/curl-cffi/dotenv ; gate pip-audit BLOQUANT (ignore-vuln PYSEC-2025-185/2026-1325) ; nginx 1.29-alpine
  AV3  Perf data & OOM (cache + index + drops) MOYEN     2 jours      TERMINE (2026-08-10 ; 593ab47, deploy_verify SAIN) — cache Redis /similar (Q3a), migration groupee : index Explorer/radar_trends/backlog BPM + drops colonnes mortes (Q5) + retention 13 mois ; I/O sync x5
  AV4  Robustesse workers v2                 MOYEN       2 jours      TERMINE (2026-08-12 ; aad0a07, deploy_verify SAIN) — BeatportHTTPError (outage != attempt) + guard enrich_beatport ; 0 autoretry_for=(Exception,) restant dans workers/tasks ; locks enrich_deezer/crawl_trackid_latest/sync_artists/link_set_artists/backfill + orchestrateur reclassify ; CrawlLogger running visible (A3-07) ; routing enrich x3 ; merge carry-over bpm_analyzed_at ; 1821 tests verts
- AV5  Dette frontend — table partagee       MOYEN       2-3 jours    A FAIRE — extraction table Explorer/Radar/Sets/Watchlist (~2100 lignes dupliquees), helper opinion, split HubView ; verif CDP obligatoire (Q6) ; gel des evolutions de tables d'ici la
+ AV5  Dette frontend — table partagee       MOYEN       2-3 jours    TERMINE (2026-08-13 ; 43e0302, deploy_verify SAIN) — <TrackTable> = 1 SEULE table virtualisee Explorer/Radar (Radar injecte ses 2 ScoreRing + cold-start par slots #head-extra/#row-extra ; correctif dim disliked des cellules score slottees) ; socle list-table.css ADDITIF Sets/Watchlist (.lt-*, st-*/pl-* gardes) + AddModal partage ; useOpinionOneShot x3 (Artists/Sets/Watchlist) + indicateur « N premiers affiches » sur le plafond 100/200 ; split HubView 4 sections defineAsyncComponent (components/hub/, bundle principal 211,8→192,6 kB = -19 kB + CSS -17 kB) ; M6 table.css @media(hover:none) ; cible DoD <150 kB actee INATTEIGNABLE (plancher ~184 kB = framework + nav omnipresente) ; 653 tests front verts ; verif CDP prod des 4 tables = zero diff visuel ; leve le gel des evolutions de tables
  AV6  Backend archi & suppressions          BAS         1-2 jours    A FAIRE — de-engraissement routers (sets/admin/radar), suppressions Q4 : surface Radar v1, GET /watchlist/, composants morts
  AV7  Doc & tests (cloture serie AV)        BAS         1 jour       A FAIRE — lot doc CLAUDE.md (9 divergences), /schema_doc post-migration AV3, tests auth callback + upsert RB, catalog_visible external search, LEDGER solde
  N4   Majeurs frontend (vite 8, pinia 4...) BAS         2-3 jours    A FAIRE — inscrit 2026-08-09 (audit Q8) : vite 5→8 + vitest 3→4 ensemble, puis pinia 2→4 + vue-router 4→5 ; APRES AV5 (surface reduite) ; re-validation 18 vues + verif CDP
@@ -1916,15 +1916,15 @@ Idee initiale ECARTEE (arbitrage 2026-08-07) : « precharger les 100 premieres l
 **Priorite : MOYEN**
 **Estimation : 2-3 jours**
 **Depend de : AV2 (serie) ; GEL des evolutions fonctionnelles des tables listes d'ici la (Q6)**
-**Statut : A FAIRE**
+**Statut : TERMINE (2026-08-13 ; 43e0302, deploy_verify SAIN) — 5 lots : A4-01 (<TrackTable> = 1 seule table virtualisee Explorer/Radar, Radar injecte ses 2 ScoreRing + cold-start par slots, windowing/scroll-restore gardes par la vue via defineExpose(bodyEl) ; correctif : dim disliked des cellules score slottees re-declare cote RadarView) ; A4-04 (socle list-table.css ADDITIF + AddModal partage, helper de tri NON extrait car modeles d'etat incompatibles) ; A4-05 (useOpinionOneShot x3 + indicateur « N premiers affiches » sur le plafond 100/200) ; A4-06 (split HubView 4 sections defineAsyncComponent, bundle 211,8→192,6 kB, -19 kB) ; M6 (table.css @media(hover:none) + @container). Cible DoD <150 kB actee INATTEIGNABLE (plancher mesure ~184 kB meme en Hub 100% lazy = framework + nav omnipresente). 653 tests front verts, verif CDP prod des 4 tables = zero diff visuel. Leve le gel des evolutions de tables (debloque N4). Reliquats notes hors chantier : cellule avis Sets = code mort .st-cell--avis pre-existant ; cible <150 kB a reviser (AV7)**
 
 ### Taches
 
-- [ ] A4-01 : extraire la table virtualisee partagee Explorer/Radar (thead trie + rows + paliers container-query + wiring windowing/scroll-restore) — Radar n'ajoute que ses 2 ScoreRing et son tri defaut
-- [ ] A4-04 : etendre l'extraction a Sets/Watchlist (ou a minima blocs verbatim : thead, socle CSS, modal add)
-- [ ] A4-05 : helper `useOpinionOneShot` partage ×3 + traitement du plafond silencieux 100/200 (« N premiers affiches » si total > items)
-- [ ] A4-06 : split HubView — sections lazy sous le fold (defineAsyncComponent), mesure vite build avant/apres (recurrence 2026-07/A4-09, cliquet verifie 211,6 kB)
-- [ ] M6 (A4-10) : bloc opacity de table.css → `@media (hover: none)` (bouge avec l'extraction)
+- [x] A4-01 : extraire la table virtualisee partagee Explorer/Radar (thead trie + rows + paliers container-query + wiring windowing/scroll-restore) — Radar n'ajoute que ses 2 ScoreRing et son tri defaut
+- [x] A4-04 : etendre l'extraction a Sets/Watchlist (ou a minima blocs verbatim : thead, socle CSS, modal add)
+- [x] A4-05 : helper `useOpinionOneShot` partage ×3 + traitement du plafond silencieux 100/200 (« N premiers affiches » si total > items)
+- [x] A4-06 : split HubView — sections lazy sous le fold (defineAsyncComponent), mesure vite build avant/apres (recurrence 2026-07/A4-09, cliquet verifie 211,6 kB)
+- [x] M6 (A4-10) : bloc opacity de table.css → `@media (hover: none)` (bouge avec l'extraction)
 
 ### Definition of Done
 
