@@ -4,7 +4,10 @@
     <header class="page-head st-head">
       <div class="titles">
         <h1>Sets</h1>
-        <div class="st-sub">{{ headCount }}</div>
+        <div class="st-sub">
+          {{ headCount }}
+          <span v-if="isOpinionMode && capped" class="st-cap-note">· 200 premiers affichés</span>
+        </div>
       </div>
       <button class="btn btn--accent st-add" type="button" @click="openAdd">
         <svg
@@ -80,19 +83,19 @@
 
     <!-- ── Table : shared grid header/rows, infinite scroll ── -->
     <section class="st-table" aria-label="Liste des sets">
-      <div v-if="showSkeleton || items.length" class="st-thead">
-        <span class="st-th col-play"></span>
+      <div v-if="showSkeleton || items.length" class="st-thead lt-thead">
+        <span class="st-th col-play lt-th"></span>
         <button
-          class="st-th st-th--btn col-set"
+          class="st-th st-th--btn col-set lt-th lt-th--btn"
           :class="{ 'is-sorted': effSort === 'title' }"
           type="button"
           @click="onHeaderSort('title')"
         >
           Set<span v-if="effSort === 'title'" class="st-arr">{{ arrow }}</span>
         </button>
-        <span class="st-th col-genre">Genre</span>
+        <span class="st-th col-genre lt-th">Genre</span>
         <button
-          class="st-th st-th--btn col-date"
+          class="st-th st-th--btn col-date lt-th lt-th--btn"
           :class="{ 'is-sorted': effSort === 'date' }"
           type="button"
           @click="onHeaderSort('date')"
@@ -100,7 +103,7 @@
           Date<span v-if="effSort === 'date'" class="st-arr">{{ arrow }}</span>
         </button>
         <button
-          class="st-th st-th--btn st-th--center col-tracks"
+          class="st-th st-th--btn st-th--center col-tracks lt-th lt-th--btn lt-th--center"
           :class="{ 'is-sorted': effSort === 'tracks' }"
           type="button"
           @click="onHeaderSort('tracks')"
@@ -108,19 +111,19 @@
           Tracks<span v-if="effSort === 'tracks'" class="st-arr">{{ arrow }}</span>
         </button>
         <button
-          class="st-th st-th--btn st-th--right col-dur"
+          class="st-th st-th--btn st-th--right col-dur lt-th lt-th--btn lt-th--right"
           :class="{ 'is-sorted': effSort === 'duration' }"
           type="button"
           @click="onHeaderSort('duration')"
         >
           Durée<span v-if="effSort === 'duration'" class="st-arr">{{ arrow }}</span>
         </button>
-        <span class="st-th st-th--center col-avis">Avis</span>
+        <span class="st-th st-th--center col-avis lt-th lt-th--center">Avis</span>
       </div>
 
       <!-- Loading skeleton : 8 ghost rows in the exact grid -->
       <div v-if="showSkeleton" class="st-body" aria-hidden="true">
-        <div v-for="i in 8" :key="i" class="st-row st-row--skel" :style="{ '--i': i - 1 }">
+        <div v-for="i in 8" :key="i" class="st-row st-row--skel lt-row" :style="{ '--i': i - 1 }">
           <div class="st-cell col-play"><span class="sk sk-play"></span></div>
           <div class="st-cell col-set st-cell--set">
             <span class="sk sk-art"></span>
@@ -224,7 +227,7 @@
         <div
           v-for="s in items"
           :key="s.id"
-          class="st-row"
+          class="st-row lt-row"
           :class="{
             playing: isSetActive(s.id) && player.playing,
             liked: opinionOf(s.id) === 'liked',
@@ -324,7 +327,7 @@
       </div>
 
       <!-- Sentinel (infinite scroll) — always in DOM so the observer attaches -->
-      <div ref="sentinel" class="st-sentinel" :class="{ on: hasMore }">
+      <div ref="sentinel" class="st-sentinel lt-sentinel" :class="{ on: hasMore }">
         <span class="spin"></span>Chargement…
       </div>
     </section>
@@ -360,153 +363,137 @@
       </div>
     </FilterDrawer>
 
-    <!-- ── Add modal (2 tabs) ── -->
-    <div v-if="showAdd" class="st-overlay" @click.self="closeAdd">
-      <div class="st-modal" role="dialog" aria-modal="true" aria-label="Ajouter un set">
-        <div class="st-modal-head">
-          <h2 class="st-modal-title">Ajouter un set</h2>
-          <button class="st-modal-x" type="button" aria-label="Fermer" @click="closeAdd">
+    <!-- ── Add modal (2 tabs) — shared chrome via AddModal, tabs as slot body ── -->
+    <AddModal v-model:open="showAdd" title="Ajouter un set">
+      <div class="st-tabs">
+        <button
+          class="st-tab"
+          :class="{ on: addMode === 'search' }"
+          type="button"
+          @click="addMode = 'search'"
+        >
+          Rechercher
+        </button>
+        <button
+          class="st-tab"
+          :class="{ on: addMode === 'url' }"
+          type="button"
+          @click="addMode = 'url'"
+        >
+          URL
+        </button>
+      </div>
+
+      <!-- Search tab -->
+      <div v-if="addMode === 'search'" class="st-tabpanel">
+        <div class="st-search-row">
+          <label class="st-tid-search">
             <svg
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="1.8"
               aria-hidden="true"
             >
-              <path d="M18 6 6 18M6 6l12 12" stroke-linecap="round" />
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.2-3.2" stroke-linecap="round" />
             </svg>
+            <input
+              v-model="tdQuery"
+              type="text"
+              placeholder="Titre, artiste ou show TrackID…"
+              @keydown.enter="doTrackIDSearch"
+            />
+          </label>
+          <button
+            class="btn btn--accent"
+            type="button"
+            :disabled="tdSearching"
+            @click="doTrackIDSearch"
+          >
+            {{ tdSearching ? 'Recherche…' : 'Rechercher' }}
           </button>
         </div>
 
-        <div class="st-tabs">
-          <button
-            class="st-tab"
-            :class="{ on: addMode === 'search' }"
-            type="button"
-            @click="addMode = 'search'"
-          >
-            Rechercher
-          </button>
-          <button
-            class="st-tab"
-            :class="{ on: addMode === 'url' }"
-            type="button"
-            @click="addMode = 'url'"
-          >
-            URL
-          </button>
+        <div v-if="tdResults.length" class="st-tid-count">
+          {{ tdResults.length }} résultats TrackID
         </div>
 
-        <!-- Search tab -->
-        <div v-if="addMode === 'search'" class="st-tabpanel">
-          <div class="st-search-row">
-            <label class="st-tid-search">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                aria-hidden="true"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.2-3.2" stroke-linecap="round" />
-              </svg>
-              <input
-                v-model="tdQuery"
-                type="text"
-                placeholder="Titre, artiste ou show TrackID…"
-                @keydown.enter="doTrackIDSearch"
-              />
-            </label>
+        <div v-if="tdResults.length" class="st-results">
+          <div v-for="r in tdResults" :key="r.trackid_id" class="st-res">
+            <span class="st-res-art">
+              <img v-if="r.artwork_url" :src="r.artwork_url" alt="" loading="lazy" />
+              <span v-else class="st-res-ini">{{ (r.title || '?')[0] }}</span>
+            </span>
+            <span class="st-res-tx">
+              <span class="st-res-title" :title="r.title">{{ r.title }}</span>
+              <span class="st-res-meta">{{ resultMeta(r) }}</span>
+            </span>
+            <span v-if="r.already_imported" class="st-res-done">✓ Importé</span>
             <button
-              class="btn btn--accent"
+              v-else
+              class="btn btn--sm"
               type="button"
-              :disabled="tdSearching"
-              @click="doTrackIDSearch"
+              :disabled="r._importing"
+              @click="doImportFromSearch(r)"
             >
-              {{ tdSearching ? 'Recherche…' : 'Rechercher' }}
+              {{ r._importing ? 'Import…' : 'Importer' }}
             </button>
           </div>
-
-          <div v-if="tdResults.length" class="st-tid-count">
-            {{ tdResults.length }} résultats TrackID
-          </div>
-
-          <div v-if="tdResults.length" class="st-results">
-            <div v-for="r in tdResults" :key="r.trackid_id" class="st-res">
-              <span class="st-res-art">
-                <img v-if="r.artwork_url" :src="r.artwork_url" alt="" loading="lazy" />
-                <span v-else class="st-res-ini">{{ (r.title || '?')[0] }}</span>
-              </span>
-              <span class="st-res-tx">
-                <span class="st-res-title" :title="r.title">{{ r.title }}</span>
-                <span class="st-res-meta">{{ resultMeta(r) }}</span>
-              </span>
-              <span v-if="r.already_imported" class="st-res-done">✓ Importé</span>
-              <button
-                v-else
-                class="btn btn--sm"
-                type="button"
-                :disabled="r._importing"
-                @click="doImportFromSearch(r)"
-              >
-                {{ r._importing ? 'Import…' : 'Importer' }}
-              </button>
-            </div>
-          </div>
-
-          <p v-if="formError && addMode === 'search'" class="st-form-error">{{ formError }}</p>
         </div>
 
-        <!-- URL tab -->
-        <div v-else class="st-tabpanel">
-          <label class="st-field-label" for="st-url-input">URL TrackID</label>
-          <input
-            id="st-url-input"
-            v-model="importUrl"
-            class="st-input st-input--mono"
-            :class="{ 'is-error': formError }"
-            type="text"
-            placeholder="https://trackid.net/audiostream/…"
-            @keydown.enter="doImport"
-            @input="onUrlInput"
-          />
-          <p class="st-field-help">Colle le lien d’un show TrackID pour l’importer directement.</p>
-          <p v-if="formError" class="st-form-error">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.9"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
-            </svg>
-            {{ formError }}
-          </p>
-          <button
-            class="btn btn--accent st-url-go"
-            type="button"
-            :disabled="importing"
-            @click="doImport"
-          >
-            {{ importing ? 'Import…' : 'Importer depuis l’URL' }}
-          </button>
-        </div>
+        <p v-if="formError && addMode === 'search'" class="st-form-error">{{ formError }}</p>
       </div>
-    </div>
+
+      <!-- URL tab -->
+      <div v-else class="st-tabpanel">
+        <label class="st-field-label" for="st-url-input">URL TrackID</label>
+        <input
+          id="st-url-input"
+          v-model="importUrl"
+          class="st-input st-input--mono"
+          :class="{ 'is-error': formError }"
+          type="text"
+          placeholder="https://trackid.net/audiostream/…"
+          @keydown.enter="doImport"
+          @input="onUrlInput"
+        />
+        <p class="st-field-help">Colle le lien d’un show TrackID pour l’importer directement.</p>
+        <p v-if="formError" class="st-form-error">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+          </svg>
+          {{ formError }}
+        </p>
+        <button
+          class="btn btn--accent st-url-go"
+          type="button"
+          :disabled="importing"
+          @click="doImport"
+        >
+          {{ importing ? 'Import…' : 'Importer depuis l’URL' }}
+        </button>
+      </div>
+    </AddModal>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { useAudioPlayer } from '../stores/audioPlayer.js'
 import { useToast } from '../stores/toast.js'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { useOpinionOneShot } from '../composables/useOpinionOneShot.js'
 import { useFilterState } from '../composables/useFilterState.js'
 import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { buildChips } from '../components/filters/criteria.js'
@@ -524,6 +511,7 @@ import ArtistLinks from '../components/ArtistLinks.vue'
 import StyleTag from '../components/StyleTag.vue'
 import ScoreRing from '../components/ScoreRing.vue'
 import LikeDislike from '../components/LikeDislike.vue'
+import AddModal from '../components/AddModal.vue'
 
 const GENRE_OPTIONS_MAX = 150
 const YEAR_MIN = 2005
@@ -737,56 +725,35 @@ function opinionOf(id) {
   return opinions.get('set', id)
 }
 
+// ── Opinion one-shot (avis facets) : shared helper ──
+// liked/disliked pass the matching ids via `ids=`, « À explorer » (none)
+// excludes every rated id via `exclude_ids=`; both carry the panel filters
+// (buildExtraParams) + sort + q. `capped` flags a truncated one-shot (limit 200)
+// so the head can show « 200 premiers affichés ».
+const opinionOneShot = useOpinionOneShot({
+  endpoint: '/api/sets/',
+  kind: 'set',
+  refs: { items, total, hasMore, loading },
+  unratedValue: 'none',
+  buildParams: () => {
+    const p = { ...buildExtraParams(), sort: sortParam.value, limit: 200, offset: 0 }
+    const q = state.q.trim()
+    if (q) p.q = q
+    return p
+  },
+})
+const { capped } = opinionOneShot
+
 // ── Fetch orchestration ──
 // `all` (avis null) goes through the shared paginated list (infinite scroll).
-// The opinion filters resolve their id set from the opinions store in ONE
-// non-paginated shot and write the shared refs directly: liked/disliked pass
-// the matching ids via `ids=`, « À explorer » excludes every rated id via
-// `exclude_ids=`. Both paths carry the panel filters (buildExtraParams).
+// The opinion filters go through the one-shot helper (sentinel stays off).
 async function runFetch(reset = true) {
   if (!isOpinionMode.value) {
     await fetch(reset)
     return
   }
   if (!reset) return // opinion filters are not paginated (sentinel stays off)
-  items.value = []
-  loading.value = true
-  try {
-    await opinions.load()
-    const setOps = opinions.data.set || {}
-    const params = { ...buildExtraParams(), sort: sortParam.value, limit: 200, offset: 0 }
-    const q = state.q.trim()
-    if (q) params.q = q
-
-    if (state.avis === 'none') {
-      const ratedIds = Object.keys(setOps).filter(
-        (k) => setOps[k] === 'liked' || setOps[k] === 'disliked',
-      )
-      if (ratedIds.length) params.exclude_ids = ratedIds.join(',')
-    } else {
-      const matchingIds = Object.entries(setOps)
-        .filter(([, v]) => v === state.avis)
-        .map(([k]) => k)
-      if (!matchingIds.length) {
-        items.value = []
-        total.value = 0
-        hasMore.value = false
-        return
-      }
-      params.ids = matchingIds.join(',')
-    }
-
-    const { data } = await api.get('/api/sets/', { params })
-    items.value = data.items
-    total.value = data.total
-    hasMore.value = false
-  } catch {
-    items.value = []
-    total.value = 0
-    hasMore.value = false
-  } finally {
-    loading.value = false
-  }
+  await opinionOneShot.run(state.avis)
 }
 
 function clearSearch() {
@@ -880,10 +847,6 @@ function openAdd() {
   formError.value = ''
 }
 
-function closeAdd() {
-  showAdd.value = false
-}
-
 function onUrlInput() {
   formError.value = ''
 }
@@ -946,10 +909,6 @@ async function doImport() {
   }
 }
 
-function onKeydown(e) {
-  if (e.key === 'Escape' && showAdd.value) closeAdd()
-}
-
 onMounted(() => {
   lastKey = fetchKey()
   scrollRestore.restore({
@@ -958,9 +917,7 @@ onMounted(() => {
   })
   fetchBaseCount()
   fetchGenres()
-  window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
@@ -984,6 +941,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font: 500 var(--fs-sm) / 1 var(--font-mono);
   color: var(--ink-3);
 }
+.st-cap-note {
+  margin-left: var(--space-1);
+  color: var(--ink-2);
+}
 .st-add {
   flex: none;
   margin-left: auto;
@@ -1005,53 +966,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   --st-gap: var(--space-3);
   padding-bottom: var(--space-8);
 }
+/* Column track + gap are view-specific and stay here; the grid frame, sticky
+   header and header-cell styling come from the shared .lt-* socle
+   (assets/list-table.css). The st-thead/st-row/st-th* classes remain on the
+   elements alongside the lt-* ones (grid var here, base there). */
 .st-thead,
 .st-row {
-  display: grid;
   grid-template-columns: var(--st-grid);
   gap: var(--st-gap);
-  align-items: center;
-  padding-inline: var(--page-px);
-}
-.st-thead {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: 36px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line-2);
-}
-.st-th {
-  font: 600 var(--fs-label) / 1 var(--font-mono);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  white-space: nowrap;
-  text-align: left;
-  user-select: none;
-}
-.st-th--btn {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  transition: color 0.12s;
-}
-.st-th--btn:hover {
-  color: var(--ink-2);
-}
-.st-th--btn.is-sorted {
-  color: var(--accent-ink);
-}
-.st-th--btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.st-th--center {
-  text-align: center;
-}
-.st-th--right {
-  text-align: right;
 }
 .st-arr {
   margin-left: var(--space-05);
@@ -1059,28 +981,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ ROWS ============ */
-.st-row {
-  min-height: var(--row-h);
-  padding-block: var(--space-2);
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.st-row:hover {
-  background: var(--surface-2);
-}
+/* Base row + hover + liked wash come from the shared .lt-row socle. Playing
+   (accent wash) and disliked (dimmed, sparing the play + avis cells) are
+   Sets-specific and stay here. */
 .st-row.playing,
 .st-row.playing:hover {
   background: var(--accent-wash);
-}
-.st-row.liked {
-  background: var(--pos-wash);
-}
-.st-row.liked:hover {
-  background: var(--pos-wash-2);
-}
-[data-theme='dark'] .st-row.liked {
-  background: var(--pos-wash-2);
 }
 .st-row.disliked > .st-cell:not(.st-cell--avis):not(.st-cell--play) {
   opacity: 0.45;
@@ -1243,19 +1149,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   background: var(--neg-soft);
 }
 
-/* ============ SENTINEL ============ */
-.st-sentinel {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-25);
-  padding: var(--space-4) var(--page-px) var(--space-2);
-  color: var(--ink-3);
-  font: 500 var(--fs-xs) / 1 var(--font-mono);
-}
-.st-sentinel.on {
-  display: flex;
-}
+/* ============ SENTINEL (base from the shared .lt-sentinel socle) ============ */
 .spin {
   width: 14px;
   height: 14px;
@@ -1357,60 +1251,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ ADD MODAL ============ */
-.st-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  background: var(--overlay-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-6);
-}
-.st-modal {
-  width: min(460px, 100vw - 32px);
-  max-height: min(88vh, 720px);
-  overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-lg);
-  padding: var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.st-modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.st-modal-title {
-  margin: 0;
-  font: 700 var(--fs-md) / 1.2 var(--font-ui);
-  color: var(--ink);
-}
-.st-modal-x {
-  width: 30px;
-  height: 30px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.st-modal-x:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-.st-modal-x svg {
-  width: 16px;
-  height: 16px;
-}
+/* Overlay + card + head + close button now live in the shared AddModal
+   component; only the Sets-specific body (tabs + panels) is styled here. */
 
 /* Tabs (underlined, distinct from the head SegFilter) */
 .st-tabs {
@@ -1612,9 +1454,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ RESPONSIVE — column drop ============ */
-/* The Add modal stays centered on mobile too (.st-overlay is align-items:center
-   and .st-modal already caps at min(460px, 100vw - 32px)) so the BottomNav never
-   masks it — no bottom-sheet override. */
+/* The Add modal stays centered on mobile: Sets does not pass AddModal's
+   `bottom-sheet` prop, so it keeps the default centered card and the BottomNav
+   never masks it. */
 @container (max-width: 999px) {
   .st-table {
     --st-grid: 44px minmax(0, 1fr) 190px 104px 72px 80px;

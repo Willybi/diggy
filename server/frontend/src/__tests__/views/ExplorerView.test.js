@@ -129,6 +129,9 @@ async function mountView(query = {}) {
   return wrapper
 }
 
+// A4-01: the table markup moved into the shared <TrackTable> component, so the
+// row/cell selectors are now prefixed `tt-` (was `xp-`). The view still owns the
+// head counter (`.xp-sub`) and the filter chrome, which keep their `xp-` classes.
 describe('ExplorerView', () => {
   beforeEach(() => {
     apiMock.get.mockReset()
@@ -213,38 +216,38 @@ describe('ExplorerView', () => {
 
   it('renders rows: title, #rank badge only when ≤ 50, « +N » styles, — for nulls', async () => {
     const wrapper = await mountView({})
-    const rows = wrapper.findAll('.xp-row:not(.xp-row--skel)')
+    const rows = wrapper.findAll('.tt-row:not(.tt-row--skel)')
     expect(rows).toHaveLength(2)
 
     const first = rows[0]
     expect(first.text()).toContain('Alpha')
-    expect(first.find('.xp-rank').text()).toBe('#14')
-    expect(first.find('.xp-more').text()).toBe('+2')
-    expect(first.find('.xp-bpm').text()).toBe('128')
-    expect(first.find('.xp-key').text()).toBe('5A')
+    expect(first.find('.tt-rank').text()).toBe('#14')
+    expect(first.find('.tt-more').text()).toBe('+2')
+    expect(first.find('.tt-bpm').text()).toBe('128')
+    expect(first.find('.tt-key').text()).toBe('5A')
 
     const second = rows[1]
-    expect(second.find('.xp-rank').exists()).toBe(false)
+    expect(second.find('.tt-rank').exists()).toBe(false)
     // genres empty + style null → em dash, bpm/key null → em dash.
-    expect(second.findAll('.xp-null').length).toBeGreaterThanOrEqual(3)
+    expect(second.findAll('.tt-null').length).toBeGreaterThanOrEqual(3)
     // No preview → no play button at all.
-    expect(second.find('.pbtn').exists()).toBe(false)
+    expect(second.find('.tt-pbtn').exists()).toBe(false)
   })
 
   it('patches the avis optimistically and colors the row', async () => {
     const wrapper = await mountView({})
-    const firstRow = wrapper.findAll('.xp-row:not(.xp-row--skel)')[0]
+    const firstRow = wrapper.findAll('.tt-row:not(.tt-row--skel)')[0]
     await firstRow.find('.ld-btn.like').trigger('click')
     expect(apiMock.patch).toHaveBeenCalledWith('/api/catalog/1/avis', { avis: 'liked' })
     await flushPromises()
-    expect(wrapper.findAll('.xp-row:not(.xp-row--skel)')[0].classes()).toContain('liked')
+    expect(wrapper.findAll('.tt-row:not(.tt-row--skel)')[0].classes()).toContain('liked')
   })
 
   it('shows the actionable empty state with removable chips', async () => {
     listResponse = { total: 0, items: [] }
     const wrapper = await mountView({ genre: 'House' })
 
-    const empty = wrapper.find('.xp-empty')
+    const empty = wrapper.find('.tt-empty')
     expect(empty.exists()).toBe(true)
     expect(empty.text()).toContain('Aucun résultat avec ces filtres')
     expect(empty.text()).toContain('Réinitialiser tous les filtres')
@@ -255,7 +258,7 @@ describe('ExplorerView', () => {
 
     // Removing the chip clears the criterion from the state (chips disappear).
     await chip.trigger('click')
-    expect(wrapper.find('.xp-empty .fchip--empty').exists()).toBe(false)
+    expect(wrapper.find('.tt-empty .fchip--empty').exists()).toBe(false)
   })
 
   it('renders the head counter from the base and in-lib totals (fr-FR)', async () => {
@@ -270,7 +273,7 @@ describe('ExplorerView', () => {
     // Click the BPM header → onHeaderSort sets state.sort/order → useFilterState
     // writes the URL via router.replace → the reactive route.query change drives
     // the refetch watch. This whole chain was inert with the old non-reactive mock.
-    await wrapper.find('.xp-th--btn.col-bpm').trigger('click')
+    await wrapper.find('.tt-th--btn.col-bpm').trigger('click')
     await flushPromises()
 
     expect(mainListCalls().length).toBe(before + 1)

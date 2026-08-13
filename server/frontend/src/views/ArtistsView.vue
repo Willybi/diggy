@@ -9,6 +9,7 @@
             >{{ fmtNum(total) }} / {{ fmtNum(totalUnfiltered) }} artistes</template
           >
           <template v-else>{{ fmtNum(totalUnfiltered) }} artistes</template>
+          <span v-if="isOpinionSortActive && capped" class="cap-note">· 100 premiers affichés</span>
         </div>
       </div>
       <div class="head-tools">
@@ -104,21 +105,19 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api from '../utils/api.js'
 import { useAuthStore } from '../stores/auth.js'
-import { useOpinionsStore } from '../stores/opinions.js'
 import ArtistCard from '../components/ArtistCard.vue'
 import SearchBox from '../components/SearchBox.vue'
 import SegFilter from '../components/SegFilter.vue'
 import FamilyChips from '../components/FamilyChips.vue'
 import SkeletonGrid from '../components/SkeletonGrid.vue'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { useOpinionOneShot } from '../composables/useOpinionOneShot.js'
 import { useUrlSync } from '../composables/useUrlSync.js'
 import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { fmtNum } from '../utils/format'
 
 const auth = useAuthStore()
-const opinions = useOpinionsStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -198,50 +197,37 @@ function showAll() {
   sortBy.value = 'catalog'
 }
 
+// -- Opinion one-shot (liked/disliked) : shared helper --
+// The opinion facets resolve their id set from the opinions store and fire ONE
+// non-paginated request (limit 100), writing the shared refs. `capped` flags a
+// truncated list so the head can show « 100 premiers affichés ». Artists carries
+// no « à explorer » facet, so no exclude_ids variant. familyCounts is a view
+// specific field fed through onData.
+const opinionOneShot = useOpinionOneShot({
+  endpoint: '/api/artists/',
+  kind: 'artist',
+  refs: { items, total, hasMore, loading },
+  buildParams: () => {
+    const p = { sort: 'alpha', limit: 100, offset: 0 }
+    if (familyFilter.value !== 'all') p.family = familyFilter.value
+    if (searchQuery.value.trim()) p.q = searchQuery.value.trim()
+    if (noDeezer.value) p.no_deezer = true
+    return p
+  },
+  onData: (data) => {
+    familyCounts.value = data.pillarCounts || {}
+  },
+})
+const { capped } = opinionOneShot
+const isOpinionSortActive = computed(() => sortBy.value === 'liked' || sortBy.value === 'disliked')
+
 // -- Fetch --
 // Normal sorts (incl. « followed » via extraParams) go through the shared
-// paginated list; opinion filters (liked/disliked) resolve matching IDs from
-// the opinions store in one non-paginated shot and write the shared refs.
+// paginated list; opinion filters (liked/disliked) go through the one-shot.
 async function fetchArtists(reset = true) {
-  const isOpinionFilter = sortBy.value === 'liked' || sortBy.value === 'disliked'
-  if (!isOpinionFilter) return fetch(reset)
-
+  if (!isOpinionSortActive.value) return fetch(reset)
   if (!reset) return // no pagination for opinion filters
-  items.value = []
-  loading.value = true
-  try {
-    await opinions.load()
-    const artistOpinions = opinions.data.artist || {}
-    const matchingIds = Object.entries(artistOpinions)
-      .filter(([, v]) => v === sortBy.value)
-      .map(([k]) => k)
-
-    if (!matchingIds.length) {
-      total.value = 0
-      hasMore.value = false
-      return
-    }
-
-    const params = {
-      sort: 'alpha',
-      limit: 100,
-      offset: 0,
-      ids: matchingIds.join(','),
-    }
-    if (familyFilter.value !== 'all') params.family = familyFilter.value
-    if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
-    if (noDeezer.value) params.no_deezer = true
-
-    const { data } = await api.get('/api/artists/', { params })
-    items.value = data.items
-    total.value = data.total
-    familyCounts.value = data.pillarCounts || {}
-    hasMore.value = false
-  } catch {
-    items.value = []
-  } finally {
-    loading.value = false
-  }
+  return opinionOneShot.run(sortBy.value)
 }
 
 // -- Sort, family & « Sans Deezer »: immediate reload --
@@ -278,6 +264,10 @@ onMounted(() => {
   margin-top: var(--space-1);
   font: 500 var(--fs-sm)/1 var(--font-mono);
   color: var(--ink-3);
+}
+.cap-note {
+  margin-left: var(--space-1);
+  color: var(--ink-2);
 }
 .head-tools {
   margin-left: auto;

@@ -1,0 +1,99 @@
+/* ── list-table.css · shared grid-table socle for the twin listing views
+   (SetsView, WatchlistView). ONLY the strictly common primitives live here —
+   the sticky grid header, header cells, row hover/liked wash, and the
+   infinite-scroll sentinel. Each view keeps its own column track
+   (grid-template-columns / gap via --st-grid / --pl-grid), responsive
+   column-drop, skeleton, empty states, avis styling and every view-specific
+   cell in its own <style scoped>. This sheet imposes NO fixed grid. ── */
+
+/* Grid frame shared by the header and the rows. The column track + gap stay
+   per-view (declared scoped, referencing the view's grid var) so nothing here
+   pins a layout — only display / alignment / horizontal padding are common. */
+.lt-thead,
+.lt-row {
+  display: grid;
+  align-items: center;
+  padding-inline: var(--page-px);
+}
+
+/* Sticky header bar. */
+.lt-thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 36px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-2);
+}
+
+/* Header cells : label + sortable button. */
+.lt-th {
+  font: 600 var(--fs-label) / 1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-align: left;
+  user-select: none;
+}
+.lt-th--btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.lt-th--btn:hover {
+  color: var(--ink-2);
+}
+.lt-th--btn.is-sorted {
+  color: var(--accent-ink);
+}
+.lt-th--btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lt-th--center {
+  text-align: center;
+}
+.lt-th--right {
+  text-align: right;
+}
+
+/* Rows : hover + liked wash. Playing / disliked stay per-view because their
+   dimmed-cell exclusions differ (Sets also spares the play cell). */
+.lt-row {
+  min-height: var(--row-h);
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.lt-row:hover {
+  background: var(--surface-2);
+}
+.lt-row.liked {
+  background: var(--pos-wash);
+}
+.lt-row.liked:hover {
+  background: var(--pos-wash-2);
+}
+[data-theme='dark'] .lt-row.liked {
+  background: var(--pos-wash-2);
+}
+
+/* Sentinel : the infinite-scroll loader, revealed by `.on` while more pages
+   remain. `.spin` stays scoped per view (identical, but avoids a global
+   spinner class). */
+.lt-sentinel {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-25);
+  padding: var(--space-4) var(--page-px) var(--space-2);
+  color: var(--ink-3);
+  font: 500 var(--fs-xs) / 1 var(--font-mono);
+}
+.lt-sentinel.on {
+  display: flex;
+}

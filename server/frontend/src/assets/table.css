@@ -1,6 +1,9 @@
 /* ── table.dt + TrackCell · shared classes ── */
 .dt-wrap {
   overflow-x: auto;
+  /* conteneur du @container « petit écran » plus bas (min-width réduit) :
+     la convention repo interdit un @media viewport hors position:fixed */
+  container-type: inline-size;
 }
 table.dt {
   width: 100%;
@@ -119,12 +122,19 @@ table.dt tbody tr.disliked td:not(.c-avis) {
   color: var(--ink-3);
 }
 
-/* ============ MOBILE ============ */
-@media (max-width: 640px) {
+/* ============ TACTILE ============ */
+/* Play/action toujours visibles : sur tactile il n'y a aucun hover à révéler. */
+@media (hover: none) {
   table.dt .pbtn,
   table.dt .act {
     opacity: 1;
   }
+}
+
+/* ============ PETIT ÉCRAN ============ */
+/* Laisse la table se contracter quand le wrapper est étroit ; le min-width: 720px
+   de base reste actif sur large écran. @container (pas @media viewport) = convention repo. */
+@container (max-width: 640px) {
   table.dt {
     min-width: 0;
   }

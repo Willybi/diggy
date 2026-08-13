@@ -142,221 +142,34 @@
       </FilterBar>
     </div>
 
-    <!-- ── Table : shared grid header/rows, windowed body ── -->
-    <section class="xp-table" aria-label="Résultats">
-      <div v-if="!isEmpty && !isError" class="xp-thead">
-        <span class="xp-th"></span>
-        <button
-          class="xp-th xp-th--btn"
-          :class="{ 'is-sorted': state.sort === 'title' }"
-          type="button"
-          @click="onHeaderSort('title')"
-        >
-          Track<span v-if="state.sort === 'title'" class="xp-arr">{{ arrow }}</span>
-        </button>
-        <span class="xp-th col-style">Style</span>
-        <button
-          class="xp-th xp-th--btn xp-th--right col-bpm"
-          :class="{ 'is-sorted': state.sort === 'bpm' }"
-          type="button"
-          @click="onHeaderSort('bpm')"
-        >
-          BPM<span v-if="state.sort === 'bpm'" class="xp-arr">{{ arrow }}</span>
-        </button>
-        <button
-          class="xp-th xp-th--btn col-key"
-          :class="{ 'is-sorted': state.sort === 'key' }"
-          type="button"
-          @click="onHeaderSort('key')"
-        >
-          Key<span v-if="state.sort === 'key'" class="xp-arr">{{ arrow }}</span>
-        </button>
-        <button
-          class="xp-th xp-th--btn xp-th--right col-dur"
-          :class="{ 'is-sorted': state.sort === 'duration_ms' }"
-          type="button"
-          @click="onHeaderSort('duration_ms')"
-        >
-          Durée<span v-if="state.sort === 'duration_ms'" class="xp-arr">{{ arrow }}</span>
-        </button>
-        <span class="xp-th xp-th--avis">Avis</span>
-      </div>
-
-      <!-- Loading skeleton (E13) : 8 ghost rows in the exact grid -->
-      <div v-if="initialLoading" class="xp-body" aria-hidden="true">
-        <div v-for="i in 8" :key="i" class="xp-row xp-row--skel" :style="{ '--i': i - 1 }">
-          <span class="xp-cell"><span class="sk sk-play"></span></span>
-          <span class="xp-cell xp-cell--track">
-            <span class="sk sk-art"></span>
-            <span class="xp-tx">
-              <span class="sk sk-line sk-line--title"></span>
-              <span class="sk sk-line sk-line--sub"></span>
-            </span>
-          </span>
-          <span class="xp-cell col-style"><span class="sk sk-line sk-line--tag"></span></span>
-          <span class="xp-cell xp-cell--right col-bpm"
-            ><span class="sk sk-line sk-line--num"></span
-          ></span>
-          <span class="xp-cell col-key"><span class="sk sk-line sk-line--num"></span></span>
-          <span class="xp-cell xp-cell--right col-dur"
-            ><span class="sk sk-line sk-line--num"></span
-          ></span>
-          <span class="xp-cell xp-cell--avis"
-            ><span class="sk sk-round"></span><span class="sk sk-round"></span
-          ></span>
-        </div>
-      </div>
-
-      <!-- Error state : a fetch failure is not an empty result (offer a retry) -->
-      <div v-else-if="isError" class="xp-empty">
-        <svg
-          class="xp-empty-ic"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 8v5" />
-          <path d="M12 16h.01" />
-        </svg>
-        <p class="xp-empty-title">Erreur de chargement</p>
-        <p class="xp-empty-sub">Impossible de récupérer les résultats. Réessaie dans un instant.</p>
-        <button class="btn" type="button" @click="fetchPage(true)">Réessayer</button>
-      </div>
-
-      <!-- Empty state (E10) : removable chips repair the search -->
-      <div v-else-if="isEmpty" class="xp-empty">
-        <svg
-          class="xp-empty-ic"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-          aria-hidden="true"
-        >
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.2-3.2" />
-          <path d="M4 4l14 14" />
-        </svg>
-        <p class="xp-empty-title">Aucun résultat avec ces filtres</p>
-        <p class="xp-empty-sub">Retire un critère ci-dessous ou réinitialise la recherche.</p>
-        <div v-if="activeChips.length" class="xp-empty-chips">
-          <FilterChip
-            v-for="chip in activeChips"
-            :key="chip.id"
-            :label="chip.label"
-            :value="chip.value"
-            empty
-            @remove="removeChip(chip)"
-          />
-        </div>
-        <button class="btn" type="button" @click="resetFilters">
-          Réinitialiser tous les filtres
-        </button>
-      </div>
-
-      <!-- Windowed rows : only the visible slice is rendered between spacers -->
-      <template v-else>
-        <div ref="listEl" class="xp-body">
-          <div :style="{ height: padTop + 'px' }" aria-hidden="true"></div>
-          <div
-            v-for="e in windowItems"
-            :key="e.id"
-            class="xp-row"
-            :class="{
-              playing: player.isCurrent(e.id),
-              liked: e.avis === 'liked',
-              disliked: e.avis === 'disliked',
-            }"
-            @click="openTrack(e)"
-          >
-            <span class="xp-cell xp-cell--play">
-              <button
-                v-if="e.has_preview"
-                class="pbtn"
-                :class="{ 'pbtn--playing': player.isCurrent(e.id) }"
-                type="button"
-                :aria-label="`Écouter ${e.title}`"
-                @click.stop="playTrack(e)"
-              >
-                <svg
-                  v-if="!(player.isCurrent(e.id) && player.playing)"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M8 5.5v13l11-6.5z" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <rect x="7" y="5" width="3.4" height="14" rx="1" />
-                  <rect x="13.6" y="5" width="3.4" height="14" rx="1" />
-                </svg>
-              </button>
-            </span>
-            <span class="xp-cell xp-cell--track">
-              <Artwork size="row" :src="artSrc(e)" :alt="e.title" :in-lib="e.in_lib" />
-              <span class="xp-tx">
-                <span class="xp-title-row">
-                  <span class="xp-title">{{ e.title }}</span>
-                  <span v-if="e.trend_rank && e.trend_rank <= 50" class="xp-rank"
-                    >#{{ e.trend_rank }}</span
-                  >
-                </span>
-                <span class="xp-artists" @click.stop>
-                  <ArtistLinks :artists="e.artists" :fallback="e.artist" />
-                </span>
-              </span>
-            </span>
-            <span class="xp-cell col-style">
-              <template v-if="e.genres?.length">
-                <RouterLink
-                  class="xp-style-link"
-                  :to="`/style/${encodeURIComponent(e.genres[0].name)}`"
-                  @click.stop
-                >
-                  <StyleTag
-                    :name="e.genres[0].name"
-                    :family="e.genres[0].pillar"
-                    :depth="e.genres[0].depth"
-                  />
-                </RouterLink>
-                <span v-if="e.genres.length > 1" class="xp-more">+{{ e.genres.length - 1 }}</span>
-              </template>
-              <StyleTag v-else-if="e.style" :name="e.style" />
-              <span v-else class="xp-null">—</span>
-            </span>
-            <span class="xp-cell xp-cell--right col-bpm">
-              <span :class="e.bpm != null ? 'xp-bpm' : 'xp-null'"
-                ><span
-                  v-if="e.bpm != null && e.bpm_source === 'analysis'"
-                  class="xp-bpm-est"
-                  title="BPM estimé (analyse audio)"
-                  aria-label="BPM estimé"
-                  >~</span
-                >{{ e.bpm != null ? Math.round(e.bpm) : '—' }}</span
-              >
-            </span>
-            <span class="xp-cell col-key">
-              <span :class="e.key ? 'xp-key' : 'xp-null'">{{ e.key || '—' }}</span>
-            </span>
-            <span class="xp-cell xp-cell--right col-dur">
-              <span :class="e.duration_ms > 0 ? 'xp-dur' : 'xp-null'">{{
-                e.duration_ms > 0 ? fmtMs(e.duration_ms) : '—'
-              }}</span>
-            </span>
-            <span class="xp-cell xp-cell--avis" @click.stop>
-              <LikeDislike :model-value="e.avis" @update:model-value="(v) => setAvis(e, v)" />
-            </span>
-          </div>
-          <div :style="{ height: padBottom + 'px' }" aria-hidden="true"></div>
-        </div>
-        <div v-if="items.length" class="xp-end">{{ hasMore ? '…' : 'Fin des résultats' }}</div>
-      </template>
-    </section>
+    <!-- ── Table : shared virtualised, sortable track table (A4-01) ── -->
+    <TrackTable
+      ref="trackTableRef"
+      variant="explorer"
+      :window-items="windowItems"
+      :items="items"
+      :pad-top="padTop"
+      :pad-bottom="padBottom"
+      :has-more="hasMore"
+      :initial-loading="initialLoading"
+      :is-error="isError"
+      :is-empty="isEmpty"
+      :active-chips="activeChips"
+      :sort="state.sort"
+      :arrow="arrow"
+      track-sortable
+      key-sortable
+      show-duration
+      :is-current="player.isCurrent"
+      :playing="player.playing"
+      @header-sort="onHeaderSort"
+      @row-click="openTrack"
+      @play="playTrack"
+      @avis="setAvis"
+      @retry="fetchPage(true)"
+      @reset="resetFilters"
+      @remove-chip="removeChip"
+    />
 
     <!-- ── Mobile filter drawer (< 640) ── -->
     <FilterDrawer
@@ -437,7 +250,6 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
-import { fmtMs } from '../utils/format'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useFilterState } from '../composables/useFilterState.js'
 import { useVirtualWindow } from '../composables/useVirtualWindow.js'
@@ -446,7 +258,6 @@ import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { buildChips, defaultValue } from '../components/filters/criteria.js'
 import { compareCamelot, CAMELOT_KEYS } from '../components/filters/camelot.js'
 import FilterBar from '../components/filters/FilterBar.vue'
-import FilterChip from '../components/filters/FilterChip.vue'
 import FilterPanel from '../components/filters/FilterPanel.vue'
 import FilterDrawer from '../components/filters/FilterDrawer.vue'
 import SearchInput from '../components/filters/SearchInput.vue'
@@ -457,10 +268,7 @@ import ArtistTypeAhead from '../components/filters/ArtistTypeAhead.vue'
 import SegmentedFilter from '../components/filters/SegmentedFilter.vue'
 import ToggleChip from '../components/filters/ToggleChip.vue'
 import SortSelect from '../components/filters/SortSelect.vue'
-import Artwork from '../components/Artwork.vue'
-import StyleTag from '../components/StyleTag.vue'
-import ArtistLinks from '../components/ArtistLinks.vue'
-import LikeDislike from '../components/LikeDislike.vue'
+import TrackTable from '../components/TrackTable.vue'
 import ImportRekordboxModal from '../components/ImportRekordboxModal.vue'
 import ExternalImportModal from '../components/ExternalImportModal.vue'
 
@@ -803,7 +611,11 @@ async function hydrateArtists() {
 // `container`, which then owns its own scroll/resize listeners on it.
 
 const pageEl = ref(null)
-const listEl = ref(null)
+const trackTableRef = ref(null)
+// TrackTable owns the windowed body markup; it exposes that element so this view
+// can keep ownership of the windowing (useVirtualWindow needs it as `listRef`,
+// paired with the scroll ancestor). A computed forwards the exposed ref.
+const listEl = computed(() => trackTableRef.value?.bodyEl || null)
 const scrollEl = ref(null)
 const rowH = ref(56)
 
@@ -838,10 +650,6 @@ const scrollRestore = useScrollRestore({
 })
 
 // ── Rows ─────────────────────────────────────────────────────────────────────
-
-function artSrc(e) {
-  return e.has_artwork ? `/storage/catalog-artworks/${e.id}.jpg` : undefined
-}
 
 function openTrack(e) {
   router.push(`/catalog/${e.id}`)
@@ -1037,404 +845,17 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-/* ============ TABLE — shared grid header/rows ============ */
-.xp-table {
-  --xp-grid: 44px minmax(0, 1fr) 176px 56px 48px 60px 84px;
-  --xp-gap: var(--space-2);
-  padding-bottom: var(--space-8);
-}
-.xp-thead,
-.xp-row {
-  display: grid;
-  grid-template-columns: var(--xp-grid);
-  gap: var(--xp-gap);
-  align-items: center;
-  padding-inline: var(--page-px);
-}
-.xp-thead {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: 36px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line-2);
-}
-.xp-th {
-  font: 600 var(--fs-label) / 1 var(--font-mono);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  white-space: nowrap;
-  text-align: left;
-  user-select: none;
-}
-.xp-th--btn {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  transition: color 0.12s;
-}
-.xp-th--btn:hover {
-  color: var(--ink-2);
-}
-.xp-th--btn.is-sorted {
-  color: var(--accent-ink);
-}
-.xp-th--btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.xp-th--right {
-  text-align: right;
-}
-.xp-th--avis {
-  text-align: center;
-}
-.xp-arr {
-  margin-left: var(--space-05);
-  color: var(--accent-ink);
-}
-
-/* ============ ROWS ============ */
-.xp-row {
-  height: var(--row-h);
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.xp-row:hover {
-  background: var(--surface-2);
-}
-.xp-row.playing,
-.xp-row.playing:hover {
-  background: var(--accent-wash);
-}
-.xp-row.liked {
-  background: var(--pos-wash);
-}
-.xp-row.liked:hover {
-  background: var(--pos-wash-2);
-}
-[data-theme='dark'] .xp-row.liked {
-  background: var(--pos-wash-2);
-}
-.xp-row.disliked > .xp-cell:not(.xp-cell--avis) {
-  opacity: 0.45;
-  transition: opacity 0.16s;
-}
-.xp-row.disliked:hover > .xp-cell:not(.xp-cell--avis) {
-  opacity: 0.7;
-}
-
-.xp-cell {
-  min-width: 0;
-}
-.xp-cell--right {
-  text-align: right;
-}
-
-/* ============ PLAY ============ */
-.pbtn {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity 0.12s,
-    background 0.12s;
-}
-.xp-row:hover .pbtn {
-  opacity: 1;
-}
-.pbtn svg {
-  width: 11px;
-  height: 11px;
-}
-.pbtn--playing {
-  opacity: 1;
-  background: var(--accent);
-  border-color: transparent;
-  color: var(--on-accent);
-}
-
-/* ============ TRACK CELL ============ */
-.xp-cell--track {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-/* Local sizing of the shared Artwork (brief: 38px row cover). */
-.xp-cell--track :deep(.artwork--row) {
-  width: 38px;
-}
-.xp-tx {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-}
-.xp-title-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.xp-title {
-  font: 600 var(--fs-table) / 1.25 var(--font-ui);
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.xp-row.playing .xp-title {
-  color: var(--accent-ink);
-}
-.xp-rank {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-05) var(--space-15);
-  border-radius: var(--r-pill);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font: 600 var(--fs-nano) / 1 var(--font-mono);
-  flex: none;
-}
-.xp-artists {
-  font: 400 var(--fs-table-sm) / 1.25 var(--font-ui);
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-/* ============ STYLE CELL (E12 : 1 tag + « +N ») ============ */
-.col-style {
-  display: flex;
-  align-items: center;
-  gap: var(--space-15);
-}
-.xp-style-link {
-  text-decoration: none;
-  min-width: 0;
-  display: inline-flex;
-}
-.xp-more {
-  font: 500 var(--fs-nano) / 1 var(--font-mono);
-  color: var(--ink-3);
-  flex: none;
-}
-
-/* ============ DATA CELLS ============ */
-.xp-bpm,
-.xp-dur {
-  font: 500 var(--fs-table) var(--font-mono);
-  color: var(--ink-2);
-}
-.xp-key {
-  font: 600 var(--fs-table) var(--font-mono);
-  color: var(--accent-ink);
-}
-.xp-null {
-  font: 500 var(--fs-table) var(--font-mono);
-  color: var(--ink-3);
-}
-/* "estimé" tilde prefix — BPM derived from audio analysis, not a trusted source.
-   Dimmed, tooltip-carried, doesn't widen the cell (reads "~128"). */
-.xp-bpm-est {
-  color: var(--ink-3);
-  cursor: help;
-}
-
-/* ============ AVIS (shared LikeDislike, local deltas only) ============ */
-.xp-cell--avis {
-  display: flex;
-  justify-content: center;
-}
-/* Avis buttons stay visible at rest (neutral --ink-3 from LikeDislike); only
-   Play is hover-revealed on desktop. Liked/disliked colored states below. */
-.xp-cell--avis :deep(.ld-btn) {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border-color: transparent;
-  background: transparent;
-}
-.xp-cell--avis :deep(.ld-btn:hover) {
-  background: var(--surface-3);
-}
-.xp-cell--avis :deep(.ld[data-state='liked'] .ld-btn.like),
-.xp-cell--avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
-  opacity: 1;
-}
-.xp-cell--avis :deep(.ld[data-state='liked'] .ld-btn.like) {
-  background: var(--pos-soft);
-}
-.xp-cell--avis :deep(.ld[data-state='disliked'] .ld-btn.dislike) {
-  background: var(--neg-soft);
-}
-
-/* ============ END SENTINEL ============ */
-.xp-end {
-  font: 500 var(--fs-xs) / 1 var(--font-mono);
-  color: var(--ink-3);
-  text-align: center;
-  padding: var(--space-4) var(--page-px) 0;
-}
-
-/* ============ SKELETON (E13) ============ */
-.xp-row--skel {
-  cursor: default;
-}
-.sk {
-  display: inline-block;
-  background: var(--surface-2);
-  border-radius: var(--r-xs);
-  animation: xp-pulse 1.4s ease-in-out infinite;
-  animation-delay: calc(var(--i, 0) * 0.12s);
-}
-.sk-play {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-}
-.sk-art {
-  width: 38px;
-  height: 38px;
-  flex: none;
-  background: var(--surface-3);
-}
-.sk-line {
-  height: 10px;
-}
-.sk-line--title {
-  width: 62%;
-  background: var(--surface-3);
-}
-.sk-line--sub {
-  width: 40%;
-}
-.sk-line--tag {
-  width: 90px;
-  height: 18px;
-  border-radius: var(--r-pill);
-}
-.sk-line--num {
-  width: 34px;
-}
-.sk-round {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  margin: 0 var(--space-05);
-}
-@keyframes xp-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
-/* ============ EMPTY STATE (E10) ============ */
-.xp-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-15x) var(--page-px);
-  text-align: center;
-}
-.xp-empty-ic {
-  width: 34px;
-  height: 34px;
-  color: var(--ink-3);
-}
-.xp-empty-title {
-  margin: 0;
-  font: 600 var(--fs-md) / 1.3 var(--font-ui);
-  color: var(--ink);
-}
-.xp-empty-sub {
-  margin: 0;
-  font: 400 var(--fs-sm) / 1.4 var(--font-ui);
-  color: var(--ink-2);
-}
-.xp-empty-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-15);
-  margin-top: var(--space-1);
-}
-.xp-empty .btn {
-  margin-top: var(--space-2);
-}
-
-/* ============ RESPONSIVE — column drop (4 tiers) ============ */
-@container (max-width: 999px) {
-  .xp-table {
-    --xp-grid: 44px minmax(0, 1fr) 176px 56px 48px 84px;
-  }
-  .col-dur {
-    display: none;
-  }
-}
-@container (max-width: 859px) {
-  .xp-table {
-    --xp-grid: 44px minmax(0, 1fr) 56px 48px 84px;
-  }
-  .col-style {
-    display: none;
-  }
-}
-@container (max-width: 699px) {
-  .xp-table {
-    --xp-grid: 44px minmax(0, 1fr) 56px 84px;
-  }
-  .col-key {
-    display: none;
-  }
-}
+/* ============ RESPONSIVE — view chrome (table paliers live in TrackTable) ==== */
 @container (max-width: 639px) {
-  .xp-table {
-    --xp-grid: 40px minmax(0, 1fr) 46px 76px;
-    --xp-gap: var(--space-1);
-  }
-  .xp-thead,
-  .xp-row {
-    padding-inline: var(--page-px-mobile);
-  }
   .xp-head {
     padding: var(--space-4) var(--page-px-mobile) var(--space-3);
   }
   .xp-controls {
     padding: 0 var(--page-px-mobile) var(--space-3);
   }
-  .xp-end {
-    padding-inline: var(--page-px-mobile);
-  }
-  .xp-empty {
-    padding-inline: var(--page-px-mobile);
-  }
   /* Sort select leaves the bar (v1: default order lives in the drawer later). */
   .xp-sort {
     display: none;
-  }
-  /* Touch: play always visible (avis is already visible at rest). */
-  .pbtn {
-    opacity: 1;
   }
 }
 </style>

@@ -259,7 +259,7 @@ describe('WatchlistView', () => {
   it('opens the add modal and rejects an invalid URL without POSTing', async () => {
     const wrapper = await mountView()
     await wrapper.find('.pl-add').trigger('click')
-    expect(wrapper.find('.pl-overlay').exists()).toBe(true)
+    expect(wrapper.find('.add-overlay').exists()).toBe(true)
 
     await wrapper.find('#pl-url-input').setValue('not a url')
     await wrapper.find('.pl-url-go').trigger('click')
@@ -267,7 +267,7 @@ describe('WatchlistView', () => {
 
     expect(apiMock.post).not.toHaveBeenCalled()
     expect(wrapper.find('.pl-form-error').exists()).toBe(true)
-    expect(wrapper.find('.pl-overlay').exists()).toBe(true)
+    expect(wrapper.find('.add-overlay').exists()).toBe(true)
   })
 
   it('adds a playlist from a valid URL (POST parsed external_id + source) and closes', async () => {
@@ -282,7 +282,7 @@ describe('WatchlistView', () => {
       external_id: '999',
       source: 'deezer',
     })
-    expect(wrapper.find('.pl-overlay').exists()).toBe(false)
+    expect(wrapper.find('.add-overlay').exists()).toBe(false)
     wrapper.unmount() // clear the poll timer started for the new playlist
   })
 
@@ -295,6 +295,6 @@ describe('WatchlistView', () => {
     await flushPromises()
 
     expect(wrapper.find('.pl-form-error').text()).toContain('déjà')
-    expect(wrapper.find('.pl-overlay').exists()).toBe(true)
+    expect(wrapper.find('.add-overlay').exists()).toBe(true)
   })
 })

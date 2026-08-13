@@ -135,6 +135,12 @@ async function mountView(query = {}) {
   return wrapper
 }
 
+// A4-01: the table markup moved into the shared <TrackTable> component, so the
+// row/cell selectors are now prefixed `tt-` (was `rd-`). The two bi-score columns
+// (Tendance / Pour toi) are injected via slots and stay in this view's scope, so
+// their selectors keep their `rd-` classes (`.rd-th--score`, `.col-trend`,
+// `.col-reco`, `.rd-velo`, `.rd-dash`, `.is-active-col`), as do the head counter
+// (`.rd-sub`), cold-start (`.rd-cold`) and sort chrome (`.rd-sort`).
 describe('RadarView', () => {
   beforeEach(() => {
     apiMock.get.mockReset()
@@ -184,14 +190,14 @@ describe('RadarView', () => {
 
   it('renders bi-score rows: title, #rank, bpm/key, both score rings + velocity ▲', async () => {
     const wrapper = await mountView({})
-    const rows = wrapper.findAll('.rd-row:not(.rd-row--skel)')
+    const rows = wrapper.findAll('.tt-row:not(.tt-row--skel)')
     expect(rows).toHaveLength(2)
 
     const first = rows[0]
     expect(first.text()).toContain('Alpha')
-    expect(first.find('.rd-rank').text()).toBe('#14')
-    expect(first.find('.rd-bpm').text()).toBe('128')
-    expect(first.find('.rd-key').text()).toBe('5A')
+    expect(first.find('.tt-rank').text()).toBe('#14')
+    expect(first.find('.tt-bpm').text()).toBe('128')
+    expect(first.find('.tt-key').text()).toBe('5A')
     // Both score cells carry a ring; the Tendance note is round(9) = 9.
     expect(first.find('.col-trend .score-ring').exists()).toBe(true)
     expect(first.find('.col-reco .score-ring').exists()).toBe(true)
@@ -203,7 +209,7 @@ describe('RadarView', () => {
 
   it('shows a muted « — » where a score is null (mono-score row), no ring', async () => {
     const wrapper = await mountView({})
-    const rows = wrapper.findAll('.rd-row:not(.rd-row--skel)')
+    const rows = wrapper.findAll('.tt-row:not(.tt-row--skel)')
     const second = rows[1]
 
     // Beta has a Tendance score but no Pour toi score.
@@ -221,7 +227,7 @@ describe('RadarView', () => {
     const wrapper = await mountView({})
     // Default: Tendance is the resolved sort → its header/cells are active.
     expect(wrapper.find('.rd-th--score.col-trend').classes()).toContain('is-sorted')
-    expect(wrapper.find('.rd-row:not(.rd-row--skel) .col-trend').classes()).toContain(
+    expect(wrapper.find('.tt-row:not(.tt-row--skel) .col-trend').classes()).toContain(
       'is-active-col',
     )
     expect(wrapper.find('.rd-th--score.col-reco').classes()).not.toContain('is-sorted')
@@ -237,7 +243,7 @@ describe('RadarView', () => {
     expect(p.get('order')).toBe('desc')
     // The band moved to the Pour toi column.
     expect(wrapper.find('.rd-th--score.col-reco').classes()).toContain('is-sorted')
-    expect(wrapper.find('.rd-row:not(.rd-row--skel) .col-reco').classes()).toContain(
+    expect(wrapper.find('.tt-row:not(.tt-row--skel) .col-reco').classes()).toContain(
       'is-active-col',
     )
 
@@ -286,18 +292,18 @@ describe('RadarView', () => {
 
   it('patches the avis optimistically and colors the row', async () => {
     const wrapper = await mountView({})
-    const firstRow = wrapper.findAll('.rd-row:not(.rd-row--skel)')[0]
+    const firstRow = wrapper.findAll('.tt-row:not(.tt-row--skel)')[0]
     await firstRow.find('.ld-btn.like').trigger('click')
     expect(apiMock.patch).toHaveBeenCalledWith('/api/catalog/1/avis', { avis: 'liked' })
     await flushPromises()
-    expect(wrapper.findAll('.rd-row:not(.rd-row--skel)')[0].classes()).toContain('liked')
+    expect(wrapper.findAll('.tt-row:not(.tt-row--skel)')[0].classes()).toContain('liked')
   })
 
   it('shows the actionable empty state with removable chips', async () => {
     listResponse = { total: 0, trend_count: 1240, reco_count: 100, items: [] }
     const wrapper = await mountView({ genre: 'House' })
 
-    const empty = wrapper.find('.rd-empty')
+    const empty = wrapper.find('.tt-empty')
     expect(empty.exists()).toBe(true)
     expect(empty.text()).toContain('Aucun résultat avec ces filtres')
 
@@ -307,7 +313,7 @@ describe('RadarView', () => {
 
     // Removing the chip clears the criterion from the state (chips disappear).
     await chip.trigger('click')
-    expect(wrapper.find('.rd-empty .fchip--empty').exists()).toBe(false)
+    expect(wrapper.find('.tt-empty .fchip--empty').exists()).toBe(false)
   })
 
   it('maps the Récent sort option to sort=recent (not the default)', async () => {

@@ -8,7 +8,7 @@
           <template v-if="isOpinionMode"
             >{{ fmtNum(baseTotal) }} playlists<span class="pl-sub-muted">
               · {{ fmtNum(total) }} {{ avisLabel }}</span
-            ></template
+            ><span v-if="capped" class="pl-cap-note"> · 200 premiers affichés</span></template
           >
           <template v-else>{{ fmtNum(total) }} {{ pl(total, 'playlist', 'playlists') }}</template>
         </div>
@@ -40,18 +40,18 @@
 
     <!-- ── Table : shared grid header/rows, infinite scroll ── -->
     <section class="pl-table" aria-label="Liste des playlists surveillées">
-      <div v-if="showSkeleton || items.length" class="pl-thead">
+      <div v-if="showSkeleton || items.length" class="pl-thead lt-thead">
         <button
-          class="pl-th pl-th--btn col-pl"
+          class="pl-th pl-th--btn col-pl lt-th lt-th--btn"
           :class="{ 'is-sorted': sortKey === 'title' }"
           type="button"
           @click="toggleSort('title')"
         >
           Playlist<span v-if="sortKey === 'title'" class="pl-arr">{{ arrow }}</span>
         </button>
-        <span class="pl-th col-genre">Genre</span>
+        <span class="pl-th col-genre lt-th">Genre</span>
         <button
-          class="pl-th pl-th--btn col-creator"
+          class="pl-th pl-th--btn col-creator lt-th lt-th--btn"
           :class="{ 'is-sorted': sortKey === 'creator' }"
           type="button"
           @click="toggleSort('creator')"
@@ -59,7 +59,7 @@
           Créateur<span v-if="sortKey === 'creator'" class="pl-arr">{{ arrow }}</span>
         </button>
         <button
-          class="pl-th pl-th--btn pl-th--right col-tracks"
+          class="pl-th pl-th--btn pl-th--right col-tracks lt-th lt-th--btn lt-th--right"
           :class="{ 'is-sorted': sortKey === 'tracks' }"
           type="button"
           @click="toggleSort('tracks')"
@@ -67,19 +67,19 @@
           Tracks<span v-if="sortKey === 'tracks'" class="pl-arr">{{ arrow }}</span>
         </button>
         <button
-          class="pl-th pl-th--btn col-crawl"
+          class="pl-th pl-th--btn col-crawl lt-th lt-th--btn"
           :class="{ 'is-sorted': sortKey === 'crawl' }"
           type="button"
           @click="toggleSort('crawl')"
         >
           Dernier crawl<span v-if="sortKey === 'crawl'" class="pl-arr">{{ arrow }}</span>
         </button>
-        <span class="pl-th pl-th--center col-avis">Avis</span>
+        <span class="pl-th pl-th--center col-avis lt-th lt-th--center">Avis</span>
       </div>
 
       <!-- Loading skeleton : 8 ghost rows in the exact grid -->
       <div v-if="showSkeleton" class="pl-body" aria-hidden="true">
-        <div v-for="i in 8" :key="i" class="pl-row pl-row--skel" :style="{ '--i': i - 1 }">
+        <div v-for="i in 8" :key="i" class="pl-row pl-row--skel lt-row" :style="{ '--i': i - 1 }">
           <div class="pl-cell col-pl pl-cell--pl">
             <span class="sk sk-art"></span>
             <div class="pl-tx">
@@ -142,7 +142,7 @@
         <div
           v-for="p in items"
           :key="p.id"
-          class="pl-row"
+          class="pl-row lt-row"
           :class="{
             liked: opinionOf(p.id) === 'liked',
             disliked: opinionOf(p.id) === 'disliked',
@@ -247,78 +247,62 @@
       </div>
 
       <!-- Sentinel (infinite scroll) — always in DOM so the observer attaches -->
-      <div ref="sentinel" class="pl-sentinel" :class="{ on: hasMore }">
+      <div ref="sentinel" class="pl-sentinel lt-sentinel" :class="{ on: hasMore }">
         <span class="spin"></span>Chargement…
       </div>
     </section>
 
-    <!-- ── Add modal (single URL field) ── -->
-    <div v-if="showAdd" class="pl-overlay" @click.self="closeAdd">
-      <div class="pl-modal" role="dialog" aria-modal="true" aria-label="Ajouter une playlist">
-        <div class="pl-modal-head">
-          <h2 class="pl-modal-title">Ajouter une playlist</h2>
-          <button class="pl-modal-x" type="button" aria-label="Fermer" @click="closeAdd">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              aria-hidden="true"
-            >
-              <path d="M18 6 6 18M6 6l12 12" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="pl-tabpanel">
-          <label class="pl-field-label" for="pl-url-input">URL de la playlist</label>
-          <input
-            id="pl-url-input"
-            v-model="inputValue"
-            class="pl-input pl-input--mono"
-            :class="{ 'is-error': formError }"
-            type="text"
-            placeholder="https://www.deezer.com/playlist/…"
-            @keydown.enter="addPlaylist"
-            @input="onUrlInput"
-          />
-          <p class="pl-field-help">
-            Colle l’URL d’une playlist Deezer, Tidal ou Spotify. Elle est crawlée dès l’ajout et
-            alimente le radar.
-          </p>
-          <p v-if="formError" class="pl-form-error">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.9"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
-            </svg>
-            {{ formError }}
-          </p>
-          <button
-            class="btn btn--accent pl-url-go"
-            type="button"
-            :disabled="adding"
-            @click="addPlaylist"
+    <!-- ── Add modal (single URL field) — shared chrome via AddModal ── -->
+    <AddModal v-model:open="showAdd" title="Ajouter une playlist" bottom-sheet>
+      <div class="pl-tabpanel">
+        <label class="pl-field-label" for="pl-url-input">URL de la playlist</label>
+        <input
+          id="pl-url-input"
+          v-model="inputValue"
+          class="pl-input pl-input--mono"
+          :class="{ 'is-error': formError }"
+          type="text"
+          placeholder="https://www.deezer.com/playlist/…"
+          @keydown.enter="addPlaylist"
+          @input="onUrlInput"
+        />
+        <p class="pl-field-help">
+          Colle l’URL d’une playlist Deezer, Tidal ou Spotify. Elle est crawlée dès l’ajout et
+          alimente le radar.
+        </p>
+        <p v-if="formError" class="pl-form-error">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            aria-hidden="true"
           >
-            {{ adding ? 'Ajout…' : 'Ajouter' }}
-          </button>
-        </div>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+          </svg>
+          {{ formError }}
+        </p>
+        <button
+          class="btn btn--accent pl-url-go"
+          type="button"
+          :disabled="adding"
+          @click="addPlaylist"
+        >
+          {{ adding ? 'Ajout…' : 'Ajouter' }}
+        </button>
       </div>
-    </div>
+    </AddModal>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
+import { useOpinionOneShot } from '../composables/useOpinionOneShot.js'
 import { useUrlSync } from '../composables/useUrlSync.js'
 import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { useTaskPoll } from '../composables/useTaskPoll.js'
@@ -328,6 +312,7 @@ import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SegFilter from '../components/SegFilter.vue'
+import AddModal from '../components/AddModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -406,11 +391,22 @@ function opinionOf(id) {
   return opinions.get('playlist', id)
 }
 
+// ── Opinion one-shot (avis facets) : shared helper (mirrors SetsView) ──
+// liked/disliked pass the matching ids via `ids=`, unrated excludes every rated
+// id via `exclude_ids=`. `capped` flags a truncated one-shot (limit 200) so the
+// head can show « 200 premiers affichés ».
+const opinionOneShot = useOpinionOneShot({
+  endpoint: '/api/watchlist/browse',
+  kind: 'playlist',
+  refs: { items, total, hasMore, loading },
+  unratedValue: 'unrated',
+  buildParams: () => ({ sort: sortParam.value, limit: 200, offset: 0 }),
+})
+const { capped } = opinionOneShot
+
 // ── Fetch orchestration (mirrors SetsView) ──
 // `all` goes through the shared paginated list (infinite scroll). The opinion
-// filters resolve their id set from the opinions store in ONE non-paginated shot
-// and write the shared refs directly: liked/disliked pass the matching ids via
-// `ids=`, unrated excludes every rated id via `exclude_ids=`.
+// filters go through the one-shot helper (sentinel stays off).
 async function runFetch(reset = true) {
   if (!isOpinionMode.value) {
     await fetch(reset)
@@ -418,42 +414,7 @@ async function runFetch(reset = true) {
     return
   }
   if (!reset) return // opinion filters are not paginated (sentinel stays off)
-  items.value = []
-  loading.value = true
-  try {
-    await opinions.load()
-    const plOps = opinions.data.playlist || {}
-    const params = { sort: sortParam.value, limit: 200, offset: 0 }
-
-    if (mode.value === 'unrated') {
-      const ratedIds = Object.keys(plOps).filter(
-        (k) => plOps[k] === 'liked' || plOps[k] === 'disliked',
-      )
-      if (ratedIds.length) params.exclude_ids = ratedIds.join(',')
-    } else {
-      const matchingIds = Object.entries(plOps)
-        .filter(([, v]) => v === mode.value)
-        .map(([k]) => k)
-      if (!matchingIds.length) {
-        items.value = []
-        total.value = 0
-        hasMore.value = false
-        return
-      }
-      params.ids = matchingIds.join(',')
-    }
-
-    const { data } = await api.get('/api/watchlist/browse', { params })
-    items.value = data.items
-    total.value = data.total
-    hasMore.value = false
-  } catch {
-    items.value = []
-    total.value = 0
-    hasMore.value = false
-  } finally {
-    loading.value = false
-  }
+  await opinionOneShot.run(mode.value)
 }
 
 function toggleSort(key) {
@@ -590,10 +551,6 @@ function openAdd() {
   formError.value = ''
 }
 
-function closeAdd() {
-  showAdd.value = false
-}
-
 function onUrlInput() {
   formError.value = ''
 }
@@ -637,18 +594,12 @@ async function addPlaylist() {
   }
 }
 
-function onKeydown(e) {
-  if (e.key === 'Escape' && showAdd.value) closeAdd()
-}
-
 onMounted(() => {
   scrollRestore.restore({
     initialFetch: () => runFetch(true),
     hydrate: (count) => (isOpinionMode.value ? runFetch(true) : fetchUpTo(count)),
   })
-  window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
@@ -676,6 +627,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .pl-sub-muted {
   color: var(--ink-3);
 }
+.pl-cap-note {
+  color: var(--ink-2);
+}
 .head-tools {
   margin-left: auto;
   display: flex;
@@ -693,53 +647,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   --pl-gap: var(--space-3);
   padding-bottom: var(--space-8);
 }
+/* Column track + gap are view-specific and stay here; the grid frame, sticky
+   header and header-cell styling come from the shared .lt-* socle
+   (assets/list-table.css). The pl-thead/pl-row/pl-th* classes remain on the
+   elements alongside the lt-* ones (grid var here, base there). */
 .pl-thead,
 .pl-row {
-  display: grid;
   grid-template-columns: var(--pl-grid);
   gap: var(--pl-gap);
-  align-items: center;
-  padding-inline: var(--page-px);
-}
-.pl-thead {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: 36px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line-2);
-}
-.pl-th {
-  font: 600 var(--fs-label) / 1 var(--font-mono);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  white-space: nowrap;
-  text-align: left;
-  user-select: none;
-}
-.pl-th--btn {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  transition: color 0.12s;
-}
-.pl-th--btn:hover {
-  color: var(--ink-2);
-}
-.pl-th--btn.is-sorted {
-  color: var(--accent-ink);
-}
-.pl-th--btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.pl-th--center {
-  text-align: center;
-}
-.pl-th--right {
-  text-align: right;
 }
 .pl-arr {
   margin-left: var(--space-1);
@@ -748,25 +663,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ ROWS ============ */
-.pl-row {
-  min-height: var(--row-h);
-  padding-block: var(--space-2);
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.pl-row:hover {
-  background: var(--surface-2);
-}
-.pl-row.liked {
-  background: var(--pos-wash);
-}
-.pl-row.liked:hover {
-  background: var(--pos-wash-2);
-}
-[data-theme='dark'] .pl-row.liked {
-  background: var(--pos-wash-2);
-}
+/* Base row + hover + liked wash come from the shared .lt-row socle. Disliked
+   (dimmed, sparing the avis cell) is view-specific and stays here. */
 .pl-row.disliked > .pl-cell:not(.pl-cell--avis) {
   opacity: 0.45;
   transition: opacity 0.16s;
@@ -1051,19 +949,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   background: var(--neg-soft);
 }
 
-/* ============ SENTINEL ============ */
-.pl-sentinel {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-25);
-  padding: var(--space-4) var(--page-px) var(--space-2);
-  color: var(--ink-3);
-  font: 500 var(--fs-xs) / 1 var(--font-mono);
-}
-.pl-sentinel.on {
-  display: flex;
-}
+/* ============ SENTINEL (base from the shared .lt-sentinel socle) ============ */
 .spin {
   width: 14px;
   height: 14px;
@@ -1160,60 +1046,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 /* ============ ADD MODAL ============ */
-.pl-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  background: var(--overlay-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-6);
-}
-.pl-modal {
-  width: min(460px, 100vw - 32px);
-  max-height: min(88vh, 720px);
-  overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-lg);
-  padding: var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.pl-modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.pl-modal-title {
-  margin: 0;
-  font: 700 var(--fs-md) / 1.2 var(--font-ui);
-  color: var(--ink);
-}
-.pl-modal-x {
-  width: 30px;
-  height: 30px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.pl-modal-x:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-.pl-modal-x svg {
-  width: 16px;
-  height: 16px;
-}
+/* Overlay + card + head + close button (and the mobile bottom-sheet, opted in
+   via the `bottom-sheet` prop) now live in the shared AddModal component; only
+   the Watchlist-specific body (the URL field) is styled here. */
 .pl-tabpanel {
   display: flex;
   flex-direction: column;
@@ -1324,21 +1159,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .pl-sentinel,
   .pl-empty {
     padding-inline: var(--page-px-mobile);
-  }
-}
-
-/* Add modal → bottom-sheet on mobile (position: fixed = the one @media exception). */
-@media (max-width: 640px) {
-  .pl-overlay {
-    align-items: flex-end;
-    padding: 0;
-  }
-  .pl-modal {
-    width: 100%;
-    max-width: none;
-    max-height: 90vh;
-    border-radius: var(--r-xl) var(--r-xl) 0 0;
-    border-bottom: 0;
   }
 }
 </style>
