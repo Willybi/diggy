@@ -40,6 +40,56 @@ async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str) -> No
     db.add(ArtistAlias(artist_id=artist_id, alias=alias_name, normalized_alias=norm))
 
 
+async def _fanout_source_links(db, model, other_name, source_id, token_ids):
+    """Fan a source artist's association rows out to the split tokens.
+
+    ``model`` is a composite-PK association table (``CatalogArtist`` /
+    ``SetArtist``) keyed on ``(other_name, artist_id)``. Every link the source
+    holds is copied to each token that does not already hold it — conflict-aware
+    on the composite PK, preserving ``role`` / ``position``. The source's own
+    rows are NOT touched here (they are removed by the DB ON DELETE CASCADE when
+    the combined row is deleted); this is a pure fan-out, so a token keeps a
+    catalog/set link even after the shared source row is gone. No-op when the
+    source holds no links of this kind.
+    """
+    other_col = getattr(model, other_name)
+    source_links = (
+        await db.execute(
+            select(other_col, model.role, model.position).where(
+                model.artist_id == source_id
+            )
+        )
+    ).all()
+    if not source_links:
+        return
+    existing_pairs = {
+        (row[0], row[1])
+        for row in (
+            await db.execute(
+                select(other_col, model.artist_id).where(
+                    model.artist_id.in_(token_ids)
+                )
+            )
+        ).all()
+    }
+    new_rows = []
+    for other_id, role, position in source_links:
+        for token_id in token_ids:
+            if (other_id, token_id) in existing_pairs:
+                continue
+            existing_pairs.add((other_id, token_id))
+            new_rows.append(
+                {
+                    other_name: other_id,
+                    "artist_id": token_id,
+                    "role": role,
+                    "position": position,
+                }
+            )
+    if new_rows:
+        await db.execute(insert(model), new_rows)
+
+
 async def list_artists(
     db: AsyncSession,
     user_id: int | None,
@@ -686,7 +736,7 @@ async def resolve_flag(db: AsyncSession, flag_id: int, action: str) -> object:
     """Resolve an artist flag (split/keep/skip). Returns the ArtistFlag ORM object."""
     from datetime import datetime, timezone
 
-    from models import Artist, ArtistFlag, CatalogArtist, CatalogEntry
+    from models import Artist, ArtistFlag, CatalogArtist, CatalogEntry, SetArtist
     from utils import normalize
 
     result = await db.execute(select(ArtistFlag).where(ArtistFlag.id == flag_id))
@@ -743,11 +793,15 @@ async def resolve_flag(db: AsyncSession, flag_id: int, action: str) -> object:
     # N2.a — On a manual split, dispose of the original combined row (e.g.
     # "A | B", deezer_id NULL). Left in place it reappears in the admin
     # "artists without deezer_id" list on every refresh. Fan the combined row's
-    # REAL catalog links out to both tokens (robust against the casing/spacing
-    # differences the exact-string relink above misses), then delete it. Its own
-    # catalog_artists / set_artists rows are removed by the DB ON DELETE CASCADE
-    # (accepted drop for set_artists); passive_deletes="all" makes db.delete
-    # crash-proof — no PK blank-out (see models/artist.py).
+    # REAL catalog AND set links out to every token (robust against the
+    # casing/spacing differences the exact-string relink above misses), then
+    # delete it. Fanning out the set_artists links too (L5) is what stops the
+    # orphan tokens: a source linked ONLY via sets — the common case, since set
+    # titles feed link_set_artists — used to lose those links to the ON DELETE
+    # CASCADE, leaving deezer-linked tokens with 0 catalog / 0 set. Its own
+    # catalog_artists / set_artists rows are removed by the cascade AFTER the
+    # copy; passive_deletes="all" makes db.delete crash-proof — no PK blank-out
+    # (see models/artist.py).
     if action == "split":
         combined = (
             await db.execute(
@@ -758,42 +812,12 @@ async def resolve_flag(db: AsyncSession, flag_id: int, action: str) -> object:
         ).scalar_one_or_none()
         # Never delete a row that is itself one of the tokens we just created.
         if combined is not None and combined.id not in created_ids:
-            combined_links = (
-                await db.execute(
-                    select(
-                        CatalogArtist.catalog_id,
-                        CatalogArtist.role,
-                        CatalogArtist.position,
-                    ).where(CatalogArtist.artist_id == combined.id)
-                )
-            ).all()
-            if combined_links:
-                existing_pairs = {
-                    (r[0], r[1])
-                    for r in (
-                        await db.execute(
-                            select(
-                                CatalogArtist.catalog_id, CatalogArtist.artist_id
-                            ).where(CatalogArtist.artist_id.in_(created_ids))
-                        )
-                    ).all()
-                }
-                new_links = []
-                for cat_id, role, position in combined_links:
-                    for token_id in created_ids:
-                        if (cat_id, token_id) in existing_pairs:
-                            continue
-                        existing_pairs.add((cat_id, token_id))
-                        new_links.append(
-                            {
-                                "catalog_id": cat_id,
-                                "artist_id": token_id,
-                                "role": role,
-                                "position": position,
-                            }
-                        )
-                if new_links:
-                    await db.execute(insert(CatalogArtist), new_links)
+            await _fanout_source_links(
+                db, CatalogArtist, "catalog_id", combined.id, created_ids
+            )
+            await _fanout_source_links(
+                db, SetArtist, "set_id", combined.id, created_ids
+            )
             await db.delete(combined)
             await db.flush()
 

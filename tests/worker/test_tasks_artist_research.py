@@ -66,6 +66,7 @@ count_link_candidates = _artists_mod.count_link_candidates
 _mark_link_searched = _artists_mod._mark_link_searched
 _link_artist_deezer = _artists_mod._link_artist_deezer
 _norm_artist_name = _artists_mod._norm_artist_name
+_matching_deezer_hits = _artists_mod._matching_deezer_hits
 
 NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -402,3 +403,185 @@ class TestLinkArtistDeezer:
         assert status == "linked"
         assert artist.deezer_id == "43"
         assert "43" in holder_map  # the free id, not the held "42", was published
+
+
+class TestMatchingDeezerHitsL3:
+    """The shared matcher (_matching_deezer_hits) — the pure heart of BOTH the
+    nightly link matcher and sync_artists Phase B. Adds the punctuation fold + the
+    most-fanned ordering (L3), on top of the pre-L3 raw-exact / accent-fold signals
+    and the blank-fold non-latin guard."""
+
+    def test_punct_fold_matches_and_orders_by_fans(self):
+        # "St. Germain" (ours) punct-folds to "St Germain" (dots dropped): the fold
+        # match fires and the 70k-fan hit is returned first. "St.Germain" (no space)
+        # folds to "stgermain" ≠ "st germain" → not a match at all.
+        hits = [
+            {"id": 11, "name": "St.Germain", "nb_fan": 12},
+            {"id": 10, "name": "St Germain", "nb_fan": 70000},
+        ]
+        matched = _matching_deezer_hits(hits, "St. Germain")
+        assert [h["id"] for h in matched] == [10]
+
+    def test_most_fanned_exact_homonym_first(self):
+        # Two EXACT homonyms → the most-fanned one leads (not Deezer's first hit).
+        hits = [
+            {"id": 30, "name": "Homonym Star", "nb_fan": 5},
+            {"id": 31, "name": "Homonym Star", "nb_fan": 90000},
+        ]
+        matched = _matching_deezer_hits(hits, "Homonym Star")
+        assert [h["id"] for h in matched] == [31, 30]
+
+    def test_acronym_never_fold_matches_word(self):
+        # "L.I.L.Y" reads as initials → the punct fold ("lily") is a false friend
+        # for the unrelated word "Lily"; the acronym guard refuses it. No exact, no
+        # accent-fold either → zero matches.
+        assert _matching_deezer_hits([{"id": 40, "name": "Lily", "nb_fan": 500000}], "L.I.L.Y") == []
+
+    def test_punct_fold_below_fan_floor_refused(self):
+        # "Mr. Oizo" punct-folds to "Mr Oizo", but a 12-fan Deezer entry is a
+        # parasite: below FAN_FLOOR the fold signal is refused.
+        assert _matching_deezer_hits([{"id": 60, "name": "Mr Oizo", "nb_fan": 12}], "Mr. Oizo") == []
+
+    def test_punct_fold_above_fan_floor_matches(self):
+        # Same fold, this time a real artist (above the floor) → matches.
+        matched = _matching_deezer_hits(
+            [{"id": 61, "name": "Mr Oizo", "nb_fan": 5000}], "Mr. Oizo"
+        )
+        assert [h["id"] for h in matched] == [61]
+
+    def test_exact_match_ignores_fan_floor(self):
+        # A raw exact match is a valid identity regardless of fan count: a 3-fan
+        # exact hit still matches (the floor gates ONLY the weak punctuation fold).
+        matched = _matching_deezer_hits(
+            [{"id": 70, "name": "Tiny Exact", "nb_fan": 3}], "Tiny Exact"
+        )
+        assert [h["id"] for h in matched] == [70]
+
+    def test_no_fan_data_preserves_deezer_order(self):
+        # Retro-compat: with no fan signal the stable sort keeps Deezer's order, so
+        # the pre-L3 "first hit" pick is unchanged.
+        hits = [
+            {"id": 80, "name": "Dup Name"},
+            {"id": 81, "name": "Dup Name"},
+        ]
+        matched = _matching_deezer_hits(hits, "Dup Name")
+        assert [h["id"] for h in matched] == [80, 81]
+
+    def test_non_ascii_blank_fold_never_matches(self):
+        # A fully non-ASCII name folds to "" for BOTH the accent fold and the punct
+        # key; an unrelated non-latin hit (also blank-folding) must NOT match.
+        assert _matching_deezer_hits([{"id": 90, "name": "浜崎あゆみ"}], "桜井　哲夫") == []
+
+    def test_non_ascii_exact_still_matches(self):
+        # …but a verbatim non-latin echo is a valid identity and still matches.
+        matched = _matching_deezer_hits([{"id": 91, "name": "桜井　哲夫"}], "桜井　哲夫")
+        assert [h["id"] for h in matched] == [91]
+
+
+class TestLinkArtistDeezerL3:
+    """The L3 signals wired through the nightly matcher _link_artist_deezer:
+    punctuation fold + most-fanned preference, with the free-id/merge semantics
+    and the marking contract preserved."""
+
+    def _artist(self, name):
+        return Artist(name=name, normalized_name=name.lower(), deezer_search_attempts=0)
+
+    async def test_punct_fold_links_most_fanned(self):
+        # "St. Germain" fold-matches "St Germain" (70k fans) and links it; the
+        # 12-fan "St.Germain" parasite is never chosen.
+        artist = self._artist("St. Germain")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={
+                "data": [
+                    {"id": 11, "name": "St.Germain", "nb_fan": 12},
+                    {"id": 10, "name": "St Germain", "nb_fan": 70000},
+                ]
+            }
+        )
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
+
+        assert status == "linked"
+        assert artist.deezer_id == "10"
+        assert artist.deezer_searched_at == NOW
+        assert artist.deezer_search_attempts == 1
+
+    async def test_most_fanned_exact_homonym_linked(self):
+        artist = self._artist("Homonym Star")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={
+                "data": [
+                    {"id": 30, "name": "Homonym Star", "nb_fan": 5},
+                    {"id": 31, "name": "Homonym Star", "nb_fan": 90000},
+                ]
+            }
+        )
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
+
+        assert status == "linked"
+        assert artist.deezer_id == "31"  # 90k fans beats Deezer's first (5-fan) hit
+
+    async def test_acronym_not_fold_matched_marks_only(self):
+        artist = self._artist("L.I.L.Y")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={"data": [{"id": 40, "name": "Lily", "nb_fan": 500000}]}
+        )
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
+
+        assert status == "searched"  # acronym guard blocks the punct fold
+        assert artist.deezer_id is None
+        assert artist.deezer_searched_at == NOW  # completed no-match search is marked
+        assert artist.deezer_search_attempts == 1
+
+    async def test_exact_match_no_fan_data_unchanged(self):
+        # Retro-compat: a lone exact match with no fan field links exactly as before.
+        artist = self._artist("Boris Brejcha")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={"data": [{"id": 50, "name": "Boris Brejcha"}]}
+        )
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
+
+        assert status == "linked"
+        assert artist.deezer_id == "50"
+
+    async def test_punct_fold_below_floor_refused(self):
+        artist = self._artist("Mr. Oizo")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={"data": [{"id": 60, "name": "Mr Oizo", "nb_fan": 12}]}
+        )
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
+
+        assert status == "searched"  # below FAN_FLOOR → not a match
+        assert artist.deezer_id is None
+        assert artist.deezer_search_attempts == 1
+
+    async def test_fan_preference_still_prefers_free_id(self):
+        # Fan ordering does NOT override the free-id-over-merge rule: the top-fanned
+        # hit is HELD, a lower-fanned homonym is FREE → link the free one (merge is
+        # only a fallback when no hit exposes a free id).
+        artist = self._artist("Collab Star")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(
+            return_value={
+                "data": [
+                    {"id": 42, "name": "Collab Star", "nb_fan": 90000},  # held
+                    {"id": 43, "name": "Collab Star", "nb_fan": 100},  # free
+                ]
+            }
+        )
+        holder_map = {"42": 999}
+
+        status, holder_id = await _link_artist_deezer(pool, artist, holder_map, NOW)
+
+        assert status == "linked"
+        assert artist.deezer_id == "43"
+        assert "43" in holder_map

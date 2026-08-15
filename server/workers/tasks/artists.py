@@ -433,6 +433,60 @@ def _mark_link_searched(artist, now):
     artist.deezer_search_attempts = (artist.deezer_search_attempts or 0) + 1
 
 
+def _matching_deezer_hits(hits, name):
+    """Deezer hits matching ``name``, ordered by descending fan count.
+
+    Three match signals, tried per hit (the pre-L3 pair — raw exact + accent fold
+    — PLUS the new punctuation fold), each returning the hit unchanged when it
+    fires:
+      (a) raw exact name equality (case-insensitive) — valid for ANY name,
+          non-latin included: an exact echo is a valid identity (a Deezer hit
+          spelling 桜井　哲夫 verbatim must still match).
+      (b) accent fold equality (``_norm_artist_name``) — gated on a NON-EMPTY
+          fold: a fully non-ASCII name folds to "" (no ASCII signal) and would
+          otherwise "match" any other blank-folding name (invariant #4).
+      (c) NEW punctuation fold (``punct_fold_key``): "St. Germain" == "St
+          Germain", "Mr. Oizo" == "Mr Oizo". A WEAK signal, so it is refused when
+          the fold key is blank, when EITHER side looks like an acronym
+          ("L.I.L.Y" must NOT fold-match "Lily"), or when the hit's fan count is
+          below ``FAN_FLOOR`` (a 12-fan parasite entry must not be linked). Only
+          this fold is floor-gated; exact and accent matches are not.
+
+    Sorted by ``nb_fan`` DESC so a caller preferring the most popular homonym
+    picks the dominant artist. The sort is STABLE and ``reverse=True`` keeps
+    stability, so hits with equal or absent fan counts retain Deezer's original
+    order — i.e. the pre-L3 "first matching hit" pick is preserved when there is
+    no fan signal (retro-compat).
+    """
+    from workers.artist_names import FAN_FLOOR, looks_acronym, punct_fold_key
+
+    name_lower = name.lower()
+    name_norm = _norm_artist_name(name)
+    name_key = punct_fold_key(name)
+    name_is_acronym = looks_acronym(name)
+
+    matched = []
+    for hit in hits:
+        dz_name = hit.get("name", "")
+        if dz_name.lower() == name_lower:
+            matched.append(hit)
+            continue
+        if name_norm and _norm_artist_name(dz_name) == name_norm:
+            matched.append(hit)
+            continue
+        if (
+            name_key
+            and not name_is_acronym
+            and not looks_acronym(dz_name)
+            and punct_fold_key(dz_name) == name_key
+            and (hit.get("nb_fan", 0) or 0) >= FAN_FLOOR
+        ):
+            matched.append(hit)
+
+    matched.sort(key=lambda h: h.get("nb_fan", 0) or 0, reverse=True)
+    return matched
+
+
 async def _link_artist_deezer(pool, artist, holder_map, now):
     """Search Deezer for one artist and link (or fold) it on an exact name match.
 
@@ -471,40 +525,29 @@ async def _link_artist_deezer(pool, artist, holder_map, now):
         return "error", None
 
     _mark_link_searched(artist, now)
-    name_norm = _norm_artist_name(artist.name)
-    # Prefer a FREE id (link) over a merge: scan every matching hit, link on the
-    # first free one, and only fall back to merging into the top held homonym when
-    # no hit exposes a free id. This keeps the old "skip a taken id, keep looking"
-    # preference — it just turns the terminal no-op ("searched", orphan left NULL)
-    # into a merge into the row that already owns the artist.
+    # Rank the qualifying hits by fan count (most popular homonym first — L3) and
+    # KEEP the free-id-over-merge preference: scan the ranked matches, link on the
+    # first hit exposing a FREE id, and only fall back to merging into the top held
+    # homonym when no matching hit offers a free id. This preserves the old "skip a
+    # taken id, keep looking" preference — it just turns the terminal no-op
+    # ("searched", orphan left NULL) into a merge into the row that already owns the
+    # artist. All match signals (exact / accent fold / guarded punctuation fold) and
+    # the blank-fold non-latin guard live in _matching_deezer_hits.
     merge_target = None
-    for hit in data.get("data", []):
-        dz_name = hit.get("name", "")
-        # Two independent match signals. The raw exact match stays active for EVERY
-        # name (including fully non-latin ones) — an exact equality IS a valid
-        # identity, so a Deezer hit echoing 桜井　哲夫 verbatim must still link/merge.
-        # The accent-fold branch is gated on ``name_norm`` being non-empty: a fully
-        # non-ASCII name folds to "" (no ASCII signal), and matching on "" would fold
-        # this artist into any OTHER non-latin row whose name also folds to "" (a
-        # false merge — invariant #4). So we neutralise the FOLD when it is blank,
-        # NOT the exact equality.
-        if (
-            dz_name.lower() == artist.name.lower()
-            or (name_norm and _norm_artist_name(dz_name) == name_norm)
-        ):
-            dz_id = str(hit["id"])
-            holder_id = holder_map.get(dz_id)
-            if holder_id is None:
-                artist.deezer_id = dz_id
-                # Publish the fresh holder so a same-run duplicate processed later
-                # in this batch merges into this row instead of orphaning.
-                holder_map[dz_id] = artist.id
-                return "linked", None
-            # Held by another row → remember it as a merge fallback but keep
-            # scanning for a free id. holder_id is never this orphan: an orphan has
-            # no deezer_id, so it is never a value in holder_map (guarded anyway).
-            if merge_target is None and holder_id != artist.id:
-                merge_target = holder_id
+    for hit in _matching_deezer_hits(data.get("data", []), artist.name):
+        dz_id = str(hit["id"])
+        holder_id = holder_map.get(dz_id)
+        if holder_id is None:
+            artist.deezer_id = dz_id
+            # Publish the fresh holder so a same-run duplicate processed later in
+            # this batch merges into this row instead of orphaning.
+            holder_map[dz_id] = artist.id
+            return "linked", None
+        # Held by another row → remember it as a merge fallback but keep scanning
+        # for a free id. holder_id is never this orphan: an orphan has no deezer_id,
+        # so it is never a value in holder_map (guarded anyway).
+        if merge_target is None and holder_id != artist.id:
+            merge_target = holder_id
     if merge_target is not None:
         return "merge", merge_target
     return "searched", None
@@ -783,6 +826,7 @@ def _run_sync_artists(task):
     sys.path.insert(0, "/app")
     from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry
     from utils import normalize
+    from workers.artist_names import strip_artist_noise
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
@@ -833,6 +877,7 @@ def _run_sync_artists(task):
 
             def _get_or_create(name):
                 nonlocal created
+                name = strip_artist_noise(name)
                 norm = normalize(name)
                 if norm in known_norms:
                     artist = session.execute(
@@ -907,18 +952,10 @@ def _run_sync_artists(task):
 
             async def _deezer_resolve():
                 nonlocal created, flagged, dz_id_skipped
-                import unicodedata
 
                 from sqlalchemy.exc import IntegrityError
                 from workers.async_http import DeezerHTTPError, HttpPool
                 from workers.rate_limiter import RateLimiter
-
-                def _norm(s):
-                    # Trailing .strip() as in the module-level _norm_artist_name: a
-                    # fully non-ASCII name folds to a blank string (no ASCII signal);
-                    # collapse it to "" so the caller can refuse a signal-less match.
-                    s = unicodedata.normalize("NFKD", s.lower().strip())
-                    return s.encode("ascii", "ignore").decode().strip()
 
                 async def _deezer_artist_id(pool, name):
                     try:
@@ -928,20 +965,14 @@ def _run_sync_artists(task):
                     except DeezerHTTPError as e:
                         logger.warning("Deezer artist search failed for %s: %s", name, e)
                         return None
-                    name_norm = _norm(name)
-                    for hit in data.get("data", []):
-                        dz_name = hit.get("name", "")
-                        # Raw exact match stays active for every name (non-latin
-                        # included — an exact equality is a valid identity). The fold
-                        # branch is gated on a non-empty name_norm: a fully non-ASCII
-                        # name folds to "" (no ASCII signal) and would stamp a WRONG
-                        # deezer_id on any other non-latin hit (invariant #4).
-                        if (
-                            dz_name.lower() == name.lower()
-                            or (name_norm and _norm(dz_name) == name_norm)
-                        ):
-                            return str(hit["id"])
-                    return None
+                    # All match signals (raw exact / accent fold / guarded
+                    # punctuation fold) and the blank-fold non-latin guard live in
+                    # _matching_deezer_hits; it returns the qualifying hits ordered
+                    # by fan count, so the most popular homonym wins instead of
+                    # Deezer's first hit (L3). "St. Germain" now resolves "St
+                    # Germain"; "L.I.L.Y" still refuses "Lily".
+                    matches = _matching_deezer_hits(data.get("data", []), name)
+                    return str(matches[0]["id"]) if matches else None
 
                 limiter = RateLimiter()
                 async with HttpPool(limiter) as pool:

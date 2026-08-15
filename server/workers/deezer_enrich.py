@@ -277,6 +277,13 @@ def _resolve_or_create_artist(session, name: str, deezer_id: str | None):
     from models import Artist, ArtistAlias
     from sqlalchemy import select as sa_select
     from utils import normalize
+    from workers.artist_names import strip_artist_noise
+
+    # Clean unambiguous noise before any lookup/creation so a bidon suffix
+    # ("Ioannis Siopis (GEMA)") never spawns a junk artist and the stored
+    # Artist.name is the cleaned form. Deezer contributor names are already
+    # clean → no-op; the win is on flat/local resolution (deezer_id=None).
+    name = strip_artist_noise(name)
 
     # 1. Lookup by deezer_id first (most reliable)
     if deezer_id:

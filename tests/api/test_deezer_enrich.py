@@ -7,6 +7,7 @@ from workers.deezer_enrich import (
     _deezer_hit_matches,
     _first_artist,
     _is_remix_paren,
+    _resolve_or_create_artist,
     _strip_non_remix_parens,
     _strip_safe_suffixes,
     enrich_entry,
@@ -17,6 +18,7 @@ from models import Artist, ArtistAlias, CatalogArtist, CatalogEntry
 from services.image_service import ImageService
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from utils import normalize
 
 
 class TestStripSafeSuffixes:
@@ -569,3 +571,70 @@ class TestLinkCatalogArtistFromHit:
             select(CatalogArtist).where(CatalogArtist.catalog_id == entry.id)
         ).scalar_one()
         assert link.artist_id == artist.id
+
+
+class TestResolveOrCreateArtistStripsNoise:
+    """L2: strip_artist_noise is wired at the very top of the artist
+    creation/resolution funnel, so a bidon-noise name never spawns a junk artist
+    and the stored Artist.name is the cleaned form. A clean Deezer contributor
+    name is a pure no-op; the win is on flat/local strings (deezer_id=None), the
+    path the backfill script also uses."""
+
+    def test_strips_pro_suffix_on_create(self, sync_session):
+        artist = _resolve_or_create_artist(sync_session, "Ioannis Siopis (GEMA)", None)
+        sync_session.flush()
+
+        assert artist.name == "Ioannis Siopis"
+        assert artist.normalized_name == normalize("Ioannis Siopis")
+        # Exactly one artist row, stored under the clean name.
+        rows = sync_session.execute(select(Artist)).scalars().all()
+        assert [a.name for a in rows] == ["Ioannis Siopis"]
+
+    def test_clean_deezer_name_is_noop(self, sync_session):
+        # Deezer contributor names are already clean → strip changes nothing.
+        artist = _resolve_or_create_artist(sync_session, "Charlotte de Witte", "123")
+        sync_session.flush()
+
+        assert artist.name == "Charlotte de Witte"
+        assert artist.deezer_id == "123"
+
+    def test_noisy_and_clean_resolve_to_same_artist(self, sync_session):
+        # The flat/local funnel (deezer_id=None) folds the noisy spelling onto the
+        # clean identity: the second resolution reuses the row, never a duplicate.
+        # Without the strip the two would normalize differently → two rows.
+        first = _resolve_or_create_artist(sync_session, "Ioannis Siopis (GEMA)", None)
+        sync_session.flush()
+        second = _resolve_or_create_artist(sync_session, "Ioannis Siopis", None)
+        sync_session.flush()
+
+        assert second.id == first.id
+        rows = sync_session.execute(select(Artist)).scalars().all()
+        assert len(rows) == 1
+
+    def test_strips_bullet_prefix(self, sync_session):
+        artist = _resolve_or_create_artist(sync_session, "Vinyl • Harvey Mason", None)
+        sync_session.flush()
+
+        assert artist.name == "Harvey Mason"
+
+    def test_non_pro_paren_is_preserved(self, sync_session):
+        # A non-PRO label suffix is NOT noise — the funnel defers entirely to
+        # strip_artist_noise's conservative whitelist and leaves it untouched.
+        artist = _resolve_or_create_artist(sync_session, "Kapchiz (Sofa Beats)", None)
+        sync_session.flush()
+
+        assert artist.name == "Kapchiz (Sofa Beats)"
+
+    def test_deezer_id_lookup_short_circuits_before_strip(self, sync_session):
+        # An existing row found by deezer_id is returned as-is: the top-of-funnel
+        # strip never disturbs the deezer_id fast path nor the stored name.
+        existing = Artist(
+            name="Stored Name", normalized_name="stored name", deezer_id="777"
+        )
+        sync_session.add(existing)
+        sync_session.flush()
+
+        artist = _resolve_or_create_artist(sync_session, "Whatever (GEMA)", "777")
+
+        assert artist.id == existing.id
+        assert artist.name == "Stored Name"

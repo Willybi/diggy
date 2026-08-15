@@ -632,6 +632,114 @@ class TestResolveFlagSplitDisposal:
             assert role == "featured"
             assert position == 3
 
+    async def test_fanout_covers_set_links_no_orphan(self, db):
+        """L5 regression — a source linked ONLY via set_artists (no catalog row,
+        no exact flat-string match) must fan its set link out to every token, so
+        after the split the tokens are ATTACHED (0 orphan) and the combined row
+        is gone. Before L5 the set link died with the ON DELETE CASCADE and the
+        deezer-linked tokens ended up with 0 catalog / 0 set (the prod orphans)."""
+        from models import Artist, CatalogArtist, DJSet, SetArtist
+        from sqlalchemy import select
+        from utils import normalize
+
+        combined = Artist(name="A | B", normalized_name=normalize("A | B"))
+        db.add(combined)
+        await db.flush()
+        dj_set = DJSet(source="trackid", title="Live set")
+        db.add(dj_set)
+        await db.flush()
+        db.add(SetArtist(set_id=dj_set.id, artist_id=combined.id, role="dj", position=2))
+        flag = self._flag("A | B", ["A", "B"])
+        db.add(flag)
+        await db.commit()
+        combined_id, set_id = combined.id, dj_set.id
+
+        result = await artist_service.resolve_flag(db, flag.id, "split")
+
+        assert result.status == "validated"
+        assert len(result.resolved_artist_ids) == 2
+        # Combined source row disposed of.
+        assert (await db.get(Artist, combined_id)) is None
+        # Both tokens inherit the set link, role/position preserved. issubset
+        # (not ==) because the combined's OWN set_artists row is cleared by the
+        # PG ON DELETE CASCADE, which the SQLite test harness does not enforce.
+        rows = (
+            await db.execute(
+                select(SetArtist.artist_id, SetArtist.role, SetArtist.position).where(
+                    SetArtist.set_id == set_id,
+                    SetArtist.artist_id.in_(result.resolved_artist_ids),
+                )
+            )
+        ).all()
+        assert {aid for aid, _r, _p in rows} == set(result.resolved_artist_ids)
+        for _aid, role, position in rows:
+            assert role == "dj"
+            assert position == 2
+        # No token is an orphan: each holds at least one link (set or catalog).
+        for tid in result.resolved_artist_ids:
+            n_set = (
+                await db.execute(
+                    select(SetArtist.artist_id).where(SetArtist.artist_id == tid)
+                )
+            ).all()
+            n_cat = (
+                await db.execute(
+                    select(CatalogArtist.artist_id).where(
+                        CatalogArtist.artist_id == tid
+                    )
+                )
+            ).all()
+            assert len(n_set) + len(n_cat) > 0
+
+    async def test_fanout_covers_both_catalog_and_set_links(self, db):
+        """A source with BOTH catalog and set links whose flat `artist` string
+        differs from the flag (exact relink misses it) fans BOTH out to every
+        token — the catalog-only fan-out of N2.a would have dropped the set link."""
+        from models import Artist, CatalogArtist, DJSet, SetArtist
+        from sqlalchemy import select
+        from utils import normalize
+
+        combined = Artist(name="A | B", normalized_name=normalize("A | B"))
+        db.add(combined)
+        await db.flush()
+        # Flat artist string differs on casing → exact relink cannot reach it.
+        entry = await self._catalog_entry(db, "a | b", "both|track")
+        db.add(
+            CatalogArtist(
+                catalog_id=entry.id, artist_id=combined.id, role="primary", position=0
+            )
+        )
+        dj_set = DJSet(source="trackid", title="Live set")
+        db.add(dj_set)
+        await db.flush()
+        db.add(SetArtist(set_id=dj_set.id, artist_id=combined.id, role="dj", position=1))
+        flag = self._flag("A | B", ["A", "B"])
+        db.add(flag)
+        await db.commit()
+        entry_id, set_id, combined_id = entry.id, dj_set.id, combined.id
+
+        result = await artist_service.resolve_flag(db, flag.id, "split")
+
+        assert (await db.get(Artist, combined_id)) is None
+        cat_linked = set(
+            (
+                await db.execute(
+                    select(CatalogArtist.artist_id).where(
+                        CatalogArtist.catalog_id == entry_id
+                    )
+                )
+            ).scalars().all()
+        )
+        set_linked = set(
+            (
+                await db.execute(
+                    select(SetArtist.artist_id).where(SetArtist.set_id == set_id)
+                )
+            ).scalars().all()
+        )
+        assert set(result.resolved_artist_ids).issubset(cat_linked)
+        assert set(result.resolved_artist_ids).issubset(set_linked)
+
     async def test_guard_keeps_combined_when_it_is_a_created_token(self, db):
         """If a split token resolves back to the combined row itself, the guard
         must NOT delete it (id ∈ resolved_artist_ids)."""
