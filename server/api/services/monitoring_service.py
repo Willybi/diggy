@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 # NULLS LAST token (SQLite historically rejects it in a subquery ORDER BY).
 _NULL_POSITION_LAST = 2_147_483_647
 
+# A backlog snapshot older than this ⇒ the hourly sampler (snapshot_backlogs on
+# diggy_worker) has stopped and the time-series charts are frozen at that date
+# (the chart interpolates across the hole, masking it). 2 h = at least two
+# missed hourly ticks — surfaced as an alert on the admin monitoring page.
+SNAPSHOT_STALE_AFTER = timedelta(hours=2)
+
 
 def _fold(s: str | None) -> str:
     """Lowercase + strip diacritics for accent-insensitive comparison.
@@ -244,7 +250,26 @@ async def get_current_status(db: AsyncSession) -> dict:
         else None
     )
 
-    return {"last_runs": last_runs, "latest_snapshot": latest_snapshot}
+    # Freshness of the hourly sampler: no snapshot at all, or one older than
+    # SNAPSHOT_STALE_AFTER, means diggy_worker stopped sampling (a silent worker
+    # death — the chart gap alone doesn't alert). captured_at is TIMESTAMPTZ in
+    # PG (tz-aware) but can be naive under SQLite → normalize to UTC.
+    snapshot_stale = True
+    snapshot_age_seconds = None
+    if latest is not None and latest.captured_at is not None:
+        captured = latest.captured_at
+        if captured.tzinfo is None:
+            captured = captured.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - captured
+        snapshot_age_seconds = max(0, int(age.total_seconds()))
+        snapshot_stale = age > SNAPSHOT_STALE_AFTER
+
+    return {
+        "last_runs": last_runs,
+        "latest_snapshot": latest_snapshot,
+        "snapshot_stale": snapshot_stale,
+        "snapshot_age_seconds": snapshot_age_seconds,
+    }
 
 
 async def get_integrity_counters(db: AsyncSession) -> dict:

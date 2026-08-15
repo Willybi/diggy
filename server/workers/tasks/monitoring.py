@@ -7,6 +7,7 @@ backlog sampled over time — that is what this task adds, as a single
 """
 
 import logging
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -23,6 +24,23 @@ _ARTIST_NOT_FOUND = "NOT_FOUND"
 # keeps a full year of history plus a month of slack for year-over-year reads.
 RETENTION_DAYS = 396
 
+# Sentry Cron monitor for this hourly heartbeat. If the check-in stops arriving
+# — i.e. the celery-queue worker (diggy_worker) died and stopped sampling, as
+# happened 2026-08-10→14 when a wedged worker left a ~90 h hole in
+# metric_snapshots with NO alert — Sentry raises a "missed check-in" issue.
+# Self-upserting via monitor_config; a no-op when SENTRY_DSN is unset (guarded)
+# and in tests (which call _run_snapshot_backlogs directly).
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+_SENTRY_MONITOR_SLUG = "snapshot-backlogs"
+_SENTRY_MONITOR_CONFIG = {
+    "schedule": {"type": "crontab", "value": "30 * * * *"},
+    "checkin_margin": 10,  # minutes late tolerated before "missed"
+    "max_runtime": 10,  # minutes before "timed out"
+    "timezone": "Etc/UTC",
+    "failure_issue_threshold": 1,
+    "recovery_threshold": 1,
+}
+
 
 @celery_app.task(name="workers.tasks.snapshot_backlogs", bind=True)
 def snapshot_backlogs(self):
@@ -30,7 +48,22 @@ def snapshot_backlogs(self):
 
     Read-only over the domain tables (no external API), so it is loop-safe and
     carries NO autoretry — a transient DB blip is simply retried next hour.
+
+    Wrapped in a Sentry Cron check-in (when SENTRY_DSN is set) so a silent stop
+    of this heartbeat is alerted proactively, instead of only surfacing as a gap
+    on the admin monitoring chart once someone looks.
     """
+    if SENTRY_DSN:
+        from sentry_sdk.crons import monitor
+
+        with monitor(
+            monitor_slug=_SENTRY_MONITOR_SLUG, monitor_config=_SENTRY_MONITOR_CONFIG
+        ):
+            return _run_snapshot_backlogs()
+    return _run_snapshot_backlogs()
+
+
+def _run_snapshot_backlogs():
     from sqlalchemy import delete, func, select
     from sqlalchemy.orm import Session
 

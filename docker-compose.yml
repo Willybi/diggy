@@ -84,6 +84,11 @@ services:
       dockerfile: Dockerfile
     container_name: diggy_worker
     restart: unless-stopped
+    # Restarted by the autoheal sidecar (prod overlay) when its healthcheck goes
+    # unhealthy — plain Compose's restart policy only reacts to PID-1 exit, not
+    # to an unhealthy container (cf. the 2026-08-10→14 metric_snapshots gap).
+    labels:
+      autoheal: 'true'
     deploy:
       resources:
         limits:
@@ -106,7 +111,11 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    command: celery -A workers.celery_app worker --loglevel=info -Q celery,crawl -c 3
+    # --max-memory-per-child: gracefully recycle a pool child once its RSS
+    # exceeds ~1.46 GiB (KiB), BEFORE it can reach the 2G cgroup cap and be
+    # OOM-killed silently (master survives → container never exits → no restart).
+    # Recycle happens between tasks, so it never interrupts a single running task.
+    command: celery -A workers.celery_app worker --loglevel=info -Q celery,crawl -c 3 --max-memory-per-child=1500000
     healthcheck:
       test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME"]
       interval: 60s
@@ -120,6 +129,8 @@ services:
       dockerfile: Dockerfile
     container_name: diggy_worker_enrich
     restart: unless-stopped
+    labels:
+      autoheal: 'true'
     deploy:
       resources:
         limits:
@@ -138,7 +149,9 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    command: celery -A workers.celery_app worker --loglevel=info -Q enrich -c 2
+    # Recycle a child past ~780 MiB (KiB) — under the 1G cgroup cap here — so a
+    # leaking enrich child is retired cleanly rather than OOM-killed silently.
+    command: celery -A workers.celery_app worker --loglevel=info -Q enrich -c 2 --max-memory-per-child=800000
     healthcheck:
       test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME"]
       interval: 60s
@@ -152,6 +165,8 @@ services:
       dockerfile: Dockerfile
     container_name: diggy_beat
     restart: unless-stopped
+    labels:
+      autoheal: 'true'
     deploy:
       resources:
         limits:

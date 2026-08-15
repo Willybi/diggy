@@ -4,9 +4,18 @@
     <div v-else-if="error" class="state">Impossible de charger le monitoring.</div>
 
     <template v-else>
+      <div v-if="snapshotStale" class="mon-alert" role="alert">
+        <strong>⚠️ Échantillonnage du monitoring interrompu.</strong>
+        Dernier instantané {{ snapshotAge }}. Au-delà d'une heure, le worker
+        <code>diggy_worker</code> (queue <code>celery</code>) ne prélève plus les backlogs : les
+        courbes se figent à cette date et l'interpolation masque le trou. Vérifier le conteneur
+        worker (<code>docker compose ps</code>).
+      </div>
       <div class="mon-toolbar">
         <div class="mon-toolbar-left">
-          <span class="mon-snapshot"> Dernier instantané : {{ snapshotAge }} </span>
+          <span class="mon-snapshot" :class="{ 'is-stale': snapshotStale }">
+            Dernier instantané : {{ snapshotAge }}
+          </span>
           <span v-if="lockActive" class="lock-chip">🔒 Enrichissement en cours</span>
         </div>
         <div class="mon-toolbar-right">
@@ -424,6 +433,9 @@ const snapshotAge = computed(() => {
   const iso = data.value?.status?.latest_snapshot?.captured_at
   return iso ? fmtAge(iso) : 'aucun'
 })
+// Backend-computed: latest snapshot missing or older than 2 h ⇒ the hourly
+// sampler stopped (silent worker death). Surfaced as a banner above the tools.
+const snapshotStale = computed(() => !!data.value?.status?.snapshot_stale)
 
 // ── formatters ──
 function fmtInt(n) {
@@ -488,6 +500,23 @@ function statusFr(s) {
 .mon-snapshot {
   font: 400 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
+}
+.mon-snapshot.is-stale {
+  color: var(--warn-ink);
+  font-weight: 600;
+}
+.mon-alert {
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-sm);
+  font: 400 var(--fs-sm)/1.5 var(--font-ui);
+}
+.mon-alert code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
 }
 .lock-chip {
   font: 500 var(--fs-xs)/1 var(--font-ui);

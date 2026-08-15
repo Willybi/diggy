@@ -167,6 +167,10 @@ class LastRunItem(BaseModel):
 class MonitoringStatus(BaseModel):
     last_runs: list[LastRunItem]
     latest_snapshot: BacklogSnapshotItem | None = None
+    # True when the hourly sampler (snapshot_backlogs) has gone silent — no
+    # snapshot at all, or the latest older than SNAPSHOT_STALE_AFTER (2 h).
+    snapshot_stale: bool = False
+    snapshot_age_seconds: int | None = None
 
 
 class IntegrityCounters(BaseModel):

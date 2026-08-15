@@ -33,6 +33,25 @@ services:
     networks:
       - diggy_network
 
+  # Restart any container that goes UNHEALTHY. Plain Compose's `restart:
+  # unless-stopped` only reacts to PID-1 exit, NOT to an unhealthy healthcheck —
+  # so a wedged worker (master alive, consumer stuck) sits dead until a manual
+  # restart, which is exactly the 2026-08-10→14 metric_snapshots gap. autoheal
+  # watches containers labelled `autoheal=true` (worker/worker_enrich/beat) and
+  # restarts them when their healthcheck reports unhealthy. Prod-only: it needs
+  # the host Docker socket (VPS path), so it lives in the ssl overlay, not base.
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    container_name: diggy_autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 30 # seconds between health sweeps
+      AUTOHEAL_START_PERIOD: 120 # grace before the first check
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: 30 # SIGTERM grace before SIGKILL on restart
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   certbot_conf:
   certbot_www:
