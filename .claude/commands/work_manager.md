@@ -1,6 +1,6 @@
 ---
 description: Orchestre un chantier, dispatche le travail en prompts agents et valide leurs retours
-allowed-tools: Read, Glob, Grep, Edit, Bash(git log:*), Bash(git diff:*), Bash(git status:*), Bash(npm test:*), Bash(npm run lint:*), Bash(python server/scripts/generate_schema_doc.py:*)
+allowed-tools: Read, Glob, Grep, Edit, Bash(git log:*), Bash(git diff:*), Bash(git status:*), Bash(python -m pytest:*), Bash(pytest:*), Bash(ruff check:*), Bash(npx vitest:*), Bash(npm run lint:*), Bash(python server/scripts/generate_schema_doc.py:*)
 argument-hint: [nom ou description du chantier]
 ---
 
@@ -50,6 +50,8 @@ Pour chaque lot, produis un prompt dans un bloc de code distinct, prêt à copie
    - Résultat du lint :
    - Difficultés ou écarts par rapport à la consigne :
 
+9. **Précondition inter-lots** (uniquement si le lot dépend d'un autre) : ouvre le prompt par un bloc PRÉCONDITION qui liste les fichiers EXACTS attendus des lots amont, avec la consigne « vérifie qu'ils existent dans ton working tree ; s'ils sont absents, ARRÊTE et signale-le — ne réimplémente JAMAIS le livrable d'un lot amont ». Les agents tournent en sessions séparées : un fichier *untracked* produit par un lot amont doit être présent sur le disque avant de lancer le lot dépendant, sinon l'agent revient en faux BLOQUÉ (vécu : L2 déclaré BLOQUÉ alors que L1 était livré mais pas encore dans son tree).
+
 ## Phase 4 : Contrôle des livraisons
 Après avoir produit les prompts, arrête-toi et attends. Je te collerai les comptes rendus un par un. Pour chaque retour :
 - traite le statut annoncé : un TERMINÉ AVEC RÉSERVES ou un BLOQUÉ ne se valide jamais en l'état, analyse d'abord les réserves ou le blocage
@@ -60,6 +62,7 @@ Après avoir produit les prompts, arrête-toi et attends. Je te collerai les com
 - verdict : soit VALIDÉ, soit CORRECTIONS REQUISES avec un prompt correctif prêt à renvoyer à l'agent
 - après deux allers-retours correctifs infructueux sur un même lot, arrête les corrections et propose-moi soit de redécouper le lot, soit une analyse du blocage
 - mets à jour le tableau des lots et réaffiche-le
+- avant d'émettre le prompt d'un lot DÉPENDANT (ou de me donner le feu vert pour le lancer), vérifie toi-même par Glob/Read que les fichiers livrés par les lots amont sont bien présents sur le disque dans le working tree — c'est ce qui évite un faux BLOQUÉ (un agent en session séparée ne voit pas un livrable amont resté hors du tree)
 
 ## Phase 5 : Clôture
 Quand tous les lots sont validés :
