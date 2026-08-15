@@ -69,11 +69,6 @@ class WatchedEntityDetailOut(WatchedEntityOut):
     top_genres: list[TopGenreOut] = []
 
 
-class WatchlistListResponse(BaseModel):
-    total: int
-    items: list[WatchedEntityOut]
-
-
 class WatchlistBrowseResponse(BaseModel):
     total: int
     items: list[WatchedEntityBrowseOut]

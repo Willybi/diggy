@@ -210,40 +210,6 @@ class TestTrackOpinionSync:
         urs = result.scalar_one()
         assert urs.status == "added"
 
-    async def test_radar_state_syncs_to_opinion(self, client, db, catalog_entry):
-        r = await client.patch(
-            f"/api/radar/{catalog_entry.id}/state", json={"status": "added"},
-        )
-        assert r.status_code == 200
-
-        result = await db.execute(
-            select(UserOpinion).where(
-                UserOpinion.user_id == 1,
-                UserOpinion.entity_type == "track",
-                UserOpinion.entity_key == str(catalog_entry.id),
-            )
-        )
-        op = result.scalar_one()
-        assert op.opinion == "liked"
-
-    async def test_radar_batch_syncs_to_opinion(self, client, db, catalog_entry):
-        """Bug 5: batch_update_radar_state must sync to UserOpinion."""
-        r = await client.patch(
-            "/api/radar/state/batch",
-            json=[{"catalog_id": catalog_entry.id, "status": "added"}],
-        )
-        assert r.status_code == 200
-
-        result = await db.execute(
-            select(UserOpinion).where(
-                UserOpinion.user_id == 1,
-                UserOpinion.entity_type == "track",
-                UserOpinion.entity_key == str(catalog_entry.id),
-            )
-        )
-        op = result.scalar_one()
-        assert op.opinion == "liked"
-
 
 # ── Set opinion sync (UserOpinion ↔ UserSetFollow) ───────────────────────────
 

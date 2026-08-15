@@ -50,27 +50,6 @@ def _mock_deezer(mocker):
     mocker.patch("services.watchlist_service._trigger_crawl")
 
 
-# ── GET /api/watchlist/ ───────────────────────────────────────────────────────
-
-class TestListWatched:
-    async def test_empty_db_returns_empty_list(self, client):
-        r = await client.get("/api/watchlist/")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["total"] == 0
-        assert data["items"] == []
-
-    async def test_returns_entry_after_insert(self, client, mocker):
-        _mock_deezer(mocker)
-        await client.post("/api/watchlist/", json=playlist_payload())
-
-        r = await client.get("/api/watchlist/")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["total"] == 1
-        assert data["items"][0]["external_id"] == "1950581322"
-
-
 # ── GET /api/watchlist/browse ────────────────────────────────────────────────
 
 class TestBrowsePlaylists:
@@ -341,8 +320,9 @@ class TestDeleteWatched:
         r = await client.delete(f"/api/watchlist/{entry_id}")
         assert r.status_code == 204
 
-        r = await client.get("/api/watchlist/")
-        assert r.json()["items"] == []
+        # The playlist still exists system-wide but is no longer followed.
+        r = await client.get("/api/watchlist/browse")
+        assert all(not it["followed"] for it in r.json()["items"])
 
     async def test_delete_nonexistent_returns_404(self, client):
         r = await client.delete("/api/watchlist/9999")

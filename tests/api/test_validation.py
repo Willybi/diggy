@@ -26,59 +26,6 @@ async def admin_client(admin_user):
     app.dependency_overrides.pop(require_admin, None)
 
 
-# ── Radar status validation ──────────────────────────────────────────────────
-
-class TestRadarStatusValidation:
-    async def test_invalid_status_returns_422(self, client):
-        r = await client.patch("/api/radar/1/state", json={"status": "banana"})
-        assert r.status_code == 422
-
-    async def test_valid_status_accepted(self, client, db):
-        from models import CatalogEntry
-        entry = CatalogEntry(title="T", artist="A", normalized_key="a|t")
-        db.add(entry)
-        await db.commit()
-        await db.refresh(entry)
-        r = await client.patch(f"/api/radar/{entry.id}/state", json={"status": "seen"})
-        assert r.status_code != 422
-
-
-class TestRadarBatchValidation:
-    async def test_invalid_status_in_batch_returns_422(self, client):
-        r = await client.patch(
-            "/api/radar/state/batch",
-            json=[{"catalog_id": 1, "status": "invalid"}],
-        )
-        assert r.status_code == 422
-
-    async def test_missing_catalog_id_returns_422(self, client):
-        r = await client.patch(
-            "/api/radar/state/batch",
-            json=[{"status": "seen"}],
-        )
-        assert r.status_code == 422
-
-    async def test_valid_batch_accepted(self, client, db):
-        from models import CatalogEntry
-        entry = CatalogEntry(title="T", artist="A", normalized_key="a|t")
-        db.add(entry)
-        await db.commit()
-        await db.refresh(entry)
-        r = await client.patch(
-            "/api/radar/state/batch",
-            json=[{"catalog_id": entry.id, "status": "seen"}],
-        )
-        assert r.status_code != 422
-
-    async def test_batch_over_limit_returns_422(self, client):
-        # A6-05: the batch body is bounded to MAX_BATCH_SIZE items.
-        from routers.radar import MAX_BATCH_SIZE
-
-        payload = [{"catalog_id": 1, "status": "seen"}] * (MAX_BATCH_SIZE + 1)
-        r = await client.patch("/api/radar/state/batch", json=payload)
-        assert r.status_code == 422
-
-
 # ── Catalog sort/order validation ────────────────────────────────────────────
 
 class TestCatalogSortValidation:
@@ -137,32 +84,6 @@ class TestMaxLengthValidation:
     async def test_catalog_search_at_limit_accepted(self, client):
         r = await client.get(f"/api/catalog/?search={'x' * 200}")
         assert r.status_code == 200
-
-    async def test_radar_search_too_long_returns_422(self, client):
-        r = await client.get(f"/api/radar/full?search={'x' * 201}")
-        assert r.status_code == 422
-
-
-# ── Radar sort validation ────────────────────────────────────────────────────
-
-class TestRadarSortValidation:
-    async def test_invalid_sort_returns_422(self, client):
-        r = await client.get("/api/radar/full?sort=invalid")
-        assert r.status_code == 422
-
-    async def test_valid_sort_not_rejected_as_invalid(self, client):
-        # radar sort_map uses genres[1] which crashes on SQLite,
-        # but we verify the Literal validation itself passes (no 422)
-        # The endpoint may return 500 due to SQLite limitations
-        try:
-            r = await client.get("/api/radar/full?sort=detected_at")
-            assert r.status_code != 422
-        except NotImplementedError:
-            pass  # SQLite doesn't support ARRAY indexing
-
-    async def test_invalid_order_returns_422(self, client):
-        r = await client.get("/api/radar/full?order=sideways")
-        assert r.status_code == 422
 
 
 # ── Admin flag status validation ─────────────────────────────────────────────

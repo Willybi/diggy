@@ -111,11 +111,6 @@ class TestProtectedEndpoints:
         # Should pass middleware (200 from route handler)
         assert r.status_code == 200
 
-    async def test_radar_full_no_token_returns_401(self, mw_client):
-        client, _ = mw_client
-        r = await client.get("/api/radar/full")
-        assert r.status_code == 401
-
     async def test_radar_new_count_no_token_returns_401(self, mw_client):
         # Guard: the /trends allowlist entry must not open the rest of /api/radar.
         client, _ = mw_client

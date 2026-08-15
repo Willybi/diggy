@@ -1,5 +1,5 @@
 """
-Watchlist service: followed listing, browse, playlist detail, follow lifecycle,
+Watchlist service: browse, playlist detail, follow lifecycle,
 crawl triggering (12h cooldown + Celery task state) and Deezer artwork fetching.
 
 Services raise LookupError (404), ValueError (400/409/429) or RuntimeError (500),
@@ -72,24 +72,6 @@ async def _trigger_crawl(playlist_id: int, db: AsyncSession):
         entity.current_task_id = result.id
         entity.crawl_started_at = datetime.now(timezone.utc)
         await db.commit()
-
-
-async def list_followed(
-    db: AsyncSession, user_id: int | None, limit: int, offset: int
-):
-    """Playlists followed by the given user."""
-    from models import UserFollow, WatchedEntity
-    from schemas import WatchlistListResponse
-
-    base = (
-        select(WatchedEntity)
-        .join(UserFollow, UserFollow.entity_id == WatchedEntity.id)
-        .where(UserFollow.user_id == user_id)
-    )
-    count_result = await db.execute(select(func.count()).select_from(base.subquery()))
-    total = count_result.scalar()
-    result = await db.execute(base.offset(offset).limit(limit))
-    return WatchlistListResponse(total=total, items=result.scalars().all())
 
 
 async def browse(

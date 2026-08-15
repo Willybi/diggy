@@ -13,7 +13,6 @@ from models import (
     ArtistFlag,
     DJSet,
     SetFlag,
-    SetFlagStatus,
     User,
 )
 from schemas import (
@@ -46,9 +45,10 @@ from services import (
     catalog_service,
     genre_service,
     monitoring_service,
+    set_dedup_service,
 )
 from services.image_service import ImageService
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -395,75 +395,12 @@ async def attach_set_flag(
     admin: User = Depends(require_admin),
 ):
     """Attach sets flagged as duplicates or parts under a virtual parent."""
-    from services.set_dedup_service import (
-        find_or_create_virtual_parent,
-        materialize_parent,
-    )
-
-    flag = (
-        await db.execute(select(SetFlag).where(SetFlag.id == flag_id))
-    ).scalar_one_or_none()
-    if not flag or flag.status != SetFlagStatus.pending:
-        raise HTTPException(404, "Flag not found or already resolved")
-
-    now = datetime.now(timezone.utc)
-
-    if flag.member_set_ids:
-        # Group flag: attach all members to a shared virtual parent
-        member_ids: list[int] = flag.member_set_ids
-        members = (
-            await db.execute(select(DJSet).where(DJSet.id.in_(member_ids)))
-        ).scalars().all()
-        if len(members) < 2:
-            raise HTTPException(404, "Not enough member sets found")
-
-        dates = [m.played_date for m in members if m.played_date is not None]
-        played_date = min(dates) if dates else None
-        base_title = flag.group_key or members[0].title
-
-        parent_id, _ = await find_or_create_virtual_parent(
-            db, member_ids[0], member_ids[1], played_date, base_title
+    try:
+        parent_id, audit_details = await set_dedup_service.attach_flag(
+            db, flag_id, admin.id
         )
-        # Attach remaining members (beyond the first pair)
-        for mid in member_ids[2:]:
-            member = await db.get(DJSet, mid)
-            if member and member.parent_set_id is None:
-                member.parent_set_id = parent_id
-        await db.flush()
-
-        await materialize_parent(db, parent_id)
-
-        audit_details = {
-            "member_set_ids": member_ids,
-            "parent_id": parent_id,
-            "group_key": flag.group_key,
-        }
-    else:
-        # Pairwise flag
-        set_a = (
-            await db.execute(select(DJSet).where(DJSet.id == flag.set_id_a))
-        ).scalar_one_or_none()
-        set_b = (
-            await db.execute(select(DJSet).where(DJSet.id == flag.set_id_b))
-        ).scalar_one_or_none()
-        if not set_a or not set_b:
-            raise HTTPException(404, "Set not found")
-
-        parent_id, created = await find_or_create_virtual_parent(
-            db, flag.set_id_a, flag.set_id_b, None, None
-        )
-        if created:
-            await materialize_parent(db, parent_id)
-
-        audit_details = {
-            "set_id_a": flag.set_id_a,
-            "set_id_b": flag.set_id_b,
-            "parent_id": parent_id,
-        }
-
-    flag.status = SetFlagStatus.attached
-    flag.resolved_by = admin.id
-    flag.resolved_at = now
+    except LookupError as e:
+        raise HTTPException(404, str(e))
 
     await _audit(db, admin, "attach_set_flag", "set_flag", flag_id, audit_details)
     await db.commit()
@@ -477,29 +414,12 @@ async def reject_set_flag(
     admin: User = Depends(require_admin),
 ):
     """Reject a set dedup flag."""
-    flag = (
-        await db.execute(select(SetFlag).where(SetFlag.id == flag_id))
-    ).scalar_one_or_none()
-    if not flag or flag.status != SetFlagStatus.pending:
-        raise HTTPException(404, "Flag not found or already resolved")
+    try:
+        audit_details = await set_dedup_service.reject_flag(db, flag_id, admin.id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
 
-    now = datetime.now(timezone.utc)
-    flag.status = SetFlagStatus.rejected
-    flag.resolved_by = admin.id
-    flag.resolved_at = now
-
-    await _audit(
-        db,
-        admin,
-        "reject_set_flag",
-        "set_flag",
-        flag_id,
-        {
-            "set_id_a": flag.set_id_a,
-            "set_id_b": flag.set_id_b,
-            **({"group_key": flag.group_key} if flag.group_key else {}),
-        },
-    )
+    await _audit(db, admin, "reject_set_flag", "set_flag", flag_id, audit_details)
     await db.commit()
     return {"ok": True}
 
@@ -511,38 +431,14 @@ async def detach_set(
     admin: User = Depends(require_admin),
 ):
     """Detach a set from its virtual parent."""
-    from sqlalchemy import delete as sa_delete
+    try:
+        audit_details = await set_dedup_service.detach_set_from_parent(db, set_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
-    dj_set = (
-        await db.execute(select(DJSet).where(DJSet.id == set_id))
-    ).scalar_one_or_none()
-    if not dj_set:
-        raise HTTPException(404, "Set not found")
-    if dj_set.parent_set_id is None:
-        raise HTTPException(400, "Ce set n'est pas attaché à un parent")
-
-    parent_id = dj_set.parent_set_id
-    dj_set.parent_set_id = None
-    await db.flush()
-
-    siblings = (
-        await db.execute(select(DJSet).where(DJSet.parent_set_id == parent_id))
-    ).scalars().all()
-
-    if len(siblings) <= 1:
-        if len(siblings) == 1:
-            siblings[0].parent_set_id = None
-        # Only ever delete a virtual parent — a real set (and its set_tracks)
-        # must never be removed by detaching a child (invariant #4).
-        await db.execute(
-            sa_delete(DJSet).where(
-                DJSet.id == parent_id, DJSet.is_virtual.is_(True)
-            )
-        )
-
-    await _audit(
-        db, admin, "detach_set", "set", set_id, {"parent_id": parent_id}
-    )
+    await _audit(db, admin, "detach_set", "set", set_id, audit_details)
     await db.commit()
     return {"ok": True}
 
@@ -714,134 +610,7 @@ async def get_backlog(
 ):
     """Aggregated backlog counters for the admin dashboard.
 
-    Half is read from the latest hourly ``metric_snapshots`` payload (already
-    computed by snapshot_backlogs); the rest are live COUNTs. Thin — the snapshot
-    read is delegated to monitoring_service. Admin aggregate: no catalog_visible.
+    Thin — the whole aggregation (latest snapshot payload + live COUNTs + the
+    fail-open DLQ read) lives in monitoring_service.
     """
-    from models import (
-        CatalogArtist,
-        CatalogEntry,
-        GenreMapping,
-        SetArtist,
-        WatchedEntity,
-        bpm_analysis_candidate_filter,
-    )
-
-    # ── From the latest snapshot payload (defensive .get, tolerates a partial or
-    # absent payload — every missing key collapses to 0 / None). ──
-    snap = await monitoring_service.get_latest_snapshot(db)
-    captured_at = snap["captured_at"] if snap else None
-    payload = (snap or {}).get("payload", {}) or {}
-    enrich = payload.get("enrich", {}) or {}
-    artists_p = payload.get("artists", {}) or {}
-    sets_p = payload.get("sets", {}) or {}
-
-    def _enrich(source: str) -> dict:
-        d = enrich.get(source, {}) or {}
-        return {
-            "pending": (d.get("never_tried") or 0) + (d.get("due_retry") or 0),
-            "total_missing": d.get("total_missing") or 0,
-            "abandoned": d.get("abandoned") or 0,
-        }
-
-    # ── Live COUNTs — awaited SEQUENTIALLY on the one session (never gather). ──
-    flags_pending = (
-        await db.execute(
-            select(func.count(SetFlag.id)).where(
-                SetFlag.status == SetFlagStatus.pending  # ENUM column → enum member
-            )
-        )
-    ).scalar_one()
-
-    artist_flags_pending = (
-        await db.execute(
-            select(func.count(ArtistFlag.id)).where(
-                ArtistFlag.status == "pending"  # String column → string
-            )
-        )
-    ).scalar_one()
-
-    mappings_unmapped = (
-        await db.execute(
-            select(func.count(GenreMapping.id)).where(GenreMapping.node_id.is_(None))
-        )
-    ).scalar_one()
-
-    # Same predicate as genres_unclassified_count (no genre assigned).
-    unclassified = (
-        await db.execute(
-            select(func.count(CatalogEntry.id)).where(
-                func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0
-            )
-        )
-    ).scalar_one()
-
-    # Candidats à l'analyse BPM (E2.c) — même prédicat partagé que la tâche
-    # nocturne (source unique bpm_analysis_candidate_filter) : preview mais pas de
-    # BPM, deezer_id réel, jamais analysé. Renvoi neutre vers le monitoring.
-    bpm_missing = (
-        await db.execute(
-            select(func.count(CatalogEntry.id)).where(
-                *bpm_analysis_candidate_filter()
-            )
-        )
-    ).scalar_one()
-
-    # Coarse v1 heuristic: a playlist never crawled or last crawled > 1 day ago.
-    # Deliberately ignores the weekly/monthly cadence tiers of _crawl_decision
-    # (tasks/radar.py) — those depend on per-row stability age and cannot be
-    # expressed as one cheap SQL count; this over-counts the slower tiers.
-    day_ago = datetime.now(timezone.utc) - timedelta(days=1)
-    playlists_due = (
-        await db.execute(
-            select(func.count(WatchedEntity.id)).where(
-                or_(
-                    WatchedEntity.last_crawled_at.is_(None),
-                    WatchedEntity.last_crawled_at < day_ago,
-                )
-            )
-        )
-    ).scalar_one()
-
-    # to_link = même filtre que le panneau list_artists no_deezer (délié ET
-    # rattaché) — exclut les orphelins morts, sinon la carte sur-compte vs le panneau.
-    attached = or_(
-        select(CatalogArtist.artist_id)
-        .where(CatalogArtist.artist_id == Artist.id)
-        .exists(),
-        select(SetArtist.artist_id)
-        .where(SetArtist.artist_id == Artist.id)
-        .exists(),
-    )
-    to_link = (
-        await db.execute(
-            select(func.count(Artist.id)).where(Artist.deezer_id.is_(None), attached)
-        )
-    ).scalar_one()
-
-    # DLQ is a Redis LIST → LLEN. Fail-open like every other Redis read.
-    try:
-        dlq = await redis.llen("dead_letter")
-    except Exception:
-        dlq = None
-
-    return {
-        "captured_at": captured_at,
-        "beatport": _enrich("beatport"),
-        "deezer": _enrich("deezer"),
-        "artists": {
-            "to_link": to_link,
-            "no_artwork": artists_p.get("backlog_artwork") or 0,
-        },
-        "sets": {
-            "recrawl": sets_p.get("recrawl_backlog") or 0,
-            "flags_pending": flags_pending,
-        },
-        "artist_flags": {"pending": artist_flags_pending},
-        "genres": {
-            "unclassified": unclassified,
-            "mappings_unmapped": mappings_unmapped,
-        },
-        "catalog": {"bpm_missing": bpm_missing},
-        "crawl": {"playlists_due": playlists_due, "dlq": dlq},
-    }
+    return await monitoring_service.get_backlog_counters(db, redis)

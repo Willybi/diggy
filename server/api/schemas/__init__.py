@@ -94,14 +94,8 @@ from .import_rb import ImportQueuedResponse, ImportStatusResponse
 from .opinions import OpinionSetResponse, OpinionUpdate
 from .radar import (
     NewCountResponse,
-    RadarBatchItem,
-    RadarBatchResponse,
     RadarFeedItem,
     RadarFeedList,
-    RadarFullList,
-    RadarFullOut,
-    RadarStateResponse,
-    RadarStateUpdate,
     RadarStatus,
     RadarTrackIn,
     RadarTrackOut,
@@ -161,7 +155,6 @@ from .watchlist import (
     WatchedEntityIn,
     WatchedEntityOut,
     WatchlistBrowseResponse,
-    WatchlistListResponse,
 )
 
 __all__ = [
@@ -208,17 +201,11 @@ __all__ = [
     "RadarStatus",
     "RadarTrackIn",
     "RadarTrackOut",
-    "RadarFullOut",
-    "RadarFullList",
     "RadarFeedItem",
     "RadarFeedList",
-    "RadarStateUpdate",
-    "RadarBatchItem",
     "TrendItem",
     "TrendList",
     "NewCountResponse",
-    "RadarStateResponse",
-    "RadarBatchResponse",
     # recommendations
     "RecommendationItem",
     "RecommendationList",
@@ -247,7 +234,6 @@ __all__ = [
     "PlaylistTrackOut",
     "TopArtistOut",
     "TopGenreOut",
-    "WatchlistListResponse",
     "WatchlistBrowseResponse",
     "CrawlQueuedResponse",
     "CrawlStatusResponse",

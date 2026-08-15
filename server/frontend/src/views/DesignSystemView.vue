@@ -140,12 +140,9 @@
 
       <h3 class="ds-h3 mono">Badges</h3>
       <div class="comp-row">
-        <InLibBadge :in-lib="true" />
-        <InLibBadge :in-lib="false" />
         <SourceBadge source="deezer" />
         <SourceBadge source="tidal" />
         <SourceBadge source="spotify" />
-        <ScorePill :score="7.5" />
       </div>
 
       <h3 class="ds-h3 mono">StyleTag · piliers de genre (hues)</h3>
@@ -488,9 +485,7 @@
 import { ref, onMounted } from 'vue'
 import { domToPng } from 'modern-screenshot'
 import { useTheme } from '../composables/useTheme.js'
-import InLibBadge from '../components/InLibBadge.vue'
 import SourceBadge from '../components/SourceBadge.vue'
-import ScorePill from '../components/ScorePill.vue'
 import StyleTag from '../components/StyleTag.vue'
 import Artwork from '../components/Artwork.vue'
 import TrackCard from '../components/TrackCard.vue'

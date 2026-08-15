@@ -1103,6 +1103,162 @@ async def materialize_parent(db: AsyncSession, parent_id: int) -> int:
     return len(merged_tracks)
 
 
+# ---------------------------------------------------------------------------
+# Admin flag resolution (attach / reject / detach)
+#
+# Business logic for the admin set-dedup endpoints. These raise LookupError
+# (→ 404) / ValueError (→ 400) — never HTTPException — and do NOT commit; the
+# router owns the audit log + the commit.
+# ---------------------------------------------------------------------------
+
+
+async def attach_flag(
+    db: AsyncSession, flag_id: int, resolved_by: int
+) -> tuple[int, dict]:
+    """Resolve a pending set-dedup flag by attaching its sets under a virtual parent.
+
+    Handles both a group flag (``member_set_ids``) and a pairwise flag, then
+    marks the flag ``attached``. Raises LookupError if the flag is missing or
+    already resolved, or a member set cannot be found.
+
+    Returns ``(parent_id, audit_details)`` for the caller's audit log. Does not
+    commit — the caller is responsible.
+    """
+    from models import DJSet, SetFlag, SetFlagStatus
+
+    flag = (
+        await db.execute(select(SetFlag).where(SetFlag.id == flag_id))
+    ).scalar_one_or_none()
+    if not flag or flag.status != SetFlagStatus.pending:
+        raise LookupError("Flag not found or already resolved")
+
+    now = datetime.now(timezone.utc)
+
+    if flag.member_set_ids:
+        # Group flag: attach all members to a shared virtual parent
+        member_ids: list[int] = flag.member_set_ids
+        members = (
+            await db.execute(select(DJSet).where(DJSet.id.in_(member_ids)))
+        ).scalars().all()
+        if len(members) < 2:
+            raise LookupError("Not enough member sets found")
+
+        dates = [m.played_date for m in members if m.played_date is not None]
+        played_date = min(dates) if dates else None
+        base_title = flag.group_key or members[0].title
+
+        parent_id, _ = await find_or_create_virtual_parent(
+            db, member_ids[0], member_ids[1], played_date, base_title
+        )
+        # Attach remaining members (beyond the first pair)
+        for mid in member_ids[2:]:
+            member = await db.get(DJSet, mid)
+            if member and member.parent_set_id is None:
+                member.parent_set_id = parent_id
+        await db.flush()
+
+        await materialize_parent(db, parent_id)
+
+        audit_details = {
+            "member_set_ids": member_ids,
+            "parent_id": parent_id,
+            "group_key": flag.group_key,
+        }
+    else:
+        # Pairwise flag
+        set_a = (
+            await db.execute(select(DJSet).where(DJSet.id == flag.set_id_a))
+        ).scalar_one_or_none()
+        set_b = (
+            await db.execute(select(DJSet).where(DJSet.id == flag.set_id_b))
+        ).scalar_one_or_none()
+        if not set_a or not set_b:
+            raise LookupError("Set not found")
+
+        parent_id, created = await find_or_create_virtual_parent(
+            db, flag.set_id_a, flag.set_id_b, None, None
+        )
+        if created:
+            await materialize_parent(db, parent_id)
+
+        audit_details = {
+            "set_id_a": flag.set_id_a,
+            "set_id_b": flag.set_id_b,
+            "parent_id": parent_id,
+        }
+
+    flag.status = SetFlagStatus.attached
+    flag.resolved_by = resolved_by
+    flag.resolved_at = now
+
+    return parent_id, audit_details
+
+
+async def reject_flag(db: AsyncSession, flag_id: int, resolved_by: int) -> dict:
+    """Reject a pending set-dedup flag.
+
+    Raises LookupError if the flag is missing or already resolved. Returns the
+    audit_details. Does not commit — the caller is responsible.
+    """
+    from models import SetFlag, SetFlagStatus
+
+    flag = (
+        await db.execute(select(SetFlag).where(SetFlag.id == flag_id))
+    ).scalar_one_or_none()
+    if not flag or flag.status != SetFlagStatus.pending:
+        raise LookupError("Flag not found or already resolved")
+
+    now = datetime.now(timezone.utc)
+    flag.status = SetFlagStatus.rejected
+    flag.resolved_by = resolved_by
+    flag.resolved_at = now
+
+    return {
+        "set_id_a": flag.set_id_a,
+        "set_id_b": flag.set_id_b,
+        **({"group_key": flag.group_key} if flag.group_key else {}),
+    }
+
+
+async def detach_set_from_parent(db: AsyncSession, set_id: int) -> dict:
+    """Detach a set from its virtual parent, collapsing a now-orphaned parent.
+
+    Raises LookupError if the set is missing, ValueError if it has no parent.
+    Only a virtual parent (``is_virtual=True``) is ever deleted — a real set
+    (and its set_tracks) must never be removed by detaching a child
+    (invariant #4). Returns the audit_details. Does not commit — the caller is
+    responsible.
+    """
+    from models import DJSet
+
+    dj_set = (
+        await db.execute(select(DJSet).where(DJSet.id == set_id))
+    ).scalar_one_or_none()
+    if not dj_set:
+        raise LookupError("Set not found")
+    if dj_set.parent_set_id is None:
+        raise ValueError("Ce set n'est pas attaché à un parent")
+
+    parent_id = dj_set.parent_set_id
+    dj_set.parent_set_id = None
+    await db.flush()
+
+    siblings = (
+        await db.execute(select(DJSet).where(DJSet.parent_set_id == parent_id))
+    ).scalars().all()
+
+    if len(siblings) <= 1:
+        if len(siblings) == 1:
+            siblings[0].parent_set_id = None
+        # Only ever delete a virtual parent — a real set (and its set_tracks)
+        # must never be removed by detaching a child (invariant #4).
+        await db.execute(
+            delete(DJSet).where(DJSet.id == parent_id, DJSet.is_virtual.is_(True))
+        )
+
+    return {"parent_id": parent_id}
+
+
 async def apply_match_results(
     db: AsyncSession,
     set_id: int,

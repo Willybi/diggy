@@ -11,7 +11,6 @@ from schemas import (
     WatchedEntityIn,
     WatchedEntityOut,
     WatchlistBrowseResponse,
-    WatchlistListResponse,
 )
 from services import watchlist_service
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,18 +33,6 @@ def _parse_id_csv(raw: str | None) -> list[int] | None:
         except ValueError:
             continue
     return out or None
-
-
-@router.get("/", response_model=WatchlistListResponse)
-async def list_watched(
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
-):
-    return await watchlist_service.list_followed(
-        db, _uid(user), limit=limit, offset=offset
-    )
 
 
 @router.get("/browse", response_model=WatchlistBrowseResponse)

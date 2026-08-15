@@ -11,7 +11,7 @@ session (never asyncio.gather on a shared AsyncSession — it wedges asyncpg).
 
 import logging
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -329,4 +329,148 @@ async def get_integrity_counters(db: AsyncSession) -> dict:
     return {
         "artist_divergence": int(artist_divergence),
         "missing_m2m_link": int(missing_m2m_link),
+    }
+
+
+async def get_backlog_counters(db: AsyncSession, redis) -> dict:
+    """Aggregated backlog counters for the admin dashboard.
+
+    Half is read from the latest hourly ``metric_snapshots`` payload (already
+    computed by snapshot_backlogs); the rest are live COUNTs. The snapshot read
+    is delegated to :func:`get_latest_snapshot`. Admin aggregate: no
+    catalog_visible.
+
+    Read-only aggregation; DB loaders awaited SEQUENTIALLY on the one session
+    (never asyncio.gather on a shared AsyncSession).
+    """
+    from models import (
+        Artist,
+        ArtistFlag,
+        CatalogArtist,
+        CatalogEntry,
+        GenreMapping,
+        SetArtist,
+        SetFlag,
+        SetFlagStatus,
+        WatchedEntity,
+        bpm_analysis_candidate_filter,
+    )
+
+    # ── From the latest snapshot payload (defensive .get, tolerates a partial or
+    # absent payload — every missing key collapses to 0 / None). ──
+    snap = await get_latest_snapshot(db)
+    captured_at = snap["captured_at"] if snap else None
+    payload = (snap or {}).get("payload", {}) or {}
+    enrich = payload.get("enrich", {}) or {}
+    artists_p = payload.get("artists", {}) or {}
+    sets_p = payload.get("sets", {}) or {}
+
+    def _enrich(source: str) -> dict:
+        d = enrich.get(source, {}) or {}
+        return {
+            "pending": (d.get("never_tried") or 0) + (d.get("due_retry") or 0),
+            "total_missing": d.get("total_missing") or 0,
+            "abandoned": d.get("abandoned") or 0,
+        }
+
+    # ── Live COUNTs — awaited SEQUENTIALLY on the one session (never gather). ──
+    flags_pending = (
+        await db.execute(
+            select(func.count(SetFlag.id)).where(
+                SetFlag.status == SetFlagStatus.pending  # ENUM column → enum member
+            )
+        )
+    ).scalar_one()
+
+    artist_flags_pending = (
+        await db.execute(
+            select(func.count(ArtistFlag.id)).where(
+                ArtistFlag.status == "pending"  # String column → string
+            )
+        )
+    ).scalar_one()
+
+    mappings_unmapped = (
+        await db.execute(
+            select(func.count(GenreMapping.id)).where(GenreMapping.node_id.is_(None))
+        )
+    ).scalar_one()
+
+    # Same predicate as genres_unclassified_count (no genre assigned).
+    unclassified = (
+        await db.execute(
+            select(func.count(CatalogEntry.id)).where(
+                func.coalesce(func.array_length(CatalogEntry.genres, 1), 0) == 0
+            )
+        )
+    ).scalar_one()
+
+    # Candidats à l'analyse BPM (E2.c) — même prédicat partagé que la tâche
+    # nocturne (source unique bpm_analysis_candidate_filter) : preview mais pas de
+    # BPM, deezer_id réel, jamais analysé. Renvoi neutre vers le monitoring.
+    bpm_missing = (
+        await db.execute(
+            select(func.count(CatalogEntry.id)).where(
+                *bpm_analysis_candidate_filter()
+            )
+        )
+    ).scalar_one()
+
+    # Coarse v1 heuristic: a playlist never crawled or last crawled > 1 day ago.
+    # Deliberately ignores the weekly/monthly cadence tiers of _crawl_decision
+    # (tasks/radar.py) — those depend on per-row stability age and cannot be
+    # expressed as one cheap SQL count; this over-counts the slower tiers.
+    day_ago = datetime.now(timezone.utc) - timedelta(days=1)
+    playlists_due = (
+        await db.execute(
+            select(func.count(WatchedEntity.id)).where(
+                or_(
+                    WatchedEntity.last_crawled_at.is_(None),
+                    WatchedEntity.last_crawled_at < day_ago,
+                )
+            )
+        )
+    ).scalar_one()
+
+    # to_link = même filtre que le panneau list_artists no_deezer (délié ET
+    # rattaché) — exclut les orphelins morts, sinon la carte sur-compte vs le panneau.
+    attached = or_(
+        select(CatalogArtist.artist_id)
+        .where(CatalogArtist.artist_id == Artist.id)
+        .exists(),
+        select(SetArtist.artist_id)
+        .where(SetArtist.artist_id == Artist.id)
+        .exists(),
+    )
+    to_link = (
+        await db.execute(
+            select(func.count(Artist.id)).where(Artist.deezer_id.is_(None), attached)
+        )
+    ).scalar_one()
+
+    # DLQ is a Redis LIST → LLEN. Fail-open like every other Redis read.
+    try:
+        dlq = await redis.llen("dead_letter")
+    except Exception:
+        dlq = None
+
+    return {
+        "captured_at": captured_at,
+        "beatport": _enrich("beatport"),
+        "deezer": _enrich("deezer"),
+        "artists": {
+            "to_link": to_link,
+            "no_artwork": artists_p.get("backlog_artwork") or 0,
+        },
+        "sets": {
+            "recrawl": sets_p.get("recrawl_backlog") or 0,
+            "flags_pending": flags_pending,
+        },
+        "artist_flags": {"pending": artist_flags_pending},
+        "genres": {
+            "unclassified": unclassified,
+            "mappings_unmapped": mappings_unmapped,
+        },
+        "catalog": {"bpm_missing": bpm_missing},
+        "crawl": {"playlists_due": playlists_due, "dlq": dlq},
     }
