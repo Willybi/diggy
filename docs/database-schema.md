@@ -589,8 +589,8 @@ PK: `id`
 | `created_at` | DateTime(tz) | no |  |  |  |
 
 **Indexes:**
-- `ix_admin_audit_log_user_id`: `user_id`
 - `ix_admin_audit_log_action`: `action`
+- `ix_admin_audit_log_user_id`: `user_id`
 
 ### `crawl_logs`
 

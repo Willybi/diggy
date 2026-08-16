@@ -1125,6 +1125,13 @@ async def import_external(db: AsyncSession, *, deezer_id=None, tidal_id=None):
 
     # Determine existence BEFORE create so `created` is accurate. Mirrors the
     # get_or_create_catalog lookup order (ISRC first, then normalized_key).
+    #
+    # This dedup lookup is DELIBERATELY not scoped by catalog_visible(): it must
+    # see EVERY row — including another user's private one — to fold into it
+    # instead of spawning a duplicate (invariant #4, applied in the create
+    # direction: never a false-negative that breeds a duplicate). This is the
+    # opposite trade-off from search_external's _match_catalog, which DOES apply
+    # visibility so a search can't reveal the existence of a foreign private row.
     existing = None
     if isrc:
         result = await db.execute(

@@ -40,4 +40,4 @@ async def search_external(
     user: User = Depends(get_current_user),
 ):
     """Search external sources (Deezer + TIDAL) for a manual import. Auth required."""
-    return await external_search_service.search_external(db, q, limit)
+    return await external_search_service.search_external(db, q, limit, user_id=_uid(user))

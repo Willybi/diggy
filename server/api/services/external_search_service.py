@@ -76,10 +76,17 @@ async def _search_tidal(q: str, limit: int) -> list[dict]:
 
 
 async def _match_catalog(
-    db: AsyncSession, isrcs: set[str], norm_keys: set[str]
+    db: AsyncSession, isrcs: set[str], norm_keys: set[str], user_id: int | None
 ) -> tuple[dict[str, int], dict[str, int]]:
-    """Batch-lookup catalog entries by ISRC or normalized_key (single query)."""
+    """Batch-lookup catalog entries by ISRC or normalized_key (single query).
+
+    Scoped by ``catalog_visible(user_id)`` so a search never reveals the
+    EXISTENCE of another user's private row: matching an unseen private row would
+    surface its ``catalog_id``, leaking that the track already exists.
+    """
     from models import CatalogEntry
+
+    from services.catalog_service import catalog_visible
 
     conditions = []
     if isrcs:
@@ -92,7 +99,7 @@ async def _match_catalog(
     result = await db.execute(
         select(
             CatalogEntry.id, CatalogEntry.isrc, CatalogEntry.normalized_key
-        ).where(or_(*conditions))
+        ).where(or_(*conditions), catalog_visible(user_id))
     )
     by_isrc: dict[str, int] = {}
     by_key: dict[str, int] = {}
@@ -104,10 +111,11 @@ async def _match_catalog(
 
 
 async def search_external(
-    db: AsyncSession, q: str, limit: int
+    db: AsyncSession, q: str, limit: int, user_id: int | None = None
 ) -> ExternalSearchResponse:
     """Parallel Deezer + TIDAL search, merged/deduped by ISRC (Deezer wins),
-    with a `catalog_id` set on results already present in the catalog."""
+    with a `catalog_id` set on results already present in the catalog and
+    visible to `user_id` (a private row of another user stays hidden)."""
     q = q.strip()
     if not q:
         return ExternalSearchResponse(items=[])
@@ -133,7 +141,7 @@ async def search_external(
     norm_keys = {
         make_normalized_key(h["title"], h["artist"]) for h in merged if h["title"]
     }
-    by_isrc, by_key = await _match_catalog(db, isrcs, norm_keys)
+    by_isrc, by_key = await _match_catalog(db, isrcs, norm_keys, user_id)
 
     items: list[ExternalSearchItem] = []
     for h in merged:

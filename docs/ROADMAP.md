@@ -1892,15 +1892,15 @@ Idee initiale ECARTEE (arbitrage 2026-08-07) : « precharger les 100 premieres l
 
 ### Taches
 
-- [ ] M2 (A3-02) : `BeatportHTTPError` typee sur non-200 dans les 3 helpers async → catch `errors += 1` SANS `_mark_searched` (miroir exact du fix Deezer ; outage ≠ attempt)
-- [ ] A3-03 : jumeau `enrich_catalog` Deezer — retirer autoretry, catch SoftTimeLimitExceeded + flush partiel, lock `lock:enrich_deezer` TTL ≥ 9000 (clot la fiche memoire enrich-beatport-autoretry)
-- [ ] M3 (A3-04) : purge `autoretry_for=(Exception,)` des taches a soft-limit restantes (reclassify_genres_chunk 16200s et backfill_multi_artists en priorite) ; retry conserve UNIQUEMENT sur exceptions typees des taches courtes idempotentes
-- [ ] A8-03 : locks SET NX EX sur les 6 taches longues restantes (sync_artists, backfill_multi_artists, crawl_trackid_latest, link_set_artists, reclassify_genres_chunk + enrich_catalog via A3-03)
-- [ ] A3-05 : clause-guard `except SoftTimeLimitExceeded: raise` dans les boucles par-item de recrawl_incomplete_sets + crawl_trackid_latest (pattern backfill) + catch niveau tache
-- [ ] A3-07 : CrawlLogger — commit de la ligne `running` au `__enter__`, `__exit__` = UPDATE (transactions courtes, runs tues visibles)
-- [ ] A3-08 : routes `enrich` pour sync_artists, backfill_multi_artists, reclassify_genres_chunk
-- [ ] A3-09 : merge_catalog_entries reporte bpm_analyzed_at/bpm_analysis_attempts
-- [ ] A3-12 : backfill_multi_artists — commit hors gather (chunks pattern fetch_artist_artworks)
+- [x] M2 (A3-02) : `BeatportHTTPError` typee sur non-200 dans les 3 helpers async → catch `errors += 1` SANS `_mark_searched` (miroir exact du fix Deezer ; outage ≠ attempt)
+- [x] A3-03 : jumeau `enrich_catalog` Deezer — retirer autoretry, catch SoftTimeLimitExceeded + flush partiel, lock `lock:enrich_deezer` TTL ≥ 9000 (clot la fiche memoire enrich-beatport-autoretry)
+- [x] M3 (A3-04) : purge `autoretry_for=(Exception,)` des taches a soft-limit restantes (reclassify_genres_chunk et backfill_multi_artists en priorite) ; retry conserve UNIQUEMENT sur exceptions typees des taches courtes idempotentes — LIVRE AV4 : plus aucun autoretry dans `workers/tasks/`, `reclassify_genres_chunk` porte `soft_time_limit=1800` (pas 16200s : chiffre errone corrige au triage AV7)
+- [x] A8-03 : locks SET NX EX sur les 6 taches longues restantes (sync_artists, backfill_multi_artists, crawl_trackid_latest, link_set_artists, reclassify_genres_chunk + enrich_catalog via A3-03)
+- [x] A3-05 : clause-guard `except SoftTimeLimitExceeded: raise` dans les boucles par-item de recrawl_incomplete_sets + crawl_trackid_latest (pattern backfill) + catch niveau tache
+- [x] A3-07 : CrawlLogger — commit de la ligne `running` au `__enter__`, `__exit__` = UPDATE (transactions courtes, runs tues visibles)
+- [x] A3-08 : routes `enrich` pour sync_artists, backfill_multi_artists, reclassify_genres_chunk — LIVRE AV4, confirme dans le code (`celery_app.py` `task_routes` : les 3 sont bien `{"queue": "enrich"}`)
+- [x] A3-09 : merge_catalog_entries reporte bpm_analyzed_at/bpm_analysis_attempts
+- [x] A3-12 : backfill_multi_artists — commit hors gather (chunks pattern fetch_artist_artworks)
 
 ### Definition of Done
 
@@ -2021,7 +2021,7 @@ Source : issues Sentry prod (org `diggy-music`, projet `diggy-app`, region `de.s
 - [x] **AV8-03 (MOYEN) — `/api/artists/` DiskFull shared memory** [DIGGY-APP-13, 500 utilisateur]. La requete `unnest(catalog.genres) + group by` sur `catalog_artists x catalog` de `artist_service.list_artists` fait echouer un resize de segment shared memory PG a 8 Mo (`/dev/shm` tmpfs sature). → soit relever `shm_size` du conteneur `postgres` (docker-compose), soit borner/optimiser la requete (le contournement « >32767 params »).
 - [x] **AV8-04 (BAS) — `crawl_trackid_latest` echecs a message vide** [DIGGY-APP-D, 46 events, ~1/j]. Le `CrawlLogger` logue « failed after 261027ms: » avec `str(exception)` VIDE → cause racine non capturee. → instrumenter le `CrawlLogger` pour capturer le type + la trace de l'exception racine avant tout fix.
 
-**Divergences doc reperees au triage (a corriger, p.ex. via AV7)** : (a) la case M3 (A3-04) plus bas est encore `[ ]` (« purge autoretry `reclassify_genres_chunk` 16200s ») alors que le code n'a plus d'autoretry et porte `soft_time_limit=1800` — le statut AV4 la dit faite ; (b) A3-08 devait router `reclassify_genres_chunk` vers la queue `enrich`, mais un run recent tournait sur `celery,crawl`.
+**Divergences doc reperees au triage — RESOLUES AV7 (2026-08-16)** : (a) la case M3 (A3-04) plus bas est desormais `[x]` — le code n'a plus d'autoretry et porte `soft_time_limit=1800` (le « 16200s » etait errone, corrige) ; (b) A3-08 : `reclassify_genres_chunk` EST bien route vers la queue `enrich` dans le code (`celery_app.py` `task_routes`, case A3-08 cochee) — l'observation d'un run sur `celery,crawl` etait un artefact anterieur au deploiement du routing, plus d'actualite.
 
 ---
 

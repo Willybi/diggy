@@ -1,14 +1,15 @@
 """Tests for /api/auth endpoints (Google OAuth)."""
 import base64
 import json
-from urllib.parse import parse_qs, urlparse
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-
-from main import app
 from auth import create_token
+from httpx import ASGITransport, AsyncClient
+from main import app
+from models import User
+from sqlalchemy import select
 
 
 @pytest_asyncio.fixture
@@ -81,6 +82,59 @@ class TestGoogleCallback:
         r = await self._callback(client, state="bogus-state-value")
         assert r.status_code == 302
         assert "error=" in r.headers["location"]
+
+    @patch(
+        "routers.auth.verify_google_token",
+        new_callable=AsyncMock,
+        side_effect=Exception("boom"),
+    )
+    async def test_token_exchange_failure_redirects(self, mock_verify, client):
+        """A failing verify_google_token redirects with error=google_failed."""
+        r = await self._callback(client)
+        assert r.status_code == 302
+        assert "error=google_failed" in r.headers["location"]
+
+    @patch(
+        "routers.auth.verify_google_token",
+        new_callable=AsyncMock,
+        return_value=FAKE_GOOGLE_INFO,
+    )
+    async def test_username_collision_gets_suffix(self, mock_verify, client):
+        """Two google_ids sharing a name yield distinct usernames (2nd suffixed)."""
+        await self._callback(client)  # creates "testuser"
+        mock_verify.return_value = {
+            "google_id": "google-654321",
+            "email": "othergoogle@gmail.com",
+            "name": "Test User",  # same name -> same base_username "testuser"
+            "picture": "https://lh3.googleusercontent.com/other.jpg",
+        }
+        r = await self._callback(client)
+        assert r.status_code == 302
+        cookie = r.headers["set-cookie"]
+        value = cookie.split("auth_callback=")[1].split(";")[0]
+        value += "=" * ((4 - len(value) % 4) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(value))
+        username = payload["user"]["username"]
+        assert username != "testuser"
+        assert username.startswith("testuser")
+
+    @patch(
+        "routers.auth.verify_google_token",
+        new_callable=AsyncMock,
+        return_value=FAKE_GOOGLE_INFO,
+    )
+    async def test_existing_user_picture_updated(self, mock_verify, client, db):
+        """An existing user reconnecting with a new picture updates picture_url."""
+        await self._callback(client)  # creates the user with the original picture
+        new_picture = "https://lh3.googleusercontent.com/updated.jpg"
+        mock_verify.return_value = {**FAKE_GOOGLE_INFO, "picture": new_picture}
+        r = await self._callback(client)
+        assert r.status_code == 302
+        result = await db.execute(
+            select(User).where(User.google_id == FAKE_GOOGLE_INFO["google_id"])
+        )
+        user = result.scalar_one()
+        assert user.picture_url == new_picture
 
 
 class TestMe:

@@ -830,10 +830,14 @@ def _run_backfill_trackid_sets(task):
     if r.get("trackid_backfill_done"):
         return {"status": "done"}
 
-    # Config. 1000 sets/night matches the downstream capacity: Beatport
-    # enrichment handles ~6000 tracks/night and a set yields ~5 new tracks, so
-    # ~750-1400 new tracks/day here stays within that budget while draining the
-    # ~100k-set historical backlog meaningfully faster than the old 500.
+    # Config. The CODE default is 1000 sets/night, but this OUTPACES downstream
+    # Beatport capacity: measured, 1000 backfilled sets (+ ~450 from
+    # crawl_trackid_latest) at ~7.6 tracks/set means ~12000 new tracks/day, above
+    # the Beatport drain ceiling of ~9900/day (18 hourly runs × 550) — so the
+    # backlog accumulated ~+2000/day. Break-even is ~800 sets/day; PROD therefore
+    # overrides this to TRACKID_BACKFILL_SETS_PER_DAY=600 (via .env) to leave a
+    # drainage margin. The 1000 default is kept in code but should not be run in
+    # prod without raising the Beatport ceiling.
     sets_per_day = int(os.environ.get("TRACKID_BACKFILL_SETS_PER_DAY", "1000"))
     default_min = (date.today() - timedelta(days=730)).isoformat()
     min_date = os.environ.get("TRACKID_BACKFILL_MIN_DATE") or default_min

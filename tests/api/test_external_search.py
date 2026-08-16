@@ -8,7 +8,7 @@ like test_watchlist_service.py patches _fetch_deezer_playlist — no real HTTP.
 """
 from datetime import datetime, timezone
 
-from models import CatalogEntry
+from models import CatalogEntry, User
 from services import external_search_service
 from utils import make_normalized_key
 
@@ -137,6 +137,61 @@ class TestCatalogDetection:
         resp = await external_search_service.search_external(db, "q", 20)
 
         assert resp.items[0].catalog_id is None
+
+
+# ── Private-row visibility (A6-05) ────────────────────────────────────────────
+
+class TestPrivateVisibility:
+    """A6-05: a search must not reveal the EXISTENCE of another user's private
+    row — the catalog_id is only set for the owner (or a shared row)."""
+
+    async def _make_user(self, db, suffix):
+        user = User(
+            email=f"{suffix}@test.com",
+            username=suffix,
+            google_id=f"google-{suffix}",
+            is_active=True,
+            is_admin=False,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+    async def test_private_row_hidden_from_other_user(self, db, mocker):
+        owner = await self._make_user(db, "owner")
+        other = await self._make_user(db, "other")
+        entry = CatalogEntry(
+            title="Secret Cut",
+            artist="Owner",
+            normalized_key=make_normalized_key("Secret Cut", "Owner"),
+            isrc="US1111111111",
+            scope="private",
+            owner_id=owner.id,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+
+        mocker.patch.object(
+            external_search_service,
+            "_search_deezer",
+            return_value=[_dz("1", "Secret Cut", "Owner", isrc="US1111111111")],
+        )
+        mocker.patch.object(external_search_service, "_search_tidal", return_value=[])
+
+        # Another user must not learn the private row exists.
+        resp_other = await external_search_service.search_external(
+            db, "secret", 20, user_id=other.id
+        )
+        assert resp_other.items[0].catalog_id is None
+
+        # The owner sees their own private row.
+        resp_owner = await external_search_service.search_external(
+            db, "secret", 20, user_id=owner.id
+        )
+        assert resp_owner.items[0].catalog_id == entry.id
 
 
 # ── TIDAL graceful degradation ────────────────────────────────────────────────
