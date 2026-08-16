@@ -13,6 +13,10 @@ import sys
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from sqlalchemy import text
+from sqlalchemy.orm.exc import ObjectDeletedError
+
 # Path so the workers package is importable (same pattern as test_enrichment_isrc.py)
 _SERVER_PATH = os.path.join(os.path.dirname(__file__), "../../server")
 if _SERVER_PATH not in sys.path:
@@ -173,6 +177,78 @@ class TestDeezerBatchM2m:
         assert entry.deezer_id == "456"
         assert stats == {"enriched": 1, "errors": 0, "merged": 0}
         assert all("Solo Artist" in q for q in pool.queries)
+
+
+# ── enrich_deezer_batch: a row deleted mid-batch (concurrent merge race) ──────
+
+
+def _delete_row_keep_persistent(session, entry, attrs):
+    """Delete a catalog row out from under the ORM (raw SQL) then expire ``attrs``.
+
+    The object stays "persistent" in the identity map (the ORM never saw the
+    delete), so accessing an expired attribute reloads → 0 rows →
+    ``ObjectDeletedError``, while the PK (kept out of ``attrs``) still reads from
+    cache. This reproduces, in ONE session, the FIX-2 race where a concurrent
+    dedup/merge deletes a row mid-batch: a same-session ``expire()`` on a
+    ``delete()``-flushed object is forbidden, and per-connection ``:memory:``
+    SQLite can't share a row across sessions, so this raw-delete trick is the
+    faithful substitute.
+    """
+    session.execute(text("DELETE FROM catalog WHERE id = :id"), {"id": entry.id})
+    session.expire(entry, attrs)
+
+
+class TestDeezerBatchObjectDeletedRace:
+    async def test_deleted_entry_never_fails_the_gather(
+        self, sync_session, monkeypatch
+    ):
+        """A row deleted mid-batch raises ObjectDeletedError on attribute access;
+        it must be contained per-entry (errors += 1, NOT _mark_searched) and never
+        bubble out of the gather — the healthy sibling is still processed."""
+        healthy = _make_row(
+            sync_session, "Healthy", "Solo Artist", deezer_searched_at=None
+        )
+        doomed = _make_row(sync_session, "Doomed", "Gone", deezer_searched_at=None)
+        doomed_id = doomed.id
+        # PK stays readable; title/artist/isrc now raise on access.
+        _delete_row_keep_persistent(sync_session, doomed, ["title", "artist", "isrc"])
+
+        # Precondition: .id readable, .artist raises — exactly the FIX-2 shape.
+        assert doomed.id == doomed_id
+        with pytest.raises(ObjectDeletedError):
+            _ = doomed.artist
+
+        # Healthy entry: searcher returns None → it gets marked searched.
+        search = AsyncMock(return_value=None)
+        monkeypatch.setattr(enrichment_mod, "_search_deezer_async", search)
+
+        stats = await enrich_deezer_batch(
+            sync_session, [doomed, healthy], MagicMock(), None, set()
+        )
+
+        # The batch did NOT raise; the doomed row is a single contained error.
+        assert stats == {"enriched": 0, "errors": 1, "merged": 0}
+        # The healthy sibling was still processed (searched → marked).
+        assert isinstance(healthy.deezer_searched_at, datetime)
+        # The searcher was reached ONLY for the healthy entry (doomed raised
+        # before its search call), with its real artist.
+        assert search.call_count == 1
+        assert search.call_args.args[1] == "Solo Artist"
+
+    async def test_deleted_before_pk_resolved_is_guarded(self, sync_session):
+        """If even the PK access raises (row gone before _enrich_one resolves it),
+        the up-front guard contains it (errors += 1, no raise). session=None skips
+        the pre-gather M2M load — which itself reads .id — isolating the guard."""
+        doomed = _make_row(sync_session, "Doomed", "Gone")
+        # Full expire → even .id reloads → ObjectDeletedError on the guard line.
+        _delete_row_keep_persistent(sync_session, doomed, None)
+
+        with pytest.raises(ObjectDeletedError):
+            _ = doomed.id
+
+        stats = await enrich_deezer_batch(None, [doomed], MagicMock(), None, set())
+
+        assert stats == {"enriched": 0, "errors": 1, "merged": 0}
 
 
 # ── enrich_beatport_batch: validate against the M2M ───────────────────────────

@@ -86,6 +86,17 @@ def import_mod(fake_redis):
     return import_rb
 
 
+# radar binds `redis` at module level too (redis_lib.from_url in the wrapper),
+# so fake_redis must be installed before the import
+@pytest.fixture
+def radar_mod(fake_redis):
+    mods_to_clear = [k for k in sys.modules if k.startswith("workers.tasks")]
+    for m in mods_to_clear:
+        del sys.modules[m]
+    import workers.tasks.radar as radar
+    return radar
+
+
 @pytest.fixture
 def fake_self():
     task_self = MagicMock()
@@ -252,3 +263,50 @@ class TestImportLockConditionalRelease:
         )
 
         fake_redis.delete.assert_not_called()
+
+
+class TestCrawlSinglePlaylistQuota:
+    """A transient Deezer quota is a graceful skip, never a DLQ failure (L1)."""
+
+    def _held_lock(self, fake_redis):
+        lock = MagicMock()
+        lock.acquire.return_value = True
+        fake_redis.lock.return_value = lock
+        return lock
+
+    def test_quota_returns_skip_without_raising(
+        self, radar_mod, fake_redis, fake_self, monkeypatch
+    ):
+        from workers.source_clients import DeezerQuotaError
+
+        lock = self._held_lock(fake_redis)
+
+        def boom(self, playlist_id):
+            raise DeezerQuotaError("dz-42")
+
+        monkeypatch.setattr(radar_mod, "_crawl_single_playlist_inner", boom)
+
+        result = radar_mod.crawl_single_playlist(fake_self, 7)
+
+        assert result == {
+            "skipped": True,
+            "playlist_id": 7,
+            "reason": "deezer_quota",
+        }
+        lock.release.assert_called_once()
+
+    def test_other_error_still_propagates(
+        self, radar_mod, fake_redis, fake_self, monkeypatch
+    ):
+        """A non-quota error must still fail the task (→ DLQ), lock released."""
+        lock = self._held_lock(fake_redis)
+
+        def boom(self, playlist_id):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(radar_mod, "_crawl_single_playlist_inner", boom)
+
+        with pytest.raises(RuntimeError):
+            radar_mod.crawl_single_playlist(fake_self, 7)
+
+        lock.release.assert_called_once()

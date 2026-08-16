@@ -47,12 +47,28 @@ class PlaylistGoneError(Exception):
         super().__init__(f"Playlist {external_id} no longer exists on {source}")
 
 
+class DeezerQuotaError(Exception):
+    """Raised on a Deezer transient rate-limit / quota error.
+
+    Twin of the invariant "an external HTTP outage is not a search attempt":
+    a quota hit is not a terminal failure — the playlist must be retried at the
+    next beat, not sent to the DLQ.
+    """
+
+    def __init__(self, external_id: str):
+        self.external_id = external_id
+        super().__init__(f"Deezer quota exceeded for {external_id}")
+
+
 # ──────────────────────────────────────────────────────────────
 # Deezer
 # ──────────────────────────────────────────────────────────────
 
 # Deezer "no data" error code — the resource does not exist (anymore)
 DEEZER_ERROR_NO_DATA = 800
+# Deezer transient rate-limit codes — quota exceeded (4) / service busy (700)
+DEEZER_ERROR_QUOTA = 4
+DEEZER_ERROR_BUSY = 700
 
 
 def _deezer_get(url: str, external_id: str) -> dict:
@@ -73,6 +89,8 @@ def _deezer_get(url: str, external_id: str) -> dict:
             or error.get("type") == "DataException"
         ):
             raise PlaylistGoneError("deezer", external_id)
+        if error.get("code") in (DEEZER_ERROR_QUOTA, DEEZER_ERROR_BUSY):
+            raise DeezerQuotaError(external_id)
         raise RuntimeError(f"Deezer API error on {url}: {error}")
     return data
 

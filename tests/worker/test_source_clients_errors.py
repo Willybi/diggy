@@ -41,6 +41,7 @@ for _mod in _MOCK_MODULES:
 import workers.tasks.radar as radar_tasks  # noqa: E402
 from workers import source_clients  # noqa: E402
 from workers.source_clients import (  # noqa: E402
+    DeezerQuotaError,
     PlaylistGoneError,
     SourceTrack,
     deezer_has_changed,
@@ -86,6 +87,9 @@ def _deezer_track(track_id):
 
 GONE_PAYLOAD = {"error": {"type": "DataException", "message": "no data", "code": 800}}
 QUOTA_PAYLOAD = {"error": {"type": "QuotaException", "message": "quota", "code": 4}}
+BUSY_PAYLOAD = {"error": {"type": "Exception", "message": "service busy", "code": 700}}
+# Any non-gone, non-quota error → generic RuntimeError catch-all
+GENERIC_ERROR_PAYLOAD = {"error": {"type": "OAuthException", "message": "bad", "code": 300}}
 
 
 class TestDeezerTypedErrors:
@@ -111,7 +115,7 @@ class TestDeezerTypedErrors:
         """Deezer returns HTTP 200 with an error body: same rule, no partial list."""
         _patch_deezer_responses(monkeypatch, [
             _FakeResp({"data": [_deezer_track(1)], "next": "https://api.deezer.com/p2"}),
-            _FakeResp(QUOTA_PAYLOAD),
+            _FakeResp(GENERIC_ERROR_PAYLOAD),
         ])
         with pytest.raises(RuntimeError):
             fetch_deezer_tracks("42")
@@ -135,8 +139,22 @@ class TestDeezerTypedErrors:
             fetch_deezer_meta("42")
 
     def test_fetch_meta_other_error_code_raises_generic_error(self, monkeypatch):
-        _patch_deezer_responses(monkeypatch, [_FakeResp(QUOTA_PAYLOAD)])
+        """A non-gone, non-quota error stays the RuntimeError catch-all."""
+        _patch_deezer_responses(monkeypatch, [_FakeResp(GENERIC_ERROR_PAYLOAD)])
         with pytest.raises(RuntimeError):
+            fetch_deezer_meta("42")
+
+    def test_fetch_meta_quota_error_raises_deezer_quota(self, monkeypatch):
+        """Deezer quota (code 4) is transient → typed DeezerQuotaError, not RuntimeError."""
+        _patch_deezer_responses(monkeypatch, [_FakeResp(QUOTA_PAYLOAD)])
+        with pytest.raises(DeezerQuotaError) as exc_info:
+            fetch_deezer_meta("42")
+        assert exc_info.value.external_id == "42"
+
+    def test_fetch_meta_busy_error_raises_deezer_quota(self, monkeypatch):
+        """Deezer 'service busy' (code 700) is transient too → DeezerQuotaError."""
+        _patch_deezer_responses(monkeypatch, [_FakeResp(BUSY_PAYLOAD)])
+        with pytest.raises(DeezerQuotaError):
             fetch_deezer_meta("42")
 
     def test_has_changed_no_data_error_raises_playlist_gone(self, monkeypatch):

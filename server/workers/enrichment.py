@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 import redis as redis_lib
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import ObjectDeletedError
 from workers.async_http import BeatportHTTPError, DeezerHTTPError
 from workers.catalog_merge import CatalogEntryMerged
 
@@ -447,28 +448,38 @@ async def enrich_deezer_batch(
 
     async def _enrich_one(entry):
         nonlocal enriched, errors, merged
+        # A row deleted mid-batch by a concurrent merge → any lazy attribute
+        # access on it raises ObjectDeletedError. Resolve the PK ONCE, up front,
+        # under guard: a benign per-entry race must never bubble out of the
+        # gather and fail the whole task (the logging handlers below reuse
+        # entry_id, so they never re-trigger the load on a dead row).
+        try:
+            entry_id = entry.id
+        except ObjectDeletedError:
+            errors += 1
+            return
         try:
             now = datetime.now(timezone.utc)
             if source == "deezer" and ext_id_map:
-                ext_id = ext_id_map.get(entry.id)
+                ext_id = ext_id_map.get(entry_id)
                 if not ext_id:
                     return
                 hit = await pool.deezer_get(f"/track/{ext_id}")
                 if not hit.get("id"):
                     logger.debug(
-                        "Deezer not found for catalog %s (track %s)", entry.id, ext_id
+                        "Deezer not found for catalog %s (track %s)", entry_id, ext_id
                     )
                     _mark_searched(entry, "deezer", now)
                     return
             else:
                 # M2M names when present (the displayed truth), else the flat
                 # column — correct for inline-crawled rows whose M2M is empty.
-                match_artist = m2m_names.get(entry.id) or entry.artist
+                match_artist = m2m_names.get(entry_id) or entry.artist
                 hit = await _search_deezer_async(
                     pool, match_artist, entry.title, isrc=entry.isrc
                 )
                 if not hit:
-                    logger.debug("Deezer not found for catalog %s", entry.id)
+                    logger.debug("Deezer not found for catalog %s", entry_id)
                     _mark_searched(entry, "deezer", now)
                     return
 
@@ -493,20 +504,29 @@ async def enrich_deezer_batch(
                 try:
                     from workers.deezer_enrich import link_catalog_artist_from_hit
 
-                    link_catalog_artist_from_hit(session, entry.id, hit)
+                    link_catalog_artist_from_hit(session, entry_id, hit)
                 except Exception:
                     # non-critical, sync_artists will catch up
                     logger.warning(
-                        "artist link failed for catalog %s", entry.id, exc_info=True
+                        "artist link failed for catalog %s", entry_id, exc_info=True
                     )
             _mark_searched(entry, "deezer", now)
         except DeezerHTTPError as e:
             # Deezer outage, not a "not found": leave deezer_searched_at unset
             # so the entry is retried by the next nightly run.
-            logger.warning("Deezer HTTP error for catalog %s: %s", entry.id, e)
+            logger.warning("Deezer HTTP error for catalog %s: %s", entry_id, e)
+            errors += 1
+        except ObjectDeletedError:
+            # The row was deleted mid-enrich by a concurrent merge (an attribute
+            # access raised after the PK was resolved). Nothing left to re-scan —
+            # count it and move on, but NEVER _mark_searched a row that no longer
+            # exists (marking an attempt on a deleted line is meaningless).
+            logger.warning(
+                "catalog %s deleted mid-enrich (concurrent merge), skipping", entry_id
+            )
             errors += 1
         except Exception as e:
-            logger.warning("Deezer enrich failed for catalog %s: %s", entry.id, e)
+            logger.warning("Deezer enrich failed for catalog %s: %s", entry_id, e)
             errors += 1
 
     # Process concurrently (rate limiter handles concurrency cap)

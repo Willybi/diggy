@@ -264,6 +264,8 @@ def crawl_single_playlist(self, playlist_id: int):
     Crawl une seule playlist (Deezer, TIDAL, ou Spotify) par son watched_entity ID.
     Uses direct DB access (bulk ops) + concurrent async enrichment.
     """
+    from workers.source_clients import DeezerQuotaError
+
     r = redis_lib.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
     # Lock timeout must exceed the task's time_limit (4500s) so it cannot expire mid-run
     lock = r.lock(f"crawl:playlist:{playlist_id}", timeout=4600)
@@ -273,6 +275,16 @@ def crawl_single_playlist(self, playlist_id: int):
 
     try:
         return _crawl_single_playlist_inner(self, playlist_id)
+    except DeezerQuotaError:
+        # A Deezer quota/rate-limit is transient, not a terminal failure: skip
+        # gracefully (no DLQ, no ERROR log) — the playlist is re-dispatched at
+        # the next crawl_radar beat. Caught at the wrapper so both fetch_meta
+        # AND fetch_tracks (which reach _deezer_get) are covered.
+        logger.warning(
+            "Deezer quota exceeded crawling playlist %s — skipping, retried next beat",
+            playlist_id,
+        )
+        return {"skipped": True, "playlist_id": playlist_id, "reason": "deezer_quota"}
     finally:
         try:
             lock.release()
