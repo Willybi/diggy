@@ -80,6 +80,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  N4   Majeurs frontend (vite 8, pinia 4...) BAS         2-3 jours    A FAIRE — inscrit 2026-08-09 (audit Q8) : vite 5→8 + vitest 3→4 ensemble, puis pinia 2→4 + vue-router 4→5 ; APRES AV5 (surface reduite) ; re-validation 18 vues + verif CDP
  C10  Pool similarite precalcule (nightly)  BAS         3-5 jours    CONDITIONNEL — inscrit 2026-08-09 (audit Q3b) : le « fix durable » du pool par requete ; declenche SEULEMENT si les mesures post-AV3 (RSS, latence /similar) restent insuffisantes
  X4   Integrite artiste & liaisons plateforme v2 (reliquats X3) MOYEN 4-6 jours TERMINE (2026-08-12) — inscrit 2026-08-10 (diagnostics /catalog/15952 + artiste « t e s t p r e s s ») : (1) reverify X3 n'a nettoye que les ids PARTAGES → ~73k beatport / ~106k deezer ids UNIQUES pre-X3 jamais revus ; (2) matcher valide contre catalog.artist (plat) != catalog_artists (M2M affiche) — 3670 divergences dont 1664 POST-X3 ; (3) 29101 lignes (~11%) sans lien catalog_artists → artiste non cliquable (fallback texte ArtistLinks) ; (4) recherche non insensible aux espaces → 41 artistes « espaces » introuvables. ORDRE : fix champ/liens AVANT re-drain. Code+outillage des 6 lots LIVRE & deploye 2026-08-12 (fedfee5 X4 + f7b1c19 X4.g + 905a73c X4.h, deploy_verify SAIN x3) ; scripts OPS appliques en prod 2026-08-12 apres dump : resync 2779+1583 flats, backfill 30078 lignes / 10715 artistes, reverify --pre-x3 106106 deezer + 73767 beatport reset ; compteurs integrite retombes (divergence 89 ambigues, sans-lien 8 N3, ids pre-X3 0) ; tuile pre-X3 retiree du monitoring (2f3fc21, nulle par definition) ; drain E1 auto ~7-8j en cours ; residuel delegue N3 (testpress/espaces sans separateur)
+ AV8  Robustesse workers/infra v3 (triage Sentry) HAUT  2-3 jours  A FAIRE — inscrit 2026-08-16 (triage /sentry_triage, 17 issues prod) : (1) HAUT worker `enrich` OOM/SIGKILL (DIGGY-APP-V/X, 1814 events) — `--max-memory-per-child` + cap conteneur, identifier la tache lourde (Essentia/beatport) ; (2) MOYEN `reclassify_genres_chunk` hang >1800s (DIGGY-APP-12/15/11, 537 events) — I/O bloquant _async_reclassify, timeout/item + chunks plus petits ; (3) MOYEN `/api/artists/` DiskFull shared memory (DIGGY-APP-13) — shm_size postgres OU borner list_artists ; (4) BAS `crawl_trackid_latest` echecs message vide (DIGGY-APP-D) — instrumenter CrawlLogger. Detail en section AV8. Fixes code rapides DIGGY-APP-4/10 traites hors AV8.
 ```
 
 ### Chantiers termines (reference)
@@ -2004,6 +2005,23 @@ Idee initiale ECARTEE (arbitrage 2026-08-07) : « precharger les 100 premieres l
 **Estimation : 3-5 jours**
 **Depend de : AV3 (palliatifs Q3a livres + mesures)**
 **Statut : CONDITIONNEL — inscrit 2026-08-09 (audit 2026-08, decision Q3b). NE SE DECLENCHE QUE si les mesures post-AV3 (RSS par requete, latence /similar et /radar/feed) restent insuffisantes. Le « fix durable » deja note dans RecommendationConfig : pool de candidats construit 1×/nuit au lieu d'une materialisation ~256k lignes par requete. Ne PAS toucher au bareme C2 (invariant #5 : jamais de LLM dans le scoring).**
+
+---
+
+## AV8 — Robustesse workers/infra v3 (triage Sentry 2026-08-16)
+
+**Priorite : HAUT** (portee par l'OOM worker enrich)
+**Estimation : 2-3 jours**
+**Statut : A FAIRE — inscrit 2026-08-16 (triage /sentry_triage sur les 17 issues prod non resolues). 4 items robustesse/infra. Les fixes code rapides (DIGGY-APP-4 quota Deezer, DIGGY-APP-10 race ObjectDeletedError) sont traites SEPAREMENT (diffs prets, hors AV8).**
+
+Source : issues Sentry prod (org `diggy-music`, projet `diggy-app`, region `de.sentry.io`). Dashboard : https://diggy-music.sentry.io/issues/?project=diggy-app
+
+- [ ] **AV8-01 (HAUT) — Worker `enrich` OOM/SIGKILL** [DIGGY-APP-V 1814 events + DIGGY-APP-X 1794 (WorkerLostError, meme racine), last seen 2026-08-14]. Le worker `diggy_worker_enrich` (`-Q enrich -c 2`) est OOM-kille (signal 9) sans `--max-memory-per-child` (le worker `celery,crawl` en a un a 1,5 Go). Le hotfix monitoring 080d34b traite le symptome (trous silencieux), PAS la cause. → identifier la tache memoire-lourde (suspects : `analyze_bpm_previews`/Essentia, `enrich_catalog_beatport`), ajouter `--max-memory-per-child` au worker enrich et/ou relever le cap conteneur ; mesurer le RSS par tache.
+- [ ] **AV8-02 (MOYEN) — `reclassify_genres_chunk` hang >1800s** [DIGGY-APP-12 537 events depuis 2026-08-10, + echos chord DIGGY-APP-15 / DIGGY-APP-11]. Des chunks de 10 ids restent bloques au-dela du `soft_time_limit=1800` (event loop en `selector.poll` idle) → SoftTimeLimitExceeded propre (l'autoretry-loop est deja regle par AV4). → investiguer l'I/O bloquant dans `_async_reclassify`, ajouter un timeout par item + chunks plus petits ; CONFIRMER si un run manuel `reclassify_all_genres` est encore en cours (tache pas au beat).
+- [ ] **AV8-03 (MOYEN) — `/api/artists/` DiskFull shared memory** [DIGGY-APP-13, 500 utilisateur]. La requete `unnest(catalog.genres) + group by` sur `catalog_artists x catalog` de `artist_service.list_artists` fait echouer un resize de segment shared memory PG a 8 Mo (`/dev/shm` tmpfs sature). → soit relever `shm_size` du conteneur `postgres` (docker-compose), soit borner/optimiser la requete (le contournement « >32767 params »).
+- [ ] **AV8-04 (BAS) — `crawl_trackid_latest` echecs a message vide** [DIGGY-APP-D, 46 events, ~1/j]. Le `CrawlLogger` logue « failed after 261027ms: » avec `str(exception)` VIDE → cause racine non capturee. → instrumenter le `CrawlLogger` pour capturer le type + la trace de l'exception racine avant tout fix.
+
+**Divergences doc reperees au triage (a corriger, p.ex. via AV7)** : (a) la case M3 (A3-04) plus bas est encore `[ ]` (« purge autoretry `reclassify_genres_chunk` 16200s ») alors que le code n'a plus d'autoretry et porte `soft_time_limit=1800` — le statut AV4 la dit faite ; (b) A3-08 devait router `reclassify_genres_chunk` vers la queue `enrich`, mais un run recent tournait sur `celery,crawl`.
 
 ---
 
