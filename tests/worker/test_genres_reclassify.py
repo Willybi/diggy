@@ -6,6 +6,7 @@ genres kept (idempotence after a network incident).
 finalize_reclassify / reclassify_genres_error: chord callback aggregation
 and error visibility in crawl_logs.
 """
+import asyncio
 import os
 import sys
 from unittest.mock import MagicMock
@@ -25,6 +26,20 @@ _MOCK_MODULES = [
 for _mod in _MOCK_MODULES:
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
+
+
+# reclassify_genres_chunk now imports SoftTimeLimitExceeded from celery.exceptions
+# to catch the soft limit gracefully (L3 / AV8-02). celery is absent in the test
+# env, so expose a REAL exception subclass — a bare MagicMock attribute would
+# break both the `except SoftTimeLimitExceeded` clause (needs a class inheriting
+# BaseException) and the `from celery.exceptions import ...` every chunk call
+# runs. Same technique as test_tasks_recrawl_sets.py.
+class _FakeSoftTimeLimitExceeded(Exception):
+    pass
+
+
+_celery_exceptions = sys.modules.setdefault("celery.exceptions", MagicMock())
+_celery_exceptions.SoftTimeLimitExceeded = _FakeSoftTimeLimitExceeded
 
 _celery_mock = MagicMock()
 
@@ -288,6 +303,89 @@ class TestReclassifyChunkIdempotence:
         assert sync_session.get(CatalogEntry, entry.id).genres == ["House", "Dance"]
 
 
+class TestReclassifyItemTimeout:
+    """AV8-02: a hung external call for one item must not freeze the chunk."""
+
+    def test_item_timeout_is_source_error_keeps_genres_and_continues(
+        self, monkeypatch, sync_engine, sync_session
+    ):
+        import httpx
+
+        slow = _make_entry(sync_session, title="Slow", normalized_key="slow - a")
+        fast = _make_entry(sync_session, title="Fast", normalized_key="fast - a")
+
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        # Tiny per-item ceiling; the module global is read at call time.
+        monkeypatch.setattr(genres_tasks, "RECLASSIFY_ITEM_TIMEOUT", 0.05)
+
+        async def _slow_or_hit(pool, title, artist, isrc, rcache=None):
+            if title == "Slow":
+                await asyncio.sleep(2)  # far above the 0.05s per-item timeout
+                return {"genre": {"name": "NeverApplied"}}
+            return {"genre": {"name": "Techno"}}
+
+        monkeypatch.setattr(workers.enrichment, "_search_beatport_async", _slow_or_hit)
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient())
+
+        stats = genres_tasks.reclassify_genres_chunk(
+            MagicMock(), [slow.id, fast.id], 0
+        )
+
+        # the hung item is counted as a source error, never cleared...
+        assert stats["errors"] == 1
+        assert stats["cleared"] == 0
+        # ...and the chunk keeps going: the next (fast) item is still classified
+        assert stats["beatport"] == 1
+        sync_session.expire_all()
+        # genres of the timed-out entry are left INTACT (source-error semantics)
+        assert sync_session.get(CatalogEntry, slow.id).genres == ["Old Genre"]
+        assert sync_session.get(CatalogEntry, fast.id).genres == ["Techno"]
+
+
+class TestReclassifySoftLimit:
+    """AV8-02: SoftTimeLimitExceeded ends the chunk cleanly with partial stats
+    (does not propagate → acks_late would otherwise crash-loop the chunk)."""
+
+    def test_soft_limit_returns_partial_stats_without_raising(
+        self, monkeypatch, sync_engine, sync_session
+    ):
+        import httpx
+
+        entry = _make_entry(sync_session)
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+
+        async def _fake_beatport(pool, title, artist, isrc, rcache=None):
+            return {"genre": {"name": "Techno"}}
+
+        monkeypatch.setattr(workers.enrichment, "_search_beatport_async", _fake_beatport)
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient())
+
+        # Drive the real coroutine (so the work commits), THEN raise the soft
+        # limit out of asyncio.run — as celery would once the soft limit fires.
+        # Raise the SAME class the task catches (read from celery.exceptions at
+        # call time): a sibling test file may have overwritten the registered
+        # SoftTimeLimitExceeded, so our module-local class isn't guaranteed to be
+        # the one `except SoftTimeLimitExceeded` matches under the full suite.
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        _orig_run = genres_tasks.asyncio.run
+
+        def _run_then_soft_limit(coro):
+            _orig_run(coro)
+            raise SoftTimeLimitExceeded()
+
+        monkeypatch.setattr(genres_tasks.asyncio, "run", _run_then_soft_limit)
+
+        result = genres_tasks.reclassify_genres_chunk(MagicMock(), [entry.id], 0)
+
+        # graceful: returns partial stats instead of propagating the soft limit
+        assert result["soft_limit_hit"] is True
+        assert result["beatport"] == 1
+        # the work committed before the limit fired is durable
+        sync_session.expire_all()
+        assert sync_session.get(CatalogEntry, entry.id).genres == ["Techno"]
+
+
 class TestFinalizeReclassify:
     """A3-10: the chord callback owns the aggregation + crawl_logs line."""
 
@@ -372,6 +470,29 @@ class TestReclassifyOrchestrator:
         genres_tasks.finalize_reclassify.s.assert_called_once_with(
             total=5, lock_token="orch-1"
         )
+
+    def test_default_chunk_size_is_200(
+        self, monkeypatch, sync_engine, sync_session
+    ):
+        # 201 entries → the new default (200) splits into 2 chunks; the old
+        # default (500) would have produced a single chunk (AV8-02 guard).
+        sync_session.add_all(
+            [
+                CatalogEntry(title=f"T{i}", artist="A", normalized_key=f"t{i} - a")
+                for i in range(201)
+            ]
+        )
+        sync_session.commit()
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        _install_redis(monkeypatch, acquired=True)
+        genres_tasks.finalize_reclassify.s.reset_mock()
+
+        self_mock = MagicMock()
+        self_mock.request.id = "orch-default"
+        # no chunk_size argument → the task's default (200) must apply
+        out = genres_tasks.reclassify_all_genres(self_mock)
+
+        assert out == {"dispatched": 2, "total": 201}
 
     def test_empty_catalog_dispatches_nothing(
         self, monkeypatch, sync_engine, sync_session

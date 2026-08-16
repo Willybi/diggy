@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 RECLASSIFY_LOCK_KEY = "lock:reclassify_genres"
 RECLASSIFY_LOCK_TTL = 21600  # 6h
 
+# Per-item wall-clock ceiling for one entry's Beatport+Deezer classification
+# (env-overridable). Without it a single external call that hangs (a stalled
+# Beatport scrape, a Deezer socket that never returns) freezes the WHOLE chunk
+# until the task-level soft_time_limit (1800s) fires — and, since the task did
+# not catch SoftTimeLimitExceeded, acks_late redelivered the chunk into a clean
+# crash-loop (537 Sentry events, AV8-02). Bound each item instead: a timeout is
+# treated as a source error (existing genres kept, the loop moves on). Read the
+# module global at call time so a test can monkeypatch it to a small value.
+RECLASSIFY_ITEM_TIMEOUT = int(os.environ.get("RECLASSIFY_ITEM_TIMEOUT", "120"))
+
 
 def _release_reclassify_lock(lock_token):
     """Conditionally release the reclassify single-instance lock.
@@ -65,10 +75,19 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
     error and found nothing; on source failure they are kept, so re-running
     the task after a network incident never destroys valid classifications.
 
-    Chunks are sized by the orchestrator (fixed number of ids, ~500) so the
+    Chunks are sized by the orchestrator (fixed number of ids, ~200) so the
     up-front `SELECT ... WHERE id IN (...)` never loads more than a bounded set
     of ORM rows into memory — keep it that way (a whole-catalog chunk OOMs).
+
+    Robustness (AV8-02): each item is bounded by RECLASSIFY_ITEM_TIMEOUT so a
+    hung external call can never freeze the whole chunk (a timeout counts as a
+    source error → genres kept, loop continues), and SoftTimeLimitExceeded is
+    caught so the task ends cleanly with the partial stats flushed (the per-50
+    commits make the work durable) instead of dying under the hard limit and
+    being redelivered by acks_late into a crash-loop. Twin of the soft-limit
+    handling in enrich_catalog_beatport (tasks/catalog.py).
     """
+    from celery.exceptions import SoftTimeLimitExceeded
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
@@ -77,6 +96,16 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
     from workers.db import get_engine
 
     engine = get_engine()
+
+    # Hoisted out of the coroutine so a SoftTimeLimitExceeded mid-run still yields
+    # the work committed so far (each 50-batch is committed before the next).
+    stats = {
+        "total": len(catalog_ids),
+        "deezer": 0,
+        "beatport": 0,
+        "cleared": 0,
+        "errors": 0,
+    }
 
     async def _async_reclassify():
         import httpx
@@ -97,14 +126,6 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
             logger.warning("Beatport cache unavailable: %s", e)
             rcache = None
 
-        stats = {
-            "total": len(catalog_ids),
-            "deezer": 0,
-            "beatport": 0,
-            "cleared": 0,
-            "errors": 0,
-        }
-
         async with HttpPool(limiter) as pool:
             with Session(engine) as session:
                 entries = (
@@ -118,7 +139,17 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
                 )
 
                 async with httpx.AsyncClient(timeout=10) as dz_client:
-                    for i, entry in enumerate(entries):
+
+                    async def _process_one(entry):
+                        """Classify one entry (Beatport → Deezer fallback).
+
+                        Mutates ``entry.genres`` + ``stats`` in place and returns
+                        ``(found, source_error)``. Runs under a per-item
+                        ``asyncio.wait_for`` so a stalled external call can't
+                        freeze the whole chunk; the cancellation raised on timeout
+                        is a BaseException, so the per-source ``except Exception``
+                        below never swallows it.
+                        """
                         found = False
                         source_error = False
 
@@ -182,6 +213,27 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
                                 stats["errors"] += 1
                                 source_error = True
 
+                        return found, source_error
+
+                    for i, entry in enumerate(entries):
+                        try:
+                            found, source_error = await asyncio.wait_for(
+                                _process_one(entry),
+                                timeout=RECLASSIFY_ITEM_TIMEOUT,
+                            )
+                        except asyncio.TimeoutError:
+                            # A hung source is not a "no genre" answer: count it
+                            # as a source error, KEEP the existing genres (same
+                            # semantics as source_error=True), and move on to the
+                            # next item instead of freezing the whole chunk.
+                            logger.warning(
+                                "Reclassify item timed out (>%ss) for catalog %s",
+                                RECLASSIFY_ITEM_TIMEOUT,
+                                entry.id,
+                            )
+                            stats["errors"] += 1
+                            found, source_error = False, True
+
                         # Clearing is only legitimate when every source gave a
                         # valid (empty) answer; a failed source means we cannot
                         # tell "no genre" from "source down" → keep existing.
@@ -203,14 +255,27 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
 
                     session.commit()
 
-        return stats
-
+    # Catch the soft limit so the run ends cleanly (status success) with the
+    # partial stats flushed instead of propagating to a hard-limit SIGKILL that
+    # acks_late would redeliver into a crash-loop (AV8-02). A genuine chunk-level
+    # error still surfaces (re-raised) so the chord errback/DLQ can record it.
+    soft_limit_hit = False
     try:
-        result = asyncio.run(_async_reclassify())
+        asyncio.run(_async_reclassify())
+    except SoftTimeLimitExceeded:
+        soft_limit_hit = True
+        logger.warning(
+            "reclassify_genres_chunk %d hit soft time limit; "
+            "flushing partial stats: %s",
+            chunk_index,
+            stats,
+        )
     except Exception:
         logger.exception("reclassify_genres_chunk %d failed", chunk_index)
         raise
 
+    result = dict(stats)
+    result["soft_limit_hit"] = soft_limit_hit
     logger.info("Chunk %d done: %s", chunk_index, result)
     return result
 
@@ -221,13 +286,16 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
     # NO autoretry: a retry would dispatch a SECOND chord of hundreds of chunks
     # on top of the first. If the dispatch itself fails, re-run manually.
 )
-def reclassify_all_genres(self, chunk_size: int = 500):
+def reclassify_all_genres(self, chunk_size: int = 200):
     """
     Orchestrator: splits the catalog into fixed-SIZE chunks and dispatches them
-    as a chord. Chunk by size (~500 ids), never by a fixed COUNT: a fixed count
+    as a chord. Chunk by size (~200 ids), never by a fixed COUNT: a fixed count
     over a growing catalog makes each chunk unbounded (~58k ids at 175k tracks),
     and `reclassify_genres_chunk` loads every chunk's rows into memory at once →
     OOM. A fixed size keeps per-chunk memory constant as the catalog grows.
+    The default was lowered 500→200 (AV8-02) as a secondary guard: a smaller
+    chunk finishes well within the 1800s soft limit, so a slow run is far less
+    likely to hit it (the per-item timeout is the primary defence).
 
     Single-instance (A8-03): a Redis lock skips the run if another full
     reclassify is already in flight — two overlapping runs would double the
@@ -260,7 +328,7 @@ def reclassify_all_genres(self, chunk_size: int = 500):
         return {"skipped": "already_running", "holder": holder}
 
     if chunk_size < 1:
-        chunk_size = 500
+        chunk_size = 200
 
     engine = get_engine()
 

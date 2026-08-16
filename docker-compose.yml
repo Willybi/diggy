@@ -8,6 +8,11 @@ services:
         limits:
           cpus: '2'
           memory: 1G
+    # Docker's default /dev/shm is 64 MB — saturated by the parallel HashAgg of
+    # GET /api/artists/ (unnest(genres) + group by), which failed to resize a
+    # shared memory segment ("No space left on device" → DiskFull). 256 MB gives
+    # the margin (memory cap stays 1G — /dev/shm draws on host RAM, not the cap).
+    shm_size: 256mb
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -135,7 +140,7 @@ services:
       resources:
         limits:
           cpus: '2'
-          memory: 1G
+          memory: 2G
     env_file: .env
     depends_on:
       postgres:
@@ -149,8 +154,12 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    # Recycle a child past ~780 MiB (KiB) — under the 1G cgroup cap here — so a
-    # leaking enrich child is retired cleanly rather than OOM-killed silently.
+    # 2G cap (raised from 1G): with -c 2, two children each at the ~781 MiB
+    # (KiB) recycle threshold weigh ~1.56 GiB — that does NOT fit under a 1G cap,
+    # so the worker was OOM-killed (signal 9). 2G leaves the margin, and
+    # --max-memory-per-child recycles a leaking child BETWEEN tasks (so it never
+    # interrupts a running task) BEFORE it can reach the cgroup cap and be
+    # OOM-killed silently (master survives → container never exits → no restart).
     command: celery -A workers.celery_app worker --loglevel=info -Q enrich -c 2 --max-memory-per-child=800000
     healthcheck:
       test: ["CMD-SHELL", "celery -A workers.celery_app inspect ping -d celery@$$HOSTNAME"]

@@ -198,5 +198,28 @@ class TestCrawlLoggerDurability:
                 select(CrawlLog).where(CrawlLog.task_type == "unit_error")
             ).scalar_one()
         assert row.status == "error"
-        assert row.error_message == "boom"
+        # AV8-04: error_message is now type-prefixed ("<ExcType>: <str(e)>")
+        # so a blank-str() exception still records the type. The original
+        # message is preserved after the prefix.
+        assert row.error_message == "ValueError: boom"
         assert row.finished_at is not None
+
+    def test_exit_error_message_prefixes_type_when_str_empty(self, sync_engine):
+        # AV8-04: some exceptions have an empty str() (a re-raised
+        # httpx.ReadTimeout, a bare TimeoutError()). Before the fix error_message
+        # was left blank ("failed after Nms: ") and the cause was undiagnosable —
+        # verify the type name is always kept so the row is never uninformative.
+        log_session = Session(sync_engine)
+        with pytest.raises(TimeoutError):
+            with CrawlLogger(log_session, task_type="unit_error_empty"):
+                raise TimeoutError()
+        log_session.close()
+
+        with Session(sync_engine) as verify:
+            row = verify.execute(
+                select(CrawlLog).where(CrawlLog.task_type == "unit_error_empty")
+            ).scalar_one()
+        assert row.status == "error"
+        assert str(TimeoutError()) == ""  # guard: the exception really is blank
+        assert row.error_message  # non-empty despite the blank str()
+        assert "TimeoutError" in row.error_message

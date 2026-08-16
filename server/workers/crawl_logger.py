@@ -7,7 +7,8 @@ Usage:
         log.set_stats({"inserted": 12, "enriched": 8})
     # The "running" row is committed at __enter__ so a killed worker's run
     # stays visible in admin; __exit__ UPDATEs it with duration_ms + status.
-    # On success: status="success"; on exception: status="error", error_message=str(e)
+    # On success: status="success"; on exception: status="error",
+    # error_message="<ExcType>: <str(e)>" (type-prefixed so it is never blank).
 """
 
 import logging
@@ -72,13 +73,22 @@ class CrawlLogger:
 
         if exc_type is not None:
             self._log.status = "error"
-            self._log.error_message = str(exc_val)[:2000]
+            # Prefix with the exception type name: some exceptions carry an empty
+            # str() (e.g. a re-raised httpx.ReadTimeout, a bare TimeoutError()),
+            # which left error_message blank in prod ("failed after 261027ms: ")
+            # and made the root cause undiagnosable. Keeping the type guarantees a
+            # non-empty, informative message. Still truncated to 2000 chars.
+            self._log.error_message = f"{exc_type.__name__}: {exc_val}"[:2000]
             logger.error(
-                "CrawlLog[%s] %s failed after %dms: %s",
+                "CrawlLog[%s] %s failed after %dms: %s: %s",
                 self._log.task_type,
                 self._log.target_label,
                 elapsed_ms,
+                exc_type.__name__,
                 exc_val,
+                # Full traceback so Sentry's logging integration captures the
+                # frames — exc_val alone is worthless when its str() is empty.
+                exc_info=(exc_type, exc_val, exc_tb),
             )
         else:
             self._log.status = "success"
