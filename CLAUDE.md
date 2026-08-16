@@ -300,3 +300,4 @@ Prefer these over ad-hoc equivalents. Suggest them to the user when relevant. `.
 - This file contains only stable invariants and commands. Volatile state (metrics, chantier progress) lives in the pointed docs.
 - When a convention changes or a new pitfall is discovered the hard way, propose adding it here.
 - Update the `Last verified` date whenever the file is audited against the code.
+- **Reading `docs/ROADMAP.md` (and this file)**: both have very dense lines — a single changelog/status entry is one line of several thousand tokens, so a full `Read` exceeds the tool's token limit. Explore them via targeted `Grep` (`^#{1,3} `, `Statut`, a chantier id like `AVn`/`Cn`) or `Read` with `offset`/`limit` on a located section — never the whole file at once.

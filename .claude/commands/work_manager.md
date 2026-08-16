@@ -58,6 +58,7 @@ Après avoir produit les prompts, arrête-toi et attends. Je te collerai les com
 - relis le code effectivement modifié (git diff, lecture des fichiers), ne te fie pas au compte rendu sur parole
 - vérifie la conformité à l'ordre de mission : périmètre respecté, rien d'oublié, pas de modifications hors sujet
 - vérifie que les modifications n'ont pas d'effet de bord sur le code hors périmètre : consulte la cartographie d'impacts de la phase 1 et contrôle que les consommateurs du code modifié fonctionnent toujours (signatures, contrats, comportements)
+- si un compte rendu mentionne des fichiers modifiés HORS de son lot (signal d'une exécution parallèle dans un tree partagé, malgré la consigne série de la Phase 2), ne conclus pas au non-clobbering sur parole : relance la suite de tests COMPLÈTE et confirme PAR NOM les livrables de chaque lot avant de valider (ils ne sont sûrs QUE si les lots touchent des fichiers strictement disjoints)
 - rejoue les tests si pertinent
 - verdict : soit VALIDÉ, soit CORRECTIONS REQUISES avec un prompt correctif prêt à renvoyer à l'agent
 - après deux allers-retours correctifs infructueux sur un même lot, arrête les corrections et propose-moi soit de redécouper le lot, soit une analyse du blocage
