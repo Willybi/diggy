@@ -27,3 +27,5 @@ Contraintes strictes :
 
 ## Étape 3 : Rapport
 Résume en 3-5 lignes : quels statuts ont changé et pourquoi. Si des travaux effectués ne correspondent à aucun chantier de la roadmap, liste-les à part sans toucher au document.
+
+Termine par un **nom de commit proposé** pour ce changement de roadmap, au format `docs(roadmap): <code chantier> <ancien statut> → <nouveau statut> (<résumé court>)` (ex. `docs(roadmap): D9 A FAIRE → TERMINE (fluidité navigation — KeepAlive + prefetch nav)`). Le commit roadmap est TOUJOURS séparé du commit du chantier (que le work manager a déjà proposé de son côté). Ne committe pas toi-même.

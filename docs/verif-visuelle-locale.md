@@ -38,6 +38,16 @@ for t in Base.metadata.sorted_tables:
 ```
 `ADD COLUMN IF NOT EXISTS` (sans transaction) = les colonnes existantes sont ignorées, et les erreurs sur des **tables** absentes (ajoutées par des migrations postérieures, non nécessaires aux 4 listes) ne bloquent pas le reste.
 
+**Tables entières manquantes** (pas seulement des colonnes) : une migration postérieure peut avoir CRÉÉ une table absente du volume `create_all` — la passe ADD COLUMN ci-dessus ne crée pas les tables. Symptôme : `500 UndefinedTableError: relation "X" does not exist` sur un endpoint (vu 2026-08-17 : `followed_artists` sur `GET /api/artists/`). Fix idempotent (`create_all` avec `checkfirst` par défaut ne crée QUE les tables absentes) :
+```
+docker compose exec -T api python -c "import asyncio, models
+from database import engine, Base
+async def m():
+    async with engine.begin() as c: await c.run_sync(Base.metadata.create_all)
+asyncio.run(m())
+print('CREATE_ALL_OK')"
+```
+
 ## 4. Obstacle nginx — reverse-proxy local non câblé
 Symptôme : `:PORT` refuse ; `docker compose exec nginx nginx -T` ne montre aucun `server`/`listen` (le `conf.d/default.conf` est **vide** et bind-mounté). Le container `frontend` sert bien le SPA statique sur son `:80` mais **sans** proxy `/api`.
 Fix : poser une conf sibling throwaway (ne PAS écraser `default.conf`, il est busy/mounté) —
