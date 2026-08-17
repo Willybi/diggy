@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import httpx
 from celery_client import celery
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -82,6 +82,7 @@ async def browse(
     sort: str = "title",
     ids: list[int] | None = None,
     exclude_ids: list[int] | None = None,
+    genres: list[str] | None = None,
 ):
     """All playlists in the system, with a `followed` flag for the given user,
     server-side sort/filter and the dominant genres deduced per playlist."""
@@ -92,6 +93,11 @@ async def browse(
 
     from services.catalog_service import catalog_visible
     from services.genre_service import aggregate_top_genres, ensure_pillar_cache
+
+    # Genre filter shares the DJ-set dominance threshold (D8): a playlist matches a
+    # style only when it makes up >= GENRE_MIN_SHARE_PCT of its visible tracks —
+    # a plain ">=1 track" match would surface almost every multi-style playlist.
+    from services.set_service import GENRE_MIN_SHARE_PCT
 
     # Warm the pillar cache up front (mirrors list_sets/get_detail): its loader
     # rolls the session back on failure, so it must run BEFORE we hold any ORM row
@@ -110,6 +116,26 @@ async def browse(
         stmt = stmt.where(WatchedEntity.id.in_(ids))
     if exclude_ids is not None:
         stmt = stmt.where(WatchedEntity.id.notin_(exclude_ids))
+
+    # Genre filter (dominance): keep a playlist only when a requested style covers
+    # >= GENRE_MIN_SHARE_PCT of its VISIBLE tracks. radar_tracks can carry the same
+    # catalog_id several times (unique is (entity, external_track_id)), so both sides
+    # of the ratio count DISTINCT catalog_id. catalog_visible lives INSIDE the
+    # subquery so a foreign private track never leaks its genre into the share.
+    # Placed before the count/offset so `total` and the page agree.
+    if genres:
+        genre_match = or_(*[CatalogEntry.genres.any(g) for g in genres])
+        genre_sub = (
+            select(RadarTrack.watched_entity_id)
+            .join(CatalogEntry, CatalogEntry.id == RadarTrack.catalog_id)
+            .where(RadarTrack.catalog_id.isnot(None), catalog_visible(user_id))
+            .group_by(RadarTrack.watched_entity_id)
+            .having(
+                func.count(func.distinct(case((genre_match, CatalogEntry.id)))) * 100
+                >= func.count(func.distinct(CatalogEntry.id)) * GENRE_MIN_SHARE_PCT
+            )
+        )
+        stmt = stmt.where(WatchedEntity.id.in_(genre_sub))
 
     # Ordering: leading '-' = descending, else ascending. Unknown key -> title asc
     # (the default). WatchedEntity.id.asc() is the final stable tie-break.

@@ -35,17 +35,30 @@ def _parse_id_csv(raw: str | None) -> list[int] | None:
     return out or None
 
 
+def _parse_str_csv(raw: str | None) -> list[str] | None:
+    """Parse a CSV of strings defensively (twin of sets.py). Blank tokens are
+    dropped; an empty CSV yields ``None`` (param ignored)."""
+    if not raw:
+        return None
+    out = [tok.strip() for tok in raw.split(",") if tok.strip()]
+    return out or None
+
+
 @router.get("/browse", response_model=WatchlistBrowseResponse)
 async def browse_playlists(
     sort: str = Query("title"),
     ids: str | None = None,
     exclude_ids: str | None = None,
+    genres: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """All playlists in the system, with a `followed` flag for the current user."""
+    """All playlists in the system, with a `followed` flag for the current user.
+
+    `genres` (CSV) filters to playlists whose dominant styles include a requested
+    genre (share >= threshold over the playlist's visible tracks — see browse)."""
     return await watchlist_service.browse(
         db,
         _uid(user),
@@ -54,6 +67,7 @@ async def browse_playlists(
         sort=sort,
         ids=_parse_id_csv(ids),
         exclude_ids=_parse_id_csv(exclude_ids),
+        genres=_parse_str_csv(genres),
     )
 
 

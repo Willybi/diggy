@@ -38,6 +38,11 @@
       </div>
     </header>
 
+    <!-- ── Contextual genre filter (D8) : removable chip, landed from Genre Detail ── -->
+    <div v-if="genreFilter" class="pl-filter-row">
+      <FilterChip label="Style" :value="genreFilter" @remove="clearGenre" />
+    </div>
+
     <!-- ── Table : shared grid header/rows, infinite scroll ── -->
     <section class="pl-table" aria-label="Liste des playlists surveillées">
       <div v-if="showSkeleton || items.length" class="pl-thead lt-thead">
@@ -313,6 +318,7 @@ import StyleTag from '../components/StyleTag.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SegFilter from '../components/SegFilter.vue'
 import AddModal from '../components/AddModal.vue'
+import FilterChip from '../components/filters/FilterChip.vue'
 
 // Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
 defineOptions({ name: 'WatchlistView' })
@@ -329,6 +335,10 @@ const mode = ref('all')
 const sortKey = ref('title') // title | creator | tracks | crawl
 const sortDir = ref('asc') // asc | desc
 const baseTotal = ref(0) // last unfiltered (all-mode) total, for the head sub-count
+// D8: contextual genre filter (raw name), URL-synced, landed from Genre Detail's
+// « Voir les N autres » shelf renvoi. No picker on this page — the chip is
+// removable and the only way in is the /playlists?genre= link.
+const genreFilter = ref('')
 
 // Composite sort sent server-side: leading '-' = descending.
 const sortParam = computed(() => (sortDir.value === 'desc' ? '-' : '') + sortKey.value)
@@ -340,6 +350,7 @@ useUrlSync(
     { ref: sortKey, param: 'sort', default: 'title' },
     { ref: sortDir, param: 'dir', default: 'asc' },
     { ref: mode, param: 'avis', default: 'all' },
+    { ref: genreFilter, param: 'genre', default: '' },
   ],
   { router, route },
 )
@@ -349,6 +360,7 @@ const { items, total, loading, hasMore, sentinel, fetch, fetchUpTo } = usePagina
   endpoint: '/api/watchlist/browse',
   pageSize: 24,
   sort: () => sortParam.value,
+  extraParams: () => (genreFilter.value ? { genres: genreFilter.value } : undefined),
 })
 
 // Scroll restoration on a back/forward return. The grid scrolls inside
@@ -403,7 +415,11 @@ const opinionOneShot = useOpinionOneShot({
   kind: 'playlist',
   refs: { items, total, hasMore, loading },
   unratedValue: 'unrated',
-  buildParams: () => ({ sort: sortParam.value, limit: 200, offset: 0 }),
+  buildParams: () => {
+    const p = { sort: sortParam.value, limit: 200, offset: 0 }
+    if (genreFilter.value) p.genres = genreFilter.value
+    return p
+  },
 })
 const { capped } = opinionOneShot
 
@@ -434,13 +450,17 @@ function goToPlaylist(id) {
   router.push(`/playlists/${id}`)
 }
 
+function clearGenre() {
+  genreFilter.value = ''
+}
+
 async function setOpinion(id, val) {
   // Optimistic store update; the row recolors reactively via opinionOf().
   await opinions.set('playlist', id, val)
 }
 
-// Mode / sort changes reload from the server.
-watch([mode, sortKey, sortDir], () => runFetch(true))
+// Mode / sort / genre changes reload from the server.
+watch([mode, sortKey, sortDir, genreFilter], () => runFetch(true))
 
 // ── Crawl live status (one keyed poll per playlist id) ──
 const crawlStatus = reactive({}) // id → 'queued' | 'running' | 'done'
@@ -665,6 +685,14 @@ onActivated(() => {
 }
 .pl-add {
   flex: none;
+}
+
+/* Contextual genre filter chip row (D8) — matches the page gutter. */
+.pl-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--page-px) var(--space-3);
 }
 
 /* ============ TABLE — shared grid header/rows ============ */
@@ -1184,6 +1212,9 @@ onActivated(() => {
   }
   .pl-sentinel,
   .pl-empty {
+    padding-inline: var(--page-px-mobile);
+  }
+  .pl-filter-row {
     padding-inline: var(--page-px-mobile);
   }
 }

@@ -101,6 +101,7 @@ async def list_artists(
     limit: int,
     offset: int,
     followed: bool = False,
+    genre: str | None = None,
 ) -> dict:
     from models import (
         Artist,
@@ -221,6 +222,20 @@ async def list_artists(
         # id_filter_query (genres/pillars/total).
         base_query = base_query.where(Artist.id.in_(followed_select))
         id_filter_query = id_filter_query.where(Artist.id.in_(followed_select))
+    if genre:
+        # D8: keep artists with >=1 VISIBLE catalog track carrying the raw genre
+        # name (presence, NOT the 20%-thresholded chips — an artist with a single
+        # track of the style still counts). Semi-join via SELECT subquery (never a
+        # materialized id list — bind-param cap). catalog_visible gates the tracks
+        # (C3); the derived genre chips stay viewer-agnostic, so a rare private
+        # track could match without showing its chip — accepted (catalog ~all shared).
+        genre_artist_ids = (
+            select(CatalogArtist.artist_id)
+            .join(CatalogEntry, CatalogEntry.id == CatalogArtist.catalog_id)
+            .where(CatalogEntry.genres.any(genre), catalog_visible(user_id))
+        )
+        base_query = base_query.where(Artist.id.in_(genre_artist_ids))
+        id_filter_query = id_filter_query.where(Artist.id.in_(genre_artist_ids))
 
     all_ids_result = await db.execute(id_filter_query)
     all_artist_ids = [r[0] for r in all_ids_result.all()]

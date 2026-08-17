@@ -80,6 +80,71 @@ class TestListArtists:
         assert names == {"Unknown", "SetOnly"}
 
 
+class TestListArtistsGenreFilter:
+    """D8: /artists?genre= keeps artists with >=1 VISIBLE catalog track carrying
+    the raw genre name (PRESENCE, not the 20 %-thresholded display chips)."""
+
+    async def _link(self, db, artist, cat):
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=artist.id, role="primary", position=0))
+
+    async def test_filter_by_genre_presence(self, client, db):
+        housey = Artist(name="Housey", normalized_name="housey")
+        techie = Artist(name="Techie", normalized_name="techie")
+        c_house = CatalogEntry(title="H", artist="Housey", normalized_key="housey|h", genres=["House"])
+        c_techno = CatalogEntry(title="T", artist="Techie", normalized_key="techie|t", genres=["Techno"])
+        db.add_all([housey, techie, c_house, c_techno])
+        await db.flush()
+        await self._link(db, housey, c_house)
+        await self._link(db, techie, c_techno)
+        await db.commit()
+
+        r = await client.get("/api/artists/?genre=House")
+        data = r.json()
+        assert {a["name"] for a in data["items"]} == {"Housey"}
+        assert data["total"] == 1
+        # The filter drives id_filter_query too → pillarCounts reflect the subset.
+        assert sum(data["pillarCounts"].values()) == 1
+
+    async def test_genre_filter_is_presence_not_thresholded(self, client, db):
+        """A single track of the genre qualifies, even below the 20 % chip threshold
+        (an artist with 1 Ambient track among 9 House tracks still matches Ambient)."""
+        a = Artist(name="Rare", normalized_name="rare")
+        db.add(a)
+        await db.flush()
+        amb = CatalogEntry(title="amb", artist="Rare", normalized_key="rare|amb", genres=["Ambient"])
+        db.add(amb)
+        await db.flush()
+        await self._link(db, a, amb)
+        for i in range(9):
+            h = CatalogEntry(title=f"h{i}", artist="Rare", normalized_key=f"rare|h{i}", genres=["House"])
+            db.add(h)
+            await db.flush()
+            await self._link(db, a, h)
+        await db.commit()
+
+        r = await client.get("/api/artists/?genre=Ambient")
+        assert {a["name"] for a in r.json()["items"]} == {"Rare"}
+
+    async def test_genre_filter_respects_catalog_visible(self, client, db, auth_user):
+        """A genre carried only by a foreign private track must not surface the
+        artist for a guest (C3). `client` is a guest → only shared rows visible."""
+        a = Artist(name="Hidden", normalized_name="hidden")
+        db.add(a)
+        await db.flush()
+        priv = CatalogEntry(
+            title="p", artist="Hidden", normalized_key="hidden|p", genres=["House"],
+            scope="private", owner_id=auth_user.id,
+        )
+        db.add(priv)
+        await db.flush()
+        await self._link(db, a, priv)
+        await db.commit()
+
+        r = await client.get("/api/artists/?genre=House")
+        assert r.json()["items"] == []
+        assert r.json()["total"] == 0
+
+
 class TestArtistDetail:
     async def test_returns_artist(self, client, db):
         a = Artist(name="CamelPhat", normalized_name="camelphat")

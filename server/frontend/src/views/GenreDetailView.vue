@@ -115,20 +115,19 @@
         </div>
       </div>
 
-      <!-- 3. Shelf Artistes -->
-      <ExpandableShelf
+      <!-- 3. Shelf Artistes — aperçu borné + renvoi vers /artists?genre= (D8.b).
+           L'ancien mode « déplié paginé » (ExpandableShelf) est remplacé par une
+           navigation vers la liste pré-filtrée, comme Sets/Playlists. -->
+      <RelBlock
         v-if="artists.length"
         class="shelf-panel shelf-artists"
         title="Artistes"
-        :items="artists"
-        :total="artistsTotal"
-        :loading="artistsLoading"
-        v-model:expanded="artistsExpanded"
-        v-model:page="artistsPage"
-        @load-page="onArtistsLoadPage"
+        :count="artistsTotal"
       >
-        <template #default="{ item: a }">
+        <div class="artists-grid">
           <ShelfCard
+            v-for="a in artists"
+            :key="a.id"
             variant="round"
             :image-src="a.hasArtwork ? `/storage/artist-artworks/${a.id}.jpg` : null"
             :title="a.name"
@@ -140,8 +139,15 @@
               <span v-if="a.inLibCount > 0" class="ac-lib">{{ fmtNum(a.inLibCount) }} en bib</span>
             </template>
           </ShelfCard>
-        </template>
-      </ExpandableShelf>
+        </div>
+        <RouterLink
+          v-if="artists.length < artistsTotal"
+          class="load-more load-more--link"
+          :to="`/artists?genre=${encodeURIComponent(genreName)}`"
+        >
+          Voir tous les artistes de ce genre
+        </RouterLink>
+      </RelBlock>
 
       <!-- 4. Shelf Sets — masquée si 0 ; pied « NN % de ce genre » (G7) -->
       <RelBlock v-if="sets.length" class="shelf-panel" title="Sets" :count="setsTotal">
@@ -162,14 +168,13 @@
             </template>
           </ShelfCard>
         </div>
-        <button
+        <RouterLink
           v-if="sets.length < setsTotal"
-          class="load-more"
-          :disabled="setsLoading"
-          @click="fetchSets(true)"
+          class="load-more load-more--link"
+          :to="`/sets?genre=${encodeURIComponent(genreName)}`"
         >
-          {{ setsLoading ? 'Chargement…' : `Voir les ${fmtNum(setsTotal - sets.length)} autres` }}
-        </button>
+          Voir tous les sets de ce genre
+        </RouterLink>
       </RelBlock>
 
       <!-- 5. Shelf Playlists — masquée si 0 ; pied glyph source + N tracks (G8) -->
@@ -196,18 +201,13 @@
             </template>
           </ShelfCard>
         </div>
-        <button
+        <RouterLink
           v-if="playlists.length < playlistsTotal"
-          class="load-more"
-          :disabled="playlistsLoading"
-          @click="fetchPlaylists(true)"
+          class="load-more load-more--link"
+          :to="`/playlists?genre=${encodeURIComponent(genreName)}`"
         >
-          {{
-            playlistsLoading
-              ? 'Chargement…'
-              : `Voir les ${fmtNum(playlistsTotal - playlists.length)} autres`
-          }}
-        </button>
+          Voir toutes les playlists de ce genre
+        </RouterLink>
       </RelBlock>
       <!-- 6. Tracks — aperçu fini : une seule page par état de filtre, la suite
            se consulte dans Explorer pré-filtré sur le genre (D8.b). -->
@@ -347,7 +347,6 @@ import TrackCard from '../components/TrackCard.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
-import ExpandableShelf from '../components/ExpandableShelf.vue'
 import ShelfCard from '../components/ShelfCard.vue'
 import RelBlock from '../components/RelBlock.vue'
 import SearchBox from '../components/SearchBox.vue'
@@ -363,15 +362,10 @@ const loading = ref(true)
 const genre = ref(null)
 const artists = ref([])
 const artistsTotal = ref(0)
-const artistsLoading = ref(false)
-const artistsExpanded = ref(false)
-const artistsPage = ref(0)
 const sets = ref([])
 const setsTotal = ref(0)
-const setsLoading = ref(false)
 const playlists = ref([])
 const playlistsTotal = ref(0)
-const playlistsLoading = ref(false)
 const neighbors = ref([])
 
 // Aperçu 8 cards (grilles 4 colonnes × 2 rangées) — le « Voir les N autres »
@@ -570,68 +564,43 @@ async function fetchGenre() {
   }
 }
 
+// Shelves are bounded PREVIEWS (SHELF_PREVIEW cards) since D8.b: the full list is
+// reached via the « Voir tou(te)s les … de ce genre » RouterLink to the pre-filtered
+// list page (no more in-place append / expand). The page-level `loading` covers the
+// initial fetch, so the shelves carry no per-shelf spinner.
 async function fetchArtists() {
-  artistsLoading.value = true
   try {
     const { data } = await api.get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, {
-      params: { limit: 12, offset: 0 },
+      params: { limit: SHELF_PREVIEW, offset: 0 },
     })
     artists.value = data.items
     artistsTotal.value = data.total
   } catch {
     artists.value = []
-  } finally {
-    artistsLoading.value = false
   }
 }
 
-function onArtistsLoadPage({ offset, limit }) {
-  artistsLoading.value = true
-  api
-    .get(`/api/genres/artists/${encodeURIComponent(genreName.value)}`, {
-      params: { limit, offset },
-    })
-    .then(({ data }) => {
-      artists.value = data.items
-      artistsTotal.value = data.total
-    })
-    .catch(() => {})
-    .finally(() => {
-      artistsLoading.value = false
-    })
-}
-
-async function fetchSets(append = false) {
-  setsLoading.value = true
+async function fetchSets() {
   try {
-    const params = { limit: append ? 12 : SHELF_PREVIEW }
-    if (append) params.offset = sets.value.length
     const { data } = await api.get(`/api/genres/sets/${encodeURIComponent(genreName.value)}`, {
-      params,
+      params: { limit: SHELF_PREVIEW },
     })
-    sets.value = append ? [...sets.value, ...data.items] : data.items
+    sets.value = data.items
     setsTotal.value = data.total
   } catch {
-    if (!append) sets.value = []
-  } finally {
-    setsLoading.value = false
+    sets.value = []
   }
 }
 
-async function fetchPlaylists(append = false) {
-  playlistsLoading.value = true
+async function fetchPlaylists() {
   try {
-    const params = { limit: append ? 12 : SHELF_PREVIEW }
-    if (append) params.offset = playlists.value.length
     const { data } = await api.get(`/api/genres/playlists/${encodeURIComponent(genreName.value)}`, {
-      params,
+      params: { limit: SHELF_PREVIEW },
     })
-    playlists.value = append ? [...playlists.value, ...data.items] : data.items
+    playlists.value = data.items
     playlistsTotal.value = data.total
   } catch {
-    if (!append) playlists.value = []
-  } finally {
-    playlistsLoading.value = false
+    playlists.value = []
   }
 }
 
@@ -705,8 +674,6 @@ watch(
     trackSearch.value = ''
     trackSort.value = 'recent'
     trackInLib.value = null
-    artistsExpanded.value = false
-    artistsPage.value = 0
     mergeQuery.value = ''
     mergeTarget.value = null
     mergeSuggestions.value = []
@@ -1044,23 +1011,21 @@ onMounted(fetchGenre)
 }
 
 /* ── 3. Artistes (ShelfCard round 72px + N tracks + N en bib) ── */
-.shelf-artists :deep(.shelf),
-.shelf-artists :deep(.shelf-grid) {
+/* Aperçu borné (D8.b) : grille propre à la vue (plus d'ExpandableShelf/crop) —
+   les cartes rondes gardent leur mise en forme via les règles .shelf-artists
+   :deep(.sc-*) ci-dessous. */
+.artists-grid {
+  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
-/* Repli mono-rangée à toute largeur : rangée 1 explicite, rangées implicites à 0
-   (row-gap: 0 pour ne pas gonfler la boîte clippée ; l'item d'une rangée 0, étiré
-   et overflow:hidden, se résout à 0 et ne peint rien) — plus de max-height fragile.
-   Résidu accepté : les items masqués restent dans le DOM (liens tabbables invisibles),
-   comme le crop 180px d'origine du composant. */
-.shelf-artists :deep(.shelf) {
-  grid-template-rows: auto;
-  grid-auto-rows: 0;
-  row-gap: 0;
-  max-height: none;
-}
-.shelf-artists :deep(.shelf > *) {
-  overflow: hidden;
+/* ShelfCard has a fixed width:120px (flex layout default) — reset it so the card
+   fills its grid cell (minmax(104px,1fr)) instead of overflowing at the narrow
+   palier ; same reset as .cards-grid, but WITHOUT align-items:stretch so the round
+   avatar stays centered (the card's own align-items:center). */
+.artists-grid :deep(.shelf-card) {
+  width: auto;
 }
 .shelf-artists :deep(.sc-img) {
   width: 72px;
@@ -1502,8 +1467,7 @@ onMounted(fetchGenre)
     width: var(--touch-min);
     height: var(--touch-min);
   }
-  .shelf-artists :deep(.shelf),
-  .shelf-artists :deep(.shelf-grid) {
+  .artists-grid {
     grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   }
   .cards-grid {

@@ -124,9 +124,16 @@
             Afficher les {{ artist.catalog_tracks.length - 10 }} autres tracks
           </button>
         </div>
-        <p v-if="artist.stats.nb_catalog > artist.catalog_tracks.length" class="more-note">
-          … et {{ artist.stats.nb_catalog - artist.catalog_tracks.length }} autres tracks au catalog
-        </p>
+        <!-- D8.c : les tracks au-delà de l'aperçu se consultent dans Explorer
+             pré-filtré sur l'artiste (filtre artist_id[], chip hydratée). -->
+        <RouterLink
+          v-if="artist.stats.nb_catalog > artist.catalog_tracks.length"
+          class="more-link"
+          :to="`/explorer?artist_id=${artist.id}`"
+        >
+          Voir les {{ fmtNum(artist.stats.nb_catalog - artist.catalog_tracks.length) }} autres
+          tracks dans Explorer
+        </RouterLink>
       </section>
 
       <!-- slot futur: Albums / Sorties — aucun rendu tant que l'objet album n'existe pas -->
@@ -147,6 +154,11 @@
             </template>
           </SetCard>
         </div>
+        <!-- D8.c : renvoi vers la liste des sets pré-filtrée sur l'artiste
+             (filtre SetArtist — la même relation que cette grille). -->
+        <RouterLink class="more-link" :to="`/sets?artist_id=${artist.id}`">
+          Voir ces sets dans la liste
+        </RouterLink>
       </section>
 
       <!-- 5. Artistes proches (A9) — ExpandableShelf + ShelfCard round, avatar + nom -->
@@ -249,7 +261,7 @@ import ExpandableShelf from '../components/ExpandableShelf.vue'
 import TrackCard from '../components/TrackCard.vue'
 import SetCard from '../components/SetCard.vue'
 import PlatformLink from '../components/PlatformLink.vue'
-import { pl } from '../utils/format'
+import { fmtNum, pl } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -705,11 +717,20 @@ watch(
   justify-content: center;
   margin-top: var(--space-3);
 }
-.more-note {
-  margin: var(--space-3) 0 0;
+/* Contextual renvoi to a pre-filtered list page (D8.c) — Tracks → Explorer,
+   Sets → the sets list. Centered accent link, underline on hover only. */
+.more-link {
+  display: block;
+  width: fit-content;
+  margin: var(--space-3) auto 0;
+  padding: var(--space-15) var(--space-4);
   text-align: center;
-  font: 400 var(--fs-xs)/1.4 var(--font-mono);
-  color: var(--ink-3);
+  text-decoration: none;
+  font: 500 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--accent);
+}
+.more-link:hover {
+  text-decoration: underline;
 }
 
 /* ============ SETS (A5, A7) ============ */

@@ -43,6 +43,7 @@
 - **Spec** : `docs/refonte-ui/handoff-explorer/BRIEF-filtres-partages.md` (contrat consommateur inclus). Consommateurs : Explorer (1re implémentation) puis **Radar** (« filtres façon Explorer », décision figée) et toute liste filtrable.
 - ⚠️ Implémentation : le repo a déjà un `SegFilter.vue` (segments de listes existantes) — le `SegmentedFilter` de cette famille est un composant distinct ; nommer sans collision (ex. préfixe famille) et ne PAS modifier `SegFilter`.
 - Statut : 🟡 spec livrée (2026-07-21), 1re implémentation = chantier Explorer (lot composants dédié).
+- **D8 (2026-08-17) — filtres genre/artiste contextuels sur les listes** : les renvois de Genre Detail (« Voir tous les X de ce genre ») et d'Artist Detail (« Voir ces sets/tracks ») ouvrent une liste **pré-filtrée**, avec chip retirable. Deux implémentations coexistent selon le modèle d'état de la vue destinataire, **volontairement** : (a) `<FilterBar>`/`useFilterState` (Explorer + **Sets**, qui gagne un criterion `artist_id` porté par cette famille — chip hydratée, mais **sans contrôle** dans le panneau) ; (b) chip **ad-hoc léger** `<FilterChip>` standalone + `useUrlSync` sur **Artists** et **Playlists** (modèle refs, pas de `FilterBar` — retrofit jugé trop lourd pour un simple atterrissage contextuel). Règle : même **param URL** (`genre`, ids en repeated `artist_id`), pas de picker (l'entrée est le lien), retrait via la croix de la chip.
 
 ## Navigation (WIP — William)
 - **Vraie page Radar** dédiée **+ onglet séparé dans Catalog**. Structure encore à travailler.

@@ -82,3 +82,6 @@ Statut : ✅ figé  |  Vue : `views/SetsView.vue`
 - **Transverse** : aucun nouveau composant (tous livrés).
 
 **Dépend de** : rien (composants transverses tous livrés).
+
+## Amendement D8.c (2026-08-17) — filtre artiste contextuel
+`/sets` gagne un param back `artist_id` (CSV) filtrant sur **`SetArtist`** (la même relation que la section Sets d'Artist Detail — pas `set_tracks`, choix assumé ; roots-only déjà garanti par la requête principale). Front : criterion `artist_id` (`type:'multi'`, `chipPerValue`, ids en URL / `{id,name}` en état) porté par `useFilterState` comme sur Explorer, **chip retirable hydratée** via `GET /api/artists/?ids=` — **sans contrôle dans le panneau** (arrivée contextuelle depuis Artist Detail « Voir ces sets dans la liste », jamais un picker). Le filtre `genres` (dominance ≥ 25 %, D6) est inchangé. Aucune migration.

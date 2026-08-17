@@ -102,3 +102,6 @@ Liste des **playlists surveillées** (watchlist / sources radar).
 **Dépend de** : `<PlatformLink>` (transverse).
 
 > **Résolu (validé)** : le concept « suivre une playlist » est **masqué de l'UI** (liste + détail) — ajoutée = surveillée par défaut ; mécanisme back `user_follows`/priorité **conservé** (sans effet tant que la watchlist reste sous le cap de 200).
+
+## Amendement D8 (2026-08-17) — filtre genre contextuel
+`GET /api/watchlist/browse` gagne un param `genres` (CSV) en **dominance ≥ 25 %** (`GENRE_MIN_SHARE_PCT`, jumeau /sets ; `COUNT(DISTINCT catalog_id)` car `radar_tracks` peut dupliquer un catalog_id ; `catalog_visible` **dans la sous-requête**, posé avant le count pour que `total` soit cohérent). Front : `genreFilter` (ref, URL-syncée via `useUrlSync` param `genre`) + **chip retirable** `<FilterChip>` standalone (cette vue n'a pas de `<FilterBar>`) + injection dans `extraParams` ET `opinionOneShot.buildParams` (sinon le filtre s'évapore en mode avis). Landing depuis le renvoi Genre Detail « Voir toutes les playlists de ce genre » → `/playlists?genre=`. Pas de picker (arrivée contextuelle, retirable). Aucune migration.

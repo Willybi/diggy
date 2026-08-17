@@ -487,6 +487,58 @@ class TestListSetsFilters:
         assert {it["title"] for it in r.json()["items"]} == {"One Track"}
 
 
+class TestListSetsArtistFilter:
+    """D8.c: /sets?artist_id= filters to sets crediting the DJ via SetArtist —
+    the SAME relation Artist Detail's Sets section lists (contextual renvoi)."""
+
+    async def test_filter_by_artist_id(self, client, db):
+        a1 = Artist(name="ANNA", normalized_name="anna")
+        a2 = Artist(name="Zeta", normalized_name="zeta")
+        db.add_all([a1, a2])
+        s_anna = DJSet(source="trackid", title="ANNA Live")
+        s_zeta = DJSet(source="trackid", title="Zeta Live")
+        db.add_all([s_anna, s_zeta])
+        await db.flush()
+        db.add(SetArtist(set_id=s_anna.id, artist_id=a1.id, role="main", position=1))
+        db.add(SetArtist(set_id=s_zeta.id, artist_id=a2.id, role="main", position=1))
+        await _attach_identified_track(db, s_anna)
+        await _attach_identified_track(db, s_zeta)
+        await db.commit()
+
+        r = await client.get(f"/api/sets/?artist_id={a1.id}")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"ANNA Live"}
+        assert data["total"] == 1
+
+        # CSV of several ids = OR.
+        r = await client.get(f"/api/sets/?artist_id={a1.id},{a2.id}")
+        assert {it["title"] for it in r.json()["items"]} == {"ANNA Live", "Zeta Live"}
+
+        # an all-junk CSV drops the filter entirely.
+        r = await client.get("/api/sets/?artist_id=abc")
+        assert r.json()["total"] == 2
+
+    async def test_artist_filter_is_roots_only(self, client, db):
+        """A child set credited to the artist stays out of the listing (roots-only
+        is enforced by the main query, so the artist filter inherits it)."""
+        a = Artist(name="ANNA", normalized_name="anna")
+        db.add(a)
+        parent = DJSet(source="trackid", title="Parent")
+        db.add(parent)
+        await db.flush()
+        child = DJSet(source="trackid", title="Child", parent_set_id=parent.id)
+        db.add(child)
+        await db.flush()
+        db.add(SetArtist(set_id=child.id, artist_id=a.id, role="main", position=1))
+        await _attach_identified_track(db, parent)
+        await _attach_identified_track(db, child)
+        await db.commit()
+
+        r = await client.get(f"/api/sets/?artist_id={a.id}")
+        assert r.json()["items"] == []
+        assert r.json()["total"] == 0
+
+
 class TestSetDetail:
     async def test_returns_set(self, client, db):
         s = DJSet(source="trackid", title="Test Set")

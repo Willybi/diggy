@@ -207,6 +207,81 @@ class TestBrowsePlaylists:
         assert "Tech House" in genres
         assert item["top_genres"][0]["name"] == "House"
 
+    async def test_browse_filter_by_genre_dominance(self, client, db):
+        """D8: ?genres= keeps a playlist only when a style is DOMINANT (>= 25 %
+        of its DISTINCT visible tracks). radar_tracks duplicate catalog_id, so the
+        share counts COUNT(DISTINCT catalog_id) — a style repeated over many rows
+        but few distinct tracks does NOT qualify."""
+        from models import CatalogEntry, RadarTrack, WatchedEntity
+
+        house_only = WatchedEntity(external_id="d-house", source="deezer", title="House Only")
+        mostly_techno = WatchedEntity(
+            external_id="d-techno", source="deezer", title="Mostly Techno"
+        )
+        db.add_all([house_only, mostly_techno])
+        await db.flush()
+
+        async def _cat(genres, key):
+            c = CatalogEntry(title=key, normalized_key=key, genres=genres, scope="shared")
+            db.add(c)
+            await db.flush()
+            return c
+
+        # House Only: 2 distinct House tracks -> 2/2 = 100 %.
+        for i in range(2):
+            c = await _cat(["House"], f"house-only-{i}")
+            db.add(RadarTrack(
+                watched_entity_id=house_only.id, external_track_id=f"ho-{i}",
+                source="deezer", title=f"t{i}", catalog_id=c.id,
+            ))
+        # Mostly Techno: ONE House catalog repeated over 5 radar rows + 6 distinct
+        # Techno. DISTINCT: 1 House / 7 = 14 % -> excluded. (Row-count would be
+        # 5/11 = 45 % and wrongly keep it — this proves COUNT(DISTINCT).)
+        house_dup = await _cat(["House"], "techno-house-dup")
+        for j in range(5):
+            db.add(RadarTrack(
+                watched_entity_id=mostly_techno.id, external_track_id=f"mt-h-{j}",
+                source="deezer", title="hdup", catalog_id=house_dup.id,
+            ))
+        for i in range(6):
+            c = await _cat(["Techno"], f"techno-{i}")
+            db.add(RadarTrack(
+                watched_entity_id=mostly_techno.id, external_track_id=f"mt-t-{i}",
+                source="deezer", title=f"tt{i}", catalog_id=c.id,
+            ))
+        await db.commit()
+
+        r = await client.get("/api/watchlist/browse?genres=House")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"House Only"}
+        assert data["total"] == 1
+
+    async def test_browse_genre_filter_respects_catalog_visible(self, client, db):
+        """A style carried ONLY by a foreign private track must not make a playlist
+        match for another viewer (C3, mirrors the top_genres perimeter). `client`
+        here is auth'd as auth_user, so `other`'s private track is invisible."""
+        from models import CatalogEntry, RadarTrack, User, WatchedEntity
+
+        other = User(email="pgf@test.com", username="pgf", google_id="g-pgf", is_active=True)
+        entity = WatchedEntity(external_id="d-hidden", source="deezer", title="Hidden Genre")
+        db.add_all([other, entity])
+        await db.flush()
+        c = CatalogEntry(
+            title="secret", normalized_key="secret|k", genres=["House"],
+            scope="private", owner_id=other.id,
+        )
+        db.add(c)
+        await db.flush()
+        db.add(RadarTrack(
+            watched_entity_id=entity.id, external_track_id="h-1",
+            source="deezer", title="secret", catalog_id=c.id,
+        ))
+        await db.commit()
+
+        r = await client.get("/api/watchlist/browse?genres=House")
+        assert r.json()["items"] == []
+        assert r.json()["total"] == 0
+
 
 # ── POST /api/watchlist/ ──────────────────────────────────────────────────────
 

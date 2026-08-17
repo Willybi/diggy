@@ -35,6 +35,7 @@ async def list_sets(
     ids: list[int] | None,
     exclude_ids: list[int] | None,
     genres: list[str] | None,
+    artist_ids: list[int] | None = None,
     duration_min: int | None,
     duration_max: int | None,
     year_min: int | None,
@@ -120,6 +121,16 @@ async def list_sets(
             .having(hit_count * 100 >= track_count * GENRE_MIN_SHARE_PCT)
         )
         stmt = stmt.where(DJSet.id.in_(genre_sub))
+
+    # Artist filter (D8.c): sets crediting one of these DJs via SetArtist — the
+    # SAME relation the Artist Detail "Sets" section lists, so the contextual
+    # "/sets?artist_id=" landing mirrors it. Roots-only is already enforced by the
+    # main query (parent_set_id IS NULL). Applied to stmt so `total` honours it.
+    if artist_ids:
+        artist_sub = select(SetArtist.set_id).where(
+            SetArtist.artist_id.in_(artist_ids)
+        )
+        stmt = stmt.where(DJSet.id.in_(artist_sub))
 
     # Track-count bounds — total_tracks is an aggregate, so these are HAVING
     # clauses (AND-ed with the identified>0 gate above).

@@ -257,11 +257,16 @@ describe('ArtistDetailView tracks', () => {
     expect(wrapper.find('.tracks-more').exists()).toBe(false)
   })
 
-  it('notes the extra catalog tracks not carried in the payload', async () => {
+  it('links the extra catalog tracks to the pre-filtered Explorer (D8.c)', async () => {
     const wrapper = await mountView(withTracks(15, 100))
-    const note = wrapper.find('.more-note')
-    expect(note.exists()).toBe(true)
-    expect(note.text()).toContain('85')
+    const link = wrapper.find('.more-link')
+    expect(link.exists()).toBe(true)
+    expect(link.text()).toContain('85')
+    expect(link.text()).toContain('Explorer')
+    const stub = wrapper
+      .findAllComponents(RouterLinkStub)
+      .find((c) => c.classes().includes('more-link'))
+    expect(stub.props('to')).toBe('/explorer?artist_id=42')
   })
 })
 
@@ -314,6 +319,15 @@ describe('ArtistDetailView sets', () => {
     expect(badges).toHaveLength(1)
     expect(badges[0].text()).toContain('70')
     expect(wrapper.findAll('.set-ident-lbl')).toHaveLength(1)
+  })
+
+  it('links the sets to the pre-filtered sets list (D8.c)', async () => {
+    const wrapper = await mountView(setsArtist())
+    const stub = wrapper
+      .findAllComponents(RouterLinkStub)
+      .find((c) => c.classes().includes('more-link'))
+    expect(stub).toBeTruthy()
+    expect(stub.props('to')).toBe('/sets?artist_id=42')
   })
 })
 

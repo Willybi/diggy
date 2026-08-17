@@ -20,6 +20,7 @@ router = APIRouter(prefix="/artists", tags=["artists"])
 async def list_artists(
     sort: str = Query("catalog", pattern="^(catalog|lib|liked|disliked|alpha)$"),
     family: str | None = Query(None, max_length=100),
+    genre: str | None = Query(None, max_length=100),
     q: str | None = Query(None, max_length=200),
     no_deezer: bool = False,
     followed: bool = False,
@@ -31,8 +32,8 @@ async def list_artists(
 ):
     return await artist_service.list_artists(
         db, _uid(user),
-        sort=sort, family=family, q=q, no_deezer=no_deezer, followed=followed,
-        ids=ids, limit=limit, offset=offset,
+        sort=sort, family=family, genre=genre, q=q, no_deezer=no_deezer,
+        followed=followed, ids=ids, limit=limit, offset=offset,
     )
 
 

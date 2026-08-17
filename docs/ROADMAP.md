@@ -68,7 +68,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  E2   Analyse audio previews (BPM + Key)    MOYEN       3-5 jours    TERMINE (2026-08-08) — benchmark (BPM GO ~84% gate / KEY NO-GO) + outil local (e49ca04) + label front estime + AUTOMATISATION VPS task nocturne (cce583a+989329c : migration 0043, essentia dans l'image, carte admin) + courbe Monitoring (c2b724f) ; drain 00-03h ~8000/nuit self-tapering, tourne en prod
  C9   Embeddings audio & reco par contenu   BAS         8-12 jours   A FAIRE — moyen/long terme, phases separables
  D7   Admin mobile Flags + Lier (design)    BAS         2-3 jours    TERMINE (2026-08-08) — ABSORBE par D4 Vague 5 (perimetre = sous-ensemble strict de la finition responsive mobile livree : 12b7b87 + d212522 + revue design 667ceed)
- D8   Voir-plus contextuels (sous-boites → listes pre-filtrees) BAS 2-3 jours A FAIRE — inscrit 2026-08-03 (retour usage Genre Detail) ; D8.b livre 2026-08-04 avec la refonte Genre Detail (3574e1d)
+ D8   Voir-plus contextuels (sous-boites → listes pre-filtrees) BAS 2-3 jours IMPLEMENTE 2026-08-17 (code local, tests verts, NON deploye) — D8.a filtre genre back /playlists (dominance) + /artists (presence) + filtre artist_id /sets (SetArtist) ; D8.b chips URL 3 listes + renvois shelves Genre Detail (RouterLink, ExpandableShelf intact) ; D8.c renvois Artist Detail (sets/tracks) ; doc amendee. Reste : commit + deploy + /roadmap_update. Prior : D8.b tracklist livre 2026-08-04 (3574e1d)
  D9   Fluidite de navigation (cache vues + skeletons + prefetch) MOYEN 2-3 jours TERMINE (2026-08-17 ; df310ff, deploy_verify SAIN) — KeepAlive 6 vues listes + reconciliation scroll/lifecycle + prefetch chunk nav ; skeletons Sets/Playlists deja en place (D9.b non-regression) ; 676 tests front verts, eslint clean
  AV1  Quick wins audit 2026-08              HAUT        1-2 jours    TERMINE (2026-08-09 ; a09fafd, deploy_verify SAIN) — 21 items S / 6 lots : fuite Artist Detail M1, admin auto-classify + DLQ, buckets rate-limit + matcher suffixes (radar/feed, sets/search, preview-url, similar), lissage fetchUpTo (cap 3), bump MinIO 3G (Q7), tie-breaks, like_escape, alerte backup + logrotate
  AV2  Dependances backend & gate CI         HAUT        1-2 jours    TERMINE (2026-08-10 ; 50a1e39 + hotfix jinja2 3c0c8b6, deploy_verify SAIN) — jose 3.3→3.5 (pas 3.4 : plafond pyasn1) + multipart 0.0.32 + fastapi 0.141.1/starlette 1.6.0 + requests/curl-cffi/dotenv ; gate pip-audit BLOQUANT (ignore-vuln PYSEC-2025-185/2026-1325) ; nginx 1.29-alpine
@@ -81,6 +81,7 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  C10  Pool similarite precalcule (nightly)  BAS         3-5 jours    CONDITIONNEL — inscrit 2026-08-09 (audit Q3b) : le « fix durable » du pool par requete ; declenche SEULEMENT si les mesures post-AV3 (RSS, latence /similar) restent insuffisantes
  X4   Integrite artiste & liaisons plateforme v2 (reliquats X3) MOYEN 4-6 jours TERMINE (2026-08-12) — inscrit 2026-08-10 (diagnostics /catalog/15952 + artiste « t e s t p r e s s ») : (1) reverify X3 n'a nettoye que les ids PARTAGES → ~73k beatport / ~106k deezer ids UNIQUES pre-X3 jamais revus ; (2) matcher valide contre catalog.artist (plat) != catalog_artists (M2M affiche) — 3670 divergences dont 1664 POST-X3 ; (3) 29101 lignes (~11%) sans lien catalog_artists → artiste non cliquable (fallback texte ArtistLinks) ; (4) recherche non insensible aux espaces → 41 artistes « espaces » introuvables. ORDRE : fix champ/liens AVANT re-drain. Code+outillage des 6 lots LIVRE & deploye 2026-08-12 (fedfee5 X4 + f7b1c19 X4.g + 905a73c X4.h, deploy_verify SAIN x3) ; scripts OPS appliques en prod 2026-08-12 apres dump : resync 2779+1583 flats, backfill 30078 lignes / 10715 artistes, reverify --pre-x3 106106 deezer + 73767 beatport reset ; compteurs integrite retombes (divergence 89 ambigues, sans-lien 8 N3, ids pre-X3 0) ; tuile pre-X3 retiree du monitoring (2f3fc21, nulle par definition) ; drain E1 auto ~7-8j en cours ; residuel delegue N3 (testpress/espaces sans separateur)
  AV8  Robustesse workers/infra v3 (triage Sentry) HAUT  2-3 jours  TERMINE (2026-08-16 ; 45d7731, AUCUN modele/migration) — 4 lots : (1) worker `enrich` OOM/SIGKILL (DIGGY-APP-V/X) → cap conteneur `worker_enrich` 1G->2G ; (2) `reclassify_genres_chunk` hang >1800s (DIGGY-APP-12/15/11) → timeout/item RECLASSIFY_ITEM_TIMEOUT + catch SoftTimeLimitExceeded + chunk 500->200 ; (3) `/api/artists/` DiskFull shared memory (DIGGY-APP-13) → postgres `shm_size: 256mb` ; (4) `crawl_trackid_latest` echecs message vide (DIGGY-APP-D) → CrawlLogger prefixe le type d'exception + exc_info. Fixes code rapides DIGGY-APP-4/10 livres hors AV8 (616b430). 741 tests worker verts. Divergences doc pre-existantes (enrich_catalog_beatport genre_only, routing reclassify enrich, count catalog_artists) deleguees AV7.
+ AV9  Drain enrich — deadline interne elapsed BAS       1 jour       A FAIRE — inscrit 2026-08-17 (triage Sentry ; DIGGY-APP-T/W/J/V restent OUVERTES jusqu'au fix) : le signal soft-limit peut etre leve DANS les internals asyncio et avale par le handler du transport (preuve DIGGY-APP-J « Fatal write error on socket transport ») → il n'atteint jamais le catch de la tache, le run continue jusqu'au hard limit 3300s puis SIGKILL (~12 kills/mois, ≤1h de drain perdu chacun, lock TTL auto-heal). Fix = deadline time.monotonic() verifiee entre batches (marge sous le soft limit) sortant par le chemin du catch SoftTimeLimitExceeded existant (flush partiel, stats, release lock) ; cibles : enrich_catalog_beatport + jumelles enrich_catalog (Deezer) / analyze_bpm_previews
 ```
 
 ### Chantiers termines (reference)
@@ -1706,7 +1707,7 @@ Vectoriser les ~175k previews Deezer (30 s) avec un modele d'embedding audio pre
 **Priorite : BAS**
 **Estimation : 2-3 jours**
 **Depend de : rien de bloquant — s'appuie sur les filtres URL des listes (X2) et le filtre genres[] d'Explorer (D6 p.1). AUCUNE migration.**
-**Statut : A FAIRE — inscrit 2026-08-03, retour d'usage William sur Genre Detail fraichement livree. Avancement partiel : D8.b (tracklist Genre Detail → apercu borne + « Voir les N autres dans Explorer ») livre le 2026-08-04 avec la refonte Genre Detail (3574e1d).**
+**Statut : IMPLEMENTE 2026-08-17 (code + tests verts en local — 176 pytest D8 / 30 ArtistDetail + suites vues vertes en isole ; ruff/eslint clean, prettier LF clean ; NON encore commite/deploye). D8.a (filtre genre back + filtre artiste /sets) + D8.b (chips URL + renvois shelves Genre Detail + doc) + D8.c (renvois Artist Detail) livres. Cadrage tranche par William : semantique DOMINANCE >=25% pour /sets (INCHANGE, deja en prod) + /playlists, PRESENCE >=1 track pour /artists ; /sets?artist_id= sur SetArtist (jumeau de la section Sets d'Artist Detail). Review adversariale (6 dimensions + verif sceptique) : 1 VRAI defaut trouve+corrige = grille `.artists-grid` de Genre Detail sans le reset `width:auto` de `ShelfCard` (width:120px fixe -> debordement au palier etroit ; calque de `.cards-grid`). Residus ACCEPTES notes : (a) shelf Artistes = flat `catalog.artist`, destination `/artists?genre=` = `catalog_artists` M2M (destination = source de verite X4, renvoi sans compteur -> pas de N faux ; meme classe d'ecart que /sets presence<->dominance) ; (b) casse : renvois raw `genres.any` vs shelf `resolve_genre` = identique au renvoi tracklist `/explorer?genre=` deja livre (genreName canonique -> matche). Verif RENDU headless CDP de Genre Detail = RECOMMANDEE avant/apres deploy (non faite ici, limite de session ; le fix layout calque un pattern deja en prod). Reste : commit + push (deploy prod) -> /deploy_verify + coup d'oeil visuel Genre Detail -> bascule TERMINE via /roadmap_update. Prior : D8.b tracklist livre le 2026-08-04 (3574e1d).**
 
 ### Constat (retour usage 2026-08-03)
 
@@ -1716,21 +1717,21 @@ Etat des lieux verifie (2026-08-03) : Explorer sait DEJA filtrer par genre (`lis
 
 ### D8.a — Back : filtre genre sur les 3 listes (additif)
 
-- [ ] `GET /api/sets/` : param `genre` — semantique a trancher au cadrage (set ayant ≥1 track du genre, trie par nb de tracks du genre ? ou genre dominant `top_genres` ?)
-- [ ] `GET /api/watchlist/browse` : idem (meme mecanique radar_tracks→catalog que le `top_genres` existant)
-- [ ] `GET /api/artists/` : param `genre` (les genres d'artiste sont deja derives dynamiquement par `_artist_genres()`)
-- [ ] Perimetre `catalog_visible` respecte partout ; AUCUNE migration
+- [x] `GET /api/sets/` : le filtre genre EXISTAIT DEJA (param `genres` CSV, DOMINANCE >=25% `GENRE_MIN_SHARE_PCT`, cable front depuis D6) → D8.a-sets deja satisfait, laisse INCHANGE (semantique dominance retenue). D8.c y AJOUTE le param `artist_id` (CSV, filtre SetArtist)
+- [x] `GET /api/watchlist/browse` : param `genres` (CSV) en DOMINANCE >=25% (jumeau /sets ; `COUNT(DISTINCT catalog_id)` car radar_tracks duplique un catalog_id ; `catalog_visible` DANS la sous-requete, pose avant le count) — NEUF
+- [x] `GET /api/artists/` : param `genre` en PRESENCE >=1 track (semi-join `catalog_artists→catalog` via la subquery `id_filter_query`, sur base_query ET id_filter_query, `catalog_visible` inclus) — NEUF ; orthogonal au filtre PILIER (FamilyChips)
+- [x] Perimetre `catalog_visible` respecte dans chaque sous-requete ; AUCUNE migration
 
 ### D8.b — Front : renvois contextuels depuis Genre Detail
 
-- [ ] Chips/etat URL sur les 3 listes (la tuyauterie `useUrlSync`/`useFilterState` existe, X2) : `/sets?genre=X`, `/playlists?genre=X`, `/artists?genre=X` + chip retirable affichee
-- [ ] Genre Detail : « Voir les N autres » des shelves Sets/Playlists/Artistes → RouterLink vers la liste pre-filtree (remplace l'append inline et le mode deplie pagine)
-- [x] Genre Detail : tracklist → APERCU BORNE (1 page de 50) + « Voir les N autres dans Explorer » (`/explorer?genre=`) → regle l'inaccessibilite des Genres proches (pain declencheur) — **LIVRE PAR ANTICIPATION 2026-08-04** (mini-lot post-refonte, scroll infini retire, canal player programmatique preserve ; fiche genre-detail.md §5 amendee). Le reste de D8.b (chips URL + renvois shelves Sets/Playlists/Artistes) reste a faire (exige D8.a back)
-- [ ] Amender la fiche `genre-detail.md` §5 : « infinite scroll » → apercu borne + renvoi Explorer ; assumer la re-introduction CONTEXTUELLE de la fonction de l'ex-bouton « Tout filtrer dans Catalog » (retire du hero au chantier 80285ef — la fonction revient en pied de section, mieux placee)
+- [x] Chips/etat URL sur les 3 listes : `/sets?genre=X` (deja via le criterion genre existant de SetsView), `/playlists?genre=X` + `/artists?genre=X` (NEUF : `genreFilter` ref + `useUrlSync` param `genre` + `<FilterChip>` standalone + injection `extraParams` ET `opinionOneShot.buildParams`) + chip retirable affichee
+- [x] Genre Detail : « Voir les N autres » des shelves Sets/Playlists/Artistes → RouterLink vers la liste pre-filtree (append inline Sets/Playlists + mode deplie `ExpandableShelf` Artistes REMPLACES). Libelle SANS compteur pour Sets/Playlists (destination = DOMINANCE ≠ le compte PRESENCE du shelf → un « N » y serait faux) ; Artistes migre vers une grille locale `.artists-grid` + `<RelBlock>`, le composant partage `ExpandableShelf` reste INTACT
+- [x] Genre Detail : tracklist → APERCU BORNE (1 page de 50) + « Voir les N autres dans Explorer » (`/explorer?genre=`) — **LIVRE PAR ANTICIPATION 2026-08-04** (mini-lot post-refonte, scroll infini retire, canal player programmatique preserve)
+- [x] Amender la fiche `genre-detail.md` §5 (shelves + tracklist) + §3 (mention « infinite scroll ») ; + blocs additifs D8 dans `sets-list.md` / `playlists-list.md` / `artists-list.md` + `TRANSVERSE.md` (consommateurs du filtre) — FAIT 2026-08-17
 
 ### D8.c — Generalisation opportuniste (autres pages detail)
 
-- [ ] Artist Detail : grille sets → `/sets?artist=`, tracks depliees → `/explorer?artist=` (filtre `artist_id[]` deja supporte par Explorer) — necessite le param `artist` cote /sets (SetArtist ne couvre que 44/12345 sets, cf. reliquat enrichissement set→artiste : cadrer la semantique AVANT)
+- [x] Artist Detail : grille sets → `/sets?artist_id=` (param `artist_id` neuf cote /sets, filtre **SetArtist** = la relation exacte de la section Sets d'Artist Detail — pas `set_tracks`), tracks → `/explorer?artist_id=` (filtre `artist_id[]` deja supporte, chip nom **hydratee** via `/api/artists/?ids=`) — FAIT 2026-08-17. Semantique SetArtist ASSUMEE : le renvoi sets n'apparait que la ou la section Sets existe (ergo le trou 44/12345 n'est pas un probleme UX)
 - [ ] Autres pages au fil de l'eau ; le Hub est deja conforme (top-9 → Radar), les tracklists bornees (Set/Playlist Detail) restent inline
 
 ### Definition of Done
@@ -2022,6 +2023,24 @@ Source : issues Sentry prod (org `diggy-music`, projet `diggy-app`, region `de.s
 - [x] **AV8-04 (BAS) — `crawl_trackid_latest` echecs a message vide** [DIGGY-APP-D, 46 events, ~1/j]. Le `CrawlLogger` logue « failed after 261027ms: » avec `str(exception)` VIDE → cause racine non capturee. → instrumenter le `CrawlLogger` pour capturer le type + la trace de l'exception racine avant tout fix.
 
 **Divergences doc reperees au triage — RESOLUES AV7 (2026-08-16)** : (a) la case M3 (A3-04) plus bas est desormais `[x]` — le code n'a plus d'autoretry et porte `soft_time_limit=1800` (le « 16200s » etait errone, corrige) ; (b) A3-08 : `reclassify_genres_chunk` EST bien route vers la queue `enrich` dans le code (`celery_app.py` `task_routes`, case A3-08 cochee) — l'observation d'un run sur `celery,crawl` etait un artefact anterieur au deploiement du routing, plus d'actualite.
+
+---
+
+## AV9 — Drain enrich : deadline interne elapsed (triage Sentry 2026-08-17)
+
+**Priorite : BAS** (perte de runs + bruit Sentry recurrent, aucune corruption de donnees)
+**Estimation : 1 jour**
+**Statut : A FAIRE — inscrit 2026-08-17 (triage /sentry_triage, seul reliquat VIVANT du lot : les 11 autres issues du triage sont resolues avec leur commit en commentaire d'activite Sentry). Les 4 issues DIGGY-APP-T/W/J/V restent OUVERTES jusqu'au deploy de ce fix.**
+
+Source : issues Sentry prod (org `diggy-music`, projet `diggy-app`). Dashboard : https://diggy-music.sentry.io/issues/?project=diggy-app
+
+**Mecanisme prouve** (event DIGGY-APP-J du 2026-08-13) : `SoftTimeLimitExceeded` est levee par le signal billiard PENDANT `asyncio/selector_events._write_sendmsg` et capturee par le handler d'erreur du transport asyncio (« Fatal write error on socket transport », logger=asyncio, handled=yes) — elle n'atteint JAMAIS le `except SoftTimeLimitExceeded` de la tache. Le run continue jusqu'au hard limit 3300s (DIGGY-APP-T, 12 events) → billiard tue au SIGKILL (DIGGY-APP-W TimeLimitExceeded + DIGGY-APP-V SIGKILL process-exit, trace partagee constatee le 2026-08-14 05:55). Cout par kill : le travail non commite du run est perdu + `lock:enrich_beatport` orphelin ≤1h (TTL 3900s auto-heal, invariant OK). Le catch SoftTimeLimitExceeded pose en 21d0a7f/AV4 reste necessaire mais pas suffisant : il ne fonctionne que si le signal atteint le code de la tache.
+
+- [ ] **AV9-01 — `enrich_catalog_beatport`** : capturer `time.monotonic()` en debut de run ; entre chaque batch/item, si elapsed > soft_time_limit − marge (~120s), sortir par le MEME chemin que le catch `SoftTimeLimitExceeded` existant (stats hoistees, flush partiel, retour succes, release lock au finally). Ne REMPLACE pas le catch (defense en profondeur), le double d'une garde qui ne depend pas de la livraison d'un signal.
+- [ ] **AV9-02 — jumelles a drain long sur asyncio** : meme garde sur `enrich_catalog` (Deezer 05:00) et `analyze_bpm_previews` (00h-03h). Meme pattern, meme marge.
+- [ ] **AV9-03 — cloture Sentry** : apres deploy + /deploy_verify SAIN, resolve DIGGY-APP-T/W/J/V (re-run /sentry_triage pour poser les statuts).
+
+Invariants : pas d'autoretry, locks inchanges (TTL > time_limit), la sortie deadline ne stampe RIEN sur les entrees non traitees (un run ecourte n'est pas une tentative E1).
 
 ---
 

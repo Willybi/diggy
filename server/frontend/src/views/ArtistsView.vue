@@ -32,8 +32,15 @@
       </div>
     </div>
 
-    <!-- Pillar chips + « Sans Deezer » toggle -->
+    <!-- Pillar chips + « Sans Deezer » toggle (+ contextual genre chip, D8) -->
     <div class="tools-row">
+      <FilterChip
+        v-if="genreFilter"
+        label="Style"
+        :value="genreFilter"
+        class="genre-chip"
+        @remove="clearGenre"
+      />
       <FamilyChips v-model="familyFilter" :counts="familyCounts" />
       <button
         v-if="auth.user?.is_admin"
@@ -111,6 +118,7 @@ import SearchBox from '../components/SearchBox.vue'
 import SegFilter from '../components/SegFilter.vue'
 import FamilyChips from '../components/FamilyChips.vue'
 import SkeletonGrid from '../components/SkeletonGrid.vue'
+import FilterChip from '../components/filters/FilterChip.vue'
 import { usePaginatedList } from '../composables/usePaginatedList.js'
 import { useOpinionOneShot } from '../composables/useOpinionOneShot.js'
 import { useUrlSync } from '../composables/useUrlSync.js'
@@ -129,6 +137,10 @@ const searchQuery = ref('')
 const sortBy = ref('catalog')
 const familyFilter = ref('all')
 const noDeezer = ref(false)
+// D8: contextual genre filter (raw name), URL-synced, landed from Genre Detail's
+// « Voir les N autres » shelf renvoi. Orthogonal to the PILLAR filter (FamilyChips)
+// — this is the fine genre name. No picker; the chip is removable.
+const genreFilter = ref('')
 
 // Filters ↔ URL so a back-return restores them (before the refetch watchers so
 // the initial hydrate doesn't trigger a spurious fetch).
@@ -138,17 +150,20 @@ useUrlSync(
     { ref: familyFilter, param: 'fam', default: 'all' },
     { ref: searchQuery, param: 'q', default: '', debounce: true },
     { ref: noDeezer, param: 'nodeezer', default: false },
+    { ref: genreFilter, param: 'genre', default: '' },
   ],
   { router, route },
 )
 
 // « Suivis » is a server filter (followed=true) sent with a valid default sort;
-// « Sans Deezer » restricts the corpus for every sort. Both ride the shared
-// paginated list via extraParams (opt-in, so other views stay untouched).
+// « Sans Deezer » restricts the corpus for every sort; « genre » (D8) narrows to
+// artists with >=1 track of that style. All ride the shared paginated list via
+// extraParams (opt-in, so other views stay untouched).
 const extraParams = () => {
   const p = {}
   if (sortBy.value === 'followed') p.followed = true
   if (noDeezer.value) p.no_deezer = true
+  if (genreFilter.value) p.genre = genreFilter.value
   return Object.keys(p).length ? p : undefined
 }
 
@@ -187,7 +202,8 @@ const isFiltered = computed(
     sortBy.value === 'liked' ||
     sortBy.value === 'disliked' ||
     sortBy.value === 'followed' ||
-    noDeezer.value,
+    noDeezer.value ||
+    genreFilter.value,
 )
 
 const displayItems = computed(() => items.value)
@@ -198,6 +214,10 @@ function toggleNoDeezer() {
 
 function showAll() {
   sortBy.value = 'catalog'
+}
+
+function clearGenre() {
+  genreFilter.value = ''
 }
 
 // -- Opinion one-shot (liked/disliked) : shared helper --
@@ -215,6 +235,7 @@ const opinionOneShot = useOpinionOneShot({
     if (familyFilter.value !== 'all') p.family = familyFilter.value
     if (searchQuery.value.trim()) p.q = searchQuery.value.trim()
     if (noDeezer.value) p.no_deezer = true
+    if (genreFilter.value) p.genre = genreFilter.value
     return p
   },
   onData: (data) => {
@@ -233,10 +254,11 @@ async function fetchArtists(reset = true) {
   return opinionOneShot.run(sortBy.value)
 }
 
-// -- Sort, family & « Sans Deezer »: immediate reload --
+// -- Sort, family, « Sans Deezer » & genre: immediate reload --
 watch(sortBy, () => fetchArtists(true))
 watch(familyFilter, () => fetchArtists(true))
 watch(noDeezer, () => fetchArtists(true))
+watch(genreFilter, () => fetchArtists(true))
 
 onMounted(() => {
   scrollRestore.restore({
@@ -303,6 +325,10 @@ onActivated(() => {
   flex: 1;
   min-width: 0;
   padding: 0;
+}
+/* Contextual genre chip (D8) sits before the pillar chips, never shrinks. */
+.genre-chip {
+  flex: none;
 }
 .no-dz {
   margin-left: auto;

@@ -557,11 +557,36 @@ const AVIS_OPTIONS = [
   { value: 'none', label: 'À explorer' },
 ]
 
+// Artist filter (D8.c): ids in the URL, { id, name } objects in the state — the
+// contextual « /sets?artist_id= » landing from Artist Detail. There is no picker
+// control in the panel (arrived-at via link), only the removable chip; the cache
+// keeps deserialization JSON-stable once the name is hydrated from ?ids=.
+// Mirrors ExplorerView's artist chip.
+function toArray(raw) {
+  if (raw == null) return []
+  return Array.isArray(raw) ? raw : [raw]
+}
+const artistCache = new Map()
+function artistFromUrl(s) {
+  const id = Number(s)
+  if (!Number.isInteger(id) || id <= 0) return null
+  return artistCache.get(id) || { id, name: `#${id}` }
+}
+
 const criteria = [
   { key: 'q', type: 'text', label: 'Recherche', chip: false },
   { key: 'dur', type: 'segment', label: 'Durée', options: DUR_OPTIONS },
   { key: 'year', type: 'range', label: 'Année', min: YEAR_MIN, max: YEAR_MAX },
   { key: 'genre', type: 'multi', label: 'Style', chipPerValue: true },
+  {
+    key: 'artist_id',
+    type: 'multi',
+    label: 'Artiste',
+    chipPerValue: true,
+    format: (a) => a.name,
+    serialize: (v) => (Array.isArray(v) && v.length ? v.map((a) => String(a.id)) : undefined),
+    deserialize: (raw) => toArray(raw).map(artistFromUrl).filter(Boolean),
+  },
   { key: 'tracks', type: 'segment', label: 'Tracks', options: TRACKS_OPTIONS },
   { key: 'avis', type: 'segment', label: 'Avis', options: AVIS_OPTIONS },
 ]
@@ -644,6 +669,7 @@ function resetFilters() {
   state.dur = null
   state.year = [YEAR_MIN, YEAR_MAX]
   state.genre = []
+  state.artist_id = []
   state.tracks = null
   state.avis = null
 }
@@ -666,6 +692,8 @@ function buildExtraParams() {
   if (tLo != null) p.tracks_min = tLo
   if (tHi != null) p.tracks_max = tHi
   if (state.genre.length) p.genres = state.genre.join(',')
+  // D8.c: CSV of artist ids → /sets router `_parse_id_csv(artist_id)`.
+  if (state.artist_id.length) p.artist_id = state.artist_id.map((a) => a.id).join(',')
   return p
 }
 
@@ -703,6 +731,30 @@ async function fetchGenres() {
     /* panel simply shows no style options */
   }
 }
+
+// ── Artist chip hydration from the URL (GET /api/artists/?ids=) — resolves the
+// #id placeholder into the artist name for the contextual /sets?artist_id= chip
+// (mirrors ExplorerView). Idempotent: only fetches ids still missing a name.
+async function hydrateArtists() {
+  const missing = state.artist_id.filter((a) => !artistCache.has(a.id))
+  if (!missing.length) return
+  try {
+    const { data } = await api.get('/api/artists/', {
+      params: { ids: missing.map((a) => a.id).join(','), limit: 100 },
+    })
+    for (const a of data.items || []) artistCache.set(a.id, { id: a.id, name: a.name })
+    // Reassign with resolved names (same ids → URL/fetchKey unchanged, no loop).
+    state.artist_id = state.artist_id.map((a) => artistCache.get(a.id) || a)
+  } catch {
+    /* the chip keeps its #id placeholder */
+  }
+}
+// Re-hydrate whenever the id set changes (fresh landing handled by onMounted; a
+// cached KeepAlive re-landing on a new ?artist_id= flows through here).
+watch(
+  () => state.artist_id.map((a) => a.id).join(','),
+  () => hydrateArtists(),
+)
 
 // Scroll restoration on a back/forward return.
 const scrollRestore = useScrollRestore({
@@ -920,6 +972,7 @@ onMounted(() => {
   })
   fetchBaseCount()
   fetchGenres()
+  hydrateArtists()
 })
 
 // Cached return under <KeepAlive>: reactivated (no onMounted), rows/filters still
