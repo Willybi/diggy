@@ -20,6 +20,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 
 from workers.celery_app import celery_app
 
@@ -41,6 +42,21 @@ DEFAULT_ANALYSIS_BPM_NIGHTLY_BUDGET = 8000
 # instance per call, capped concurrency).
 ANALYSIS_EXECUTOR_WORKERS = int(os.environ.get("ANALYSIS_BPM_EXECUTOR_WORKERS", "2"))
 
+# Soft time limit, extracted as a module constant so the task decorator AND the
+# internal deadline guard share ONE source of truth (AV9). Never read
+# task.soft_time_limit at runtime — fragile under the tests' MagicMock harness.
+ANALYSIS_BPM_SOFT_TIME_LIMIT = 3000
+
+# AV9 — margin (seconds) subtracted from the soft limit to build an internal
+# monotonic deadline checked between batches. billiard's SoftTimeLimitExceeded
+# can fire WHILE the asyncio internals are mid-write and be swallowed by the
+# transport's error handler ("Fatal write error on socket transport", Sentry
+# DIGGY-APP-J): it then never reaches the task's except clause and the run dies
+# at the hard limit (SIGKILL — uncommitted work lost + orphaned lock ≤1h). The
+# deadline exits the loop cleanly WITHOUT depending on signal delivery; the
+# SoftTimeLimitExceeded catch stays in place as defense in depth.
+DEADLINE_MARGIN = int(os.environ.get("ANALYSIS_BPM_DEADLINE_MARGIN", "120"))
+
 
 def _nightly_budget() -> int:
     return int(
@@ -57,7 +73,7 @@ def _min_conf() -> float:
 @celery_app.task(
     name="workers.tasks.analyze_bpm_previews",
     bind=True,
-    soft_time_limit=3000,
+    soft_time_limit=ANALYSIS_BPM_SOFT_TIME_LIMIT,
     time_limit=3300,
 )
 def analyze_bpm_previews(self, batch_size: int = 0):
@@ -111,6 +127,14 @@ def _run_analyze_bpm_previews(task, batch_size: int):
             effective_budget = min(batch_size, budget) if batch_size > 0 else budget
             min_conf = _min_conf()
 
+            # AV9 — internal deadline (see DEADLINE_MARGIN): checked BEFORE
+            # each batch, never mid-batch, so a shortened run stamps nothing
+            # on the entries it never reached (not an attempt).
+            deadline = (
+                time.monotonic() + ANALYSIS_BPM_SOFT_TIME_LIMIT - DEADLINE_MARGIN
+            )
+            deadline_hit = False
+
             # Hoisted so a SoftTimeLimitExceeded mid-run still yields the work
             # committed so far (each 50-batch is committed before the next).
             progress = {
@@ -123,6 +147,8 @@ def _run_analyze_bpm_previews(task, batch_size: int):
             }
 
             async def _async_analyze():
+                nonlocal deadline_hit
+
                 from workers.async_http import HttpPool
                 from workers.bpm_analysis import (
                     analyze_bpm_batch,
@@ -139,6 +165,18 @@ def _run_analyze_bpm_previews(task, batch_size: int):
                             progress["total"] = len(entries)
 
                             for i in range(0, len(entries), 50):
+                                if time.monotonic() >= deadline:
+                                    deadline_hit = True
+                                    logger.warning(
+                                        "analyze_bpm_previews hit internal "
+                                        "deadline (soft limit %ds - "
+                                        "margin %ds); stopping before next "
+                                        "batch, partial stats: %s",
+                                        ANALYSIS_BPM_SOFT_TIME_LIMIT,
+                                        DEADLINE_MARGIN,
+                                        progress,
+                                    )
+                                    break
                                 batch = entries[i : i + 50]
                                 stats = await analyze_bpm_batch(
                                     session,
@@ -186,6 +224,9 @@ def _run_analyze_bpm_previews(task, batch_size: int):
 
             result = dict(progress)
             result["soft_limit_hit"] = soft_limit_hit
+            # Observability (AV9): a deadline exit is a SUCCESS with partial
+            # work, distinguishable from a full run in crawl_logs.
+            result["deadline_hit"] = deadline_hit
             clog.set_stats(result)
 
     return result

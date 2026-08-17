@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 
 from workers.celery_app import celery_app
 
@@ -20,6 +21,22 @@ BEATPORT_LOCK_TTL = 3900
 # single nightly pass with a much longer time_limit (9000s), so its lock TTL must
 # stay above it. 9300s = just above the 9000s time_limit.
 DEEZER_LOCK_TTL = 9300
+
+# Soft time limits, extracted as module constants so the task decorator AND the
+# internal deadline guard share ONE source of truth (AV9). Never read
+# task.soft_time_limit at runtime — fragile under the tests' MagicMock harness.
+DEEZER_SOFT_TIME_LIMIT = 7200
+BEATPORT_SOFT_TIME_LIMIT = 3000
+
+# AV9 — margin (seconds) subtracted from the soft limit to build an internal
+# monotonic deadline checked between batches. billiard's SoftTimeLimitExceeded
+# can fire WHILE the asyncio internals are mid-write and be swallowed by the
+# transport's error handler ("Fatal write error on socket transport", Sentry
+# DIGGY-APP-J): it then never reaches the task's except clause and the run dies
+# at the hard limit (SIGKILL — uncommitted work lost + orphaned lock ≤1h). The
+# deadline exits the loop cleanly WITHOUT depending on signal delivery; the
+# SoftTimeLimitExceeded catch stays in place as defense in depth.
+DEADLINE_MARGIN = int(os.environ.get("ENRICH_DEADLINE_MARGIN", "120"))
 
 # Max catalog entries per sweep, PER SOURCE. Deezer (official API, 10 req/s)
 # clears the full daily inflow in minutes, so its budget is high. Beatport
@@ -57,7 +74,7 @@ def _nightly_budget(source: str) -> int:
 @celery_app.task(
     name="workers.tasks.enrich_catalog",
     bind=True,
-    soft_time_limit=7200,
+    soft_time_limit=DEEZER_SOFT_TIME_LIMIT,
     time_limit=9000,
 )
 def enrich_catalog(self):
@@ -114,6 +131,12 @@ def _run_enrich_catalog(task):
 
             budget = _nightly_budget("deezer")
 
+            # AV9 — internal deadline (see DEADLINE_MARGIN): checked BEFORE
+            # each batch, never mid-batch, so a shortened run stamps nothing
+            # on the entries it never reached (not an E1 attempt).
+            deadline = time.monotonic() + DEEZER_SOFT_TIME_LIMIT - DEADLINE_MARGIN
+            deadline_hit = False
+
             # Hoisted so a SoftTimeLimitExceeded mid-run still yields the work
             # committed so far (each 100-batch is committed before the next).
             progress = {
@@ -123,6 +146,8 @@ def _run_enrich_catalog(task):
             }
 
             async def _async_enrich():
+                nonlocal deadline_hit
+
                 from datetime import datetime, timezone
 
                 from workers.async_http import HttpPool
@@ -155,6 +180,17 @@ def _run_enrich_catalog(task):
                             return
 
                         for i in range(0, len(entries), 100):
+                            if time.monotonic() >= deadline:
+                                deadline_hit = True
+                                logger.warning(
+                                    "enrich_catalog hit internal deadline "
+                                    "(soft limit %ds - margin %ds); stopping "
+                                    "before next batch, partial stats: %s",
+                                    DEEZER_SOFT_TIME_LIMIT,
+                                    DEADLINE_MARGIN,
+                                    progress,
+                                )
+                                break
                             batch = entries[i : i + 100]
                             stats = await enrich_deezer_batch(
                                 session, batch, pool, None, existing_isrcs
@@ -186,6 +222,9 @@ def _run_enrich_catalog(task):
                 logger.exception("enrich_catalog failed")
                 raise
 
+            # Observability (AV9): a deadline exit is a SUCCESS with partial
+            # work, distinguishable from a full run in crawl_logs.
+            progress["deadline_hit"] = deadline_hit
             clog.set_stats(progress)
 
     return progress
@@ -194,7 +233,7 @@ def _run_enrich_catalog(task):
 @celery_app.task(
     name="workers.tasks.enrich_catalog_beatport",
     bind=True,
-    soft_time_limit=3000,
+    soft_time_limit=BEATPORT_SOFT_TIME_LIMIT,
     time_limit=3300,
 )
 def enrich_catalog_beatport(self, batch_size: int = 0, *, genre_only: bool = False):
@@ -253,6 +292,12 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
             budget = _nightly_budget("beatport")
             effective_budget = min(batch_size, budget) if batch_size > 0 else budget
 
+            # AV9 — internal deadline (see DEADLINE_MARGIN): checked BEFORE
+            # each batch, never mid-batch, so a shortened run stamps nothing
+            # on the entries it never reached (not an E1 attempt).
+            deadline = time.monotonic() + BEATPORT_SOFT_TIME_LIMIT - DEADLINE_MARGIN
+            deadline_hit = False
+
             # Hoisted so a SoftTimeLimitExceeded mid-run still yields the work
             # committed so far (each 50-batch is committed before the next).
             progress = {
@@ -264,6 +309,8 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
             }
 
             async def _async_enrich():
+                nonlocal deadline_hit
+
                 from datetime import datetime, timezone
 
                 from workers.async_http import HttpPool
@@ -287,6 +334,18 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
                         progress["total"] = len(entries)
 
                         for i in range(0, len(entries), 50):
+                            if time.monotonic() >= deadline:
+                                deadline_hit = True
+                                logger.warning(
+                                    "enrich_catalog_beatport hit internal "
+                                    "deadline (soft limit %ds - margin %ds); "
+                                    "stopping before next batch, "
+                                    "partial stats: %s",
+                                    BEATPORT_SOFT_TIME_LIMIT,
+                                    DEADLINE_MARGIN,
+                                    progress,
+                                )
+                                break
                             batch = entries[i : i + 50]
                             stats = await enrich_beatport_batch(
                                 session, batch, pool, None
@@ -324,6 +383,9 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
 
             result = dict(progress)
             result["soft_limit_hit"] = soft_limit_hit
+            # Observability (AV9): a deadline exit is a SUCCESS with partial
+            # work, distinguishable from a full run in crawl_logs.
+            result["deadline_hit"] = deadline_hit
             # Recorded in crawl_logs so a genre-classify run is distinguishable
             # from a normal drain in monitoring (A3-01 observability).
             result["genre_only"] = genre_only
