@@ -157,4 +157,21 @@ describe('useTaskPoll', () => {
     controls.stop('b')
     expect(controls.isActive('b')).toBe(false)
   })
+
+  it('activeKeys() snapshots the running poll keys (for KeepAlive pause/resume)', async () => {
+    apiGet.mockResolvedValue({ data: { status: 'running' } })
+    const { controls } = mountPoll((key) => `/status/${key}`, { intervalMs: 1000 })
+
+    expect(controls.activeKeys()).toEqual([])
+
+    controls.start('a')
+    controls.start('b')
+    expect([...controls.activeKeys()].sort()).toEqual(['a', 'b'])
+
+    controls.stop('a')
+    expect(controls.activeKeys()).toEqual(['b'])
+
+    controls.stop() // stop-all clears the snapshot too
+    expect(controls.activeKeys()).toEqual([])
+  })
 })

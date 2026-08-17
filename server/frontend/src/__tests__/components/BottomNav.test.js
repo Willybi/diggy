@@ -19,6 +19,15 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/' }),
 }))
 
+// BottomNav imports { prefetchRoute } from '../router.js' (D9.c). vue-router is
+// mocked here without createRouter/createWebHistory, so loading the real router
+// module would throw at import — stub it. Prefetch wiring is covered in
+// navPrefetch.test.js.
+vi.mock('../../router.js', () => ({
+  default: {},
+  prefetchRoute: vi.fn(),
+}))
+
 async function mountNav() {
   const { default: BottomNav } = await import('../../components/BottomNav.vue')
   // vue-router is mocked, so <router-link> never resolves to a component and

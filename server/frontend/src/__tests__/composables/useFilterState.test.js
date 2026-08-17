@@ -135,6 +135,25 @@ describe('useFilterState', () => {
     expect(router.replace).not.toHaveBeenCalled()
   })
 
+  it('freezes the state while the route has left this view (KeepAlive-safe)', async () => {
+    // A cached view (say /explorer) stays mounted when we open a detail page. The
+    // route path/query change, but useFilterState must NOT reset the filter state.
+    const route = reactive({ path: '/explorer', query: { bpm: '120-133' } })
+    const router = { replace: vi.fn() }
+    const { state } = useFilterState(criteria, { router, route })
+    expect(state.bpm).toEqual([120, 133])
+
+    route.path = '/catalog/5' // navigate to a track detail (empty query)
+    route.query = {}
+    await nextTick()
+    expect(state.bpm).toEqual([120, 133]) // frozen — not reset off-view
+
+    route.path = '/explorer' // back on the view → re-apply resumes
+    route.query = {}
+    await nextTick()
+    expect(state.bpm).toEqual([60, 200]) // now re-applied to the (bare) URL
+  })
+
   it('reset() restores every default and clears the owned params', async () => {
     const { state, reset, router } = setup({
       q: 'kaskade',

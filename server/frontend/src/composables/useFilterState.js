@@ -99,6 +99,12 @@ export function useFilterState(criteria, { router, route, debounceMs = 250 }) {
 
   const owned = new Set(criteria.map(paramOf))
 
+  // The view's own route path at setup. Under <KeepAlive> a listing view stays
+  // mounted when we open a detail page, so its route.query watcher would fire on
+  // the detail's query and reset the cached filter state. Skip the re-apply
+  // whenever the current route has left this view (see the watcher below).
+  const ownPath = route.path
+
   function buildQuery() {
     const query = {}
     for (const [k, v] of Object.entries(route.query || {})) {
@@ -147,9 +153,12 @@ export function useFilterState(criteria, { router, route, debounceMs = 250 }) {
   }
 
   // Back/forward (or external) navigation → re-apply the URL into the state.
+  // Only while we are still on this view's route: on a detail page (KeepAlive
+  // kept us mounted) the URL belongs to another view, so leave the state frozen.
   watch(
     () => route.query,
     (q) => {
+      if (route.path !== ownPath) return
       for (const c of criteria) {
         const next = deserializeValue(c, (q || {})[paramOf(c)])
         if (JSON.stringify(state[c.key]) !== JSON.stringify(next)) state[c.key] = next

@@ -7,7 +7,13 @@
       custom
       v-slot="{ isActive, navigate }"
     >
-      <button class="bottom-nav-item" :class="{ 'is-active': isActive }" @click="navigate">
+      <button
+        class="bottom-nav-item"
+        :class="{ 'is-active': isActive }"
+        @click="navigate"
+        @mouseenter="prefetch(item.to)"
+        @focus="prefetch(item.to)"
+      >
         <span class="bottom-nav-icon" v-html="item.icon" />
         <span v-if="item.badge && newCount > 0" class="bottom-nav-badge">{{ newCount }}</span>
         <span class="bottom-nav-label">{{ item.label }}</span>
@@ -20,11 +26,18 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
+import { prefetchRoute } from '../router.js'
 import api from '../utils/api.js'
 
 const auth = useAuthStore()
 const route = useRoute()
 const newCount = ref(0)
+
+// D9.c — précharge le chunk de la route survolée/focusée (jamais au montage,
+// jamais de données). Un échec est avalé silencieusement dans prefetchRoute.
+function prefetch(to) {
+  prefetchRoute(to)
+}
 
 const iconHome = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21V14h6v7"/></svg>`
 const iconGrid = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`

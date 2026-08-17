@@ -31,6 +31,13 @@ export function useUrlSync(fields, { router, route, debounceMs = 300 }) {
     return v == null || String(v).trim() === '' || String(v) === String(field.default)
   }
 
+  // The view's own route path at setup. Under <KeepAlive> a listing view stays
+  // mounted when we open a detail page, so its route.query watcher would fire on
+  // the detail's (empty) query and silently reset the cached filters — for the
+  // card grids, mutating the refs also triggers a background refetch. Skip the
+  // re-apply whenever the current route has left this view (see the watcher below).
+  const ownPath = route.path
+
   // Hydrate refs from the URL once, BEFORE the view registers its own filter
   // watchers, so this initial write is silent (no spurious refetch on mount).
   for (const field of fields) {
@@ -65,9 +72,12 @@ export function useUrlSync(fields, { router, route, debounceMs = 300 }) {
   }
 
   // Back/forward (or external) navigation → re-apply the URL into the refs.
+  // Only while we are still on this view's route: on a detail page (KeepAlive
+  // kept us mounted) the URL belongs to another view, so leave the refs frozen.
   watch(
     () => route.query,
     (q) => {
+      if (route.path !== ownPath) return
       for (const field of fields) {
         const raw = (q || {})[field.param]
         const next = raw == null ? field.default : coerce(field, raw)

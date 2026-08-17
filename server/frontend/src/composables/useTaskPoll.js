@@ -24,7 +24,7 @@ const DEFAULT_KEY = '__default__'
  * @param {(data: any, ctx: PollCtx) => void} [options.onData]  called with each response body
  * @param {(err: any, ctx: PollCtx) => void} [options.onError]  called when a request throws
  * @param {(ctx: {key: string, attempt: number}) => void} [options.onMaxAttempts]
- * @returns {{ start: Function, stop: Function, isActive: Function }}
+ * @returns {{ start: Function, stop: Function, isActive: Function, activeKeys: Function }}
  *
  * @typedef {{ key: string, attempt: number, stop: () => void }} PollCtx
  */
@@ -43,6 +43,13 @@ export function useTaskPoll(statusUrlFn, options = {}) {
 
   function isActive(key = DEFAULT_KEY) {
     return timers.has(key)
+  }
+
+  // The keys of every currently running poll — lets a host snapshot the live
+  // polls before stop()ing them (e.g. to pause under <KeepAlive> and resume the
+  // same set on reactivation).
+  function activeKeys() {
+    return [...timers.keys()]
   }
 
   // stop() with no key stops every poll (used by unmount cleanup and single-task sites).
@@ -90,5 +97,5 @@ export function useTaskPoll(statusUrlFn, options = {}) {
 
   onUnmounted(() => stop())
 
-  return { start, stop, isActive }
+  return { start, stop, isActive, activeKeys }
 }

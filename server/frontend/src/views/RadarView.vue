@@ -266,7 +266,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onActivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
@@ -289,6 +289,9 @@ import ToggleChip from '../components/filters/ToggleChip.vue'
 import SortSelect from '../components/filters/SortSelect.vue'
 import TrackTable from '../components/TrackTable.vue'
 import ScoreRing from '../components/ScoreRing.vue'
+
+// Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
+defineOptions({ name: 'RadarView' })
 
 const PAGE_SIZE = 100
 const BPM_MIN = 60
@@ -749,6 +752,18 @@ onMounted(() => {
   })
   fetchGenres()
   hydrateArtists()
+})
+
+// Cached return under <KeepAlive>: reactivated (no onMounted), rows/filters/window
+// still in memory — only re-apply the scroll offset, no refetch. The first
+// activation follows onMounted (which already restored scroll) and is skipped.
+let firstActivate = true
+onActivated(() => {
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  scrollRestore.reapply()
 })
 </script>
 

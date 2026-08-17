@@ -1,4 +1,4 @@
-import { ref, watch, onMounted, onUnmounted, toValue } from 'vue'
+import { ref, watch, onMounted, onUnmounted, onActivated, onDeactivated, toValue } from 'vue'
 
 /**
  * Pure windowing math for a constant-row-height list scrolled by the PAGE
@@ -130,14 +130,33 @@ export function useVirtualWindow({
     update()
   }
 
-  onMounted(() => {
+  function attach() {
     bindScroll()
     window.addEventListener('resize', update, { passive: true })
-    update()
-  })
-  onUnmounted(() => {
+  }
+  function detach() {
     if (scrollTarget) scrollTarget.removeEventListener('scroll', update)
     window.removeEventListener('resize', update)
+    scrollTarget = null
+  }
+
+  onMounted(() => {
+    attach()
+    update()
+  })
+  onUnmounted(detach)
+
+  // Under <KeepAlive> the host view is deactivated (not unmounted) when we
+  // navigate away, so onUnmounted never fires: the scroll/resize listeners would
+  // keep running update() in the background — and could fire onNearEnd (a
+  // background loadMore) while the detail page scrolls the shared .app-main.
+  // Detach on deactivate, re-bind on activate. onActivated also runs once right
+  // after the initial onMounted, where attach() is a harmless no-op (bindScroll
+  // sees the same target and returns early, the resize listener de-dupes).
+  onDeactivated(detach)
+  onActivated(() => {
+    attach()
+    update()
   })
 
   // Container resolved/changed → rebind the scroll listener onto it.

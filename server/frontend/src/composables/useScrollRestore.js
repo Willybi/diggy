@@ -29,6 +29,7 @@ import { onBeforeRouteLeave } from 'vue-router'
  * @returns {{
  *   restore: (o: { initialFetch: () => Promise<any>, hydrate: (count: number) => Promise<any> }) => Promise<boolean>,
  *   snapshot: () => void,
+ *   reapply: () => Promise<void>,
  * }}
  */
 const STATE_KEY = '__diggyScroll'
@@ -70,5 +71,22 @@ export function useScrollRestore({ scroller, getCount }) {
     return true
   }
 
-  return { restore, snapshot }
+  // Cached return under <KeepAlive>: the view is REACTIVATED, not re-mounted, so
+  // its rows are still in memory — restore() (with its refetch) must NOT run.
+  // reapply() only re-applies the saved offset: on a genuine back-return it reads
+  // the snapshot from this history entry; on a fresh push to this view (no
+  // snapshot) it resets to the top, so the list never inherits the scroll the
+  // previous view left on the shared .app-main scroller. Called from onActivated.
+  async function reapply() {
+    const node = el()
+    if (!node) return
+    const saved = window.history.state?.[STATE_KEY]
+    // Two ticks: let the reactivated DOM (and the virtual list's spacers) settle
+    // to their full height before we jump — mirrors restore()'s ordering.
+    await nextTick()
+    await nextTick()
+    node.scrollTop = saved && saved.top ? saved.top : 0
+  }
+
+  return { restore, snapshot, reapply }
 }

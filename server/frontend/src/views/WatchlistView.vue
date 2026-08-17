@@ -297,7 +297,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, reactive, onMounted } from 'vue'
+import { ref, computed, watch, reactive, onMounted, onActivated, onDeactivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useOpinionsStore } from '../stores/opinions.js'
@@ -313,6 +313,9 @@ import StyleTag from '../components/StyleTag.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import SegFilter from '../components/SegFilter.vue'
 import AddModal from '../components/AddModal.vue'
+
+// Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
+defineOptions({ name: 'WatchlistView' })
 
 const route = useRoute()
 const router = useRouter()
@@ -599,6 +602,29 @@ onMounted(() => {
     initialFetch: () => runFetch(true),
     hydrate: (count) => (isOpinionMode.value ? runFetch(true) : fetchUpTo(count)),
   })
+})
+
+// Under <KeepAlive> the view is deactivated (not unmounted) when we open a detail
+// page, so useTaskPoll's onUnmounted cleanup never fires: the crawl-status polls
+// would keep hitting the API in the background. Pause every live poll on
+// deactivate and resume the same set on reactivation (the crawlStatus badges and
+// loaded rows stay in memory, so the UI picks up exactly where it left off).
+// reapply() re-applies the scroll offset without a refetch; the first activation
+// follows onMounted and is skipped.
+let firstActivate = true
+let pausedPollKeys = []
+onDeactivated(() => {
+  pausedPollKeys = crawlPoll.activeKeys()
+  crawlPoll.stop()
+})
+onActivated(() => {
+  for (const id of pausedPollKeys) crawlPoll.start(id)
+  pausedPollKeys = []
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  scrollRestore.reapply()
 })
 </script>
 

@@ -69,4 +69,23 @@ describe('useScrollRestore', () => {
 
     expect(window.history.state.__diggyScroll).toEqual({ top: 540, count: 120 })
   })
+
+  it('reapply(): re-applies the saved offset without hydrating or fetching', async () => {
+    window.history.replaceState({ __diggyScroll: { top: 420, count: 200 } }, '')
+    const node = { scrollTop: 0 }
+    const { reapply } = useScrollRestore({ scroller: ref(node), getCount: () => 200 })
+
+    await reapply()
+
+    expect(node.scrollTop).toBe(420)
+  })
+
+  it('reapply(): with no snapshot on this entry, resets the scroller to the top', async () => {
+    const node = { scrollTop: 999 } // left where the previous view scrolled .app-main
+    const { reapply } = useScrollRestore({ scroller: ref(node), getCount: () => 0 })
+
+    await reapply()
+
+    expect(node.scrollTop).toBe(0)
+  })
 })

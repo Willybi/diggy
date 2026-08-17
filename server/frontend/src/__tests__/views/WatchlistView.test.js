@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
-import { reactive } from 'vue'
+import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mutable holders shared with the hoisted mocks below.
@@ -296,5 +296,45 @@ describe('WatchlistView', () => {
 
     expect(wrapper.find('.pl-form-error').text()).toContain('déjà')
     expect(wrapper.find('.add-overlay').exists()).toBe(true)
+  })
+
+  it('shows an instant skeleton on mount, replaced by the rows once the browse list resolves', async () => {
+    // Defer the browse response so we can observe the pre-resolution state: the
+    // skeleton must be on screen BEFORE the fetch settles (D9.b — the perceived
+    // delay is what a skeleton kills). loading flips true synchronously inside
+    // onMounted's fetch, so one tick paints the ghost rows while the request is
+    // still pending.
+    let resolveList
+    const pending = new Promise((r) => {
+      resolveList = r
+    })
+    apiMock.get.mockImplementation((url) => {
+      if (url === '/api/watchlist/browse') return pending
+      if (url === '/api/opinions/') return Promise.resolve({ data: opinionsResponse })
+      if (typeof url === 'string' && url.endsWith('/crawl-status'))
+        return Promise.resolve({ data: { status: null } })
+      return Promise.resolve({ data: {} })
+    })
+
+    const { default: WatchlistView } = await import('../../views/WatchlistView.vue')
+    const wrapper = mount(WatchlistView, {
+      global: {
+        plugins: [createPinia()],
+        components: { RouterLink: RouterLinkStub },
+      },
+    })
+    await nextTick()
+
+    // Skeleton up, no real rows yet, and the header already shows (not a blank).
+    expect(wrapper.findAll('.pl-row--skel').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('.pl-row:not(.pl-row--skel)')).toHaveLength(0)
+    expect(wrapper.find('.pl-thead').exists()).toBe(true)
+
+    // Once the data lands the skeleton is gone and the real rows take over.
+    resolveList({ data: listResponse })
+    await flushPromises()
+
+    expect(wrapper.find('.pl-row--skel').exists()).toBe(false)
+    expect(wrapper.findAll('.pl-row:not(.pl-row--skel)')).toHaveLength(2)
   })
 })

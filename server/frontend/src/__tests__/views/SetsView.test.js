@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
-import { reactive } from 'vue'
+import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mutable holders shared with the hoisted mocks. `routeState.route` is REACTIVE
@@ -313,5 +313,49 @@ describe('SetsView', () => {
     expect(listCalls().length).toBe(before + 1)
     // New column → default descending (leading '-').
     expect(lastListParams().sort).toBe('-tracks')
+  })
+
+  it('shows an instant skeleton on mount, replaced by the rows once the list resolves', async () => {
+    // Defer the list response so we can observe the pre-resolution state: the
+    // skeleton must be on screen BEFORE the fetch settles (D9.b — the perceived
+    // delay is what a skeleton kills). loading flips true synchronously inside
+    // onMounted's fetch, so one tick paints the ghost rows while the request is
+    // still pending.
+    let resolveList
+    const pending = new Promise((r) => {
+      resolveList = r
+    })
+    apiMock.get.mockImplementation((url, cfg) => {
+      // Only the paginated page load (limit 24) is deferred; the head base-count
+      // (limit 1) and the genre/opinions calls resolve at once.
+      if (url === '/api/sets/' && cfg?.params?.limit !== 1) return pending
+      if (url === '/api/opinions/') return Promise.resolve({ data: opinionsResponse })
+      if (url === '/api/catalog/genres') return Promise.resolve({ data: [] })
+      if (url === '/api/sets/') return Promise.resolve({ data: listResponse })
+      return Promise.resolve({ data: {} })
+    })
+
+    routeState.route.path = '/sets'
+    routeState.route.query = {}
+    const { default: SetsView } = await import('../../views/SetsView.vue')
+    const wrapper = mount(SetsView, {
+      global: {
+        plugins: [createPinia()],
+        components: { RouterLink: RouterLinkStub },
+      },
+    })
+    await nextTick()
+
+    // Skeleton up, no real rows yet, and the header already shows (not a blank).
+    expect(wrapper.findAll('.st-row--skel').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('.st-row:not(.st-row--skel)')).toHaveLength(0)
+    expect(wrapper.find('.st-thead').exists()).toBe(true)
+
+    // Once the data lands the skeleton is gone and the real rows take over.
+    resolveList({ data: listResponse })
+    await flushPromises()
+
+    expect(wrapper.find('.st-row--skel').exists()).toBe(false)
+    expect(wrapper.findAll('.st-row:not(.st-row--skel)')).toHaveLength(2)
   })
 })

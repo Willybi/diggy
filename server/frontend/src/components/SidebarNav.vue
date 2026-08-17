@@ -14,7 +14,13 @@
         custom
         v-slot="{ isActive, navigate }"
       >
-        <span class="nav-item" :class="{ 'is-active': isActive }" @click="navigate">
+        <span
+          class="nav-item"
+          :class="{ 'is-active': isActive }"
+          @click="navigate"
+          @mouseenter="prefetch(item.to)"
+          @focus="prefetch(item.to)"
+        >
           <span class="nav-icon" v-html="item.icon" />
           <span class="nav-text">{{ item.label }}</span>
           <span v-if="item.count != null" class="nav-count">{{ item.count }}</span>
@@ -26,7 +32,13 @@
     <nav v-if="auth.user?.is_admin" class="nav-section nav-admin">
       <p class="nav-label"><span>Admin</span></p>
       <RouterLink to="/admin" custom v-slot="{ isActive, navigate }">
-        <span class="nav-item" :class="{ 'is-active': isActive }" @click="navigate">
+        <span
+          class="nav-item"
+          :class="{ 'is-active': isActive }"
+          @click="navigate"
+          @mouseenter="prefetch('/admin')"
+          @focus="prefetch('/admin')"
+        >
           <span class="nav-icon" v-html="iconAdmin" />
           <span class="nav-text">Admin</span>
           <span class="util-key">ADM</span>
@@ -61,6 +73,7 @@
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme.js'
 import { useAuthStore } from '../stores/auth.js'
+import { prefetchRoute } from '../router.js'
 
 const { isDark, toggle } = useTheme()
 const auth = useAuthStore()
@@ -69,6 +82,12 @@ const router = useRouter()
 function handleLogout() {
   auth.logout()
   router.push('/login')
+}
+
+// D9.c — précharge le chunk de la route survolée/focusée (jamais au montage,
+// jamais de données). Un échec est avalé silencieusement dans prefetchRoute.
+function prefetch(to) {
+  prefetchRoute(to)
 }
 
 const iconArtist = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3.1-6 7-6s7 2.5 7 6"/><circle cx="18" cy="9" r="2.5"/><path d="M16 20c0-2.5 1.8-4 4-4"/></svg>`

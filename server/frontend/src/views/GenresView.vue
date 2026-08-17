@@ -136,7 +136,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onActivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useToast } from '../stores/toast.js'
@@ -151,6 +151,9 @@ import { usePaginatedList } from '../composables/usePaginatedList.js'
 import { useUrlSync } from '../composables/useUrlSync.js'
 import { useScrollRestore } from '../composables/useScrollRestore.js'
 import { fmtNum, pl } from '../utils/format'
+
+// Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
+defineOptions({ name: 'GenresView' })
 
 const auth = useAuthStore()
 const opinions = useOpinionsStore()
@@ -279,6 +282,18 @@ onMounted(() => {
     hydrate: (count) => (isFacet() ? facetFetch() : fetchUpTo(count)),
   })
   fetchUnclassifiedCount()
+})
+
+// Cached return under <KeepAlive>: reactivated (no onMounted), rows/filters still
+// in memory — only re-apply the scroll offset, no refetch. The first activation
+// follows onMounted (which already restored scroll) and is skipped.
+let firstActivate = true
+onActivated(() => {
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  scrollRestore.reapply()
 })
 </script>
 

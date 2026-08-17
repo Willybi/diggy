@@ -4,7 +4,11 @@
     <div class="app-shell" :class="{ 'no-sidebar': !auth.isAuthenticated }">
       <SidebarNav v-if="auth.isAuthenticated" class="app-sidebar" />
       <main id="main-content" class="app-main" :class="{ 'has-player': player.visible }">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <KeepAlive :include="CACHED_VIEWS" :max="6">
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
       </main>
     </div>
     <Transition name="player">
@@ -28,6 +32,20 @@ import { useOpinionsStore } from './stores/opinions.js'
 const player = useAudioPlayer()
 const auth = useAuthStore()
 const opinions = useOpinionsStore()
+
+// The six listing views are cached across navigation (D9.a): returning to one is
+// instant — no re-mount, no refetch, filters/scroll/virtual window preserved in
+// memory. Detail pages vary by route param and are deliberately NOT cached (they
+// stay off this allowlist). Each name must match the view's defineOptions({ name });
+// :max bounds the cache to exactly these six entries.
+const CACHED_VIEWS = [
+  'ExplorerView',
+  'RadarView',
+  'ArtistsView',
+  'SetsView',
+  'WatchlistView',
+  'GenresView',
+]
 
 // Guests get a 401 on /api/opinions/, and the OAuth callback is an SPA
 // navigation (no reload) — load on auth transitions, not once at startup.

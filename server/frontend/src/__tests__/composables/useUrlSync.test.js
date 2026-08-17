@@ -57,6 +57,29 @@ describe('useUrlSync', () => {
     expect(sort.value).toBe('tracks')
   })
 
+  it('freezes the refs while the route has left this view (KeepAlive-safe)', async () => {
+    // A cached view (say /artists) stays mounted when we open a detail page: the
+    // route path/query change, but useUrlSync must NOT reset the filters (that
+    // would clobber them and, via the view's watchers, refetch in the background).
+    const route = reactive({ path: '/artists', query: { sort: 'alpha' } })
+    const replace = vi.fn((arg) => {
+      route.query = arg.query
+    })
+    const sort = ref('tracks')
+    useUrlSync([{ ref: sort, param: 'sort', default: 'tracks' }], { router: { replace }, route })
+    expect(sort.value).toBe('alpha') // hydrated on setup
+
+    route.path = '/artist/5' // navigate to a detail page (empty query)
+    route.query = {}
+    await nextTick()
+    expect(sort.value).toBe('alpha') // frozen — not reset to the default
+
+    route.path = '/artists' // back on the view → re-apply resumes
+    route.query = {}
+    await nextTick()
+    expect(sort.value).toBe('tracks')
+  })
+
   it('clears a pending debounced write on scope disposal (no leak onto the next route)', async () => {
     vi.useFakeTimers()
     try {

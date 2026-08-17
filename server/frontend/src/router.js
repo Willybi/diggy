@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { createChunkPrefetcher } from './utils/prefetch.js'
 import HubView from './views/HubView.vue'
 
 const GenresView = () => import('./views/GenresView.vue')
@@ -102,5 +103,21 @@ router.onError((error, to) => {
 window.addEventListener('vite:preloadError', (event) => {
   if (reloadForStaleChunk(window.location.pathname)) event.preventDefault()
 })
+
+// D9.c — prefetch du chunk d'une route au survol / focus de la nav. On dérive la
+// map path → loader lazy des routes existantes (pas de duplication d'imports) :
+// seules les vues chargées en lazy (`component` = fonction) y figurent ; les
+// redirects et HubView (chargé en dur) n'ont pas de chunk à précharger.
+const lazyLoaderByPath = new Map()
+for (const route of routes) {
+  if (typeof route.component === 'function') {
+    lazyLoaderByPath.set(route.path, route.component)
+  }
+}
+
+// `prefetchRoute(path)` invoque UNE fois le loader de la route cible (dédup + catch
+// silencieux). Appelé par SidebarNav / BottomNav sur @mouseenter / @focus — jamais
+// au montage. Ne précharge que le chunk JS, aucune donnée.
+export const prefetchRoute = createChunkPrefetcher(lazyLoaderByPath)
 
 export default router

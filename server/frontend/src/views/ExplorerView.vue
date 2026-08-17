@@ -247,7 +247,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, onActivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
@@ -271,6 +271,9 @@ import SortSelect from '../components/filters/SortSelect.vue'
 import TrackTable from '../components/TrackTable.vue'
 import ImportRekordboxModal from '../components/ImportRekordboxModal.vue'
 import ExternalImportModal from '../components/ExternalImportModal.vue'
+
+// Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
+defineOptions({ name: 'ExplorerView' })
 
 const PAGE_SIZE = 100
 const BPM_MIN = 60
@@ -759,6 +762,19 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
+})
+
+// Cached return under <KeepAlive>: the view is reactivated (no onMounted), the
+// rows/filters/window are still in memory, so only the scroll offset needs
+// re-applying — no refetch. The first activation follows onMounted (which
+// already restored scroll) and is skipped.
+let firstActivate = true
+onActivated(() => {
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  scrollRestore.reapply()
 })
 </script>
 
