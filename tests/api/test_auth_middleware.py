@@ -79,6 +79,14 @@ class TestPublicEndpoints:
         r = await client.get("/api/sets/")
         assert r.status_code == 200
 
+    async def test_albums_get_public(self, mw_client):
+        # C7: album detail is guest-accessible (open discovery, like /api/sets).
+        # A guest must reach the route (404 for a missing id), never a 401 from
+        # the middleware — the router's optional reader only runs past the gate.
+        client, _ = mw_client
+        r = await client.get("/api/albums/1")
+        assert r.status_code == 404
+
     async def test_radar_trends_get_public(self, mw_client):
         client, _ = mw_client
         r = await client.get("/api/radar/trends?limit=20")

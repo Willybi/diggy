@@ -12,6 +12,7 @@ _PUBLIC_GET_PREFIXES = (
     "/api/catalog",
     "/api/artists",
     "/api/sets",
+    "/api/albums",
     "/api/genres",
     "/api/search",
     "/api/taxonomy",
