@@ -54,6 +54,12 @@
           />
           <StatTile label="Sets à recrawler" :value="fmtInt(sets.recrawl_backlog)" tone="neutral" />
           <StatTile
+            label="Sets non fiables"
+            :value="fmtInt(sets.unreliable)"
+            sublabel="majoritairement ID"
+            tone="neutral"
+          />
+          <StatTile
             label="Catalogue"
             :value="fmtInt(catalog.total)"
             :delta="catalogDelta"
@@ -353,6 +359,15 @@ const burnSeries = computed(() => {
     .filter((p) => Number.isFinite(p.v))
   if (bpm.length) {
     out.push({ label: 'BPM · à analyser', color: 'var(--chart-bpm)', points: bpm })
+  }
+  // Sets non fiables (C8) : sets TrackID flaggés peu fiables (majoritairement
+  // ID, cachés/exclus des calculs). Même clé de temps ; garde Number.isFinite →
+  // démarre au 1er snapshot qui porte la clé (les anciens ne l'ont pas).
+  const unreliable = backlogSeries.value
+    .map((snap) => ({ t: snap.captured_at, v: snap.payload?.sets?.unreliable }))
+    .filter((p) => Number.isFinite(p.v))
+  if (unreliable.length) {
+    out.push({ label: 'Sets · non fiables', color: 'var(--chart-sets)', points: unreliable })
   }
   return out
 })

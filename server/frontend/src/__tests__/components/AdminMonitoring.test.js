@@ -34,7 +34,7 @@ function sampleResponse() {
         },
       },
       artists: { backlog_link: 4, backlog_artwork: 7 },
-      sets: { recrawl_backlog: 2 },
+      sets: { recrawl_backlog: 2, unreliable: 42 },
       catalog: { total: cat, bpm_missing: bpm },
     },
   })
@@ -126,7 +126,7 @@ function sampleResponse() {
             },
           },
           artists: { backlog_link: 4, backlog_artwork: 7 },
-          sets: { recrawl_backlog: 2 },
+          sets: { recrawl_backlog: 2, unreliable: 42 },
           catalog: { total: 6120, bpm_missing: 800 },
         },
       },
@@ -182,6 +182,11 @@ describe('AdminMonitoring', () => {
     const burnChart = wrapper.findAllComponents(TimeSeriesChart)[0]
     const burnLabels = burnChart.props('series').map((s) => s.label)
     expect(burnLabels).toContain('BPM · à analyser')
+
+    // C8: unreliable-sets count surfaced as a tile (42) + a burn-down series.
+    expect(wrapper.text()).toContain('Sets non fiables')
+    expect(wrapper.text()).toContain('42')
+    expect(burnLabels).toContain('Sets · non fiables')
 
     // X4.d: artist-integrity counters surfaced as tiles.
     expect(wrapper.text()).toContain('Intégrité artiste')

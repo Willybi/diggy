@@ -118,6 +118,11 @@ def _run_snapshot_backlogs():
                     DJSet.parent_set_id.is_(None),
                     DJSet.recrawl_status != "final",
                 ),
+                # C8: TrackID sets flagged low-trust (mostly ID, no source_url,
+                # placeholder). Hidden/excluded everywhere; tracked here so its
+                # evolution shows up on the monitoring page — every (re-)import
+                # recomputes the flag, so the count drifts over time.
+                "unreliable": _count(DJSet.id, DJSet.unreliable.is_(True)),
             },
             "catalog": {
                 "total": _count(CatalogEntry.id),
