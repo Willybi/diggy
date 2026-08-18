@@ -32,6 +32,7 @@ class CatalogEntryOut(BaseModel):
     nb_radar_playlists: int = 0
     nb_radar_sets: int = 0
     avis: Optional[str] = None
+    album_id: Optional[int] = None
     artist_id: Optional[int] = None
     artists: list[ArtistRef] = []
     detected_at: Optional[datetime] = None

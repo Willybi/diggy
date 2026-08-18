@@ -29,6 +29,9 @@ class SearchItem(BaseModel):
     artist_count: int | None = None
     bpm_lo: int | None = None
     bpm_hi: int | None = None
+    # album (title + artist reuse the fields above)
+    record_type: str | None = None
+    year: int | None = None
 
 
 class SearchTotals(BaseModel):
@@ -37,6 +40,7 @@ class SearchTotals(BaseModel):
     set: int = 0
     playlist: int = 0
     genre: int = 0
+    album: int = 0
 
 
 class SearchResponse(BaseModel):

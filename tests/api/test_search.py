@@ -1,5 +1,7 @@
 """Tests for /api/search endpoint."""
-from models import CatalogEntry, Artist, DJSet, WatchedEntity
+from datetime import date
+
+from models import Album, AlbumType, Artist, CatalogEntry, DJSet, WatchedEntity
 
 
 class TestSearch:
@@ -157,6 +159,68 @@ class TestSearch:
         assert len(data["items"]) == 2
         # Exact match "Cola" should come first
         assert data["items"][0]["title"] == "Cola"
+
+
+class TestSearchAlbums:
+    """L5: the `album` scope returns albums and feeds totals.album."""
+
+    async def test_search_albums_by_title(self, client, db):
+        a = Artist(name="Daft Punk", normalized_name="daft punk")
+        db.add(a)
+        await db.flush()
+        db.add(Album(
+            title="Random Access Memories", artist_id=a.id,
+            record_type=AlbumType.album, release_date=date(2013, 5, 17),
+        ))
+        db.add(Album(title="Discovery", record_type=AlbumType.album))
+        await db.commit()
+
+        r = await client.get("/api/search?q=random&scope=album")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["totals"]["album"] == 1
+        items = [i for i in data["items"] if i["type"] == "album"]
+        assert len(items) == 1
+        assert items[0]["title"] == "Random Access Memories"
+        assert items[0]["artist"] == "Daft Punk"
+        assert items[0]["record_type"] == "album"
+        assert items[0]["year"] == 2013
+
+    async def test_album_scope_returns_only_albums(self, client, db):
+        db.add(Album(title="House Anthems", record_type=AlbumType.compile))
+        db.add(CatalogEntry(
+            title="House Track", artist="DJ", normalized_key="house track - dj"
+        ))
+        await db.commit()
+
+        r = await client.get("/api/search?q=house&scope=album")
+        data = r.json()
+        types = {i["type"] for i in data["items"]}
+        assert types <= {"album"}
+        assert data["totals"]["album"] == 1
+
+    async def test_album_feeds_overall_total(self, client, db):
+        # scope=all triggers the PG-only genre query (SQLite can't run it), so we
+        # assert the total-sum wiring on the single album scope: with only albums
+        # matched, the overall `total` equals totals.album (proves it's summed in).
+        db.add(Album(title="Deep Cuts", record_type=AlbumType.album))
+        db.add(Album(title="Deep End", record_type=AlbumType.ep))
+        await db.commit()
+
+        r = await client.get("/api/search?q=deep&scope=album")
+        data = r.json()
+        assert data["totals"]["album"] == 2
+        assert data["total"] == 2
+        assert all(i["type"] == "album" for i in data["items"])
+
+    async def test_no_album_match(self, client, db):
+        db.add(Album(title="Only This", record_type=AlbumType.album))
+        await db.commit()
+
+        r = await client.get("/api/search?q=zzz&scope=album")
+        data = r.json()
+        assert data["totals"]["album"] == 0
+        assert data["items"] == []
 
 
 class TestSearchLikeEscape:

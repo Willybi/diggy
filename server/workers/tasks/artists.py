@@ -1760,7 +1760,11 @@ def _crawl_track(session, hit):
     from models import CatalogEntry
     from sqlalchemy import select as sa_select
     from utils import make_normalized_key
-    from workers.deezer_enrich import enrich_entry, link_catalog_artist_from_hit
+    from workers.deezer_enrich import (
+        enrich_entry,
+        link_catalog_album_from_hit,
+        link_catalog_artist_from_hit,
+    )
 
     title = (hit.get("title") or "").strip()
     if not title:
@@ -1804,6 +1808,10 @@ def _crawl_track(session, hit):
     if entry.release_date is None:
         entry.release_date = _parse_release_date(hit.get("release_date"))
     link_catalog_artist_from_hit(session, entry.id, hit)
+    # L2: upsert the track's Deezer album + cover and link it, fil-de-l'eau.
+    # _check_releases tops up the release-level metadata (record_type/date/label)
+    # it alone holds. Reuses the hit in hand (no extra Deezer call).
+    link_catalog_album_from_hit(session, entry.id, hit)
     return entry, created
 
 
@@ -1945,6 +1953,26 @@ async def _check_releases(engine, followed_ids, now):
                         if isinstance(hit, dict) and not hit.get("error"):
                             try:
                                 entry, created = _crawl_track(session, hit)
+                                # L2: top up the album with release-level fields
+                                # (record_type/release_date/label) only this
+                                # /artist/{id}/albums path holds — the base upsert,
+                                # catalog link and cover happened in _crawl_track.
+                                try:
+                                    from workers.deezer_enrich import (
+                                        apply_album_release_metadata,
+                                    )
+
+                                    apply_album_release_metadata(
+                                        session, album, artist_id=artist.id
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "check_followed_artists: album metadata "
+                                        "enrich failed for track %s (album %s)",
+                                        track_id,
+                                        album_id,
+                                        exc_info=True,
+                                    )
                                 session.flush()
                             except IntegrityError:
                                 session.rollback()

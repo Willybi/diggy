@@ -502,13 +502,21 @@ async def enrich_deezer_batch(
                 enriched += 1
                 # Link artist from Deezer hit to catalog_artists
                 try:
-                    from workers.deezer_enrich import link_catalog_artist_from_hit
+                    from workers.deezer_enrich import (
+                        link_catalog_album_from_hit,
+                        link_catalog_artist_from_hit,
+                    )
 
                     link_catalog_artist_from_hit(session, entry_id, hit)
+                    # L2: upsert the track's album + cover, fil-de-l'eau. Reuses
+                    # the hit already in hand (no extra Deezer call).
+                    link_catalog_album_from_hit(session, entry_id, hit)
                 except Exception:
                     # non-critical, sync_artists will catch up
                     logger.warning(
-                        "artist link failed for catalog %s", entry_id, exc_info=True
+                        "artist/album link failed for catalog %s",
+                        entry_id,
+                        exc_info=True,
                     )
             _mark_searched(entry, "deezer", now)
         except DeezerHTTPError as e:

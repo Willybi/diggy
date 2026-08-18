@@ -3,6 +3,7 @@
 from database import Base  # noqa: F401
 
 from .admin import AdminAuditLog, CrawlLog  # noqa: F401
+from .album import Album, AlbumType, CatalogAlbum  # noqa: F401
 from .artist import (  # noqa: F401
     Artist,
     ArtistActivity,

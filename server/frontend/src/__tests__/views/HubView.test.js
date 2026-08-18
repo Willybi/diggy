@@ -151,7 +151,7 @@ describe('HubView search scope counters', () => {
           data: {
             items: [],
             total: 1552,
-            totals: { track: 1290, artist: 96, set: 84, playlist: 63, genre: 19 },
+            totals: { track: 1290, artist: 96, set: 84, album: 12, playlist: 63, genre: 19 },
           },
         })
       }
@@ -176,7 +176,7 @@ describe('HubView search scope counters', () => {
     await flushPromises()
 
     const counts = wrapper.findAll('.scope-menu .cnt')
-    expect(counts).toHaveLength(6) // Tout + 5 types
+    expect(counts).toHaveLength(7) // Tout + 6 types
     // fr-FR grouping inserts thin/no-break spaces (both matched by \s).
     const texts = counts.map((c) => c.text().replace(/\s/g, ''))
     expect(texts[0]).toBe('1552') // « Tout » = sum

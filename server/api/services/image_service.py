@@ -23,6 +23,7 @@ BUCKET_CATALOG = "catalog-artworks"
 BUCKET_ARTIST = "artist-artworks"
 BUCKET_PLAYLIST = "playlist-artworks"
 BUCKET_SET = "set-artworks"
+BUCKET_ALBUM = "album-artworks"
 
 
 class ImageService:

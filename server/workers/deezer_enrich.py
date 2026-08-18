@@ -15,7 +15,7 @@ import unicodedata
 
 import httpx
 import requests
-from services.image_service import BUCKET_CATALOG, ImageService
+from services.image_service import BUCKET_ALBUM, BUCKET_CATALOG, ImageService
 from workers.catalog_merge import normalize_track_title
 
 DEEZER_API = "https://api.deezer.com"
@@ -378,6 +378,146 @@ def link_catalog_artist_from_hit(session, catalog_id: int, hit: dict):
     artist = _resolve_or_create_artist(session, artist_name, dz_artist_id)
     _link_one_artist(session, catalog_id, artist.id, "primary", 0)
 
+
+# Deezer record_type → AlbumType. Deezer uses these lowercase tokens; a
+# compilation is sometimes returned as "compile" and sometimes "compilation".
+_DEEZER_RECORD_TYPE_MAP = {
+    "album": "album",
+    "single": "single",
+    "ep": "ep",
+    "compile": "compile",
+    "compilation": "compile",
+}
+
+
+def _map_album_type(record_type):
+    """Map a Deezer record_type string to an AlbumType, or None if unknown."""
+    if not record_type:
+        return None
+    from models import AlbumType
+
+    mapped = _DEEZER_RECORD_TYPE_MAP.get(str(record_type).strip().lower())
+    return AlbumType(mapped) if mapped else None
+
+
+def _parse_album_date(value):
+    """Parse a Deezer 'YYYY-MM-DD' release_date into a date, or None."""
+    from datetime import date
+
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _resolve_or_create_album(session, album_obj, artist_id=None):
+    """Find an Album by deezer_album_id, or create one. Calqué sur
+    _resolve_or_create_artist (sync session, get-or-create, flush).
+
+    Idempotent: a second pass with the same album never inserts a duplicate.
+    Returns the Album, or None when the album object is empty or carries no
+    Deezer id — an album is NEVER created without a reliable deezer_album_id
+    (invariant #4).
+    """
+    if not album_obj:
+        return None
+    raw_id = album_obj.get("id")
+    if not raw_id:
+        return None
+
+    from models import Album
+    from sqlalchemy import select as sa_select
+    from utils import normalize
+
+    dz_id = str(raw_id)
+    album = session.execute(
+        sa_select(Album).where(Album.deezer_album_id == dz_id)
+    ).scalar_one_or_none()
+    if album is not None:
+        return album
+
+    from datetime import datetime, timezone
+
+    title = (album_obj.get("title") or "").strip()
+    album = Album(
+        title=title,
+        normalized_title=normalize(title) if title else None,
+        deezer_album_id=dz_id,
+        artist_id=artist_id,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(album)
+    session.flush()
+    return album
+
+
+def link_catalog_album_from_hit(session, catalog_id: int, hit: dict, artist_id=None):
+    """Upsert the Deezer album of a track hit and link it to the catalog entry.
+
+    Reads ``hit["album"]`` (present on both /search and /track/{id} hits),
+    get-or-creates the Album by deezer_album_id, inserts a CatalogAlbum link if
+    absent (guard against a duplicate link), and uploads the album cover to
+    MinIO once — same has_artwork guard and upload style as the catalog cover
+    block in enrich_entry. Idempotent and non-fatal; the caller keeps it in a
+    best-effort try/except so a linking hiccup never aborts enrichment. Sync
+    session (Celery workers).
+    """
+    album_obj = hit.get("album") or {}
+    album = _resolve_or_create_album(session, album_obj, artist_id=artist_id)
+    if album is None:
+        return
+
+    from models import CatalogAlbum
+    from sqlalchemy import select as sa_select
+
+    existing = session.execute(
+        sa_select(CatalogAlbum).where(
+            CatalogAlbum.catalog_id == catalog_id,
+            CatalogAlbum.album_id == album.id,
+        )
+    ).scalar_one_or_none()
+    if not existing:
+        session.add(CatalogAlbum(catalog_id=catalog_id, album_id=album.id))
+
+    # Upload the album cover once — mirrors the enrich_entry catalog-cover block.
+    if not album.has_artwork:
+        cover_url = album_obj.get("cover_medium") or album_obj.get("cover_big")
+        if cover_url and ImageService.upload_from_url(
+            cover_url, BUCKET_ALBUM, f"{album.id}.jpg"
+        ):
+            album.has_artwork = True
+
+
+def apply_album_release_metadata(session, album_obj, artist_id=None):
+    """Top up an Album with release-level fields (record_type, release_date,
+    label) known only to the release-crawl path (/artist/{id}/albums), where the
+    full album object is in hand — /search and /track hits carry none of them.
+
+    Conservative: never overwrites a present value with None (invariant #4).
+    Idempotent. Returns the Album, or None when the album has no Deezer id.
+    """
+    album = _resolve_or_create_album(session, album_obj, artist_id=artist_id)
+    if album is None:
+        return None
+
+    record_type = _map_album_type(album_obj.get("record_type"))
+    if record_type is not None and album.record_type is None:
+        album.record_type = record_type
+
+    release_date = _parse_album_date(album_obj.get("release_date"))
+    if release_date is not None and album.release_date is None:
+        album.release_date = release_date
+
+    label = (album_obj.get("label") or "").strip()
+    if label and not album.label:
+        album.label = label
+
+    if artist_id and album.artist_id is None:
+        album.artist_id = artist_id
+
+    return album
 
 
 def enrich_entry(

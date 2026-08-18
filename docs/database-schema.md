@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 28 tables across 7 domains.
+> 30 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -66,7 +66,7 @@ is auto-generated — do not edit it directly.
 
 ## Table of contents
 
-**Catalog hub:** `catalog` · `catalog_artists` · `user_tracks`
+**Catalog hub:** `catalog` · `catalog_artists` · `albums` · `catalog_albums` · `user_tracks`
 **Users:** `users` · `user_opinions` · `user_collections` · `collection_items`
 **Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
 **Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity`
@@ -111,18 +111,18 @@ PK: `id`
 
 **Indexes:**
 - `ix_catalog_deezer_id`: `deezer_id`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_duration_ms`: `duration_ms`
+- `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_scope`: `scope`
+- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_release_date`: `release_date`
+- `ix_catalog_bpm_analysis_backlog`: `id`
+- `ix_catalog_genres`: `genres`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
 - `ix_catalog_key`: `key`
 - `ix_catalog_created_at_id`: 
-- `ix_catalog_beatport_id`: `beatport_id`
-- `ix_catalog_owner`: `owner_id`
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
-- `ix_catalog_scope`: `scope`
-- `ix_catalog_duration_ms`: `duration_ms`
-- `ix_catalog_bpm_analysis_backlog`: `id`
-- `ix_catalog_bpm`: `bpm`
-- `ix_catalog_genres`: `genres`
-- `ix_catalog_release_date`: `release_date`
 
 ### `catalog_artists`
 
@@ -137,6 +137,39 @@ Composite PK: (`catalog_id`, `artist_id`)
 
 **Indexes:**
 - `ix_catalog_artists_artist_id`: `artist_id`
+
+### `albums`
+
+PK: `id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `id` **PK** | Integer | no |  |  |  |
+| `title` | String(500) | no |  |  |  |
+| `normalized_title` | String(500) | yes |  |  |  |
+| `deezer_album_id` | String(64) | yes |  |  |  |
+| `record_type` | Enum | yes |  |  |  |
+| `release_date` | Date | yes |  |  |  |
+| `label` | String(255) | yes |  |  |  |
+| `artist_id` | Integer | yes |  | FK → artists.id ON DELETE SET NULL |  |
+| `has_artwork` | Boolean | yes |  |  | default=False |
+| `created_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_albums_artist_id`: `artist_id`
+- `uq_albums_deezer_id`: `deezer_album_id` (unique)
+
+### `catalog_albums`
+
+Composite PK: (`catalog_id`, `album_id`)
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `catalog_id` **PK** | Integer | no |  | FK → catalog.id ON DELETE CASCADE |  |
+| `album_id` **PK** | Integer | no |  | FK → albums.id ON DELETE CASCADE |  |
+
+**Indexes:**
+- `ix_catalog_albums_album_id`: `album_id`
 
 ### `user_tracks`
 
@@ -277,9 +310,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
-- `ix_radar_tracks_source_detected`: `source`
 - `ix_radar_tracks_watched_entity`: `watched_entity_id`
 - `ix_radar_tracks_catalog`: `catalog_id`
+- `ix_radar_tracks_source_detected`: `source`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -507,10 +540,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_set_id_b`: `set_id_b`
 - `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_group_key`: `group_key`
 - `ix_set_flags_set_id_a`: `set_id_a`
+- `ix_set_flags_set_id_b`: `set_id_b`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
@@ -554,8 +587,8 @@ PK: `id`
 | `source` | String(50) | no |  |  |  |
 
 **Indexes:**
-- `ix_genre_edges_from_node_id`: `from_node_id`
 - `ix_genre_edges_to_node_id`: `to_node_id`
+- `ix_genre_edges_from_node_id`: `from_node_id`
 
 **Unique constraints:**
 - `from_node_id`, `to_node_id`, `type` (`uq_genre_edge`)

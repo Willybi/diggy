@@ -179,6 +179,13 @@ function itemSub(item) {
     return parts.join(' · ')
   }
   if (item.type === 'playlist') return `${item.track_count || 0} tracks`
+  if (item.type === 'album') {
+    const parts = []
+    if (item.artist) parts.push(item.artist)
+    if (item.record_type) parts.push(ALBUM_TYPE_LABELS[item.record_type] || item.record_type)
+    if (item.year) parts.push(item.year)
+    return parts.join(' · ')
+  }
   if (item.type === 'genre') {
     const parts = [`${item.track_count || 0} tracks`, `${item.artist_count || 0} artistes`]
     if (item.bpm_lo && item.bpm_hi) parts.push(`${item.bpm_lo}–${item.bpm_hi} BPM`)
@@ -193,11 +200,20 @@ function highlight(text) {
   return text.replace(new RegExp(`(${q})`, 'gi'), '<mark>$1</mark>')
 }
 
+// French labels for the (nullable) album record_type enum, reused in itemSub.
+const ALBUM_TYPE_LABELS = {
+  album: 'Album',
+  single: 'Single',
+  ep: 'EP',
+  compile: 'Compilation',
+}
+
 function typeLabel(type) {
   const map = {
     track: 'TRACK',
     artist: 'ARTISTE',
     set: 'SET',
+    album: 'ALBUM',
     playlist: 'PLAYLIST',
     genre: 'GENRE',
   }
@@ -227,6 +243,7 @@ function artworkUrl(item) {
   if (item.type === 'track') return `/storage/catalog-artworks/${item.id}.jpg`
   if (item.type === 'artist') return `/storage/artist-artworks/${item.id}.jpg`
   if (item.type === 'set') return `/storage/set-artworks/${item.id}.jpg`
+  if (item.type === 'album') return `/storage/album-artworks/${item.id}.jpg`
   if (item.type === 'playlist') return `/storage/playlist-artworks/${item.id}.jpg`
   return null
 }
@@ -288,6 +305,7 @@ function onRowClick(item) {
     track: `/catalog/${item.id}`,
     artist: `/artist/${item.id}`,
     set: `/set/${item.id}`,
+    album: `/album/${item.id}`,
     playlist: `/playlists/${item.id}`,
     genre: `/style/${encodeURIComponent(item.name)}`,
   }

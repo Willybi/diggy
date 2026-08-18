@@ -124,6 +124,11 @@ class CatalogEntry(Base):
         back_populates="catalog",
         cascade="all, delete-orphan",
     )
+    album_links = relationship(
+        "CatalogAlbum",
+        back_populates="catalog",
+        cascade="all, delete-orphan",
+    )
 
 
 def bpm_analysis_candidate_filter():

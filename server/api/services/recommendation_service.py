@@ -176,6 +176,7 @@ async def _compute(db: AsyncSession, user_id: int):
 
     from services.similarity_service import (
         _build_result_items,
+        _dedup_by_album,
         _score_seed_against_pool,
         load_candidate_pool,
         load_similarity_context,
@@ -244,16 +245,25 @@ async def _compute(db: AsyncSession, user_id: int):
                 continue
             reco_score[cid] -= CFG.W_DISLIKE * round(score_pct, 4)
 
-    ranked = sorted(
-        ((cid, sc) for cid, sc in reco_score.items() if sc > 0.0),
-        key=lambda x: x[1],
-        reverse=True,
-    )[: CFG.MAX_ITEMS]
+    # Rank best-first, then apply the L4 album de-dup (≤1 track per album, keeps
+    # the best-scored) BEFORE truncating to MAX_ITEMS — so the cached list holds
+    # up to MAX_ITEMS distinct-album items, not a post-truncation remainder.
+    ranked = _dedup_by_album(
+        sorted(
+            ((cid, sc) for cid, sc in reco_score.items() if sc > 0.0),
+            key=lambda x: x[1],
+            reverse=True,
+        ),
+        pool,
+        CFG.MAX_ITEMS,
+    )
 
     # Heavy fetch for the ranked winners only; then stamp reco_score by id (no
-    # positional zip — robust to any missing entry).
+    # positional zip — robust to any missing entry). The album_id comes straight
+    # from the pool — no extra query.
     winners = [(cid, *first_sim[cid]) for cid, _ in ranked]
-    items = await _build_result_items(db, winners, user_id)
+    album_by_id = {cid: pool[cid].album_id for cid, _ in ranked}
+    items = await _build_result_items(db, winners, user_id, album_by_id=album_by_id)
     for item in items:
         item["reco_score"] = round(reco_score[item["id"]], 4)
 

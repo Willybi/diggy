@@ -11,6 +11,7 @@ const WatchlistView = () => import('./views/WatchlistView.vue')
 const TrackDetailView = () => import('./views/TrackDetailView.vue')
 const ArtistDetailView = () => import('./views/ArtistDetailView.vue')
 const SetDetailView = () => import('./views/SetDetailView.vue')
+const AlbumView = () => import('./views/AlbumView.vue')
 const PlaylistDetailView = () => import('./views/PlaylistDetailView.vue')
 const ArtistsView = () => import('./views/ArtistsView.vue')
 const SetsView = () => import('./views/SetsView.vue')
@@ -45,6 +46,7 @@ const routes = [
   { path: '/artist/:id', component: ArtistDetailView, props: true },
   { path: '/sets', component: SetsView },
   { path: '/set/:id', component: SetDetailView, props: true },
+  { path: '/album/:id', component: AlbumView, props: true },
   { path: '/artists', component: ArtistsView },
   { path: '/admin', component: AdminView },
   { path: '/radar', component: RadarView },

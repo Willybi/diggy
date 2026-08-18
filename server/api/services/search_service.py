@@ -8,6 +8,7 @@ Services raise LookupError (404) or ValueError (400), never HTTPException.
 from __future__ import annotations
 
 from models import (
+    Album,
     Artist,
     CatalogArtist,
     CatalogEntry,
@@ -268,6 +269,52 @@ async def _search_playlists(
     return items, total
 
 
+async def _search_albums(
+    db: AsyncSession,
+    q: str,
+    limit: int,
+    offset: int = 0,
+) -> tuple[list[SearchItem], int]:
+    # Space-insensitive match on the album title AND its (nullable) normalized
+    # title, mirroring the sets/playlists scopes. The single `base` query backs
+    # both the items and the count subquery so `total` stays consistent.
+    title_match = space_insensitive_ilike(q, Album.title, Album.normalized_title)
+
+    base = (
+        select(
+            Album.id,
+            Album.title,
+            Album.record_type,
+            Album.release_date,
+            Album.has_artwork,
+            Artist.name.label("artist_name"),
+        )
+        .outerjoin(Artist, Artist.id == Album.artist_id)
+        .where(title_match)
+        .order_by(Album.title, Album.id)
+    )
+
+    total_r = await db.execute(select(func.count()).select_from(base.subquery()))
+    total = total_r.scalar() or 0
+
+    rows = (await db.execute(base.offset(offset).limit(limit))).all()
+
+    items: list[SearchItem] = []
+    for r in rows:
+        items.append(
+            SearchItem(
+                type="album",
+                id=r.id,
+                title=r.title,
+                artist=r.artist_name,
+                record_type=r.record_type.value if r.record_type else None,
+                year=r.release_date.year if r.release_date else None,
+                has_artwork=r.has_artwork,
+            )
+        )
+    return items, total
+
+
 async def _search_genres(
     db: AsyncSession,
     q: str,
@@ -378,6 +425,11 @@ async def search(
         all_items.extend(items)
         totals.playlist = t
 
+    if scope in ("all", "album"):
+        items, t = await _search_albums(db, q_lower, per_type_limit, per_type_offset)
+        all_items.extend(items)
+        totals.album = t
+
     if scope in ("all", "genre"):
         items, t = await _search_genres(
             db, q_lower, user_id, is_guest, per_type_limit, per_type_offset
@@ -394,7 +446,14 @@ async def search(
 
     all_items.sort(key=sort_key)
 
-    total = totals.track + totals.artist + totals.set + totals.playlist + totals.genre
+    total = (
+        totals.track
+        + totals.artist
+        + totals.set
+        + totals.playlist
+        + totals.genre
+        + totals.album
+    )
 
     # Guest cap
     if is_guest:

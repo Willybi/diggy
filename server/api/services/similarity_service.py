@@ -58,6 +58,14 @@ CFG = SimilarityConfig()
 # large-but-correct pool. The real memory bound is the heapq in the scorer.
 POOL_SIZE_WARN = 300_000
 
+# Album de-dup (L4): the similarity result keeps at most one track per album, so
+# the scorer must over-provision its winners — otherwise a run where several of
+# the top ``top_n`` tracks share an album would return fewer than ``top_n`` rows.
+# We fetch ``top_n * ALBUM_DEDUP_OVERPROVISION`` winners, drop same-album
+# duplicates, then truncate to ``top_n``. A tracks-with-no-album run is never
+# de-duped, so the factor only matters when albums repeat in the top region.
+ALBUM_DEDUP_OVERPROVISION = 5
+
 # ---------------------------------------------------------------------------
 # Camelot helpers
 # ---------------------------------------------------------------------------
@@ -295,6 +303,28 @@ async def _load_set_map(db: AsyncSession) -> dict[int, frozenset[int]]:
     return {k: frozenset(v) for k, v in result.items()}
 
 
+async def _load_album_map(db: AsyncSession) -> dict[int, int]:
+    """catalog_id -> ONE representative album_id (L4 album de-dup).
+
+    ``catalog_albums`` is M2M (a track can belong to several albums), so each
+    track is collapsed to a single representative album with a DETERMINISTIC
+    choice (the smallest ``album_id``) — enough to spot "same album" between two
+    candidates in the similarity / reco output. Tracks with no album are simply
+    absent from the map (looked up with ``.get`` → None → never de-duped).
+    """
+    from models import CatalogAlbum
+
+    rows = (
+        await db.execute(
+            select(
+                CatalogAlbum.catalog_id,
+                func.min(CatalogAlbum.album_id),
+            ).group_by(CatalogAlbum.catalog_id)
+        )
+    ).all()
+    return {catalog_id: album_id for catalog_id, album_id in rows}
+
+
 # ---------------------------------------------------------------------------
 # Shared context (pre-loaded maps, reusable across seeds)
 # ---------------------------------------------------------------------------
@@ -303,14 +333,16 @@ async def _load_set_map(db: AsyncSession) -> dict[int, frozenset[int]]:
 class SimilarityContext:
     """Seed-agnostic maps loaded once and reused across many similarity seeds.
 
-    Carries the 4 full-table loads (genre resolution, label counts, playlist and
-    set co-occurrence maps) so scoring a batch of seeds pays the loading cost once.
+    Carries the 5 full-table loads (genre resolution, label counts, playlist and
+    set co-occurrence maps, and the catalog→album map) so scoring a batch of
+    seeds pays the loading cost once.
     """
     name_to_node: dict[str, int]
     parent_map: dict[int, set[int]]
     label_counts: dict[str, int]
     playlist_map: dict[int, frozenset[int]]
     set_map: dict[int, frozenset[int]]
+    album_map: dict[int, int]
 
 
 # In-process cache for the seed-agnostic context. The 4 maps are user- AND
@@ -335,7 +367,7 @@ def reset_similarity_context_cache() -> None:
 async def load_similarity_context(
     db: AsyncSession, *, use_cache: bool = True
 ) -> SimilarityContext:
-    """Load the 4 seed-agnostic maps (genre, label, playlist, set), cached in-process.
+    """Load the 5 seed-agnostic maps (genre, label, playlist, set, album), cached in-process.
 
     The context is user- and seed-independent, so it is built once and reused for
     ``SIMILARITY_CONTEXT_TTL_S`` seconds (default 6h). Pass ``use_cache=False`` to
@@ -358,12 +390,14 @@ async def load_similarity_context(
     label_counts = await _load_label_counts(db)
     playlist_map = await _load_playlist_map(db)
     set_map = await _load_set_map(db)
+    album_map = await _load_album_map(db)
     ctx = SimilarityContext(
         name_to_node=name_to_node,
         parent_map=parent_map,
         label_counts=label_counts,
         playlist_map=playlist_map,
         set_map=set_map,
+        album_map=album_map,
     )
     if use_cache:
         _context_cache = ctx
@@ -395,6 +429,7 @@ class PooledCandidate(NamedTuple):
     expanded_genres: dict[int, float]
     playlists: frozenset[int]
     sets: frozenset[int]
+    album_id: int | None
 
 
 async def load_candidate_pool(
@@ -445,6 +480,7 @@ async def load_candidate_pool(
             ),
             playlists=ctx.playlist_map.get(cid, frozenset()),
             sets=ctx.set_map.get(cid, frozenset()),
+            album_id=ctx.album_map.get(cid),
         )
     if len(pool) > POOL_SIZE_WARN:
         logger.warning(
@@ -605,10 +641,42 @@ def _score_seed_against_pool(
     return scored
 
 
+def _dedup_by_album(
+    ranked: list[tuple],
+    pool: dict[int, PooledCandidate],
+    limit: int,
+) -> list[tuple]:
+    """Keep at most ONE track per album across a best-first ranked list (L4).
+
+    ``ranked`` is any list of tuples whose first element is a catalog id, already
+    sorted best-first — both the similarity winners ``(id, score, components,
+    available)`` and the reco ``(id, score)`` pairs qualify. Because the list is
+    best-first, the first tuple of an album is the best-scored one, so any later
+    tuple sharing that ``album_id`` is skipped. Candidates with no album
+    (``album_id`` None) are NEVER de-duped against one another. Stops once
+    ``limit`` survivors are collected.
+    """
+    seen_albums: set[int] = set()
+    out: list[tuple] = []
+    for entry in ranked:
+        cand = pool.get(entry[0])
+        album_id = cand.album_id if cand is not None else None
+        if album_id is not None:
+            if album_id in seen_albums:
+                continue
+            seen_albums.add(album_id)
+        out.append(entry)
+        if len(out) >= limit:
+            break
+    return out
+
+
 async def _build_result_items(
     db: AsyncSession,
     winners: list[tuple[int, float, dict[str, float], list[str]]],
     user_id: int | None,
+    *,
+    album_by_id: dict[int, int | None] | None = None,
 ) -> list[dict]:
     """Fetch full ORM data for the WINNERS only and build the response dicts.
 
@@ -617,7 +685,12 @@ async def _build_result_items(
     fetched here — for the handful of ranked winners, never for the whole
     candidate pool. Produces the SAME response dict, field for field, as the
     pre-pool core built. Shared by the single-seed and reco paths.
+
+    ``album_by_id`` (L4) carries the representative ``album_id`` already resolved
+    in the pool for each winner — reused as-is (no extra query, no N+1) to expose
+    ``album_id`` on the output. Absent id / None → ``album_id`` None.
     """
+    album_by_id = album_by_id or {}
     from models import Artist, CatalogArtist, CatalogEntry, UserTrack
     from schemas import ArtistRef, GenreRef, SimilarityBlock, SimilarityComponents
 
@@ -701,6 +774,7 @@ async def _build_result_items(
                 "nb_radar_playlists": 0,
                 "nb_radar_sets": 0,
                 "avis": None,
+                "album_id": album_by_id.get(entry.id),
                 "artist_id": entry_artists[0].id if entry_artists else None,
                 "artists": [a.model_dump() for a in entry_artists],
                 "similarity": SimilarityBlock(
@@ -757,14 +831,20 @@ async def _similar_core(
         ).all()
         restrict_ids = {r[0] for r in lib_ids_rows}
 
-    # 3. Score every candidate in memory, sort, keep top_n.
+    # 3. Score every candidate in memory, sort. Over-provision the winners so the
+    #    album de-dup can still return ``top_n`` distinct-album tracks (L4).
+    overprovision = max(top_n * ALBUM_DEDUP_OVERPROVISION, top_n)
     scored = _score_seed_against_pool(
-        pool, seed, score_floor=score_floor, restrict_ids=restrict_ids, limit=top_n
+        pool, seed, score_floor=score_floor, restrict_ids=restrict_ids,
+        limit=overprovision,
     )
-    top = scored[:top_n]
+    # ≤1 track per album (keeps the best-scored of each), then truncate to top_n.
+    top = _dedup_by_album(scored, pool, top_n)
 
-    # 4. Heavy fetch (artists, in_lib, full fields) for the winners only.
-    return await _build_result_items(db, top, user_id)
+    # 4. Heavy fetch (artists, in_lib, full fields) for the winners only. The
+    #    album_id comes straight from the pool — no extra query.
+    album_by_id = {cid: pool[cid].album_id for cid, *_ in top}
+    return await _build_result_items(db, top, user_id, album_by_id=album_by_id)
 
 
 async def similar_from_context(

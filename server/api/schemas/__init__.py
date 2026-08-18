@@ -27,6 +27,7 @@ from .admin import (
     ThroughputItem,
     UnclassifiedCountResponse,
 )
+from .albums import AlbumDetailOut, AlbumTrackOut
 from .artist import (
     ArtistAliasOut,
     ArtistConnectionComponents,
@@ -158,6 +159,9 @@ from .watchlist import (
 )
 
 __all__ = [
+    # albums
+    "AlbumDetailOut",
+    "AlbumTrackOut",
     # common
     "ArtistRef",
     "GenreRef",

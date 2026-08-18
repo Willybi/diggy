@@ -12,6 +12,7 @@ from pythonjsonlogger.json import JsonFormatter
 from rate_limit import RateLimitMiddleware
 from routers import (
     admin,
+    albums,
     artists,
     auth,
     catalog,
@@ -107,6 +108,7 @@ app.include_router(catalog.router, prefix="/api")
 app.include_router(artists.router, prefix="/api")
 app.include_router(following.router, prefix="/api")
 app.include_router(sets.router, prefix="/api")
+app.include_router(albums.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(genres.router, prefix="/api/genres")
 app.include_router(opinions.router, prefix="/api")
