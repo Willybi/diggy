@@ -32,7 +32,7 @@ Pour chaque lot, produis un prompt dans un bloc de code distinct, prêt à copie
 3. les consignes d'implémentation : ce qui est attendu, ce qui est hors périmètre
 4. la consigne de respecter les conventions du code existant : avant d'écrire, observer le style, le nommage, les patterns et la gestion d'erreurs du code environnant et s'y conformer plutôt qu'à ses préférences
 5. les obligations concernant les tests :
-   - exécuter la suite de tests existante AVANT modification pour établir l'état de référence, puis APRÈS pour détecter toute régression
+   - exécuter la suite de tests existante APRÈS modification pour détecter toute régression (ne PAS la lancer avant pour établir un état de référence : la suite est verte, c'est une perte de temps)
    - si des tests existants cassent légitimement (comportement volontairement changé), les mettre à jour en le documentant dans le compte rendu ; si un test casse sans raison liée à la consigne, ne pas le rafistoler, le signaler
    - produire les tests unitaires couvrant la nouvelle fonctionnalité quand c'est pertinent (cas nominal + cas limites)
    - produire des tests ne signifie pas refactorer l'infrastructure de test existante (fixtures, mocks, config) : elle est hors périmètre
@@ -44,7 +44,7 @@ Pour chaque lot, produis un prompt dans un bloc de code distinct, prêt à copie
    - Statut : TERMINÉ / TERMINÉ AVEC RÉSERVES / BLOQUÉ
    - Fichiers modifiés/créés :
    - Ce qui a été fait :
-   - Résultat des tests : (état avant / état après)
+   - Résultat des tests : (état après modification)
    - Tests modifiés et pourquoi :
    - Tests ajoutés :
    - Résultat du lint :
