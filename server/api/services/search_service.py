@@ -19,6 +19,7 @@ from models import (
 from schemas import SearchItem, SearchResponse, SearchTotals
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from trackid.reliability import set_reliable
 from utils import like_escape, space_insensitive_ilike
 
 from services.catalog_service import catalog_visible
@@ -186,9 +187,12 @@ async def _search_sets(
             func.count(SetTrack.id).label("track_count"),
         )
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
+        # C8: exclude unreliable TrackID sets (adds to the roots-only filter);
+        # applied to BOTH the items and count queries so `total` stays in sync.
         .where(
             title_match,
             DJSet.parent_set_id.is_(None),
+            set_reliable(),
         )
         .group_by(DJSet.id)
         .order_by(DJSet.played_date.desc().nulls_last(), DJSet.id)
@@ -200,6 +204,7 @@ async def _search_sets(
         .where(
             title_match,
             DJSet.parent_set_id.is_(None),
+            set_reliable(),
         )
         .subquery()
     )

@@ -11,6 +11,7 @@ from models import Artist, CatalogEntry, DJSet, SetArtist, SetTrack
 from schemas import ArtistRef, SetListItemOut, SetListResponse
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from trackid.reliability import set_reliable
 from utils import like_escape
 
 from services.catalog_service import catalog_visible
@@ -70,7 +71,8 @@ async def list_sets(
             identified_expr.label("identified_tracks"),
         )
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
-        .where(DJSet.parent_set_id.is_(None))
+        # C8: hide unreliable TrackID sets (adds to the roots-only filter).
+        .where(DJSet.parent_set_id.is_(None), set_reliable())
         .group_by(DJSet.id)
         # A set with no identified track is noise in a discovery list: exclude it.
         # The count subquery below is built on this stmt, so total honours it.

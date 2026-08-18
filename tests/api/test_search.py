@@ -65,6 +65,19 @@ class TestSearch:
         assert "Boiler Room London Part 2" not in titles
         assert data["totals"]["set"] == 1
 
+    async def test_search_sets_excludes_unreliable(self, client, db):
+        # C8 (L2): a flagged set must drop out of search results AND the count.
+        db.add(DJSet(title="Boiler Room Trusted", source="trackid"))
+        db.add(DJSet(title="Boiler Room Flagged", source="trackid", unreliable=True))
+        await db.commit()
+
+        r = await client.get("/api/search?q=boiler&scope=set")
+        data = r.json()
+        titles = [i["title"] for i in data["items"]]
+        assert "Boiler Room Trusted" in titles
+        assert "Boiler Room Flagged" not in titles
+        assert data["totals"]["set"] == 1
+
     async def test_search_playlists(self, client, db):
         db.add(WatchedEntity(external_id="123", source="deezer", title="Deep House Selection"))
         db.add(WatchedEntity(external_id="456", source="deezer", title="Techno Picks"))

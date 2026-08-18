@@ -148,6 +148,13 @@ def compute_trends(self, window_days=30):
                 logger.warning("Could not build pillar cache, families will be null")
                 pillar_cache = {}
 
+            # C8: exclude unreliable TrackID sets from set-level trend weighting
+            # (adds to the roots-only filter, never replaces it). Same SQL fragment
+            # the read services use, so one definition governs the exclusion.
+            from trackid.reliability import set_reliable_sql
+
+            set_reliable_frag = set_reliable_sql("s")
+
             # Main query: scores + velocity in a single pass
             rows = session.execute(
                 text("""
@@ -188,6 +195,7 @@ def compute_trends(self, window_days=30):
                     JOIN catalog c ON c.id = st.catalog_id
                     WHERE st.catalog_id IS NOT NULL
                       AND s.parent_set_id IS NULL
+                      AND """ + set_reliable_frag + """
                       AND COALESCE(s.played_date::timestamptz, s.created_at)
                           >= NOW() - MAKE_INTERVAL(days => :window)
                 ),

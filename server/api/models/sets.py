@@ -57,6 +57,13 @@ class DJSet(Base):
     recrawl_status = Column(
         String(16), nullable=False, default="active", server_default="active"
     )
+    # C8 reliability flag: a low-trust TrackID set (mostly unidentified tracks,
+    # no source_url, placeholder artwork). Hidden everywhere + excluded from
+    # proximity scoring; the underlying tracks are kept. Recomputed on every
+    # (re-)import via trackid.reliability.compute_set_unreliable.
+    unreliable = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),

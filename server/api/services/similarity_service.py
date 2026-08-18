@@ -271,8 +271,12 @@ async def _load_set_map(db: AsyncSession) -> dict[int, frozenset[int]]:
     virtual parent carries the merged tracklist of its children, so counting the
     parent AND its children would count the SAME logical set 2-3× and inflate the
     co-occurrence weight — same "roots only" rule as trend scoring.
+
+    C8: unreliable TrackID sets are also dropped (``set_reliable()``) so a
+    low-trust set never contributes to proximity scoring.
     """
     from models import DJSet, SetTrack
+    from trackid.reliability import set_reliable
 
     rows = (
         await db.execute(
@@ -281,6 +285,7 @@ async def _load_set_map(db: AsyncSession) -> dict[int, frozenset[int]]:
             .where(
                 SetTrack.catalog_id.isnot(None),
                 DJSet.parent_set_id.is_(None),
+                set_reliable(),
             )
         )
     ).all()

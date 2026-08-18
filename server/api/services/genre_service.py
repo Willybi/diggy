@@ -324,6 +324,8 @@ async def list_genres(
 
 
 async def get_detail(db: AsyncSession, name: str, user_id: int | None) -> dict:
+    from trackid.reliability import set_reliable_sql
+
     genre = await resolve_genre(db, name)
     await ensure_pillar_cache(db)
 
@@ -344,13 +346,16 @@ async def get_detail(db: AsyncSession, name: str, user_id: int | None) -> dict:
         )
     ).fetchone()
 
+    # C8: join `sets` so unreliable TrackID sets are not counted. Only reliability
+    # is added (this stat has no roots-only filter today — left iso on that axis).
     set_count = (
         await db.execute(
-            text("""
+            text(f"""
         SELECT COUNT(DISTINCT st.set_id)::int AS cnt
         FROM set_tracks st
         JOIN catalog c ON c.id = st.catalog_id
-        WHERE :genre = ANY(c.genres)
+        JOIN sets s ON s.id = st.set_id
+        WHERE :genre = ANY(c.genres) AND {set_reliable_sql("s")}
     """),
             {"genre": genre},
         )
@@ -465,9 +470,11 @@ async def list_genre_artists(
 
 
 async def list_genre_sets(db: AsyncSession, name: str, limit: int, offset: int) -> dict:
+    from trackid.reliability import set_reliable_sql
+
     genre = await resolve_genre(db, name)
     result = await db.execute(
-        text("""
+        text(f"""
         SELECT s.id, s.title, s.played_date, s.has_artwork,
                COUNT(DISTINCT st.id)::int AS genre_track_count,
                total_sub.total_tracks,
@@ -478,7 +485,8 @@ async def list_genre_sets(db: AsyncSession, name: str, limit: int, offset: int) 
         CROSS JOIN LATERAL (
             SELECT COUNT(*)::int AS total_tracks FROM set_tracks WHERE set_id = s.id
         ) total_sub
-        WHERE s.parent_set_id IS NULL
+        -- C8: exclude unreliable TrackID sets (adds to the roots-only filter).
+        WHERE s.parent_set_id IS NULL AND {set_reliable_sql("s")}
         GROUP BY s.id, s.title, s.played_date, s.has_artwork, total_sub.total_tracks
         ORDER BY genre_track_count DESC, s.played_date DESC NULLS LAST, s.id DESC
         LIMIT :limit OFFSET :offset

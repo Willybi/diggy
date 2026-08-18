@@ -255,6 +255,31 @@ class TestRemovedTracksExcluded:
         assert "removed_at IS NULL" in source
 
 
+class TestUnreliableSetsExcluded:
+    """C8 (L2): unreliable TrackID sets must not weigh in set-level trend scoring.
+
+    compute_trends builds its SQL by concatenating the shared reliability
+    fragment at runtime (``set_reliable_sql('s')``), so we assert the source wires
+    that helper into the set branch — the same source-inspection contract as
+    TestRemovedTracksExcluded above."""
+
+    def test_set_branch_wires_reliability_fragment(self):
+        import inspect
+        from workers.tasks.trends import compute_trends
+
+        source = inspect.getsource(compute_trends)
+        # helper imported + fragment concatenated into the set: UNION branch
+        assert "from trackid.reliability import set_reliable_sql" in source
+        assert 'set_reliable_sql("s")' in source
+        assert "set_reliable_frag" in source
+
+    def test_reliability_fragment_semantics(self):
+        # The shared fragment keeps reliable sets (unreliable IS NOT TRUE).
+        from trackid.reliability import set_reliable_sql
+
+        assert set_reliable_sql("s") == "s.unreliable IS NOT TRUE"
+
+
 class TestPurgeStaleTrends:
     """A3-02: a run must delete radar_trends rows left over from previous runs."""
 

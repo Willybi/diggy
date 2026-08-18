@@ -482,6 +482,16 @@ def _run_recrawl_incomplete_sets(task):
                                         _completion_pct(total, unidentified),
                                         datetime.now(timezone.utc),
                                     )
+                                    # C8 reliability (sets.unreliable) is
+                                    # refreshed by import_audiostream above: the
+                                    # re-import re-observes the ID ratio,
+                                    # source_url AND the fresh artworkUrl, so the
+                                    # flag is recomputed here for free. It is
+                                    # deliberately NOT recomputed a second time
+                                    # from this task — we have no artworkUrl at
+                                    # this vantage, so a carry-over would only
+                                    # overwrite the fresher placeholder
+                                    # observation with a stickier approximation.
                                     if finalized == "complete":
                                         completed += 1
                                     elif finalized == "stale":

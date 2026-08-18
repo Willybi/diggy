@@ -10,6 +10,7 @@ from utils import normalize
 
 from trackid.client import TrackIDClient
 from trackid.parsing import is_id_track, parse_timespan_to_ms, parse_trackid_date
+from trackid.reliability import compute_set_unreliable, is_placeholder_artwork_url
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ async def import_audiostream(
 
     merged = client.merge_tracklist(detail)
     track_count = 0
+    id_track_count = 0
 
     for idx, track in enumerate(merged):
         raw_title = track.get("title")
@@ -153,17 +155,31 @@ async def import_audiostream(
         timecode_ms = parse_timespan_to_ms(track.get("startTime"))
         mtid = track.get("musicTrackId")
 
+        is_id = is_id_track(raw_title, raw_artist)
         st = SetTrack(
             set_id=dj_set.id,
             position=idx + 1,
             timecode_ms=timecode_ms,
             raw_title=raw_title,
             raw_artist=raw_artist,
-            is_id=is_id_track(raw_title, raw_artist),
+            is_id=is_id,
             trackid_music_track_id=mtid,
         )
         db.add(st)
         track_count += 1
+        if is_id:
+            id_track_count += 1
+
+    # C8 reliability: dominant signal is the ID ratio; the secondary signal is a
+    # missing source_url combined with the generic TrackID placeholder cover.
+    # Recomputed on every (re-)import, so the recrawl path — which comes back
+    # through this function — refreshes the flag from freshly-observed signals.
+    dj_set.unreliable = compute_set_unreliable(
+        track_count,
+        id_track_count,
+        detail.get("url"),
+        is_placeholder_artwork_url(artwork_url),
+    )
 
     await db.flush()
 

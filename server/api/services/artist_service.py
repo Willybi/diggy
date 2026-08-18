@@ -384,6 +384,7 @@ async def get_detail(
         CatalogEntryOut,
         GenreRef,
     )
+    from trackid.reliability import set_reliable
 
     await ensure_pillar_cache(db)
 
@@ -496,7 +497,13 @@ async def get_detail(
         )
         .join(DJSet, DJSet.id == SetArtist.set_id)
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
-        .where(SetArtist.artist_id == artist_id, DJSet.parent_set_id.is_(None))
+        # C8: exclude unreliable TrackID sets (adds to roots-only). nb_sets below
+        # is len(sets), so the stat follows this filter automatically.
+        .where(
+            SetArtist.artist_id == artist_id,
+            DJSet.parent_set_id.is_(None),
+            set_reliable(),
+        )
         .group_by(
             DJSet.id,
             DJSet.title,

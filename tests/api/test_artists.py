@@ -262,6 +262,25 @@ class TestArtistDetail:
         assert data["sets"][0]["title"] == "Live at Fabric"
         assert data["sets"][0]["role"] == "headliner"
 
+    async def test_detail_excludes_unreliable_sets(self, client, db):
+        # C8 (L2): a flagged set drops out of the artist's sets AND nb_sets.
+        a = Artist(name="CamelPhat", normalized_name="camelphat")
+        good = DJSet(title="Trusted Live", source="trackid")
+        bad = DJSet(title="Flagged Live", source="trackid", unreliable=True)
+        db.add_all([a, good, bad])
+        await db.commit()
+        await db.refresh(a)
+        await db.refresh(good)
+        await db.refresh(bad)
+        db.add(SetArtist(set_id=good.id, artist_id=a.id, role="headliner"))
+        db.add(SetArtist(set_id=bad.id, artist_id=a.id, role="headliner"))
+        await db.commit()
+
+        r = await client.get(f"/api/artists/{a.id}")
+        data = r.json()
+        assert [s["title"] for s in data["sets"]] == ["Trusted Live"]
+        assert data["stats"]["nb_sets"] == 1
+
     async def test_detail_stats(self, client, db):
         a = Artist(name="CamelPhat", normalized_name="camelphat")
         cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")

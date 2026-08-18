@@ -114,6 +114,32 @@ class TestGetConnections:
         assert result[0]["shared_sets"] == 1
         assert result[0]["components"]["sets"] > 0
 
+    async def test_unreliable_set_not_counted(self, db):
+        # C8 (L2): a set flagged `unreliable` must not create a set-based
+        # connection between the two DJs it credits.
+        from models import Artist, DJSet, SetArtist
+        from services import artist_connection_service
+
+        a1 = Artist(name="DJ C", normalized_name="dj-c")
+        a2 = Artist(name="DJ D", normalized_name="dj-d")
+        dj_set = DJSet(
+            source="trackid", title="Flagged B2B",
+            external_id="set-conn-unrel", unreliable=True,
+        )
+        db.add_all([a1, a2, dj_set])
+        await db.commit()
+        await db.refresh(a1)
+        await db.refresh(a2)
+        await db.refresh(dj_set)
+
+        db.add(SetArtist(set_id=dj_set.id, artist_id=a1.id, position=1))
+        db.add(SetArtist(set_id=dj_set.id, artist_id=a2.id, position=2))
+        await db.commit()
+
+        # The only link between the two DJs is the flagged set → no connection.
+        result = await artist_connection_service.get_connections(db, a1.id)
+        assert result == []
+
     async def test_limit_respected(self, db):
         from models import Artist, CatalogArtist, CatalogEntry
         from services import artist_connection_service

@@ -441,6 +441,7 @@ PK: `id`
 | `last_recrawl_at` | DateTime(tz) | yes |  |  |  |
 | `recrawl_count` | Integer | no |  |  | server_default='0', default=0 |
 | `recrawl_status` | String(16) | no |  |  | server_default='active', default='active' |
+| `unreliable` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
 - `ix_sets_parent_set_id`: `parent_set_id`

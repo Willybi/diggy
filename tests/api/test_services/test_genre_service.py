@@ -487,3 +487,50 @@ class TestGenreDetailLikeEscape:
             limit=24, offset=0,
         )
         assert {it["name"] for it in res["items"]} == {"a%b"}
+
+
+@_PG_ONLY
+class TestGenreDetailReliability:
+    """C8 (L2): a set flagged `unreliable` drops out of the genre-detail set list
+    (list_genre_sets) AND the genre-detail set_count stat (get_detail). Runs on
+    PostgreSQL only (raw-SQL builders)."""
+
+    GENRE = "ztestgenrereliab"
+
+    async def _seed(self, db):
+        from models import CatalogEntry, DJSet, SetTrack
+
+        good = DJSet(source="trackid", title="Trusted Genre Set")
+        bad = DJSet(source="trackid", title="Flagged Genre Set", unreliable=True)
+        db.add_all([good, bad])
+        await db.flush()
+        # each set carries its own genre-tagged identified track, so only the flag
+        # separates the two (both would count if unfiltered).
+        for i, s in enumerate((good, bad)):
+            cat = CatalogEntry(
+                title=f"{self.GENRE}-trk-{i}", artist="A",
+                normalized_key=f"{self.GENRE}|{i}", genres=[self.GENRE],
+                scope="shared",
+            )
+            db.add(cat)
+            await db.flush()
+            db.add(SetTrack(
+                set_id=s.id, position=1, catalog_id=cat.id,
+                raw_title=cat.title, is_id=False,
+            ))
+        await db.commit()
+
+    async def test_list_genre_sets_excludes_unreliable(self, db):
+        from services import genre_service
+
+        await self._seed(db)
+        res = await genre_service.list_genre_sets(db, self.GENRE, limit=50, offset=0)
+        assert [it["title"] for it in res["items"]] == ["Trusted Genre Set"]
+        assert res["total"] == 1
+
+    async def test_get_detail_set_count_excludes_unreliable(self, db, auth_user):
+        from services import genre_service
+
+        await self._seed(db)
+        detail = await genre_service.get_detail(db, self.GENRE, auth_user.id)
+        assert detail["setCount"] == 1

@@ -76,16 +76,30 @@ async def _load_collab_counts(
 async def _load_set_counts(
     db: AsyncSession, artist_id: int
 ) -> dict[int, int]:
-    """Artists sharing DJ sets with the reference artist."""
-    from models import SetArtist
+    """Artists sharing DJ sets with the reference artist.
+
+    C8: the shared set is joined against ``sets`` so unreliable TrackID sets
+    (``set_reliable()``) never inflate the co-occurrence count. sa1 and sa2 hit
+    the SAME set_id, so one join filters the shared set for both artists.
+    """
+    from models import DJSet, SetArtist
+    from trackid.reliability import set_reliable
 
     sa1 = SetArtist.__table__.alias("sa1")
     sa2 = SetArtist.__table__.alias("sa2")
 
     stmt = (
         select(sa2.c.artist_id, func.count(func.distinct(sa2.c.set_id)))
-        .select_from(sa1.join(sa2, sa1.c.set_id == sa2.c.set_id))
-        .where(sa1.c.artist_id == artist_id, sa2.c.artist_id != artist_id)
+        .select_from(
+            sa1.join(sa2, sa1.c.set_id == sa2.c.set_id).join(
+                DJSet, DJSet.id == sa2.c.set_id
+            )
+        )
+        .where(
+            sa1.c.artist_id == artist_id,
+            sa2.c.artist_id != artist_id,
+            set_reliable(),
+        )
         .group_by(sa2.c.artist_id)
     )
     rows = (await db.execute(stmt)).all()

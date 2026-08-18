@@ -195,6 +195,43 @@ class TestCatalogDetailEnriched:
         assert len(data["set_appearances"]) == 1
         assert data["set_appearances"][0]["set_title"] == "My Set"
 
+    async def test_detail_set_appearances_exclude_unreliable(self, client, db):
+        # C8 (L2): a flagged set drops out of the track's set appearances and
+        # nb_radar_sets (= len(set_appearances)). The track itself is untouched.
+        cat = CatalogEntry(
+            title="Cola", artist="CamelPhat", normalized_key="cola - camelphat unrel"
+        )
+        good = DJSet(title="Trusted Set", source="trackid")
+        bad = DJSet(title="Flagged Set", source="trackid", unreliable=True)
+        db.add_all([cat, good, bad])
+        await db.commit()
+        await db.refresh(cat)
+        await db.refresh(good)
+        await db.refresh(bad)
+        db.add(SetTrack(set_id=good.id, catalog_id=cat.id, position=1))
+        db.add(SetTrack(set_id=bad.id, catalog_id=cat.id, position=1))
+        await db.commit()
+
+        r = await client.get(f"/api/catalog/{cat.id}")
+        data = r.json()
+        assert [s["set_title"] for s in data["set_appearances"]] == ["Trusted Set"]
+        assert data["nb_radar_sets"] == 1
+
+    async def test_list_nb_radar_sets_excludes_unreliable(self, client, db):
+        # A track appearing ONLY in a flagged set counts 0 reliable sets.
+        cat = CatalogEntry(title="Solo", artist="X", normalized_key="solo|x unrel")
+        bad = DJSet(title="Flagged Only", source="trackid", unreliable=True)
+        db.add_all([cat, bad])
+        await db.commit()
+        await db.refresh(cat)
+        await db.refresh(bad)
+        db.add(SetTrack(set_id=bad.id, catalog_id=cat.id, position=1))
+        await db.commit()
+
+        r = await client.get("/api/catalog/")
+        item = next(it for it in r.json()["items"] if it["id"] == cat.id)
+        assert item["nb_radar_sets"] == 0
+
     async def test_list_includes_artist_id(self, client, db):
         """The list endpoint should resolve artist_id via catalog_artists."""
         a = Artist(name="CamelPhat", normalized_name="camelphat")

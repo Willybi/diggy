@@ -816,3 +816,27 @@ class TestSetMapRootsOnly:
 
         set_map = await _load_set_map(db)
         assert set_map[entry.id] == frozenset({root.id})  # child excluded
+
+    async def test_unreliable_set_excluded_from_set_map(self, db):
+        # C8 (L2): a flagged set must not enter the co-occurrence map, so it never
+        # contributes to proximity scoring. Adds to the roots-only rule above.
+        from models import CatalogEntry, DJSet, SetTrack
+        from services.similarity_service import _load_set_map
+
+        entry = CatalogEntry(title="T", artist="A", normalized_key="a|setunrel")
+        db.add(entry)
+        await db.flush()
+        good = DJSet(source="trackid", title="Trusted", external_id="setmap-good")
+        bad = DJSet(
+            source="trackid", title="Flagged", external_id="setmap-bad",
+            unreliable=True,
+        )
+        db.add_all([good, bad])
+        await db.flush()
+        entry_id, good_id, bad_id = entry.id, good.id, bad.id
+        db.add(SetTrack(set_id=good_id, catalog_id=entry_id, position=1))
+        db.add(SetTrack(set_id=bad_id, catalog_id=entry_id, position=1))
+        await db.commit()
+
+        set_map = await _load_set_map(db)
+        assert set_map == {entry_id: frozenset({good_id})}  # flagged set excluded

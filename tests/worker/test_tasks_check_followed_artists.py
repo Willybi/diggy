@@ -566,6 +566,24 @@ class TestSetsVolet:
         assert result["sets_found"] == 0
         assert _activities(task_engine, activity_type="set") == []
 
+    def test_unreliable_set_ignored(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # C8 (L2): a recent set featuring a followed artist but flagged
+        # `unreliable` must not surface in the follow feed.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Flagged DJ", deezer_id="45")
+            _follow(s, a.id)
+            dj = _make_set(s, "set-unrel", "Flagged Set", hours_ago=1.0)
+            dj.unreliable = True
+            s.add(SetArtist(set_id=dj.id, artist_id=a.id, role="dj", position=0))
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 0
+        assert _activities(task_engine, activity_type="set") == []
+
     def test_set_second_run_is_idempotent(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
     ):

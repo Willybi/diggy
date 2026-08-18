@@ -152,6 +152,44 @@ class TestListSets:
         assert data["total"] == 5
 
 
+class TestListSetsReliability:
+    """C8 (L2): a set flagged `unreliable` is hidden from the list and its total,
+    while the underlying tracks stay untouched. The flag ADDS to the roots-only
+    filter — a reliable set is unaffected."""
+
+    async def test_unreliable_set_absent_from_list_and_total(self, client, db):
+        good = DJSet(source="trackid", title="Trusted Set")
+        bad = DJSet(source="trackid", title="Flagged Set", unreliable=True)
+        db.add_all([good, bad])
+        await db.flush()
+        # both carry an identified track, so only the flag separates them
+        await _attach_identified_track(db, good)
+        await _attach_identified_track(db, bad)
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        assert r.status_code == 200
+        data = r.json()
+        assert [it["title"] for it in data["items"]] == ["Trusted Set"]
+        assert data["total"] == 1
+
+    async def test_two_reliable_sets_both_present(self, client, db):
+        # Control: without the flag both identical sets appear (isolates the flag
+        # as the sole cause of the exclusion above).
+        s1 = DJSet(source="trackid", title="Set One")
+        s2 = DJSet(source="trackid", title="Set Two")
+        db.add_all([s1, s2])
+        await db.flush()
+        await _attach_identified_track(db, s1)
+        await _attach_identified_track(db, s2)
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"Set One", "Set Two"}
+        assert data["total"] == 2
+
+
 class TestListSetsEnriched:
     """Lot 0 enriched list: 0-identified exclusion, sort keys/direction,
     ids/exclude_ids filters, batch top_genres (catalog_visible), artists shape."""

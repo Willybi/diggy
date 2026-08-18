@@ -168,6 +168,7 @@ async def list_catalog(
         Artist,
         CatalogArtist,
         CatalogEntry,
+        DJSet,
         RadarTrack,
         RadarTrend,
         SetTrack,
@@ -176,6 +177,7 @@ async def list_catalog(
     )
     from schemas import ArtistRef, CatalogEntryOut, CatalogList, GenreRef
     from sqlalchemy import or_
+    from trackid.reliability import set_reliable
     from utils import like_escape
 
     radar_count = (
@@ -192,7 +194,11 @@ async def list_catalog(
             SetTrack.catalog_id,
             func.count(func.distinct(SetTrack.set_id)).label("nb_sets"),
         )
-        .where(SetTrack.catalog_id.isnot(None))
+        # C8: join `sets` to drop unreliable TrackID sets from the count. This
+        # subquery has no roots-only filter today (it counts every set holding the
+        # track); left iso on purpose — only reliability is added, not roots-only.
+        .join(DJSet, DJSet.id == SetTrack.set_id)
+        .where(SetTrack.catalog_id.isnot(None), set_reliable())
         .group_by(SetTrack.catalog_id)
         .subquery()
     )
@@ -470,6 +476,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
         SameArtistTrackOut,
         SetAppearanceOut,
     )
+    from trackid.reliability import set_reliable
 
     result = await db.execute(
         select(CatalogEntry).where(
@@ -538,10 +545,14 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
         for r in radar_result.all()
     ]
 
+    # C8: exclude unreliable TrackID sets from the appearances (and thus from
+    # nb_radar_sets = len(set_appearances) below). Only reliability is added:
+    # set_appearances carries no roots-only filter today, so it is left iso on
+    # that axis to keep the direct-track view unchanged apart from reliability.
     set_result = await db.execute(
         select(DJSet.id, DJSet.title, DJSet.played_date, SetTrack.timecode_ms)
         .join(DJSet, DJSet.id == SetTrack.set_id)
-        .where(SetTrack.catalog_id == catalog_id)
+        .where(SetTrack.catalog_id == catalog_id, set_reliable())
         .order_by(DJSet.played_date.desc().nulls_last())
         .limit(10)
     )

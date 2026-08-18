@@ -2021,6 +2021,7 @@ def _check_new_sets(engine, followed_ids, now):
     from models import DJSet, SetArtist
     from sqlalchemy import select
     from sqlalchemy.orm import Session
+    from trackid.reliability import set_reliable
 
     window_start = now - timedelta(hours=ARTIST_ACTIVITY_SET_WINDOW_HOURS)
     sets_found = 0
@@ -2033,6 +2034,8 @@ def _check_new_sets(engine, followed_ids, now):
                 SetArtist.artist_id.in_(followed_ids),
                 DJSet.created_at.isnot(None),
                 DJSet.created_at >= window_start,
+                # C8: don't surface an unreliable TrackID set in the follow feed.
+                set_reliable(),
             )
         ).all()
 
