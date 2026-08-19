@@ -2138,10 +2138,15 @@ def _run_check_followed_artists(task):
 
     sys.path.insert(0, "/app")
     from models import FollowedArtist
+    from services.image_service import BUCKET_ALBUM, ImageService
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
     engine = get_engine()
+    # The release-crawl path (_check_releases -> _crawl_track ->
+    # link_catalog_album_from_hit) uploads album covers to BUCKET_ALBUM — ensure
+    # it exists once per run, same as the catalog/artist enrich tasks.
+    ImageService.ensure_bucket(BUCKET_ALBUM)
     now = datetime.now(timezone.utc)
 
     with Session(engine) as log_session:

@@ -113,11 +113,12 @@ def _run_enrich_catalog(task):
 
     sys.path.insert(0, "/app")
     from models import CatalogEntry
-    from services.image_service import BUCKET_CATALOG, ImageService
+    from services.image_service import BUCKET_ALBUM, BUCKET_CATALOG, ImageService
     from workers.db import get_engine
 
     engine = get_engine()
     ImageService.ensure_bucket(BUCKET_CATALOG)
+    ImageService.ensure_bucket(BUCKET_ALBUM)
 
     from workers.crawl_logger import CrawlLogger
 
@@ -271,12 +272,13 @@ def enrich_catalog_beatport(self, batch_size: int = 0, *, genre_only: bool = Fal
 
 
 def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = False):
-    from services.image_service import BUCKET_CATALOG, ImageService
+    from services.image_service import BUCKET_ALBUM, BUCKET_CATALOG, ImageService
     from sqlalchemy.orm import Session
     from workers.db import get_engine
 
     engine = get_engine()
     ImageService.ensure_bucket(BUCKET_CATALOG)
+    ImageService.ensure_bucket(BUCKET_ALBUM)
 
     from workers.crawl_logger import CrawlLogger
 

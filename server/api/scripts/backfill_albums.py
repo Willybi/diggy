@@ -12,7 +12,7 @@ backfilled album/link is indistinguishable from an enrichment-built one and can
 never diverge from the fil-de-l'eau definition. Invariant #4: an album is NEVER
 created without a reliable ``deezer_album_id`` (both sources enforce it).
 
-Two selectable sources (``--source payload|deezer|both``, default ``payload``):
+Three selectable sources (``--source payload|deezer|covers|both``, default ``payload``):
 
   * ``payload`` (FREE, network-free, run by default): walks ``artist_activity`` of
     type ``release`` carrying BOTH a ``payload.album_id`` and a non-null
@@ -31,6 +31,20 @@ Two selectable sources (``--source payload|deezer|both``, default ``payload``):
     linked rows drop out of the selection. Only ``--apply`` performs Deezer calls
     (a dry-run just counts the eligible rows, never burning the rate window).
 
+  * ``covers`` (OPTIONAL, rate-limited DRAIN — a MULTI-DAY job): catch-up for the
+    albums ALREADY created (fil-de-l'eau or the ``deezer`` source) but still
+    lacking artwork or ``record_type`` — the batch funnel reads ``hit["album"]``
+    (no record_type) and, while the ``album-artworks`` bucket was missing, every
+    cover upload failed silently. For each ``albums`` row with a real
+    ``deezer_album_id`` and (``has_artwork = false`` OR ``record_type IS NULL``)
+    it fetches ``/album/{deezer_album_id}`` (the only hit carrying record_type/
+    release_date/label + a cover), tops up the metadata conservatively via
+    ``apply_album_release_metadata`` and uploads the cover to ``BUCKET_ALBUM``.
+    Neither the fil-de-l'eau path nor the ``deezer`` source revisit these (the
+    ``deezer`` source only targets catalog rows with NO album link). Bounded by
+    ``--limit``; re-run to continue (a row drops out once covered + typed). Only
+    ``--apply`` performs Deezer calls.
+
 Convention (mirrors the other OPS scripts): DRY-RUN by default (reads only, prints
 what WOULD change), ``--apply`` to write, ``--limit N`` to cap rows processed per
 source. Idempotent: a second run (any source) converges to 0 creations — an already
@@ -45,6 +59,7 @@ Usage (from the VPS):
     docker compose exec api python scripts/backfill_albums.py                        # dry-run, payload
     docker compose exec api python scripts/backfill_albums.py --apply                # write, payload
     docker compose exec api python scripts/backfill_albums.py --source deezer --limit 2000 --apply
+    docker compose exec api python scripts/backfill_albums.py --source covers --limit 2000 --apply
     docker compose exec api python scripts/backfill_albums.py --source both --apply
 """
 
@@ -60,7 +75,8 @@ sys.path.insert(
 )  # server/ -> workers
 
 from models import Album, ArtistActivity, CatalogAlbum, CatalogEntry
-from sqlalchemy import create_engine, exists, func, select
+from services.image_service import BUCKET_ALBUM, ImageService
+from sqlalchemy import create_engine, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 # Reuse the EXACT L2 album helpers so a backfilled album/link is indistinguishable
@@ -306,6 +322,7 @@ async def drain_deezer(
     pending = 0
     last_id = 0
 
+    ImageService.ensure_bucket(BUCKET_ALBUM)  # once per --apply run (covers upload)
     limiter = RateLimiter()
     async with HttpPool(limiter) as pool:
         with Session(engine) as session:
@@ -379,6 +396,157 @@ async def drain_deezer(
     }
 
 
+# ── source: covers (rate-limited catch-up on already-created albums) ──────────
+
+
+def _covers_candidates(session, last_id, take):
+    """Existing albums with a real deezer_album_id but missing artwork OR
+    record_type, id-keyset. Neither the fil-de-l'eau enrichment nor the deezer
+    drain revisit these — the deezer drain only targets catalog rows with NO
+    album link, whereas these albums are already linked but were never covered/
+    metadata-topped (the batch funnel reads ``hit["album"]`` which carries no
+    record_type, and the cover upload silently failed while the bucket was
+    absent)."""
+    return session.execute(
+        select(Album.id, Album.deezer_album_id)
+        .where(
+            Album.deezer_album_id.isnot(None),
+            or_(Album.has_artwork.is_(False), Album.record_type.is_(None)),
+            Album.id > last_id,
+        )
+        .order_by(Album.id.asc())
+        .limit(take)
+    ).all()
+
+
+def count_covers_eligible(session):
+    """Read-only: number of existing albums the covers drain WOULD re-fetch."""
+    return session.execute(
+        select(func.count())
+        .select_from(Album)
+        .where(
+            Album.deezer_album_id.isnot(None),
+            or_(Album.has_artwork.is_(False), Album.record_type.is_(None)),
+        )
+    ).scalar_one()
+
+
+def topup_album_from_data(session, album, data):
+    """Top up ONE existing album from its ``/album/{id}`` payload: conservative
+    release metadata (record_type/release_date/label via L2's
+    ``apply_album_release_metadata``, artist_id=None so the already-set artist is
+    untouched) + a one-shot cover upload. Returns ``(metadata_updated,
+    cover_uploaded)``. Sync core, factored out so tests drive it without network.
+    """
+    meta_was_missing = album.record_type is None
+    cover_was_missing = not album.has_artwork
+    apply_album_release_metadata(session, data, artist_id=None)
+    metadata_updated = meta_was_missing and album.record_type is not None
+
+    cover_uploaded = False
+    if cover_was_missing:
+        cover_url = data.get("cover_medium") or data.get("cover_big")
+        if cover_url and ImageService.upload_from_url(
+            cover_url, BUCKET_ALBUM, f"{album.id}.jpg"
+        ):
+            album.has_artwork = True
+            cover_uploaded = True
+    return metadata_updated, cover_uploaded
+
+
+async def drain_covers(
+    engine, *, limit, batch_size=_BATCH, commit_every=_COMMIT_EVERY, max_examples=5,
+):
+    """Fetch each eligible album's Deezer record and top up metadata + cover (--apply only).
+
+    For each candidate (deezer_album_id set, missing artwork or record_type),
+    fetches ``/album/{deezer_album_id}`` (the ONLY hit that carries record_type/
+    release_date/label + a cover) and hands it to ``topup_album_from_data``. A
+    Deezer HTTP error or an errored payload is counted and skipped, never fatal.
+    Bounded by ``limit`` (the drain budget). Async pool + sync Session, mirroring
+    ``drain_deezer``.
+
+    Returns ``{"scanned", "metadata_updated", "covers_uploaded", "errors",
+    "examples"}``.
+    """
+    from workers.async_http import DeezerHTTPError, HttpPool
+    from workers.rate_limiter import RateLimiter
+
+    scanned = metadata_updated = covers_uploaded = errors = 0
+    examples = []
+    pending = 0
+    last_id = 0
+
+    ImageService.ensure_bucket(BUCKET_ALBUM)  # once per --apply run
+    limiter = RateLimiter()
+    async with HttpPool(limiter) as pool:
+        with Session(engine) as session:
+            while scanned < limit:
+                take = min(batch_size, limit - scanned)
+                rows = _covers_candidates(session, last_id, take)
+                if not rows:
+                    break
+
+                for album_id, dz_album_id in rows:
+                    last_id = album_id
+                    if scanned >= limit:
+                        break
+                    scanned += 1
+
+                    try:
+                        data = await pool.deezer_get(f"/album/{dz_album_id}")
+                    except DeezerHTTPError as exc:
+                        errors += 1
+                        logger.warning(
+                            "covers drain: /album/%s failed: %s", dz_album_id, exc
+                        )
+                        continue
+
+                    if not isinstance(data, dict) or data.get("error"):
+                        errors += 1
+                        continue
+
+                    album = session.get(Album, album_id)
+                    if album is None:  # deleted between selection and now
+                        errors += 1
+                        continue
+
+                    try:
+                        meta_up, cover_up = topup_album_from_data(session, album, data)
+                        session.flush()
+                    except Exception as exc:  # noqa: BLE001 — count + skip
+                        errors += 1
+                        session.rollback()
+                        pending = 0
+                        logger.warning(
+                            "covers drain: top-up failed for album %s: %s",
+                            album_id,
+                            exc,
+                        )
+                        continue
+
+                    metadata_updated += int(meta_up)
+                    covers_uploaded += int(cover_up)
+                    if len(examples) < max_examples:
+                        examples.append((album_id, dz_album_id))
+
+                    pending += 1
+                    if pending >= commit_every:
+                        session.commit()
+                        pending = 0
+
+            if pending:
+                session.commit()
+
+    return {
+        "scanned": scanned,
+        "metadata_updated": metadata_updated,
+        "covers_uploaded": covers_uploaded,
+        "errors": errors,
+        "examples": examples,
+    }
+
+
 # ── reporting ─────────────────────────────────────────────────────────────────
 
 
@@ -414,8 +582,27 @@ def _print_deezer(stats, apply):
         print(f"    catalog #{cat_id} -> album deezer:{dz_id}")
 
 
+def _print_covers(stats, apply):
+    if not apply:
+        print(
+            f"\n[covers] {stats['eligible']} existing album(s) eligible (real "
+            f"deezer_album_id, missing artwork or record_type). The drain fetches "
+            f"/album/{{id}} for each — RATE-LIMITED, a multi-day job — ONLY under "
+            f"--apply (bounded by --limit; re-run to continue)."
+        )
+        return
+    print(
+        f"\n[covers] drained {stats['scanned']} album(s): topped up "
+        f"{stats['metadata_updated']} record_type(s), uploaded "
+        f"{stats['covers_uploaded']} cover(s), {stats['errors']} error(s)."
+    )
+    for album_id, dz_id in stats["examples"]:
+        print(f"    album #{album_id} -> deezer:{dz_id}")
+
+
 def main(apply, source, limit):
     engine = _get_engine()
+    # Same budget default backs both network drains (deezer + covers).
     deezer_limit = limit if limit is not None else DEEZER_BUDGET_DEFAULT
     try:
         head = "APPLY" if apply else "DRY-RUN — nothing will be modified (use --apply)"
@@ -443,11 +630,20 @@ def main(apply, source, limit):
                 stats = asyncio.run(drain_deezer(engine, limit=deezer_limit))
                 _print_deezer(stats, apply=True)
 
+        if source == "covers":
+            if not apply:
+                with Session(engine) as session:
+                    eligible = count_covers_eligible(session)
+                _print_covers({"eligible": eligible}, apply=False)
+            else:
+                stats = asyncio.run(drain_covers(engine, limit=deezer_limit))
+                _print_covers(stats, apply=True)
+
         if not apply:
             print(
                 "\nDry-run only. Re-run with --apply to write — DUMP PROD FIRST (see "
-                "docs/restore.md). The payload source is network-free; the deezer "
-                "source is a rate-limited multi-day drain (bound with --limit)."
+                "docs/restore.md). The payload source is network-free; the deezer and "
+                "covers sources are rate-limited multi-day drains (bound with --limit)."
             )
     finally:
         engine.dispose()
@@ -456,8 +652,9 @@ def main(apply, source, limit):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Backfill album links for pre-existing catalog rows (payload = "
-        "free, from release activity payloads; deezer = rate-limited drain). Dry-run "
-        "by default."
+        "free, from release activity payloads; deezer = rate-limited drain; covers = "
+        "rate-limited catch-up of already-created albums missing artwork/record_type). "
+        "Dry-run by default."
     )
     parser.add_argument(
         "--apply",
@@ -466,9 +663,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--source",
-        choices=("payload", "deezer", "both"),
+        choices=("payload", "deezer", "covers", "both"),
         default="payload",
-        help="which source to backfill from (default: payload, network-free)",
+        help="which source to backfill from (default: payload, network-free; "
+        "covers = rate-limited catch-up of already-created albums missing "
+        "artwork/record_type)",
     )
     parser.add_argument(
         "--limit",

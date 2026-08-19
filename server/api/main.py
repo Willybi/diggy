@@ -70,9 +70,10 @@ def _docs_urls() -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Schema is managed by Alembic only (create_all lives in the test harnesses)
-    from services.image_service import BUCKET_ARTWORKS, ImageService
+    from services.image_service import BUCKET_ALBUM, BUCKET_ARTWORKS, ImageService
 
     ImageService.ensure_bucket(BUCKET_ARTWORKS)
+    ImageService.ensure_bucket(BUCKET_ALBUM)
     yield
 
 
