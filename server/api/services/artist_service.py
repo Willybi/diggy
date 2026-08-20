@@ -783,8 +783,19 @@ async def resolve_flag(db: AsyncSession, flag_id: int, action: str) -> object:
     created_ids = []
     for name in names_to_create:
         artist = await get_or_create_artist(db, name)
-        if not artist.deezer_id and deezer_map.get(name):
-            artist.deezer_id = deezer_map[name]
+        wanted = deezer_map.get(name)
+        if wanted and not artist.deezer_id:
+            # Ne pas réclamer un deezer_id déjà détenu par un autre artiste
+            # (jumeau accent/Unicode) : l'autoflush de l'itération suivante
+            # lèverait une UniqueViolation sur uq_artists_deezer_id. On préfère
+            # laisser l'artiste sans id (invariant #4) — E1 relinkera plus tard.
+            holder = (
+                await db.execute(
+                    select(Artist.id).where(Artist.deezer_id == str(wanted))
+                )
+            ).scalar_one_or_none()
+            if holder is None:
+                artist.deezer_id = str(wanted)
         created_ids.append(artist.id)
 
     flag.status = "validated"

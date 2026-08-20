@@ -14,6 +14,14 @@ import requests
 from botocore.client import Config
 from starlette.concurrency import run_in_threadpool
 
+try:
+    from botocore.exceptions import ClientError
+except ImportError:  # pragma: no cover
+    # Le harness de test stubbe `botocore` dans sys.modules sans
+    # `botocore.exceptions` : on retombe sur Exception (le garde par code
+    # d'erreur ci-dessous re-lève tout ce qui ne correspond pas de toute façon).
+    ClientError = Exception
+
 MINIO_URL = os.environ.get("MINIO_URL", "http://minio:9000")
 MINIO_USER = os.environ.get("MINIO_USER", "")
 MINIO_PASSWORD = os.environ.get("MINIO_PASSWORD", "")
@@ -47,7 +55,18 @@ class ImageService:
         s3 = cls._get_s3()
         existing = [b["Name"] for b in s3.list_buckets()["Buckets"]]
         if bucket not in existing:
-            s3.create_bucket(Bucket=bucket)
+            try:
+                s3.create_bucket(Bucket=bucket)
+            except ClientError as e:
+                # Les 2 workers uvicorn exécutent lifespan en parallèle au boot :
+                # l'un gagne la course de create_bucket, l'autre voyait encore le
+                # bucket absent via list_buckets. "Already owned/exists" => on
+                # continue (put_bucket_policy est idempotent).
+                if e.response.get("Error", {}).get("Code") not in (
+                    "BucketAlreadyOwnedByYou",
+                    "BucketAlreadyExists",
+                ):
+                    raise
             s3.put_bucket_policy(
                 Bucket=bucket,
                 Policy=(

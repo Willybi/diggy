@@ -777,3 +777,43 @@ class TestResolveFlagSplitDisposal:
             (await db.execute(select(Artist.name))).scalars().all()
         )
         assert {"Ghost", "Phantom"}.issubset(names)
+
+    async def test_split_skips_deezer_id_already_held(self, db):
+        """DIGGY-APP-19 — a token whose deezer_id is already held by another
+        artist (accent/Unicode twin) must NOT be stamped: the next iteration's
+        autoflush would raise a UniqueViolation on uq_artists_deezer_id. The
+        new token is created WITHOUT the id (invariant #4); the holder keeps it."""
+        from datetime import datetime, timezone
+
+        from models import Artist, ArtistFlag
+        from utils import normalize
+
+        holder = Artist(name="Nick León", normalized_name=normalize("Nick León"))
+        holder.deezer_id = "5426341"
+        db.add(holder)
+        await db.flush()
+        holder_id = holder.id
+
+        now = datetime.now(timezone.utc)
+        flag = ArtistFlag(
+            raw_artist_string="Nick Leon",
+            reason="manual",
+            tokens=["Nick Leon"],
+            deezer_ids={"Nick Leon": "5426341"},
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(flag)
+        await db.commit()
+
+        result = await artist_service.resolve_flag(db, flag.id, "split")
+
+        assert result.status == "validated"
+        assert len(result.resolved_artist_ids) == 1
+        new_id = result.resolved_artist_ids[0]
+        assert new_id != holder_id
+        new_artist = await db.get(Artist, new_id)
+        assert new_artist.deezer_id is None
+        # The existing holder keeps the id.
+        assert (await db.get(Artist, holder_id)).deezer_id == "5426341"

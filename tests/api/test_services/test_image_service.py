@@ -6,6 +6,19 @@ import pytest
 from services.image_service import BUCKET_ARTWORKS, BUCKET_CATALOG, ImageService
 
 
+class _FakeClientError(Exception):
+    """Faithful stand-in for botocore.exceptions.ClientError.
+
+    The api test harness stubs `botocore` in sys.modules (see conftest) without
+    `botocore.exceptions`, so the real ClientError isn't importable here. This
+    mirrors the only attribute ensure_bucket relies on: `.response["Error"]["Code"]`.
+    """
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code}}
+
+
 class TestUploadFromUrl:
     def test_returns_false_for_empty_string(self):
         assert ImageService.upload_from_url("", "bucket", "key.jpg") is False
@@ -90,6 +103,45 @@ class TestUploadFileobj:
             ImageService.upload_fileobj(object(), "bucket", "key")
             _, kwargs = mock_s3.upload_fileobj.call_args
             assert kwargs["ExtraArgs"] == {"ContentType": "application/octet-stream"}
+        finally:
+            ImageService._client = None
+
+
+class TestEnsureBucket:
+    @staticmethod
+    def _s3_missing_bucket():
+        s3 = MagicMock()
+        s3.list_buckets.return_value = {"Buckets": [{"Name": "other-bucket"}]}
+        return s3
+
+    def test_swallows_already_owned_race(self):
+        s3 = self._s3_missing_bucket()
+        s3.create_bucket.side_effect = _FakeClientError("BucketAlreadyOwnedByYou")
+        ImageService._client = s3
+        try:
+            ImageService.ensure_bucket("artworks")
+            s3.put_bucket_policy.assert_called_once()
+        finally:
+            ImageService._client = None
+
+    def test_swallows_already_exists_race(self):
+        s3 = self._s3_missing_bucket()
+        s3.create_bucket.side_effect = _FakeClientError("BucketAlreadyExists")
+        ImageService._client = s3
+        try:
+            ImageService.ensure_bucket("artworks")
+            s3.put_bucket_policy.assert_called_once()
+        finally:
+            ImageService._client = None
+
+    def test_propagates_other_client_error(self):
+        s3 = self._s3_missing_bucket()
+        s3.create_bucket.side_effect = _FakeClientError("AccessDenied")
+        ImageService._client = s3
+        try:
+            with pytest.raises(_FakeClientError):
+                ImageService.ensure_bucket("artworks")
+            s3.put_bucket_policy.assert_not_called()
         finally:
             ImageService._client = None
 
