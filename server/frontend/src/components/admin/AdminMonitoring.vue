@@ -80,6 +80,18 @@
             sublabel="preview sans BPM"
             tone="neutral"
           />
+          <StatTile
+            label="Covers albums manquantes"
+            :value="fmtInt(albums.missing_cover)"
+            sublabel="à rattraper"
+            tone="neutral"
+          />
+          <StatTile
+            label="Métadonnées albums"
+            :value="fmtInt(albums.missing_meta)"
+            sublabel="record_type manquant"
+            tone="neutral"
+          />
         </div>
       </section>
 
@@ -280,6 +292,7 @@ const latest = computed(() => data.value?.status?.latest_snapshot?.payload || {}
 const artists = computed(() => latest.value.artists || {})
 const sets = computed(() => latest.value.sets || {})
 const catalog = computed(() => latest.value.catalog || {})
+const albums = computed(() => latest.value.albums || {})
 
 // ── artist-integrity instant counters (X4) ──
 const integrity = computed(() => data.value?.integrity || {})
@@ -368,6 +381,19 @@ const burnSeries = computed(() => {
     .filter((p) => Number.isFinite(p.v))
   if (unreliable.length) {
     out.push({ label: 'Sets · non fiables', color: 'var(--chart-sets)', points: unreliable })
+  }
+  // Albums · covers manquantes (C7/L8) : le cron backfill rattrape les pochettes
+  // d'albums. Même clé de temps ; garde Number.isFinite → démarre au 1er
+  // snapshot qui porte la clé (les anciens ne l'ont pas).
+  const albumCovers = backlogSeries.value
+    .map((snap) => ({ t: snap.captured_at, v: snap.payload?.albums?.missing_cover }))
+    .filter((p) => Number.isFinite(p.v))
+  if (albumCovers.length) {
+    out.push({
+      label: 'Albums · covers manquantes',
+      color: 'var(--chart-albums)',
+      points: albumCovers,
+    })
   }
   return out
 })

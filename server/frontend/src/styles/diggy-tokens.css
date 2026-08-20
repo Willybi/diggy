@@ -210,6 +210,10 @@
   /* Sets non fiables (C8) — teinte rose/rouge (hue ≈ 20), distincte du violet
      deezer, du vert beatport et de l'ambre BPM (séparation ≫ 40°). */
   --chart-sets: oklch(0.6 0.16 20);
+  /* Albums (C7/L8) — backlog covers/métadonnées ; magenta (hue ≈ 330),
+     distinct du violet deezer (293), du vert beatport, de l'ambre BPM et du
+     rose sets (séparation ≫ 35°). */
+  --chart-albums: oklch(0.6 0.17 330);
   --chart-neutral: oklch(0.62 0.03 70);
   --chart-grid: oklch(0.905 0.008 88 / 0.7);
   --chart-axis: oklch(0.615 0.01 70);
@@ -280,6 +284,8 @@
   /* BPM à analyser (E2.c) — ambre éclairci pour le fond sombre. */
   --chart-bpm: oklch(0.74 0.15 60);
   --chart-sets: oklch(0.7 0.15 20);
+  /* Albums (C7/L8) — magenta éclairci pour le fond sombre. */
+  --chart-albums: oklch(0.7 0.16 330);
   --chart-neutral: oklch(0.66 0.03 92);
   --chart-grid: oklch(0.33 0.014 262 / 0.7);
   --chart-axis: oklch(0.595 0.012 92);

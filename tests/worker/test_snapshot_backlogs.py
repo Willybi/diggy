@@ -56,7 +56,14 @@ sys.modules["workers.celery_app"] = _celery_app_mod
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
 from database import Base  # noqa: E402
-from models import Artist, CatalogEntry, CrawlLog, DJSet, MetricSnapshot  # noqa: E402
+from models import (  # noqa: E402
+    Album,
+    Artist,
+    CatalogEntry,
+    CrawlLog,
+    DJSet,
+    MetricSnapshot,
+)
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -117,6 +124,15 @@ class TestSnapshotBacklogs:
                 Artist(name="Unlinked", normalized_name="unlinked")
             )  # backlog_link (deezer_id NULL)
             s.add(DJSet(source="trackid", title="Root set"))  # recrawl_backlog
+            # C7 albums (L8): one album missing both cover + meta, one complete.
+            s.add(Album(title="No cover no meta"))  # missing_cover + missing_meta
+            s.add(
+                Album(
+                    title="Complete",
+                    has_artwork=True,
+                    record_type="album",
+                )
+            )
             s.commit()
 
         result = monitoring_task.mod.snapshot_backlogs(fake_self)
@@ -132,7 +148,7 @@ class TestSnapshotBacklogs:
         # Same object is returned by the task
         assert result == payload
         # Structured by domain
-        assert set(payload) == {"enrich", "artists", "sets", "catalog"}
+        assert set(payload) == {"enrich", "artists", "sets", "catalog", "albums"}
         assert set(payload["enrich"]) == {"deezer", "beatport"}
         assert set(payload["enrich"]["deezer"]) == {
             "never_tried",
@@ -150,6 +166,12 @@ class TestSnapshotBacklogs:
         assert payload["catalog"]["total"] == 2
         # E2.c: only the preview-without-bpm row is a BPM-analysis candidate.
         assert payload["catalog"]["bpm_missing"] == 1
+        # C7/L8 albums: additive block, integer counts.
+        assert set(payload["albums"]) == {"missing_cover", "missing_meta", "total"}
+        assert payload["albums"]["missing_cover"] == 1
+        assert payload["albums"]["missing_meta"] == 1
+        assert payload["albums"]["total"] == 2
+        assert all(isinstance(payload["albums"][k], int) for k in payload["albums"])
 
     def test_runs_on_empty_db(self, monitoring_task, fake_self):
         result = monitoring_task.mod.snapshot_backlogs(fake_self)

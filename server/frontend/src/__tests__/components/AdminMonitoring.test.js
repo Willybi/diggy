@@ -36,6 +36,7 @@ function sampleResponse() {
       artists: { backlog_link: 4, backlog_artwork: 7 },
       sets: { recrawl_backlog: 2, unreliable: 42 },
       catalog: { total: cat, bpm_missing: bpm },
+      albums: { missing_cover: 120, missing_meta: 80, total: 500 },
     },
   })
   return {
@@ -128,6 +129,7 @@ function sampleResponse() {
           artists: { backlog_link: 4, backlog_artwork: 7 },
           sets: { recrawl_backlog: 2, unreliable: 42 },
           catalog: { total: 6120, bpm_missing: 800 },
+          albums: { missing_cover: 120, missing_meta: 80, total: 500 },
         },
       },
     },
@@ -187,6 +189,12 @@ describe('AdminMonitoring', () => {
     expect(wrapper.text()).toContain('Sets non fiables')
     expect(wrapper.text()).toContain('42')
     expect(burnLabels).toContain('Sets · non fiables')
+
+    // C7/L8: album backlog surfaced as tiles (missing_cover 120) + a burn-down.
+    expect(wrapper.text()).toContain('Covers albums manquantes')
+    expect(wrapper.text()).toContain('Métadonnées albums')
+    expect(wrapper.text()).toContain('120')
+    expect(burnLabels).toContain('Albums · covers manquantes')
 
     // X4.d: artist-integrity counters surfaced as tiles.
     expect(wrapper.text()).toContain('Intégrité artiste')

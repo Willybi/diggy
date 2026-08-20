@@ -69,6 +69,7 @@ def _run_snapshot_backlogs():
 
     sys.path.insert(0, "/app")
     from models import (
+        Album,
         Artist,
         CatalogEntry,
         CrawlLog,
@@ -133,6 +134,16 @@ def _run_snapshot_backlogs():
                 "bpm_missing": _count(
                     CatalogEntry.id, *bpm_analysis_candidate_filter()
                 ),
+            },
+            # C7 albums (L8): backfill cron rattrape covers + record_type/
+            # release_date/label. Additive key — anciens snapshots ne la portent
+            # pas, le front garde Number.isFinite/.get() défensif.
+            "albums": {
+                # has_artwork nullable, sans server_default → isnot(True) compte
+                # False ET NULL (null-safe, comme le bloc artists).
+                "missing_cover": _count(Album.id, Album.has_artwork.isnot(True)),
+                "missing_meta": _count(Album.id, Album.record_type.is_(None)),
+                "total": _count(Album.id),
             },
         }
 
