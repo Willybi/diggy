@@ -32,7 +32,13 @@ DOMAIN_ORDER: list[tuple[str, list[str]]] = [
     ),
     (
         "Users",
-        ["users", "user_opinions", "user_collections", "collection_items"],
+        [
+            "users",
+            "user_opinions",
+            "user_collections",
+            "collection_items",
+            "collection_folders",
+        ],
     ),
     (
         "Radar",

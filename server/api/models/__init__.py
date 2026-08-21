@@ -18,7 +18,11 @@ from .catalog import (  # noqa: F401
     UserTrack,
     bpm_analysis_candidate_filter,
 )
-from .collection import CollectionItem, UserCollection  # noqa: F401
+from .collection import (  # noqa: F401
+    CollectionFolder,
+    CollectionItem,
+    UserCollection,
+)
 from .genre import GenreEdge, GenreMapping, GenreNode  # noqa: F401
 from .monitoring import MetricSnapshot  # noqa: F401
 from .opinion import UserOpinion  # noqa: F401

@@ -60,9 +60,13 @@ from .catalog import (
 from .collections import (
     CollectionCreateIn,
     CollectionDetailOut,
+    CollectionFolderAssignIn,
     CollectionItemAddIn,
     CollectionItemOut,
     CollectionOut,
+    FolderCreateIn,
+    FolderOut,
+    FolderUpdateIn,
 )
 from .common import ArtistRef, GenreRef, OkResponse, RandomTrackResponse
 from .following import (
@@ -266,6 +270,10 @@ __all__ = [
     "CollectionOut",
     "CollectionItemOut",
     "CollectionDetailOut",
+    "CollectionFolderAssignIn",
+    "FolderCreateIn",
+    "FolderUpdateIn",
+    "FolderOut",
     # opinions
     "OpinionUpdate",
     "OpinionSetResponse",

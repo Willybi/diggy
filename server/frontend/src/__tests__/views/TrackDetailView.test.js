@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 
 // Mutable holders shared with the hoisted mocks below.
-const { apiMock, routerPush, playerMock } = vi.hoisted(() => ({
+const { apiMock, routerPush, playerMock, authMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -15,12 +15,19 @@ const { apiMock, routerPush, playerMock } = vi.hoisted(() => ({
     playing: false,
     play: vi.fn(),
   },
+  // The view now reads the auth store to gate AddToCollectionButton (L6);
+  // default to authenticated so the button renders as it always did here.
+  authMock: { isAuthenticated: true, user: null },
 }))
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 
 vi.mock('../../stores/audioPlayer', () => ({
   useAudioPlayer: () => playerMock,
+}))
+
+vi.mock('../../stores/auth.js', () => ({
+  useAuthStore: () => authMock,
 }))
 
 vi.mock('vue-router', () => ({
@@ -324,9 +331,14 @@ describe('TrackDetailView', () => {
     await input.trigger('keydown.enter')
     await flushPromises()
 
-    // Collection created, then the current track (id 1) added to it.
+    // Collection created, then the current track (id 1) added to it with the
+    // polymorphic payload (C5 v2, extracted into AddToCollectionButton).
     expect(apiMock.post).toHaveBeenCalledWith('/api/collections/', { name: 'Peak Time' })
-    expect(apiMock.post).toHaveBeenCalledWith('/api/collections/42/items', { catalog_id: 1 })
+    expect(apiMock.post).toHaveBeenCalledWith('/api/collections/42/items', {
+      item_type: 'track',
+      item_id: 1,
+      item_name: null,
+    })
 
     // Input closed (footer button back), new collection listed with a ✓.
     expect(wrapper.find('.coll-dd-input').exists()).toBe(false)

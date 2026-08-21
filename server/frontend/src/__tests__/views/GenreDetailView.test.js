@@ -27,6 +27,12 @@ vi.mock('../../stores/audioPlayer', () => ({
   }),
 }))
 
+// The view now reads the auth store to gate AddToCollectionButton (L6);
+// default to authenticated so the button renders as it always did here.
+vi.mock('../../stores/auth.js', () => ({
+  useAuthStore: () => ({ isAuthenticated: true, user: null }),
+}))
+
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { genre: 'Techno' } }),
   useRouter: () => ({ push: routerPush, replace: routerReplace }),

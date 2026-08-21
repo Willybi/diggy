@@ -70,6 +70,11 @@
               </button>
               <PlatformLink v-if="deezerHref" platform="deezer" :href="deezerHref" size="md" />
               <PlatformLink v-if="trackidHref" platform="trackid" :href="trackidHref" size="md" />
+              <AddToCollectionButton
+                v-if="auth.isAuthenticated"
+                item-type="artist"
+                :item-id="artist.id"
+              />
             </div>
 
             <!-- Stats repliées (A2) — mono Catalog · In lib · Sets, pas de Rating -->
@@ -261,6 +266,7 @@ import ExpandableShelf from '../components/ExpandableShelf.vue'
 import TrackCard from '../components/TrackCard.vue'
 import SetCard from '../components/SetCard.vue'
 import PlatformLink from '../components/PlatformLink.vue'
+import AddToCollectionButton from '../components/AddToCollectionButton.vue'
 import { fmtNum, pl } from '../utils/format'
 
 const route = useRoute()

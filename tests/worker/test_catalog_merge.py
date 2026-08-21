@@ -389,22 +389,52 @@ class TestMergeRepoint:
         rt = sync_session.execute(select(RadarTrack)).scalar_one()
         assert rt.catalog_id == canon.id
 
-    def test_collection_items_simple_and_conflict(self, sync_session):
+    def test_collection_items_track_move_and_conflict(self, sync_session):
+        # Polymorphic table: only 'track' items reference catalog.id via item_id.
         canon = _cat(sync_session)
         loser = _cat(sync_session)
-        # collection 1: only loser -> move. collection 2: both -> drop loser.
-        sync_session.add(CollectionItem(collection_id=1, catalog_id=loser.id))
-        sync_session.add(CollectionItem(collection_id=2, catalog_id=canon.id))
-        sync_session.add(CollectionItem(collection_id=2, catalog_id=loser.id))
+        # collection 1: only loser -> repoint. collection 2: both -> drop loser.
+        sync_session.add(
+            CollectionItem(collection_id=1, item_type="track", item_id=loser.id)
+        )
+        sync_session.add(
+            CollectionItem(collection_id=2, item_type="track", item_id=canon.id)
+        )
+        sync_session.add(
+            CollectionItem(collection_id=2, item_type="track", item_id=loser.id)
+        )
         sync_session.commit()
 
         merge_catalog_entries(sync_session, canon.id, loser.id)
         sync_session.commit()
 
         items = sync_session.execute(select(CollectionItem)).scalars().all()
-        assert all(it.catalog_id == canon.id for it in items)
+        assert all(it.item_id == canon.id and it.item_type == "track" for it in items)
         assert {it.collection_id for it in items} == {1, 2}
         assert len(items) == 2
+
+    def test_collection_items_non_track_untouched(self, sync_session):
+        # A set/artist/genre item that happens to carry the loser's numeric id in
+        # item_id must NOT be repointed — only 'track' items follow a catalog merge.
+        canon = _cat(sync_session)
+        loser = _cat(sync_session)
+        sync_session.add(
+            CollectionItem(collection_id=1, item_type="artist", item_id=loser.id)
+        )
+        sync_session.add(
+            CollectionItem(collection_id=1, item_type="genre", item_name="Techno")
+        )
+        sync_session.commit()
+
+        merge_catalog_entries(sync_session, canon.id, loser.id)
+        sync_session.commit()
+
+        by_type = {
+            it.item_type: it
+            for it in sync_session.execute(select(CollectionItem)).scalars().all()
+        }
+        assert by_type["artist"].item_id == loser.id  # untouched
+        assert by_type["genre"].item_name == "Techno"
 
     def test_user_radar_state_simple_and_conflict(self, sync_session):
         # user_radar_state is not in the L1 brief's list but is a genuine

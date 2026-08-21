@@ -281,9 +281,33 @@ def merge_catalog_entries(
     )
     _repoint_composite(session, UserTrack, UserTrack.user_id, canonical_id, loser_id)
 
-    # collection_items (PK collection_id+catalog_id): drop dup, else repoint.
-    _repoint_composite(
-        session, CollectionItem, CollectionItem.collection_id, canonical_id, loser_id
+    # collection_items (polymorphic, surrogate PK): only 'track' items reference
+    # catalog.id (via item_id) — the set/artist/genre/playlist items are blind to
+    # a catalog merge. Drop the loser's track item where the collection already
+    # holds the canonical as a track (application-level dedup mirrors the old
+    # composite-PK conflict), then repoint the rest.
+    session.execute(
+        delete(CollectionItem)
+        .where(
+            CollectionItem.item_type == "track",
+            CollectionItem.item_id == loser_id,
+            CollectionItem.collection_id.in_(
+                select(CollectionItem.collection_id).where(
+                    CollectionItem.item_type == "track",
+                    CollectionItem.item_id == canonical_id,
+                )
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    session.execute(
+        update(CollectionItem)
+        .where(
+            CollectionItem.item_type == "track",
+            CollectionItem.item_id == loser_id,
+        )
+        .values(item_id=canonical_id)
+        .execution_options(synchronize_session=False)
     )
 
     # user_radar_state (PK user_id+catalog_id): NOT listed in the L1 brief but a

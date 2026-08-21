@@ -112,6 +112,11 @@
             :model-value="genreOpinion"
             @update:model-value="(v) => opinions.set('genre', genreName, v)"
           />
+          <AddToCollectionButton
+            v-if="auth.isAuthenticated"
+            item-type="genre"
+            :item-name="genreName"
+          />
         </div>
       </div>
 
@@ -351,9 +356,12 @@ import ShelfCard from '../components/ShelfCard.vue'
 import RelBlock from '../components/RelBlock.vue'
 import SearchBox from '../components/SearchBox.vue'
 import AdminCard from '../components/AdminCard.vue'
+import AddToCollectionButton from '../components/AddToCollectionButton.vue'
+import { useAuthStore } from '../stores/auth.js'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const player = useAudioPlayer()
 const opinions = useOpinionsStore()
 

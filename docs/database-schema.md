@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 30 tables across 7 domains.
+> 31 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -67,7 +67,7 @@ is auto-generated — do not edit it directly.
 ## Table of contents
 
 **Catalog hub:** `catalog` · `catalog_artists` · `albums` · `catalog_albums` · `user_tracks`
-**Users:** `users` · `user_opinions` · `user_collections` · `collection_items`
+**Users:** `users` · `user_opinions` · `user_collections` · `collection_items` · `collection_folders`
 **Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
 **Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity`
 **Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows`
@@ -236,6 +236,7 @@ PK: `id`
 | `user_id` | Integer | no |  | FK → users.id ON DELETE CASCADE |  |
 | `name` | String(255) | no |  |  |  |
 | `type` | String(20) | yes |  |  | server_default='playlist', default='playlist' |
+| `folder_id` | Integer | yes |  | FK → collection_folders.id ON DELETE SET NULL |  |
 | `created_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
@@ -243,14 +244,35 @@ PK: `id`
 
 ### `collection_items`
 
-Composite PK: (`collection_id`, `catalog_id`)
+PK: `id`
 
 | Column | Type | Nullable | Unique | FK | Default |
 |--------|------|----------|--------|----|---------|
-| `collection_id` **PK** | Integer | no |  | FK → user_collections.id ON DELETE CASCADE |  |
-| `catalog_id` **PK** | Integer | no |  | FK → catalog.id ON DELETE CASCADE |  |
+| `id` **PK** | Integer | no |  |  |  |
+| `collection_id` | Integer | no |  | FK → user_collections.id ON DELETE CASCADE |  |
+| `item_type` | String(20) | no |  |  |  |
+| `item_id` | Integer | yes |  |  |  |
+| `item_name` | String(255) | yes |  |  |  |
 | `position` | Integer | yes |  |  | server_default='0', default=0 |
 | `added_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_collection_items_collection_id`: `collection_id`
+
+### `collection_folders`
+
+PK: `id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `id` **PK** | Integer | no |  |  |  |
+| `user_id` | Integer | no |  | FK → users.id ON DELETE CASCADE |  |
+| `name` | String(255) | no |  |  |  |
+| `position` | Integer | yes |  |  | server_default='0', default=0 |
+| `created_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_collection_folders_user_id`: `user_id`
 
 ## Radar
 
@@ -310,9 +332,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
+- `ix_radar_tracks_source_detected`: `source`
 - `ix_radar_tracks_watched_entity`: `watched_entity_id`
 - `ix_radar_tracks_catalog`: `catalog_id`
-- `ix_radar_tracks_source_detected`: `source`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -335,8 +357,8 @@ PK: `catalog_id`
 | `computed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_radar_trends_rank_global`: `rank_global`
 - `ix_radar_trends_family_rank`: `family`, `rank_in_family`
+- `ix_radar_trends_rank_global`: `rank_global`
 
 ### `user_radar_state`
 
@@ -513,9 +535,9 @@ PK: `id`
 | `trackid_music_track_id` | Integer | yes |  |  |  |
 
 **Indexes:**
+- `ix_set_tracks_set_id`: `set_id`
 - `ix_set_tracks_catalog_id`: `catalog_id`
 - `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
-- `ix_set_tracks_set_id`: `set_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -540,10 +562,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
+- `ix_set_flags_set_id_b`: `set_id_b`
 - `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_group_key`: `group_key`
 - `ix_set_flags_set_id_a`: `set_id_a`
-- `ix_set_flags_set_id_b`: `set_id_b`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)

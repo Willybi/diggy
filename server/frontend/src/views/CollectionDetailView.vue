@@ -7,7 +7,7 @@
         <div class="titles">
           <h1>{{ collection.name }}</h1>
           <div class="sub">
-            {{ collection.item_count }} track{{ collection.item_count !== 1 ? 's' : '' }}
+            {{ collection.item_count }} {{ pl(collection.item_count, 'élément', 'éléments') }}
           </div>
         </div>
         <div class="head-tools">
@@ -16,108 +16,89 @@
       </div>
 
       <div v-if="!collection.items.length" class="state">
-        Aucun track — ajoute des tracks depuis le catalog.
+        Collection vide — ajoute des tracks, artistes, sets, genres ou playlists depuis leurs pages.
       </div>
 
-      <div v-else class="table-wrap">
-        <table class="tt">
-          <colgroup>
-            <col class="w-play" />
-            <col class="w-track" />
-            <col class="w-bpm col-bpm" />
-            <col class="w-key" />
-            <col class="w-dur col-dur" />
-            <col class="w-rm" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th class="tl-play"></th>
-              <th>Track</th>
-              <th class="num col-bpm">BPM</th>
-              <th class="num">Key</th>
-              <th class="num col-dur">Durée</th>
-              <th class="end"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="t in collection.items"
-              :key="t.catalog_id"
-              :class="{ playing: player.isCurrent(t.catalog_id) }"
-              @click="$router.push(`/catalog/${t.catalog_id}`)"
+      <div v-else class="rlist">
+        <div
+          v-for="item in collection.items"
+          :key="itemKey(item)"
+          class="rrow"
+          :class="{ playing: isPlaying(item), missing: item.missing }"
+          @click="onRowClick(item)"
+        >
+          <!-- type badge -->
+          <span class="tbadge">
+            <span v-html="typeIcon(item.item_type)"></span>
+            <span class="lbl">{{ typeLabel(item.item_type) }}</span>
+          </span>
+
+          <!-- artwork -->
+          <div class="rart" :class="artClass(item)">
+            <img
+              v-if="artworkUrl(item)"
+              :src="artworkUrl(item)"
+              alt=""
+              loading="lazy"
+              @error="(e) => (e.target.style.display = 'none')"
+            />
+            <span v-else-if="item.item_type === 'genre'" class="gd"></span>
+            <span v-else class="ini">{{ initials(item) }}</span>
+            <div v-if="isPlayable(item)" class="play" @click.stop="playTrack(item)">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+            </div>
+          </div>
+
+          <!-- text -->
+          <div class="rtx">
+            <div class="rtitle">{{ itemTitle(item) }}</div>
+            <div v-if="item.subtitle" class="rsub">{{ item.subtitle }}</div>
+            <div v-else-if="item.missing" class="rsub muted">Élément indisponible</div>
+          </div>
+
+          <!-- meta (track only) -->
+          <div v-if="item.item_type === 'track' && !item.missing" class="rmeta">
+            <span class="m-bpm">{{ item.bpm ? fmtBpm(item.bpm) : '—' }}</span>
+            <span class="m-key">{{ item.key || '—' }}</span>
+            <span class="m-dur">{{ fmtMs(item.duration_ms) }}</span>
+          </div>
+
+          <!-- remove -->
+          <button
+            class="rm-btn"
+            title="Retirer"
+            aria-label="Retirer"
+            @click.stop="removeItem(item)"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
             >
-              <td class="tl-play" @click.stop>
-                <button
-                  v-if="t.has_preview"
-                  class="play-btn"
-                  :class="{ playing: player.isCurrent(t.catalog_id) && player.playing }"
-                  @click="playTrack(t)"
-                >
-                  <svg
-                    v-if="player.isCurrent(t.catalog_id) && player.playing"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                  >
-                    <rect x="6" y="5" width="4" height="14" rx="1" />
-                    <rect x="14" y="5" width="4" height="14" rx="1" />
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </button>
-              </td>
-              <td>
-                <div class="td-track">
-                  <div class="aw">
-                    <img
-                      v-if="t.has_artwork"
-                      :src="`/storage/catalog-artworks/${t.catalog_id}.jpg`"
-                      :alt="t.title"
-                    />
-                    <span v-else class="fallback-letter">{{ (t.title || '?')[0] }}</span>
-                  </div>
-                  <div class="tx">
-                    <div class="tt-title">{{ t.title }}</div>
-                    <div v-if="t.artist" class="tt-art">{{ t.artist }}</div>
-                  </div>
-                </div>
-              </td>
-              <td class="num col-bpm">
-                <span class="td-mono">{{ t.bpm ? fmtBpm(t.bpm) : '' }}</span>
-              </td>
-              <td class="num">
-                <span class="td-key">{{ t.key || '' }}</span>
-              </td>
-              <td class="num col-dur">
-                <span class="td-mono">{{ fmtMs(t.duration_ms) }}</span>
-              </td>
-              <td class="end" @click.stop>
-                <button class="rm-btn" title="Retirer" @click="removeTrack(t.catalog_id)">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                  >
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  </svg>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
+// C5 v2: a collection holds a HETEROGENEOUS mix (track / artist / set / genre /
+// playlist). Presentation choice: ONE unified list of typed rows (modeled on the
+// Hub search results), NOT a tracks-only table — a table's fixed columns (BPM/Key)
+// are meaningless for a non-track row, so a per-type row keeps the mix readable
+// with a single layout. The player/queue stays track-only (only tracks have a
+// preview). Removal targets the polymorphic route.
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
-import { fmtMs, fmtBpm } from '../utils/format'
+import { fmtMs, fmtBpm, pl } from '../utils/format'
+import { scopeIcons } from '../components/hub/scopeIcons.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -137,33 +118,111 @@ async function fetchCollection() {
   }
 }
 
-function toPlayerTrack(t) {
+// ── render helpers ──
+function itemKey(item) {
+  return `${item.item_type}-${item.item_id ?? item.item_name}`
+}
+function itemTitle(item) {
+  return item.title || item.item_name || 'Élément indisponible'
+}
+function typeLabel(type) {
+  const map = {
+    track: 'TRACK',
+    artist: 'ARTISTE',
+    set: 'SET',
+    genre: 'GENRE',
+    playlist: 'PLAYLIST',
+  }
+  return map[type] || String(type).toUpperCase()
+}
+function typeIcon(type) {
+  return scopeIcons[type] || scopeIcons.all
+}
+function artworkUrl(item) {
+  if (item.missing || !item.has_artwork) return null
+  if (item.item_type === 'track') return `/storage/catalog-artworks/${item.item_id}.jpg`
+  if (item.item_type === 'artist') return `/storage/artist-artworks/${item.item_id}.jpg`
+  if (item.item_type === 'set') return `/storage/set-artworks/${item.item_id}.jpg`
+  if (item.item_type === 'playlist') return `/storage/playlist-artworks/${item.item_id}.jpg`
+  return null
+}
+function artClass(item) {
+  const cls = []
+  if (item.item_type === 'artist') cls.push('round')
+  if (item.item_type === 'genre') cls.push('genre')
+  return cls
+}
+function initials(item) {
+  const s = itemTitle(item)
+  return (
+    s
+      .replace(/[^A-Za-zÀ-ÿ0-9 ]/g, '')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0] || '')
+      .join('')
+      .toUpperCase() || '?'
+  )
+}
+
+// ── playback (track-only) ──
+function isPlayable(item) {
+  return item.item_type === 'track' && !item.missing && item.has_preview
+}
+function isPlaying(item) {
+  return item.item_type === 'track' && player.isCurrent(item.item_id) && player.playing
+}
+function toPlayerTrack(item) {
   return {
-    id: t.catalog_id,
-    catalog_id: t.catalog_id,
-    title: t.title,
-    artist: t.artist,
-    artist_id: t.artist_id,
-    bpm: t.bpm,
-    key: t.key,
-    has_preview: t.has_preview,
+    id: item.item_id,
+    catalog_id: item.item_id,
+    title: item.title,
+    artist: item.subtitle,
+    bpm: item.bpm,
+    key: item.key,
+    has_preview: item.has_preview,
   }
 }
 
-// Queue source: "next" follows the collection's tracklist as displayed.
+// Queue source: only the collection's TRACK items feed the player.
 const playSource = {
   type: 'list',
-  getItems: () => (collection.value?.items ?? []).map(toPlayerTrack),
+  getItems: () =>
+    (collection.value?.items ?? [])
+      .filter((i) => i.item_type === 'track' && !i.missing && i.has_preview)
+      .map(toPlayerTrack),
 }
 
-function playTrack(t) {
-  player.play(toPlayerTrack(t), playSource)
+function playTrack(item) {
+  player.play(toPlayerTrack(item), playSource)
 }
 
-async function removeTrack(catalogId) {
+// ── navigation ──
+function onRowClick(item) {
+  if (item.missing) return
+  const routes = {
+    track: `/catalog/${item.item_id}`,
+    artist: `/artist/${item.item_id}`,
+    set: `/set/${item.item_id}`,
+    playlist: `/playlists/${item.item_id}`,
+    genre: `/style/${encodeURIComponent(item.item_name || item.title || '')}`,
+  }
+  const target = routes[item.item_type]
+  if (target) router.push(target)
+}
+
+// ── removal (polymorphic) ──
+async function removeItem(item) {
+  // genre has a NULL item_id → matched by item_name query param (path id = placeholder 0)
+  const id = item.item_id ?? 0
+  let url = `/api/collections/${route.params.id}/items/${item.item_type}/${id}`
+  if (item.item_type === 'genre') {
+    url += `?item_name=${encodeURIComponent(item.item_name || '')}`
+  }
   try {
-    await api.delete(`/api/collections/${route.params.id}/items/${catalogId}`)
-    collection.value.items = collection.value.items.filter((i) => i.catalog_id !== catalogId)
+    await api.delete(url)
+    collection.value.items = collection.value.items.filter((i) => itemKey(i) !== itemKey(item))
     collection.value.item_count = collection.value.items.length
   } catch {
     // silent
@@ -193,6 +252,11 @@ onMounted(fetchCollection)
 }
 
 /* ============ PAGE HEAD ============ */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--space-6) var(--page-px) var(--space-4);
+}
 .titles h1 {
   margin: 0;
   font-size: var(--fs-xl);
@@ -232,160 +296,167 @@ onMounted(fetchCollection)
   border-color: var(--neg-ink);
 }
 
-/* ============ TABLE ============ */
-.table-wrap {
+/* ============ LIST ============ */
+.rlist {
+  display: flex;
+  flex-direction: column;
   padding: var(--space-1) var(--page-px) var(--space-8);
-  overflow-x: auto;
 }
-table.tt {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  min-width: 440px;
-}
-table.tt col.w-play {
-  width: 48px;
-}
-table.tt col.w-track {
-  width: auto;
-}
-table.tt col.w-bpm {
-  width: 80px;
-}
-table.tt col.w-key {
-  width: 70px;
-}
-table.tt col.w-dur {
-  width: 90px;
-}
-table.tt col.w-rm {
-  width: 48px;
-}
-table.tt thead th {
-  font: 600 var(--fs-label)/1 var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  text-align: left;
-  padding: 0 var(--space-3) var(--space-25);
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
-  user-select: none;
-}
-table.tt th.num,
-table.tt td.num {
-  text-align: center;
-}
-table.tt th.end,
-table.tt td.end {
-  text-align: right;
-}
-table.tt tbody tr {
-  border-bottom: 1px solid var(--line);
-  height: var(--row-h);
-  cursor: pointer;
-}
-table.tt tbody tr:hover {
-  background: var(--surface-2);
-}
-table.tt td {
-  padding: 0 var(--space-3);
-  vertical-align: middle;
-}
-
-/* ============ PLAY BUTTON ============ */
-.tl-play {
-  width: 48px;
-  text-align: center;
-}
-.play-btn {
-  width: 30px;
-  height: 30px;
-  border: none;
-  background: transparent;
-  color: var(--ink-3);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  padding: 0;
-  transition:
-    color 0.12s,
-    background 0.12s;
-}
-.play-btn svg {
-  width: 16px;
-  height: 16px;
-}
-.play-btn:hover {
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-}
-.play-btn.playing {
-  color: var(--accent-ink);
-}
-
-/* ============ TRACK CELL ============ */
-.td-track {
+.rrow {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-width: 0;
+  padding: var(--space-25) var(--space-3);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background 0.13s;
 }
-.td-track .aw {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--r-xs);
-  flex: none;
-  background: var(--surface-3);
-  overflow: hidden;
-  display: flex;
+.rrow:hover {
+  background: var(--surface-2);
+}
+.rrow.playing {
+  background: var(--accent-wash);
+}
+.rrow.missing {
+  cursor: default;
+}
+.rrow.missing:hover {
+  background: transparent;
+}
+
+/* type badge */
+.tbadge {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: var(--space-15);
+  flex: none;
+  width: 92px;
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
 }
-.td-track .aw img {
+.tbadge :deep(svg) {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+/* artwork */
+.rart {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  background-color: var(--surface-3);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  place-items: center;
+}
+.rart.round {
+  border-radius: 50%;
+}
+.rart img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-.fallback-letter {
-  font: 600 var(--fs-title)/1 var(--font-ui);
+.rart .ini {
+  font: 600 var(--fs-base) var(--font-mono);
   color: var(--ink-3);
-  text-transform: uppercase;
 }
-.tx {
-  min-width: 0;
+.rart.genre {
+  background: var(--surface-3);
+}
+.rart.genre .gd {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.rart .play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.rart .play svg {
+  width: 17px;
+  height: 17px;
+  margin-left: 1px;
+}
+.rrow:hover .rart .play,
+.rrow.playing .rart .play {
+  opacity: 1;
+}
+.rrow.missing .rart {
+  opacity: 0.5;
+}
+
+/* text */
+.rtx {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
 }
-.tt-title {
-  font-size: var(--fs-table);
-  font-weight: 500;
+.rtitle {
+  font: 500 var(--fs-title) var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tt-art {
-  font-size: var(--fs-table-sm);
+.rrow.playing .rtitle {
+  color: var(--accent-ink);
+}
+.rrow.missing .rtitle {
+  color: var(--ink-3);
+}
+.rsub {
+  font: 400 var(--fs-sm) var(--font-ui);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.rsub.muted {
+  font-style: italic;
+}
 
-/* ============ MONO CELLS ============ */
-.td-mono {
+/* meta */
+.rmeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+.rmeta .m-bpm {
   font: 500 var(--fs-sm) var(--font-mono);
   color: var(--ink-2);
 }
-.td-key {
+.rmeta .m-key {
   font: 500 var(--fs-sm) var(--font-mono);
   color: var(--accent-ink);
 }
+.rmeta .m-dur {
+  font: 500 var(--fs-sm) var(--font-mono);
+  color: var(--ink-3);
+}
 
-/* ============ REMOVE BUTTON ============ */
+/* remove */
 .rm-btn {
+  flex: none;
   width: 28px;
   height: 28px;
   border: none;
@@ -401,7 +472,7 @@ table.tt td {
     opacity 0.14s,
     color 0.14s;
 }
-table.tt tbody tr:hover .rm-btn {
+.rrow:hover .rm-btn {
   opacity: 1;
 }
 .rm-btn:hover {
@@ -412,11 +483,6 @@ table.tt tbody tr:hover .rm-btn {
   height: 16px;
 }
 
-/* ============ PLAYING ROW ============ */
-table.tt tbody tr.playing {
-  background: var(--accent-soft);
-}
-
 /* ============ STATES ============ */
 .state {
   /* diverges from canonical .state: horizontal page padding (listing view) */
@@ -424,31 +490,32 @@ table.tt tbody tr.playing {
 }
 
 /* ============ RESPONSIVE ============ */
-@container (max-width: 820px) {
-  .col-dur {
-    display: none;
-  }
-}
 @container (max-width: 640px) {
   .page-head {
     padding-left: var(--page-px-mobile);
     padding-right: var(--page-px-mobile);
   }
-  .table-wrap {
+  .rlist {
     padding: var(--space-1) var(--page-px-mobile) var(--space-6);
-  }
-  .col-bpm {
-    display: none;
-  }
-  .rm-btn {
-    opacity: 1;
-  }
-  table.tt {
-    min-width: 0;
   }
   .state {
     padding-left: var(--page-px-mobile);
     padding-right: var(--page-px-mobile);
+  }
+  .tbadge {
+    width: 30px;
+  }
+  .tbadge .lbl {
+    display: none;
+  }
+  .rmeta .m-dur {
+    display: none;
+  }
+  .rart .play {
+    opacity: 1;
+  }
+  .rm-btn {
+    opacity: 1;
   }
 }
 </style>

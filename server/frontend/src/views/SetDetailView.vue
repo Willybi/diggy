@@ -78,6 +78,15 @@
               <span class="hero-source-name">{{ sourceName }}</span>
             </span>
           </div>
+
+          <!-- Actions -->
+          <div class="hero-actions">
+            <AddToCollectionButton
+              v-if="auth.isAuthenticated"
+              item-type="set"
+              :item-id="djSet.id"
+            />
+          </div>
         </div>
       </section>
 
@@ -164,11 +173,14 @@ import SetCard from '../components/SetCard.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
 import AdminCard from '../components/AdminCard.vue'
+import AddToCollectionButton from '../components/AddToCollectionButton.vue'
+import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs, fmtDate, pl } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const player = useAudioPlayer()
 const djSet = ref(null)
 const similarSets = ref([])
@@ -555,6 +567,15 @@ onMounted(() => {
 .hero-source-name {
   font: 500 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-2);
+}
+
+/* Actions */
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 /* ============ SECTION HEADS ============ */

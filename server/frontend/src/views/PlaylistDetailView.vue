@@ -36,13 +36,22 @@
             </div>
           </div>
 
-          <!-- Source link (P3) — unique hero action -->
+          <!-- Source link (P3) -->
           <div v-if="externalUrl" class="hero-source">
             <PlatformLink :platform="playlist.source" :href="externalUrl" size="md" />
             <span class="hero-source-tx">
               <span class="hero-source-label">Source</span>
               <span class="hero-source-name">{{ sourceLabel }}</span>
             </span>
+          </div>
+
+          <!-- Actions -->
+          <div class="hero-actions">
+            <AddToCollectionButton
+              v-if="auth.isAuthenticated"
+              item-type="playlist"
+              :item-id="playlist.id"
+            />
           </div>
         </div>
       </section>
@@ -163,11 +172,14 @@ import TrackCard from '../components/TrackCard.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
 import AdminCard from '../components/AdminCard.vue'
+import AddToCollectionButton from '../components/AddToCollectionButton.vue'
+import { useAuthStore } from '../stores/auth.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtDate, pl } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const player = useAudioPlayer()
 const playlist = ref(null)
 const loading = ref(true)
@@ -434,6 +446,15 @@ onMounted(fetchDetail)
 .hero-source-name {
   font: 500 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-2);
+}
+
+/* Actions */
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 /* ============ CRAWL BANNER (P4) ============ */
