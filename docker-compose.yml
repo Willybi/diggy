@@ -38,6 +38,23 @@ services:
     image: redis:7-alpine
     container_name: diggy_redis
     restart: unless-stopped
+    # Persist /data on a named volume + enable AOF. Redis holds durable state
+    # beyond the Celery broker: the TrackID backfill cursor (trackid_backfill_*),
+    # rate-limit windows and the reco cache. Without a volume, /data lives on the
+    # container's ephemeral layer, so any `docker compose up -d` that recreates
+    # redis (a deploy) wipes the RDB dump — which reset the backfill cursor from
+    # ~4 months of history back to today on 2026-08-20. AOF (fsync every second)
+    # keeps loss to <1s of writes; RDB save points are kept as a fallback.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - "3600 1 300 100 60 10000"
+    volumes:
+      - redis_data:/data
     deploy:
       resources:
         limits:
@@ -340,6 +357,7 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  redis_data:
   backups:
   beat_schedule:
 
