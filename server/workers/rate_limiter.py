@@ -31,6 +31,14 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 # Per-source configuration: (max_concurrent, requests_per_second)
 _SOURCE_CONFIG = {
     "deezer": (5, 10.0),  # 50 per 5s window
+    # Preview MP3 downloads off the Deezer CDN (cdns-preview-*.dzcdn.net), used
+    # ONLY by the BPM analysis drain. Throttled independently of the "deezer"
+    # API window so a long run (batch 2000) doesn't burst the CDN into per-IP
+    # rate-limiting: unlimited download volume made the silent download failures
+    # scale with the run (0% @ batch 60, 29% @ 500, ~50% @ 2000, measured
+    # 2026-08-21). Local bucket only (BPM is single-instance, no cross-process
+    # window needed).
+    "deezer_preview": (4, 5.0),
     "beatport": (2, 0.66),  # ~1 per 1.5s
     "tidal": (2, 2.0),
     "minio": (10, 0.0),  # local bucket, no rate limit

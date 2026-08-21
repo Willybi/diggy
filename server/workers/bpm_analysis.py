@@ -123,7 +123,11 @@ async def _analyze_one(entry, pool, executor, min_conf: float, stats: dict) -> N
             stats["no_preview"] += 1
             return
 
-        audio_bytes = await pool.download_audio(preview_url)
+        # Throttle the CDN download through a dedicated limiter (NOT the "deezer"
+        # API window): unlimited download volume made silent failures scale with
+        # the run size (per-IP CDN rate-limiting). See rate_limiter deezer_preview.
+        async with pool.limiter.acquire("deezer_preview"):
+            audio_bytes = await pool.download_audio(preview_url)
         if not audio_bytes:
             # CDN/network failure on the preview itself → NOT a verdict, retry.
             stats["errors"] += 1

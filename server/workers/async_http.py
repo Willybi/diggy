@@ -202,10 +202,19 @@ class HttpPool:
         Mirror of :meth:`download_image` minus the tiny-file placeholder guard:
         an audio preview has no placeholder equivalent and a short clip is still
         analyzable, so any non-empty body is returned. A longer timeout than the
-        image path accommodates the larger payload (~0.5-1 MB)."""
+        image path accommodates the larger payload (~0.5-1 MB).
+
+        Logs the failure reason (type + message) before swallowing it: the caller
+        (`_analyze_one`) only sees ``None`` and counts a silent ``errors``, so
+        without this the nightly ~50% failure rate is undiagnosable (is it a CDN
+        429, a timeout, a reset?). Kept non-raising so one dead preview never
+        aborts a batch."""
         try:
             resp = await self._client.get(url, timeout=30.0)
             resp.raise_for_status()
             return resp.content or None
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "preview download failed (%s): %s", type(e).__name__, e
+            )
             return None

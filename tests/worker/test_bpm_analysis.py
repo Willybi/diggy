@@ -16,6 +16,7 @@ test_enrich_candidates.py so it does not pollute sibling test modules.
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -180,6 +181,11 @@ class TestRecordBpmVerdict:
 # ── Batch pipeline (stamping on verdict vs transient failure) ──
 
 
+@asynccontextmanager
+async def _noop_cm(*args, **kwargs):
+    yield
+
+
 def _pool(preview="https://cdn/preview.mp3", audio=b"\xff\xf3mp3-bytes", hit_error=None):
     """MagicMock HttpPool: deezer_get resolves a /track hit, download_audio the bytes."""
     pool = MagicMock()
@@ -188,6 +194,9 @@ def _pool(preview="https://cdn/preview.mp3", audio=b"\xff\xf3mp3-bytes", hit_err
     else:
         pool.deezer_get = AsyncMock(return_value={"id": 1, "preview": preview})
     pool.download_audio = AsyncMock(return_value=audio)
+    # `_analyze_one` wraps the download in `pool.limiter.acquire("deezer_preview")`;
+    # a fresh no-op async CM per call keeps the batch pipeline testable.
+    pool.limiter.acquire = MagicMock(side_effect=lambda *a, **k: _noop_cm())
     return pool
 
 

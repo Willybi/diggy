@@ -19,9 +19,9 @@ class TestBpmAnalysisWiring:
     def test_beat_entry_present_with_expected_config(self):
         source = _read("workers", "celery_app.py")
         assert "analyze-bpm-previews-hourly" in source
-        # crontab bounded to 00h-03h
-        assert 'crontab(minute=0, hour="0-3")' in source
-        # per-run cap passed as a beat kwarg (2000 → 4 slots ≈ 8000/night)
+        # crontab bounded to 00h-04h (04h slot added 2026-08-21 for capacity)
+        assert 'crontab(minute=0, hour="0-4")' in source
+        # per-run cap passed as a beat kwarg (2000 → 5 slots ≈ 10000/night)
         assert '"batch_size": 2000' in source
         # exactly one beat entry references the task
         assert source.count('"task": "workers.tasks.analyze_bpm_previews"') == 1

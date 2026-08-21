@@ -147,16 +147,17 @@ celery_app.conf.update(
             "task": "workers.tasks.precompute_recommendations",
             "schedule": crontab(hour=5, minute=45),  # tous les jours à 5h45
         },
-        # Estimation BPM depuis les previews Deezer — drain HORAIRE borné 00h→03h
+        # Estimation BPM depuis les previews Deezer — drain HORAIRE borné 00h→04h
         # (E2.c). Placé AVANT la fenêtre Deezer (enrich_catalog 05h) et la fenêtre
         # Beatport (06h→23h) pour ne pas se disputer le rate limit Deezer, et hors
-        # des crawls de nuit. batch_size=2000/run × 4 créneaux ≈ 8000/nuit (plafond
-        # min()-borné par ANALYSIS_BPM_NIGHTLY_BUDGET). Lock single-instance +
-        # time_limit court (3300s) : un kill de deploy coûte ≤1 créneau. Un run
-        # sans candidat éligible est un no-op en secondes.
+        # des crawls de nuit. batch_size=2000/run × 5 créneaux ≈ 10000/nuit (plafond
+        # min()-borné par ANALYSIS_BPM_NIGHTLY_BUDGET). Créneau 04h ajouté (2026-08-21)
+        # pour la capacité, le débit utile par run étant plombé par le throttle CDN
+        # (voir deezer_preview). Lock single-instance + time_limit court (3300s) : un
+        # kill de deploy coûte ≤1 créneau. Un run sans candidat éligible = no-op.
         "analyze-bpm-previews-hourly": {
             "task": "workers.tasks.analyze_bpm_previews",
-            "schedule": crontab(minute=0, hour="0-3"),
+            "schedule": crontab(minute=0, hour="0-4"),
             "kwargs": {"batch_size": 2000},
         },
         "crawl-trackid-latest-daily": {
