@@ -286,6 +286,7 @@ Artist backlog (loop-safe, C-lot): `link_artists_deezer` (budget `ARTIST_LINK_NI
 | `/refonte_page <page>` | Full page-redesign pipeline (fiche → Claude Design prompt/handoff → work_manager lots → deploy → design review round → FIX triage → closure), with the guardrails learned on Track Detail |
 | `/audit_global [périmètre]` | Periodic codebase health audit (tech debt, security, perf, dead code): tooled inventory → parallel dimension agents → consolidation → arbitrage → roadmap proposal. Reports in `docs/audits/<AAAA-MM>/`, cross-audit tracking in `docs/audits/LEDGER.md` |
 | `/skill_review [skill]` | End-of-chantier retrospective on skill usage: reconstructs the session, confronts real usage vs each skill's design (drift/friction/gaps), proposes skill edits + new-skill drafts, STOPs for arbitration. Cross-session tracking in `docs/skill-reviews/LEDGER.md` |
+| `/vps_health [--conteneurs\| fenêtre]` | Read-only Hostinger VPS health check via the `hostinger-api` MCP (state, CPU/RAM/disk metrics with fair-use thresholds, backups freshness). Hypervisor-level only — Docker Manager is unsupported on this OS, so `--conteneurs` adds an SSH volet (`docker compose ps`/`docker stats`/`df -h`) for the container view |
 
 Prefer these over ad-hoc equivalents. Suggest them to the user when relevant. `.claude/commands/` is versioned in the repo (the command definitions ship with the code).
 
