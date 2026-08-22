@@ -92,12 +92,15 @@ class TestTrackEmbeddingDB:
         cat = CatalogEntry(title="Latch", normalized_key="latch - disclosure")
         db.add(cat)
         await db.flush()
+        # Full-dimension vectors: the PG vector(1280) column enforces the
+        # dimension (SQLite/JSON would accept any length). The values are
+        # irrelevant here — the test asserts the (catalog, model, version) UNIQUE.
         db.add(
             TrackEmbedding(
                 catalog_id=cat.id,
                 model_name=MODEL_NAME,
                 model_version=MODEL_VERSION,
-                embedding=[0.0, 1.0],
+                embedding=[0.0] * EMBEDDING_DIM,
             )
         )
         await db.commit()
@@ -106,7 +109,7 @@ class TestTrackEmbeddingDB:
                 catalog_id=cat.id,
                 model_name=MODEL_NAME,
                 model_version=MODEL_VERSION,
-                embedding=[1.0, 0.0],
+                embedding=[1.0] * EMBEDDING_DIM,
             )
         )
         with pytest.raises(Exception):

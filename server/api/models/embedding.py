@@ -7,12 +7,14 @@ Discogs-EffNet, 1280-d. These constants are re-used by the backfill lot.
 """
 from database import Base
 from sqlalchemy import (
+    DDL,
     Column,
     DateTime,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    event,
 )
 
 from .base import EmbeddingVector
@@ -47,3 +49,17 @@ class TrackEmbedding(Base):
             name="uq_track_embeddings_catalog_model",
         ),
     )
+
+
+# create_all on PostgreSQL must enable pgvector BEFORE emitting the vector(1280)
+# column. Fires only on PG (SQLite stores the column as JSON and needs nothing);
+# harmless in prod, whose schema comes from Alembic (migration 0049), not
+# create_all. This is the single place every create_all path gets the extension —
+# tests/api/conftest.py AND the PG-only worker tests that spin their own throwaway
+# database (e.g. tests/worker/test_import_rb_upsert.py), which would otherwise fail
+# with `type "vector" does not exist`.
+event.listen(
+    Base.metadata,
+    "before_create",
+    DDL("CREATE EXTENSION IF NOT EXISTS vector").execute_if(dialect="postgresql"),
+)
