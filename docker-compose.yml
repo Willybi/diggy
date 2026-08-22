@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # postgres:16-alpine + pgvector built from source (C9.a). Stable image tag so
+    # `docker compose up -d` reuses the built image instead of rebuilding.
+    build: ./postgres
+    image: diggy-postgres:16-pgvector
     container_name: diggy_postgres
     restart: unless-stopped
     deploy:

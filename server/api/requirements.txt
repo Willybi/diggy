@@ -10,6 +10,9 @@ jinja2==3.1.6
 uvicorn[standard]==0.32.0
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
+# C9.a — pgvector SQLAlchemy types (Vector column) for audio-embedding storage.
+# Needs the `vector` PostgreSQL extension server-side (built into ./postgres image).
+pgvector==0.4.1
 celery[redis]==5.4.0
 redis==5.2.0
 pydantic[email]==2.10.0

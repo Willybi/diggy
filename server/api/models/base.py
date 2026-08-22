@@ -84,3 +84,38 @@ class StringArray(TypeDecorator):
         if value is None:
             return []
         return list(value)
+
+
+class EmbeddingVector(TypeDecorator):
+    """A fixed-dimension float vector: ``pgvector`` ``Vector(dim)`` on PostgreSQL,
+    JSON (a list of floats) on other dialects (e.g. SQLite for tests).
+
+    Same spirit as :class:`StringArray` — the ORM column round-trips a plain
+    Python ``list[float]`` on both dialects, so application code never sees the
+    dialect difference. ``pgvector`` is imported lazily inside the PostgreSQL
+    branch so the SQLite test path has no hard dependency on it.
+    """
+
+    impl = JSON
+    cache_ok = True
+
+    def __init__(self, dim, *args, **kwargs):
+        self.dim = dim
+        super().__init__(*args, **kwargs)
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from pgvector.sqlalchemy import Vector
+
+            return dialect.type_descriptor(Vector(self.dim))
+        return dialect.type_descriptor(JSON)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return list(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return [float(x) for x in value]

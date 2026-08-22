@@ -272,6 +272,14 @@ async def setup_db():
     if _is_postgres and _worker_db_name:
         await _create_worker_database()
     async with test_engine.begin() as conn:
+        if _is_postgres:
+            # track_embeddings.embedding is a pgvector Vector column (C9.a);
+            # create_all emits vector(1280), which requires the extension. The
+            # CI PG image ships pgvector so this succeeds; SQLite stores it as
+            # JSON and needs nothing.
+            from sqlalchemy import text
+
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
     yield
     if _is_postgres and _worker_db_name:

@@ -19,6 +19,18 @@ import models  # noqa: E402 — registers all tables on Base.metadata
 
 target_metadata = models.Base.metadata
 
+# Indexes created via raw SQL in a migration (not declared on any model) — they
+# must be excluded from autogenerate comparison or it would emit a spurious
+# drop_index. The pgvector HNSW index (0049) lives here because SQLite, which
+# backs the test schema via create_all, cannot build it.
+_AUTOGEN_SKIP_INDEXES = {"ix_track_embeddings_hnsw"}
+
+
+def include_object(obj, name, type_, reflected, compare_to):
+    if type_ == "index" and name in _AUTOGEN_SKIP_INDEXES:
+        return False
+    return True
+
 
 def run_migrations_offline():
     context.configure(
@@ -26,6 +38,7 @@ def run_migrations_offline():
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -34,7 +47,11 @@ def run_migrations_offline():
 def run_migrations_online():
     connectable = create_engine(db_url, poolclass=pool.NullPool)
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
         with context.begin_transaction():
             context.run_migrations()
 

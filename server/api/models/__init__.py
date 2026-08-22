@@ -23,6 +23,12 @@ from .collection import (  # noqa: F401
     CollectionItem,
     UserCollection,
 )
+from .embedding import (  # noqa: F401
+    EMBEDDING_DIM,
+    MODEL_NAME,
+    MODEL_VERSION,
+    TrackEmbedding,
+)
 from .genre import GenreEdge, GenreMapping, GenreNode  # noqa: F401
 from .monitoring import MetricSnapshot  # noqa: F401
 from .opinion import UserOpinion  # noqa: F401

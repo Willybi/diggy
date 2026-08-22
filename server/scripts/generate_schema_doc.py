@@ -28,7 +28,14 @@ from models import Base  # noqa: E402
 DOMAIN_ORDER: list[tuple[str, list[str]]] = [
     (
         "Catalog hub",
-        ["catalog", "catalog_artists", "albums", "catalog_albums", "user_tracks"],
+        [
+            "catalog",
+            "catalog_artists",
+            "albums",
+            "catalog_albums",
+            "track_embeddings",
+            "user_tracks",
+        ],
     ),
     (
         "Users",

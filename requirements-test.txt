@@ -18,5 +18,6 @@ pydantic[email]
 slowapi
 asyncpg
 psycopg2-binary
+pgvector
 python-json-logger
 defusedxml
