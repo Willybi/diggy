@@ -138,6 +138,7 @@ jobs:
             git fetch origin &&
             git reset --hard origin/master &&
             docker compose build &&
+            docker compose up -d --no-deps postgres &&
             docker compose run --rm -T api python -m alembic upgrade head &&
             docker compose up -d &&
             (docker compose exec -T nginx nginx -s reload 2>/dev/null || true)
