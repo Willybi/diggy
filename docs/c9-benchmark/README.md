@@ -65,6 +65,44 @@ docker run --rm -v "$PWD:/work" c9-bench python /work/embed_eval.py both --worke
 docker run --rm -v "$PWD:/work" c9-bench python /work/embed_eval.py eval
 ```
 
+## C9.0-bis — comparaison des 3 modèles (EffNet vs CLAP vs MERT, tout CPU)
+
+Avant de figer le modèle v1, on rejoue le MÊME échantillon gelé (`sample.csv`) avec les 3 candidats
+et on compare le **lift@10 cross-artist** sur l'**univers commun** (les tracks que les 3 ont
+embeddées avec succès → comparaison apples-to-apples, seule la représentation varie). Contexte
+matériel : **CPU obligatoire** (le GPU de la machine est AMD → hors écosystème CUDA/ML) ; MERT est
+donc limité à sa variante **95M** (330M trop lente en CPU).
+
+**Deux images** — essentia-tensorflow (EffNet) et torch (CLAP/MERT) ne cohabitent pas (conflit
+numpy/protobuf) :
+
+```bash
+# EffNet (image essentia existante — déjà mesuré en C9.0, ré-embed optionnel)
+docker build -t c9-bench .
+docker run --rm -v "$PWD:/work" c9-bench python /work/embed_eval.py embed --model effnet --workers 6
+
+# CLAP + MERT (nouvelle image torch, CPU-only ; build ~plusieurs Go, télécharge les poids HF)
+docker build -f Dockerfile.torch -t c9-bench-torch .
+docker run --rm -v "$PWD:/work" c9-bench-torch python /work/embed_eval.py embed --model clap --workers 4
+docker run --rm -v "$PWD:/work" c9-bench-torch python /work/embed_eval.py embed --model mert --workers 4
+
+# comparaison finale sur l'univers commun (pur numpy, tourne dans n'importe quelle image)
+docker run --rm -v "$PWD:/work" c9-bench-torch python /work/embed_eval.py compare --models effnet,clap,mert
+```
+
+Chaque `embed --model X` écrit `embeddings_<X>.npz` + `status_<X>.csv` (gitignorés). `compare`
+imprime, par modèle : dim, lift@1/10/20 (all-positives), lift@1/10/20 (cross-artist), et le contrôle
+mélangé shuf@10 (doit rester ~1× → métrique calibrée). **Le gagnant = plus haut lift@10 cross-artist.**
+
+> ⚠️ **À surveiller au 1ᵉʳ run** (parties non rejouées ici, l'environnement Docker/HF/Deezer n'étant
+> pas testable en amont) : (1) compat `transformers`↔code distant MERT (pin `>=4.30,<4.41`, à ajuster
+> si le `trust_remote_code` casse) ; (2) MERT peut réclamer `nnAudio`/`torchaudio` selon la version du
+> frontend (déjà dans l'image) ; (3) l'agrégation MERT retenue = **moyenne temps puis moyenne des
+> couches** → 768-d (choix standard ; une couche unique donnerait un autre point) ; (4) débit CPU
+> MERT bien plus lent qu'EffNet (transformer vs CNN) — normal, on benchmarke la QUALITÉ, pas la
+> vitesse. **Enjeu coût** : si MERT gagne, le backfill 175k en CPU (carte AMD non exploitable)
+> imposerait du **GPU cloud** ; EffNet/CLAP (CNN) gardent le backfill 100 % local (~63 h mesurées).
+
 ## Verdict — GO (2026-08-21)
 
 **Décision : GO.** Les embeddings Discogs-EffNet prédisent la co-occurrence en sets DJ **très

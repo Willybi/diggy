@@ -1,0 +1,34 @@
+# Torch image for the CLAP + MERT embedders (C9.0-bis). Kept SEPARATE from the essentia-tensorflow
+# Dockerfile: essentia-tensorflow and torch clash on numpy/protobuf pins. EffNet -> Dockerfile,
+# CLAP/MERT -> this one. embed_eval.py picks the model at runtime via --model (conditional imports).
+FROM python:3.11-slim
+
+# ffmpeg = the audio decode backend used by ffmpeg_decode() (raw f32le) for CLAP/MERT.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU-only torch wheels (no CUDA — the box is AMD, ML stack is CUDA-centric so we run on CPU).
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch torchaudio
+
+# transformers pinned to a range known to run MERT's remote modeling code + ships ClapModel.
+# nnAudio is imported by MERT's custom feature frontend. Bump these only if a first run flags it.
+RUN pip install --no-cache-dir \
+        "transformers>=4.30,<4.41" \
+        nnAudio \
+        numpy requests
+
+# Pre-download the model weights at build time so the embed run is offline/deterministic.
+# (Comment out to fetch lazily on first run instead.)
+RUN python - <<'PY'
+from transformers import ClapModel, ClapProcessor, AutoModel, Wav2Vec2FeatureExtractor
+ClapModel.from_pretrained("laion/larger_clap_music")   # music-trained (protocol v2 A1)
+ClapProcessor.from_pretrained("laion/larger_clap_music")
+AutoModel.from_pretrained("m-a-p/MERT-v1-95M", trust_remote_code=True)
+Wav2Vec2FeatureExtractor.from_pretrained("m-a-p/MERT-v1-95M", trust_remote_code=True)
+PY
+
+WORKDIR /work
+# embed_eval.py + sample.csv are bind-mounted at run time (-v <workdir>:/work)

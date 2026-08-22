@@ -1,5 +1,16 @@
 embeddings.npz
+embeddings_*.npz
 status.csv
+status_*.csv
 run.log
+run_*.log
 build.log
+build_*.log
 __pycache__/
+# transient run / analysis outputs (not versioned; compare_results.json IS kept)
+compare_prelim_*.json
+*.err
+night*.log
+watchdog_last.txt
+healthcheck*.txt
+q_*.sql
