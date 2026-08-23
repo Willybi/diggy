@@ -445,12 +445,17 @@ def _matching_deezer_hits(hits, name):
       (b) accent fold equality (``_norm_artist_name``) — gated on a NON-EMPTY
           fold: a fully non-ASCII name folds to "" (no ASCII signal) and would
           otherwise "match" any other blank-folding name (invariant #4).
-      (c) NEW punctuation fold (``punct_fold_key``): "St. Germain" == "St
-          Germain", "Mr. Oizo" == "Mr Oizo". A WEAK signal, so it is refused when
-          the fold key is blank, when EITHER side looks like an acronym
-          ("L.I.L.Y" must NOT fold-match "Lily"), or when the hit's fan count is
-          below ``FAN_FLOOR`` (a 12-fan parasite entry must not be linked). Only
-          this fold is floor-gated; exact and accent matches are not.
+      (c) punctuation fold on EITHER of two keys: ``punct_fold_key`` drops
+          punctuation ("St. Germain" == "St Germain", "Cro-Magnon" ==
+          "Cromagnon"); ``punct_sep_key`` maps punctuation to a space ("R.Kelly"
+          == "R. Kelly", "ICE T" == "Ice-T") — the case the drop-key misses when
+          one side spaces the punctuation and the other does not. Neither folds a
+          pure space insertion, so "Will I Am" never matches "William". A WEAK
+          signal, so it is refused when both keys are blank, when EITHER side
+          looks like an acronym ("L.I.L.Y" must NOT fold-match "Lily"), or when
+          the hit's fan count is below ``FAN_FLOOR`` (a 12-fan parasite entry must
+          not be linked). Only this fold is floor-gated; exact and accent matches
+          are not.
 
     Sorted by ``nb_fan`` DESC so a caller preferring the most popular homonym
     picks the dominant artist. The sort is STABLE and ``reverse=True`` keeps
@@ -458,11 +463,17 @@ def _matching_deezer_hits(hits, name):
     order — i.e. the pre-L3 "first matching hit" pick is preserved when there is
     no fan signal (retro-compat).
     """
-    from workers.artist_names import FAN_FLOOR, looks_acronym, punct_fold_key
+    from workers.artist_names import (
+        FAN_FLOOR,
+        looks_acronym,
+        punct_fold_key,
+        punct_sep_key,
+    )
 
     name_lower = name.lower()
     name_norm = _norm_artist_name(name)
     name_key = punct_fold_key(name)
+    name_sep = punct_sep_key(name)
     name_is_acronym = looks_acronym(name)
 
     matched = []
@@ -474,12 +485,21 @@ def _matching_deezer_hits(hits, name):
         if name_norm and _norm_artist_name(dz_name) == name_norm:
             matched.append(hit)
             continue
+        # Weak punctuation-fold signal (floor + acronym gated). Two complementary
+        # keys, match on EITHER: punct_fold_key drops punctuation so it folds
+        # no-separator compounds ("Cro-Magnon" == "Cromagnon"); punct_sep_key maps
+        # punctuation to a space so it folds "punctuation where the other side has
+        # a space" ("R.Kelly" == "R. Kelly", "ICE T" == "Ice-T"). Neither folds a
+        # pure space insertion ("Will I Am" != "William"), so the "William" /
+        # "Georges" false merges stay excluded (invariant #4).
         if (
-            name_key
-            and not name_is_acronym
+            not name_is_acronym
             and not looks_acronym(dz_name)
-            and punct_fold_key(dz_name) == name_key
             and (hit.get("nb_fan", 0) or 0) >= FAN_FLOOR
+            and (
+                (name_key and punct_fold_key(dz_name) == name_key)
+                or (name_sep and punct_sep_key(dz_name) == name_sep)
+            )
         ):
             matched.append(hit)
 

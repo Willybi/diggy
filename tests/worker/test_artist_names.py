@@ -19,6 +19,7 @@ from workers.artist_names import (  # noqa: E402
     dominant_by_fans,
     looks_acronym,
     punct_fold_key,
+    punct_sep_key,
     strip_artist_noise,
 )
 
@@ -158,6 +159,60 @@ class TestPunctFoldKey:
 
     def test_leading_trailing_whitespace_trimmed(self):
         assert punct_fold_key("  St Germain  ") == "st germain"
+
+
+# ── punct_sep_key ───────────────────────────────────────────────────────────
+
+
+class TestPunctSepKey:
+    def test_rkelly_spaced_dot_equivalence(self):
+        # The headline case punct_fold_key misses: dot-with-no-space vs
+        # dot-with-space fold together only when punctuation becomes a space.
+        assert punct_sep_key("R.Kelly") == punct_sep_key("R. Kelly")
+
+    def test_rkelly_not_folded_by_drop_key(self):
+        # Guard the regression this whole change fixes: the drop-key does NOT
+        # equate the pair (that is why the second key exists).
+        assert punct_fold_key("R.Kelly") != punct_fold_key("R. Kelly")
+
+    def test_mr_oizo_collapsed_dot(self):
+        assert punct_sep_key("Mr.Oizo") == punct_sep_key("Mr. Oizo")
+
+    def test_ice_t_hyphen_vs_space(self):
+        assert punct_sep_key("ICE T") == punct_sep_key("Ice-T")
+
+    def test_jay_z_hyphen_vs_space(self):
+        assert punct_sep_key("JAY-Z") == punct_sep_key("JAY Z")
+
+    def test_h_man_hyphen_vs_space(self):
+        assert punct_sep_key("H Man") == punct_sep_key("H-Man")
+
+    def test_pure_space_insertion_not_folded(self):
+        # The invariant #4 guard: a space inserted with NO punctuation must not
+        # collapse two words. "Will I Am" != "William", "George S." != "Georges".
+        assert punct_sep_key("Will I Am") != punct_sep_key("William")
+        assert punct_sep_key("George S.") != punct_sep_key("Georges")
+
+    def test_no_separator_compound_not_folded_here(self):
+        # punct_sep_key deliberately does NOT fold "Cro-Magnon" == "Cromagnon"
+        # (that is punct_fold_key's job); a caller matches on EITHER key.
+        assert punct_sep_key("Cro-Magnon") != punct_sep_key("Cromagnon")
+        assert punct_fold_key("Cro-Magnon") == punct_fold_key("Cromagnon")
+
+    def test_st_germain_still_equivalent(self):
+        assert punct_sep_key("St. Germain") == punct_sep_key("St Germain")
+
+    def test_accent_folded(self):
+        assert punct_sep_key("Amélie Lens") == punct_sep_key("Amelie Lens")
+
+    def test_fully_non_ascii_folds_to_empty(self):
+        assert punct_sep_key("桜井　哲夫") == ""
+
+    def test_none_input_folds_to_empty(self):
+        assert punct_sep_key(None) == ""
+
+    def test_result_lowercased_and_trimmed(self):
+        assert punct_sep_key("  R. KELLY  ") == "r kelly"
 
 
 # ── dominant_by_fans ────────────────────────────────────────────────────────

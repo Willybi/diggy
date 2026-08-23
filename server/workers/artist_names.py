@@ -95,6 +95,35 @@ def punct_fold_key(name: str) -> str:
     return _RE_SPACES.sub(" ", folded).strip()
 
 
+def punct_sep_key(name: str) -> str:
+    """Sibling of :func:`punct_fold_key` that maps intra-name punctuation to a
+    SPACE instead of dropping it, then compacts whitespace.
+
+    This is the key that recognises "punctuation where the other spelling has a
+    space": "R.Kelly" == "R. Kelly", "ICE T" == "Ice-T", "Mr.Oizo" == "Mr. Oizo",
+    "JAY-Z" == "JAY Z" — cases :func:`punct_fold_key` MISSES because it removes the
+    dot without collapsing the resulting whitespace mismatch ("rkelly" vs
+    "r kelly").
+
+    Crucially it does NOT fold a pure space insertion that involves no
+    punctuation: "Will I Am" stays "will i am" (never "william") and "George S."
+    stays "george s" (never "georges"). Mapping punctuation to a space keeps a
+    separator on both sides, so it can never collapse two words the way full
+    space-removal would — which is exactly what stops the "Will I Am" -> "William"
+    / "George S." -> "Georges" FALSE merges (invariant #4). The complementary
+    :func:`punct_fold_key` still covers no-separator compounds ("Cro-Magnon" ==
+    "Cromagnon"), so a caller matches on EITHER key; a pure space insertion with
+    no punctuation ("DJ Rum" vs "Djrum") is deliberately caught by neither.
+
+    Same blank-on-fully-non-ASCII contract as :func:`punct_fold_key`: an empty
+    key means "no signal, do not match".
+    """
+    folded = unicodedata.normalize("NFKD", (name or "").lower().strip())
+    folded = folded.encode("ascii", "ignore").decode().strip()
+    folded = _RE_PUNCT_STRIP.sub(" ", folded)
+    return _RE_SPACES.sub(" ", folded).strip()
+
+
 # ── dominant_by_fans ────────────────────────────────────────────────────────
 
 # A duplicate-spelling pair is only merged toward the "dominant" side when that
