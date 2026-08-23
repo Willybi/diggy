@@ -158,13 +158,47 @@ class TestSelectLinkCandidatesTiers:
         result = select_link_candidates(sync_session, 10, NOW)
         assert [x.id for x in result] == [a.id]
 
-    def test_attempt3_abandoned_forever(self, sync_session):
+    def test_attempt3_recent_abandon_not_selected(self, sync_session):
+        # >= MAX attempts but searched within the long-retry window (< 180d) →
+        # dormant, not yet due for resurrection.
         _add_artist(
-            sync_session, "Abandoned",
+            sync_session, "DormantRecent",
+            deezer_searched_at=_days_ago(30), deezer_search_attempts=3,
+        )
+
+        assert select_link_candidates(sync_session, 10, NOW) == []
+
+    def test_attempt3_resurrected_after_long_retry(self, sync_session):
+        # >= MAX attempts AND last searched beyond ARTIST_LONG_RETRY_DAYS (180d) →
+        # resurrected (the long-term "is it on Deezer yet?" sweep), no longer
+        # abandoned for good.
+        a = _add_artist(
+            sync_session, "Resurrect",
+            deezer_searched_at=_days_ago(400), deezer_search_attempts=3,
+        )
+
+        result = select_link_candidates(sync_session, 10, NOW)
+        assert [x.id for x in result] == [a.id]
+
+    def test_resurrect_not_found_sentinel_excluded(self, sync_session):
+        # A human NOT_FOUND decision keeps deezer_id non-NULL → never resurrected.
+        _add_artist(
+            sync_session, "AbsentForGood", deezer_id="NOT_FOUND",
             deezer_searched_at=_days_ago(400), deezer_search_attempts=3,
         )
 
         assert select_link_candidates(sync_session, 10, NOW) == []
+
+    def test_resurrect_is_lowest_priority(self, sync_session):
+        # With budget 1, a never-searched tier-1 artist wins over a due resurrection.
+        fresh = _add_artist(sync_session, "Fresh")
+        _add_artist(
+            sync_session, "Resurrect",
+            deezer_searched_at=_days_ago(400), deezer_search_attempts=3,
+        )
+
+        result = select_link_candidates(sync_session, 1, NOW)
+        assert [a.id for a in result] == [fresh.id]
 
 
 class TestSelectLinkCandidatesBudget:
@@ -226,11 +260,24 @@ class TestCountLinkCandidates:
         )  # tier 3
         _add_artist(sync_session, "Linked", deezer_id="9")  # excluded
         _add_artist(
-            sync_session, "Abandoned",
-            deezer_searched_at=_days_ago(400), deezer_search_attempts=3,
-        )  # excluded
+            sync_session, "DormantRecent",
+            deezer_searched_at=_days_ago(30), deezer_search_attempts=3,
+        )  # excluded: abandoned but within the long-retry window
 
         assert count_link_candidates(sync_session, NOW) == 3
+
+    def test_counts_include_resurrected(self, sync_session):
+        _add_artist(sync_session, "Fresh")  # tier 1
+        _add_artist(
+            sync_session, "Resurrect",
+            deezer_searched_at=_days_ago(400), deezer_search_attempts=3,
+        )  # resurrect tier (searched beyond the long-retry window)
+        _add_artist(
+            sync_session, "DormantRecent",
+            deezer_searched_at=_days_ago(30), deezer_search_attempts=3,
+        )  # excluded: not yet due
+
+        assert count_link_candidates(sync_session, NOW) == 2
 
 
 class TestMarkLinkSearched:
