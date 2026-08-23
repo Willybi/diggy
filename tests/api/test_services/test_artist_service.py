@@ -56,6 +56,36 @@ class TestListArtists:
         # A fully orphaned unlinked row (no catalog, no set) stays hidden.
         assert "OrphanNoDeezer" not in names
 
+    async def test_no_deezer_hides_dormant_unsplittable(self, db, auth_user):
+        from models import Artist, CatalogArtist, CatalogEntry
+
+        # abandoned (>= 3 attempts) + no separator → dormant, hidden.
+        dormant = Artist(name="Raoul Konan", normalized_name="raoul konan", deezer_search_attempts=3)
+        # abandoned but splittable → stays visible (actionable via split).
+        splittable = Artist(name="Adam & Eve", normalized_name="adam & eve", deezer_search_attempts=3)
+        # still being searched → visible.
+        active = Artist(name="Fresh Name", normalized_name="fresh name", deezer_search_attempts=0)
+        db.add_all([dormant, splittable, active])
+        await db.flush()
+        for a in (dormant, splittable, active):
+            cat = CatalogEntry(title=f"T{a.id}", artist=a.name, normalized_key=f"nk-{a.id}")
+            db.add(cat)
+            await db.flush()
+            db.add(
+                CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0)
+            )
+        await db.commit()
+
+        result = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family=None, q=None,
+            no_deezer=True, ids=None, limit=20, offset=0,
+        )
+        names = [a["name"] for a in result["items"]]
+        assert "Adam & Eve" in names  # splittable → kept
+        assert "Fresh Name" in names  # still searching → kept
+        assert "Raoul Konan" not in names  # dormant dead-end → hidden
+        assert result["dormant_count"] == 1
+
     async def test_pagination_stable_on_tied_catalog_count(self, db, auth_user):
         """Regression: ex-aequo rows (same nb_catalog) must not repeat or skip
         across two consecutive LIMIT/OFFSET pages. Artist.id is the total-order

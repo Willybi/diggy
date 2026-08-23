@@ -113,7 +113,10 @@
     </div>
     <div class="link-results">
       <div class="link-col">
-        <p class="col-label">Artistes sans deezer_id ({{ noDeezerTotal }})</p>
+        <p class="col-label">
+          Artistes sans deezer_id ({{ noDeezerTotal }})
+          <span v-if="dormantCount" class="col-sub">· {{ dormantCount }} dormants suivis</span>
+        </p>
         <div class="link-list">
           <div
             v-for="a in dbArtistResults"
@@ -235,6 +238,9 @@ const linkDeezerQuery = ref('')
 const dbArtistResults = ref([])
 // True DB total for the current filter (may exceed the page shown in dbArtistResults).
 const noDeezerTotal = ref(0)
+// Dormant unlinked artists hidden from the list (abandoned + unsplittable), still
+// tracked by the worker's long-term resurrection sweep.
+const dormantCount = ref(0)
 const deezerHits = ref([])
 const selectedDbArtist = ref(null)
 const selectedDeezerHit = ref(null)
@@ -390,6 +396,7 @@ async function fetchNoDeezerArtists(q = '') {
   const { data } = await api.get('/api/artists/', { params })
   dbArtistResults.value = data.items || data
   noDeezerTotal.value = typeof data.total === 'number' ? data.total : dbArtistResults.value.length
+  dormantCount.value = typeof data.dormant_count === 'number' ? data.dormant_count : 0
 }
 
 function onLinkSearch() {
@@ -607,6 +614,11 @@ onMounted(() => {
   text-transform: uppercase;
   color: var(--ink-3);
   margin-bottom: var(--space-2);
+}
+.col-sub {
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.7;
 }
 .result-row {
   display: flex;

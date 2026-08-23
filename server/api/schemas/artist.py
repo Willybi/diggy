@@ -52,6 +52,10 @@ class ArtistListResponse(BaseModel):
     items: list[ArtistListItemOut]
     total: int
     pillarCounts: dict[str, int] = {}
+    # Admin link panel (no_deezer): count of DORMANT unlinked artists hidden from
+    # the list — abandoned (>= MAX search attempts) AND not splittable — still
+    # tracked by the worker's long-term resurrection sweep. 0 otherwise.
+    dormant_count: int = 0
 
 
 class ArtistConnectionComponents(BaseModel):

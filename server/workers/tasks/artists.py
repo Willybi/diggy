@@ -264,6 +264,15 @@ def split_artist_parts(raw):
 ARTIST_RESCAN_TIER2_DAYS = 30
 ARTIST_RESCAN_TIER3_DAYS = 90
 ARTIST_MAX_SEARCH_ATTEMPTS = 3
+# Long-term "resurrection" retry: an artist abandoned after 3 attempts is NOT dead
+# for good — it is re-searched every ~180 days, so one that gets ADDED to Deezer
+# later is eventually picked up and linked (the "Raoul Konan" case: a clean,
+# unsplittable name simply not on Deezer yet). Each resurrection bumps the attempt
+# counter (stays >= MAX, so it remains dormant) and refreshes deezer_searched_at →
+# the next attempt is another 180 days out. NOT_FOUND (a human decision) keeps
+# deezer_id non-NULL and is never resurrected. Cost is negligible (~backlog/180 per
+# day) and it is the LOWEST-priority tier (drains only the budget the live tiers leave).
+ARTIST_LONG_RETRY_DAYS = 180
 
 # Max artist link searches per run. Code-defaulted (not in .env), env-overridable
 # like ENRICH_NIGHTLY_BUDGET. The cap is the PRIMARY loop guard: dimensioned well
@@ -338,14 +347,14 @@ def _link_tiers(now):
     """SQLAlchemy predicates for artist Deezer link selection (mirror of the
     catalog tiers in workers.enrichment.select_enrich_candidates).
 
-    Returns (tier1, retry):
+    Returns (tier1, retry, resurrect):
       - tier1: unlinked AND never searched.
       - retry: unlinked AND E1 backoff — 1 attempt searched >30d ago, or
         2 attempts searched >90d ago.
-    ``deezer_search_attempts >= ARTIST_MAX_SEARCH_ATTEMPTS`` matches neither, so
-    an artist is abandoned after 3 attempts. The NOT_FOUND sentinel keeps
-    deezer_id non-NULL, so confirmed-absent artists are excluded from both tiers
-    (a human decision, never auto-retried).
+      - resurrect: unlinked AND abandoned (>= MAX attempts) but last searched more
+        than ARTIST_LONG_RETRY_DAYS ago — the long-term "is it on Deezer yet?" sweep.
+    The NOT_FOUND sentinel keeps deezer_id non-NULL, so confirmed-absent artists are
+    excluded from every tier (a human decision, never auto-retried).
     """
     from models import Artist
     from sqlalchemy import and_, or_
@@ -366,7 +375,12 @@ def _link_tiers(now):
             ),
         ),
     )
-    return tier1, retry
+    resurrect = and_(
+        Artist.deezer_id.is_(None),
+        Artist.deezer_search_attempts >= ARTIST_MAX_SEARCH_ATTEMPTS,
+        Artist.deezer_searched_at < now - timedelta(days=ARTIST_LONG_RETRY_DAYS),
+    )
+    return tier1, retry, resurrect
 
 
 def select_link_candidates(session, budget, now):
@@ -383,7 +397,7 @@ def select_link_candidates(session, budget, now):
     if budget <= 0:
         return []
 
-    tier1, retry = _link_tiers(now)
+    tier1, retry, resurrect = _link_tiers(now)
 
     fresh = (
         session.execute(
@@ -408,7 +422,25 @@ def select_link_candidates(session, budget, now):
         .all()
     )
 
-    return list(fresh) + list(retries)
+    picked = list(fresh) + list(retries)
+    remaining = budget - len(picked)
+    if remaining <= 0:
+        return picked
+
+    # Lowest priority: the long-term resurrection sweep only spends leftover budget,
+    # oldest search first, so it never starves the live tier1/retry backlog.
+    resurrected = (
+        session.execute(
+            select(Artist)
+            .where(resurrect)
+            .order_by(Artist.deezer_searched_at.asc())
+            .limit(remaining)
+        )
+        .scalars()
+        .all()
+    )
+
+    return picked + list(resurrected)
 
 
 def count_link_candidates(session, now):
@@ -417,9 +449,9 @@ def count_link_candidates(session, now):
     from models import Artist
     from sqlalchemy import func, or_, select
 
-    tier1, retry = _link_tiers(now)
+    tier1, retry, resurrect = _link_tiers(now)
     return session.execute(
-        select(func.count(Artist.id)).where(or_(tier1, retry))
+        select(func.count(Artist.id)).where(or_(tier1, retry, resurrect))
     ).scalar_one()
 
 

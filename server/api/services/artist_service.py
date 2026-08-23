@@ -23,6 +23,42 @@ from services.genre_service import (
 
 logger = logging.getLogger(__name__)
 
+# Deezer link-search abandonment threshold — MIRROR of
+# workers.tasks.artists.ARTIST_MAX_SEARCH_ATTEMPTS (kept in sync by hand; the API
+# must not import the workers package). After this many no-match searches an
+# unlinked artist is "dormant": still tracked (the worker resurrects it every ~180
+# days) but hidden from the admin link panel UNLESS its name is splittable.
+_MAX_SEARCH_ATTEMPTS = 3
+
+
+def _name_is_splittable(col):
+    """Dialect-neutral SQL predicate: the name carries a multi-artist separator.
+
+    An APPROXIMATE display heuristic (LIKE clauses, works on PG + the SQLite test
+    harness) mirroring the frontend detectSeparator / backend split detection —
+    punctuation separators plus the strong word separators. NOT the authoritative
+    splitter: a false positive merely keeps a name visible in the panel (harmless).
+    """
+    lower = func.lower(col)
+    return or_(
+        col.like("%&%"),
+        col.like("%/%"),
+        col.like("%|%"),
+        col.like("%;%"),
+        col.like("%,%"),
+        col.like("%+%"),
+        lower.like("% feat %"),
+        lower.like("% feat.%"),
+        lower.like("% ft %"),
+        lower.like("% ft.%"),
+        lower.like("% vs %"),
+        lower.like("% vs.%"),
+        lower.like("% featuring %"),
+        lower.like("% presents %"),
+        lower.like("% pres %"),
+        lower.like("% pres.%"),
+    )
+
 
 async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str) -> None:
     """Create an ArtistAlias if it doesn't exist yet (by normalized_alias)."""
@@ -200,6 +236,7 @@ async def list_artists(
         name_match = space_insensitive_ilike(q, Artist.name)
         base_query = base_query.where(name_match)
         id_filter_query = id_filter_query.where(name_match)
+    dormant_count = 0
     if no_deezer:
         # Only unlinked artists still ATTACHED to something (catalog or set).
         # Fully orphaned rows (residue of splits/merges/re-imports whose links
@@ -214,8 +251,33 @@ async def list_artists(
             .where(SetArtist.artist_id == Artist.id)
             .exists(),
         )
-        base_query = base_query.where(Artist.deezer_id.is_(None), attached)
-        id_filter_query = id_filter_query.where(Artist.deezer_id.is_(None), attached)
+        # Hide DORMANT dead-ends: an artist searched to abandonment (>= MAX attempts,
+        # no match) that ALSO has no separator to split ("Raoul Konan" — a clean name
+        # simply not on Deezer) is not actionable here — nothing to link, nothing to
+        # split. It stays tracked (the worker resurrects it every ~180 days) but is
+        # dropped from the panel. Splittable names and still-searching ones remain.
+        splittable = _name_is_splittable(Artist.name)
+        actionable = or_(
+            Artist.deezer_search_attempts < _MAX_SEARCH_ATTEMPTS,
+            Artist.deezer_search_attempts.is_(None),
+            splittable,
+        )
+        base_query = base_query.where(Artist.deezer_id.is_(None), attached, actionable)
+        id_filter_query = id_filter_query.where(
+            Artist.deezer_id.is_(None), attached, actionable
+        )
+        dormant_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(Artist)
+                .where(
+                    Artist.deezer_id.is_(None),
+                    attached,
+                    Artist.deezer_search_attempts >= _MAX_SEARCH_ATTEMPTS,
+                    ~splittable,
+                )
+            )
+        ).scalar() or 0
     if followed and user_id is not None:
         # Restrict to the user's followed artists via the SELECT subquery (not a
         # materialized id list — bind-param cap). Drives both the rows and the
@@ -360,7 +422,12 @@ async def list_artists(
             }
         )
 
-    return {"items": items, "total": total, "pillarCounts": pillar_counts}
+    return {
+        "items": items,
+        "total": total,
+        "pillarCounts": pillar_counts,
+        "dormant_count": dormant_count,
+    }
 
 
 async def get_detail(
