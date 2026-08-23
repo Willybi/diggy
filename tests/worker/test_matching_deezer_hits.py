@@ -82,13 +82,6 @@ class TestMatchingDeezerHits:
         # The complementary drop-key path still fires for no-separator compounds.
         assert _matching_deezer_hits([_hit("Cromagnon")], "Cro-Magnon")
 
-    def test_will_i_am_not_matched_to_william(self):
-        # invariant #4: a pure space insertion must NOT collapse to another name.
-        assert _matching_deezer_hits([_hit("William")], "Will I Am") == []
-
-    def test_george_s_not_matched_to_georges(self):
-        assert _matching_deezer_hits([_hit("Georges")], "George S.") == []
-
     def test_acronym_guard_still_refuses_lily(self):
         assert _matching_deezer_hits([_hit("Lily")], "L.I.L.Y") == []
 
@@ -103,3 +96,53 @@ class TestMatchingDeezerHits:
     def test_ordered_by_fan_desc(self):
         hits = [_hit("R. Kelly", nb_fan=1000, id=1), _hit("R. Kelly", nb_fan=9000, id=2)]
         assert [h["id"] for h in _matching_deezer_hits(hits, "R.Kelly")] == [2, 1]
+
+    # ── transliteration fold (cases 2 & 3), NOT floor-gated ──────────────────
+
+    def test_turkish_dotless_i_matches_even_low_fan(self):
+        # Accent/translit fold is a STRONG signal — links regardless of fan count.
+        assert _matching_deezer_hits([_hit("Altın Gün", nb_fan=3)], "Altin Gün")
+
+    def test_smart_apostrophe_matches_even_low_fan(self):
+        assert _matching_deezer_hits(
+            [_hit("ANGEL'IN HEAVY SYRUP", nb_fan=3)], "Angel’in Heavy Syrup"
+        )
+
+    # ── space fold (case 1): AUX88, hard-gated + ambiguity-rejected ──────────
+
+    def test_pure_space_insertion_links_when_unambiguous(self):
+        assert _matching_deezer_hits([_hit("AUX 88", nb_fan=1873)], "AUX88")
+
+    def test_space_fold_floor_gated(self):
+        assert _matching_deezer_hits([_hit("AUX 88", nb_fan=12)], "AUX88") == []
+
+    def test_space_fold_min_length_gated(self):
+        # "coro" (4) is below SPACE_FOLD_MIN_LEN → refused even as a lone hit.
+        assert _matching_deezer_hits([_hit("Co Ro", nb_fan=9000)], "CoRo") == []
+
+    def test_space_fold_ambiguous_two_distinct_ids_refused(self):
+        # Two DIFFERENT artists both collapsing to "aux88" → link nothing.
+        hits = [_hit("AUX 88", nb_fan=1873, id=1), _hit("A UX88", nb_fan=5000, id=2)]
+        assert _matching_deezer_hits(hits, "AUX88") == []
+
+    def test_space_fold_duplicate_same_id_still_links(self):
+        # Same artist returned twice (one distinct id) is NOT ambiguous.
+        hits = [_hit("AUX 88", nb_fan=1873, id=7), _hit("AUX88", nb_fan=1873, id=7)]
+        assert _matching_deezer_hits(hits, "AUX88")
+
+    def test_strong_match_takes_precedence_over_space_fold(self):
+        # A dotted "will.i.am" is a STRONG sep-fold match for "Will I Am"; the
+        # different-id "William" (space-fold only) must be ignored, not linked.
+        hits = [
+            _hit("will.i.am", nb_fan=200000, id=10),
+            _hit("William", nb_fan=900000, id=11),
+        ]
+        out = _matching_deezer_hits(hits, "Will I Am")
+        assert [h["id"] for h in out] == [10]
+
+    def test_will_i_am_alone_against_william_is_accepted_residual_risk(self):
+        # Without the real will.i.am in the results, "William" is space-fold-only
+        # and a single distinct id — but it is a genuinely different name. This is
+        # the accepted residual risk of the strict-guard design: it DOES link.
+        # Pin the behaviour so a future tightening is a conscious change.
+        assert _matching_deezer_hits([_hit("William", nb_fan=900000)], "Will I Am")

@@ -7,9 +7,9 @@ import logging
 import os
 import re
 import sys
-import unicodedata
 from datetime import date, datetime, timedelta, timezone
 
+from workers.artist_names import fold_base
 from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -311,14 +311,13 @@ CHECK_FOLLOWED_ARTISTS_LOCK_TTL = 4200
 
 
 def _norm_artist_name(s):
-    # Trailing .strip() is load-bearing: a fully non-ASCII name (Japanese
-    # "桜井　哲夫", Hebrew "נוער שוליים"…) collapses to a blank string after
-    # NFKD+ascii-fold — the ideographs are dropped and separators like U+3000
-    # become a plain space, leaving NO identity signal. Folding to "" (rather than
-    # " ") lets callers treat the empty result as "do not match": any other
-    # non-latin name would fold to the same blank, so a match on it is spurious.
-    s = unicodedata.normalize("NFKD", s.lower().strip())
-    return s.encode("ascii", "ignore").decode().strip()
+    # Accent/transliteration match fold — delegates to the shared
+    # workers.artist_names.fold_base so every match key (this accent branch + the
+    # punctuation/space folds) shares one transliteration table (Turkish "ı",
+    # smart quotes…). The blank-on-fully-non-ASCII contract is preserved there:
+    # a Japanese/Hebrew name folds to "" (no identity signal), which callers must
+    # treat as "do not match" — any other non-latin name folds to the same blank.
+    return fold_base(s)
 
 
 def _link_budget():
@@ -436,75 +435,98 @@ def _mark_link_searched(artist, now):
 def _matching_deezer_hits(hits, name):
     """Deezer hits matching ``name``, ordered by descending fan count.
 
-    Three match signals, tried per hit (the pre-L3 pair — raw exact + accent fold
-    — PLUS the new punctuation fold), each returning the hit unchanged when it
-    fires:
+    Signals tried per hit, in decreasing confidence. (a) and (b) are STRONG (never
+    floor-gated); (c) is a floor-gated weak fold; (d) is the riskiest fold and only
+    survives when unambiguous:
       (a) raw exact name equality (case-insensitive) — valid for ANY name,
           non-latin included: an exact echo is a valid identity (a Deezer hit
           spelling 桜井　哲夫 verbatim must still match).
-      (b) accent fold equality (``_norm_artist_name``) — gated on a NON-EMPTY
-          fold: a fully non-ASCII name folds to "" (no ASCII signal) and would
-          otherwise "match" any other blank-folding name (invariant #4).
+      (b) accent/transliteration fold equality (``_norm_artist_name`` →
+          ``fold_base``) — gated on a NON-EMPTY fold: a fully non-ASCII name folds
+          to "" (no ASCII signal) and would otherwise "match" any other
+          blank-folding name (invariant #4). Since fold_base transliterates, this
+          now folds "Altın Gün" == "Altin Gün" and "Angel’in" == "ANGEL'IN".
       (c) punctuation fold on EITHER of two keys: ``punct_fold_key`` drops
           punctuation ("St. Germain" == "St Germain", "Cro-Magnon" ==
           "Cromagnon"); ``punct_sep_key`` maps punctuation to a space ("R.Kelly"
-          == "R. Kelly", "ICE T" == "Ice-T") — the case the drop-key misses when
-          one side spaces the punctuation and the other does not. Neither folds a
-          pure space insertion, so "Will I Am" never matches "William". A WEAK
-          signal, so it is refused when both keys are blank, when EITHER side
-          looks like an acronym ("L.I.L.Y" must NOT fold-match "Lily"), or when
-          the hit's fan count is below ``FAN_FLOOR`` (a 12-fan parasite entry must
-          not be linked). Only this fold is floor-gated; exact and accent matches
-          are not.
+          == "R. Kelly", "ICE T" == "Ice-T"). A WEAK signal: refused when both
+          keys are blank, when EITHER side looks like an acronym ("L.I.L.Y" must
+          NOT fold-match "Lily"), or below ``FAN_FLOOR``.
+      (d) whitespace-insensitive fold (``space_fold_key``) for a pure space
+          insertion ("AUX88" == "AUX 88", "DJ Rum" == "Djrum"). RISKIEST — it also
+          collapses different names ("Will I Am" -> "william"), so on top of the
+          (c) gates it needs ``SPACE_FOLD_MIN_LEN`` AND is trusted ONLY when it is
+          the SOLE distinct-id candidate and no (a)/(b)/(c) match exists (any
+          ambiguity → link nothing).
 
-    Sorted by ``nb_fan`` DESC so a caller preferring the most popular homonym
-    picks the dominant artist. The sort is STABLE and ``reverse=True`` keeps
-    stability, so hits with equal or absent fan counts retain Deezer's original
-    order — i.e. the pre-L3 "first matching hit" pick is preserved when there is
-    no fan signal (retro-compat).
+    Returns the STRONG+weak matches sorted by ``nb_fan`` DESC when any exist (a
+    caller preferring the most popular homonym picks the dominant artist; the sort
+    is STABLE so equal/absent fan counts retain Deezer's order — the pre-L3 "first
+    matching hit" pick, retro-compat). Only when there is NO such match does a lone
+    space-fold candidate get returned.
     """
     from workers.artist_names import (
         FAN_FLOOR,
+        SPACE_FOLD_MIN_LEN,
         looks_acronym,
         punct_fold_key,
         punct_sep_key,
+        space_fold_key,
     )
 
     name_lower = name.lower()
     name_norm = _norm_artist_name(name)
     name_key = punct_fold_key(name)
     name_sep = punct_sep_key(name)
+    name_space = space_fold_key(name)
     name_is_acronym = looks_acronym(name)
 
-    matched = []
+    def _fan(h):
+        return h.get("nb_fan", 0) or 0
+
+    strong = []  # exact / accent fold / guarded punctuation fold (drop|sep)
+    space_only = []  # qualifies ONLY via the whitespace-insensitive fold
     for hit in hits:
         dz_name = hit.get("name", "")
         if dz_name.lower() == name_lower:
-            matched.append(hit)
+            strong.append(hit)
             continue
         if name_norm and _norm_artist_name(dz_name) == name_norm:
-            matched.append(hit)
+            strong.append(hit)
             continue
         # Weak punctuation-fold signal (floor + acronym gated). Two complementary
         # keys, match on EITHER: punct_fold_key drops punctuation so it folds
         # no-separator compounds ("Cro-Magnon" == "Cromagnon"); punct_sep_key maps
         # punctuation to a space so it folds "punctuation where the other side has
         # a space" ("R.Kelly" == "R. Kelly", "ICE T" == "Ice-T"). Neither folds a
-        # pure space insertion ("Will I Am" != "William"), so the "William" /
-        # "Georges" false merges stay excluded (invariant #4).
-        if (
-            not name_is_acronym
-            and not looks_acronym(dz_name)
-            and (hit.get("nb_fan", 0) or 0) >= FAN_FLOOR
-            and (
-                (name_key and punct_fold_key(dz_name) == name_key)
-                or (name_sep and punct_sep_key(dz_name) == name_sep)
-            )
+        # pure space insertion ("Will I Am" != "William").
+        gated = not name_is_acronym and not looks_acronym(dz_name) and _fan(hit) >= FAN_FLOOR
+        if gated and (
+            (name_key and punct_fold_key(dz_name) == name_key)
+            or (name_sep and punct_sep_key(dz_name) == name_sep)
         ):
-            matched.append(hit)
+            strong.append(hit)
+            continue
+        # Riskiest fold: pure space insertion ("AUX88" == "AUX 88"). Same gates
+        # PLUS a minimum key length; only trusted below when it is the SOLE
+        # distinct candidate (ambiguity = the "Will I Am"/"Georges" trap).
+        if (
+            gated
+            and len(name_space) >= SPACE_FOLD_MIN_LEN
+            and space_fold_key(dz_name) == name_space
+        ):
+            space_only.append(hit)
 
-    matched.sort(key=lambda h: h.get("nb_fan", 0) or 0, reverse=True)
-    return matched
+    if strong:
+        strong.sort(key=_fan, reverse=True)
+        return strong
+    # No strong match: trust a space-only fold ONLY when it is unambiguous — a
+    # single DISTINCT artist. Two+ distinct ids collapsing to one whitespace-
+    # stripped key is exactly the false-merge risk, so err toward separation
+    # (invariant #4) and link nothing.
+    if space_only and len({h.get("id") for h in space_only}) == 1:
+        return space_only
+    return []
 
 
 async def _link_artist_deezer(pool, artist, holder_map, now):

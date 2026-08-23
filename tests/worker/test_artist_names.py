@@ -16,10 +16,13 @@ if _SERVER_PATH not in sys.path:
 from workers.artist_names import (  # noqa: E402
     FAN_FLOOR,
     FAN_RATIO,
+    SPACE_FOLD_MIN_LEN,
     dominant_by_fans,
+    fold_base,
     looks_acronym,
     punct_fold_key,
     punct_sep_key,
+    space_fold_key,
     strip_artist_noise,
 )
 
@@ -213,6 +216,68 @@ class TestPunctSepKey:
 
     def test_result_lowercased_and_trimmed(self):
         assert punct_sep_key("  R. KELLY  ") == "r kelly"
+
+
+# ── fold_base ───────────────────────────────────────────────────────────────
+
+
+class TestFoldBase:
+    def test_turkish_dotless_i_transliterated(self):
+        # ı (U+0131) has no NFKD decomposition; ascii-ignore would DROP it,
+        # turning "Altın" into "altn". The transliteration recovers the i.
+        assert fold_base("Altın Gün") == fold_base("Altin Gün") == "altin gun"
+
+    def test_smart_apostrophe_unified_with_straight(self):
+        # ’ (U+2019) folds to the same key as ' (U+0027).
+        assert fold_base("Angel’in Heavy Syrup") == fold_base("ANGEL'IN HEAVY SYRUP")
+
+    def test_slashed_o_and_stroked_l(self):
+        assert fold_base("Møme") == "mome"
+        assert fold_base("Włodek") == "wlodek"
+
+    def test_eszett_and_ligatures(self):
+        assert fold_base("Straße") == "strasse"
+        assert fold_base("Encÿclopædia") == "encyclopaedia"
+
+    def test_em_dash_normalized(self):
+        assert fold_base("Death—Grips") == fold_base("Death-Grips")
+
+    def test_fully_non_latin_still_blank(self):
+        # The load-bearing invariant #4 guard must survive transliteration.
+        assert fold_base("桜井　哲夫") == ""
+        assert fold_base("נוער שוליים") == ""
+
+    def test_none_and_empty(self):
+        assert fold_base(None) == ""
+        assert fold_base("") == ""
+
+    def test_plain_ascii_unchanged(self):
+        assert fold_base("Bicep") == "bicep"
+
+
+# ── space_fold_key ──────────────────────────────────────────────────────────
+
+
+class TestSpaceFoldKey:
+    def test_pure_space_insertion_folds(self):
+        assert space_fold_key("AUX88") == space_fold_key("AUX 88") == "aux88"
+
+    def test_letters_only_space_insertion_folds_too(self):
+        # space_fold is deliberately aggressive (unlike punct_sep_key): it DOES
+        # collapse a letter-only space insertion — which is why the caller gates
+        # it hard and rejects ambiguity.
+        assert space_fold_key("DJ Rum") == space_fold_key("Djrum") == "djrum"
+        assert space_fold_key("Will I Am") == space_fold_key("William")
+
+    def test_punctuation_also_removed(self):
+        assert space_fold_key("R. Kelly") == space_fold_key("R.Kelly") == "rkelly"
+
+    def test_min_len_constant_lets_aux88_through_but_not_coro(self):
+        assert len(space_fold_key("AUX 88")) >= SPACE_FOLD_MIN_LEN
+        assert len(space_fold_key("Co Ro")) < SPACE_FOLD_MIN_LEN
+
+    def test_fully_non_latin_blank(self):
+        assert space_fold_key("桜井　哲夫") == ""
 
 
 # ── dominant_by_fans ────────────────────────────────────────────────────────

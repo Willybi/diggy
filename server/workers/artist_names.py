@@ -67,6 +67,41 @@ def strip_artist_noise(name: str) -> str:
     return stripped or name
 
 
+# ── fold_base ───────────────────────────────────────────────────────────────
+
+# Latin-script letters with NO Unicode decomposition: an NFKD + ascii-ignore fold
+# would DROP them silently ("Altın" -> "altn", losing the i), so transliterate them
+# to their conventional ASCII form FIRST. Plus the "smart" punctuation glyphs that
+# ascii-ignore also drops — mapping a curly apostrophe "’" (U+2019) to a straight
+# "'" (U+0027) lets "Angel’in" fold identically to "Angel'in". Deliberately
+# Latin-only: CJK / Hebrew / etc. are left to fold to the empty string (the
+# load-bearing "no signal" guard — invariant #4).
+_TRANSLIT = str.maketrans(
+    {
+        "ı": "i", "ø": "o", "ł": "l", "đ": "d", "ð": "d", "ß": "ss",
+        "þ": "th", "æ": "ae", "œ": "oe", "ħ": "h", "ŧ": "t", "ĸ": "k",
+        "’": "'", "‘": "'", "‛": "'", "‚": "'",
+        "“": '"', "”": '"', "„": '"',
+        "–": "-", "—": "-", "―": "-",
+    }
+)
+
+
+def fold_base(name: str) -> str:
+    """Shared accent/transliteration fold underneath every match key.
+
+    lowercase → transliterate the non-decomposable Latin letters + smart
+    punctuation of :data:`_TRANSLIT` → NFKD → drop remaining non-ASCII → trim.
+    The transliteration step is what stops ascii-ignore from silently deleting a
+    Turkish dotless "ı" ("Altın" -> "altin", not "altn") and unifies a curly
+    apostrophe "’" with a straight "'". A fully non-Latin name still folds to ""
+    (no ASCII survives) — callers treat that as "no signal, do not match".
+    """
+    s = (name or "").lower().strip().translate(_TRANSLIT)
+    s = unicodedata.normalize("NFKD", s)
+    return s.encode("ascii", "ignore").decode().strip()
+
+
 # ── punct_fold_key ──────────────────────────────────────────────────────────
 
 # Punctuation dropped when building a MATCH key: dots, commas, apostrophes,
@@ -79,19 +114,17 @@ _RE_PUNCT_STRIP = re.compile(r"[.,'\-·•]")
 def punct_fold_key(name: str) -> str:
     """Punctuation-insensitive fold key for MATCHING (never an identity key).
 
-    Same base as ``workers.tasks.artists._norm_artist_name`` (NFKD + lowercase +
-    ASCII accent fold), then drops the intra-name punctuation in
-    :data:`_RE_PUNCT_STRIP` and compacts whitespace. So "St. Germain" == "St
-    Germain", "Mr. Oizo" == "Mr Oizo", "N.E.R.D." == "N.E.R.D", "Cro-Magnon" ==
-    "Cromagnon", "Fred again.." == "Fred Again".
+    Builds on :func:`fold_base` (lowercase + transliterate + NFKD + ASCII fold),
+    then drops the intra-name punctuation in :data:`_RE_PUNCT_STRIP` and compacts
+    whitespace. So "St. Germain" == "St Germain", "Mr. Oizo" == "Mr Oizo",
+    "N.E.R.D." == "N.E.R.D", "Cro-Magnon" == "Cromagnon", "Fred again.." == "Fred
+    Again", and (via fold_base) "Angel’in" == "Angel'in".
 
     A fully non-ASCII name folds to "" (the ASCII fold drops every ideograph) —
     the caller MUST treat an empty key as "no signal, do not match", since any
     other non-Latin name would fold to the same blank.
     """
-    folded = unicodedata.normalize("NFKD", (name or "").lower().strip())
-    folded = folded.encode("ascii", "ignore").decode().strip()
-    folded = _RE_PUNCT_STRIP.sub("", folded)
+    folded = _RE_PUNCT_STRIP.sub("", fold_base(name))
     return _RE_SPACES.sub(" ", folded).strip()
 
 
@@ -113,15 +146,38 @@ def punct_sep_key(name: str) -> str:
     / "George S." -> "Georges" FALSE merges (invariant #4). The complementary
     :func:`punct_fold_key` still covers no-separator compounds ("Cro-Magnon" ==
     "Cromagnon"), so a caller matches on EITHER key; a pure space insertion with
-    no punctuation ("DJ Rum" vs "Djrum") is deliberately caught by neither.
+    no punctuation ("DJ Rum" vs "Djrum") is caught by neither of these two — that
+    is the job of the riskier, hard-gated :func:`space_fold_key`.
 
     Same blank-on-fully-non-ASCII contract as :func:`punct_fold_key`: an empty
     key means "no signal, do not match".
     """
-    folded = unicodedata.normalize("NFKD", (name or "").lower().strip())
-    folded = folded.encode("ascii", "ignore").decode().strip()
-    folded = _RE_PUNCT_STRIP.sub(" ", folded)
+    folded = _RE_PUNCT_STRIP.sub(" ", fold_base(name))
     return _RE_SPACES.sub(" ", folded).strip()
+
+
+# ── space_fold_key ──────────────────────────────────────────────────────────
+
+# Minimum length of a space-fold key for it to be trusted. Drops short collisions
+# ("Co Ro" -> "coro", "A B" -> "ab") that whitespace removal makes dangerously
+# easy; "aux88" (5) clears it, "coro" (4) does not.
+SPACE_FOLD_MIN_LEN = 5
+
+
+def space_fold_key(name: str) -> str:
+    """Punctuation- AND whitespace-insensitive fold key — the RISKIEST fold.
+
+    :func:`fold_base` then drops every punctuation char AND every space, so
+    "AUX 88" and "AUX88" both fold to "aux88", "Minus 8" == "Minus8", "DJ Rum" ==
+    "Djrum". Unlike :func:`punct_sep_key` it WILL collapse a pure space insertion
+    with no punctuation — which also collapses genuinely different names
+    ("Will I Am" -> "william", "George S." -> "georges"). So a caller MUST gate it
+    hard: acronym guard on both sides, a fan floor, a :data:`SPACE_FOLD_MIN_LEN`
+    length check, AND ambiguity rejection (link only a SINGLE distinct hit). Same
+    blank-on-fully-non-ASCII contract as the other keys.
+    """
+    folded = _RE_PUNCT_STRIP.sub("", fold_base(name))
+    return _RE_SPACES.sub("", folded).strip()
 
 
 # ── dominant_by_fans ────────────────────────────────────────────────────────
