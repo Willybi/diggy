@@ -47,14 +47,23 @@ from sqlalchemy.orm import Session
 _COMMIT_EVERY = 500
 _MAX_EXAMPLES = 15
 
-# Separator list in PARITY with frontend/src/utils/artistSplit.js SEPARATORS
-# (ordered, most specific first — detect picks the first match). Includes the
-# FRONT-ONLY '/' and ';' hints: the flag is a suggested split for admin review.
-_SEPARATORS = [
-    "/", " & ", " + ", "|", ";", ", ",
-    " featuring ", " feat. ", " feat ", " ft. ", " ft ",
-    " vs. ", " vs ", " presents ", " présente ", " pres. ", " pres ",
-    " and ", " x ", " y ", " e ",
+# Separator SPLIT patterns, precedence order (most specific first). Regexes so the
+# match tolerates glued punctuation, multiple dots and missing spaces around the
+# separator — the malformed forms a fixed-string list misses ("feat.Count Mack",
+# "ft.Faith Evans", "pres...Akabu", "+Various Artists", "Feat..Léah"). Word
+# separators require a space BEFORE (so "defeat"/"feature" never split) and a word
+# boundary; the trailing dots/space are optional. The flag is a suggested split for
+# admin review, so leniency is fine — a false positive is skippable in the queue.
+_SEP_PATTERNS = [
+    re.compile(r"\s+(?:featuring|feat|ft)\b\.*\s*", re.IGNORECASE),
+    re.compile(r"\s+vs\b\.*\s*", re.IGNORECASE),
+    re.compile(r"\s+(?:presents|présente|pres)\b\.*\s*", re.IGNORECASE),
+    re.compile(r"\s*/\s*"),
+    re.compile(r"\s+&\s+"),
+    re.compile(r"\s+\+\s*|\s*\+\s+"),
+    re.compile(r"\s*\|\s*"),
+    re.compile(r"\s*;\s*"),
+    re.compile(r",\s+"),
 ]
 
 _engine = None
@@ -68,22 +77,17 @@ def _get_engine():
     return _engine
 
 
-def _detect_separator(name):
-    low = (name or "").lower()
-    for sep in _SEPARATORS:
-        if sep in low:
-            return sep
-    return None
-
-
 def split_tokens(name):
-    """Front-parity tokenization for a SUGGESTED flag split. Returns [] when the
-    name does not split into >= 2 non-empty tokens (so it is not really a split)."""
-    sep = _detect_separator(name)
-    if not sep:
-        return []
-    parts = [p.strip() for p in re.split(re.escape(sep), name, flags=re.IGNORECASE) if p.strip()]
-    return parts if len(parts) >= 2 else []
+    """Tokenize a name into a SUGGESTED split (for admin review). Tries the
+    :data:`_SEP_PATTERNS` in precedence order and splits on the first that matches.
+    Returns [] when the name does not split into >= 2 non-empty tokens (so it is
+    not really a split — a lone trailing separator, or no separator at all)."""
+    s = (name or "").strip()
+    for pat in _SEP_PATTERNS:
+        if pat.search(s):
+            parts = [p.strip() for p in pat.split(s) if p.strip()]
+            return parts if len(parts) >= 2 else []
+    return []
 
 
 def _splittable_sql(col):

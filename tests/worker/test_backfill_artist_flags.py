@@ -41,6 +41,30 @@ class TestSplitTokens:
         # A separator with nothing on one side yields < 2 real tokens → not a split.
         assert split_tokens("Adam Beyer & ") == []
 
+    # ── glued / malformed separators (tolerant regex) ──
+
+    def test_glued_feat_dot(self):
+        assert split_tokens("Bushmind feat.Count Mack") == ["Bushmind", "Count Mack"]
+
+    def test_glued_ft_dot(self):
+        assert split_tokens("Diddy ft.Faith Evans") == ["Diddy", "Faith Evans"]
+
+    def test_glued_pres_multidot(self):
+        assert split_tokens("Joey Negro pres...Akabu") == ["Joey Negro", "Akabu"]
+
+    def test_glued_plus_no_trailing_space(self):
+        assert split_tokens("K-HAND +Various Artists") == ["K-HAND", "Various Artists"]
+
+    def test_feat_double_dot(self):
+        assert split_tokens("Take Me Out Feat..Léah Lazonick") == [
+            "Take Me Out", "Léah Lazonick"
+        ]
+
+    def test_feat_inside_word_not_split(self):
+        # "feat"/"ft" glued inside a word must NOT trigger a split.
+        assert split_tokens("Defeated Sanity") == []
+        assert split_tokens("Daft Punk") == []
+
 
 def _artist(session, name, **kw):
     a = Artist(name=name, normalized_name=normalize(name), **kw)
