@@ -92,11 +92,27 @@ function makeSimilar(n) {
   }))
 }
 
-async function mountView(track, similar = []) {
+// Content neighbours (« Sonne comme ») carry NO similarity/score payload.
+function makeContent(n) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: 300 + i,
+    title: `Sounds ${i}`,
+    artist: `Artist ${i}`,
+    bpm: 122,
+    key: '6A',
+    has_artwork: false,
+    has_preview: true,
+    in_lib: false,
+  }))
+}
+
+async function mountView(track, similar = [], content = []) {
   apiMock.get.mockImplementation((url) => {
     if (url === '/api/catalog/1') {
       return track ? Promise.resolve({ data: track }) : Promise.reject(new Error('404'))
     }
+    // content-similar shares the `/similar` substring → match it FIRST.
+    if (url.includes('/content-similar')) return Promise.resolve({ data: content })
     if (url.includes('/similar')) return Promise.resolve({ data: similar })
     return Promise.resolve({ data: [] })
   })
@@ -125,6 +141,8 @@ describe('TrackDetailView', () => {
     apiMock.patch.mockResolvedValue({ data: {} })
     routerPush.mockReset()
     playerMock.playing = false
+    // Reset the admin flag so the « Sonne comme » gate never leaks across tests.
+    authMock.user = null
   })
 
   it('renders the hero with the 4 musical stats and no rating', async () => {
@@ -193,6 +211,34 @@ describe('TrackDetailView', () => {
     // round(0.87 * 10) = 9, never the raw percentage
     expect(wrapper.find('.score-ring .sr-note').text()).toBe('9')
     expect(wrapper.text()).not.toContain('87%')
+  })
+
+  // Rendered shelf headings only (wrapper.html() also carries the template's
+  // « Sonne comme » comment, so assert on real .disc-title text).
+  const discTitles = (w) => w.findAll('.disc-title').map((t) => t.text())
+
+  it('renders the « Sonne comme » shelf for an admin, with cards and no ScoreRing', async () => {
+    authMock.user = { is_admin: true }
+    // No same-artist / no similar → the only mini-grid is the content shelf.
+    const wrapper = await mountView(makeTrack(), [], makeContent(3))
+    expect(discTitles(wrapper)).toContain('Sonne comme')
+    expect(wrapper.findAll('.mini-grid .track-card')).toHaveLength(3)
+    // Content neighbours never expose a score.
+    expect(wrapper.findAll('.score-ring')).toHaveLength(0)
+  })
+
+  it('hides the « Sonne comme » shelf for an admin when there are no content neighbours', async () => {
+    authMock.user = { is_admin: true }
+    const wrapper = await mountView(makeTrack(), [], [])
+    expect(discTitles(wrapper)).not.toContain('Sonne comme')
+  })
+
+  it('never renders « Sonne comme » nor calls content-similar for a non-admin', async () => {
+    authMock.user = { is_admin: false }
+    const wrapper = await mountView(makeTrack(), [], makeContent(3))
+    expect(discTitles(wrapper)).not.toContain('Sonne comme')
+    const hitContent = apiMock.get.mock.calls.some(([url]) => url.includes('/content-similar'))
+    expect(hitContent).toBe(false)
   })
 
   it('truncates set appearances to 5 with a per-block footer', async () => {

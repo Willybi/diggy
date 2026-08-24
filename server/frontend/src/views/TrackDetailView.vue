@@ -178,6 +178,37 @@
             </TrackCard>
           </div>
         </section>
+
+        <!-- Sonne comme — voisins par contenu audio, gaté admin, sans score (C9.b) -->
+        <section
+          v-if="auth.user?.is_admin && (contentLoading || contentTracks.length)"
+          class="disc-block"
+        >
+          <header class="disc-head">
+            <h2 class="disc-title">Sonne comme</h2>
+            <span v-if="contentTracks.length" class="disc-count">{{ contentTracks.length }}</span>
+          </header>
+          <div v-if="contentLoading" class="sim-skeleton">
+            <div v-for="n in 4" :key="n" class="skel-row">
+              <span class="skel-art"></span>
+              <span class="skel-lines">
+                <span class="skel-bar skel-bar--1"></span>
+                <span class="skel-bar skel-bar--2"></span>
+              </span>
+            </div>
+          </div>
+          <div v-else class="mini-grid">
+            <TrackCard
+              v-for="t in contentTracks"
+              :key="t.id"
+              :track="t"
+              show-artist
+              :playing="rowPlaying(t.id)"
+              @play="playTrack(t)"
+              @click="goTrack(t.id)"
+            />
+          </div>
+        </section>
       </div>
 
       <!-- Où on l'entend — 2-column layout (D3) -->
@@ -338,6 +369,8 @@ const dzGenreResult = ref(null)
 const opinion = ref(null)
 const similarTracks = ref([])
 const similarLoading = ref(false)
+const contentTracks = ref([])
+const contentLoading = ref(false)
 const sameArtistExpanded = ref(false)
 const setsExpanded = ref(false)
 const playlistsExpanded = ref(false)
@@ -501,10 +534,26 @@ async function loadSimilar(catalogId) {
   }
 }
 
+// « Sonne comme » — voisins par contenu audio (C9.b). Gaté admin le temps que
+// la couverture des embeddings monte : un non-admin ne déclenche AUCUN appel.
+async function loadContentNeighbors(catalogId) {
+  if (!auth.user?.is_admin) return
+  contentLoading.value = true
+  try {
+    const { data } = await api.get(`/api/catalog/${catalogId}/content-similar?limit=10`)
+    contentTracks.value = data
+  } catch {
+    // silencieux
+  } finally {
+    contentLoading.value = false
+  }
+}
+
 async function loadTrack(id) {
   loading.value = true
   track.value = null
   similarTracks.value = []
+  contentTracks.value = []
   enrichResult.value = null
   dzGenreResult.value = null
   sameArtistExpanded.value = false
@@ -515,6 +564,7 @@ async function loadTrack(id) {
     track.value = data
     opinion.value = data.avis ?? null
     loadSimilar(id)
+    loadContentNeighbors(id)
   } catch {
     track.value = null
   } finally {
