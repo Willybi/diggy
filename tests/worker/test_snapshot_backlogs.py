@@ -57,12 +57,16 @@ from datetime import datetime, timedelta, timezone  # noqa: E402
 
 from database import Base  # noqa: E402
 from models import (  # noqa: E402
+    EMBEDDING_DIM,
+    MODEL_NAME,
+    MODEL_VERSION,
     Album,
     Artist,
     CatalogEntry,
     CrawlLog,
     DJSet,
     MetricSnapshot,
+    TrackEmbedding,
 )
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
@@ -107,7 +111,9 @@ class TestSnapshotBacklogs:
                 )
             )
             # BPM analysis candidate: preview + real deezer_id + no bpm + not yet
-            # analyzed → bpm_analysis_candidate_filter() matches it.
+            # analyzed → bpm_analysis_candidate_filter() matches it. Also both
+            # rows below are embedding-ELIGIBLE (has_preview + real deezer_id);
+            # one gets an embedding seeded after commit, the other stays missing.
             s.add(
                 CatalogEntry(
                     title="Preview",
@@ -115,6 +121,16 @@ class TestSnapshotBacklogs:
                     normalized_key="preview - b",
                     has_preview=True,
                     deezer_id="dz-preview",
+                )
+            )
+            s.add(
+                CatalogEntry(
+                    title="Preview2",
+                    artist="C",
+                    normalized_key="preview2 - c",
+                    has_preview=True,
+                    deezer_id="dz-preview2",
+                    bpm=128,  # not a BPM candidate, but still embedding-eligible
                 )
             )
             s.add(
@@ -134,6 +150,20 @@ class TestSnapshotBacklogs:
                 )
             )
             s.commit()
+            # One of the two eligible rows already has an embedding for the
+            # frozen v1 model → covered=1, eligible=2, missing=1.
+            preview_id = s.execute(
+                select(CatalogEntry.id).where(CatalogEntry.title == "Preview")
+            ).scalar_one()
+            s.add(
+                TrackEmbedding(
+                    catalog_id=preview_id,
+                    model_name=MODEL_NAME,
+                    model_version=MODEL_VERSION,
+                    embedding=[0.0] * EMBEDDING_DIM,
+                )
+            )
+            s.commit()
 
         result = monitoring_task.mod.snapshot_backlogs(fake_self)
 
@@ -148,7 +178,14 @@ class TestSnapshotBacklogs:
         # Same object is returned by the task
         assert result == payload
         # Structured by domain
-        assert set(payload) == {"enrich", "artists", "sets", "catalog", "albums"}
+        assert set(payload) == {
+            "enrich",
+            "artists",
+            "sets",
+            "catalog",
+            "albums",
+            "embeddings",
+        }
         assert set(payload["enrich"]) == {"deezer", "beatport"}
         assert set(payload["enrich"]["deezer"]) == {
             "never_tried",
@@ -163,9 +200,16 @@ class TestSnapshotBacklogs:
         assert payload["artists"]["backlog_link"] == 1
         assert payload["artists"]["backlog_artwork"] == 1
         assert payload["sets"]["recrawl_backlog"] == 1
-        assert payload["catalog"]["total"] == 2
-        # E2.c: only the preview-without-bpm row is a BPM-analysis candidate.
+        assert payload["catalog"]["total"] == 3
+        # E2.c: only the preview-without-bpm row is a BPM-analysis candidate
+        # (Preview2 carries a bpm, so it is not).
         assert payload["catalog"]["bpm_missing"] == 1
+        # C9.a embeddings: 2 eligible previews, 1 already vectorised → missing=1.
+        assert set(payload["embeddings"]) == {"covered", "eligible", "missing"}
+        assert payload["embeddings"]["eligible"] == 2
+        assert payload["embeddings"]["covered"] == 1
+        assert payload["embeddings"]["missing"] == 1
+        assert all(isinstance(payload["embeddings"][k], int) for k in payload["embeddings"])
         # C7/L8 albums: additive block, integer counts.
         assert set(payload["albums"]) == {"missing_cover", "missing_meta", "total"}
         assert payload["albums"]["missing_cover"] == 1
@@ -181,6 +225,7 @@ class TestSnapshotBacklogs:
         assert result["catalog"]["total"] == 0
         assert result["catalog"]["bpm_missing"] == 0
         assert result["enrich"]["deezer"]["total_missing"] == 0
+        assert result["embeddings"] == {"covered": 0, "eligible": 0, "missing": 0}
 
     def test_task_has_no_autoretry(self, monitoring_task):
         # Loop-safe: a transient DB blip is retried next hour, never re-looped.

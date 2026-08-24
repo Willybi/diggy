@@ -81,6 +81,22 @@
             tone="neutral"
           />
           <StatTile
+            label="Embeddings à vectoriser"
+            :value="fmtInt(embeddings.missing)"
+            :sublabel="
+              embCoveragePct != null ? `${embCoveragePct} % couverts` : 'audio « sonne comme »'
+            "
+            tone="neutral"
+          >
+            <SparkLine
+              v-if="embCoverageSeries.length > 1"
+              class="tile-spark"
+              :points="embCoverageSeries"
+              color="var(--chart-embeddings)"
+              :height="24"
+            />
+          </StatTile>
+          <StatTile
             label="Covers albums manquantes"
             :value="fmtInt(albums.missing_cover)"
             sublabel="à rattraper"
@@ -120,20 +136,54 @@
         </div>
       </section>
 
-      <!-- ── Burn-down backlog dans le temps ── -->
+      <!-- ── Burn-down backlog dans le temps — 3 thèmes, groupés par ordre de
+           grandeur pour rester lisibles (échelle Y unique par graphe) ── -->
       <section class="admin-section">
         <div class="section-header">
-          <h2 class="section-title">Backlog à traiter dans le temps</h2>
+          <h2 class="section-title">Enrichissement plateforme dans le temps</h2>
         </div>
         <p class="mon-caption">
-          Entrées non enrichies restantes, par source. Teinte pleine = à traiter maintenant (jamais
-          cherché + à relancer) ; teinte claire = total restant, dont les morceaux en attente de
-          re-scan (30/90 j) ou abandonnés.
+          Entrées non enrichies restantes, par plateforme. Teinte pleine = à traiter maintenant
+          (jamais cherché + à relancer) ; teinte claire = total restant, dont les morceaux en
+          attente de re-scan (30/90 j) ou abandonnés.
         </p>
         <TimeSeriesChart
-          :series="burnSeries"
+          :series="platformBurn"
           :height="220"
           show-area
+          :y-format="fmtInt"
+          :x-format="fmtDayShort"
+        />
+      </section>
+
+      <section class="admin-section">
+        <div class="section-header">
+          <h2 class="section-title">Backfills de contenu dans le temps</h2>
+        </div>
+        <p class="mon-caption">
+          Données dérivées à rattraper : les embeddings audio (C9) et le BPM partagent la même
+          tuyauterie (preview Deezer → analyse). Chaque courbe descend vers 0 à mesure du
+          rattrapage.
+        </p>
+        <TimeSeriesChart
+          :series="contentBurn"
+          :height="220"
+          :y-format="fmtInt"
+          :x-format="fmtDayShort"
+        />
+      </section>
+
+      <section class="admin-section">
+        <div class="section-header">
+          <h2 class="section-title">Petits soldes & qualité dans le temps</h2>
+        </div>
+        <p class="mon-caption">
+          Résidus de faible volume : pochettes d'albums rattrapées par le cron, et sets TrackID
+          flaggés peu fiables (recalculés à chaque ré-import).
+        </p>
+        <TimeSeriesChart
+          :series="residualBurn"
+          :height="200"
           :y-format="fmtInt"
           :x-format="fmtDayShort"
         />
@@ -293,6 +343,25 @@ const artists = computed(() => latest.value.artists || {})
 const sets = computed(() => latest.value.sets || {})
 const catalog = computed(() => latest.value.catalog || {})
 const albums = computed(() => latest.value.albums || {})
+const embeddings = computed(() => latest.value.embeddings || {})
+
+// ── embeddings coverage (C9.a) ── instant % + climbing spark for the tile.
+const embCoveragePct = computed(() => {
+  const e = embeddings.value
+  if (!Number.isFinite(e.covered) || !Number.isFinite(e.eligible) || !e.eligible) return null
+  return Math.round((e.covered / e.eligible) * 100)
+})
+const embCoverageSeries = computed(() =>
+  backlogSeries.value
+    .map((snap) => {
+      const e = snap.payload?.embeddings
+      if (!e || !Number.isFinite(e.covered) || !Number.isFinite(e.eligible) || !e.eligible) {
+        return null
+      }
+      return { t: snap.captured_at, v: (e.covered / e.eligible) * 100 }
+    })
+    .filter(Boolean),
+)
 
 // ── artist-integrity instant counters (X4) ──
 const integrity = computed(() => data.value?.integrity || {})
@@ -334,13 +403,25 @@ const catalogDelta = computed(() => {
   return (d >= 0 ? '+' : '') + fmtInt(d)
 })
 
-// ── burn-down (backlog per source over time) ──
-// Deux teintes par source : couleur pleine = backlog ACTIONNABLE (never_tried +
-// due_retry, ce que la passe traiterait maintenant), teinte claire = total
-// restant (inclut le cooldown/abandonnés en attente de re-scan). Le total est
-// tracé EN PREMIER (dessous), l'actionnable PAR-DESSUS → bande 2 tons, l'écart
-// entre les deux lignes = le stock parqué (non actionnable).
-const burnSeries = computed(() => {
+// ── burn-down dans le temps, découpé en 3 thèmes groupés par ordre de grandeur
+// (TimeSeriesChart a UNE échelle Y linéaire par graphe : mélanger des séries de
+// magnitudes très différentes écraserait les petites). Toutes les séries gardent
+// la garde Number.isFinite → une clé démarre au 1er snapshot qui la porte (les
+// anciens payloads ne l'ont pas).
+
+// Helper : extrait un scalaire du payload en série {t,v}, invalides retirés.
+function backlogPath(pick) {
+  return backlogSeries.value
+    .map((snap) => ({ t: snap.captured_at, v: pick(snap.payload) }))
+    .filter((p) => Number.isFinite(p.v))
+}
+
+// A · Enrichissement plateforme (E1). Deux teintes par source : couleur pleine =
+// backlog ACTIONNABLE (never_tried + due_retry, ce que la passe traiterait
+// maintenant), teinte claire = total restant (inclut cooldown/abandonnés). Le
+// total est tracé EN PREMIER (dessous), l'actionnable PAR-DESSUS → bande 2 tons,
+// l'écart entre les deux lignes = le stock parqué (non actionnable).
+const platformBurn = computed(() => {
   const out = []
   for (const s of SOURCES) {
     const total = []
@@ -364,36 +445,38 @@ const burnSeries = computed(() => {
       out.push({ label: `${s.label} · à traiter`, color: s.color, points: actionable })
     }
   }
-  // BPM à analyser (E2.c) : morceaux avec preview mais sans BPM. Même clé de
-  // temps que les séries voisines ; garde Number.isFinite → démarre au 1er
-  // snapshot qui porte la clé (les anciens ne l'ont pas).
-  const bpm = backlogSeries.value
-    .map((snap) => ({ t: snap.captured_at, v: snap.payload?.catalog?.bpm_missing }))
-    .filter((p) => Number.isFinite(p.v))
-  if (bpm.length) {
-    out.push({ label: 'BPM · à analyser', color: 'var(--chart-bpm)', points: bpm })
+  return out
+})
+
+// B · Backfills de contenu dérivé (~44k–213k, même ordre). Embeddings (C9) + BPM
+// (E2.c) partagent la tuyauterie preview→analyse ; métadonnées albums (C7/L8) au
+// même volume.
+const contentBurn = computed(() => {
+  const out = []
+  const emb = backlogPath((p) => p?.embeddings?.missing)
+  if (emb.length) {
+    out.push({ label: 'Embeddings · à vectoriser', color: 'var(--chart-embeddings)', points: emb })
   }
-  // Sets non fiables (C8) : sets TrackID flaggés peu fiables (majoritairement
-  // ID, cachés/exclus des calculs). Même clé de temps ; garde Number.isFinite →
-  // démarre au 1er snapshot qui porte la clé (les anciens ne l'ont pas).
-  const unreliable = backlogSeries.value
-    .map((snap) => ({ t: snap.captured_at, v: snap.payload?.sets?.unreliable }))
-    .filter((p) => Number.isFinite(p.v))
+  const bpm = backlogPath((p) => p?.catalog?.bpm_missing)
+  if (bpm.length) out.push({ label: 'BPM · à analyser', color: 'var(--chart-bpm)', points: bpm })
+  const meta = backlogPath((p) => p?.albums?.missing_meta)
+  if (meta.length) {
+    out.push({ label: 'Albums · métadonnées', color: 'var(--chart-albums)', points: meta })
+  }
+  return out
+})
+
+// C · Petits soldes & qualité (~1k, enfin lisibles ensemble). Covers d'albums
+// (C7/L8) rattrapées par le cron + sets TrackID flaggés peu fiables (C8).
+const residualBurn = computed(() => {
+  const out = []
+  const covers = backlogPath((p) => p?.albums?.missing_cover)
+  if (covers.length) {
+    out.push({ label: 'Albums · covers manquantes', color: 'var(--chart-albums)', points: covers })
+  }
+  const unreliable = backlogPath((p) => p?.sets?.unreliable)
   if (unreliable.length) {
     out.push({ label: 'Sets · non fiables', color: 'var(--chart-sets)', points: unreliable })
-  }
-  // Albums · covers manquantes (C7/L8) : le cron backfill rattrape les pochettes
-  // d'albums. Même clé de temps ; garde Number.isFinite → démarre au 1er
-  // snapshot qui porte la clé (les anciens ne l'ont pas).
-  const albumCovers = backlogSeries.value
-    .map((snap) => ({ t: snap.captured_at, v: snap.payload?.albums?.missing_cover }))
-    .filter((p) => Number.isFinite(p.v))
-  if (albumCovers.length) {
-    out.push({
-      label: 'Albums · covers manquantes',
-      color: 'var(--chart-albums)',
-      points: albumCovers,
-    })
   }
   return out
 })

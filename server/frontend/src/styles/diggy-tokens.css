@@ -214,6 +214,10 @@
      distinct du violet deezer (293), du vert beatport, de l'ambre BPM et du
      rose sets (séparation ≫ 35°). */
   --chart-albums: oklch(0.6 0.17 330);
+  /* Embeddings audio à vectoriser (C9.a) — cyan/azur (hue ≈ 230), distinct du
+     violet deezer (293), du vert beatport (165), de l'ambre BPM (60), du rose
+     sets (20) et du magenta albums (330) (séparation ≫ 60°). */
+  --chart-embeddings: oklch(0.6 0.15 230);
   --chart-neutral: oklch(0.62 0.03 70);
   --chart-grid: oklch(0.905 0.008 88 / 0.7);
   --chart-axis: oklch(0.615 0.01 70);
@@ -286,6 +290,8 @@
   --chart-sets: oklch(0.7 0.15 20);
   /* Albums (C7/L8) — magenta éclairci pour le fond sombre. */
   --chart-albums: oklch(0.7 0.16 330);
+  /* Embeddings audio (C9.a) — cyan/azur éclairci pour le fond sombre. */
+  --chart-embeddings: oklch(0.72 0.14 230);
   --chart-neutral: oklch(0.66 0.03 92);
   --chart-grid: oklch(0.33 0.014 262 / 0.7);
   --chart-axis: oklch(0.595 0.012 92);

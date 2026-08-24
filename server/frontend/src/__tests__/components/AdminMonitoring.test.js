@@ -12,7 +12,7 @@ import StatTile from '../../components/charts/StatTile.vue'
 // A representative MonitoringResponse: 3 hourly snapshots (full enrich buckets),
 // throughput across 2 days × 2 sources, and a couple of last-run rows.
 function sampleResponse() {
-  const snap = (iso, dz, bp, cat, bpm) => ({
+  const snap = (iso, dz, bp, cat, bpm, embCovered) => ({
     captured_at: iso,
     payload: {
       enrich: {
@@ -37,13 +37,14 @@ function sampleResponse() {
       sets: { recrawl_backlog: 2, unreliable: 42 },
       catalog: { total: cat, bpm_missing: bpm },
       albums: { missing_cover: 120, missing_meta: 80, total: 500 },
+      embeddings: { covered: embCovered, eligible: 1000, missing: 1000 - embCovered },
     },
   })
   return {
     backlog_series: [
-      snap('2026-07-20T05:00:00Z', 50, 200, 6000, 900),
-      snap('2026-07-21T05:00:00Z', 40, 180, 6050, 850),
-      snap('2026-07-22T05:00:00Z', 30, 150, 6120, 800),
+      snap('2026-07-20T05:00:00Z', 50, 200, 6000, 900, 200),
+      snap('2026-07-21T05:00:00Z', 40, 180, 6050, 850, 400),
+      snap('2026-07-22T05:00:00Z', 30, 150, 6120, 800, 600),
     ],
     throughput_series: [
       {
@@ -130,6 +131,7 @@ function sampleResponse() {
           sets: { recrawl_backlog: 2, unreliable: 42 },
           catalog: { total: 6120, bpm_missing: 800 },
           albums: { missing_cover: 120, missing_meta: 80, total: 500 },
+          embeddings: { covered: 600, eligible: 1000, missing: 400 },
         },
       },
     },
@@ -166,8 +168,14 @@ describe('AdminMonitoring', () => {
     const tiles = wrapper.findAllComponents(StatTile)
     expect(tiles.length).toBeGreaterThanOrEqual(6)
 
-    // Three charts: burn-down + débit + hit-rate.
-    expect(wrapper.findAllComponents(TimeSeriesChart)).toHaveLength(3)
+    // Five charts: 3 themed burn-downs (platform / content / residual) + débit
+    // + hit-rate.
+    const charts = wrapper.findAllComponents(TimeSeriesChart)
+    expect(charts).toHaveLength(5)
+    const labelsOf = (i) => charts[i].props('series').map((s) => s.label)
+    const platformLabels = labelsOf(0)
+    const contentLabels = labelsOf(1)
+    const residualLabels = labelsOf(2)
 
     // Deezer backlog total_missing (33) surfaced in a tile.
     expect(wrapper.text()).toContain('33')
@@ -180,21 +188,33 @@ describe('AdminMonitoring', () => {
     expect(wrapper.findAll('.tsc-line').length).toBeGreaterThan(0)
     expect(wrapper.find('.run-list').exists()).toBe(true)
 
-    // E2.c: BPM analysis backlog surfaced as a burn-down series (first chart).
-    const burnChart = wrapper.findAllComponents(TimeSeriesChart)[0]
-    const burnLabels = burnChart.props('series').map((s) => s.label)
-    expect(burnLabels).toContain('BPM · à analyser')
+    // A · Platform chart carries the 2-tone Deezer/Beatport band, NOT the
+    // content/residual series.
+    expect(platformLabels).toContain('Deezer · total')
+    expect(platformLabels).toContain('Beatport · à traiter')
+    expect(platformLabels).not.toContain('BPM · à analyser')
 
-    // C8: unreliable-sets count surfaced as a tile (42) + a burn-down series.
+    // B · Content chart: C9 embeddings + E2.c BPM + C7 album metadata.
+    expect(contentLabels).toContain('Embeddings · à vectoriser')
+    expect(contentLabels).toContain('BPM · à analyser')
+    expect(contentLabels).toContain('Albums · métadonnées')
+
+    // C · Residual chart: album covers (C7/L8) + unreliable sets (C8).
+    expect(residualLabels).toContain('Albums · covers manquantes')
+    expect(residualLabels).toContain('Sets · non fiables')
+
+    // C9.a: embeddings backlog surfaced as a tile (missing 400 + coverage %).
+    expect(wrapper.text()).toContain('Embeddings à vectoriser')
+    expect(wrapper.text()).toContain('60 % couverts')
+
+    // C8: unreliable-sets count surfaced as a tile (42).
     expect(wrapper.text()).toContain('Sets non fiables')
     expect(wrapper.text()).toContain('42')
-    expect(burnLabels).toContain('Sets · non fiables')
 
-    // C7/L8: album backlog surfaced as tiles (missing_cover 120) + a burn-down.
+    // C7/L8: album backlog surfaced as tiles (missing_cover 120).
     expect(wrapper.text()).toContain('Covers albums manquantes')
     expect(wrapper.text()).toContain('Métadonnées albums')
     expect(wrapper.text()).toContain('120')
-    expect(burnLabels).toContain('Albums · covers manquantes')
 
     // X4.d: artist-integrity counters surfaced as tiles.
     expect(wrapper.text()).toContain('Intégrité artiste')
@@ -209,8 +229,8 @@ describe('AdminMonitoring', () => {
     const wrapper = mount(AdminMonitoring)
     await flushPromises()
 
-    // No crash; still shows the three charts, each in their empty state.
-    expect(wrapper.findAllComponents(TimeSeriesChart)).toHaveLength(3)
+    // No crash; still shows the five charts, each in their empty state.
+    expect(wrapper.findAllComponents(TimeSeriesChart)).toHaveLength(5)
     expect(wrapper.text()).toContain('Aucune donnée sur la période.')
     // No lock chip, no run rows.
     expect(wrapper.find('.lock-chip').exists()).toBe(false)

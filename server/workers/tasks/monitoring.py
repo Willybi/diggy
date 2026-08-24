@@ -64,17 +64,20 @@ def snapshot_backlogs(self):
 
 
 def _run_snapshot_backlogs():
-    from sqlalchemy import delete, func, select
+    from sqlalchemy import and_, delete, func, select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
     from models import (
+        MODEL_NAME,
+        MODEL_VERSION,
         Album,
         Artist,
         CatalogEntry,
         CrawlLog,
         DJSet,
         MetricSnapshot,
+        TrackEmbedding,
         bpm_analysis_candidate_filter,
     )
     from workers.db import get_engine
@@ -92,6 +95,38 @@ def _run_snapshot_backlogs():
                 ).scalar()
                 or 0
             )
+
+        # C9.a embeddings coverage. Eligible = rows with a Deezer preview to embed
+        # (real deezer_id, not the NOT_FOUND sentinel). Covered = already
+        # vectorised for the frozen v1 model. `missing` mirrors the backfill's own
+        # PULL (eligible LEFT JOIN track_embeddings … te.id IS NULL) so the
+        # "à vectoriser" curve burns down in lockstep with the local salvos, rather
+        # than the cheaper eligible-covered which would drift if an embedding
+        # outlives an eligibility change.
+        _emb_eligible = (
+            CatalogEntry.has_preview.is_(True),
+            CatalogEntry.deezer_id.isnot(None),
+            CatalogEntry.deezer_id != "NOT_FOUND",
+        )
+        _emb_model = (
+            TrackEmbedding.model_name == MODEL_NAME,
+            TrackEmbedding.model_version == MODEL_VERSION,
+        )
+        emb_eligible = _count(CatalogEntry.id, *_emb_eligible)
+        emb_covered = _count(TrackEmbedding.id, *_emb_model)
+        emb_missing = (
+            session.execute(
+                select(func.count(CatalogEntry.id))
+                .outerjoin(
+                    TrackEmbedding,
+                    and_(
+                        TrackEmbedding.catalog_id == CatalogEntry.id, *_emb_model
+                    ),
+                )
+                .where(*_emb_eligible, TrackEmbedding.id.is_(None))
+            ).scalar()
+            or 0
+        )
 
         payload = {
             "enrich": {
@@ -144,6 +179,15 @@ def _run_snapshot_backlogs():
                 "missing_cover": _count(Album.id, Album.has_artwork.isnot(True)),
                 "missing_meta": _count(Album.id, Album.record_type.is_(None)),
                 "total": _count(Album.id),
+            },
+            # C9.a audio embeddings coverage. Additive block — older snapshots
+            # don't carry it, the front keeps Number.isFinite/.get() defensive.
+            # `missing` (LEFT JOIN) feeds the burn-down curve, covered/eligible the
+            # coverage-% tile.
+            "embeddings": {
+                "covered": emb_covered,
+                "eligible": emb_eligible,
+                "missing": emb_missing,
             },
         }
 
