@@ -86,6 +86,36 @@ class TestListArtists:
         assert "Raoul Konan" not in names  # dormant dead-end → hidden
         assert result["dormant_count"] == 1
 
+    async def test_no_deezer_excludes_artists_routed_to_flags(self, db, auth_user):
+        from models import Artist, ArtistFlag, CatalogArtist, CatalogEntry
+
+        # A splittable string with a PENDING flag = routed to the Flags queue → hidden.
+        flagged = Artist(name="A / B", normalized_name="a / b", deezer_search_attempts=0)
+        # A splittable string WITHOUT a flag stays visible (not yet routed).
+        unflagged = Artist(name="C / D", normalized_name="c / d", deezer_search_attempts=0)
+        db.add_all([flagged, unflagged])
+        await db.flush()
+        for a in (flagged, unflagged):
+            cat = CatalogEntry(title=f"T{a.id}", artist=a.name, normalized_key=f"nk-{a.id}")
+            db.add(cat)
+            await db.flush()
+            db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        db.add(
+            ArtistFlag(
+                raw_artist_string="A / B", reason="auto_split",
+                tokens=["A", "B"], deezer_ids={}, status="pending",
+            )
+        )
+        await db.commit()
+
+        result = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family=None, q=None,
+            no_deezer=True, ids=None, limit=20, offset=0,
+        )
+        names = [a["name"] for a in result["items"]]
+        assert "A / B" not in names  # has a pending flag → routed to Flags
+        assert "C / D" in names  # no flag yet → still shown
+
     async def test_pagination_stable_on_tied_catalog_count(self, db, auth_user):
         """Regression: ex-aequo rows (same nb_catalog) must not repeat or skip
         across two consecutive LIMIT/OFFSET pages. Artist.id is the total-order

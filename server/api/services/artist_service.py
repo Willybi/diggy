@@ -141,6 +141,7 @@ async def list_artists(
 ) -> dict:
     from models import (
         Artist,
+        ArtistFlag,
         CatalogArtist,
         CatalogEntry,
         FollowedArtist,
@@ -262,9 +263,23 @@ async def list_artists(
             Artist.deezer_search_attempts.is_(None),
             splittable,
         )
-        base_query = base_query.where(Artist.deezer_id.is_(None), attached, actionable)
+        # A multi-artist string routed to the "Flags artistes" queue (a pending
+        # artist_flag on its raw name) is a SPLIT candidate, not a link candidate —
+        # drop it from this panel so it lives in one place. Non-flagged splittables
+        # stay visible (with their flag button) until routed.
+        not_flagged = ~(
+            select(ArtistFlag.id)
+            .where(
+                ArtistFlag.raw_artist_string == Artist.name,
+                ArtistFlag.status == "pending",
+            )
+            .exists()
+        )
+        base_query = base_query.where(
+            Artist.deezer_id.is_(None), attached, actionable, not_flagged
+        )
         id_filter_query = id_filter_query.where(
-            Artist.deezer_id.is_(None), attached, actionable
+            Artist.deezer_id.is_(None), attached, actionable, not_flagged
         )
         dormant_count = (
             await db.execute(
