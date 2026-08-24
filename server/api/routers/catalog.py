@@ -132,6 +132,23 @@ async def get_similar_tracks(
         raise HTTPException(404, str(e))
 
 
+@router.get("/{catalog_id}/content-similar", response_model=list[SimilarTrackOut])
+async def get_content_similar(
+    catalog_id: int,
+    limit: int = Query(10, ge=1, le=24),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Content-based neighbours ("Sonne comme", C9.b) — pgvector cosine on the
+    EffNet audio embeddings, scoped to catalog_visible. Empty list when the seed
+    has no embedding yet (backfill in progress). JWT-optional; the shelf is
+    admin-gated on the FRONT while embeddings coverage ramps up."""
+    return await similarity_service.get_content_neighbors(
+        db, catalog_id, _uid(user), limit=limit, redis=redis
+    )
+
+
 @router.get("/{catalog_id}", response_model=CatalogDetailOut)
 async def get_catalog_detail(
     catalog_id: int,

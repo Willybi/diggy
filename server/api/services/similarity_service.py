@@ -1262,3 +1262,143 @@ async def _compute_similar_sets(
             }
         )
     return results
+
+
+# ---------------------------------------------------------------------------
+# Content-based neighbours — "Sonne comme" (C9.b), pgvector cosine KNN
+# ---------------------------------------------------------------------------
+
+# Ranked list cached per (seed, viewer). The list is cheap to compute (one HNSW
+# lookup + one batch build) but the shelf is hit on every Track Detail open, so a
+# 6h cache is worth it. The full list (up to the endpoint ceiling) is stored and
+# sliced per request — cf. the sets-similar cache. Fail-open: an unavailable
+# Redis just recomputes.
+_CONTENT_NEIGHBORS_CACHE_PREFIX = "content_neighbors"
+_CONTENT_NEIGHBORS_CACHE_TTL = 21600  # 6h, aligned with the similarity-context TTL
+CONTENT_NEIGHBORS_MAX_CACHED = 24  # the /content-similar endpoint's limit ceiling
+
+
+def _content_neighbors_cache_key(catalog_id: int, user_id: int | None) -> str:
+    return (
+        f"{_CONTENT_NEIGHBORS_CACHE_PREFIX}:{catalog_id}:"
+        f"{user_id if user_id is not None else 'anon'}"
+    )
+
+
+async def _content_neighbors_cache_get(
+    redis, catalog_id: int, user_id: int | None
+) -> list[dict] | None:
+    """Read the cached ranked list; None on miss / unavailable Redis / bad payload."""
+    if redis is None:
+        return None
+    try:
+        raw = await redis.get(_content_neighbors_cache_key(catalog_id, user_id))
+    except Exception as exc:  # fail-open: Redis down/unsupported → recompute
+        logger.warning("content_neighbors cache read skipped (Redis unavailable): %s", exc)
+        return None
+    if not raw:
+        return None
+    try:
+        from pydantic import TypeAdapter
+        from schemas import SimilarTrackOut
+
+        adapter = TypeAdapter(list[SimilarTrackOut])
+        return [m.model_dump() for m in adapter.validate_json(raw)]
+    except Exception:  # corrupt/legacy payload → recompute
+        return None
+
+
+async def _content_neighbors_cache_set(
+    redis, catalog_id: int, user_id: int | None, result: list[dict]
+) -> None:
+    """Serialize the ranked list to JSON via ``SimilarTrackOut`` (date → ISO). Fail-open."""
+    if redis is None:
+        return
+    try:
+        from pydantic import TypeAdapter
+        from schemas import SimilarTrackOut
+
+        adapter = TypeAdapter(list[SimilarTrackOut])
+        payload = adapter.dump_json(adapter.validate_python(result)).decode()
+        await redis.setex(
+            _content_neighbors_cache_key(catalog_id, user_id),
+            _CONTENT_NEIGHBORS_CACHE_TTL,
+            payload,
+        )
+    except Exception as exc:  # fail-open
+        logger.warning("content_neighbors cache write skipped (Redis unavailable): %s", exc)
+
+
+async def get_content_neighbors(
+    db: AsyncSession,
+    catalog_id: int,
+    user_id: int | None = None,
+    *,
+    limit: int = 10,
+    redis=None,
+) -> list[dict]:
+    """Content-based neighbours of one seed — the "Sonne comme" shelf (C9.b).
+
+    Ranks the catalog rows whose EffNet audio embedding is closest to the seed's
+    (pgvector cosine ``<=>``), scoped to ``catalog_visible`` and excluding the
+    seed. Returns ``[]`` when the seed has no embedding yet — frequent while the
+    backfill is still running, and the front simply hides the shelf. The result
+    reuses :func:`_build_result_items`, so every row is a full ``SimilarTrackOut``
+    dict; the ``similarity`` block carries the content score (0–100, ``1 - cosine
+    distance``) with ``available_features=["content"]`` and zeroed co-occurrence
+    components (they do not apply to a content neighbour).
+
+    **PostgreSQL only** — the KNN relies on the pgvector HNSW ``<=>`` operator and
+    is never exercised on the SQLite test path. Cached per (seed, viewer), 6h,
+    fail-open.
+    """
+    cached = await _content_neighbors_cache_get(redis, catalog_id, user_id)
+    if cached is not None:
+        return cached[:limit]
+
+    from models import MODEL_NAME, MODEL_VERSION, CatalogEntry, TrackEmbedding
+
+    from services.catalog_service import catalog_visible
+
+    seed = (
+        await db.execute(
+            select(TrackEmbedding.embedding).where(
+                TrackEmbedding.catalog_id == catalog_id,
+                TrackEmbedding.model_name == MODEL_NAME,
+                TrackEmbedding.model_version == MODEL_VERSION,
+            )
+        )
+    ).scalar_one_or_none()
+    if seed is None:
+        await _content_neighbors_cache_set(redis, catalog_id, user_id, [])
+        return []
+
+    dist = TrackEmbedding.embedding.cosine_distance(seed).label("dist")
+    rows = (
+        await db.execute(
+            select(TrackEmbedding.catalog_id, dist)
+            .join(CatalogEntry, CatalogEntry.id == TrackEmbedding.catalog_id)
+            .where(
+                TrackEmbedding.model_name == MODEL_NAME,
+                TrackEmbedding.model_version == MODEL_VERSION,
+                TrackEmbedding.catalog_id != catalog_id,
+                catalog_visible(user_id),
+            )
+            .order_by(dist)
+            .limit(CONTENT_NEIGHBORS_MAX_CACHED)
+        )
+    ).all()
+
+    # cosine distance <=> ∈ [0, 2]; content score % = max(0, 1 - dist) * 100.
+    winners = [
+        (
+            cid,
+            round(max(0.0, 1.0 - float(d)) * 100, 4),
+            {"sets": 0.0, "playlists": 0.0, "style": 0.0, "context": 0.0},
+            ["content"],
+        )
+        for cid, d in rows
+    ]
+    results = await _build_result_items(db, winners, user_id)
+    await _content_neighbors_cache_set(redis, catalog_id, user_id, results)
+    return results[:limit]

@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, Text, literal
+from sqlalchemy import JSON, Boolean, Float, Text, literal
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.expression import FunctionElement
@@ -98,6 +98,19 @@ class EmbeddingVector(TypeDecorator):
 
     impl = JSON
     cache_ok = True
+
+    class comparator_factory(TypeDecorator.Comparator):
+        def cosine_distance(self, other):
+            """pgvector cosine distance (``<=>``) — PostgreSQL only.
+
+            Same spirit as :class:`StringArray`'s explicit comparator: a bare
+            ``TypeDecorator`` does NOT inherit pgvector's distance ops, so we
+            expose the one operator the content-neighbour query (C9.b) needs.
+            Only ever compiled on PostgreSQL (the KNN query runs there); the
+            SQLite test path — which stores the column as JSON and has no
+            vector ops — never reaches this branch.
+            """
+            return self.op("<=>", return_type=Float())(other)
 
     def __init__(self, dim, *args, **kwargs):
         self.dim = dim
