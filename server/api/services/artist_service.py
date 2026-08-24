@@ -263,15 +263,18 @@ async def list_artists(
             Artist.deezer_search_attempts.is_(None),
             splittable,
         )
-        # A multi-artist string routed to the "Flags artistes" queue (a pending
-        # artist_flag on its raw name) is a SPLIT candidate, not a link candidate —
-        # drop it from this panel so it lives in one place. Non-flagged splittables
+        # A multi-artist string handled by the "Flags artistes" queue is a SPLIT
+        # candidate, not a link candidate — drop it from this panel. Both a PENDING
+        # flag (still queued) and a VALIDATED one (already split; a still-attached
+        # combined row is a re-import artifact, not something to Deezer-link) count.
+        # Only a SKIPPED flag (admin decided it is NOT a multi-artist string) returns
+        # the name to the panel as a genuine link candidate. Non-flagged splittables
         # stay visible (with their flag button) until routed.
         not_flagged = ~(
             select(ArtistFlag.id)
             .where(
                 ArtistFlag.raw_artist_string == Artist.name,
-                ArtistFlag.status == "pending",
+                ArtistFlag.status.in_(["pending", "validated"]),
             )
             .exists()
         )

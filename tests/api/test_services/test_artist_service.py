@@ -89,23 +89,24 @@ class TestListArtists:
     async def test_no_deezer_excludes_artists_routed_to_flags(self, db, auth_user):
         from models import Artist, ArtistFlag, CatalogArtist, CatalogEntry
 
-        # A splittable string with a PENDING flag = routed to the Flags queue → hidden.
-        flagged = Artist(name="A / B", normalized_name="a / b", deezer_search_attempts=0)
-        # A splittable string WITHOUT a flag stays visible (not yet routed).
+        # pending flag = queued → hidden; validated = already split → hidden;
+        # skipped = admin said "not a split" → shown; no flag → shown.
+        pending = Artist(name="A / B", normalized_name="a / b", deezer_search_attempts=0)
+        validated = Artist(name="E / F", normalized_name="e / f", deezer_search_attempts=0)
+        skipped = Artist(name="G / H", normalized_name="g / h", deezer_search_attempts=0)
         unflagged = Artist(name="C / D", normalized_name="c / d", deezer_search_attempts=0)
-        db.add_all([flagged, unflagged])
+        db.add_all([pending, validated, skipped, unflagged])
         await db.flush()
-        for a in (flagged, unflagged):
+        for a in (pending, validated, skipped, unflagged):
             cat = CatalogEntry(title=f"T{a.id}", artist=a.name, normalized_key=f"nk-{a.id}")
             db.add(cat)
             await db.flush()
             db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
-        db.add(
-            ArtistFlag(
-                raw_artist_string="A / B", reason="auto_split",
-                tokens=["A", "B"], deezer_ids={}, status="pending",
-            )
-        )
+        db.add_all([
+            ArtistFlag(raw_artist_string="A / B", reason="auto_split", tokens=["A", "B"], deezer_ids={}, status="pending"),
+            ArtistFlag(raw_artist_string="E / F", reason="manual", tokens=["E", "F"], deezer_ids={}, status="validated"),
+            ArtistFlag(raw_artist_string="G / H", reason="manual", tokens=["G", "H"], deezer_ids={}, status="skipped"),
+        ])
         await db.commit()
 
         result = await artist_service.list_artists(
@@ -113,7 +114,9 @@ class TestListArtists:
             no_deezer=True, ids=None, limit=20, offset=0,
         )
         names = [a["name"] for a in result["items"]]
-        assert "A / B" not in names  # has a pending flag → routed to Flags
+        assert "A / B" not in names  # pending flag → routed to Flags
+        assert "E / F" not in names  # validated flag → already split
+        assert "G / H" in names  # skipped flag → not a split → shown
         assert "C / D" in names  # no flag yet → still shown
 
     async def test_pagination_stable_on_tied_catalog_count(self, db, auth_user):
