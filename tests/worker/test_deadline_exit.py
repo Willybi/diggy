@@ -97,6 +97,79 @@ class _FakeClock:
         return self._values[0]
 
 
+# ── backfill_trackid_sets driven-test infra ───────────────────────────────
+# backfill_trackid_sets uses two nested asyncio loops (collect + import) with
+# async context managers throughout, so its stand-ins need real async CMs (a
+# bare MagicMock is not awaitable / not an async CM).
+class _FakeAsyncCM:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeAsyncDB:
+    def __init__(self):
+        self.commit = AsyncMock()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeLimiter:
+    """RateLimiter() stand-in: acquire(name) is an async context manager."""
+
+    def acquire(self, _name):
+        return _FakeAsyncCM()
+
+
+class _FakeTrackIDClient:
+    """Async-CM TrackID client. search_sets returns the same fixed page each
+    call and counts calls, so a test can assert the collection loop did NOT
+    paginate forever when the deadline fires."""
+
+    def __init__(self, page):
+        self._page = page
+        self.search_calls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def search_sets(self, **_kwargs):
+        self.search_calls += 1
+        return list(self._page), len(self._page)
+
+
+class _StatefulRedis:
+    """Minimal dict-backed redis so the lock + cursor + page keys behave (the
+    shared MagicMock fake_redis returns one fixed value for every get, which the
+    multi-key backfill flow can't use)."""
+
+    def __init__(self):
+        self.store = {}
+
+    def set(self, key, value, nx=False, ex=None):
+        if nx and key in self.store:
+            return False
+        self.store[key] = str(value)
+        return True
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def delete(self, *keys):
+        for k in keys:
+            self.store.pop(k, None)
+        return len(keys)
+
+
 @pytest.fixture
 def catalog_mod():
     mods_to_clear = [k for k in sys.modules if k.startswith("workers.tasks")]
@@ -113,6 +186,15 @@ def bpm_mod():
         del sys.modules[m]
     import workers.tasks.bpm as bpm
     return bpm
+
+
+@pytest.fixture
+def sets_mod():
+    mods_to_clear = [k for k in sys.modules if k.startswith("workers.tasks")]
+    for m in mods_to_clear:
+        del sys.modules[m]
+    import workers.tasks.sets as sets
+    return sets
 
 
 @pytest.fixture
@@ -183,6 +265,68 @@ def _mock_bpm_analysis(monkeypatch, n_entries, batch_stats):
     mod.analyze_bpm_batch = AsyncMock(return_value=dict(batch_stats))
     monkeypatch.setitem(sys.modules, "workers.bpm_analysis", mod)
     return mod
+
+
+@pytest.fixture
+def sets_infra(monkeypatch):
+    """Everything backfill_trackid_sets / _run_backfill_trackid_sets import at
+    CALL time, mocked in sys.modules with async-aware stand-ins. The listing
+    page is two sets both older than the cursor (addedOn 2020) so the collection
+    loop fills a batch in ONE fetch (len < 20 → break) and the import loop then
+    processes them — keeping the fake-clock sequence short and deterministic."""
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+
+    shared_redis = _StatefulRedis()
+    redis_mod = MagicMock()
+    redis_mod.from_url.return_value = shared_redis
+    monkeypatch.setitem(sys.modules, "redis", redis_mod)
+
+    # log_session Session CM + async sessionmaker → _FakeAsyncDB per call
+    session = MagicMock()
+    orm_mod = MagicMock()
+    orm_mod.Session.return_value.__enter__.return_value = session
+    orm_mod.sessionmaker.return_value = lambda *a, **k: _FakeAsyncDB()
+    monkeypatch.setitem(sys.modules, "sqlalchemy", MagicMock())
+    monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_mod)
+
+    async_engine = MagicMock()
+    async_engine.dispose = AsyncMock()
+    ext_asyncio = MagicMock()
+    ext_asyncio.create_async_engine.return_value = async_engine
+    monkeypatch.setitem(sys.modules, "sqlalchemy.ext.asyncio", ext_asyncio)
+
+    clog = MagicMock()
+    crawl_mod = MagicMock()
+    crawl_mod.CrawlLogger.return_value.__enter__.return_value = clog
+    monkeypatch.setitem(sys.modules, "workers.crawl_logger", crawl_mod)
+    monkeypatch.setitem(sys.modules, "workers.db", MagicMock())
+
+    limiter_mod = MagicMock()
+    limiter_mod.RateLimiter.side_effect = lambda: _FakeLimiter()
+    monkeypatch.setitem(sys.modules, "workers.rate_limiter", limiter_mod)
+
+    page = [
+        {"id": 1, "addedOn": "2020-01-01T10:00:00"},
+        {"id": 2, "addedOn": "2020-01-01T09:00:00"},
+    ]
+    client = _FakeTrackIDClient(page)
+    client_mod = MagicMock()
+    client_mod.TrackIDClient.side_effect = lambda: client
+    monkeypatch.setitem(sys.modules, "trackid.client", client_mod)
+
+    import_audiostream = AsyncMock(
+        return_value=(SimpleNamespace(parent_set_id=None), 5)
+    )
+    importer_mod = MagicMock()
+    importer_mod.import_audiostream = import_audiostream
+    monkeypatch.setitem(sys.modules, "trackid.importer", importer_mod)
+
+    return SimpleNamespace(
+        redis=shared_redis,
+        client=client,
+        clog=clog,
+        import_audiostream=import_audiostream,
+    )
 
 
 # Clock sequences: 1st value = deadline computation (start), following values =
@@ -304,6 +448,62 @@ class TestBpmDeadline:
         assert result["estimated"] == 15
 
 
+class TestBackfillTrackidDeadline:
+    """backfill_trackid_sets (AV9 follow-up, DIGGY-APP-4): the deadline guards
+    the two nested loops (collect + import) so a run that overruns the soft
+    limit exits cleanly with deadline_hit=True instead of running to the hard
+    limit → SIGKILL → DLQ."""
+
+    def test_nominal_run_unaffected(self, sets_mod, sets_infra, fake_self, monkeypatch):
+        monkeypatch.setattr(sets_mod, "time", _FakeClock(_NEVER))
+
+        result = sets_mod.backfill_trackid_sets(fake_self)
+
+        # Both collected sets were imported; one fetch (page < 20 → break).
+        assert sets_infra.import_audiostream.await_count == 2
+        assert sets_infra.client.search_calls == 1
+        assert result["status"] == "running"
+        assert result["imported"] == 2
+        assert result["deadline_hit"] is False
+        sets_infra.clog.set_stats.assert_called_once_with(result)
+
+    def test_deadline_stops_before_import(
+        self, sets_mod, sets_infra, fake_self, monkeypatch
+    ):
+        # Clock: deadline computed at 0, collection check at 0 (one batch
+        # collected), then the import-loop check lands past the deadline.
+        monkeypatch.setattr(sets_mod, "time", _FakeClock([0.0, 0.0, 10**9]))
+
+        result = sets_mod.backfill_trackid_sets(fake_self)
+
+        # Batch was collected (one fetch) but the import loop bailed cleanly
+        # BEFORE importing anything — no exception, no DLQ routing.
+        assert sets_infra.client.search_calls == 1
+        assert sets_infra.import_audiostream.await_count == 0
+        assert result["status"] == "running"
+        assert result["imported"] == 0
+        assert result["deadline_hit"] is True
+        sets_infra.clog.set_stats.assert_called_once_with(result)
+        # Lock released by the wrapper's finally (still owned it).
+        assert "lock:backfill_trackid_sets" not in sets_infra.redis.store
+
+    def test_deadline_stops_before_collection(
+        self, sets_mod, sets_infra, fake_self, monkeypatch
+    ):
+        # Clock: deadline at 0, first collection check already past it — the
+        # loop must NOT paginate at all (regression: run to hard limit).
+        monkeypatch.setattr(sets_mod, "time", _FakeClock([0.0, 10**9]))
+
+        result = sets_mod.backfill_trackid_sets(fake_self)
+
+        assert sets_infra.client.search_calls == 0
+        assert sets_infra.import_audiostream.await_count == 0
+        assert result["deadline_hit"] is True
+        # Empty batch → the done path, but deadline_hit is still surfaced.
+        assert result["status"] == "done"
+        sets_infra.clog.set_stats.assert_called_once_with(result)
+
+
 class TestConstantsAreSingleSourceOfTruth:
     """The decorators must reference the module constants (one source of truth
     for the decorator AND the deadline computation — never task.soft_time_limit
@@ -330,3 +530,15 @@ class TestConstantsAreSingleSourceOfTruth:
             == bpm_mod.ANALYSIS_BPM_SOFT_TIME_LIMIT
         )
         assert 0 < bpm_mod.DEADLINE_MARGIN < bpm_mod.ANALYSIS_BPM_SOFT_TIME_LIMIT
+
+    def test_sets_backfill_decorator_references_constant(self, sets_mod):
+        assert sets_mod.TRACKID_BACKFILL_SOFT_TIME_LIMIT == 3600
+        assert (
+            sets_mod.backfill_trackid_sets.soft_time_limit
+            == sets_mod.TRACKID_BACKFILL_SOFT_TIME_LIMIT
+        )
+        assert (
+            0
+            < sets_mod.TRACKID_BACKFILL_DEADLINE_MARGIN
+            < sets_mod.TRACKID_BACKFILL_SOFT_TIME_LIMIT
+        )

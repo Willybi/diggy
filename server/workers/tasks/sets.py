@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 from workers.celery_app import celery_app
@@ -21,6 +22,23 @@ RECRAWL_INCOMPLETE_SETS_LOCK_TTL = 4200
 
 # Same rule for backfill_trackid_sets (time_limit 3900s)
 BACKFILL_TRACKID_SETS_LOCK_TTL = 4200
+
+# Soft time limit for backfill_trackid_sets, extracted as a module constant so
+# the task decorator AND the internal deadline guard share ONE source of truth
+# (AV9). Never read task.soft_time_limit at runtime.
+TRACKID_BACKFILL_SOFT_TIME_LIMIT = 3600
+
+# AV9 — margin (seconds) subtracted from the soft limit to build an internal
+# monotonic deadline checked before each loop iteration. billiard's
+# SoftTimeLimitExceeded can fire WHILE the asyncio internals are mid-write and be
+# swallowed by the transport's error handler ("Fatal write error on socket
+# transport", Sentry DIGGY-APP-4/DIGGY-APP-J): it then never reaches the task's
+# except clause and the run dies at the hard limit (SIGKILL → DLQ). The deadline
+# exits the collect/import loops cleanly WITHOUT depending on signal delivery;
+# the SoftTimeLimitExceeded catches stay in place as defense in depth.
+TRACKID_BACKFILL_DEADLINE_MARGIN = int(
+    os.environ.get("TRACKID_BACKFILL_DEADLINE_MARGIN", "120")
+)
 
 # crawl_trackid_latest has no explicit time_limit, so it inherits the global
 # hard limit (3600s); keep the lock TTL above it so a legitimate run never
@@ -782,7 +800,7 @@ def _run_crawl_trackid_latest(task):
     # 30-min timeouts then DLQ every night. Progress is instead made resumable
     # by advancing the Redis cursor inline and catching SoftTimeLimitExceeded
     # gracefully (see below), so a re-raise/retry is neither needed nor wanted.
-    soft_time_limit=3600,
+    soft_time_limit=TRACKID_BACKFILL_SOFT_TIME_LIMIT,
     time_limit=3900,
 )
 def backfill_trackid_sets(self):
@@ -873,7 +891,18 @@ def _run_backfill_trackid_sets(task):
 
     engine = get_engine()
 
+    # AV9 — internal deadline (see TRACKID_BACKFILL_DEADLINE_MARGIN): checked
+    # BEFORE each collect/import iteration so a shortened run exits cleanly
+    # without depending on the SoftTimeLimitExceeded signal being delivered.
+    deadline = (
+        time.monotonic()
+        + TRACKID_BACKFILL_SOFT_TIME_LIMIT
+        - TRACKID_BACKFILL_DEADLINE_MARGIN
+    )
+    deadline_hit = False
+
     async def _backfill_all():
+        nonlocal deadline_hit
         from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
         from sqlalchemy.orm import sessionmaker as async_sessionmaker
         from trackid.client import TrackIDClient
@@ -905,6 +934,17 @@ def _run_backfill_trackid_sets(task):
             # the task-level handler; nothing is imported yet, so no progress is
             # lost and the next run resumes from the unchanged cursor.
             while len(batch) < sets_per_day:
+                if time.monotonic() >= deadline:
+                    deadline_hit = True
+                    logger.warning(
+                        "backfill_trackid_sets hit internal deadline "
+                        "(soft limit %ds - margin %ds) during collection; "
+                        "importing the %d sets already collected",
+                        TRACKID_BACKFILL_SOFT_TIME_LIMIT,
+                        TRACKID_BACKFILL_DEADLINE_MARGIN,
+                        len(batch),
+                    )
+                    break
                 async with limiter.acquire("trackid"):
                     audiostreams, _ = await client.search_sets(
                         sort_field="addedOn",
@@ -959,6 +999,16 @@ def _run_backfill_trackid_sets(task):
             skipped = 0
 
             for audiostream in batch:
+                if time.monotonic() >= deadline:
+                    deadline_hit = True
+                    logger.warning(
+                        "backfill_trackid_sets hit internal deadline "
+                        "(soft limit %ds - margin %ds) during import; "
+                        "stopping (cursor persisted, next run resumes)",
+                        TRACKID_BACKFILL_SOFT_TIME_LIMIT,
+                        TRACKID_BACKFILL_DEADLINE_MARGIN,
+                    )
+                    break
                 try:
                     async with limiter.acquire("trackid"):
                         async with AsyncS() as db:
@@ -1042,7 +1092,7 @@ def _run_backfill_trackid_sets(task):
                     r.get("trackid_backfill_cursor"),
                 )
                 resolve_set_tracks.delay()
-                result = {"status": "interrupted"}
+                result = {"status": "interrupted", "deadline_hit": deadline_hit}
                 clog.set_stats(result)
                 return result
 
@@ -1073,6 +1123,9 @@ def _run_backfill_trackid_sets(task):
                     "page": end_page,
                 }
 
+            # Observability (AV9): a deadline exit is a SUCCESS with partial
+            # work, distinguishable from a full run in crawl_logs.
+            result["deadline_hit"] = deadline_hit
             clog.set_stats(result)
 
     return result
