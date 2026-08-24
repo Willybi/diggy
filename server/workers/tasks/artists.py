@@ -900,7 +900,7 @@ def _run_sync_artists(task):
     sys.path.insert(0, "/app")
     from models import Artist, ArtistAlias, ArtistFlag, CatalogEntry
     from utils import normalize
-    from workers.artist_names import strip_artist_noise
+    from workers.artist_names import is_placeholder_artist, strip_artist_noise
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
@@ -952,6 +952,11 @@ def _run_sync_artists(task):
             def _get_or_create(name):
                 nonlocal created
                 name = strip_artist_noise(name)
+                # A non-artist placeholder ("Various Artists"…) must never become a
+                # graph node (false co-occurrence hub). The caller ignores the
+                # return, so a None simply skips creation.
+                if is_placeholder_artist(name):
+                    return None
                 norm = normalize(name)
                 if norm in known_norms:
                     artist = session.execute(

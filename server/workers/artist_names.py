@@ -102,6 +102,37 @@ def fold_base(name: str) -> str:
     return s.encode("ascii", "ignore").decode().strip()
 
 
+# ── is_placeholder_artist ────────────────────────────────────────────────────
+
+# Non-artist placeholders that must NOT become nodes in the artist graph: they act
+# as false co-occurrence hubs (325 unrelated tracks all "share" Various Artists),
+# skewing artist-based similarity / reco. EXACT normalized match ONLY — a substring
+# test would wrongly catch real artists ("Unknown Mortal Orchestra", "Origin
+# Unknown", "Unknown T", "Daft Punk"). "Na" and "Traditional" are deliberately OUT
+# (a real Korean name / a legit folk credit).
+_PLACEHOLDER_ARTISTS = frozenset(
+    {
+        "various artists", "various artist", "various", "va", "v/a", "v.a", "v.a.",
+        "unknown artist", "unknown artists", "unknown", "artist unknown",
+        "n/a", "no artist", "compilation",
+    }
+)
+
+
+def is_placeholder_artist(name: str) -> bool:
+    """True when ``name`` is a compilation/unknown PLACEHOLDER, not a real artist.
+
+    Exact match against :data:`_PLACEHOLDER_ARTISTS` after lowercasing and compacting
+    internal whitespace — NEVER a substring test (invariant #4: real artist names
+    contain these words). Callers keep placeholders out of the artist graph (blocked
+    at the creation funnel, unlinked by the cleanup script).
+    """
+    if not name:
+        return False
+    key = " ".join(name.strip().lower().split())
+    return key in _PLACEHOLDER_ARTISTS
+
+
 # ── punct_fold_key ──────────────────────────────────────────────────────────
 
 # Punctuation dropped when building a MATCH key: dots, commas, apostrophes,

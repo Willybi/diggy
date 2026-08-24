@@ -19,6 +19,7 @@ from workers.artist_names import (  # noqa: E402
     SPACE_FOLD_MIN_LEN,
     dominant_by_fans,
     fold_base,
+    is_placeholder_artist,
     looks_acronym,
     punct_fold_key,
     punct_sep_key,
@@ -216,6 +217,45 @@ class TestPunctSepKey:
 
     def test_result_lowercased_and_trimmed(self):
         assert punct_sep_key("  R. KELLY  ") == "r kelly"
+
+
+# ── is_placeholder_artist ────────────────────────────────────────────────────
+
+
+class TestIsPlaceholderArtist:
+    def test_various_artists(self):
+        assert is_placeholder_artist("Various Artists")
+        assert is_placeholder_artist("various artists")
+        assert is_placeholder_artist("  Various   Artists  ")  # whitespace-tolerant
+
+    def test_unknown_artist_and_va(self):
+        assert is_placeholder_artist("Unknown Artist")
+        assert is_placeholder_artist("VA")
+        assert is_placeholder_artist("V/A")
+        assert is_placeholder_artist("N/A")
+        assert is_placeholder_artist("Compilation")
+
+    def test_bare_various_and_unknown(self):
+        assert is_placeholder_artist("Various")
+        assert is_placeholder_artist("Unknown")
+
+    def test_real_artists_containing_the_words_are_not_placeholders(self):
+        # invariant #4: substring must NOT match — these are real artists.
+        for real in [
+            "Unknown Mortal Orchestra", "Origin Unknown", "Unknown T",
+            "Unknown Mobile", "Daft Punk", "Various Production",
+            "The Unknowns", "DJ Unknown",
+        ]:
+            assert not is_placeholder_artist(real), real
+
+    def test_excluded_ambiguous_names(self):
+        # deliberately OUT of the whitelist (a real name / a legit folk credit).
+        assert not is_placeholder_artist("Na")
+        assert not is_placeholder_artist("Traditional")
+
+    def test_empty_and_none(self):
+        assert not is_placeholder_artist("")
+        assert not is_placeholder_artist(None)
 
 
 # ── fold_base ───────────────────────────────────────────────────────────────
