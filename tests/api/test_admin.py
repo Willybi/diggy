@@ -166,7 +166,33 @@ class TestFlags:
         r = await admin_client.get("/api/admin/artists/flags?status=pending")
         assert r.status_code == 200
         data = r.json()
-        assert len(data) == 1
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+
+    async def test_list_flags_paginated(self, admin_client, db):
+        for i in range(5):
+            db.add(ArtistFlag(
+                raw_artist_string=f"A{i} / B{i}",
+                reason="feat",
+                tokens=[f"A{i}", f"B{i}"],
+                deezer_ids={},
+                status="pending",
+            ))
+        await db.commit()
+
+        r = await admin_client.get(
+            "/api/admin/artists/flags?status=pending&page=1&per_page=2"
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 5
+        assert len(data["items"]) == 2
+
+        r2 = await admin_client.get(
+            "/api/admin/artists/flags?status=pending&page=3&per_page=2"
+        )
+        assert r2.json()["total"] == 5
+        assert len(r2.json()["items"]) == 1
 
     async def test_resolve_flag_skip(self, admin_client, db):
         flag = ArtistFlag(

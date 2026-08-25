@@ -2,6 +2,7 @@
 
 from .admin import (
     ArtistDeezerIn,
+    ArtistFlagListResponse,
     ArtistFlagOut,
     AuditLogOut,
     AuditLogResponse,
@@ -280,6 +281,7 @@ __all__ = [
     "OpinionUpdate",
     "OpinionSetResponse",
     # admin
+    "ArtistFlagListResponse",
     "ArtistFlagOut",
     "AuditLogOut",
     "AuditLogResponse",

@@ -17,6 +17,7 @@ from models import (
 )
 from schemas import (
     ArtistDeezerIn,
+    ArtistFlagListResponse,
     ArtistFlagOut,
     AuditLogResponse,
     BacklogResponse,
@@ -228,18 +229,25 @@ async def create_manual_flag(
     return flag
 
 
-@router.get("/artists/flags", response_model=list[ArtistFlagOut])
+@router.get("/artists/flags", response_model=ArtistFlagListResponse)
 async def list_flags(
     status: Literal["pending", "validated", "skipped"] = "pending",
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
+    total = await db.scalar(
+        select(func.count()).select_from(ArtistFlag).where(ArtistFlag.status == status)
+    )
     result = await db.execute(
         select(ArtistFlag)
         .where(ArtistFlag.status == status)
         .order_by(ArtistFlag.created_at.desc())
+        .limit(per_page)
+        .offset((page - 1) * per_page)
     )
-    return result.scalars().all()
+    return {"total": total or 0, "items": result.scalars().all()}
 
 
 @router.post("/artists/flags/{flag_id}/resolve", response_model=ArtistFlagOut)

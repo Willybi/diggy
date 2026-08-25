@@ -19,6 +19,11 @@ class ArtistFlagOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ArtistFlagListResponse(BaseModel):
+    total: int
+    items: list[ArtistFlagOut]
+
+
 class SyncQueued(BaseModel):
     status: str
     task_id: str

@@ -3,7 +3,7 @@
     <div class="section-header">
       <h2 class="section-title">
         Flags artistes
-        <span v-if="flags.length" class="flag-count">{{ flags.length }}</span>
+        <span v-if="total" class="flag-count">{{ total }}</span>
       </h2>
       <div class="filter-group">
         <button
@@ -49,20 +49,26 @@
               <td class="col-deezer" data-label="Deezer">
                 <div class="deezer-list">
                   <span
-                    v-for="(did, name) in flag.deezer_ids"
+                    v-for="name in flag.tokens"
                     :key="name"
                     class="deezer-entry"
-                    :class="{ found: !!did, missing: !did }"
+                    :class="{
+                      found: dz(name)?.status === 'found',
+                      missing: dz(name)?.status === 'missing',
+                    }"
                   >
                     <span class="deezer-name">{{ name }}</span>
+                    <span v-if="dz(name)?.status === 'searching'" class="dz-spin" />
                     <a
-                      v-if="did"
-                      :href="`https://www.deezer.com/artist/${did}`"
+                      v-else-if="dz(name)?.status === 'found'"
+                      :href="`https://www.deezer.com/artist/${dz(name).hit.deezer_id}`"
                       target="_blank"
                       class="deezer-id mono dz-link"
-                      >{{ did }}</a
+                      :title="`${dz(name).hit.name} · ${dz(name).hit.nb_fan?.toLocaleString()} fans`"
+                      >✓ {{ dz(name).hit.nb_fan?.toLocaleString() }}</a
                     >
-                    <span v-else class="deezer-id mono">✗</span>
+                    <span v-else-if="dz(name)?.status === 'missing'" class="deezer-id mono">✗</span>
+                    <span v-else class="deezer-id mono muted">—</span>
                   </span>
                 </div>
               </td>
@@ -116,28 +122,43 @@
         </tbody>
       </table>
     </div>
+
+    <div v-if="totalPages > 1" class="crawl-pagination">
+      <button :disabled="page <= 1" @click="prevPage()">Précédent</button>
+      <span class="mono" style="font-size: var(--fs-sm)">{{ page }} / {{ totalPages }}</span>
+      <button :disabled="page >= totalPages" @click="nextPage()">Suivant</button>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../utils/api.js'
+import { foldArtistName } from '../../utils/artistSplit.js'
 import ArtistSegmentSplitter from './ArtistSegmentSplitter.vue'
 
+const PER_PAGE = 25
+
 const flags = ref([])
+const total = ref(0)
+const page = ref(1)
 const loadingFlags = ref(false)
 const filterStatus = ref('pending')
 const resolving = reactive({})
 const editingFlagId = ref(null)
 const editError = ref('')
 
+const totalPages = computed(() => Math.ceil(total.value / PER_PAGE))
+
 async function fetchFlags() {
   loadingFlags.value = true
   try {
     const { data } = await api.get('/api/admin/artists/flags', {
-      params: { status: filterStatus.value },
+      params: { status: filterStatus.value, page: page.value, per_page: PER_PAGE },
     })
-    flags.value = data
+    flags.value = data.items
+    total.value = data.total
+    queueDeezer(flags.value.flatMap((f) => f.tokens || []))
   } finally {
     loadingFlags.value = false
   }
@@ -145,14 +166,81 @@ async function fetchFlags() {
 
 async function setFilter(s) {
   filterStatus.value = s
+  page.value = 1
   await fetchFlags()
 }
+
+function prevPage() {
+  if (page.value <= 1) return
+  page.value--
+  fetchFlags()
+}
+
+function nextPage() {
+  if (page.value >= totalPages.value) return
+  page.value++
+  fetchFlags()
+}
+
+// ── Live Deezer signal per token (display only) ───────────────────────────────
+// The flag.deezer_ids snapshot is only filled by the sync_artists worker; flags
+// created manually or by the auto_split backfill carry an empty map. So we search
+// Deezer live for every token on the page (reusing the admin search endpoint the
+// splitter uses) and show ✓/✗ so the admin decides "split or keep" with eyes open.
+// Cached by token text (searched at most once across pages) and processed
+// sequentially to stay gentle on the admin Deezer rate bucket.
+const DEEZER_DEBOUNCE_MS = 400
+const deezerByText = ref({})
+const deezerQueue = new Set()
+let deezerTimer = null
+
+const dz = (text) => deezerByText.value[text]
+
+function queueDeezer(texts) {
+  let queued = false
+  for (const raw of texts) {
+    const text = (raw || '').trim()
+    if (!text || deezerByText.value[text]) continue
+    deezerByText.value[text] = { status: 'searching', hit: null }
+    deezerQueue.add(text)
+    queued = true
+  }
+  if (!queued) return
+  clearTimeout(deezerTimer)
+  deezerTimer = setTimeout(flushDeezerQueue, DEEZER_DEBOUNCE_MS)
+}
+
+async function flushDeezerQueue() {
+  const texts = [...deezerQueue]
+  deezerQueue.clear()
+  // Sequential: 25 flags × ~2 tokens fired at once would trip the 429 bucket.
+  for (const text of texts) {
+    await searchDeezer(text)
+  }
+}
+
+// "Found" = a hit whose name folds equal to the token (Deezer returns fuzzy hits
+// for anything, so a non-empty list alone proves nothing — same rule as the splitter).
+async function searchDeezer(text) {
+  try {
+    const { data } = await api.get('/api/admin/artists/search-deezer', { params: { q: text } })
+    const hit = (data || []).find((h) => foldArtistName(h.name) === foldArtistName(text)) || null
+    deezerByText.value[text] = { status: hit ? 'found' : 'missing', hit }
+  } catch {
+    // 429 / network errors are toasted by the api interceptor; leave the entry so
+    // a false ✗ never shows — a neutral "—" reads as "not checked".
+    deezerByText.value[text] = { status: 'error', hit: null }
+  }
+}
+
+onUnmounted(() => clearTimeout(deezerTimer))
 
 function applyResolved(flagId, data) {
   const idx = flags.value.findIndex((f) => f.id === flagId)
   if (idx !== -1) flags.value[idx] = data
   if (filterStatus.value === 'pending') {
     flags.value = flags.value.filter((f) => f.status === 'pending')
+    total.value = Math.max(0, total.value - 1)
   }
 }
 
@@ -322,7 +410,9 @@ onMounted(() => {
   background: var(--neg-soft);
   color: var(--neg-ink);
 }
-.reason-badge.ampersand_unknown {
+.reason-badge.ampersand_unknown,
+.reason-badge.auto_split,
+.reason-badge.manual {
   background: var(--surface-2);
   color: var(--ink-3);
 }
@@ -365,6 +455,20 @@ onMounted(() => {
 }
 .deezer-entry.missing .deezer-id {
   color: var(--neg-ink);
+}
+.dz-spin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dz-spin {
+    animation: none;
+  }
 }
 .action-btns {
   display: flex;
@@ -440,6 +544,9 @@ onMounted(() => {
 .mono {
   font-family: var(--font-mono);
 }
+.muted {
+  color: var(--ink-3);
+}
 .dz-link {
   color: var(--accent-ink);
   text-decoration: none;
@@ -448,6 +555,26 @@ onMounted(() => {
 }
 .dz-link:hover {
   text-decoration: underline;
+}
+.crawl-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.crawl-pagination button {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  cursor: pointer;
+}
+.crawl-pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ============ RESPONSIVE — table→cartes (palier aligné sur ExplorerView) ============ */
