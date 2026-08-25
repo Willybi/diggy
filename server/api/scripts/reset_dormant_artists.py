@@ -99,18 +99,20 @@ def _attached():
 
 
 def _select_candidates(session, patterns, limit):
-    """Abandoned, attached, unlinked artists whose name matches ANY subset pattern."""
-    name_match = or_(*[Artist.name.op("~")(p) for p in patterns])
-    stmt = (
-        select(Artist.id, Artist.name)
-        .where(
-            Artist.deezer_id.is_(None),
-            Artist.deezer_search_attempts >= _MAX_SEARCH_ATTEMPTS,
-            _attached(),
-            name_match,
-        )
-        .order_by(Artist.id.asc())
-    )
+    """Abandoned, attached, unlinked artists.
+
+    ``patterns`` is a list of POSIX-regex strings the name must match ANY of, or
+    None (``--all``) to take EVERY abandoned-attached-unlinked row regardless of
+    form. Placeholder exclusion is applied downstream by the caller.
+    """
+    conds = [
+        Artist.deezer_id.is_(None),
+        Artist.deezer_search_attempts >= _MAX_SEARCH_ATTEMPTS,
+        _attached(),
+    ]
+    if patterns is not None:
+        conds.append(or_(*[Artist.name.op("~")(p) for p in patterns]))
+    stmt = select(Artist.id, Artist.name).where(*conds).order_by(Artist.id.asc())
     if limit:
         stmt = stmt.limit(limit)
     return session.execute(stmt).all()
@@ -126,23 +128,37 @@ def main():
     parser.add_argument("--suffix-n", action="store_true", help="trailing '(N)' names")
     parser.add_argument("--punct", action="store_true", help="names carrying a dot")
     parser.add_argument("--non-ascii", action="store_true", help="non-ASCII names")
+    parser.add_argument(
+        "--all",
+        dest="all_",
+        action="store_true",
+        help="EVERY abandoned-attached-unlinked row (ignores the subset flags)",
+    )
     parser.add_argument("--limit", type=int, default=0, help="cap the number of rows")
     parser.add_argument("--apply", action="store_true", help="write (default dry-run)")
     args = parser.parse_args()
 
-    chosen = [
-        (name, SUBSETS[name])
-        for name, flag in (
-            ("suffix-n", args.suffix_n),
-            ("punct", args.punct),
-            ("non-ascii", args.non_ascii),
-        )
-        if flag
-    ]
-    if not chosen:
-        parser.error("pick at least one subset: --suffix-n / --punct / --non-ascii")
-    patterns = [p for _, p in chosen]
-    print(f"Subsets: {', '.join(n for n, _ in chosen)}")
+    if args.all_:
+        # --all supersedes the subset flags: re-arm the WHOLE dormant pool. Most of
+        # it (names without a "(N)"/dot/non-ASCII form) is not touched by the recent
+        # matcher fixes, so expect a low hit rate on that majority — the value is in
+        # the fold-sensitive subsets. Drains over several nights (link budget cap).
+        patterns = None
+        print("Subsets: all (whole dormant pool)")
+    else:
+        chosen = [
+            (name, SUBSETS[name])
+            for name, flag in (
+                ("suffix-n", args.suffix_n),
+                ("punct", args.punct),
+                ("non-ascii", args.non_ascii),
+            )
+            if flag
+        ]
+        if not chosen:
+            parser.error("pick a subset (--suffix-n / --punct / --non-ascii) or --all")
+        patterns = [p for _, p in chosen]
+        print(f"Subsets: {', '.join(n for n, _ in chosen)}")
 
     engine = _get_engine()
     with Session(engine) as session:
