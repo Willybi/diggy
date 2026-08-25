@@ -4,12 +4,13 @@
 // Engberg", "Felix KI/KI") into N artist tokens. It works on three layers, all
 // pure and testable here (no Vue, no DOM):
 //   1. UNITS    — the raw string tokenized into atomic "words": the hard
-//                 punctuation separators [, & + | ;] are spaced out first, then
-//                 the string is cut on whitespace. '/' is deliberately NOT
-//                 spaced out — a glued slash stays inside its unit ("KI/KI" is
-//                 ONE artist) while an isolated " / " becomes its own unit —
-//                 and '.'/'-' stay glued ("feat.", "Mr.", "Jay-Z"). Atomic,
-//                 immutable.
+//                 punctuation separators [, & + | ; / ( )] are spaced out first
+//                 (each becomes its own unit, even glued: "A|B", "AC/DC",
+//                 "(feat"), then the string is cut on whitespace. '.'/'-' stay
+//                 glued ("feat.", "Mr.", "Jay-Z"). Atomic, immutable. Parens and
+//                 '/' are detached so the admin can cut/drop them by hand; a
+//                 restored '/' re-glues to its neighbours (GLUE_SET) so "AC/DC"
+//                 rebuilds exactly by restoring the '/' and merging its cuts.
 //   2. CUTS     — a boolean per unit-boundary: a cut ON keeps the two units in
 //                 separate segments, OFF merges them back. A separator unit
 //                 (DROP_SET) starts with a cut on BOTH sides; every other
@@ -90,14 +91,25 @@ export function splitUnits(name, sep) {
 // ── Unit model (tokenization) ────────────────────────────────────────────────
 
 // Hard punctuation separators spaced out during tokenization so each always
-// becomes its own unit, even glued ("A|B"). '/' is absent on purpose: glued vs
-// isolated is meaningful there (see the UNITS layer above).
-const HARD_PUNCT_RE = /([,&+|;])/g
+// becomes its own unit, even glued ("A|B", "AC/DC", "(feat Other)"). Parens and
+// '/' are included so the admin can cut/drop them by hand in the splitter; they
+// are dropped by default (DROP_SET) but restorable — a restored '/' re-glues to
+// its neighbours (GLUE_SET) so a genuine "AC/DC" can be rebuilt.
+const HARD_PUNCT_RE = /([,&+|;/()])/g
+
+// Kept punctuation units that join to their neighbours WITHOUT surrounding
+// spaces inside a merged segment, so restoring a detached '/' rebuilds the glued
+// form ("AC" + "/" + "DC" → "AC/DC", not "AC / DC"). Only '/' qualifies: a
+// restored paren stays space-joined (an edge the admin rarely hits).
+const GLUE_SET = new Set(['/'])
 
 // Units DROPPED by default, with a default cut on each side: the punctuation
-// bullets + the multi-letter separator words (case-insensitive). The single
-// letters x / y / e are deliberately NOT here — too ambiguous ("Malcolm X",
-// "Ben E King") — they stay normal kept units and the admin decides.
+// bullets + parens + slash + the multi-letter separator words (case-insensitive).
+// Parens and '/' are dropped so "(feat Other)" / "AC/DC" clean up automatically,
+// but they show as struck-through restorable chips — the admin decides (a genuine
+// "AC/DC" is rebuilt by restoring the '/' and merging). The single letters
+// x / y / e are deliberately NOT here — too ambiguous ("Malcolm X", "Ben E
+// King") — they stay normal kept units and the admin decides.
 export const DROP_SET = new Set([
   ',',
   '&',
@@ -105,6 +117,8 @@ export const DROP_SET = new Set([
   '|',
   ';',
   '/',
+  '(',
+  ')',
   'and',
   'vs',
   'vs.',
@@ -129,12 +143,24 @@ export function tokenizeUnits(raw) {
   return (raw || '').replace(HARD_PUNCT_RE, ' $1 ').split(/\s+/).filter(Boolean)
 }
 
+// Join a list of unit strings with a single space, except a GLUE_SET unit ('/')
+// binds to its neighbours WITHOUT surrounding spaces ("AC" "/" "DC" → "AC/DC").
+function joinUnits(list) {
+  let out = ''
+  for (let k = 0; k < list.length; k++) {
+    const cur = list[k]
+    const noSpace = k === 0 || GLUE_SET.has(cur) || GLUE_SET.has(list[k - 1])
+    out += (noSpace ? '' : ' ') + cur
+  }
+  return out.trim()
+}
+
 // Group units into SEGMENTS by the cut boundaries. `cuts[i]` is the boundary
 // between unit i and unit i+1; a cut ON closes the current segment. A segment's
-// text = its KEPT units joined by a single space (a dropped separator unit
-// inside a merged segment does not appear); a fully-dropped segment falls back
-// to its raw units so the struck-through chip stays readable and restorable.
-// Returns [{ text, kept, unitIndices }].
+// text = its KEPT units joined by a single space, with '/' re-glued (a dropped
+// separator unit inside a merged segment does not appear); a fully-dropped
+// segment falls back to its raw units so the struck-through chip stays readable
+// and restorable. Returns [{ text, kept, unitIndices }].
 export function computeSegments(units, cuts, keep) {
   const segments = []
   let start = 0
@@ -143,18 +169,9 @@ export function computeSegments(units, cuts, keep) {
     if (!boundary) continue
     const unitIndices = []
     for (let j = start; j <= i; j++) unitIndices.push(j)
-    const keptText = unitIndices
-      .filter((j) => keep[j])
-      .map((j) => units[j])
-      .join(' ')
-      .trim()
+    const keptText = joinUnits(unitIndices.filter((j) => keep[j]).map((j) => units[j]))
     segments.push({
-      text:
-        keptText ||
-        unitIndices
-          .map((j) => units[j])
-          .join(' ')
-          .trim(),
+      text: keptText || joinUnits(unitIndices.map((j) => units[j])),
       kept: keptText.length > 0,
       unitIndices,
     })

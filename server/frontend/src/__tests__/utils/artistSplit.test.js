@@ -91,10 +91,15 @@ describe('tokenizeUnits', () => {
     ])
   })
 
-  it('keeps a glued "/" inside its unit but isolates a spaced one', () => {
-    expect(tokenizeUnits('Felix KI/KI')).toEqual(['Felix', 'KI/KI'])
-    expect(tokenizeUnits('KI/KI Marlon Hoffstadt')).toEqual(['KI/KI', 'Marlon', 'Hoffstadt'])
+  it('isolates "/" as its own unit, glued or spaced', () => {
+    expect(tokenizeUnits('Felix KI/KI')).toEqual(['Felix', 'KI', '/', 'KI'])
+    expect(tokenizeUnits('AC/DC')).toEqual(['AC', '/', 'DC'])
     expect(tokenizeUnits('A / B')).toEqual(['A', '/', 'B'])
+  })
+
+  it('isolates parentheses as their own units, glued to a word or not', () => {
+    expect(tokenizeUnits('Artist (feat Other)')).toEqual(['Artist', '(', 'feat', 'Other', ')'])
+    expect(tokenizeUnits('Foo (Original Mix)')).toEqual(['Foo', '(', 'Original', 'Mix', ')'])
   })
 
   it('keeps "." and "-" glued (feat., Mr., Jay-Z)', () => {
@@ -115,8 +120,22 @@ describe('tokenizeUnits', () => {
 })
 
 describe('isSeparatorUnit', () => {
-  it('flags the punctuation bullets and multi-letter words, case-insensitively', () => {
-    for (const u of [',', '&', '+', '|', ';', '/', 'and', 'AND', 'Feat.', 'presents', 'présente']) {
+  it('flags the punctuation bullets, parens and multi-letter words, case-insensitively', () => {
+    for (const u of [
+      ',',
+      '&',
+      '+',
+      '|',
+      ';',
+      '/',
+      '(',
+      ')',
+      'and',
+      'AND',
+      'Feat.',
+      'presents',
+      'présente',
+    ]) {
       expect(isSeparatorUnit(u)).toBe(true)
     }
   })
@@ -128,7 +147,7 @@ describe('isSeparatorUnit', () => {
     expect(DROP_SET.has('x')).toBe(false)
   })
 
-  it('does not flag a normal word or a glued slash', () => {
+  it('does not flag a normal word or a compound with a glued slash', () => {
     expect(isSeparatorUnit('Adam')).toBe(false)
     expect(isSeparatorUnit('KI/KI')).toBe(false)
   })
@@ -194,6 +213,10 @@ describe('keptTokens', () => {
   it('emits a restored separator segment as a real token (admin decision)', () => {
     expect(keptTokens(['A', '&', 'B'], [true, true], [true, true, true])).toEqual(['A', '&', 'B'])
   })
+
+  it('re-glues a kept "/" inside a merged segment ("AC/DC", not "AC / DC")', () => {
+    expect(keptTokens(['AC', '/', 'DC'], [false, false], [true, true, true])).toEqual(['AC/DC'])
+  })
 })
 
 // ── Default-state contract (initSplitState) ──────────────────────────────────
@@ -203,21 +226,35 @@ describe('keptTokens', () => {
 describe('initSplitState', () => {
   const tokensOf = (s) => keptTokens(s.units, s.cuts, s.keep)
 
-  it('"Felix KI/KI" → one default segment, space cut isolates KI/KI whole', () => {
-    const s = initSplitState('Felix KI/KI')
-    expect(s.units).toEqual(['Felix', 'KI/KI'])
-    expect(s.cuts).toEqual([false])
-    expect(tokensOf(s)).toEqual(['Felix KI/KI'])
-    s.cuts[0] = true
-    expect(tokensOf(s)).toEqual(['Felix', 'KI/KI'])
+  it('"AC/DC" → splits on "/" by default, rebuilt by restoring "/" + merging', () => {
+    const s = initSplitState('AC/DC')
+    expect(s.units).toEqual(['AC', '/', 'DC'])
+    expect(s.cuts).toEqual([true, true])
+    expect(s.keep).toEqual([true, false, true])
+    expect(tokensOf(s)).toEqual(['AC', 'DC'])
+    // Restore the "/" and merge both boundaries → the glued name comes back whole.
+    s.keep[1] = true
+    s.cuts[0] = false
+    s.cuts[1] = false
+    expect(tokensOf(s)).toEqual(['AC/DC'])
   })
 
-  it('"KI/KI Marlon Hoffstadt" → cut after KI/KI gives the two real artists', () => {
-    const s = initSplitState('KI/KI Marlon Hoffstadt')
-    expect(s.units).toEqual(['KI/KI', 'Marlon', 'Hoffstadt'])
-    expect(tokensOf(s)).toEqual(['KI/KI Marlon Hoffstadt'])
-    s.cuts[0] = true
-    expect(tokensOf(s)).toEqual(['KI/KI', 'Marlon Hoffstadt'])
+  it('"Felix KI/KI" → "/" cut by default (admin re-glues if it is one artist)', () => {
+    const s = initSplitState('Felix KI/KI')
+    expect(s.units).toEqual(['Felix', 'KI', '/', 'KI'])
+    expect(tokensOf(s)).toEqual(['Felix KI', 'KI'])
+  })
+
+  it('"Artist (feat Other)" → parens + "feat" dropped, two clean tokens', () => {
+    const s = initSplitState('Artist (feat Other)')
+    expect(s.units).toEqual(['Artist', '(', 'feat', 'Other', ')'])
+    expect(s.keep).toEqual([true, false, false, true, false])
+    expect(tokensOf(s)).toEqual(['Artist', 'Other'])
+  })
+
+  it('"Foo (Original Mix)" → parens vanish, artefact left as a restorable token', () => {
+    // The parens drop by default; "Original Mix" stays a kept chip the admin trashes.
+    expect(tokensOf(initSplitState('Foo (Original Mix)'))).toEqual(['Foo', 'Original Mix'])
   })
 
   it('"Adam Beyer & Ida Engberg" → "&" dropped with a cut on each side', () => {

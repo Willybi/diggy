@@ -45,16 +45,31 @@ describe('ArtistSegmentSplitter — segmentation', () => {
     expect(wrapper.emitted('confirm')[0][0]).toEqual(['Adam Beyer', 'Ida Engberg', 'Foo'])
   })
 
-  it('cuts on a space so a glued "KI/KI" stays whole', async () => {
+  it('drops parentheses by default, leaving clean tokens', async () => {
     const wrapper = mount(ArtistSegmentSplitter, {
-      props: { raw: 'Felix KI/KI' },
+      props: { raw: 'Artist (feat Other)' },
     })
-    expect(chipTexts(wrapper)).toEqual(['Felix KI/KI'])
-    await wrapper.find('.seg-cut').trigger('click')
-    expect(chipTexts(wrapper)).toEqual(['Felix', 'KI/KI'])
+    // Each of "(", "feat", ")" is a struck-through droppable chip.
+    expect(chipTexts(wrapper)).toEqual(['Artist', '(', 'feat', 'Other', ')'])
+    await wrapper.find('.btn-seg-confirm').trigger('click')
+    expect(wrapper.emitted('confirm')[0][0]).toEqual(['Artist', 'Other'])
+  })
+
+  it('splits a glued "/" by default, re-glued by restoring "/" + merging (AC/DC)', async () => {
+    const wrapper = mount(ArtistSegmentSplitter, {
+      props: { raw: 'AC/DC' },
+    })
+    expect(chipTexts(wrapper)).toEqual(['AC', '/', 'DC'])
+
+    // Restore the dropped "/" chip, then merge both boundaries → glued name back.
+    await wrapper.findAll('.seg-trash')[1].trigger('click')
+    const cuts = wrapper.findAll('.seg-cut')
+    await cuts[0].trigger('click')
+    await cuts[1].trigger('click')
+    expect(chipTexts(wrapper)).toEqual(['AC/DC'])
 
     await wrapper.find('.btn-seg-confirm').trigger('click')
-    expect(wrapper.emitted('confirm')[0][0]).toEqual(['Felix', 'KI/KI'])
+    expect(wrapper.emitted('confirm')[0][0]).toEqual(['AC/DC'])
   })
 
   it('merging across a dropped "&" joins the words with a single space', async () => {
@@ -169,13 +184,13 @@ describe('ArtistSegmentSplitter — live Deezer signal', () => {
 
   it('re-searches when a cut changes the segment texts (cached texts excluded)', async () => {
     const wrapper = mount(ArtistSegmentSplitter, {
-      props: { raw: 'Felix KI/KI' },
+      props: { raw: 'Felix Nina' },
     })
     await vi.advanceTimersByTimeAsync(400)
-    expect(searchedQueries()).toEqual(['Felix KI/KI'])
+    expect(searchedQueries()).toEqual(['Felix Nina'])
 
     await wrapper.find('.seg-cut').trigger('click')
     await vi.advanceTimersByTimeAsync(400)
-    expect(searchedQueries().sort()).toEqual(['Felix', 'Felix KI/KI', 'KI/KI'])
+    expect(searchedQueries().sort()).toEqual(['Felix', 'Felix Nina', 'Nina'])
   })
 })
