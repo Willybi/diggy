@@ -25,9 +25,9 @@
 | 2026-07/A6-06 | Wildcards LIKE non échappés | basse | CORRIGÉ | 2026-07 | 2026-08 | `like_escape` créé (AU1) mais 6-8 sites D6/D8 repartis sur `f"%{q}%"` brut → **AV1** (commit a09fafd, 2026-08-09) |
 | 2026-07/A6-08 | Cœur upsert PG de l'import RB non testé | basse | CORRIGÉ | 2026-07 | 2026-08 | Lock/parsing/scope testés depuis ; upsert toujours skippé ; `tasks/*` toujours dans l'omit → **AV7** (AV7, 2026-08-16) |
 | 2026-07/A6-14 | Branches d'échec OAuth non testées | basse | CORRIGÉ | 2026-07 | 2026-08 | `invalid_state` testé ; google_failed/collision/verify_google_token nus → 2026-08/A6-07, **AV7** (AV7, 2026-08-16) |
-| 2026-07/A7-05 | Compteurs CLAUDE.md faux | basse | CORRIGÉ | 2026-07 | 2026-08 | Corrigés AU8 puis re-drift E2.c/X2 → 2026-08/A7-01, **AV7** (AV7, 2026-08-16) |
-| 2026-07/A7-11 | README de triage des scripts incomplet | basse | CORRIGÉ | 2026-07 | 2026-08 | Mécanisme vivant ; 3 scripts X1/X3 manquants → 2026-08/A7-03, **AV1** (commit a09fafd, 2026-08-09) |
-| 2026-07/A2-11 | FK sans index (artist_activity, user_radar_state, collection_items) | basse | ACCEPTÉ | 2026-07 | 2026-08 | Cœur corrigé en 0031 ; reste différé « réévaluer à la croissance » — re-vérifié 2026-08 : 62/5/0 lignes, arbitrage maintenu |
+| 2026-07/A7-05 | Compteurs CLAUDE.md faux | basse | CORRIGÉ | 2026-07 | 2026-08-24 | Corrigés AU8, re-drift → AV7 (2026-08-16), re-drift C7/C9 en 8 jours → **3e récurrence** 2026-08-24/A7-01, **AW5** (+ processus de bump en clôture de chantier) |
+| 2026-07/A7-11 | README de triage des scripts incomplet | basse | CORRIGÉ | 2026-07 | 2026-08-24 | Corrigé AV1 (a09fafd), puis 8 scripts ajoutés en 15 jours sans inventaire → **3e récurrence** 2026-08-24/A7-03, **AW5** |
+| 2026-07/A2-11 | FK sans index (artist_activity, user_radar_state, collection_items) | basse | ACCEPTÉ | 2026-07 | 2026-08-24 | Cœur corrigé en 0031 ; différé « réévaluer à la croissance » ; 2026-08-24 : `user_collections.folder_id` (2026-08-24/A2-06) rattaché au même arbitrage (volumétrie dérisoire) |
 | 2026-07/A1-12 | 11 endpoints taxonomy réservés | basse | ACCEPTÉ | 2026-07 | 2026-08 | DECISIONS 2026-07 Q1b-2 ; réécrits en ORM + like_escape depuis — résidu inchangé |
 | 2026-07/A2-05 | Colonnes `artists.bio/country/real_name/soundcloud_id` | basse | ACCEPTÉ | 2026-07 | 2026-08 | Q3 2026-07 : schemas purgés, colonnes conservées |
 | 2026-07/A2-08 | Colonnes `sets.event/venue/description` | basse | ACCEPTÉ | 2026-07 | 2026-08 | Q3 2026-07 : schemas purgés, colonnes conservées |
@@ -104,3 +104,67 @@ Arbitrés le 2026-08-09 (`docs/audits/2026-08/DECISIONS.md`, Q1-Q8). Fusions : M
 | 2026-08/A8-01 | Invariant #1 à re-scoper (relocate_tracks écrit dans Rekordbox) | basse | CORRIGÉ | 2026-08 | 2026-08 | **AV7** (lot doc) (AV7, 2026-08-16) |
 | 2026-08/A8-03 | Six tâches longues sans lock Redis | moyenne | CORRIGÉ | 2026-08 | 2026-08 | **AV4** (commit aad0a07, 2026-08-12) |
 | 2026-08/A8-05 | Doc : uq_artists_deezer_id porté par 0034, CLAUDE.md dit le contraire | basse | CORRIGÉ | 2026-08 | 2026-08 | **AV7** (lot doc) (AV7, 2026-08-16) |
+
+## Findings de l'audit 2026-08-24
+
+Arbitrés le 2026-08-24 (`docs/audits/2026-08-24/DECISIONS.md`, Q1-Q7). Fusions : M1=A1-05 (⊂A6-01), M2=A2-04 (⊂A6-03), M3=A3-02 (⊂A8-01), M4=A5-05 (⊂A7-06).
+
+| Clé | Titre | Sévérité | Statut | Découvert | Dernière vue | Résolution / Référence |
+|---|---|---|---|---|---|---|
+| 2026-08-24/A3-01 | Sortie deadline backfill TrackID → chemin de complétion normale (faux done terminal + curseur clobbé) — régression 3dcb68c | haute | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A4-01 | Injection HTML via v-html dans le highlight de recherche du Hub | haute | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A5-01 | Cap postgres 1G vs pgvector ~3,5G à terme (940 MB à 24 % du backfill) | haute | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** — geste OPS fenêtre calme (Q5), avant la fin du backfill C9.a |
+| 2026-08-24/A1-05 | content-similar : gate admin front-only, endpoint public (M1, aussi vu par A6) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** — require_admin serveur le temps du ramp-up (Q2a) |
+| 2026-08-24/A6-02 | content-similar hors rate limiting (suffixe /similar non matché) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A1-06 | content-similar : 200 [] caché 6h pour un id inexistant (vs 404 sur /similar) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A2-01 | catalog_merge ne repointe pas catalog_albums (liens album perdus au merge) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A5-02 | backup.sh mirrore 3 buckets MinIO sur 6 | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A4-02 | Bouton « Ajouter à la bib » sans handler | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | SUPPRESSION du bouton (Q3) → **AW1** |
+| 2026-08-24/A4-03 | CollectionCard : « N tracks » faux depuis les items polymorphes | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A4-04 | CollectionCard : suppression invisible au tactile (hover-only) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** (vérif CDP) |
+| 2026-08-24/A4-06 | audioPlayer : volume sauvegardé à 0 revient à 0.8 | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A4-08 | Listener document click ExplorerView non détaché sous KeepAlive | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A1-08 | Commentaire auth_middleware cite /radar/full supprimé AV6 | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** |
+| 2026-08-24/A1-02 | total_identified : N+1 par candidat, champ sans consommateur | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | SUPPRESSION (Q3) → **AW1** |
+| 2026-08-24/A1-03 | similar_from_context sans caller (2 audits) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | SUPPRESSION (Q3) → **AW1** |
+| 2026-08-24/A3-06 | CrawlLogger.update_stats + log_id morts | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | SUPPRESSION (Q3) → **AW1** |
+| 2026-08-24/A7-04 | Fichiers égarés non trackés (docs/c9-benchmark;C, node_modules racine, __pycache__) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW1** (nettoyage disque, pas de commit) |
+| 2026-08-24/A3-02 | Deadline AV9 absente des drains restants (precompute/trackid_latest/recrawl/sync_artists) (M3, aussi vu par A8) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW2** — après A3-01 |
+| 2026-08-24/A3-03 | Batch BPM 2000 inatteignable sous throttle — deadline_hit neutralisé comme signal | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW2** |
+| 2026-08-24/A3-04 | Doc fenêtre BPM : 00h→04h/5 créneaux vs doc 00h→03h/~8000 par nuit | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW2** (avec A3-03) |
+| 2026-08-24/A3-08 | precompute_recommendations sans CrawlLogger (invisible du monitoring) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW2** |
+| 2026-08-24/A1-04 | Waiter single-flight reco : connexion DB épinglée ≤48s pendant le poll | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW2** — rollback avant la boucle d'attente |
+| 2026-08-24/A3-05 | Sélection BPM id DESC + échecs download sans plafond (tête de file re-consommée) | basse | OUVERT | 2026-08-24 | 2026-08-24 | Attend le diagnostic OPS « ~50 % erreurs BPM » (mémoire monitoring-backlogs-tuning) ; instrumenter d'abord |
+| 2026-08-24/A6-04 | Tests multi-user Collections absents (ownership + track privé) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW3** — tests AVANT l'extraction A1-01 |
+| 2026-08-24/A1-01 | Collections : 529 lignes de logique en router, zéro service (3e occurrence du pattern) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW3** — extraction collection_service façon AV6 |
+| 2026-08-24/A2-04 | Dédup collection_items sans contrainte DB → doublon possible, DELETE 500, downgrade 0047 cassé (M2, aussi vu par A6) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW3** — 2 index uniques partiels + IntegrityError→409 (Q4) |
+| 2026-08-24/A2-03 | Downgrade 0046 asymétrique (type PG album_type survit) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW3** — même migration que M2 |
+| 2026-08-24/A4-05 | AddToCollectionButton : dropdown sans click-outside ni catch | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW3** |
+| 2026-08-24/A4-09 | CollectionsView hors allowlist KeepAlive (décision non documentée) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW3** — documenter ou intégrer |
+| 2026-08-24/A4-11 | Duplication rows typées CollectionDetailView ↔ HubSearchResults | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW3** — extraction helpers avant un 6e type d'item |
+| 2026-08-24/A5-03 | mc téléchargé non pinné à chaque backup (supply chain + offsite sauté si CDN down) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW4** — image backup dédiée pinnée |
+| 2026-08-24/A5-04 | CRON_TZ ignoré par cron Ubuntu — tous les crons VPS en UTC | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW4** — crontab réécrit en UTC (geste OPS) |
+| 2026-08-24/A5-05 | restore.md pré-pgvector : restore vanilla échoue, test 2026-07-10 antérieur au schéma (M4, aussi vu par A7) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | Doc → **AW1** ; re-test restore complet + re-stamp → **AW4** |
+| 2026-08-24/A5-06 | Setup SSH CI : keyscan TOFU, erreurs avalées (incident déjà vécu) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW4** — secret VPS_KNOWN_HOSTS figé |
+| 2026-08-24/A5-08 | Health check post-deploy : 1 curl après sleep 15s | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW4** |
+| 2026-08-24/A5-09 | Aucun timeout-minutes sur les jobs CI | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW4** |
+| 2026-08-24/A5-10 | Redis sans maxmemory sous cap cgroup 512M | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW4** — maxmemory 400mb, noeviction conservé |
+| 2026-08-24/A7-01 | Compteurs CLAUDE.md re-driftés (106 endpoints, 32 tables, 39 defs, 18 services) | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW5** — clé d'origine 2026-07/A7-05 (3e récurrence) ; + processus de bump en clôture |
+| 2026-08-24/A7-02 | CLAUDE.md « C9.b not built yet » vs C9.b livré le jour même | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW5** |
+| 2026-08-24/A7-03 | README triage scripts : 8 scripts absents | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW5** — clé d'origine 2026-07/A7-11 (3e récurrence) |
+| 2026-08-24/A2-02 | MANUAL block schema doc périmé (colonnes droppées, note NULLS LAST absente, HNSW invisible) | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW5** |
+| 2026-08-24/A7-05 | docs/prompts/ gitignoré mais pointé comme doc de référence | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW5** — trancher versionner vs annoter |
+| 2026-08-24/A1-07 | _MAX_SEARCH_ATTEMPTS dupliqué main-synced worker→API | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW5** — test de cohérence anti-drift |
+| 2026-08-24/A8-02 | Couleurs logo Google LoginView : exception de marque non documentée | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **AW5** — documenter l'exception, ne pas tokeniser |
+| 2026-08-24/A2-06 | user_collections.folder_id : FK sans index | basse | ACCEPTÉ | 2026-08-24 | 2026-08-24 | Rattaché à l'arbitrage 2026-07/A2-11 (« réévaluer à la croissance ») |
+| 2026-08-24/A1-10 | Tracklist album ordonnée par id, pas par position disque | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | **C7.c** (Q4) — colonne track_position + funnel + backfill, hors série AW |
+| 2026-08-24/A5-07 | IP amont nginx périmée sur deploy manuel — resolver 127.0.0.11 | moyenne | EN ROADMAP | 2026-08-24 | 2026-08-24 | Chantier « nginx resolver » hors série (Q7) ; absorbe A5-12 |
+| 2026-08-24/A5-11 | Build des images sur le VPS de prod à chaque deploy | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | Chantier « Build GHCR » hors série, planifié priorité basse (Q7) |
+| 2026-08-24/A5-12 | default.conf/empty.conf : doublons vides montés sur la même cible | basse | EN ROADMAP | 2026-08-24 | 2026-08-24 | Absorbé par le chantier nginx resolver (A5-07) |
+| 2026-08-24/A2-05 | Recall KNN HNSW post-filtré non garanti (ef_search 40 vs filtres) | moyenne | OUVERT | 2026-08-24 | 2026-08-24 | À MESURER (EXPLAIN ANALYZE) après la fin du backfill C9.a ; consigne v2-modèle à documenter |
+| 2026-08-24/A3-07 | link_set_artists : scan O(N·M) + SELECT/commit par set | basse | OUVERT | 2026-08-24 | 2026-08-24 | Opportuniste — au prochain passage sur la tâche |
+| 2026-08-24/A6-05 | embedding_backfill sans test + constantes modèle dupliquées sans garde | basse | OUVERT | 2026-08-24 | 2026-08-24 | Opportuniste — test constants-in-sync + helpers purs |
+| 2026-08-24/A1-09 | Router sets : résidu logique métier (détail, import+opinion, client TrackID) | basse | OUVERT | 2026-08-24 | 2026-08-24 | Opportuniste — après AW3, même patron d'extraction |
+| 2026-08-24/A4-07 | Recherche Hub non gardée contre les réponses désordonnées | basse | OUVERT | 2026-08-24 | 2026-08-24 | Opportuniste |
+| 2026-08-24/A4-10 | Littéraux oklch hors tokens (pastille genre à vérifier en dark) | basse | OUVERT | 2026-08-24 | 2026-08-24 | Opportuniste — vérif CDP |
+| 2026-08-24/A4-12 | AlbumView sans watch route.params.id | basse | OUVERT | 2026-08-24 | 2026-08-24 | Opportuniste — 3 lignes, à prendre avec C7.c |

@@ -83,6 +83,8 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AV8  Robustesse workers/infra v3 (triage Sentry) HAUT  2-3 jours  TERMINE (2026-08-16 ; 45d7731, AUCUN modele/migration) — 4 lots : (1) worker `enrich` OOM/SIGKILL (DIGGY-APP-V/X) → cap conteneur `worker_enrich` 1G->2G ; (2) `reclassify_genres_chunk` hang >1800s (DIGGY-APP-12/15/11) → timeout/item RECLASSIFY_ITEM_TIMEOUT + catch SoftTimeLimitExceeded + chunk 500->200 ; (3) `/api/artists/` DiskFull shared memory (DIGGY-APP-13) → postgres `shm_size: 256mb` ; (4) `crawl_trackid_latest` echecs message vide (DIGGY-APP-D) → CrawlLogger prefixe le type d'exception + exc_info. Fixes code rapides DIGGY-APP-4/10 livres hors AV8 (616b430). 741 tests worker verts. Divergences doc pre-existantes (enrich_catalog_beatport genre_only, routing reclassify enrich, count catalog_artists) deleguees AV7.
  AV9  Drain enrich — deadline interne elapsed BAS       1 jour       TERMINE (2026-08-17 ; 0daada7, deploy_verify SAIN, AUCUN modele/migration) — inscrit le meme jour (triage Sentry) : le signal soft-limit peut etre leve DANS les internals asyncio et avale par le handler du transport (preuve DIGGY-APP-J « Fatal write error on socket transport ») → il n'atteint jamais le catch de la tache, le run continue jusqu'au hard limit 3300s puis SIGKILL (~12 kills/mois, ≤1h de drain perdu chacun, lock TTL auto-heal). Fix = deadline time.monotonic() verifiee entre batches (marge sous le soft limit) sortant par le chemin du catch SoftTimeLimitExceeded existant (flush partiel, stats, release lock) ; cibles : enrich_catalog_beatport + jumelles enrich_catalog (Deezer) / analyze_bpm_previews. LIVRE : garde deadline sur les 3 drains + constantes soft-limit partagees decorateur+garde + stat additive deadline_hit (8 tests). RESTE AV9-03 : resolve DIGGY-APP-T/W/J/V apres ~1 semaine d'observation (runs nocturnes avec deadline_hit, 0 nouvel event T/W/J/V)
  AV10 Throttle CPU Hostinger — plafonner l'analyse BPM   URGENT      1 jour       TERMINE (2026-08-20 ; a9d2e62, deploy_verify SAIN) — inscrit 2026-08-19 : Hostinger a applique une LIMITATION de ressources (fair-use CPU, VPS 4 vCPU) apres surconsommation moyenne. Coupables mesures : dockerd 23.1% (surtout logs worker `--loglevel=info` demuxes en json-file + healthchecks 10s postgres/minio/redis), celery enrich 18.7% (dont analyse BPM Essentia 00h→03h, CPU pur), minio 10.4%. RAM/disque SAINS (12 Gi libres, disque 36%). LEVIER 1 (docker-compose.yml, ce commit) : worker/worker_enrich/beat `--loglevel=warning` + healthchecks postgres/redis/minio 10s→60s → attaque la ligne dockerd, zero perte fonctionnelle. LEVIER 2 (PLAFONNEMENT retenu, PAS « etaler ») : `analyze_bpm_previews` tourne sur un `ThreadPoolExecutor(max_workers=ANALYSIS_BPM_EXECUTOR_WORKERS)` defaut 2 → 2 analyses Essentia en parallele = 2 coeurs epingles 00-03h ; on pose **`ANALYSIS_BPM_EXECUTOR_WORKERS=1`** dans le `.env` VPS (var lue a l'import du worker, `up -d worker_enrich` pour l'appliquer, PAS de deploy de code) → −1 coeur sur le pic nocturne, debit ~divise par 2 (accelerateur optionnel, acceptable), reversible. NB : etaler sur la journee flattene le pic mais ne reduit PAS le total CPU-secondes 24h et percuterait le drain Beatport 6h→23h → ecarte. DoD : dockerd < ~12%, pic BPM a 1 coeur, throttle Hostinger leve, /deploy_verify SAIN. Suite possible si insuffisant : baisser le debit quotidien (`ANALYSIS_BPM_NIGHTLY_BUDGET`) ou espacer le drain Beatport
+ D10  Admin — Coherence & socle (URL, IA, audit, actions) MOYEN 3-4 jours A FAIRE (inscrit 2026-08-24) — sous-routes /admin/:tab (persistance URL/refresh) + nouvelle IA a 6 onglets + vue audit log + exposition des 3 actions curl-only + correction des renvois Apercu. Fonctionnel/wiring, style quasi inchange. Prerequis de D11.
+ D11  Admin — Refonte graphique (design)     BAS         3-5 jours    A FAIRE (inscrit 2026-08-24) — pipeline /refonte_page sur la structure figee par D10 ; habillage homogene (tokens, TrackTable/charts partages), 2 regimes de l'Apercu, responsive mobile. Depend de D10.
 ```
 
 ### Chantiers termines (reference)
@@ -2042,6 +2044,63 @@ Source : issues Sentry prod (org `diggy-music`, projet `diggy-app`). Dashboard :
 - [x] **AV9-03 — cloture Sentry** : apres deploy + /deploy_verify SAIN, resolve DIGGY-APP-T/W/J/V (re-run /sentry_triage pour poser les statuts). FAIT 2026-08-18 : les 4 issues passees en `resolved`.
 
 Invariants : pas d'autoretry, locks inchanges (TTL > time_limit), la sortie deadline ne stampe RIEN sur les entrees non traitees (un run ecourte n'est pas une tentative E1).
+
+---
+
+## D10 — Admin : Coherence & socle (fonctionnel + wiring)
+
+**Priorite : MOYEN**
+**Estimation : 3-4 jours**
+**Depend de : rien de bloquant. Prerequis de D11 (le design habille une structure figee).**
+**Statut : A FAIRE — inscrit 2026-08-24 (point roadmap : la roadmap est drainee hors C9 qui attend le backfill EffNet local ; ouverture de deux chantiers admin). Front + back, enjeu visuel faible (le pur design est D11). Cadrage via /work_manager.**
+
+### Constat (inventaire 2026-08-24)
+
+L'admin = 1 seule route `/admin`, **8 onglets** montes en `v-if` (`activeTab = ref('overview')`, AdminView.vue), **zero URL, zero persistance** : refresh (F5) ramene toujours sur Apercu, aucun onglet n'est bookmarkable/partageable. Au-dela de l'URL, l'inventaire a releve de la dette de coherence reelle :
+- **Renvois trompeurs de l'Apercu** : les cartes « DLQ » / « Playlists dues » renvoient vers l'onglet **Crawl** (qui n'affiche qu'un historique de logs, ni DLQ ni file des dues) ; « Deezer a enrichir » / « BPM a analyser » renvoient vers **Monitoring** (lecture seule, aucun bouton d'action).
+- **Asymetrie attach/detach sets** : `attach` a un bouton UI, son inverse `detach` est **curl-only**.
+- **3 actions curl-only** sans surface UI : `POST /admin/reset-beatport` (**DESTRUCTIF**, wipe global Beatport, aucun garde-fou hors `require_admin`), `POST /admin/artists/backfill-multi-artists`, `POST /admin/sets/{id}/detach`.
+- **Vue audit log manquante** : 8+ actions ecrivent dans `admin_audit_log` (merge artiste, reset beatport, attach/reject flags, remove set artist, merge/rename genres) mais **aucune route ne lit cette table** — journal write-only, invisible.
+- **Nommage trompeur** : `GET /admin/artists/sync/status/{task_id}` est le poller **generique** de TOUTES les taches Celery, pas juste les artistes.
+- **Deux notions de « flags »** (artistes vs sets) sur deux onglets ; actions d'enrichissement dispersees (Apercu + onglets dedies).
+
+### Nouvelle architecture d'onglets (6, validee 2026-08-24)
+
+Regroupement par domaine fonctionnel (8 -> 6) — chaque fusion resout un irritant :
+- **Apercu** : dashboard backlog (reste le point d'entree ; renvois **corriges** vers les vraies cibles).
+- **Artistes** : liaison Deezer + sync + artworks **+ flags/splits artistes** (absorbe l'onglet **Flags** ; fin de la confusion « 2 notions de flags »). `ArtistSegmentSplitter` reste partage.
+- **Sets** : set-flags dedup (attach **+ detach** expose) + liaison artistes de sets.
+- **Genres** : reclassify + mappings taxonomie (inchange, deja coherent).
+- **Enrichissement** : Beatport batch (absorbe l'onglet **Beatport**) + Deezer + BPM + `backfill-multi-artists` + `reset-beatport` (avec confirmation) — centralise les actions aujourd'hui dispersees, expose les curl-only.
+- **Observabilite** : Monitoring (series) + Crawl (logs) **+ Audit log** (nouveau) — tout le lecture-seule d'observation.
+
+### Perimetre
+
+- [ ] **D10-01 — URL & IA** : passage a des sous-routes `/admin/:tab` (ou query `?tab=`) → persistance au refresh + liens partageables, en posant la nouvelle structure a 6 onglets d'un seul coup. Attention KeepAlive : l'admin est une vue detail (hors allowlist), verifier le comportement onglet↔route.
+- [ ] **D10-02 — Vue Audit log** : nouvel endpoint `GET /admin/audit-log` (paginee, lecture de `admin_audit_log`) + section dans Observabilite (qui/quoi/quand).
+- [ ] **D10-03 — Exposer les 3 actions curl-only** : boutons UI `detach` (Sets), `backfill-multi-artists` (Enrichissement), `reset-beatport` (Enrichissement, **garde-fou de confirmation** vu le caractere destructif).
+- [ ] **D10-04 — Corriger les renvois de l'Apercu** : chaque carte renvoie vers l'onglet qui affiche/actionne REELLEMENT le backlog concerne.
+- [ ] **D10-05 (bonus faible cout)** : renommer `GET /admin/artists/sync/status/{id}` → `/admin/tasks/{id}` (poller generique).
+
+**Invariants** : logique metier inchangee (juste reorganisee/exposee) ; les actions destructives restent auditees (`_audit`) et gardent 404/400 au routeur (invariant #4) ; aucune migration a priori (l'audit log existe deja).
+
+---
+
+## D11 — Admin : Refonte graphique (design)
+
+**Priorite : BAS**
+**Estimation : 3-5 jours**
+**Depend de : D10 (le design habille la structure figee ; designer une IA qui bouge encore = gaspillage).**
+**Statut : A FAIRE — inscrit 2026-08-24. Pipeline /refonte_page (fiche → Claude Design → work_manager → deploy → revue design → cloture). Ne touche PAS a la logique — pur habillage.**
+
+### Perimetre
+
+- [ ] Habillage homogene avec le reste de l'app : tokens `diggy-tokens.css`, reutilisation des composants partages (`TrackTable`, famille `charts/`, `AdminCard` des vues detail), zero couleur hardcodee.
+- [ ] Les 2 regimes visuels de l'Apercu (backlog en attente / a jour / inconnu) traites proprement.
+- [ ] Responsive mobile (barre d'onglets scrollable, cartes, tables, graphes).
+- [ ] Coherence visuelle des 6 onglets (densite, hierarchie, etats vide/chargement via `assets/page.css`).
+
+**Note** : `components/AdminCard.vue` est un faux ami — malgre son nom il sert les vues DETAIL, pas le panel admin. Ne pas le confondre pendant la refonte.
 
 ---
 
