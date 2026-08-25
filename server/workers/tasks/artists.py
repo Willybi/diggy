@@ -249,6 +249,52 @@ def split_artist_parts(raw):
     return parts
 
 
+# "X with Y" collaboration separator, with an OPTIONAL collab verb glued before
+# "with" ("duet with", "duo with", "live with", "feat with"). Whitespace required
+# on BOTH sides so "Within Temptation" / "Withheld" never match (no bounding
+# spaces). Handled apart from split_artist_parts because a "with" split is only
+# ever applied under the Deezer-empty gate (a real "X with Y" band stays intact).
+WITH_RE = re.compile(
+    r"\s+(?:duet|duo|feat\.?|featuring|ft\.?|live)?\s*with\s+",
+    flags=re.IGNORECASE,
+)
+# Parenthesised "(w …)" / "(w. …)" shorthand for "with" (Discogs/TrackID credit
+# style). The "w" must be immediately followed by an optional dot then whitespace,
+# so a real "(Working Title)" never matches.
+WITH_PAREN_RE = re.compile(r"\s*\(\s*w\.?\s+", flags=re.IGNORECASE)
+
+
+def split_with_parts(name):
+    """Split a "with" collaboration string into clean artist tokens, else ``[]``.
+
+    Handles "A with B", the collab-verb forms "A duet/duo/live with B", and the
+    parenthesised shorthand "A (w B)" / "A (w. B)". The leading collab verb and the
+    (possibly unbalanced) closing paren are dropped:
+        "Brandy duet with Monica"                 -> ["Brandy", "Monica"]
+        'George Duke with Alfonso "Slim" Johnson' -> ['George Duke', 'Alfonso "Slim" Johnson']
+        "Freddie McGregor (w The Sound Dimension)"-> ["Freddie McGregor", "The Sound Dimension"]
+
+    GUARD (invariant #4 — never a reckless split): returns ``[]`` when no "with"
+    separator is present, when fewer than 2 tokens result, or when any token is
+    shorter than 2 chars (a degenerate cut). The caller ALSO gates on the
+    Deezer-empty signal before acting — an "X with Y" that Deezer knows as one
+    artist is left intact.
+    """
+    if not name:
+        return []
+    s = name.strip()
+    if WITH_PAREN_RE.search(s):
+        # Normalise "(w …" to a plain " with " separator, drop the trailing paren.
+        s = WITH_PAREN_RE.sub(" with ", s, count=1).rstrip(") ").strip()
+    if not WITH_RE.search(s):
+        return []
+    tokens = [t.strip().strip(")").strip() for t in WITH_RE.split(s)]
+    tokens = [t for t in tokens if t]
+    if len(tokens) < 2 or any(len(t) < 2 for t in tokens):
+        return []
+    return tokens
+
+
 # ── Artist Deezer link backlog (loop-safe, mirror of the catalog enrich pattern)
 # The 2026-07-13 incident: the old fetch_artist_artworks selected every
 # linked-without-artwork artist in one asyncio.gather with a single final
@@ -293,6 +339,10 @@ SYNC_ARTISTS_LOCK_TTL = 4800  # > sync_artists time_limit (4500)
 # link_set_artists has no explicit time_limit → the global CELERY_TIME_LIMIT (3600)
 LINK_SET_ARTISTS_LOCK_TTL = 4200  # > global time_limit (3600)
 BACKFILL_MULTI_ARTISTS_LOCK_TTL = 9300  # > backfill time_limit (9000)
+# autosplit_with_artists: budget-capped like the link task (primary loop guard,
+# sized well under the soft limit), single-instance Redis lock TTL > time_limit.
+AUTOSPLIT_WITH_DEFAULT_BUDGET = 500
+AUTOSPLIT_WITH_LOCK_TTL = 2100  # > autosplit time_limit (1800)
 
 # Batch commit size: a kill after any chunk keeps the committed chunks (the old
 # single final commit lost everything on a timeout).
@@ -866,6 +916,382 @@ def _assign_deezer_id(artist, dz_id, used_deezer_ids):
     artist.deezer_id = dz_id
     used_deezer_ids.add(dz_id)
     return True
+
+
+# ── autosplit_with_artists ────────────────────────────────────────────────────
+# A nightly, Deezer-gated auto-split of "X with Y" artist strings. "with" is NOT a
+# blind separator (unlike "&"/feat): it can sit inside a real artist name, so a
+# candidate is split ONLY when Deezer does not know the whole string as one artist
+# (empty matched hits). Mirrors link_artists_deezer's loop shape: budget cap
+# (primary guard), Redis lock, per-batch commit, NO autoretry, and — like the
+# merge branch there — the mutating split runs SEQUENTIALLY after the concurrent
+# Deezer gather (never a DELETE/flush on the shared session mid-gather).
+
+
+def _autosplit_budget():
+    return int(
+        os.environ.get(
+            "ARTIST_AUTOSPLIT_BUDGET", str(AUTOSPLIT_WITH_DEFAULT_BUDGET)
+        )
+    )
+
+
+def _name_has_with_sql(col):
+    """Dialect-neutral predicate: the name carries a "with"/`(w` collaboration.
+
+    A coarse pre-filter (the authoritative tokeniser is :func:`split_with_parts`,
+    applied per row). ``% with %`` needs bounding spaces so "Within Temptation"
+    never matches; ``%(w %`` / ``%(w.%`` catch the parenthesised shorthand.
+    """
+    from sqlalchemy import func, or_
+
+    lower = func.lower(col)
+    return or_(lower.like("% with %"), lower.like("%(w %"), lower.like("%(w.%"))
+
+
+def _autosplit_conditions(now):
+    from models import Artist, ArtistFlag, CatalogArtist, SetArtist
+    from sqlalchemy import and_, or_, select
+
+    tier1, retry, resurrect = _link_tiers(now)
+    attached = or_(
+        select(CatalogArtist.artist_id)
+        .where(CatalogArtist.artist_id == Artist.id)
+        .exists(),
+        select(SetArtist.artist_id).where(SetArtist.artist_id == Artist.id).exists(),
+    )
+    # A string already routed through the human split queue is left to it.
+    not_flagged = ~(
+        select(ArtistFlag.id)
+        .where(
+            ArtistFlag.raw_artist_string == Artist.name,
+            ArtistFlag.status.in_(["pending", "validated"]),
+        )
+        .exists()
+    )
+    return and_(
+        or_(tier1, retry, resurrect),
+        _name_has_with_sql(Artist.name),
+        attached,
+        not_flagged,
+    )
+
+
+def select_autosplit_candidates(session, budget, now):
+    """Unlinked, attached "with"-string artists to Deezer-gate then maybe split.
+
+    Reuses the E1 link tiers (never-searched first, then the retry/resurrect
+    backoff) so a KEPT row (Deezer knows it) is not re-checked every night — it
+    ages out of tier1 once marked searched, exactly like the link task. Oldest id
+    first within tier1 to drain the tail under fresh influx.
+    """
+    from models import Artist
+    from sqlalchemy import select
+
+    if budget <= 0:
+        return []
+    return (
+        session.execute(
+            select(Artist)
+            .where(_autosplit_conditions(now))
+            .order_by(Artist.id.asc())
+            .limit(budget)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def count_autosplit_candidates(session, now):
+    from models import Artist
+    from sqlalchemy import func, select
+
+    return session.execute(
+        select(func.count(Artist.id)).where(_autosplit_conditions(now))
+    ).scalar_one()
+
+
+def _get_or_create_artist_sync(session, name):
+    """Sync get-or-create of an artist row by ``normalized_name`` (or alias).
+
+    Mirrors the ``sync_artists._get_or_create`` funnel: strips unambiguous noise,
+    refuses a placeholder ("Various Artists"), resolves an existing row by
+    normalized name or alias, else creates one. Returns ``None`` when the name is a
+    placeholder or normalises to empty (the caller drops it from the token list).
+    No commit — the caller owns the transaction.
+    """
+    from datetime import datetime, timezone
+
+    from models import Artist, ArtistAlias
+    from sqlalchemy import select
+    from utils import normalize
+    from workers.artist_names import is_placeholder_artist, strip_artist_noise
+
+    name = (strip_artist_noise(name) or "").strip()
+    if not name or is_placeholder_artist(name):
+        return None
+    norm = normalize(name)
+    if not norm:
+        return None
+    existing = session.execute(
+        select(Artist).where(Artist.normalized_name == norm)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    alias = session.execute(
+        select(ArtistAlias).where(ArtistAlias.normalized_alias == norm)
+    ).scalar_one_or_none()
+    if alias is not None:
+        return session.get(Artist, alias.artist_id)
+    artist = Artist(
+        name=name,
+        normalized_name=norm,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(artist)
+    session.flush()
+    return artist
+
+
+def _fanout_links_sync(session, model, other_key, source_id, token_ids):
+    """Copy every ``source_id`` link of ``model`` to each token (conflict-aware).
+
+    Sync twin of ``artist_service._fanout_source_links``: ``model`` is a
+    composite-PK association (``CatalogArtist``/``SetArtist``) keyed on
+    ``(other_key, artist_id)``. Each source row is duplicated onto every token that
+    does not already hold it (role/position preserved). A pure fan-out — the
+    source's own rows are removed later by the ON DELETE CASCADE when the combined
+    row is deleted, so a token keeps its catalog/set link even after the source is
+    gone. No commit.
+    """
+    from sqlalchemy import select
+
+    other_col = getattr(model, other_key)
+    source_links = session.execute(
+        select(other_col, model.role, model.position).where(
+            model.artist_id == source_id
+        )
+    ).all()
+    if not source_links:
+        return
+    existing = {
+        (row[0], row[1])
+        for row in session.execute(
+            select(other_col, model.artist_id).where(model.artist_id.in_(token_ids))
+        ).all()
+    }
+    for other_val, role, position in source_links:
+        for tid in token_ids:
+            if (other_val, tid) in existing:
+                continue
+            session.add(
+                model(
+                    **{other_key: other_val},
+                    artist_id=tid,
+                    role=role,
+                    position=position,
+                )
+            )
+            existing.add((other_val, tid))
+
+
+def _split_artist_row(session, combined, token_ids):
+    """Fan the combined row's catalog+set links out to the tokens, delete it.
+
+    Sync worker twin of the ``resolve_flag(split)`` disposal: copy every
+    ``catalog_artists`` / ``set_artists`` link of the combined artist onto each
+    token, then delete the combined row. The combined's own (now-redundant) links
+    are dropped EXPLICITLY before the delete so the operation is deterministic on
+    any dialect — in prod the ``ON DELETE CASCADE`` would do it, but the SQLite
+    test harness runs with FK enforcement off. ``Artist`` carries
+    ``passive_deletes="all"`` on both link relationships, so ``session.delete``
+    issues a bare DELETE (no PK blank-out). No commit — the caller owns the txn.
+    """
+    from models import CatalogArtist, SetArtist
+    from sqlalchemy import delete
+
+    _fanout_links_sync(session, CatalogArtist, "catalog_id", combined.id, token_ids)
+    _fanout_links_sync(session, SetArtist, "set_id", combined.id, token_ids)
+    for model in (CatalogArtist, SetArtist):
+        session.execute(
+            delete(model)
+            .where(model.artist_id == combined.id)
+            .execution_options(synchronize_session=False)
+        )
+    session.delete(combined)
+    session.flush()
+
+
+@celery_app.task(
+    name="workers.tasks.autosplit_with_artists",
+    bind=True,
+    soft_time_limit=1800,
+    time_limit=2100,
+)
+def autosplit_with_artists(self):
+    """Auto-split unlinked "X with Y" artist strings that Deezer does not know.
+
+    Single-instance via a Redis lock (SET NX EX, conditional release), same pattern
+    as link_artists_deezer. NO autoretry_for=(Exception,): SoftTimeLimitExceeded IS
+    an Exception, so it would turn a soft timeout into a retry loop.
+    """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:autosplit_with"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=AUTOSPLIT_WITH_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning(
+            "autosplit_with_artists already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+    try:
+        return _run_autosplit_with_artists(self)
+    finally:
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_autosplit_with_artists(task):
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import Artist
+    from workers.crawl_logger import CrawlLogger
+    from workers.db import get_engine
+
+    engine = get_engine()
+    budget = _autosplit_budget()
+
+    with Session(engine) as log_session:
+        with CrawlLogger(
+            log_session,
+            task_type="autosplit_with",
+            source="deezer",
+            celery_task_id=task.request.id,
+        ) as clog:
+
+            async def _async_autosplit():
+                from workers.async_http import DeezerHTTPError, HttpPool
+                from workers.rate_limiter import RateLimiter
+
+                now = datetime.now(timezone.utc)
+                stats = {
+                    "split": 0,
+                    "kept": 0,
+                    "skipped": 0,
+                    "errors": 0,
+                    "dropped_by_budget": 0,
+                }
+
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        candidates = select_autosplit_candidates(session, budget, now)
+                        stats["dropped_by_budget"] = max(
+                            0,
+                            count_autosplit_candidates(session, now) - len(candidates),
+                        )
+                        if not candidates:
+                            return stats
+
+                        # (artist_id, tokens) pairs DETECTED in the concurrent gather;
+                        # the split itself (get-or-create + fan-out + delete + flush)
+                        # runs SEQUENTIALLY after the gather — a coroutine flushing the
+                        # shared session while a sibling reads it would corrupt it
+                        # (same hazard as gather-ing db.execute on one session).
+                        split_pairs = []
+
+                        async def _gate_one(artist):
+                            tokens = split_with_parts(artist.name)
+                            if not tokens:
+                                # matched the coarse SQL but not a clean with-split
+                                # (degenerate tokens) — leave untouched, no Deezer call.
+                                stats["skipped"] += 1
+                                return
+                            try:
+                                data = await pool.deezer_get(
+                                    "/search/artist",
+                                    params={"q": artist.name, "limit": 10},
+                                )
+                            except DeezerHTTPError as e:
+                                # An outage is not a decision — leave the row eligible.
+                                logger.warning(
+                                    "autosplit_with: Deezer search failed for %s: %s",
+                                    artist.name,
+                                    e,
+                                )
+                                stats["errors"] += 1
+                                return
+                            if _matching_deezer_hits(data.get("data", []), artist.name):
+                                # Deezer knows the whole string as one artist → keep it
+                                # intact (mark searched so it ages out of tier1).
+                                _mark_link_searched(artist, now)
+                                stats["kept"] += 1
+                            else:
+                                split_pairs.append((artist.id, tokens))
+
+                        for i in range(0, len(candidates), ARTIST_BACKLOG_BATCH):
+                            batch = candidates[i : i + ARTIST_BACKLOG_BATCH]
+                            split_pairs = []
+                            await asyncio.gather(*[_gate_one(a) for a in batch])
+                            # Persist the KEPT markings first, so a later split rollback
+                            # can never discard this batch's gate progress.
+                            session.commit()
+                            # Each split in its OWN unit of work: a failure (link/alias
+                            # collision, a row that changed under us) rolls back only
+                            # that split, the run continues, the combined row stays
+                            # (E1-eligible next run). Merge asymmetry (invariant #4).
+                            for artist_id, tokens in split_pairs:
+                                try:
+                                    combined = session.get(Artist, artist_id)
+                                    if combined is None or combined.deezer_id is not None:
+                                        continue
+                                    token_ids = []
+                                    for name in tokens:
+                                        a = _get_or_create_artist_sync(session, name)
+                                        if a is not None and a.id != combined.id:
+                                            token_ids.append(a.id)
+                                    token_ids = list(dict.fromkeys(token_ids))
+                                    if len(token_ids) < 2:
+                                        # Tokens collapsed (e.g. both normalise to the
+                                        # combined row, or a placeholder) → not a safe
+                                        # split. Discard the get-or-creates.
+                                        session.rollback()
+                                        stats["skipped"] += 1
+                                        continue
+                                    _split_artist_row(session, combined, token_ids)
+                                    session.commit()
+                                    stats["split"] += 1
+                                except Exception:
+                                    session.rollback()
+                                    logger.warning(
+                                        "autosplit_with: split of artist %s failed — "
+                                        "rolled back, left for a later run",
+                                        artist_id,
+                                        exc_info=True,
+                                    )
+                            logger.info(
+                                "autosplit_with progress: %d/%d (split=%d kept=%d)",
+                                min(i + ARTIST_BACKLOG_BATCH, len(candidates)),
+                                len(candidates),
+                                stats["split"],
+                                stats["kept"],
+                            )
+                        return stats
+
+            try:
+                stats = asyncio.run(_async_autosplit())
+            except Exception:
+                logger.exception("autosplit_with_artists failed")
+                raise
+
+            clog.set_stats(stats)
+
+    return stats
 
 
 @celery_app.task(

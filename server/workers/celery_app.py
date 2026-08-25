@@ -99,6 +99,7 @@ celery_app.conf.update(
         "workers.tasks.fetch_artist_artworks": {"queue": "enrich"},
         # Hit rate-limited external APIs (Deezer / Beatport) → enrich worker
         "workers.tasks.sync_artists": {"queue": "enrich"},
+        "workers.tasks.autosplit_with_artists": {"queue": "enrich"},
         "workers.tasks.backfill_multi_artists": {"queue": "enrich"},
         "workers.tasks.reclassify_genres_chunk": {"queue": "enrich"},
     },
@@ -171,6 +172,15 @@ celery_app.conf.update(
         "check-followed-artists-daily": {
             "task": "workers.tasks.check_followed_artists",
             "schedule": crontab(hour=4, minute=45),  # tous les jours à 4h45
+        },
+        # Auto-split "X with Y" artist strings that Deezer doesn't know as one
+        # artist (04:30, Deezer-idle window). Runs BEFORE link_artists_deezer
+        # (05:10) so a split lands before the link task wastes a search attempt on
+        # the combined string. Budget-capped + locked; no-op in seconds when the
+        # small "with" backlog is drained.
+        "autosplit-with-artists-daily": {
+            "task": "workers.tasks.autosplit_with_artists",
+            "schedule": crontab(hour=4, minute=30),  # tous les jours à 4h30
         },
         # Artist backlog drain (loop-safe, budget-capped) — placed in the
         # Deezer-idle window: enrich_catalog (05:00) finishes in seconds and

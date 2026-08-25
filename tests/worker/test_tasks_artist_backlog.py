@@ -430,6 +430,99 @@ class TestLinkArtistsDeezer:
             assert s.get(Artist, holder_id) is not None
 
 
+class TestAutosplitWithArtists:
+    def test_splits_when_deezer_empty(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A 'X with Y' Deezer does NOT know as one artist is split in two; its
+        catalog + set links fan out to both tokens and the combined row is gone."""
+        from models import CatalogArtist, SetArtist
+
+        with Session(task_engine) as s:
+            combined = _add_artist(s, "George Duke with Alfonso Johnson")
+            combined_id = combined.id
+            s.add(CatalogArtist(catalog_id=55, artist_id=combined_id, role="main", position=0))
+            s.add(SetArtist(set_id=9, artist_id=combined_id, position=0))
+            s.flush()
+        # search returns [] by default → empty matched hits → split
+
+        result = tasks_env.artists.autosplit_with_artists(fake_self)
+
+        assert result["split"] == 1
+        assert result["kept"] == 0
+        with Session(task_engine) as s:
+            assert s.get(Artist, combined_id) is None  # combined disposed
+            by_name = {a.name: a for a in s.execute(select(Artist)).scalars().all()}
+            assert set(by_name) == {"George Duke", "Alfonso Johnson"}
+            tok_ids = {a.id for a in by_name.values()}
+            # both tokens carry the catalog AND set link (fan-out)
+            cat = s.execute(select(CatalogArtist)).scalars().all()
+            assert {c.artist_id for c in cat} == tok_ids
+            assert all(c.catalog_id == 55 for c in cat)
+            st = s.execute(select(SetArtist)).scalars().all()
+            assert {x.artist_id for x in st} == tok_ids
+
+    def test_kept_when_deezer_knows_the_string(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """When Deezer DOES know the whole 'X with Y' as one artist, it is left
+        intact (a real name that happens to contain 'with') — marked searched."""
+        from models import CatalogArtist
+
+        with Session(task_engine) as s:
+            a = _add_artist(s, "Earth with Fire")
+            a_id = a.id
+            s.add(CatalogArtist(catalog_id=7, artist_id=a_id, role="main", position=0))
+            s.flush()
+        fake_pool.search["Earth with Fire"] = [_hit(1, "Earth with Fire")]
+
+        result = tasks_env.artists.autosplit_with_artists(fake_self)
+
+        assert result["split"] == 0
+        assert result["kept"] == 1
+        with Session(task_engine) as s:
+            row = s.get(Artist, a_id)
+            assert row is not None and row.deezer_id is None
+            assert row.deezer_search_attempts == 1  # marked, ages out of tier1
+
+    def test_degenerate_with_is_skipped_not_split(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A name matching the coarse SQL but yielding a degenerate token
+        ('A with Monica' → 1-char token) is left untouched, no Deezer call."""
+        from models import CatalogArtist
+
+        with Session(task_engine) as s:
+            a = _add_artist(s, "A with Monica")
+            a_id = a.id
+            s.add(CatalogArtist(catalog_id=3, artist_id=a_id, role="main", position=0))
+            s.flush()
+
+        result = tasks_env.artists.autosplit_with_artists(fake_self)
+
+        assert result["split"] == 0
+        assert result["skipped"] == 1
+        with Session(task_engine) as s:
+            row = s.get(Artist, a_id)
+            assert row is not None
+            assert row.deezer_search_attempts == 0  # no Deezer call, not marked
+
+    def test_unattached_with_artist_not_selected(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A 'with' string with NO catalog/set link is out of scope (fully orphan
+        rows are dead data), so nothing happens."""
+        with Session(task_engine) as s:
+            a = _add_artist(s, "Foo with Bar")
+            a_id = a.id
+
+        result = tasks_env.artists.autosplit_with_artists(fake_self)
+
+        assert result["split"] == 0 and result["kept"] == 0 and result["skipped"] == 0
+        with Session(task_engine) as s:
+            assert s.get(Artist, a_id) is not None  # untouched
+
+
 class TestLinkArtistsLock:
     def test_skips_when_lock_held(self, tasks_env, fake_redis, fake_self, monkeypatch):
         run = MagicMock()

@@ -54,8 +54,59 @@ classify_artist_string = _artists_mod.classify_artist_string
 split_artist_parts = _artists_mod.split_artist_parts
 _is_stylized_name = _artists_mod._is_stylized_name
 _article_after_separator = _artists_mod._article_after_separator
+split_with_parts = _artists_mod.split_with_parts
 
 from utils import normalize  # noqa: E402  (server/api is on sys.path above)
+
+
+class TestSplitWithParts:
+    """The Deezer-gated "with" tokeniser (autosplit_with_artists)."""
+
+    def test_plain_with(self):
+        assert split_with_parts("George Duke with Alfonso Johnson") == [
+            "George Duke",
+            "Alfonso Johnson",
+        ]
+
+    def test_collab_verb_stripped(self):
+        assert split_with_parts("Brandy duet with Monica") == ["Brandy", "Monica"]
+        assert split_with_parts("Foo duo with Bar") == ["Foo", "Bar"]
+        assert split_with_parts("Foo live with Bar") == ["Foo", "Bar"]
+
+    def test_paren_shorthand(self):
+        assert split_with_parts("Freddie McGregor (w The Sound Dimension)") == [
+            "Freddie McGregor",
+            "The Sound Dimension",
+        ]
+        assert split_with_parts("Leroy Wallace (w. The New Establishment)") == [
+            "Leroy Wallace",
+            "The New Establishment",
+        ]
+
+    def test_unbalanced_paren(self):
+        assert split_with_parts("L Crosdale (w Drum Bago") == ["L Crosdale", "Drum Bago"]
+
+    def test_nested_quotes_preserved(self):
+        assert split_with_parts('George Duke with Alfonso "Slim" Johnson') == [
+            "George Duke",
+            'Alfonso "Slim" Johnson',
+        ]
+
+    def test_no_with_returns_empty(self):
+        assert split_with_parts("Nina Kraviz") == []
+        assert split_with_parts("Adam Beyer & Ida Engberg") == []
+
+    def test_within_temptation_not_split(self):
+        # "with" only as a bounded word — no leading/trailing space in "within".
+        assert split_with_parts("Within Temptation") == []
+        assert split_with_parts("Withheld") == []
+
+    def test_degenerate_tokens_refused(self):
+        # A 1-char token is not a safe split.
+        assert split_with_parts("A with Monica") == []
+        assert split_with_parts("with Monica") == []
+        assert split_with_parts("") == []
+        assert split_with_parts(None) == []
 
 
 class TestPresents:
