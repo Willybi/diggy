@@ -10,6 +10,7 @@ import {
   keptTokens,
   initSplitState,
   foldArtistName,
+  stripDisambiguationNumber,
 } from '../../utils/artistSplit.js'
 
 // ── Legacy separator detection (still feeds the AdminArtists flag flow) ──────
@@ -29,6 +30,12 @@ describe('detectSeparator', () => {
     expect(detectSeparator('Foo X Bar')).toBe(' x ')
     expect(detectSeparator('Foo Y Bar')).toBe(' y ')
     expect(detectSeparator('Foo E Bar')).toBe(' e ')
+  })
+
+  it('detects "with" collaborations incl. the "(w" shorthand', () => {
+    expect(detectSeparator('Foo with Bar')).toBe(' with ')
+    expect(detectSeparator('Freddie McGregor (w The Sound Dimension)')).toBe('(w ')
+    expect(detectSeparator('Leroy Wallace (w. The New Establishment)')).toBe('(w. ')
   })
 
   it('returns null when no separator is present', () => {
@@ -274,5 +281,28 @@ describe('foldArtistName', () => {
   it('is safe on empty input', () => {
     expect(foldArtistName('')).toBe('')
     expect(foldArtistName(null)).toBe('')
+  })
+})
+
+describe('stripDisambiguationNumber', () => {
+  it('drops a trailing Discogs "(N)" for display', () => {
+    expect(stripDisambiguationNumber('The Blue Men (2)')).toBe('The Blue Men')
+    expect(stripDisambiguationNumber('Taxi (22)')).toBe('Taxi')
+    expect(stripDisambiguationNumber('Teppana Jänis (1916)')).toBe('Teppana Jänis')
+  })
+
+  it('leaves non-numeric parens and mid-string numbers untouched', () => {
+    expect(stripDisambiguationNumber('Moon (DE)')).toBe('Moon (DE)')
+    expect(stripDisambiguationNumber('Free Bitch (Sinjin Hawke Remix)')).toBe(
+      'Free Bitch (Sinjin Hawke Remix)',
+    )
+    expect(stripDisambiguationNumber('Front 242')).toBe('Front 242')
+    expect(stripDisambiguationNumber('Artist (2) Live')).toBe('Artist (2) Live')
+  })
+
+  it('is safe on empty / all-number input', () => {
+    expect(stripDisambiguationNumber('')).toBe('')
+    expect(stripDisambiguationNumber(null)).toBe(null)
+    expect(stripDisambiguationNumber('(2)')).toBe('(2)')
   })
 })

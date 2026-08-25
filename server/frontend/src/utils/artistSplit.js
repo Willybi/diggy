@@ -53,6 +53,13 @@ export const SEPARATORS = [
   ' présente ',
   ' pres. ',
   ' pres ',
+  // "with" collaborations, incl. the parenthesised "w"/"w." shorthand
+  // ("Freddie McGregor (w The Sound Dimension)"). Mirrors the backend panel's
+  // _name_is_splittable so these route to the split lane instead of being treated
+  // as one linkable artist. More specific "(w." before "(w ".
+  ' with ',
+  '(w. ',
+  '(w ',
   ' and ',
   ' x ',
   ' y ',
@@ -177,6 +184,20 @@ export function initSplitState(raw) {
     cuts: units.slice(0, -1).map((_, i) => seps[i] || seps[i + 1]),
     keep: seps.map((s) => !s),
   }
+}
+
+// ── Display helper ───────────────────────────────────────────────────────────
+
+// Drop a trailing Discogs "(N)" disambiguator for DISPLAY only: "The Blue Men (2)"
+// → "The Blue Men", "Taxi (22)" → "Taxi". Anchored at the end, pure digits only —
+// "Moon (DE)", "Front 242" and "Free Bitch (Sinjin Hawke Remix)" pass through
+// unchanged. The number stays in the DB (it marks a DISTINCT homonym); this is
+// purely cosmetic (mirrors workers.artist_names.strip_disambiguation_number).
+const DISAMBIG_NUMBER_RE = /\s*\(\s*\d+\s*\)\s*$/
+export function stripDisambiguationNumber(name) {
+  if (!name) return name
+  const stripped = name.replace(DISAMBIG_NUMBER_RE, '').trim()
+  return stripped || name
 }
 
 // ── Deezer signal helper ─────────────────────────────────────────────────────

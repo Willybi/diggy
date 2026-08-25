@@ -4,7 +4,9 @@
       <template v-for="(a, i) in artists" :key="a.id">
         <span v-if="i > 0 && a.role === 'featured'" class="art-sep"> feat. </span>
         <span v-else-if="i > 0" class="art-sep">, </span>
-        <RouterLink :to="`/artist/${a.id}`" class="art-link">{{ a.name }}</RouterLink>
+        <RouterLink :to="`/artist/${a.id}`" class="art-link">{{
+          stripDisambiguationNumber(a.name)
+        }}</RouterLink>
       </template>
     </template>
     <span v-else>{{ fallback }}</span>
@@ -12,6 +14,8 @@
 </template>
 
 <script setup>
+import { stripDisambiguationNumber } from '../utils/artistSplit.js'
+
 defineProps({
   artists: { type: Array, default: () => [] },
   fallback: { type: String, default: '' },

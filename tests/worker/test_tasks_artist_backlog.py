@@ -247,6 +247,42 @@ class TestLinkArtistsDeezer:
         assert arts["Nobody"].deezer_id is None
         assert arts["Nobody"].deezer_search_attempts == 1  # marked, retriable
 
+    def test_disambig_number_stripped_for_query_and_links_when_single(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # A Discogs "(N)" name is searched on the BARE name; a SINGLE homonym links.
+        with Session(task_engine) as s:
+            _add_artist(s, "Jamie Jones (2)")
+        fake_pool.search["Jamie Jones"] = [_hit(10, "Jamie Jones")]
+
+        result = tasks_env.artists.link_artists_deezer(fake_self)
+
+        # linked==1 proves the query was stripped: search is keyed only by the
+        # bare "Jamie Jones", so a raw "(2)" query would have found nothing.
+        assert result["linked"] == 1
+        arts = _artists(task_engine)
+        assert arts["Jamie Jones (2)"].deezer_id == "10"  # DB name keeps the "(N)"
+
+    def test_disambig_number_ambiguous_homonym_does_not_link(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # Two distinct Deezer "Jamie Jones" → can't tell which homonym "(2)" is →
+        # link nothing (err toward separation), just mark searched.
+        with Session(task_engine) as s:
+            _add_artist(s, "Jamie Jones (2)")
+        fake_pool.search["Jamie Jones"] = [
+            _hit(10, "Jamie Jones"),
+            _hit(20, "Jamie Jones"),
+        ]
+
+        result = tasks_env.artists.link_artists_deezer(fake_self)
+
+        assert result["linked"] == 0
+        assert result["searched"] == 1
+        arts = _artists(task_engine)
+        assert arts["Jamie Jones (2)"].deezer_id is None
+        assert arts["Jamie Jones (2)"].deezer_search_attempts == 1  # retriable
+
     def test_budget_caps_and_reports_dropped(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, monkeypatch
     ):

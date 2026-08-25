@@ -119,6 +119,38 @@ class TestListArtists:
         assert "G / H" in names  # skipped flag → not a split → shown
         assert "C / D" in names  # no flag yet → still shown
 
+    async def test_no_deezer_hides_remix_and_keeps_with_collab(self, db, auth_user):
+        from models import Artist, CatalogArtist, CatalogEntry
+
+        # remix title mistaken for an artist → hidden; "(w …)" collab → kept
+        # (splittable, routed to the flag lane); a plain name → kept.
+        remix = Artist(
+            name="Free Bitch (Sinjin Hawke Remix)",
+            normalized_name="free bitch (sinjin hawke remix)",
+        )
+        collab = Artist(
+            name="Freddie McGregor (w The Sound Dimension)",
+            normalized_name="freddie mcgregor (w the sound dimension)",
+        )
+        plain = Artist(name="Clean Name", normalized_name="clean name")
+        db.add_all([remix, collab, plain])
+        await db.flush()
+        for a in (remix, collab, plain):
+            cat = CatalogEntry(title=f"T{a.id}", artist=a.name, normalized_key=f"nk-{a.id}")
+            db.add(cat)
+            await db.flush()
+            db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        await db.commit()
+
+        result = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family=None, q=None,
+            no_deezer=True, ids=None, limit=20, offset=0,
+        )
+        names = [a["name"] for a in result["items"]]
+        assert "Free Bitch (Sinjin Hawke Remix)" not in names  # remix → hidden
+        assert "Freddie McGregor (w The Sound Dimension)" in names  # collab → kept
+        assert "Clean Name" in names
+
     async def test_pagination_stable_on_tied_catalog_count(self, db, auth_user):
         """Regression: ex-aequo rows (same nb_catalog) must not repeat or skip
         across two consecutive LIMIT/OFFSET pages. Artist.id is the total-order

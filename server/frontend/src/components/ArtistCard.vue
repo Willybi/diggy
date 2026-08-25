@@ -76,7 +76,7 @@
     </div>
 
     <div class="ac-body">
-      <div class="ac-name">{{ artist.name }}</div>
+      <div class="ac-name">{{ stripDisambiguationNumber(artist.name) }}</div>
       <div class="ac-genres">
         <RouterLink
           v-for="g in displayGenres"
@@ -115,6 +115,7 @@ import { useRouter } from 'vue-router'
 import { styleTone } from '../composables/useStyleMap.js'
 
 import api from '../utils/api.js'
+import { stripDisambiguationNumber } from '../utils/artistSplit.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
 import StyleTag from './StyleTag.vue'

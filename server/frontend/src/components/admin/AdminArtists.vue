@@ -129,7 +129,7 @@
               <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
               <span v-else class="fallback-sm">{{ a.name?.[0] }}</span>
             </div>
-            <span class="ar-name-sm">{{ a.name }}</span>
+            <span class="ar-name-sm">{{ stripDisambiguationNumber(a.name) }}</span>
             <div class="row-actions" @click.stop>
               <button class="btn-row-action" title="Pas sur Deezer" @click="markNoDeezer(a)">
                 ✗ Deezer
@@ -188,7 +188,7 @@
     </div>
     <div v-if="selectedDbArtist && selectedDeezerHit" class="link-confirm">
       <span class="link-summary">
-        Lier <strong>{{ selectedDbArtist.name }}</strong> → Deezer
+        Lier <strong>{{ stripDisambiguationNumber(selectedDbArtist.name) }}</strong> → Deezer
         <strong>{{ selectedDeezerHit.name }}</strong> ({{ selectedDeezerHit.deezer_id }})
       </span>
       <button class="btn-confirm-link" :disabled="linking" @click="confirmLink">
@@ -216,7 +216,7 @@
 import { ref, onMounted } from 'vue'
 import api from '../../utils/api.js'
 import { useTaskPoll } from '../../composables/useTaskPoll.js'
-import { detectSeparator, splitUnits } from '../../utils/artistSplit.js'
+import { detectSeparator, splitUnits, stripDisambiguationNumber } from '../../utils/artistSplit.js'
 import ArtistSegmentSplitter from './ArtistSegmentSplitter.vue'
 
 const syncing = ref(false)
@@ -250,22 +250,13 @@ const linkError = ref('')
 let linkDbTimer = null
 let linkDeezerTimer = null
 
-// Discogs-style disambiguation suffix — a homonym counter in trailing parens
-// ("Willow (18)", "Africano (3)"). Source-data pollution, never part of the real
-// stage name, and it blocks the Deezer match (Deezer knows "Willow", not
-// "Willow (18)"). We strip it (1-2 digits, per the observed data) ONLY to build
-// the Deezer search query; the stored name is left untouched until a confirmed
-// link renames it to the canonical Deezer name (artist_service.link_to_deezer).
-// A name that is ONLY the counter ("(19)") strips to "" → callers fall back to
-// the raw name.
-const DISAMBIG_SUFFIX_RE = /\s*\(\d{1,2}\)\s*$/
-function cleanArtistName(name) {
-  return (name || '').replace(DISAMBIG_SUFFIX_RE, '').trim()
-}
-
 function selectArtistAndSearch(a) {
   selectedDbArtist.value = a
-  linkDeezerQuery.value = cleanArtistName(a.name) || a.name
+  // Strip the Discogs "(N)" disambiguation counter to build the Deezer query
+  // (Deezer knows "Willow", not "Willow (18)"). The stored name is untouched
+  // until a confirmed link renames it to the canonical Deezer name. Shared with
+  // the display strip (utils/artistSplit.stripDisambiguationNumber).
+  linkDeezerQuery.value = stripDisambiguationNumber(a.name)
   onDeezerSearch()
 }
 

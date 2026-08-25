@@ -24,7 +24,7 @@
           </div>
           <div v-else class="hb-strip" aria-hidden="true"></div>
           <div class="hb-scrim" aria-hidden="true"></div>
-          <h1 class="hb-name">{{ artist.name }}</h1>
+          <h1 class="hb-name">{{ stripDisambiguationNumber(artist.name) }}</h1>
         </div>
 
         <div class="hero-below">
@@ -268,6 +268,7 @@ import SetCard from '../components/SetCard.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import AddToCollectionButton from '../components/AddToCollectionButton.vue'
 import { fmtNum, pl } from '../utils/format'
+import { stripDisambiguationNumber } from '../utils/artistSplit.js'
 
 const route = useRoute()
 const router = useRouter()

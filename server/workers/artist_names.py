@@ -67,6 +67,55 @@ def strip_artist_noise(name: str) -> str:
     return stripped or name
 
 
+# ── strip_disambiguation_number ─────────────────────────────────────────────
+
+# A trailing Discogs-style disambiguation number: "The Blue Men (2)", "Jamie
+# Jones (2)", "Taxi (22)", "Teppana Jänis (1916)". Discogs appends "(N)" to tell
+# apart DISTINCT artists that share a name, so the number is meaningless outside
+# Discogs and must never be shown to a user. Anchored at the very end, pure digits
+# only (never touches a mid-string number or a non-numeric paren like a country tag
+# "(DE)" or a remix suffix). Whitespace-tolerant inside and around the parens.
+_RE_DISAMBIG_NUMBER = re.compile(r"\s*\(\s*\d+\s*\)\s*$")
+
+
+def strip_disambiguation_number(name: str) -> str:
+    """Drop a trailing Discogs "(N)" disambiguator, else return the name as-is.
+
+    "The Blue Men (2)" → "The Blue Men", "Taxi (22)" → "Taxi". A name with no
+    trailing "(<digits>)" is returned UNCHANGED (identical object): "Front 242",
+    "Moon (DE)", "Free Bitch (Sinjin Hawke Remix)" and "2 Live Crew" all pass
+    through. If a strip would empty the string, the original is returned.
+
+    Used for DISPLAY (never show the number) and to build the MATCH query (search
+    Deezer for the bare name) — but the caller keeps "(N)" as the stored identity,
+    since it marks a genuinely distinct homonym (invariant #4): stripping it in the
+    DB would collapse two different artists into one node.
+    """
+    if not name:
+        return name
+    stripped = _RE_DISAMBIG_NUMBER.sub("", name)
+    if stripped == name:
+        return name
+    return stripped.strip() or name
+
+
+# ── is_remix_noise ───────────────────────────────────────────────────────────
+
+
+def is_remix_noise(name: str) -> bool:
+    """True when ``name`` looks like a remix TITLE mistaken for an artist.
+
+    A parser sometimes captures a track title as an artist ("Free Bitch (Sinjin
+    Hawke Remix)", "If (Kaytranada Remix)", "DJLUDOREMIX"). None of these is a real
+    artist, so callers hide them from the "link an artist" panel. Substring test on
+    a lowercased copy (parity with the SQL ``lower(name) LIKE '%remix%'`` used in
+    the panel query) — catches the glued "DJLUDOREMIX" a word-boundary match would
+    miss. Purely a HIDE signal: nothing is deleted, so a rare false positive only
+    drops one row from a review list.
+    """
+    return bool(name) and "remix" in name.lower()
+
+
 # ── fold_base ───────────────────────────────────────────────────────────────
 
 # Latin-script letters with NO Unicode decomposition: an NFKD + ascii-ignore fold

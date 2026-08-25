@@ -57,7 +57,25 @@ def _name_is_splittable(col):
         lower.like("% presents %"),
         lower.like("% pres %"),
         lower.like("% pres.%"),
+        # "with" collaborations, incl. the parenthesised "w"/"w." shorthand
+        # ("Freddie McGregor (w The Sound Dimension)"): route to the split lane
+        # (a flag button in the panel) rather than treating the whole string as
+        # one linkable artist.
+        lower.like("% with %"),
+        lower.like("%(w %"),
+        lower.like("%(w.%"),
     )
+
+
+def _name_is_remix_noise(col):
+    """Dialect-neutral SQL predicate: the name is a remix TITLE, not an artist.
+
+    A parser sometimes captures a track title as an artist ("Free Bitch (Sinjin
+    Hawke Remix)", "DJLUDOREMIX"). Substring test on a lowercased copy (parity with
+    ``workers.artist_names.is_remix_noise``) so the glued form is caught too. Used
+    ONLY to hide such rows from the "link an artist" panel — nothing is deleted.
+    """
+    return func.lower(col).like("%remix%")
 
 
 async def _ensure_alias(db: AsyncSession, artist_id: int, alias_name: str) -> None:
@@ -278,11 +296,13 @@ async def list_artists(
             )
             .exists()
         )
+        # Hide remix TITLES mistaken for artists (not real, not linkable).
+        not_remix = ~_name_is_remix_noise(Artist.name)
         base_query = base_query.where(
-            Artist.deezer_id.is_(None), attached, actionable, not_flagged
+            Artist.deezer_id.is_(None), attached, actionable, not_flagged, not_remix
         )
         id_filter_query = id_filter_query.where(
-            Artist.deezer_id.is_(None), attached, actionable, not_flagged
+            Artist.deezer_id.is_(None), attached, actionable, not_flagged, not_remix
         )
         dormant_count = (
             await db.execute(

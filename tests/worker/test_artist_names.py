@@ -20,12 +20,77 @@ from workers.artist_names import (  # noqa: E402
     dominant_by_fans,
     fold_base,
     is_placeholder_artist,
+    is_remix_noise,
     looks_acronym,
     punct_fold_key,
     punct_sep_key,
     space_fold_key,
     strip_artist_noise,
+    strip_disambiguation_number,
 )
+
+# ── strip_disambiguation_number ─────────────────────────────────────────────
+
+
+class TestStripDisambiguationNumber:
+    def test_trailing_paren_number_stripped(self):
+        assert strip_disambiguation_number("The Blue Men (2)") == "The Blue Men"
+
+    def test_multi_digit_number_stripped(self):
+        assert strip_disambiguation_number("Taxi (22)") == "Taxi"
+        assert strip_disambiguation_number("Teppana Jänis (1916)") == "Teppana Jänis"
+
+    def test_whitespace_tolerant_inside_and_around_parens(self):
+        assert strip_disambiguation_number("Foo ( 3 )") == "Foo"
+
+    def test_no_trailing_number_returns_unchanged(self):
+        # Identical object when nothing to strip.
+        for name in ("Front 242", "2 Live Crew", "Level 42", "Apollo 440"):
+            assert strip_disambiguation_number(name) is name
+
+    def test_non_numeric_paren_untouched(self):
+        # Country tag, remix suffix, label — NOT a bare disambiguation number.
+        assert strip_disambiguation_number("Moon (DE)") == "Moon (DE)"
+        assert (
+            strip_disambiguation_number("Free Bitch (Sinjin Hawke Remix)")
+            == "Free Bitch (Sinjin Hawke Remix)"
+        )
+
+    def test_mid_string_number_untouched(self):
+        # Anchored at the end only.
+        assert strip_disambiguation_number("Artist (2) Live") == "Artist (2) Live"
+
+    def test_empty_and_all_number_guarded(self):
+        assert strip_disambiguation_number("") == ""
+        # A strip that would empty the string returns the original.
+        assert strip_disambiguation_number("(2)") == "(2)"
+
+
+# ── is_remix_noise ───────────────────────────────────────────────────────────
+
+
+class TestIsRemixNoise:
+    def test_parenthesised_remix(self):
+        assert is_remix_noise("Free Bitch (Sinjin Hawke Remix)")
+        assert is_remix_noise("If (Kaytranada Remix)")
+        assert is_remix_noise("Loyal (Remix)")
+
+    def test_remix_without_parens(self):
+        assert is_remix_noise("Dosem Remix - Edit")
+        assert is_remix_noise("G Funk Remix")
+
+    def test_glued_remix_caught(self):
+        # Substring match, not word-boundary — catches the glued form.
+        assert is_remix_noise("DJLUDOREMIX")
+
+    def test_case_insensitive(self):
+        assert is_remix_noise("Some REMIX Thing")
+
+    def test_non_remix_and_empty(self):
+        assert not is_remix_noise("Jamie Jones")
+        assert not is_remix_noise("The Blue Men (2)")
+        assert not is_remix_noise("")
+
 
 # ── strip_artist_noise ──────────────────────────────────────────────────────
 

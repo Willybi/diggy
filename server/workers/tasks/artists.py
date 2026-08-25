@@ -588,17 +588,33 @@ async def _link_artist_deezer(pool, artist, holder_map, now):
     NOT_FOUND sentinel excluded); both the free-id membership test and the merge
     target are read from it.
     """
+    from workers.artist_names import strip_disambiguation_number
     from workers.async_http import DeezerHTTPError
+
+    # Strip a Discogs "(N)" disambiguator for the query — Deezer knows "Jamie
+    # Jones", not "Jamie Jones (2)". The number stays in artist.name (it marks a
+    # genuinely DISTINCT homonym, invariant #4 — dropping it in the DB would
+    # collapse two artists into one node); we only use the bare name to search+match.
+    query_name = strip_disambiguation_number(artist.name)
+    had_number = query_name != artist.name
 
     try:
         data = await pool.deezer_get(
-            "/search/artist", params={"q": artist.name, "limit": 10}
+            "/search/artist", params={"q": query_name, "limit": 10}
         )
     except DeezerHTTPError as e:
         logger.warning("Deezer artist search failed for %s: %s", artist.name, e)
         return "error", None
 
     _mark_link_searched(artist, now)
+    matches = _matching_deezer_hits(data.get("data", []), query_name)
+    # Homonym guard for a "(N)" name: "(2)" means a DISTINCT artist sharing the bare
+    # name, so an auto-link is only safe when the bare name resolves to a SINGLE
+    # Deezer artist. Two+ distinct ids among the matches = genuinely ambiguous which
+    # homonym this is → link nothing (err toward separation); the row stays for a
+    # manual decision. Non-"(N)" names are unaffected (had_number is False).
+    if had_number and len({str(h["id"]) for h in matches}) > 1:
+        return "searched", None
     # Rank the qualifying hits by fan count (most popular homonym first — L3) and
     # KEEP the free-id-over-merge preference: scan the ranked matches, link on the
     # first hit exposing a FREE id, and only fall back to merging into the top held
@@ -608,7 +624,7 @@ async def _link_artist_deezer(pool, artist, holder_map, now):
     # artist. All match signals (exact / accent fold / guarded punctuation fold) and
     # the blank-fold non-latin guard live in _matching_deezer_hits.
     merge_target = None
-    for hit in _matching_deezer_hits(data.get("data", []), artist.name):
+    for hit in matches:
         dz_id = str(hit["id"])
         holder_id = holder_map.get(dz_id)
         if holder_id is None:
