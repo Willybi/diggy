@@ -132,24 +132,23 @@ async function loadBacklog() {
 }
 onMounted(loadBacklog)
 
-// Badge d'onglet = somme des compteurs actionnables des chantiers portés par
-// l'onglet. Aperçu n'en porte jamais. Masqué à 0 et tant que le backlog n'est pas
-// chargé (backlog null → tout à 0). Recalculé pour l'IA à 6 onglets :
-//   artists = to_link + no_artwork + artist_flags.pending (l'onglet Flags est ici)
-//   sets = recrawl + flags_pending
-//   genres = unclassified + mappings_unmapped
-//   enrichment = beatport.pending
-//   observability = crawl.playlists_due + crawl.dlq (dlq null si Redis down → 0)
+// Badge d'onglet = files d'ACTION HUMAINE portées par l'onglet, rien d'autre. Les
+// backlogs qui se drainent AUTOMATIQUEMENT la nuit (Beatport, Deezer, genres,
+// artistes à lier/sans pochette, recrawl sets, playlists dues) ne sont PAS badgés :
+// un badge dessus serait du bruit permanent. On ne compte que ce qui demande une
+// revue/décision réellement visible dans l'onglet. Aperçu n'en porte jamais.
+// Masqué à 0 et tant que le backlog n'est pas chargé (backlog null → tout à 0).
+//   artists        = artist_flags.pending  (flags artistes à valider)
+//   sets           = sets.flags_pending    (set-flags de dédup à revoir)
+//   observability  = crawl.dlq             (entrées DLQ à inspecter ; dlq null si Redis down → 0)
+//   genres / enrichment / overview → aucun badge (backlogs auto uniquement).
 const badges = computed(() => {
   const b = backlog.value
   if (!b) return {}
   return {
-    artists:
-      (b.artists?.to_link || 0) + (b.artists?.no_artwork || 0) + (b.artist_flags?.pending || 0),
-    sets: (b.sets?.recrawl || 0) + (b.sets?.flags_pending || 0),
-    genres: (b.genres?.unclassified || 0) + (b.genres?.mappings_unmapped || 0),
-    enrichment: b.beatport?.pending || 0,
-    observability: (b.crawl?.playlists_due || 0) + (b.crawl?.dlq || 0),
+    artists: b.artist_flags?.pending || 0,
+    sets: b.sets?.flags_pending || 0,
+    observability: b.crawl?.dlq || 0,
   }
 })
 function badgeFor(id) {

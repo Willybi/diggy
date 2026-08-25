@@ -154,39 +154,60 @@ describe('AdminView', () => {
     expect(pushMock).toHaveBeenCalledWith('/admin/observability')
   })
 
-  it('renders tab badges recalculated for the new IA', async () => {
+  // Sémantique des badges REVUE (volontaire) : un badge ne compte plus QUE les files
+  // d'action humaine (flags artistes, set-flags de dédup, DLQ) — les backlogs qui se
+  // drainent automatiquement la nuit (Beatport, genres, artistes à lier/sans pochette,
+  // recrawl sets, playlists dues) ne sont plus badgés. Le fixture existant a
+  // artist_flags.pending=0 et sets.flags_pending=158 → seul Sets porte un badge.
+  it('badges only the human-action queues (flags artistes, set-flags, DLQ)', async () => {
     const wrapper = await mountView()
-    // artists = 5 + 2990 + artist_flags 0 = 2 995 · sets = 501 + 158 = 659 ·
-    // enrichment = beatport.pending 2 607 · observability = 56 + dlq 0 = 56 ·
-    // genres = 42 031 → abrégé « 42,0 k ».
-    expect(norm(tabByLabel(wrapper, 'Artistes').find('.tab-badge').text())).toBe('2995')
-    expect(norm(tabByLabel(wrapper, 'Sets').find('.tab-badge').text())).toBe('659')
-    expect(norm(tabByLabel(wrapper, 'Enrichissement').find('.tab-badge').text())).toBe('2607')
-    expect(norm(tabByLabel(wrapper, 'Observabilité').find('.tab-badge').text())).toBe('56')
-    expect(tabByLabel(wrapper, 'Genres').find('.tab-badge').text()).toBe('42,0 k')
-    // 5 badge-bearing tabs (overview never carries one).
-    expect(wrapper.findAll('.tab-badge')).toHaveLength(5)
+    // artists = artist_flags.pending 0 → masqué · sets = flags_pending 158 ·
+    // observability = dlq 0 → masqué · genres/enrichment/overview → jamais de badge.
+    expect(norm(tabByLabel(wrapper, 'Sets').find('.tab-badge').text())).toBe('158')
+    // Seul Sets porte un badge ici (les autres files d'action sont à 0).
+    expect(wrapper.findAll('.tab-badge')).toHaveLength(1)
+    expect(tabByLabel(wrapper, 'Artistes').find('.tab-badge').exists()).toBe(false)
+    expect(tabByLabel(wrapper, 'Enrichissement').find('.tab-badge').exists()).toBe(false)
+    expect(tabByLabel(wrapper, 'Genres').find('.tab-badge').exists()).toBe(false)
+    expect(tabByLabel(wrapper, 'Observabilité').find('.tab-badge').exists()).toBe(false)
     expect(tabByLabel(wrapper, 'Aperçu').find('.tab-badge').exists()).toBe(false)
   })
 
-  it('folds artist_flags.pending into the Artistes badge', async () => {
+  it('badges the Artistes tab with artist_flags.pending only', async () => {
     const b = backlogFixture()
     b.artist_flags.pending = 12
     apiMock.get.mockReset()
     apiMock.get.mockResolvedValue({ data: b })
     const wrapper = await mountView()
-    // 5 + 2990 + 12 = 3 007.
-    expect(norm(tabByLabel(wrapper, 'Artistes').find('.tab-badge').text())).toBe('3007')
+    // 12 flags artistes à valider — to_link/no_artwork (backlogs auto) ne comptent plus.
+    expect(norm(tabByLabel(wrapper, 'Artistes').find('.tab-badge').text())).toBe('12')
   })
 
-  it('hides a badge whose sum is 0', async () => {
+  it('abbreviates a large action-queue badge above 9 999', async () => {
     const b = backlogFixture()
-    b.crawl.playlists_due = 0
-    b.crawl.dlq = 0
+    b.sets.flags_pending = 42031
     apiMock.get.mockReset()
     apiMock.get.mockResolvedValue({ data: b })
     const wrapper = await mountView()
-    expect(tabByLabel(wrapper, 'Observabilité').find('.tab-badge').exists()).toBe(false)
+    expect(tabByLabel(wrapper, 'Sets').find('.tab-badge').text()).toBe('42,0 k')
+  })
+
+  it('hides a badge whose count is 0', async () => {
+    const b = backlogFixture()
+    b.sets.flags_pending = 0
+    apiMock.get.mockReset()
+    apiMock.get.mockResolvedValue({ data: b })
+    const wrapper = await mountView()
+    expect(tabByLabel(wrapper, 'Sets').find('.tab-badge').exists()).toBe(false)
+  })
+
+  it('badges the Observabilité tab with the DLQ count', async () => {
+    const b = backlogFixture()
+    b.crawl.dlq = 7
+    apiMock.get.mockReset()
+    apiMock.get.mockResolvedValue({ data: b })
+    const wrapper = await mountView()
+    expect(norm(tabByLabel(wrapper, 'Observabilité').find('.tab-badge').text())).toBe('7')
   })
 
   it('treats a null DLQ (Redis down) as 0 in the observability badge', async () => {
@@ -195,8 +216,8 @@ describe('AdminView', () => {
     apiMock.get.mockReset()
     apiMock.get.mockResolvedValue({ data: b })
     const wrapper = await mountView()
-    // playlists_due 56 + (null → 0) = 56, pas de NaN.
-    expect(norm(tabByLabel(wrapper, 'Observabilité').find('.tab-badge').text())).toBe('56')
+    // dlq null → 0 → pas de badge, pas de NaN.
+    expect(tabByLabel(wrapper, 'Observabilité').find('.tab-badge').exists()).toBe(false)
   })
 
   it('shows no badges while the backlog fails to load', async () => {
