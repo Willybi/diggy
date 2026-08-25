@@ -100,6 +100,7 @@ celery_app.conf.update(
         # Hit rate-limited external APIs (Deezer / Beatport) → enrich worker
         "workers.tasks.sync_artists": {"queue": "enrich"},
         "workers.tasks.autosplit_with_artists": {"queue": "enrich"},
+        "workers.tasks.auto_resolve_artist_flags": {"queue": "enrich"},
         "workers.tasks.backfill_multi_artists": {"queue": "enrich"},
         "workers.tasks.reclassify_genres_chunk": {"queue": "enrich"},
     },
@@ -181,6 +182,15 @@ celery_app.conf.update(
         "autosplit-with-artists-daily": {
             "task": "workers.tasks.autosplit_with_artists",
             "schedule": crontab(hour=4, minute=30),  # tous les jours à 4h30
+        },
+        # Auto-resolve the artist-flag queue: Deezer-gated auto-split of collab
+        # flags (whole string absent from Deezer, every token present). 04:40 —
+        # after autosplit-with (04:30), still BEFORE link_artists_deezer (05:10) so
+        # the freshly split tokens get linked/artworked the same night. Budget-capped
+        # + locked; no-op in seconds when the flag queue holds nothing splittable.
+        "auto-resolve-artist-flags-daily": {
+            "task": "workers.tasks.auto_resolve_artist_flags",
+            "schedule": crontab(hour=4, minute=40),  # tous les jours à 4h40
         },
         # Artist backlog drain (loop-safe, budget-capped) — placed in the
         # Deezer-idle window: enrich_catalog (05:00) finishes in seconds and

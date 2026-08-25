@@ -343,6 +343,12 @@ BACKFILL_MULTI_ARTISTS_LOCK_TTL = 9300  # > backfill time_limit (9000)
 # sized well under the soft limit), single-instance Redis lock TTL > time_limit.
 AUTOSPLIT_WITH_DEFAULT_BUDGET = 500
 AUTOSPLIT_WITH_LOCK_TTL = 2100  # > autosplit time_limit (1800)
+# auto_resolve_artist_flags: nightly Deezer-gated auto-split of the artist-flag
+# queue. Same loop shape (budget cap + lock). ambiguous flags are EXCLUDED (the
+# whole string IS a Deezer artist → possible established duo, human decision).
+AUTORESOLVE_FLAGS_DEFAULT_BUDGET = 500
+AUTORESOLVE_FLAGS_LOCK_TTL = 2400  # strictly > auto_resolve time_limit (2100)
+AUTORESOLVE_FLAG_REASONS = ("auto_split", "comma_unresolved", "ampersand_unknown")
 
 # Batch commit size: a kill after any chunk keeps the committed chunks (the old
 # single final commit lost everything on a timeout).
@@ -1290,6 +1296,336 @@ def _run_autosplit_with_artists(task):
                 stats = asyncio.run(_async_autosplit())
             except Exception:
                 logger.exception("autosplit_with_artists failed")
+                raise
+
+            clog.set_stats(stats)
+
+    return stats
+
+
+# ── auto_resolve_artist_flags ─────────────────────────────────────────────────
+# A nightly, Deezer-gated auto-split of the pending artist-flag queue. Applies the
+# same "collab -> split" rule sync_artists uses at CREATION time, but to the flags
+# that already sit in the queue (chiefly the ~200 auto_split rows the historical
+# backfill created with an EMPTY deezer_ids snapshot, so they never asked Deezer).
+# Rule: search Deezer for the FULL string + every token; auto-resolve as a split
+# ONLY when the whole string is NOT a Deezer artist AND every token folds-exact to
+# a DISTINCT Deezer artist. The Deezer gate is the quality filter — a garbage
+# tokenisation ("Jimmy Dorsey v", "jaso (AKA") never confirms, so it stays in the
+# queue for a human. A split is the SAFE direction (invariant #4: never auto-merge
+# — ampersand_ambiguous, where the whole string IS on Deezer, is excluded).
+
+
+def _autoresolve_flags_budget():
+    return int(
+        os.environ.get(
+            "ARTIST_AUTORESOLVE_FLAGS_BUDGET", str(AUTORESOLVE_FLAGS_DEFAULT_BUDGET)
+        )
+    )
+
+
+def _autoresolve_flag_conditions():
+    from models import ArtistFlag
+
+    return (
+        ArtistFlag.status == "pending",
+        ArtistFlag.reason.in_(AUTORESOLVE_FLAG_REASONS),
+    )
+
+
+def select_autoresolve_flag_candidates(session, budget):
+    """Pending artist flags eligible for the Deezer-gated auto-split, oldest first.
+
+    ampersand_ambiguous is excluded upstream (AUTORESOLVE_FLAG_REASONS): its full
+    string resolves on Deezer, so it may be an established duo — a human call.
+    """
+    from models import ArtistFlag
+    from sqlalchemy import select
+
+    if budget <= 0:
+        return []
+    return (
+        session.execute(
+            select(ArtistFlag)
+            .where(*_autoresolve_flag_conditions())
+            .order_by(ArtistFlag.id.asc())
+            .limit(budget)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def count_autoresolve_flag_candidates(session):
+    from models import ArtistFlag
+    from sqlalchemy import func, select
+
+    return session.execute(
+        select(func.count(ArtistFlag.id)).where(*_autoresolve_flag_conditions())
+    ).scalar_one()
+
+
+def _resolve_flag_split_sync(session, flag, token_deezer_ids):
+    """Resolve a pending artist flag as a SPLIT, in a sync Session, with fresh ids.
+
+    Sync worker twin of ``artist_service.resolve_flag(action="split")`` with the
+    live Deezer ids injected: get-or-create each token, assign its FREE deezer_id,
+    repoint the flat-string catalog rows onto the tokens (M2M), fan the combined
+    row's catalog+set links out then delete it (``_split_artist_row``), and validate
+    the flag. Returns False (no commit) when the tokens collapse to <2 distinct rows
+    — never a safe split. No commit — the caller owns the transaction.
+    """
+    from datetime import datetime, timezone
+
+    from models import Artist, CatalogArtist, CatalogEntry
+    from sqlalchemy import select
+    from utils import normalize
+
+    created_ids = []
+    for name in flag.tokens:
+        artist = _get_or_create_artist_sync(session, name)
+        if artist is None:
+            continue
+        wanted = token_deezer_ids.get(name)
+        if wanted and not artist.deezer_id:
+            # Never claim a deezer_id already held (accent/Unicode twin): the next
+            # flush would raise on uq_artists_deezer_id. Leave it NULL — E1 relinks.
+            holder = session.execute(
+                select(Artist.id).where(Artist.deezer_id == str(wanted))
+            ).scalar_one_or_none()
+            if holder is None:
+                artist.deezer_id = str(wanted)
+        created_ids.append(artist.id)
+    created_ids = list(dict.fromkeys(created_ids))
+    if len(created_ids) < 2:
+        return False
+
+    # Repoint the flat-string catalog rows (catalog.artist == raw) onto every token.
+    cat_ids = [
+        r[0]
+        for r in session.execute(
+            select(CatalogEntry.id).where(
+                CatalogEntry.artist == flag.raw_artist_string
+            )
+        ).all()
+    ]
+    for cat_id in cat_ids:
+        existing = {
+            r[0]
+            for r in session.execute(
+                select(CatalogArtist.artist_id).where(
+                    CatalogArtist.catalog_id == cat_id
+                )
+            ).all()
+        }
+        for pos, aid in enumerate(created_ids):
+            if aid not in existing:
+                session.add(
+                    CatalogArtist(
+                        catalog_id=cat_id,
+                        artist_id=aid,
+                        role="primary",
+                        position=pos,
+                    )
+                )
+
+    # Dispose of the combined row (if one exists): fan its real links out to the
+    # tokens, then delete it — otherwise it lingers in the "without deezer_id" list.
+    combined = session.execute(
+        select(Artist).where(
+            Artist.normalized_name == normalize(flag.raw_artist_string)
+        )
+    ).scalar_one_or_none()
+    if combined is not None and combined.id not in created_ids:
+        _split_artist_row(session, combined, created_ids)
+
+    flag.status = "validated"
+    flag.resolved_artist_ids = created_ids
+    flag.deezer_ids = {**(flag.deezer_ids or {}), **token_deezer_ids}
+    flag.updated_at = datetime.now(timezone.utc)
+    return True
+
+
+@celery_app.task(
+    name="workers.tasks.auto_resolve_artist_flags",
+    bind=True,
+    soft_time_limit=1800,
+    time_limit=2100,
+)
+def auto_resolve_artist_flags(self):
+    """Auto-split the collab flags Deezer confirms (whole absent, tokens present).
+
+    Single-instance via a Redis lock (SET NX EX, conditional release), same pattern
+    as autosplit_with_artists. NO autoretry_for=(Exception,): SoftTimeLimitExceeded
+    IS an Exception, so it would turn a soft timeout into a retry loop.
+    """
+    import redis as redis_lib
+
+    sys.path.insert(0, "/app")
+    from workers.celery_app import REDIS_URL
+
+    lock_key = "lock:autoresolve_flags"
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    if not r.set(lock_key, self.request.id, nx=True, ex=AUTORESOLVE_FLAGS_LOCK_TTL):
+        holder = r.get(lock_key)
+        logger.warning(
+            "auto_resolve_artist_flags already running (task %s), skipping", holder
+        )
+        return {"skipped": "already_running", "holder": holder}
+    try:
+        return _run_auto_resolve_artist_flags(self)
+    finally:
+        if r.get(lock_key) == self.request.id:
+            r.delete(lock_key)
+
+
+def _run_auto_resolve_artist_flags(task):
+    from sqlalchemy.orm import Session
+
+    sys.path.insert(0, "/app")
+    from models import ArtistFlag
+    from workers.crawl_logger import CrawlLogger
+    from workers.db import get_engine
+
+    engine = get_engine()
+    budget = _autoresolve_flags_budget()
+
+    with Session(engine) as log_session:
+        with CrawlLogger(
+            log_session,
+            task_type="autoresolve_flags",
+            source="deezer",
+            celery_task_id=task.request.id,
+        ) as clog:
+
+            async def _async_run():
+                from workers.async_http import DeezerHTTPError, HttpPool
+                from workers.rate_limiter import RateLimiter
+
+                stats = {
+                    "resolved": 0,
+                    "kept": 0,
+                    "skipped": 0,
+                    "errors": 0,
+                    "dropped_by_budget": 0,
+                }
+
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        candidates = select_autoresolve_flag_candidates(
+                            session, budget
+                        )
+                        stats["dropped_by_budget"] = max(
+                            0,
+                            count_autoresolve_flag_candidates(session)
+                            - len(candidates),
+                        )
+                        if not candidates:
+                            return stats
+
+                        # (flag_id, {token: deezer_id}) decisions detected in the
+                        # concurrent gather; the mutating resolve runs SEQUENTIALLY
+                        # after it — a coroutine flushing the shared session while a
+                        # sibling reads it would corrupt it (same hazard as gather-ing
+                        # db.execute on one session).
+                        decisions = []
+
+                        async def _gate_flag(flag):
+                            tokens = list(flag.tokens or [])
+                            if len(tokens) < 2:
+                                stats["skipped"] += 1
+                                return
+                            names = [flag.raw_artist_string, *tokens]
+                            try:
+                                results = await asyncio.gather(
+                                    *[
+                                        pool.deezer_get(
+                                            "/search/artist",
+                                            params={"q": n, "limit": 10},
+                                        )
+                                        for n in names
+                                    ]
+                                )
+                            except DeezerHTTPError as e:
+                                # An outage is not a decision — leave the flag pending.
+                                logger.warning(
+                                    "auto_resolve_flags: Deezer search failed "
+                                    "for %s: %s",
+                                    flag.raw_artist_string,
+                                    e,
+                                )
+                                stats["errors"] += 1
+                                return
+                            full_data, token_data = results[0], results[1:]
+                            if _matching_deezer_hits(
+                                full_data.get("data", []), flag.raw_artist_string
+                            ):
+                                # Deezer knows the whole string as one artist → not a
+                                # collab (possible real name / duo) → human decision.
+                                stats["kept"] += 1
+                                return
+                            token_ids = {}
+                            for tok, data in zip(tokens, token_data):
+                                matches = _matching_deezer_hits(
+                                    data.get("data", []), tok
+                                )
+                                if not matches:
+                                    # A token Deezer can't confirm (garbage split) →
+                                    # not safe → leave for a human.
+                                    stats["kept"] += 1
+                                    return
+                                token_ids[tok] = str(matches[0]["id"])
+                            if len(set(token_ids.values())) < len(tokens):
+                                # Two tokens fold to the SAME Deezer artist → not a
+                                # clean split.
+                                stats["kept"] += 1
+                                return
+                            decisions.append((flag.id, token_ids))
+
+                        for i in range(0, len(candidates), ARTIST_BACKLOG_BATCH):
+                            batch = candidates[i : i + ARTIST_BACKLOG_BATCH]
+                            decisions = []
+                            await asyncio.gather(*[_gate_flag(f) for f in batch])
+                            # The gather only READ Deezer (no DB writes): a clean
+                            # commit boundary before the per-flag units of work.
+                            session.commit()
+                            for flag_id, token_ids in decisions:
+                                try:
+                                    flag = session.get(ArtistFlag, flag_id)
+                                    if flag is None or flag.status != "pending":
+                                        continue
+                                    if _resolve_flag_split_sync(
+                                        session, flag, token_ids
+                                    ):
+                                        session.commit()
+                                        stats["resolved"] += 1
+                                    else:
+                                        session.rollback()
+                                        stats["skipped"] += 1
+                                except Exception:
+                                    session.rollback()
+                                    logger.warning(
+                                        "auto_resolve_flags: resolve of flag %s "
+                                        "failed — rolled back, left pending",
+                                        flag_id,
+                                        exc_info=True,
+                                    )
+                                    stats["errors"] += 1
+                            logger.info(
+                                "auto_resolve_flags progress: %d/%d "
+                                "(resolved=%d kept=%d)",
+                                min(i + ARTIST_BACKLOG_BATCH, len(candidates)),
+                                len(candidates),
+                                stats["resolved"],
+                                stats["kept"],
+                            )
+                        return stats
+
+            try:
+                stats = asyncio.run(_async_run())
+            except Exception:
+                logger.exception("auto_resolve_artist_flags failed")
                 raise
 
             clog.set_stats(stats)

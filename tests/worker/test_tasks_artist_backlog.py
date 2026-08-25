@@ -92,9 +92,9 @@ def tasks_env(task_engine, monkeypatch):
         del sys.modules[m]
     import workers.db as workers_db
     monkeypatch.setattr(workers_db, "get_engine", lambda: task_engine)
-    import workers.tasks.artists as artists_mod
     # No MinIO in tests: ensure_bucket + upload_bytes are no-ops (upload succeeds)
     import services.image_service as image_service
+    import workers.tasks.artists as artists_mod
     monkeypatch.setattr(
         image_service.ImageService, "ensure_bucket", staticmethod(lambda *a, **k: None)
     )
@@ -551,6 +551,151 @@ class TestAutosplitWithArtists:
         assert result["split"] == 0 and result["kept"] == 0 and result["skipped"] == 0
         with Session(task_engine) as s:
             assert s.get(Artist, a_id) is not None  # untouched
+
+
+class TestAutoResolveArtistFlags:
+    def _add_flag(self, session, raw, tokens, reason="auto_split", **kw):
+        from models import ArtistFlag
+
+        f = ArtistFlag(
+            raw_artist_string=raw,
+            reason=reason,
+            tokens=tokens,
+            deezer_ids=kw.pop("deezer_ids", {}),
+            status=kw.pop("status", "pending"),
+        )
+        session.add(f)
+        session.flush()
+        return f
+
+    def test_resolves_collab_when_whole_absent_tokens_present(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """Whole string NOT on Deezer + both tokens present (distinct ids) →
+        auto-split: two artists created with their deezer_id, flag validated."""
+        from models import ArtistFlag, CatalogArtist, CatalogEntry
+
+        with Session(task_engine) as s:
+            s.add(CatalogEntry(artist="Random / Noize", title="T", normalized_key="k1"))
+            self._add_flag(s, "Random / Noize", ["Random", "Noize"])
+        fake_pool.search["Random"] = [_hit(10, "Random")]
+        fake_pool.search["Noize"] = [_hit(20, "Noize")]
+        # "Random / Noize" not in search → whole absent
+
+        result = tasks_env.artists.auto_resolve_artist_flags(fake_self)
+
+        assert result["resolved"] == 1
+        assert result["kept"] == 0
+        with Session(task_engine) as s:
+            flag = s.execute(select(ArtistFlag)).scalar_one()
+            assert flag.status == "validated"
+            by_name = {a.name: a for a in s.execute(select(Artist)).scalars().all()}
+            assert set(by_name) == {"Random", "Noize"}
+            assert by_name["Random"].deezer_id == "10"
+            assert by_name["Noize"].deezer_id == "20"
+            # flat catalog row repointed onto both tokens
+            cat = s.execute(select(CatalogArtist)).scalars().all()
+            assert {c.artist_id for c in cat} == {a.id for a in by_name.values()}
+
+    def test_kept_when_whole_is_a_deezer_artist(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """Whole string IS on Deezer (real name / duo) → left pending, no split."""
+        from models import ArtistFlag
+
+        with Session(task_engine) as s:
+            self._add_flag(s, "Polo & Pan", ["Polo", "Pan"], reason="ampersand_unknown")
+        fake_pool.search["Polo & Pan"] = [_hit(1, "Polo & Pan")]
+        fake_pool.search["Polo"] = [_hit(2, "Polo")]
+        fake_pool.search["Pan"] = [_hit(3, "Pan")]
+
+        result = tasks_env.artists.auto_resolve_artist_flags(fake_self)
+
+        assert result["resolved"] == 0
+        assert result["kept"] == 1
+        with Session(task_engine) as s:
+            assert s.execute(select(ArtistFlag)).scalar_one().status == "pending"
+            assert s.execute(select(Artist)).scalars().all() == []
+
+    def test_garbage_token_keeps_flag(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A token Deezer cannot confirm (mangled tokenisation) blocks the split →
+        the flag stays pending for a human, nothing created."""
+        from models import ArtistFlag
+
+        with Session(task_engine) as s:
+            self._add_flag(s, "Jimmy Dorsey v/Bob", ["Jimmy Dorsey v", "Bob"])
+        fake_pool.search["Bob"] = [_hit(5, "Bob")]
+        # "Jimmy Dorsey v" not in search → no match → not safe
+
+        result = tasks_env.artists.auto_resolve_artist_flags(fake_self)
+
+        assert result["resolved"] == 0
+        assert result["kept"] == 1
+        with Session(task_engine) as s:
+            assert s.execute(select(ArtistFlag)).scalar_one().status == "pending"
+            assert s.execute(select(Artist)).scalars().all() == []
+
+    def test_ambiguous_reason_not_selected(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """ampersand_ambiguous is out of scope (possible established duo) even when
+        the whole string is absent and tokens are present — no auto-split."""
+        from models import ArtistFlag
+
+        with Session(task_engine) as s:
+            self._add_flag(
+                s, "A & B", ["A", "B"], reason="ampersand_ambiguous"
+            )
+        fake_pool.search["A"] = [_hit(1, "A")]
+        fake_pool.search["B"] = [_hit(2, "B")]
+
+        result = tasks_env.artists.auto_resolve_artist_flags(fake_self)
+
+        assert result["resolved"] == 0
+        with Session(task_engine) as s:
+            assert s.execute(select(ArtistFlag)).scalar_one().status == "pending"
+
+    def test_same_id_for_two_tokens_kept(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """Two tokens folding to the SAME Deezer artist is not a clean split → kept."""
+        from models import ArtistFlag
+
+        with Session(task_engine) as s:
+            self._add_flag(s, "Kink / Kink", ["Kink", "Kink"])
+        fake_pool.search["Kink"] = [_hit(9, "Kink")]
+
+        result = tasks_env.artists.auto_resolve_artist_flags(fake_self)
+
+        assert result["resolved"] == 0
+        assert result["kept"] == 1
+        with Session(task_engine) as s:
+            assert s.execute(select(ArtistFlag)).scalar_one().status == "pending"
+
+    def test_http_error_counted_not_resolved(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A Deezer outage is not a decision — the flag stays pending, errors++."""
+        from models import ArtistFlag
+
+        with Session(task_engine) as s:
+            self._add_flag(s, "Foo / Bar", ["Foo", "Bar"])
+        fake_pool.search_errors.add("Foo / Bar")
+
+        result = tasks_env.artists.auto_resolve_artist_flags(fake_self)
+
+        assert result["resolved"] == 0
+        assert result["errors"] == 1
+        with Session(task_engine) as s:
+            assert s.execute(select(ArtistFlag)).scalar_one().status == "pending"
+
+    def test_lock_ttl_covers_task_time_limit(self, tasks_env):
+        fn = tasks_env.artists.auto_resolve_artist_flags
+        from workers.tasks.artists import AUTORESOLVE_FLAGS_LOCK_TTL
+
+        assert AUTORESOLVE_FLAGS_LOCK_TTL > fn.time_limit
 
 
 class TestLinkArtistsLock:
