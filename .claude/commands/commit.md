@@ -14,6 +14,7 @@ Génère un nom de commit (subject Conventional Commits en français) **fidèle 
 - `!git status --short` et `!git diff --cached --stat`
 - Si **rien n'est stagé** (`git diff --cached --quiet` renvoie 0) : **STOP**. Ne committe rien, ne stage rien. Dis à l'utilisateur qu'il n'y a rien dans le stage et liste (si utile) les modifs non stagées via `git status --short`. Ne jamais faire `git add` toi-même — on committe **uniquement ce qui est dans le stage**.
 - Sinon, lire le détail utile : `!git diff --cached` (résume ce qui change réellement : fichiers, zones, sens du changement).
+- **Garde de périmètre** : si le stage contient des fichiers étrangers au sujet dominant du diff (ex. un script untracked pré-session dans un commit `docs`, un fichier d'un autre chantier), **signale-les AVANT de committer** et propose soit de les sortir du stage (`git restore --staged <f>`), soit de les couvrir explicitement dans le message. Un fichier n'embarque jamais silencieusement sous un message qui ne le décrit pas (vu : `resume_embeddings.sh` dans un commit « docs uniquement », b0e9613).
 
 ## Étape 2 — Réapprendre le style à chaque fois (ne pas se fier à une liste figée)
 Échantillonne l'historique pour caler la construction sur l'état ACTUEL du repo :

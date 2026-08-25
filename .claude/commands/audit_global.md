@@ -10,7 +10,7 @@ Modèle éprouvé : `docs/audit_2026-07/` (Phase 0 inventaire outillé → agent
 
 ## Règles non négociables
 
-- **AUCUNE modification de code.** Tu n'écris QUE sous `docs/audits/<AAAA-MM>/` et `docs/audits/LEDGER.md`. Aucun commit (tu proposes le message à la fin, c'est moi qui committe).
+- **AUCUNE modification de code.** Tu n'écris QUE sous `docs/audits/<AAAA-MM>/`, `docs/audits/LEDGER.md`, et la ligne « Dernier audit complet » de `docs/audits/README.md` (en Phase 4). Aucun commit (tu proposes le message à la fin, c'est moi qui committe). **Collision de mois** : si `docs/audits/<AAAA-MM>/` existe déjà (2ᵉ audit le même mois), suffixe le jour — dossier `docs/audits/<AAAA-MM-JJ>/` et clés de finding `<AAAA-MM-JJ>/Ax-nn` (précédent : `2026-08-24/`).
 - **Un finding sans preuve n'existe pas** : fichier:ligne, ou commande + sortie. Pas d'« il semble que ».
 - **Ne re-signale JAMAIS un résidu accepté** : décisions des DECISIONS.md précédents, statuts ACCEPTÉ du ledger, résidus documentés dans CLAUDE.md (ex. `/storage` non authentifié, endpoints taxonomy réservés, absence délibérée d'index unique sur les ids plateforme, chaîne Alembic non bootstrappable, dev local full-stack non supporté). Si le contexte a matériellement changé, tu peux le remonter, mais explicitement marqué **RÉÉVALUATION** avec ce qui a changé.
 - **Les sorties d'outils sont des CANDIDATS, pas des findings.** Faux positifs structurels connus : vulture sur colonnes SQLAlchemy, endpoints FastAPI, `health` (healthcheck Docker), `GenreNode` (SQL brut) ; deptry DEP001 sur packages locaux, DEP002 sur `asyncpg`/`uvicorn`. Chaque candidat se vérifie par lecture du code avant d'être retenu.
@@ -23,11 +23,11 @@ Modèle éprouvé : `docs/audit_2026-07/` (Phase 0 inventaire outillé → agent
 3. Inventaire mécanique (signaux pas chers, consignés bruts) :
    - `ruff check server/ --statistics`
    - `vulture server/ --min-confidence 60` (hors alembic)
-   - `deptry` si installé ; `pip-audit -r server/api/requirements.txt`
+   - `deptry` si installé ; pip-audit : sur cette machine Windows le binaire est absent et le pin `essentia` (wheel Linux-only) casse la résolution → `python -m pip_audit -r <copie de requirements.txt SANS la ligne essentia> --no-deps --ignore-vuln PYSEC-2025-185 --ignore-vuln PYSEC-2026-1325` (le gate CI reste la référence ; le run local est un signal)
    - depuis `server/frontend` (cd dans son PROPRE appel Bash, jamais inline) : `npm audit`, `npm outdated`
    - grep `TODO|FIXME|XXX|HACK` sur `server/`
    - top fichiers par LOC et par churn (`git log --since="6 months ago" --name-only`)
-4. Crée `docs/audits/<AAAA-MM>/` et écris `_inventory.md` avec l'avertissement CANDIDATS en tête (modèle : `docs/audit_2026-07/_inventory.md`).
+4. Crée `docs/audits/<AAAA-MM>/` (ou `<AAAA-MM-JJ>/` en cas de collision de mois, cf. règles) et écris `_inventory.md` avec l'avertissement CANDIDATS en tête (modèle : `docs/audit_2026-07/_inventory.md`).
 
 En mode `incremental`, le périmètre des phases suivantes = fichiers touchés depuis le dernier audit + leurs consommateurs directs (imports/appels, via Grep) ; les dimensions non concernées sont sautées et le rapport le dit explicitement.
 
@@ -76,10 +76,10 @@ Chaque prompt d'agent est AUTONOME et contient :
 
 ## Phase 3 — Arbitrage (STOP)
 
-Formule les questions de décision Q1..Qn (suppressions de code mort, drops de colonnes, options structurantes) avec pour chacune : options, conséquences, ta recommandation. Présente la synthèse du CONSOLIDATED + les questions, puis **ARRÊTE-TOI et attends mes arbitrages**. Consigne-les ensuite dans `DECISIONS.md` (modèle : `docs/audit_2026-07/DECISIONS.md`), en vérifiant la cohérence de chaque décision contre le CONSOLIDATED et en signalant toute contradiction AVANT d'enchaîner.
+Formule les questions de décision Q1..Qn (suppressions de code mort, drops de colonnes, options structurantes) avec pour chacune : options, conséquences, ta recommandation. **Formule chaque question pour un non-ops** : vulgarise le jargon infra/DB, énonce le bénéfice produit/utilisateur et le coût en clair — une question qui exige un 2ᵉ tour d'explication est une question ratée. Présente la synthèse du CONSOLIDATED + les questions, puis **ARRÊTE-TOI et attends mes arbitrages**. Consigne-les ensuite dans `DECISIONS.md` (modèle : `docs/audit_2026-07/DECISIONS.md`), en vérifiant la cohérence de chaque décision contre le CONSOLIDATED et en signalant toute contradiction AVANT d'enchaîner.
 
 ## Phase 4 — Ledger & roadmap
 
-1. Mets à jour `docs/audits/LEDGER.md` : nouveaux findings → OUVERT ; constatés corrigés depuis l'audit précédent → CORRIGÉ (commit/date si retrouvable via `git log`) ; arbitrés « on ne corrige pas » → ACCEPTÉ (réf. décision Qn) ; disparus car le code a changé → OBSOLÈTE. Mets à jour « Dernière vue » pour tout finding re-rencontré.
+1. Mets à jour `docs/audits/LEDGER.md` : nouveaux findings → OUVERT ; constatés corrigés depuis l'audit précédent → CORRIGÉ (commit/date si retrouvable via `git log`) ; arbitrés « on ne corrige pas » → ACCEPTÉ (réf. décision Qn) ; disparus car le code a changé → OBSOLÈTE. Mets à jour « Dernière vue » pour tout finding re-rencontré. Pointe la ligne « Dernier audit complet » de `docs/audits/README.md` sur le dossier de cet audit.
 2. Propose un bloc roadmap prêt à coller (série type AU : un lot quick wins d'abord, puis lots thématiques, avec Definition of Done) — ne modifie PAS `docs/ROADMAP.md` sans mon accord explicite.
 3. Propose le message de commit (docs uniquement, format conventionnel). Rappelle que la suite naturelle est `/work_manager` sur le premier lot arbitré.
