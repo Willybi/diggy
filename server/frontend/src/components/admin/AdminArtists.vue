@@ -270,7 +270,7 @@ function selectArtistAndSearch(a) {
 }
 
 // Sync poll: ignores network errors and keeps polling (stopOnError: false).
-const syncPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+const syncPoll = useTaskPoll((taskId) => `/api/admin/tasks/${taskId}`, {
   intervalMs: 2000,
   maxAttempts: 300,
   stopOnError: false,
@@ -304,7 +304,7 @@ async function runSync() {
   }
 }
 
-const artworksPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+const artworksPoll = useTaskPoll((taskId) => `/api/admin/tasks/${taskId}`, {
   intervalMs: 2000,
   maxAttempts: 150,
   onData(data, { stop }) {
@@ -340,7 +340,7 @@ async function runFetchArtworks() {
   }
 }
 
-const linkArtistsPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+const linkArtistsPoll = useTaskPoll((taskId) => `/api/admin/tasks/${taskId}`, {
   intervalMs: 2000,
   maxAttempts: 150,
   onData(data, { stop }) {

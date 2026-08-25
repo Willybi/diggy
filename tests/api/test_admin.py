@@ -315,3 +315,91 @@ class TestLinkSetArtistsTask:
         assert r.json()["status"] == "queued"
 
 
+class TestTaskStatus:
+    """The generic Celery task poller, renamed from /artists/sync/status/{id}."""
+
+    async def test_poll_pending_task(self, admin_client):
+        # An unknown task_id resolves to PENDING → reported as "running".
+        r = await admin_client.get("/api/admin/tasks/some-task-id")
+        assert r.status_code == 200
+        assert r.json()["status"] == "running"
+
+    async def test_requires_admin(self, client):
+        r = await client.get("/api/admin/tasks/some-task-id")
+        assert r.status_code == 401
+
+
+class TestAuditLog:
+    async def _add_entry(self, db, admin_id, action, target_id, created_at):
+        from models import AdminAuditLog
+
+        db.add(
+            AdminAuditLog(
+                user_id=admin_id,
+                action=action,
+                target_type="artist",
+                target_id=target_id,
+                details={"note": action},
+                created_at=created_at,
+            )
+        )
+
+    async def test_lists_entries_newest_first(self, admin_client, admin_user, db):
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await self._add_entry(db, admin_user.id, "old", 1, base)
+        await self._add_entry(db, admin_user.id, "new", 2, base.replace(day=3))
+        await self._add_entry(db, admin_user.id, "mid", 3, base.replace(day=2))
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/audit-log")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 3
+        assert [i["action"] for i in data["items"]] == ["new", "mid", "old"]
+        # Author email is resolved via the LEFT JOIN.
+        assert data["items"][0]["user_email"] == "admin@test.com"
+        assert data["items"][0]["details"] == {"note": "new"}
+
+    async def test_pagination_bounds_items(self, admin_client, admin_user, db):
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        for i in range(5):
+            await self._add_entry(
+                db, admin_user.id, f"a{i}", i, base.replace(day=i + 1)
+            )
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/audit-log?page=1&per_page=2")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 5
+        assert len(data["items"]) == 2
+        # Newest two first.
+        assert [i["action"] for i in data["items"]] == ["a4", "a3"]
+
+        r2 = await admin_client.get("/api/admin/audit-log?page=2&per_page=2")
+        assert [i["action"] for i in r2.json()["items"]] == ["a2", "a1"]
+
+    async def test_user_email_none_when_author_absent(self, admin_client, db):
+        from datetime import datetime, timezone
+
+        # user_id NULL mirrors an author deleted under ON DELETE SET NULL.
+        await self._add_entry(
+            db, None, "orphan", 9, datetime(2026, 1, 1, tzinfo=timezone.utc)
+        )
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/audit-log")
+        assert r.status_code == 200
+        item = r.json()["items"][0]
+        assert item["user_id"] is None
+        assert item["user_email"] is None
+
+    async def test_requires_admin(self, auth_client):
+        r = await auth_client.get("/api/admin/audit-log")
+        assert r.status_code == 403
+
+

@@ -8,7 +8,7 @@
           :key="tab.id"
           class="tab-btn"
           :class="{ active: activeTab === tab.id }"
-          @click="activeTab = tab.id"
+          @click="selectTab(tab.id)"
         >
           {{ tab.label }}
           <span v-if="badgeFor(tab.id) > 0" class="tab-badge">{{
@@ -18,6 +18,8 @@
       </div>
     </header>
 
+    <!-- Rendu groupé par onglet (D10 : IA à 6 onglets). Un onglet peut empiler
+         plusieurs composants — on ne fusionne PAS leurs templates. -->
     <AdminOverview
       v-if="activeTab === 'overview'"
       :backlog="backlog"
@@ -26,56 +28,89 @@
       @refresh="loadBacklog"
       @navigate="navigateTo"
     />
-    <AdminArtists v-else-if="activeTab === 'artists'" />
-    <AdminFlags v-else-if="activeTab === 'flags'" />
+
+    <template v-else-if="activeTab === 'artists'">
+      <AdminArtists />
+      <AdminFlags />
+    </template>
+
     <AdminSets v-else-if="activeTab === 'sets'" />
     <AdminGenres v-else-if="activeTab === 'genres'" />
-    <AdminCrawl v-else-if="activeTab === 'crawl'" />
-    <AdminMonitoring v-else-if="activeTab === 'monitoring'" />
-    <AdminBeatport v-else-if="activeTab === 'beatport'" />
+
+    <template v-else-if="activeTab === 'enrichment'">
+      <AdminBeatport />
+      <AdminEnrichmentActions />
+    </template>
+
+    <template v-else-if="activeTab === 'observability'">
+      <AdminMonitoring />
+      <AdminCrawl />
+      <AdminAuditLog />
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import AdminOverview from '../components/admin/AdminOverview.vue'
 import AdminArtists from '../components/admin/AdminArtists.vue'
 import AdminFlags from '../components/admin/AdminFlags.vue'
 import AdminSets from '../components/admin/AdminSets.vue'
 import AdminGenres from '../components/admin/AdminGenres.vue'
-import AdminCrawl from '../components/admin/AdminCrawl.vue'
-import AdminMonitoring from '../components/admin/AdminMonitoring.vue'
 import AdminBeatport from '../components/admin/AdminBeatport.vue'
+import AdminEnrichmentActions from '../components/admin/AdminEnrichmentActions.vue'
+import AdminMonitoring from '../components/admin/AdminMonitoring.vue'
+import AdminCrawl from '../components/admin/AdminCrawl.vue'
+import AdminAuditLog from '../components/admin/AdminAuditLog.vue'
 
+// IA à 6 onglets (D10). Chaque onglet monte un ou plusieurs composants (cf. template) :
+//   overview       → AdminOverview
+//   artists        → AdminArtists + AdminFlags (l'ancien onglet Flags est absorbé ici)
+//   sets           → AdminSets
+//   genres         → AdminGenres
+//   enrichment     → AdminBeatport + AdminEnrichmentActions (ancien onglet Beatport absorbé)
+//   observability  → AdminMonitoring + AdminCrawl + AdminAuditLog
 const tabs = [
   { id: 'overview', label: 'Aperçu' },
   { id: 'artists', label: 'Artistes' },
-  { id: 'flags', label: 'Flags' },
   { id: 'sets', label: 'Sets' },
   { id: 'genres', label: 'Genres' },
-  { id: 'crawl', label: 'Crawl' },
-  { id: 'monitoring', label: 'Monitoring' },
-  { id: 'beatport', label: 'Beatport' },
+  { id: 'enrichment', label: 'Enrichissement' },
+  { id: 'observability', label: 'Observabilité' },
 ]
+const TAB_IDS = tabs.map((t) => t.id)
 
-const activeTab = ref('overview')
+const route = useRoute()
+const router = useRouter()
 const tabBar = ref(null)
 
+// L'onglet actif est piloté par l'URL (`/admin/:tab`). Une valeur absente ou
+// inconnue retombe sur « overview » (aucune 404 sur un tab périmé/bookmarké).
+const activeTab = computed(() => {
+  const t = route.params.tab
+  return TAB_IDS.includes(t) ? t : 'overview'
+})
+
+// Clic direct sur un onglet : on pousse l'URL, l'onglet actif suit la route.
+function selectTab(id) {
+  if (id === activeTab.value) return
+  router.push('/admin/' + id)
+}
+
 // Navigation PROGRAMMATIQUE (clic sur une carte de renvoi de l'Aperçu) : l'onglet
-// cible peut être hors-écran en mobile → on l'amène dans la vue de la barre. Les
-// clics DIRECTS dans la barre gardent `@click="activeTab = tab.id"` et ne scrollent
-// pas (l'onglet est déjà sous le doigt).
-function navigateTo(id) {
-  activeTab.value = id
-  nextTick(() => {
-    const bar = tabBar.value
-    if (!bar || typeof bar.scrollBy !== 'function') return
-    const active = bar.querySelector('.tab-btn.active')
-    if (!active) return
-    const delta = active.getBoundingClientRect().left - bar.getBoundingClientRect().left - 16
-    bar.scrollBy({ left: delta, behavior: 'smooth' })
-  })
+// cible peut être hors-écran en mobile → on l'amène dans la vue de la barre après
+// que la route (donc la classe .active) soit résolue.
+async function navigateTo(id) {
+  await router.push('/admin/' + id)
+  await nextTick()
+  const bar = tabBar.value
+  if (!bar || typeof bar.scrollBy !== 'function') return
+  const active = bar.querySelector('.tab-btn.active')
+  if (!active) return
+  const delta = active.getBoundingClientRect().left - bar.getBoundingClientRect().left - 16
+  bar.scrollBy({ left: delta, behavior: 'smooth' })
 }
 
 // ── Backlog (A8) : un seul fetch alimente ET les badges d'onglets ET l'Aperçu. ──
@@ -98,18 +133,23 @@ async function loadBacklog() {
 onMounted(loadBacklog)
 
 // Badge d'onglet = somme des compteurs actionnables des chantiers portés par
-// l'onglet. Aperçu et Monitoring n'en portent jamais. Masqué à 0 et tant que le
-// backlog n'est pas chargé (backlog null → tout à 0).
+// l'onglet. Aperçu n'en porte jamais. Masqué à 0 et tant que le backlog n'est pas
+// chargé (backlog null → tout à 0). Recalculé pour l'IA à 6 onglets :
+//   artists = to_link + no_artwork + artist_flags.pending (l'onglet Flags est ici)
+//   sets = recrawl + flags_pending
+//   genres = unclassified + mappings_unmapped
+//   enrichment = beatport.pending
+//   observability = crawl.playlists_due + crawl.dlq (dlq null si Redis down → 0)
 const badges = computed(() => {
   const b = backlog.value
   if (!b) return {}
   return {
-    artists: (b.artists?.to_link || 0) + (b.artists?.no_artwork || 0),
-    flags: b.artist_flags?.pending || 0,
+    artists:
+      (b.artists?.to_link || 0) + (b.artists?.no_artwork || 0) + (b.artist_flags?.pending || 0),
     sets: (b.sets?.recrawl || 0) + (b.sets?.flags_pending || 0),
     genres: (b.genres?.unclassified || 0) + (b.genres?.mappings_unmapped || 0),
-    crawl: (b.crawl?.playlists_due || 0) + (b.crawl?.dlq || 0),
-    beatport: b.beatport?.pending || 0,
+    enrichment: b.beatport?.pending || 0,
+    observability: (b.crawl?.playlists_due || 0) + (b.crawl?.dlq || 0),
   }
 })
 function badgeFor(id) {

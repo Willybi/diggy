@@ -65,6 +65,33 @@
     </div>
   </section>
 
+  <!-- Sets attachés -->
+  <section class="admin-section">
+    <h2 class="section-title">Sets attachés</h2>
+    <p class="section-sub">
+      Sets regroupés sous un parent virtuel. Détacher un set le ressort du groupe.
+    </p>
+    <div v-if="attachedLoading" class="section-sub">Chargement…</div>
+    <div v-else-if="attachedError" class="sync-error">{{ attachedError }}</div>
+    <div v-else-if="attached.length === 0" class="section-sub">Aucun set attaché.</div>
+    <div v-else class="flags-list">
+      <div v-for="grp in attached" :key="grp.id" class="flag-card">
+        <div class="flag-members">
+          <div v-for="s in grp.sets" :key="s.id" class="attached-set">
+            <span class="flag-set-title">{{ s.title || '—' }}</span>
+            <button
+              class="btn-sync btn-reject"
+              :disabled="detachLoadingIds.has(s.id)"
+              @click="detachSet(grp, s)"
+            >
+              Détacher
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Lier artistes aux sets -->
   <section class="admin-section">
     <h2 class="section-title">Artistes des sets</h2>
@@ -146,13 +173,61 @@ async function rejectFlag(flag) {
   }
 }
 
-onMounted(loadFlags)
+// --- Sets attachés (détacher) ---
+const attached = ref([])
+const attachedLoading = ref(false)
+const attachedError = ref('')
+const detachLoadingIds = ref(new Set())
+
+async function loadAttached() {
+  attachedLoading.value = true
+  attachedError.value = ''
+  try {
+    const { data } = await api.get('/api/admin/set-flags?status=attached&limit=50')
+    attached.value = data.items.map((flag) => ({
+      id: flag.id,
+      sets: (flag.member_set_ids
+        ? flag.member_set_ids.map((id, i) => ({ id, title: flag.member_titles?.[i] || '' }))
+        : [
+            { id: flag.set_id_a, title: flag.title_a },
+            { id: flag.set_id_b, title: flag.title_b },
+          ]
+      ).filter((s) => s.id != null),
+    }))
+  } catch (e) {
+    attachedError.value = e.response?.data?.detail || 'Erreur chargement sets attachés'
+  } finally {
+    attachedLoading.value = false
+  }
+}
+
+async function detachSet(grp, s) {
+  detachLoadingIds.value = new Set([...detachLoadingIds.value, s.id])
+  try {
+    await api.post(`/api/admin/sets/${s.id}/detach`)
+    grp.sets = grp.sets.filter((x) => x.id !== s.id)
+    if (grp.sets.length === 0) {
+      attached.value = attached.value.filter((g) => g.id !== grp.id)
+    }
+  } catch (e) {
+    attachedError.value = e.response?.data?.detail || 'Erreur détachement'
+  } finally {
+    const next = new Set(detachLoadingIds.value)
+    next.delete(s.id)
+    detachLoadingIds.value = next
+  }
+}
+
+onMounted(() => {
+  loadFlags()
+  loadAttached()
+})
 
 const linkingSets = ref(false)
 const linkSetsResult = ref(null)
 const linkSetsError = ref('')
 
-const linkSetsPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+const linkSetsPoll = useTaskPoll((taskId) => `/api/admin/tasks/${taskId}`, {
   intervalMs: 2000,
   maxAttempts: 150,
   onData(st, { stop }) {
@@ -296,6 +371,13 @@ async function runLinkSets() {
   background: var(--surface-2, var(--surface));
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
+}
+.attached-set {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 .flag-meta {
   display: flex;

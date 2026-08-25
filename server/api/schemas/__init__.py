@@ -3,6 +3,8 @@
 from .admin import (
     ArtistDeezerIn,
     ArtistFlagOut,
+    AuditLogOut,
+    AuditLogResponse,
     BacklogResponse,
     BacklogSnapshotItem,
     CrawlLogItem,
@@ -279,6 +281,8 @@ __all__ = [
     "OpinionSetResponse",
     # admin
     "ArtistFlagOut",
+    "AuditLogOut",
+    "AuditLogResponse",
     "SyncQueued",
     "SyncStatus",
     "ResolveIn",

@@ -155,8 +155,8 @@ const CARDS = [
       kind: 'job',
       label: "Lancer l'enrichissement",
       endpoint: '/api/admin/enrich-beatport',
-      navTab: 'beatport',
-      navLabel: 'Onglet Beatport',
+      navTab: 'enrichment',
+      navLabel: 'Onglet Enrichissement',
     },
   },
   {
@@ -172,7 +172,7 @@ const CARDS = [
       { text: fmtInt(b.deezer.abandoned), mono: true },
       { text: ' abandonnées' },
     ],
-    action: { kind: 'nav', label: 'Voir le monitoring', navTab: 'monitoring' },
+    action: { kind: 'nav', label: 'Voir le monitoring', navTab: 'observability' },
   },
   {
     id: 'catalog-bpm',
@@ -182,7 +182,7 @@ const CARDS = [
     field: 'bpm_missing',
     unit: 'tracks',
     context: () => [{ text: 'analyse audio nocturne automatique' }],
-    action: { kind: 'nav', label: 'Voir le monitoring', navTab: 'monitoring' },
+    action: { kind: 'nav', label: 'Voir le monitoring', navTab: 'observability' },
   },
   {
     id: 'artists-link',
@@ -244,7 +244,7 @@ const CARDS = [
     field: 'pending',
     unit: 'paires',
     context: () => [{ text: 'fusions à valider' }],
-    action: { kind: 'nav', label: 'Ouvrir la revue', navTab: 'flags' },
+    action: { kind: 'nav', label: 'Ouvrir la revue', navTab: 'artists' },
   },
   {
     id: 'genres-unclassified',
@@ -274,7 +274,7 @@ const CARDS = [
     field: 'playlists_due',
     unit: 'playlists',
     context: () => [{ text: 'cadence crawl_radar' }],
-    action: { kind: 'nav', label: 'Voir la file', navTab: 'crawl' },
+    action: { kind: 'nav', label: 'Voir la file', navTab: 'observability' },
   },
   {
     id: 'crawl-dlq',
@@ -284,7 +284,7 @@ const CARDS = [
     field: 'dlq',
     unit: 'entrées',
     context: (b) => [{ text: b.crawl.dlq == null ? 'Redis injoignable' : 'clé Redis dead_letter' }],
-    action: { kind: 'nav', label: 'Voir la DLQ', navTab: 'crawl' },
+    action: { kind: 'nav', label: 'Voir la DLQ', navTab: 'observability' },
   },
 ]
 

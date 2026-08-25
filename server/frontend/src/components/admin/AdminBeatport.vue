@@ -45,7 +45,7 @@ const beatportResult = ref(null)
 const beatportSkipped = ref(false)
 const beatportError = ref('')
 
-const beatportPoll = useTaskPoll((taskId) => `/api/admin/artists/sync/status/${taskId}`, {
+const beatportPoll = useTaskPoll((taskId) => `/api/admin/tasks/${taskId}`, {
   intervalMs: 5000,
   maxAttempts: 300,
   onData(st, { stop }) {

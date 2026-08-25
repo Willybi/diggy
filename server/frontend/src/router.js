@@ -48,7 +48,11 @@ const routes = [
   { path: '/set/:id', component: SetDetailView, props: true },
   { path: '/album/:id', component: AlbumView, props: true },
   { path: '/artists', component: ArtistsView },
-  { path: '/admin', component: AdminView },
+  // Admin (D10) : onglet piloté par l'URL. `/admin` (nu ou bookmarké) redirige vers
+  // l'Aperçu ; un tab inconnu retombe sur « overview » côté vue. La redirection est
+  // déclarée AVANT la route paramétrée pour capter le chemin nu.
+  { path: '/admin', redirect: '/admin/overview' },
+  { path: '/admin/:tab', component: AdminView },
   { path: '/radar', component: RadarView },
   { path: '/collections', component: CollectionsView },
   { path: '/collections/:id', component: CollectionDetailView, props: true },
@@ -116,6 +120,10 @@ for (const route of routes) {
     lazyLoaderByPath.set(route.path, route.component)
   }
 }
+// La nav préfetche `/admin` (chemin nu), mais AdminView est porté par la route
+// paramétrée `/admin/:tab` → on alias le chemin nu sur le même loader pour que le
+// survol de l'entrée Admin précharge bien son chunk.
+lazyLoaderByPath.set('/admin', AdminView)
 
 // `prefetchRoute(path)` invoque UNE fois le loader de la route cible (dédup + catch
 // silencieux). Appelé par SidebarNav / BottomNav sur @mouseenter / @focus — jamais

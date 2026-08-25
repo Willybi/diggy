@@ -132,6 +132,25 @@ class CrawlLogsResponse(BaseModel):
     per_page: int
 
 
+# ── Audit log (GET /admin/audit-log) ──
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    user_id: int | None = None
+    user_email: str | None = None
+    action: str
+    target_type: str | None = None
+    target_id: int | None = None
+    details: dict | None = None
+    created_at: datetime
+
+
+class AuditLogResponse(BaseModel):
+    total: int
+    items: list[AuditLogOut]
+
+
 # ── Monitoring (GET /admin/monitoring) ──
 
 

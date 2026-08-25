@@ -103,15 +103,18 @@ describe('AdminOverview', () => {
   })
 
   it('emits navigate with the target tab from a renvoi button', async () => {
+    // D10 : les renvois « monitoring » pointent désormais vers l'onglet
+    // « observability » de la nouvelle IA (Monitoring y est absorbé).
     const wrapper = mountOverview()
     const monBtn = wrapper.findAll('button').find((b) => b.text() === 'Voir le monitoring')
     await monBtn.trigger('click')
-    expect(wrapper.emitted('navigate')[0]).toEqual(['monitoring'])
+    expect(wrapper.emitted('navigate')[0]).toEqual(['observability'])
   })
 
-  it('renders the catalog-bpm card as a NEUTRAL nav renvoi to monitoring', async () => {
-    // E2.c 12ᵉ carte : renvoi neutre (jamais btn--accent, jamais de job) vers le
-    // monitoring — le drain BPM est une tâche nocturne automatique.
+  it('renders the catalog-bpm card as a NEUTRAL nav renvoi to observability', async () => {
+    // E2.c 12ᵉ carte : renvoi neutre (jamais btn--accent, jamais de job) vers
+    // l'observabilité — le drain BPM est une tâche nocturne automatique. D10 :
+    // l'ancien renvoi « monitoring » cible maintenant l'onglet « observability ».
     const wrapper = mountOverview()
     const bpm = wrapper.findAll('.oc-card').find((c) => c.text().includes('À analyser (BPM)'))
     expect(bpm).toBeTruthy()
@@ -120,7 +123,7 @@ describe('AdminOverview', () => {
     expect(btn.classes()).not.toContain('btn--accent')
     expect(bpm.find('.oc-job').exists()).toBe(false)
     await btn.trigger('click')
-    expect(wrapper.emitted('navigate').at(-1)).toEqual(['monitoring'])
+    expect(wrapper.emitted('navigate').at(-1)).toEqual(['observability'])
   })
 
   it('emits refresh from the Actualiser button', async () => {

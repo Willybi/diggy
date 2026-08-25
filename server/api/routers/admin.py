@@ -18,6 +18,7 @@ from models import (
 from schemas import (
     ArtistDeezerIn,
     ArtistFlagOut,
+    AuditLogResponse,
     BacklogResponse,
     CrawlLogsResponse,
     DeezerArtistHit,
@@ -86,9 +87,10 @@ async def sync_artists(_: User = Depends(require_admin)):
     return SyncQueued(status="queued", task_id=result.id)
 
 
-@router.get("/artists/sync/status/{task_id}", response_model=SyncStatus)
+@router.get("/tasks/{task_id}", response_model=SyncStatus)
 async def sync_status(task_id: str, _: User = Depends(require_admin)):
-    """Poll Celery task result."""
+    """Poller générique de statut d'une tâche Celery (toutes tâches, pas
+    seulement artistes)."""
     from celery.result import AsyncResult
 
     res = AsyncResult(task_id, app=celery)
@@ -104,7 +106,7 @@ async def sync_status(task_id: str, _: User = Depends(require_admin)):
 @router.post("/artists/link-deezer", response_model=SyncQueued)
 async def link_artists_deezer(_: User = Depends(require_admin)):
     """Fire-and-forget: link artists with no deezer_id to Deezer (budget-capped,
-    loop-safe). Returns task_id for polling via /artists/sync/status."""
+    loop-safe). Returns task_id for polling via /tasks/{id}."""
     result = celery.send_task("workers.tasks.link_artists_deezer")
     return SyncQueued(status="queued", task_id=result.id)
 
@@ -614,3 +616,20 @@ async def get_backlog(
     fail-open DLQ read) lives in monitoring_service.
     """
     return await monitoring_service.get_backlog_counters(db, redis)
+
+
+# ---------- Audit log ----------
+
+
+@router.get("/audit-log", response_model=AuditLogResponse)
+async def get_audit_log(
+    page: int = 1,
+    per_page: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """Paginated admin audit-log entries (newest first), author email resolved.
+
+    Thin router — the paginated read lives in monitoring_service.
+    """
+    return await monitoring_service.get_audit_log(db, page, per_page)

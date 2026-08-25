@@ -499,3 +499,45 @@ async def get_backlog_counters(db: AsyncSession, redis) -> dict:
         "catalog": {"bpm_missing": bpm_missing},
         "crawl": {"playlists_due": playlists_due, "dlq": dlq},
     }
+
+
+async def get_audit_log(db: AsyncSession, page: int, per_page: int) -> dict:
+    """Paginated admin audit-log entries, newest first.
+
+    Reads ``admin_audit_log`` (written by the destructive admin actions) with the
+    author's email resolved via a LEFT JOIN on ``users`` — ``user_email`` is None
+    when the author row was deleted (the FK is ``ON DELETE SET NULL``). Ordered
+    ``created_at DESC`` with an ``id DESC`` tie-break (created_at is not unique).
+
+    Read-only aggregation; awaited SEQUENTIALLY on the one session.
+    """
+    from models import AdminAuditLog, User
+
+    total = (
+        await db.execute(select(func.count(AdminAuditLog.id)))
+    ).scalar_one()
+
+    rows = (
+        await db.execute(
+            select(AdminAuditLog, User.email)
+            .outerjoin(User, AdminAuditLog.user_id == User.id)
+            .order_by(AdminAuditLog.created_at.desc(), AdminAuditLog.id.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+    ).all()
+
+    items = [
+        {
+            "id": log.id,
+            "user_id": log.user_id,
+            "user_email": email,
+            "action": log.action,
+            "target_type": log.target_type,
+            "target_id": log.target_id,
+            "details": log.details,
+            "created_at": log.created_at,
+        }
+        for log, email in rows
+    ]
+    return {"total": total, "items": items}
