@@ -949,11 +949,10 @@ def _name_has_with_sql(col):
     return or_(lower.like("% with %"), lower.like("%(w %"), lower.like("%(w.%"))
 
 
-def _autosplit_conditions(now):
+def _autosplit_conditions():
     from models import Artist, ArtistFlag, CatalogArtist, SetArtist
     from sqlalchemy import and_, or_, select
 
-    tier1, retry, resurrect = _link_tiers(now)
     attached = or_(
         select(CatalogArtist.artist_id)
         .where(CatalogArtist.artist_id == Artist.id)
@@ -970,20 +969,24 @@ def _autosplit_conditions(now):
         .exists()
     )
     return and_(
-        or_(tier1, retry, resurrect),
+        Artist.deezer_id.is_(None),
         _name_has_with_sql(Artist.name),
         attached,
         not_flagged,
     )
 
 
-def select_autosplit_candidates(session, budget, now):
+def select_autosplit_candidates(session, budget):
     """Unlinked, attached "with"-string artists to Deezer-gate then maybe split.
 
-    Reuses the E1 link tiers (never-searched first, then the retry/resurrect
-    backoff) so a KEPT row (Deezer knows it) is not re-checked every night — it
-    ages out of tier1 once marked searched, exactly like the link task. Oldest id
-    first within tier1 to drain the tail under fresh influx.
+    Deliberately does NOT reuse the E1 link search tiers: a "with" string is
+    almost always searched (and ABANDONED at 3 attempts) by link_artists_deezer
+    long before we ask the SPLIT question — the full "X with Y" never link-matches,
+    so it burns its 3 attempts and would then be invisible to a tier-gated selector
+    for ~180 days. The split decision is orthogonal to link retries, so we select
+    every eligible row each run, capped by budget. The pool drains on its own: a
+    row Deezer knows as one artist gets a deezer_id from link (leaves this NULL
+    pool), every other is split away. Oldest id first to drain the tail.
     """
     from models import Artist
     from sqlalchemy import select
@@ -993,7 +996,7 @@ def select_autosplit_candidates(session, budget, now):
     return (
         session.execute(
             select(Artist)
-            .where(_autosplit_conditions(now))
+            .where(_autosplit_conditions())
             .order_by(Artist.id.asc())
             .limit(budget)
         )
@@ -1002,12 +1005,12 @@ def select_autosplit_candidates(session, budget, now):
     )
 
 
-def count_autosplit_candidates(session, now):
+def count_autosplit_candidates(session):
     from models import Artist
     from sqlalchemy import func, select
 
     return session.execute(
-        select(func.count(Artist.id)).where(_autosplit_conditions(now))
+        select(func.count(Artist.id)).where(_autosplit_conditions())
     ).scalar_one()
 
 
@@ -1178,7 +1181,6 @@ def _run_autosplit_with_artists(task):
                 from workers.async_http import DeezerHTTPError, HttpPool
                 from workers.rate_limiter import RateLimiter
 
-                now = datetime.now(timezone.utc)
                 stats = {
                     "split": 0,
                     "kept": 0,
@@ -1190,10 +1192,10 @@ def _run_autosplit_with_artists(task):
                 limiter = RateLimiter()
                 async with HttpPool(limiter) as pool:
                     with Session(engine) as session:
-                        candidates = select_autosplit_candidates(session, budget, now)
+                        candidates = select_autosplit_candidates(session, budget)
                         stats["dropped_by_budget"] = max(
                             0,
-                            count_autosplit_candidates(session, now) - len(candidates),
+                            count_autosplit_candidates(session) - len(candidates),
                         )
                         if not candidates:
                             return stats
@@ -1228,8 +1230,9 @@ def _run_autosplit_with_artists(task):
                                 return
                             if _matching_deezer_hits(data.get("data", []), artist.name):
                                 # Deezer knows the whole string as one artist → keep it
-                                # intact (mark searched so it ages out of tier1).
-                                _mark_link_searched(artist, now)
+                                # intact. NOT marked searched: link_artists_deezer owns
+                                # the link retry state, and it will assign the deezer_id
+                                # (which drops the row out of this NULL pool anyway).
                                 stats["kept"] += 1
                             else:
                                 split_pairs.append((artist.id, tokens))
@@ -1238,8 +1241,8 @@ def _run_autosplit_with_artists(task):
                             batch = candidates[i : i + ARTIST_BACKLOG_BATCH]
                             split_pairs = []
                             await asyncio.gather(*[_gate_one(a) for a in batch])
-                            # Persist the KEPT markings first, so a later split rollback
-                            # can never discard this batch's gate progress.
+                            # The gather only READ Deezer (no DB writes); commit here
+                            # is a clean boundary before the per-split units of work.
                             session.commit()
                             # Each split in its OWN unit of work: a failure (link/alias
                             # collision, a row that changed under us) rolls back only

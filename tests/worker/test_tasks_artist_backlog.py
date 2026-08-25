@@ -483,7 +483,37 @@ class TestAutosplitWithArtists:
         with Session(task_engine) as s:
             row = s.get(Artist, a_id)
             assert row is not None and row.deezer_id is None
-            assert row.deezer_search_attempts == 1  # marked, ages out of tier1
+            # NOT marked searched — link_artists_deezer owns the link retry state.
+            assert row.deezer_search_attempts == 0
+
+    def test_abandoned_row_is_still_processed(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """Regression: a 'with' string link_artists_deezer already abandoned
+        (attempts=3, searched) MUST still be split — the split decision is
+        orthogonal to the link retry tiers (else abandoned rows are invisible for
+        ~180 days and the panel never clears)."""
+        from models import CatalogArtist
+
+        with Session(task_engine) as s:
+            combined = _add_artist(
+                s,
+                "Brandy duet with Monica",
+                deezer_search_attempts=3,
+                deezer_searched_at=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+            combined_id = combined.id
+            s.add(CatalogArtist(catalog_id=8, artist_id=combined_id, role="main", position=0))
+            s.flush()
+        # Deezer doesn't know the whole string → empty → split
+
+        result = tasks_env.artists.autosplit_with_artists(fake_self)
+
+        assert result["split"] == 1
+        with Session(task_engine) as s:
+            assert s.get(Artist, combined_id) is None
+            names = {a.name for a in s.execute(select(Artist)).scalars().all()}
+            assert names == {"Brandy", "Monica"}
 
     def test_degenerate_with_is_skipped_not_split(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
