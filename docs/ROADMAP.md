@@ -2146,7 +2146,7 @@ Regroupement par domaine fonctionnel (8 -> 6) — chaque fusion resout un irrita
 
 ### Exigences B (gate decisionnel avant GO hydratation)
 
-- [ ] Audit de capture detail TrackID : lister champ par champ ce que le payload detail `/audiostreams/{slug}` expose vs ce que `import_audiostream`/`merge_tracklist` persistent (`set_tracks` et ailleurs, file:line ; suspects `label`/`labelSlug`/`startTime`-`endTime`/`referenceCount`) ; stocker/jeter justifie + migration ; elargissement de schema LIVRE avant l'hydratation de masse (meme logique que le gate Beatport).
+- [ ] Audit de capture detail TrackID : lister champ par champ ce que le payload detail `/audiostreams/{slug}` expose vs ce que `import_audiostream`/`merge_tracklist` persistent (`set_tracks` et ailleurs, file:line) ; stocker/jeter justifie + migration ; elargissement de schema LIVRE avant l'hydratation de masse (meme logique que le gate Beatport). Champs non persistes CONFIRMES sur payload reel : track `label`/`labelSlug`/`endTime`/`referenceCount`/`isNew`/`accountMusicTrack`, set `amendments[]`/`audioStreamReprocesses[]`/`canReprocess` ; + arbitrage sur l'ecrasement des detectionProcesses multi-passes.
 - [ ] Estimation net-new `catalog` : echantillonnage des `normalized_key` distincts du sous-ensemble priorise (leçon X4 : ~6-7j a 80% CPU). GO conditionne a ce chiffre + cap.
 - [ ] Notebook scoring : distributions, couverture artistes, cout Beatport par tranche (9900/j, budget 6000 non-liant, `catalog.py:295`) ; poids/seuils HOT-CONFIGURABLES ; PAS de hard-zero (plancher bas non-nul) ; channel > genre infere ; `referenceCount` = signal POST-hydratation ; helper `resolve_name_to_id` lookup-only extrait de `get_or_create_artist`.
 
