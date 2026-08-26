@@ -85,6 +85,8 @@ Apres l'ouverture : la recommandation personnalisee (croisement similarite x lik
  AV10 Throttle CPU Hostinger — plafonner l'analyse BPM   URGENT      1 jour       TERMINE (2026-08-20 ; a9d2e62, deploy_verify SAIN) — inscrit 2026-08-19 : Hostinger a applique une LIMITATION de ressources (fair-use CPU, VPS 4 vCPU) apres surconsommation moyenne. Coupables mesures : dockerd 23.1% (surtout logs worker `--loglevel=info` demuxes en json-file + healthchecks 10s postgres/minio/redis), celery enrich 18.7% (dont analyse BPM Essentia 00h→03h, CPU pur), minio 10.4%. RAM/disque SAINS (12 Gi libres, disque 36%). LEVIER 1 (docker-compose.yml, ce commit) : worker/worker_enrich/beat `--loglevel=warning` + healthchecks postgres/redis/minio 10s→60s → attaque la ligne dockerd, zero perte fonctionnelle. LEVIER 2 (PLAFONNEMENT retenu, PAS « etaler ») : `analyze_bpm_previews` tourne sur un `ThreadPoolExecutor(max_workers=ANALYSIS_BPM_EXECUTOR_WORKERS)` defaut 2 → 2 analyses Essentia en parallele = 2 coeurs epingles 00-03h ; on pose **`ANALYSIS_BPM_EXECUTOR_WORKERS=1`** dans le `.env` VPS (var lue a l'import du worker, `up -d worker_enrich` pour l'appliquer, PAS de deploy de code) → −1 coeur sur le pic nocturne, debit ~divise par 2 (accelerateur optionnel, acceptable), reversible. NB : etaler sur la journee flattene le pic mais ne reduit PAS le total CPU-secondes 24h et percuterait le drain Beatport 6h→23h → ecarte. DoD : dockerd < ~12%, pic BPM a 1 coeur, throttle Hostinger leve, /deploy_verify SAIN. Suite possible si insuffisant : baisser le debit quotidien (`ANALYSIS_BPM_NIGHTLY_BUDGET`) ou espacer le drain Beatport
  D10  Admin — Coherence & socle (URL, IA, audit, actions) MOYEN 3-4 jours TERMINE (2026-08-25 ; 54006fb, /deploy_verify SAIN) — sous-routes /admin/:tab (redirect /admin->/admin/overview, persistance refresh, fallback overview) + IA 8->6 onglets (fusions Flags->Artistes, Beatport->Enrichissement, Crawl+Monitoring+Audit->Observabilite, rendu groupe) + GET /admin/audit-log paginee (admin_audit_log jusque-la write-only) + composant AdminAuditLog + poller generique renomme /admin/artists/sync/status/{id}->/admin/tasks/{id} (pas d'alias) + 3 actions curl-only exposees (reset-beatport a confirmation inline + backfill-multi-artists dans AdminEnrichmentActions ; detach set via « Sets attaches » d'AdminSets) + renvois Apercu remappes. +1 endpoint (106), +2 composants (65). Verif RENDU headless conforme (1 ecart routing corrige). 2173 back + 730 front verts. Prerequis de D11 (desormais debloque).
  D11  Admin — Refonte graphique (design)     BAS         3-5 jours    A FAIRE (inscrit 2026-08-24) — pipeline /refonte_page sur la structure figee par D10 ; habillage homogene (tokens, TrackTable/charts partages), 2 regimes de l'Apercu, responsive mobile. Depend de D10.
+ C11  Index TrackID (listing global)      MOYEN       3-5 jours    A FAIRE (inscrit 2026-08-26) — index exhaustif des ~381k sets TrackID via le listing /audiostreams (spider LOCAL 1 req/s, table public.trackid_index) + rapport volumetrie. Etape 0 PREALABLE : arret du backfill chronologique (redis trackid_backfill_done=1 immediat + retrait entree beat backfill-trackid-sets). Prealable de C12. Brief docs/prompts/C11-index-trackid.md
+ C12  Priorisation backfill TrackID       MOYEN       5-7 jours    A FAIRE (inscrit 2026-08-26) — remplace le curseur chronologique de backfill_trackid_sets par une consommation de trackid_index triee par score ; gate priorite Beatport (enrich_priority scalaire, plancher WHERE Tier-1 Beatport-only, Deezer intact) LIVRE AVANT toute hydratation de masse ; reserve retries hot-configurable + graphe backlog AdminMonitoring ; C.1 recrawl re-base sur trackHitRate/timeHitRate du listing. Gate sur C11 + GO net-new Phase B (echantillonnage normalized_key). Brief docs/prompts/C12-priorisation-backfill.md
 ```
 
 ### Chantiers termines (reference)
@@ -2101,6 +2103,57 @@ Regroupement par domaine fonctionnel (8 -> 6) — chaque fusion resout un irrita
 - [ ] Coherence visuelle des 6 onglets (densite, hierarchie, etats vide/chargement via `assets/page.css`).
 
 **Note** : `components/AdminCard.vue` est un faux ami — malgre son nom il sert les vues DETAIL, pas le panel admin. Ne pas le confondre pendant la refonte.
+
+---
+
+## C11 — Index TrackID (spider listing global)
+
+**Priorite : MOYEN**
+**Estimation : 3-5 jours (dont ~5h30 de run spider non surveille)**
+**Statut : A FAIRE — inscrit 2026-08-26. Chantier LOCAL a risque prod quasi nul : indexe les ~381k sets TrackID sans les hydrater, produit le materiel de scoring de C12. Brief detaille : `docs/prompts/C11-index-trackid.md`. Issu de la consultation « Backfill TrackID » (3 iterations).**
+
+### Etape 0 (prealable, hors chantier) — arret du backfill chronologique
+
+- [ ] Immediat : `redis-cli SET trackid_backfill_done 1` (sortie precoce de `backfill_trackid_sets`, `tasks/sets.py:858` ; reversible par `DEL`, aucun effet sur `crawl_trackid_latest` / `recrawl_incomplete_sets`, curseur+offset geles).
+- [ ] Durable : retrait de l'entree beat `backfill-trackid-sets` (`celery_app.py`) pour rendre l'arret visible en git.
+- Justification : le backfill chrono injecte ~4000 tracks/j majoritairement hors cluster qui, via l'ordre `id DESC` (`enrichment.py:116`), passent DEVANT le backlog d'enrichissement ; l'arret realloue le budget Beatport au flux quotidien + drainage backlog + vague `due_retry`.
+
+### Perimetre
+
+- [ ] A.0 : validations V1-V6 (fenetrage `minAddedOn`/`maxAddedOn`, `pageSize` reel, stabilite pagination, filtre `styles=`, `isDeleted` dans `rowCount`, pre-scan volumetrie ~85 sondes) → plan de fenetres STATIQUE (gate).
+- [ ] A : spider `scripts/local/` 1 req/s strict, backoff, checkpoint par fenetre, reprise idempotente testee par interruption → staging local (miroir BRUT du listing, `is_deleted`/`status` non filtres).
+- [ ] Migration Alembic `public.trackid_index` (module `models/trackid_index.py`) : `trackid_id` unique, `set_id` FK nullable `ON DELETE SET NULL`, signaux listing (`track_hit_rate`/`time_hit_rate`/`status`/`processing_priority`/`styles`/`channel`...), colonnes Diggy (`window_id`, `dedup_group_id`, `score`, `score_components` JSONB, `hydration_state`, `matched_artist_ids`, `indexed_at`).
+- [ ] A' : import prod idempotent (`server/api/scripts/import_trackid_index.py`, COPY → temp → `ON CONFLICT (trackid_id) DO UPDATE`, dump chiffre prealable), seed `hydration_state` par LEFT JOIN `sets.external_id` (ne pas re-hydrater les ~38k + le flux courant).
+- [ ] Dedup index ULTRA-CONSERVATRICE : `normalize_set_title` identiques (ou `token_set_ratio >= 0.95`) + duree ~1-2% + channel, reutilisant les 2 fonctions PURES uniquement (`set_dedup_service.py:93,248`) ; les seuils C6 0.80/0.50 ne sont PAS transposables a l'index (calibres sur overlap mtid + ordre, absents pre-hydratation), le filet `match_set` post-hydratation reste l'autorite.
+- [ ] Rapport completude (reconciliation 3 voies : Σ rowCount fenetres vs 381314 vs max-min trackid_id) + rapport volumetrie (top channels, distribution hitRate, volumetrie/annee, pics d'imports).
+
+---
+
+## C12 — Priorisation du backfill TrackID
+
+**Priorite : MOYEN**
+**Estimation : 5-7 jours**
+**Depend de : C11 (livraison de `trackid_index` + scoring) ET GO net-new de la Phase B (echantillonnage `normalized_key`).**
+**Statut : A FAIRE — inscrit 2026-08-26. Remplace la selection chronologique du backfill par une worklist triee par score ; introduit le gate de priorite Beatport (prerequis DUR a toute hydratation de masse). Brief detaille : `docs/prompts/C12-priorisation-backfill.md`. A risque prod reel.**
+
+### Exigences A (bloquantes, DANS CET ORDRE)
+
+- [ ] Gate priorite Beatport LIVRE ET DEPLOYE AVANT toute hydratation de masse : colonne `catalog.enrich_priority` (scalaire) + `select_enrich_candidates` parametre `order_by_priority`/`priority_floor` **Beatport-only** (`enrichment.py:116`, Deezer intact) ; le plancher borne le `WHERE` Tier-1, pas seulement l'`ORDER BY`.
+- [ ] Verrou 2 — stamping a la CREATION : `resolve_set_tracks` (partage flux/backfill, sans argument, `sets.py:784`+`1117`) stampe `enrich_priority` PAR set_track selon le set source (set recent = bande flux haute par defaut fail-safe ; set backfill = son score `trackid_index`) ; job mainteneur `MAX(set_score)` par `catalog_id` = rattrapage.
+- [ ] Reserve retries : tranche fixe HOT-CONFIGURABLE (Redis + defaults) prelevee avant Tier-1 pour les Tier-2/3 ; plancher JAMAIS applique aux retries (sinon famine des re-scans 30/90j, `enrichment.py:126-147`).
+- [ ] Cap journalier d'hydratation conserve (`TRACKID_BACKFILL_SETS_PER_DAY`, garde-fou X4) + rollout etale (leçon hostinger-cpu-throttle).
+- [ ] Swap curseur : `backfill_trackid_sets` consomme `trackid_index` trie par `score` ; machinerie existante conservee (deadline guards, lock, dispatch `resolve_set_tracks`).
+
+### Exigences B (gate decisionnel avant GO hydratation)
+
+- [ ] Estimation net-new `catalog` : echantillonnage des `normalized_key` distincts du sous-ensemble priorise (leçon X4 : ~6-7j a 80% CPU). GO conditionne a ce chiffre + cap.
+- [ ] Notebook scoring : distributions, couverture artistes, cout Beatport par tranche (9900/j, budget 6000 non-liant, `catalog.py:295`) ; poids/seuils HOT-CONFIGURABLES ; PAS de hard-zero (plancher bas non-nul) ; channel > genre infere ; `referenceCount` = signal POST-hydratation ; helper `resolve_name_to_id` lookup-only extrait de `get_or_create_artist`.
+
+### Exigences C (low-cost)
+
+- [ ] C.1 recrawl en polling hitRate (confirme Q-D) : `completion_pct` re-base sur `trackHitRate`/`timeHitRate` du LISTING (le denominateur actuel ne compte que les tracks detectees → finalisation prematuree `unidentified==0 -> final`, `sets.py:389`) ; re-fetch detail SEULEMENT sur variation ; verrou 1 finalisation apres N polls stables (reutilise `recrawl_count`, re-base le signal de progression) ou age max (18-24 mois, remplace le tier >90j).
+- [ ] Alerte « flux quotidien > budget » : Sentry (push) + cle additive snapshot → AdminMonitoring (pull) ; PAS d'`admin_audit_log`.
+- [ ] Graphe backlog Beatport (partitions `never_tried`/`due_retry`/`cooldown`/`abandoned`) : PUR ajout frontend AdminMonitoring — deja historise nativement dans `metric_snapshots` (`tasks/monitoring.py:131`), aucune retention/migration.
 
 ---
 
