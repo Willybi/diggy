@@ -23,6 +23,7 @@ async def list_artists(
     genre: str | None = Query(None, max_length=100),
     q: str | None = Query(None, max_length=200),
     no_deezer: bool = False,
+    dormant: bool = False,
     followed: bool = False,
     ids: str | None = Query(None, max_length=500),
     limit: int = Query(24, ge=1, le=100),
@@ -33,7 +34,7 @@ async def list_artists(
     return await artist_service.list_artists(
         db, _uid(user),
         sort=sort, family=family, genre=genre, q=q, no_deezer=no_deezer,
-        followed=followed, ids=ids, limit=limit, offset=offset,
+        followed=followed, ids=ids, limit=limit, offset=offset, dormant=dormant,
     )
 
 

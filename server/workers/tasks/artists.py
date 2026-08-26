@@ -633,6 +633,12 @@ async def _link_artist_deezer(pool, artist, holder_map, now):
                             merge itself (DELETE/UPDATE/flush) is deferred OUT of the
                             concurrent gather — see _run_link_artists_deezer.
       - ("searched", None): the search completed but no hit matched at all. Marked.
+      - ("not_found", None): Deezer returned ZERO results for a non-splittable name →
+                            confidently absent. Sets deezer_id="NOT_FOUND" now instead
+                            of the 3-attempt dormancy (a deliberate long-term re-parse
+                            can reopen it). Splittable names are excluded (their full
+                            string is expected to be empty — they belong in the split
+                            lane), as are blank queries.
       - ("error", None):    a Deezer outage (DeezerHTTPError). NOT marked, so the
                             artist stays eligible next run (an outage is not an
                             attempt).
@@ -644,7 +650,7 @@ async def _link_artist_deezer(pool, artist, holder_map, now):
     NOT_FOUND sentinel excluded); both the free-id membership test and the merge
     target are read from it.
     """
-    from workers.artist_names import strip_disambiguation_number
+    from workers.artist_names import name_has_separator, strip_disambiguation_number
     from workers.async_http import DeezerHTTPError
 
     # Strip a Discogs "(N)" disambiguator for the query — Deezer knows "Jamie
@@ -663,7 +669,16 @@ async def _link_artist_deezer(pool, artist, holder_map, now):
         return "error", None
 
     _mark_link_searched(artist, now)
-    matches = _matching_deezer_hits(data.get("data", []), query_name)
+    hits = data.get("data", [])
+    # Deezer returned ZERO results for a non-splittable name → confidently absent.
+    # Sentinel it NOW rather than burn the 3-attempt dormancy dance (a deliberate
+    # long-term re-parse can reopen it). A splittable name ("A & B", "X with Y") is
+    # NOT touched — its full string being empty is expected, it belongs in the split
+    # lane; a blank query (a name that strips to nothing) is skipped too.
+    if not hits and query_name and not name_has_separator(artist.name):
+        artist.deezer_id = "NOT_FOUND"
+        return "not_found", None
+    matches = _matching_deezer_hits(hits, query_name)
     # Homonym guard for a "(N)" name: "(2)" means a DISTINCT artist sharing the bare
     # name, so an auto-link is only safe when the bare name resolves to a SINGLE
     # Deezer artist. Two+ distinct ids among the matches = genuinely ambiguous which
@@ -768,6 +783,7 @@ def _run_link_artists_deezer(task):
                     "merged": 0,
                     "searched": 0,
                     "abandoned": 0,
+                    "not_found": 0,
                     "errors": 0,
                     "dropped_by_budget": 0,
                 }
@@ -828,6 +844,12 @@ def _run_link_artists_deezer(task):
                                 # id so a later session.commit() expiring the ORM
                                 # object cannot break the merge.
                                 merge_pairs.append((artist.id, holder_id))
+                            elif status == "not_found":
+                                # Deezer-empty non-splittable → sentinel'd absent now
+                                # (deezer_id set on the ORM object, persisted by the
+                                # batch commit). Not counted as abandoned (it left the
+                                # NULL pool, not the 3-attempt dormancy).
+                                stats["not_found"] += 1
                             elif (
                                 artist.deezer_search_attempts
                                 >= ARTIST_MAX_SEARCH_ATTEMPTS

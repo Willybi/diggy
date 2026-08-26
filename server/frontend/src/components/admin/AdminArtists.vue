@@ -113,10 +113,25 @@
     </div>
     <div class="link-results">
       <div class="link-col">
-        <p class="col-label">
-          Artistes sans deezer_id ({{ noDeezerTotal }})
-          <span v-if="dormantCount" class="col-sub">· {{ dormantCount }} dormants suivis</span>
-        </p>
+        <div class="col-head">
+          <p class="col-label">Artistes sans deezer_id</p>
+          <div class="view-toggle">
+            <button
+              class="vt-btn"
+              :class="{ active: viewMode === 'active' }"
+              @click="setView('active')"
+            >
+              Actifs ({{ activeCount }})
+            </button>
+            <button
+              class="vt-btn"
+              :class="{ active: viewMode === 'dormant' }"
+              @click="setView('dormant')"
+            >
+              Dormants ({{ dormantCount }})
+            </button>
+          </div>
+        </div>
         <div class="link-list">
           <div
             v-for="a in dbArtistResults"
@@ -238,8 +253,11 @@ const linkDeezerQuery = ref('')
 const dbArtistResults = ref([])
 // True DB total for the current filter (may exceed the page shown in dbArtistResults).
 const noDeezerTotal = ref(0)
-// Dormant unlinked artists hidden from the list (abandoned + unsplittable), still
-// tracked by the worker's long-term resurrection sweep.
+// Two toggle views of the unlinked pool: 'active' (actionable, default) and
+// 'dormant' (abandoned + unsplittable, browsable to confirm absence via ✗ Deezer).
+// Both counts come from the API response (global, q-independent).
+const viewMode = ref('active')
+const activeCount = ref(0)
 const dormantCount = ref(0)
 const deezerHits = ref([])
 const selectedDbArtist = ref(null)
@@ -383,11 +401,20 @@ async function runFetchPlArtworks() {
 
 async function fetchNoDeezerArtists(q = '') {
   const params = { no_deezer: true, limit: 100 }
+  if (viewMode.value === 'dormant') params.dormant = true
   if (q) params.q = q
   const { data } = await api.get('/api/artists/', { params })
   dbArtistResults.value = data.items || data
   noDeezerTotal.value = typeof data.total === 'number' ? data.total : dbArtistResults.value.length
+  activeCount.value = typeof data.active_count === 'number' ? data.active_count : 0
   dormantCount.value = typeof data.dormant_count === 'number' ? data.dormant_count : 0
+}
+
+function setView(mode) {
+  if (viewMode.value === mode) return
+  viewMode.value = mode
+  selectedDbArtist.value = null
+  fetchNoDeezerArtists(linkArtistQuery.value.trim())
 }
 
 function onLinkSearch() {
@@ -599,17 +626,43 @@ onMounted(() => {
   flex: 1;
   min-width: 200px;
 }
+.col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
 .col-label {
   font: 500 var(--fs-xs)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
-  margin-bottom: var(--space-2);
 }
-.col-sub {
-  text-transform: none;
-  letter-spacing: 0;
-  opacity: 0.7;
+.view-toggle {
+  display: flex;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.vt-btn {
+  padding: var(--space-1) var(--space-25);
+  border: none;
+  background: var(--surface);
+  color: var(--ink-3);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.vt-btn:not(:last-child) {
+  border-right: 1px solid var(--line-2);
+}
+.vt-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 .result-row {
   display: flex;

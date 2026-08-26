@@ -182,6 +182,34 @@ def is_placeholder_artist(name: str) -> bool:
     return key in _PLACEHOLDER_ARTISTS
 
 
+# Multi-artist separators — a PARITY twin of the SQL predicate
+# artist_service._name_is_splittable (the panel's "splittable" heuristic). KEEP THE
+# TWO IN SYNC: any change here must mirror there and vice-versa. Punctuation chars
+# match anywhere; word separators match on the lowercased name (bounding spaces/dots
+# so "Within Temptation" never trips " with ").
+_SPLIT_PUNCT = "&/|;,+"
+_SPLIT_WORDS = (
+    " feat ", " feat.", " ft ", " ft.", " vs ", " vs.", " featuring ",
+    " presents ", " pres ", " pres.", " with ", "(w ", "(w.",
+)
+
+
+def name_has_separator(name: str) -> bool:
+    """True when ``name`` carries a multi-artist separator (approximate heuristic).
+
+    Python twin of ``artist_service._name_is_splittable``. Used to KEEP a splittable
+    string out of the "Deezer returned nothing → NOT_FOUND" shortcut: a collab like
+    "A & B" / "X with Y" is expected to return an empty full-string search and must
+    go to the split/flag lane, not be sentinel-marked absent.
+    """
+    if not name:
+        return False
+    if any(c in name for c in _SPLIT_PUNCT):
+        return True
+    low = name.lower()
+    return any(w in low for w in _SPLIT_WORDS)
+
+
 # ── punct_fold_key ──────────────────────────────────────────────────────────
 
 # Punctuation dropped when building a MATCH key: dots, commas, apostrophes,

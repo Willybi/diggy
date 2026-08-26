@@ -156,6 +156,7 @@ async def list_artists(
     offset: int,
     followed: bool = False,
     genre: str | None = None,
+    dormant: bool = False,
 ) -> dict:
     from models import (
         Artist,
@@ -256,6 +257,7 @@ async def list_artists(
         base_query = base_query.where(name_match)
         id_filter_query = id_filter_query.where(name_match)
     dormant_count = 0
+    active_count = 0
     if no_deezer:
         # Only unlinked artists still ATTACHED to something (catalog or set).
         # Fully orphaned rows (residue of splits/merges/re-imports whose links
@@ -298,22 +300,36 @@ async def list_artists(
         )
         # Hide remix TITLES mistaken for artists (not real, not linkable).
         not_remix = ~_name_is_remix_noise(Artist.name)
-        base_query = base_query.where(
-            Artist.deezer_id.is_(None), attached, actionable, not_flagged, not_remix
+        # Two mutually-exclusive views of the unlinked-attached pool, toggled in the
+        # admin panel. ACTIVE = still worth a human/worker action (searching or
+        # splittable). DORMANT = abandoned by the auto-search (>= MAX attempts) AND
+        # unsplittable — nothing left to do here but confirm absence ("✗ Deezer");
+        # tracked by the worker's long-term resurrection sweep. Both counts are
+        # returned (global, q-independent) so the toggle shows both badges.
+        active_conds = (
+            Artist.deezer_id.is_(None),
+            attached,
+            actionable,
+            not_flagged,
+            not_remix,
         )
-        id_filter_query = id_filter_query.where(
-            Artist.deezer_id.is_(None), attached, actionable, not_flagged, not_remix
+        dormant_conds = (
+            Artist.deezer_id.is_(None),
+            attached,
+            Artist.deezer_search_attempts >= _MAX_SEARCH_ATTEMPTS,
+            ~splittable,
         )
+        view_conds = dormant_conds if dormant else active_conds
+        base_query = base_query.where(*view_conds)
+        id_filter_query = id_filter_query.where(*view_conds)
+        active_count = (
+            await db.execute(
+                select(func.count()).select_from(Artist).where(*active_conds)
+            )
+        ).scalar() or 0
         dormant_count = (
             await db.execute(
-                select(func.count())
-                .select_from(Artist)
-                .where(
-                    Artist.deezer_id.is_(None),
-                    attached,
-                    Artist.deezer_search_attempts >= _MAX_SEARCH_ATTEMPTS,
-                    ~splittable,
-                )
+                select(func.count()).select_from(Artist).where(*dormant_conds)
             )
         ).scalar() or 0
     if followed and user_id is not None:
@@ -464,6 +480,7 @@ async def list_artists(
         "items": items,
         "total": total,
         "pillarCounts": pillar_counts,
+        "active_count": active_count,
         "dormant_count": dormant_count,
     }
 

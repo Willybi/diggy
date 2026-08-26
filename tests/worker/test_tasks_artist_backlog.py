@@ -235,17 +235,51 @@ class TestLinkArtistsDeezer:
     ):
         with Session(task_engine) as s:
             _add_artist(s, "Nobody")
-        # empty search results → no match
+        # HITS present but none fold-match → searched + retriable (this is the path
+        # that survives; an EMPTY response now takes the NOT_FOUND shortcut instead).
+        fake_pool.search["Nobody"] = [_hit(99, "Somebody Else")]
 
         result = tasks_env.artists.link_artists_deezer(fake_self)
 
         assert result == {
             "linked": 0, "merged": 0, "searched": 1, "abandoned": 0,
-            "errors": 0, "dropped_by_budget": 0,
+            "not_found": 0, "errors": 0, "dropped_by_budget": 0,
         }
         arts = _artists(task_engine)
         assert arts["Nobody"].deezer_id is None
         assert arts["Nobody"].deezer_search_attempts == 1  # marked, retriable
+
+    def test_empty_deezer_marks_not_found(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A non-splittable name Deezer returns ZERO hits for is sentinel'd NOT_FOUND
+        immediately (skips the 3-attempt dormancy)."""
+        with Session(task_engine) as s:
+            _add_artist(s, "Raoul Konan")
+        # no fake_pool.search entry → {"data": []} → empty
+
+        result = tasks_env.artists.link_artists_deezer(fake_self)
+
+        assert result["not_found"] == 1
+        assert result["linked"] == 0 and result["abandoned"] == 0
+        arts = _artists(task_engine)
+        assert arts["Raoul Konan"].deezer_id == "NOT_FOUND"
+
+    def test_splittable_empty_not_marked_not_found(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A splittable name ('A & B') whose full-string search is empty is NOT
+        sentinel'd — it belongs in the split lane, stays NULL + retriable."""
+        with Session(task_engine) as s:
+            _add_artist(s, "Alpha & Beta")
+        # empty full-string search, but the '&' routes it away from NOT_FOUND
+
+        result = tasks_env.artists.link_artists_deezer(fake_self)
+
+        assert result["not_found"] == 0
+        assert result["searched"] == 1
+        arts = _artists(task_engine)
+        assert arts["Alpha & Beta"].deezer_id is None
 
     def test_disambig_number_stripped_for_query_and_links_when_single(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
@@ -311,7 +345,10 @@ class TestLinkArtistsDeezer:
                 deezer_searched_at=now - timedelta(days=100),
                 deezer_search_attempts=2,
             )
-        # no match → this third attempt abandons it
+        # HITS present but none fold-match → this third attempt abandons it (the
+        # abandonment path is now reached only via hits-without-a-match; an EMPTY
+        # response short-circuits to NOT_FOUND before the attempt cap).
+        fake_pool.search["LastChance"] = [_hit(77, "Different Name")]
 
         result = tasks_env.artists.link_artists_deezer(fake_self)
 

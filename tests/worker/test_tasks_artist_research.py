@@ -309,15 +309,41 @@ class TestLinkArtistDeezer:
     async def test_no_match_marks_and_increments(self):
         artist = self._artist("Unknown DJ")
         pool = MagicMock()
-        pool.deezer_get = AsyncMock(return_value={"data": []})
+        # HITS present but none fold-match → searched + retriable. (An EMPTY response
+        # now takes the NOT_FOUND shortcut instead — see below.)
+        pool.deezer_get = AsyncMock(return_value={"data": [{"id": 5, "name": "Other Name"}]})
 
         status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
 
         assert status == "searched"
         assert holder_id is None
-        assert artist.deezer_id is None  # no-match must never set NOT_FOUND
+        assert artist.deezer_id is None  # no fold-match → never links, stays NULL
         assert artist.deezer_searched_at == NOW
         assert artist.deezer_search_attempts == 1
+
+    async def test_empty_deezer_marks_not_found(self):
+        # Deezer returns ZERO hits for a non-splittable name → sentinel'd NOT_FOUND.
+        artist = self._artist("Raoul Konan")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(return_value={"data": []})
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
+
+        assert status == "not_found"
+        assert holder_id is None
+        assert artist.deezer_id == "NOT_FOUND"
+
+    async def test_splittable_empty_is_not_marked_not_found(self):
+        # A splittable name whose full-string search is empty is NOT sentinel'd — it
+        # belongs in the split lane, stays NULL + retriable.
+        artist = self._artist("Alpha & Beta")
+        pool = MagicMock()
+        pool.deezer_get = AsyncMock(return_value={"data": []})
+
+        status, holder_id = await _link_artist_deezer(pool, artist, {}, NOW)
+
+        assert status == "searched"
+        assert artist.deezer_id is None
 
     async def test_http_error_leaves_unsearched_and_no_increment(self):
         artist = self._artist("Flaky DJ")

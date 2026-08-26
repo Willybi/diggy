@@ -85,6 +85,33 @@ class TestListArtists:
         assert "Fresh Name" in names  # still searching → kept
         assert "Raoul Konan" not in names  # dormant dead-end → hidden
         assert result["dormant_count"] == 1
+        assert result["active_count"] == 2  # splittable + still-searching
+
+    async def test_no_deezer_dormant_view(self, db, auth_user):
+        from models import Artist, CatalogArtist, CatalogEntry
+
+        # dead-end dormant (abandoned + unsplittable) + one still-active row.
+        dormant = Artist(name="Raoul Konan", normalized_name="raoul konan", deezer_search_attempts=3)
+        active = Artist(name="Fresh Name", normalized_name="fresh name", deezer_search_attempts=0)
+        db.add_all([dormant, active])
+        await db.flush()
+        for a in (dormant, active):
+            cat = CatalogEntry(title=f"T{a.id}", artist=a.name, normalized_key=f"nk-{a.id}")
+            db.add(cat)
+            await db.flush()
+            db.add(
+                CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0)
+            )
+        await db.commit()
+
+        # ?dormant=true flips the view: only the dead-end shows; both counts returned.
+        dview = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family=None, q=None,
+            no_deezer=True, ids=None, limit=20, offset=0, dormant=True,
+        )
+        assert [a["name"] for a in dview["items"]] == ["Raoul Konan"]
+        assert dview["active_count"] == 1
+        assert dview["dormant_count"] == 1
 
     async def test_no_deezer_excludes_artists_routed_to_flags(self, db, auth_user):
         from models import Artist, ArtistFlag, CatalogArtist, CatalogEntry
