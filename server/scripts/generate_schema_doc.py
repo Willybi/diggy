@@ -69,7 +69,14 @@ DOMAIN_ORDER: list[tuple[str, list[str]]] = [
     ),
     (
         "Sets",
-        ["sets", "set_artists", "set_tracks", "set_flags", "user_set_follows"],
+        [
+            "sets",
+            "set_artists",
+            "set_tracks",
+            "set_flags",
+            "user_set_follows",
+            "trackid_index",
+        ],
     ),
     (
         "Genres",

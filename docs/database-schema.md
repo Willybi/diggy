@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 32 tables across 7 domains.
+> 33 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -70,7 +70,7 @@ is auto-generated — do not edit it directly.
 **Users:** `users` · `user_opinions` · `user_collections` · `collection_items` · `collection_folders`
 **Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
 **Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity`
-**Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows`
+**Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows` · `trackid_index`
 **Genres:** `genre_nodes` · `genre_edges` · `genre_mappings`
 **System:** `admin_audit_log` · `crawl_logs` · `metric_snapshots`
 
@@ -111,6 +111,7 @@ PK: `id`
 
 **Indexes:**
 - `ix_catalog_deezer_id`: `deezer_id`
+- `ix_catalog_genres`: `genres`
 - `ix_catalog_bpm`: `bpm`
 - `ix_catalog_release_date`: `release_date`
 - `ix_catalog_bpm_analysis_backlog`: `id`
@@ -122,7 +123,6 @@ PK: `id`
 - `ix_catalog_scope`: `scope`
 - `ix_catalog_beatport_searched_at`: `beatport_searched_at`
 - `ix_catalog_duration_ms`: `duration_ms`
-- `ix_catalog_genres`: `genres`
 
 ### `catalog_artists`
 
@@ -595,6 +595,50 @@ Composite PK: (`user_id`, `set_id`)
 | `user_id` **PK** | Integer | no |  | FK → users.id ON DELETE CASCADE |  |
 | `set_id` **PK** | Integer | no |  | FK → sets.id ON DELETE CASCADE |  |
 | `followed_at` | DateTime(tz) | yes |  |  |  |
+
+### `trackid_index`
+
+PK: `id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `id` **PK** | Integer | no |  |  |  |
+| `trackid_id` | Integer | no |  |  |  |
+| `slug` | String(500) | yes |  |  |  |
+| `title` | String(500) | yes |  |  |  |
+| `channel` | String(255) | yes |  |  |  |
+| `styles` | TEXT[] | yes |  |  |  |
+| `status` | Integer | yes |  |  |  |
+| `is_deleted` | Boolean | yes |  |  |  |
+| `track_count` | Integer | yes |  |  |  |
+| `duration` | String(64) | yes |  |  |  |
+| `time_hit_rate` | Float | yes |  |  |  |
+| `track_hit_rate` | Float | yes |  |  |  |
+| `processing_priority` | Integer | yes |  |  |  |
+| `artwork_url` | Text | yes |  |  |  |
+| `added_on` | DateTime(tz) | yes |  |  |  |
+| `created_on` | DateTime(tz) | yes |  |  |  |
+| `added_by` | String(255) | yes |  |  |  |
+| `added_by_id` | Integer | yes |  |  |  |
+| `audio_stream_type` | Integer | yes |  |  |  |
+| `external_id` | String(255) | yes |  |  |  |
+| `url` | Text | yes |  |  |  |
+| `favourite_count` | Integer | yes |  |  |  |
+| `like_count` | Integer | yes |  |  |  |
+| `average_rating` | Float | yes |  |  |  |
+| `raw_json` | JSON | yes |  |  |  |
+| `window_id` | String(64) | yes |  |  |  |
+| `dedup_group_id` | Integer | yes |  |  |  |
+| `score` | Float | yes |  |  |  |
+| `score_components` | JSON | yes |  |  |  |
+| `hydration_state` | String(32) | no |  |  | server_default='not_hydrated', default='not_hydrated' |
+| `matched_artist_ids` | JSON | yes |  |  |  |
+| `set_id` | Integer | yes |  | FK → sets.id ON DELETE SET NULL |  |
+| `indexed_at` | DateTime(tz) | yes |  |  |  |
+
+**Indexes:**
+- `ix_trackid_index_added_on`: `added_on`
+- `ix_trackid_index_hydration_state`: `hydration_state`
 
 ## Genres
 

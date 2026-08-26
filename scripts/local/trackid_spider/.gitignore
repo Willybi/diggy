@@ -1,0 +1,5 @@
+# run artifacts (staging db, plan, reports, exports, logs) — never committed
+data/
+*.db
+*.db-wal
+*.db-shm

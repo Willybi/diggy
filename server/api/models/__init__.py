@@ -48,4 +48,5 @@ from .sets import (  # noqa: F401
     SetTrack,
     UserSetFollow,
 )
+from .trackid_index import TrackIdIndex  # noqa: F401
 from .user import User  # noqa: F401

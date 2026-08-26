@@ -166,10 +166,6 @@ celery_app.conf.update(
             "task": "workers.tasks.crawl_trackid_latest",
             "schedule": crontab(hour=3, minute=30),  # tous les jours à 3h30
         },
-        "backfill-trackid-sets-daily": {
-            "task": "workers.tasks.backfill_trackid_sets",
-            "schedule": crontab(hour=2, minute=0),  # tous les jours à 2h
-        },
         "check-followed-artists-daily": {
             "task": "workers.tasks.check_followed_artists",
             "schedule": crontab(hour=4, minute=45),  # tous les jours à 4h45
