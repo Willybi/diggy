@@ -154,30 +154,77 @@ def sample_ids(conn, n, include_deleted, min_hit_rate):
 
 
 # --- fetch phase -----------------------------------------------------------
-def fetch(db_path, n, include_deleted, min_hit_rate, limit, verbose=True):
+def _rate_ladder(start_rate):
+    """Descending req/s steps from start down to 1/s — the throttle backoff path."""
+    levels = sorted({float(start_rate), 3.0, 2.0, 1.0}, reverse=True)
+    return [r for r in levels if r <= float(start_rate)] or [1.0]
+
+
+def _parse_retry_after(value):
+    """Retry-After seconds form only; an HTTP-date form -> None (use default)."""
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch(db_path, n, include_deleted, min_hit_rate, limit, start_rate=1.0, verbose=True):
     conn = connect(db_path)
     targets = sample_ids(conn, n, include_deleted, min_hit_rate)
     done = {r["trackid_id"] for r in conn.execute("SELECT trackid_id FROM set_detail")}
     todo = [(tid, slug) for tid, slug in targets if tid not in done]
     if limit:
         todo = todo[:limit]
+
+    ladder = _rate_ladder(start_rate)
+    lvl = 0                        # index in ladder; only ever ratchets DOWN
+    interval = 1.0 / ladder[lvl]
+    ok = err = throttled = 0
+    retries = {}                   # per-set throttle retry counter
+    MAX_THROTTLE_RETRY = 6
+    COMMIT_EVERY = 200             # durability + resumable + bounded WAL
+
     if verbose:
         print(
-            f"[fetch] sample={len(targets)} already_done={len(targets) - len(todo) if not limit else 'n/a'} "
-            f"to_fetch={len(todo)}  (~{len(todo) * RATE_LIMIT / 60:.0f} min)",
+            f"[fetch] to_fetch={len(todo)} start={ladder[lvl]}/s ladder={ladder} "
+            f"(~{len(todo) * interval / 60:.0f} min at start rate)",
             flush=True,
         )
-    ok = err = 0
     with httpx.Client(headers=HEADERS, timeout=TIMEOUT) as client:
         last = 0.0
-        for i, (tid, slug) in enumerate(todo, 1):
+        i = idx = 0
+        while idx < len(todo):
+            tid, slug = todo[idx]
             elapsed = time.monotonic() - last
-            if elapsed < RATE_LIMIT:
-                time.sleep(RATE_LIMIT - elapsed)
+            if elapsed < interval:
+                time.sleep(interval - elapsed)
             last = time.monotonic()
             try:
                 resp = client.get(f"{BASE_URL}/audiostreams/{slug}")
                 status = resp.status_code
+                if status in (429, 403):
+                    # throttle signal: step the rate DOWN, cool off, retry SAME set
+                    throttled += 1
+                    if lvl < len(ladder) - 1:
+                        lvl += 1
+                        interval = 1.0 / ladder[lvl]
+                    cooldown = min(
+                        300, _parse_retry_after(resp.headers.get("Retry-After")) or 45
+                    )
+                    print(
+                        f"[throttle] {status} on {slug} -> rate {ladder[lvl]}/s, "
+                        f"cooldown {cooldown}s (total throttled={throttled})",
+                        flush=True,
+                    )
+                    conn.commit()  # persist progress before the pause
+                    time.sleep(cooldown)
+                    retries[tid] = retries.get(tid, 0) + 1
+                    if retries[tid] <= MAX_THROTTLE_RETRY:
+                        continue   # do NOT advance idx — retry this set
+                    _store_detail(conn, tid, slug, status, "throttle-exhausted", None)
+                    err += 1
+                    idx += 1
+                    continue
                 resp.raise_for_status()
                 detail = resp.json().get("result", {}) or {}
                 _store_detail(conn, tid, slug, status, None, detail)
@@ -188,12 +235,23 @@ def fetch(db_path, n, include_deleted, min_hit_rate, limit, verbose=True):
             except Exception as e:  # network / json / parse
                 _store_detail(conn, tid, slug, -1, str(e), None)
                 err += 1
-            if verbose and i % 100 == 0:
-                print(f"  {i}/{len(todo)}  ok={ok} err={err}", flush=True)
+            idx += 1
+            i += 1
+            if i % COMMIT_EVERY == 0:
+                conn.commit()
+                if verbose:
+                    print(
+                        f"  {idx}/{len(todo)} ok={ok} err={err} "
+                        f"throttled={throttled} rate={ladder[lvl]}/s",
+                        flush=True,
+                    )
     conn.commit()
     conn.close()
     if verbose:
-        print(f"[fetch] done  ok={ok} err={err}", flush=True)
+        print(
+            f"[fetch] done ok={ok} err={err} throttled={throttled} final_rate={ladder[lvl]}/s",
+            flush=True,
+        )
     return ok, err
 
 
@@ -395,6 +453,7 @@ def main(argv=None):
     pf.add_argument("--include-deleted", action="store_true")
     pf.add_argument("--min-hit-rate", type=float, default=0.0)
     pf.add_argument("--limit", type=int, default=0, help="cap this run (resume-friendly)")
+    pf.add_argument("--rate", type=float, default=1.0, help="starting req/s (adaptive backoff 3->2->1 on 429/403)")
 
     pm = sub.add_parser("match", help="match fetched tracks vs prod snapshots")
     pm.add_argument("--db", default="data/staging.db")
@@ -407,7 +466,10 @@ def main(argv=None):
 
     args = p.parse_args(argv)
     if args.cmd == "fetch":
-        fetch(args.db, args.sample, args.include_deleted, args.min_hit_rate, args.limit or 0)
+        fetch(
+            args.db, args.sample, args.include_deleted, args.min_hit_rate,
+            args.limit or 0, start_rate=args.rate,
+        )
     elif args.cmd == "match":
         match(args.db, args.catalog, args.artists)
     elif args.cmd == "report":

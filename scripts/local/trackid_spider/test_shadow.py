@@ -44,6 +44,20 @@ def test_merge_tracklist_dedup():
     assert {t["musicTrackId"] for t in merged} == {1, 2}
 
 
+def test_rate_ladder():
+    assert shadow._rate_ladder(3) == [3.0, 2.0, 1.0]
+    assert shadow._rate_ladder(2) == [2.0, 1.0]
+    assert shadow._rate_ladder(1) == [1.0]
+    assert shadow._rate_ladder(6) == [6.0, 3.0, 2.0, 1.0]
+    assert shadow._rate_ladder(4) == [4.0, 3.0, 2.0, 1.0]
+
+
+def test_parse_retry_after():
+    assert shadow._parse_retry_after("30") == 30
+    assert shadow._parse_retry_after(None) is None
+    assert shadow._parse_retry_after("Wed, 21 Oct 2026 07:28:00 GMT") is None
+
+
 def test_match_flow(tmp_path):
     db = str(tmp_path / "s.db")
     conn = shadow.connect(db)
