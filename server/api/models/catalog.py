@@ -63,6 +63,10 @@ class CatalogEntry(Base):
     beatport_search_attempts = Column(
         SmallInteger, nullable=False, server_default="0", default=0
     )
+    # C12 — enrichment priority scalar. LARGER value = enriched first; NULL =
+    # not stamped. Read by no logic yet (the priority gate/stamping lands in
+    # later C12 lots); this lot only lays the column + its partial index.
+    enrich_priority = Column(SmallInteger, nullable=True)
 
     __table_args__ = (
         Index(
@@ -91,6 +95,12 @@ class CatalogEntry(Base):
             "ix_catalog_beatport_searched_at",
             "beatport_searched_at",
             postgresql_where=text("beatport_id IS NULL"),
+        ),
+        # C12 — enrichment-priority ordering (partial: stamped rows only)
+        Index(
+            "ix_catalog_enrich_priority",
+            "enrich_priority",
+            postgresql_where=text("enrich_priority IS NOT NULL"),
         ),
         # Explorer query-builder (D6 p.1): filter/sort columns of GET /catalog/
         Index("ix_catalog_bpm", "bpm"),

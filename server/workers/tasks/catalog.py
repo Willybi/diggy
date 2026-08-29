@@ -71,6 +71,18 @@ def _nightly_budget(source: str) -> int:
     )
 
 
+def _priority_floor() -> int | None:
+    """C12 — optional priority floor for the Beatport drain (Tier-1 fresh only).
+
+    ``ENRICH_PRIORITY_FLOOR`` unset (default) → None → no exclusion, safe at
+    rollout. When set, fresh rows whose coalesced ``enrich_priority`` is below it
+    are held back; the 30/90-day retries are never floored (see
+    ``select_enrich_candidates``).
+    """
+    raw = os.environ.get("ENRICH_PRIORITY_FLOOR")
+    return int(raw) if raw else None
+
+
 @celery_app.task(
     name="workers.tasks.enrich_catalog",
     bind=True,
@@ -332,6 +344,11 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
                             budget=effective_budget,
                             now=datetime.now(timezone.utc),
                             genre_only=genre_only,
+                            # C12 — drain the highest-priority rows first; the
+                            # floor (default None) can hold back low-priority
+                            # work without touching the Deezer sweep.
+                            order_by_priority=True,
+                            priority_floor=_priority_floor(),
                         )
                         progress["total"] = len(entries)
 

@@ -108,21 +108,23 @@ PK: `id`
 | `beatport_searched_at` | DateTime(tz) | yes |  |  |  |
 | `deezer_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 | `beatport_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
+| `enrich_priority` | SmallInteger | yes |  |  |  |
 
 **Indexes:**
-- `ix_catalog_deezer_id`: `deezer_id`
-- `ix_catalog_genres`: `genres`
-- `ix_catalog_bpm`: `bpm`
-- `ix_catalog_release_date`: `release_date`
 - `ix_catalog_bpm_analysis_backlog`: `id`
 - `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_enrich_priority`: `enrich_priority`
+- `ix_catalog_duration_ms`: `duration_ms`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
+- `ix_catalog_genres`: `genres`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_release_date`: `release_date`
+- `ix_catalog_scope`: `scope`
+- `ix_catalog_deezer_id`: `deezer_id`
 - `ix_catalog_key`: `key`
 - `ix_catalog_created_at_id`: 
-- `ix_catalog_owner`: `owner_id`
-- `ix_catalog_scope`: `scope`
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
-- `ix_catalog_duration_ms`: `duration_ms`
 
 ### `catalog_artists`
 
@@ -513,6 +515,7 @@ PK: `id`
 | `recrawl_count` | Integer | no |  |  | server_default='0', default=0 |
 | `recrawl_status` | String(16) | no |  |  | server_default='active', default='active' |
 | `unreliable` | Boolean | no |  |  | server_default='false', default=False |
+| `can_reprocess` | Boolean | yes |  |  |  |
 
 **Indexes:**
 - `ix_sets_parent_set_id`: `parent_set_id`
@@ -549,6 +552,8 @@ PK: `id`
 | `raw_artist` | String(500) | yes |  |  |  |
 | `is_id` | Boolean | yes |  |  | default=False |
 | `trackid_music_track_id` | Integer | yes |  |  |  |
+| `label` | String(255) | yes |  |  |  |
+| `end_time_ms` | Integer | yes |  |  |  |
 
 **Indexes:**
 - `ix_set_tracks_set_id`: `set_id`
@@ -637,8 +642,8 @@ PK: `id`
 | `indexed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_trackid_index_added_on`: `added_on`
 - `ix_trackid_index_hydration_state`: `hydration_state`
+- `ix_trackid_index_added_on`: `added_on`
 
 ## Genres
 

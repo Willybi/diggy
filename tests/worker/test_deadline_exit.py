@@ -110,8 +110,20 @@ class _FakeAsyncCM:
 
 
 class _FakeAsyncDB:
-    def __init__(self):
+    """Async session stand-in. execute() returns a result whose .all() yields
+    the configured selection rows (used by the trackid_index selection query);
+    the per-set mark-hydrated UPDATE also goes through execute() and its result
+    is ignored."""
+
+    def __init__(self, rows=None):
         self.commit = AsyncMock()
+        self._rows = rows if rows is not None else []
+        self.execute = AsyncMock(side_effect=self._execute)
+
+    async def _execute(self, *a, **k):
+        res = MagicMock()
+        res.all.return_value = self._rows
+        return res
 
     async def __aenter__(self):
         return self
@@ -270,10 +282,11 @@ def _mock_bpm_analysis(monkeypatch, n_entries, batch_stats):
 @pytest.fixture
 def sets_infra(monkeypatch):
     """Everything backfill_trackid_sets / _run_backfill_trackid_sets import at
-    CALL time, mocked in sys.modules with async-aware stand-ins. The listing
-    page is two sets both older than the cursor (addedOn 2020) so the collection
-    loop fills a batch in ONE fetch (len < 20 → break) and the import loop then
-    processes them — keeping the fake-clock sequence short and deterministic."""
+    CALL time, mocked in sys.modules with async-aware stand-ins. Since C12 L4
+    the drain SELECTS the sets to hydrate from trackid_index (a single DB query)
+    instead of crawling the listing, so the async session returns two rows
+    (trackid_id, slug) and the import loop processes them — keeping the
+    fake-clock sequence short and deterministic."""
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
     shared_redis = _StatefulRedis()
@@ -281,13 +294,21 @@ def sets_infra(monkeypatch):
     redis_mod.from_url.return_value = shared_redis
     monkeypatch.setitem(sys.modules, "redis", redis_mod)
 
-    # log_session Session CM + async sessionmaker → _FakeAsyncDB per call
+    # Selection query result: two scored, not-hydrated sets (trackid_id, slug).
+    selection_rows = [(1, "slug-1"), (2, "slug-2")]
+
+    # log_session Session CM + async sessionmaker → _FakeAsyncDB (fed the
+    # selection rows) per call
     session = MagicMock()
     orm_mod = MagicMock()
     orm_mod.Session.return_value.__enter__.return_value = session
-    orm_mod.sessionmaker.return_value = lambda *a, **k: _FakeAsyncDB()
+    orm_mod.sessionmaker.return_value = lambda *a, **k: _FakeAsyncDB(
+        rows=selection_rows
+    )
     monkeypatch.setitem(sys.modules, "sqlalchemy", MagicMock())
     monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_mod)
+    # _select_sets_to_hydrate_stmt / _mark_hydrated_stmt import TrackIdIndex
+    monkeypatch.setitem(sys.modules, "models", MagicMock())
 
     async_engine = MagicMock()
     async_engine.dispose = AsyncMock()
@@ -305,11 +326,7 @@ def sets_infra(monkeypatch):
     limiter_mod.RateLimiter.side_effect = lambda: _FakeLimiter()
     monkeypatch.setitem(sys.modules, "workers.rate_limiter", limiter_mod)
 
-    page = [
-        {"id": 1, "addedOn": "2020-01-01T10:00:00"},
-        {"id": 2, "addedOn": "2020-01-01T09:00:00"},
-    ]
-    client = _FakeTrackIDClient(page)
+    client = _FakeTrackIDClient([])
     client_mod = MagicMock()
     client_mod.TrackIDClient.side_effect = lambda: client
     monkeypatch.setitem(sys.modules, "trackid.client", client_mod)
@@ -326,6 +343,7 @@ def sets_infra(monkeypatch):
         client=client,
         clog=clog,
         import_audiostream=import_audiostream,
+        selection_rows=selection_rows,
     )
 
 
@@ -449,58 +467,58 @@ class TestBpmDeadline:
 
 
 class TestBackfillTrackidDeadline:
-    """backfill_trackid_sets (AV9 follow-up, DIGGY-APP-4): the deadline guards
-    the two nested loops (collect + import) so a run that overruns the soft
-    limit exits cleanly with deadline_hit=True instead of running to the hard
-    limit → SIGKILL → DLQ."""
+    """backfill_trackid_sets (C12 L4): the drain SELECTS sets from trackid_index
+    (score desc) then hydrates them in a loop guarded by the internal deadline,
+    so a run that overruns the soft limit exits cleanly with deadline_hit=True
+    instead of running to the hard limit → SIGKILL → DLQ (AV9 rationale)."""
 
     def test_nominal_run_unaffected(self, sets_mod, sets_infra, fake_self, monkeypatch):
         monkeypatch.setattr(sets_mod, "time", _FakeClock(_NEVER))
 
         result = sets_mod.backfill_trackid_sets(fake_self)
 
-        # Both collected sets were imported; one fetch (page < 20 → break).
+        # Both selected sets were hydrated; import_audiostream called per set.
         assert sets_infra.import_audiostream.await_count == 2
-        assert sets_infra.client.search_calls == 1
         assert result["status"] == "running"
         assert result["imported"] == 2
+        assert result["selected"] == 2
         assert result["deadline_hit"] is False
         sets_infra.clog.set_stats.assert_called_once_with(result)
 
     def test_deadline_stops_before_import(
         self, sets_mod, sets_infra, fake_self, monkeypatch
     ):
-        # Clock: deadline computed at 0, collection check at 0 (one batch
-        # collected), then the import-loop check lands past the deadline.
-        monkeypatch.setattr(sets_mod, "time", _FakeClock([0.0, 0.0, 10**9]))
+        # Clock: deadline computed at 0, then the FIRST import-loop check lands
+        # past the deadline (selection is a single query, no per-page check).
+        monkeypatch.setattr(sets_mod, "time", _FakeClock([0.0, 10**9]))
 
         result = sets_mod.backfill_trackid_sets(fake_self)
 
-        # Batch was collected (one fetch) but the import loop bailed cleanly
-        # BEFORE importing anything — no exception, no DLQ routing.
-        assert sets_infra.client.search_calls == 1
+        # Sets were selected but the import loop bailed cleanly BEFORE hydrating
+        # anything — no exception, no DLQ routing.
         assert sets_infra.import_audiostream.await_count == 0
         assert result["status"] == "running"
         assert result["imported"] == 0
+        assert result["selected"] == 2
         assert result["deadline_hit"] is True
         sets_infra.clog.set_stats.assert_called_once_with(result)
         # Lock released by the wrapper's finally (still owned it).
         assert "lock:backfill_trackid_sets" not in sets_infra.redis.store
 
-    def test_deadline_stops_before_collection(
+    def test_no_scored_set_is_a_noop(
         self, sets_mod, sets_infra, fake_self, monkeypatch
     ):
-        # Clock: deadline at 0, first collection check already past it — the
-        # loop must NOT paginate at all (regression: run to hard limit).
-        monkeypatch.setattr(sets_mod, "time", _FakeClock([0.0, 10**9]))
+        # Selection returns nothing (all scored sets already hydrated / none
+        # scored yet) → clean no-op, NOT a terminal "done".
+        sets_infra.selection_rows.clear()
+        monkeypatch.setattr(sets_mod, "time", _FakeClock(_NEVER))
 
         result = sets_mod.backfill_trackid_sets(fake_self)
 
-        assert sets_infra.client.search_calls == 0
         assert sets_infra.import_audiostream.await_count == 0
-        assert result["deadline_hit"] is True
-        # Empty batch → the done path, but deadline_hit is still surfaced.
-        assert result["status"] == "done"
+        assert result["status"] == "idle"
+        assert result["imported"] == 0
+        assert result["deadline_hit"] is False
         sets_infra.clog.set_stats.assert_called_once_with(result)
 
 

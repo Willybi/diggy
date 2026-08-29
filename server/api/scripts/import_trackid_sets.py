@@ -23,6 +23,12 @@ from trackid.importer import get_or_create_artist, import_audiostream
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
+# C12 — priority for a catalog row whose source set is NOT scored in
+# trackid_index (recent live-flux set): above every backfill phase. Mirrors
+# workers.tasks.sets.FLUX_PRIORITY (kept local so this standalone script stays
+# independent of the celery worker package).
+FLUX_PRIORITY = int(os.environ.get("C12_FLUX_PRIORITY", "100"))
+
 
 def _humanize_slug(slug: str) -> str:
     """Convert 'adambeyer' → 'Adambeyer' as fallback display name."""
@@ -143,9 +149,9 @@ async def _resolve_set_tracks(engine):
     """Inline async version of resolve_set_tracks Celery task with Deezer enrichment."""
     from datetime import datetime, timezone
 
-    from models import CatalogEntry, SetTrack
+    from models import CatalogEntry, DJSet, SetTrack, TrackIdIndex
     from services.image_service import ImageService
-    from sqlalchemy import select
+    from sqlalchemy import String, cast, select
     from utils import make_normalized_key
     from workers.deezer_enrich import enrich_entry, search_deezer
 
@@ -172,6 +178,26 @@ async def _resolve_set_tracks(engine):
         )
         tracks = result.scalars().all()
 
+        # C12 — priority per source set (its scored trackid_index phase, or
+        # FLUX_PRIORITY when unscored). Built once before the loop; the join is
+        # scoped to source='trackid' on external_id == CAST(trackid_id AS text).
+        prio_map = {}
+        set_ids = {st.set_id for st in tracks}
+        if set_ids:
+            prio_rows = await db.execute(
+                select(DJSet.id, TrackIdIndex.score)
+                .join(
+                    TrackIdIndex,
+                    cast(TrackIdIndex.trackid_id, String) == DJSet.external_id,
+                )
+                .where(
+                    DJSet.id.in_(set_ids),
+                    DJSet.source == "trackid",
+                    TrackIdIndex.score.isnot(None),
+                )
+            )
+            prio_map = {sid: int(round(score)) for sid, score in prio_rows.all()}
+
         for st in tracks:
             norm_key = make_normalized_key(st.raw_title, st.raw_artist)
 
@@ -195,6 +221,12 @@ async def _resolve_set_tracks(engine):
                 is_new = True
 
             st.catalog_id = entry.id
+            prio = prio_map.get(st.set_id, FLUX_PRIORITY)
+            entry.enrich_priority = (
+                prio
+                if entry.enrich_priority is None
+                else max(entry.enrich_priority, prio)
+            )
             resolved += 1
 
             # Enrich new entries or entries missing deezer_id

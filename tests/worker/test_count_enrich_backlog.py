@@ -144,6 +144,38 @@ class TestCountEnrichBacklogTiers:
         assert c["due_retry"] == 0
 
 
+class TestCountEnrichBacklogPriorityFloor:
+    """C12: priority_floor mirrors select_enrich_candidates' Tier-1 fresh
+    eligibility — it filters the never_tried partition ONLY (NULL folds to
+    PRIORITY_BASELINE), leaving due/cooldown/abandoned untouched. Default None
+    → counts unchanged."""
+
+    def test_floor_filters_never_tried_only(self, sync_session):
+        # never_tried rows straddling floor 50 (NULL folds to baseline 75 ≥ 50)
+        _make_row(sync_session, 1, enrich_priority=10)  # below → dropped
+        _make_row(sync_session, 2, enrich_priority=90)  # above → kept
+        _make_row(sync_session, 3)  # NULL → baseline 75 → kept
+        # a due retry with low priority must NOT be filtered by the floor
+        _make_row(
+            sync_session, 4, enrich_priority=1, deezer_searched_at=_days_ago(40),
+            deezer_search_attempts=1,
+        )
+
+        c = count_enrich_backlog(
+            sync_session, source="deezer", now=NOW, priority_floor=50
+        )
+
+        assert c["never_tried"] == 2  # rows 2 and 3, row 1 excluded
+        assert c["due_retry"] == 1  # row 4 kept despite low priority
+
+    def test_default_none_counts_unchanged(self, sync_session):
+        expected = _seed_all_deezer_tiers(sync_session)
+
+        c = count_enrich_backlog(sync_session, source="deezer", now=NOW)
+
+        assert c == expected
+
+
 class TestCountEnrichBacklogSourceIsolation:
     def test_beatport_uses_beatport_columns(self, sync_session):
         # Deezer-linked but beatport-missing: a backlog row for beatport, a

@@ -24,6 +24,15 @@ _ARTIST_NOT_FOUND = "NOT_FOUND"
 # keeps a full year of history plus a month of slack for year-over-year reads.
 RETENTION_DAYS = 396
 
+# C12 (L8) — priority band that marks a catalog row as "live-flux" (a freshly
+# crawled live set, stamped enrich_priority = FLUX_PRIORITY = 100 by
+# tasks/sets.py). Redefined locally (same C12_FLUX_PRIORITY env default 100) on
+# purpose: importing workers.tasks.sets just to read one int would drag in its
+# whole celery/asyncio/importer surface. Kept in sync with tasks.sets.FLUX_PRIORITY
+# by reading the same env var. A row with enrich_priority NULL coalesces to
+# PRIORITY_BASELINE (75 < 100) → correctly NOT flux.
+FLUX_BAND = int(os.environ.get("C12_FLUX_PRIORITY", "100"))
+
 # Sentry Cron monitor for this hourly heartbeat. If the check-in stops arriving
 # — i.e. the celery-queue worker (diggy_worker) died and stopped sampling, as
 # happened 2026-08-10→14 when a wedged worker left a ~90 h hole in
@@ -82,6 +91,7 @@ def _run_snapshot_backlogs():
     )
     from workers.db import get_engine
     from workers.enrichment import count_enrich_backlog
+    from workers.tasks.catalog import _nightly_budget
 
     engine = get_engine()
     now = datetime.now(timezone.utc)
@@ -128,10 +138,31 @@ def _run_snapshot_backlogs():
             or 0
         )
 
+        # C12 (L8) — flux-vs-budget health signal on the Beatport source. The
+        # daily live-set flux stamps fresh catalog rows at FLUX_BAND priority; if
+        # those never-tried flux rows ALONE exceed the Beatport daily budget, the
+        # backfill never gets a turn AND the backlog keeps growing. Reuse
+        # count_enrich_backlog with priority_floor=FLUX_BAND so the count is
+        # EXACTLY the never-tried predicate the priority-floored drain would pick
+        # up (beatport_id NULL + never searched + coalesce(enrich_priority,
+        # PRIORITY_BASELINE) >= FLUX_BAND). This is a SIGNAL only — no action.
+        beatport_backlog = count_enrich_backlog(session, source="beatport", now=now)
+        flux_never_tried = count_enrich_backlog(
+            session, source="beatport", now=now, priority_floor=FLUX_BAND
+        )["never_tried"]
+        beatport_budget = _nightly_budget("beatport")
+        flux_over_budget = flux_never_tried > beatport_budget
+        # Additive keys on the existing beatport dict (older snapshots don't carry
+        # them; the front stays .get()/Number.isFinite defensive). Always written
+        # — not only on alert — so the curve is historised for the admin page.
+        beatport_backlog["flux_never_tried"] = flux_never_tried
+        beatport_backlog["flux_budget"] = beatport_budget
+        beatport_backlog["flux_over_budget"] = flux_over_budget
+
         payload = {
             "enrich": {
                 "deezer": count_enrich_backlog(session, source="deezer", now=now),
-                "beatport": count_enrich_backlog(session, source="beatport", now=now),
+                "beatport": beatport_backlog,
             },
             "artists": {
                 # deezer_id IS NULL already excludes the NOT_FOUND sentinel
@@ -195,6 +226,20 @@ def _run_snapshot_backlogs():
         session.commit()
 
     logger.info("snapshot_backlogs wrote a metric_snapshots row at %s", now)
+
+    # C12 (L8) — raise a Sentry warning when the live-set flux alone would starve
+    # the Beatport backfill. Same guard/style as the rest of the worker (no-op
+    # when SENTRY_DSN is unset, e.g. in tests calling _run_snapshot_backlogs
+    # directly). Signal only: nothing is throttled or rescheduled here.
+    if flux_over_budget and SENTRY_DSN:
+        import sentry_sdk
+
+        sentry_sdk.capture_message(
+            "C12 flux backlog exceeds Beatport budget: "
+            f"{flux_never_tried} never-tried flux rows (priority >= {FLUX_BAND}) "
+            f"> {beatport_budget}/day budget — backfill starved, backlog will grow",
+            level="warning",
+        )
 
     # Retention purge (AV3): metric_snapshots + crawl_logs are append-only and
     # would grow without bound. Drop everything older than RETENTION_DAYS. This

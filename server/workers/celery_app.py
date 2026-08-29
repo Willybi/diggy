@@ -166,6 +166,19 @@ celery_app.conf.update(
             "task": "workers.tasks.crawl_trackid_latest",
             "schedule": crontab(hour=3, minute=30),  # tous les jours à 3h30
         },
+        # Hydratation progressive des sets TrackID par priorité (C12 L4).
+        # Ne crawle plus le listing : consomme trackid_index trié par score
+        # décroissant (les sets non scorés ne sont jamais hydratés). Retirée du
+        # beat en C11 Étape 0 (le rattrapage chronologique injectait ~4000
+        # tracks/j hors cluster) ; ré-activée ici avec son horaire d'origine
+        # (2h00, queue "celery" inchangée). No-op tant qu'aucun score n'est
+        # présent (score IS NOT NULL vide) → sûre au déploiement. Single-instance
+        # via lock:backfill_trackid_sets ; l'enrichissement Beatport en aval
+        # (06h→23h) traite ses tracks par enrich_priority (= score).
+        "backfill-trackid-sets-daily": {
+            "task": "workers.tasks.backfill_trackid_sets",
+            "schedule": crontab(hour=2, minute=0),  # tous les jours à 2h
+        },
         "check-followed-artists-daily": {
             "task": "workers.tasks.check_followed_artists",
             "schedule": crontab(hour=4, minute=45),  # tous les jours à 4h45

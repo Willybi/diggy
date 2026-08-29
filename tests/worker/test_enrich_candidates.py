@@ -292,6 +292,87 @@ class TestSelectEnrichCandidatesGenreOnly:
         assert [e.id for e in result] == [classified_missing_id.id]
 
 
+class TestSelectEnrichCandidatesPriority:
+    """C12: order_by_priority sorts the Tier-1 fresh selection by
+    coalesce(enrich_priority, PRIORITY_BASELINE) DESC (id DESC tie-break);
+    priority_floor excludes fresh rows below the floor but NEVER the retries.
+    Both kwargs default falsy → the existing behaviour is untouched."""
+
+    def test_order_by_priority_sorts_desc_then_id_desc(self, sync_session):
+        low = _make_row(sync_session, 1, enrich_priority=10)
+        high = _make_row(sync_session, 2, enrich_priority=90)
+        # NULL priority folds to PRIORITY_BASELINE (75): between low and high.
+        mid_null_a = _make_row(sync_session, 3)
+        mid_null_b = _make_row(sync_session, 4)
+
+        result = select_enrich_candidates(
+            sync_session,
+            source="beatport",
+            budget=10,
+            now=NOW,
+            order_by_priority=True,
+        )
+
+        # high (90) → both NULLs at baseline 75 (id DESC tie-break) → low (10)
+        assert [e.id for e in result] == [
+            high.id,
+            mid_null_b.id,
+            mid_null_a.id,
+            low.id,
+        ]
+
+    def test_priority_floor_excludes_fresh_below_floor(self, sync_session):
+        _make_row(sync_session, 1, enrich_priority=10)  # below floor → excluded
+        keep = _make_row(sync_session, 2, enrich_priority=90)
+        # NULL folds to baseline 75, which is >= floor 50 → kept.
+        keep_null = _make_row(sync_session, 3)
+
+        result = select_enrich_candidates(
+            sync_session,
+            source="beatport",
+            budget=10,
+            now=NOW,
+            order_by_priority=True,
+            priority_floor=50,
+        )
+
+        assert [e.id for e in result] == [keep.id, keep_null.id]
+
+    def test_priority_floor_does_not_touch_retries(self, sync_session):
+        # A due retry (tier2) with a low priority is STILL selected — the floor
+        # applies to the fresh tier only, never to the re-scan backoff tiers.
+        low_prio_retry = _make_row(
+            sync_session,
+            1,
+            enrich_priority=1,
+            beatport_searched_at=_days_ago(40),
+            beatport_search_attempts=1,
+        )
+
+        result = select_enrich_candidates(
+            sync_session,
+            source="beatport",
+            budget=10,
+            now=NOW,
+            order_by_priority=True,
+            priority_floor=50,
+        )
+
+        assert [e.id for e in result] == [low_prio_retry.id]
+
+    def test_defaults_unchanged_ignores_priority(self, sync_session):
+        # Without the kwargs, selection is the legacy id-DESC order regardless of
+        # enrich_priority (non-regression).
+        low = _make_row(sync_session, 1, enrich_priority=99)
+        high = _make_row(sync_session, 2, enrich_priority=1)
+
+        result = select_enrich_candidates(
+            sync_session, source="beatport", budget=10, now=NOW
+        )
+
+        assert [e.id for e in result] == [high.id, low.id]
+
+
 class TestNotRecentlySearched:
     """E1: inline enrichment (sets/radar) must skip entries the nightly sweep
     searched within the last 24h — same clause as the dz_entries/bp_entries

@@ -99,6 +99,7 @@ async def import_audiostream(
         dj_set.source_url = detail.get("url")
         dj_set.duration_ms = duration_ms
         dj_set.last_crawled_at = now
+        dj_set.can_reprocess = detail.get("canReprocess")
         if detail_slug and not dj_set.external_slug:
             dj_set.external_slug = detail_slug
     else:
@@ -110,6 +111,7 @@ async def import_audiostream(
             title=detail.get("title", "Untitled"),
             duration_ms=duration_ms,
             played_date=played_date.date() if played_date else None,
+            can_reprocess=detail.get("canReprocess"),
             created_at=now,
             last_crawled_at=now,
         )
@@ -153,7 +155,9 @@ async def import_audiostream(
         raw_title = track.get("title")
         raw_artist = track.get("artist")
         timecode_ms = parse_timespan_to_ms(track.get("startTime"))
+        end_time_ms = parse_timespan_to_ms(track.get("endTime"))
         mtid = track.get("musicTrackId")
+        label = track.get("label")
 
         is_id = is_id_track(raw_title, raw_artist)
         st = SetTrack(
@@ -164,6 +168,8 @@ async def import_audiostream(
             raw_artist=raw_artist,
             is_id=is_id,
             trackid_music_track_id=mtid,
+            label=label,
+            end_time_ms=end_time_ms,
         )
         db.add(st)
         track_count += 1

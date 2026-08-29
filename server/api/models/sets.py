@@ -64,6 +64,9 @@ class DJSet(Base):
     unreliable = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # C12 detail-capture: TrackID exposes whether the audiostream can be
+    # reprocessed. Persisted at index time so we don't re-fetch 300k details.
+    can_reprocess = Column(Boolean, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),
@@ -125,6 +128,10 @@ class SetTrack(Base):
     raw_artist = Column(String(500), nullable=True)
     is_id = Column(Boolean, default=False)
     trackid_music_track_id = Column(Integer, nullable=True, index=True)
+    # C12 detail-capture: persisted from the TrackID detail payload so the
+    # mass hydration doesn't have to re-fetch it later.
+    label = Column(String(255), nullable=True)
+    end_time_ms = Column(Integer, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("set_id", "position", name="uq_set_track_position"),

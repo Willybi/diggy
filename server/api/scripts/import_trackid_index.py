@@ -36,11 +36,22 @@ Three steps, all idempotent (a re-run converges):
      never groups; an unknown duration is permissive). The C6 ``match_set`` filet at
      hydration time stays the AUTHORITY — this is only a pre-grouping.
 
+SCORE UPDATE mode (C12) — ``--scores <path.ndjson>`` instead of ``--input``: a LOCAL
+tool computes a score per set and exports one JSON object per line
+(``{"trackid_id": <int>, "score": <float>, "score_components": {...}}``). This mode
+writes ONLY the two Diggy score columns (``score`` Float, ``score_components`` JSON)
+via a targeted, batched ``UPDATE ... WHERE trackid_id = :t`` — it NEVER runs the
+mirror upsert and NEVER touches the other Diggy state (``hydration_state`` / ``set_id``
+/ ``dedup_group_id``). A ``trackid_id`` absent from the table is ignored (counted as
+"unknown"). Idempotent (re-runnable), committed per batch. It computes NO score — that
+is the local tool's job — it only persists what the export carries.
+
 Convention (mirrors the other OPS scripts): DRY-RUN by default (reads the NDJSON +
-read-only DB queries, prints what WOULD be imported/seeded/grouped, writes NOTHING);
-``--apply`` to write; ``--input <path.ndjson>`` (required); ``--limit N`` to cap the
-rows read; ``--batch-size`` for the write batch size. Idempotent, committed per
-batch, safe to crash mid-run (a re-run re-converges).
+read-only DB queries, prints what WOULD be imported/seeded/grouped/scored, writes
+NOTHING); ``--apply`` to write; exactly one of ``--input <path.ndjson>`` (mirror
+import) or ``--scores <path.ndjson>`` (score update) is required; ``--limit N`` to
+cap the rows read; ``--batch-size`` for the write batch size. Idempotent, committed
+per batch, safe to crash mid-run (a re-run re-converges).
 
 >>> ``--apply`` mutates ~381k rows. DUMP PROD FIRST (encrypted, see docs/restore.md). <<<
 
@@ -50,6 +61,8 @@ counters -> ENCRYPTED DUMP -> ``--apply`` -> re-dry-run to confirm convergence.
 Usage (from the VPS, the NDJSON copied into the api container first):
     docker compose exec api python scripts/import_trackid_index.py --input /tmp/trackid_index.ndjson
     docker compose exec api python scripts/import_trackid_index.py --input /tmp/trackid_index.ndjson --apply
+    docker compose exec api python scripts/import_trackid_index.py --scores /tmp/trackid_scores.ndjson
+    docker compose exec api python scripts/import_trackid_index.py --scores /tmp/trackid_scores.ndjson --apply
 """
 
 import argparse
@@ -66,7 +79,7 @@ sys.path.insert(
 
 from models.trackid_index import TrackIdIndex
 from services.set_dedup_service import normalize_set_title, token_set_ratio
-from sqlalchemy import create_engine, text
+from sqlalchemy import JSON, bindparam, create_engine, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from trackid.parsing import parse_timespan_to_ms, parse_trackid_date
@@ -413,6 +426,111 @@ def apply_dedup(session, mapping, all_tids, *, batch_size):
     return reset, set_count
 
 
+# ── score update mode (C12) ─────────────────────────────────────────────────────
+
+# Targeted score UPDATE (never the mirror upsert). ``score_components`` binds as a
+# generic JSON type so SQLAlchemy serializes the dict per-dialect (json on PG, TEXT
+# on the SQLite test harness) — matching how the JSON model column round-trips.
+_SCORE_UPDATE = text(
+    "UPDATE trackid_index SET score = :s, score_components = :c WHERE trackid_id = :t"
+).bindparams(bindparam("c", type_=JSON))
+
+
+def parse_scores_row(obj):
+    """One decoded scores NDJSON object -> ``(trackid_id, score, score_components)``,
+    or ``None`` when the row is invalid (missing/non-int ``trackid_id``, missing/
+    non-numeric ``score``, or a ``score_components`` that is present but not an object).
+    PURE (no DB) — unit-tested directly."""
+    tid = obj.get("trackid_id")
+    if not isinstance(tid, int) or isinstance(tid, bool):
+        return None
+    score = obj.get("score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return None
+    comps = obj.get("score_components")
+    if comps is not None and not isinstance(comps, dict):
+        return None
+    return (tid, float(score), comps)
+
+
+def _score_update_batch(session, rows):
+    """rows: iterable of ``(trackid_id, score, score_components)``."""
+    session.execute(
+        _SCORE_UPDATE, [{"t": t, "s": s, "c": c} for (t, s, c) in rows]
+    )
+
+
+def run_score_update(session, path, *, apply, limit, batch_size):
+    """Stream the scores NDJSON and (apply) UPDATE ``score``/``score_components`` for
+    each KNOWN ``trackid_id``. Rows whose id is absent from the table are ignored
+    (counted "unknown"). Idempotent, committed per batch. Returns a stats dict
+    (``read``/``invalid``/``known``/``unknown``/``written``). DB path is dialect-neutral
+    (a plain existence SELECT + a typed targeted UPDATE) so it runs on the SQLite test
+    harness too."""
+    existing = set(
+        session.execute(text("SELECT trackid_id FROM trackid_index")).scalars().all()
+    )
+    stats = {"read": 0, "invalid": 0, "known": 0, "unknown": 0, "written": 0}
+    batch = []
+
+    def flush():
+        nonlocal batch
+        if batch:
+            _score_update_batch(session, batch)
+            session.commit()
+            stats["written"] += len(batch)
+            batch = []
+
+    for obj in iter_ndjson(path, limit):
+        stats["read"] += 1
+        parsed = parse_scores_row(obj)
+        if parsed is None:
+            stats["invalid"] += 1
+            continue
+        if parsed[0] not in existing:
+            stats["unknown"] += 1
+            continue
+        stats["known"] += 1
+        if apply:
+            batch.append(parsed)
+            if len(batch) >= batch_size:
+                flush()
+    if apply:
+        flush()
+    return stats
+
+
+def update_scores(apply, scores_path, limit, batch_size):
+    """CLI entry for the score-update mode: engine + Session + reporting around
+    ``run_score_update``. Dry-run counts without writing; --apply commits per batch."""
+    if not os.path.exists(scores_path):
+        sys.exit(f"scores: no NDJSON file at {scores_path}")
+
+    engine = _get_engine()
+    head = "APPLY" if apply else "DRY-RUN — nothing will be written (use --apply)"
+    print(f"=== TrackID index score update — {head} ===")
+    print(f"    scores: {scores_path}" + (f"  (limit {limit})" if limit else ""))
+
+    try:
+        with Session(engine) as session:
+            stats = run_score_update(
+                session, scores_path, apply=apply, limit=limit, batch_size=batch_size
+            )
+            verb = "updated" if apply else "would update"
+            print(
+                f"\n[scores] read {stats['read']} line(s): {verb} {stats['known']} "
+                f"known row(s); {stats['unknown']} unknown id(s) ignored"
+                + (f"; {stats['invalid']} invalid line(s) skipped" if stats["invalid"] else "")
+                + "."
+            )
+            if not apply:
+                print(
+                    "\nRe-run with --apply to write — DUMP PROD FIRST (docs/restore.md)."
+                )
+    finally:
+        engine.dispose()
+
+
 # ── read-only helpers (dry-run preview + final report) ─────────────────────────
 
 
@@ -523,10 +641,17 @@ def main(apply, input_path, limit, batch_size):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Import the TrackID index NDJSON export into prod (mirror upsert "
-        "+ hydration seed + ultra-conservative dedup pre-grouping). Dry-run by default."
+        "+ hydration seed + ultra-conservative dedup pre-grouping), OR update the "
+        "score columns from a scores NDJSON (--scores). Dry-run by default."
     )
     parser.add_argument(
-        "--input", required=True, help="path to the NDJSON export (from L2 export)"
+        "--input", default=None, help="path to the NDJSON export (from L2 export)"
+    )
+    parser.add_argument(
+        "--scores",
+        default=None,
+        help="path to a scores NDJSON (C12): run the score-update mode "
+        "(UPDATE score/score_components only) instead of the mirror import",
     )
     parser.add_argument(
         "--apply",
@@ -540,9 +665,21 @@ if __name__ == "__main__":
         "--batch-size", type=int, default=_BATCH, help="rows per write batch/commit"
     )
     args = parser.parse_args()
-    main(
-        apply=args.apply,
-        input_path=args.input,
-        limit=args.limit,
-        batch_size=args.batch_size,
-    )
+    if bool(args.input) == bool(args.scores):
+        parser.error(
+            "provide exactly one of --input (mirror import) or --scores (score update)"
+        )
+    if args.scores:
+        update_scores(
+            apply=args.apply,
+            scores_path=args.scores,
+            limit=args.limit,
+            batch_size=args.batch_size,
+        )
+    else:
+        main(
+            apply=args.apply,
+            input_path=args.input,
+            limit=args.limit,
+            batch_size=args.batch_size,
+        )

@@ -1,7 +1,6 @@
 """Offline tests for shadow.py — normalization parity + match logic (no network)."""
 
 import os
-import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))

@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 # expire while a legitimate run is still in progress
 RESOLVE_SET_TRACKS_LOCK_TTL = 2700
 
+# C12 — priority stamped on catalog rows whose source set is NOT scored in
+# trackid_index (a recent live-flux set). It sits ABOVE every backfill phase
+# (phases 60-99): freshly crawled sets are the absolute priority for the
+# Beatport drain (L2 gate). trackid_index.score is a Float where higher = more
+# prioritary; a scored set's priority is round(score).
+FLUX_PRIORITY = int(os.environ.get("C12_FLUX_PRIORITY", "100"))
+
 # Same rule for recrawl_incomplete_sets (time_limit 3900s)
 RECRAWL_INCOMPLETE_SETS_LOCK_TTL = 4200
 
@@ -54,70 +61,45 @@ CRAWL_TRACKID_LATEST_LOCK_TTL = 4200
 CADENCE_SLACK_DAYS = 0.25  # 6h: queue latency + crawl duration + clock skew
 
 
-def _should_skip_backfill(cursor_date: str, min_date: str) -> bool:
-    """Return True if the backfill cursor has passed the minimum date."""
-    return cursor_date < min_date
+def _select_sets_to_hydrate_stmt(limit: int):
+    """Statement selecting the next sets to hydrate, highest score first (C12 L4).
 
-
-def _collect_backfill_batch(
-    audiostreams: list[dict],
-    cursor_date: str,
-    max_sets: int,
-) -> tuple[list[dict], str | None]:
-    """Filter audiostreams to those with addedOn < cursor_date, capped at max_sets.
-
-    Returns (batch, oldest_added_on) where oldest_added_on is the FULL addedOn
-    timestamp of the last (oldest) item in the batch, or None if the batch is
-    empty. Audiostreams missing addedOn are skipped.
-
-    The filter compares the FULL ISO8601 addedOn (lexicographically), not just
-    its date: two sets added the same day either side of the cursor are split
-    correctly, where the old date-only truncation dropped the whole tail of the
-    cursor's day. Legacy compatibility needs no shim — a date-only cursor left
-    by an older build ("2026-06-10") is a lexicographic prefix of every
-    timestamp that day, so any "2026-06-10T..." item still satisfies
-    >= "2026-06-10" and is skipped, exactly the previous semantics; the cursor
-    turns into a full timestamp on its first rewrite.
+    The backfill no longer crawls the TrackID listing by addedOn: it consumes
+    ``trackid_index`` rows ordered by ``score`` desc. Only rows that are scored
+    (``score IS NOT NULL``) AND still ``hydration_state='not_hydrated'`` are
+    eligible — the un-scored "rest" of the index is NEVER hydrated by the drain.
+    Tie-break on ``trackid_id`` desc for a stable order across runs; capped at
+    ``limit`` (``TRACKID_BACKFILL_SETS_PER_DAY``). Returns ``(trackid_id, slug)``
+    rows — all ``import_audiostream`` needs (it re-fetches the detail itself).
     """
-    batch = []
-    for a in audiostreams:
-        added_on = a.get("addedOn")
-        if not added_on:
-            continue
-        if added_on >= cursor_date:
-            continue
-        batch.append(a)
-        if len(batch) >= max_sets:
-            break
-    oldest = batch[-1].get("addedOn", "") if batch else None
-    return batch, oldest
+    from models import TrackIdIndex
+    from sqlalchemy import select
+
+    return (
+        select(TrackIdIndex.trackid_id, TrackIdIndex.slug)
+        .where(
+            TrackIdIndex.hydration_state == "not_hydrated",
+            TrackIdIndex.score.isnot(None),
+        )
+        .order_by(TrackIdIndex.score.desc(), TrackIdIndex.trackid_id.desc())
+        .limit(limit)
+    )
 
 
-def _resume_page_decision(
-    start_page: int,
-    first_added_on: str | None,
-    cursor_date: str,
-) -> int:
-    """Decide which listing page to start collecting from when resuming.
-
-    Inputs: the persisted offset (start_page), the addedOn of the FIRST
-    audiostream fetched at that offset (None when the page came back empty),
-    and the current cursor. Returns:
-      - start_page for a normal resume — the offset still sits at or above the
-        cursor (its first item is newer-or-equal, older content lies below);
-      - 0 to force a full re-page when the offset is stale (Guard 1: empty page,
-        sets were deleted upstream and the offset points past the end) or has
-        overshot (Guard 2: first item already older than the cursor, so content
-        moved up and untreated sets may sit between the cursor and this offset).
-    start_page <= 0 always returns 0: there is nothing to validate.
+def _mark_hydrated_stmt(trackid_id: int):
+    """UPDATE flagging a trackid_index row ``hydrated`` so a later run does not
+    re-select it. The ~38k already-imported rows were seeded ``hydrated`` by the
+    OPS import (``import_trackid_index.seed_hydration``); this marks the NEW ones
+    as they hydrate through the drain.
     """
-    if start_page <= 0:
-        return 0
-    if not first_added_on:
-        return 0  # Guard 1: empty page at the saved offset → re-page from top
-    if first_added_on < cursor_date:
-        return 0  # Guard 2: overshoot → re-page from top
-    return start_page
+    from models import TrackIdIndex
+    from sqlalchemy import update
+
+    return (
+        update(TrackIdIndex)
+        .where(TrackIdIndex.trackid_id == trackid_id)
+        .values(hydration_state="hydrated")
+    )
 
 
 @celery_app.task(
@@ -165,6 +147,47 @@ def resolve_set_tracks(self):
             r.delete(lock_key)
 
 
+def _merge_priority(existing, new):
+    """MAX-merge a new enrich priority onto a possibly-NULL existing one.
+
+    Handles the NULL start (bulk_get_or_create_catalog creates rows with
+    enrich_priority NULL) and keeps the highest priority across sets/runs.
+    """
+    return new if existing is None else max(existing, new)
+
+
+def _build_set_priority_map(session, set_ids):
+    """Map set_id -> enrich priority for a batch of set_ids (C12).
+
+    A set's priority is its C12 phase, precomputed elsewhere and stored in
+    trackid_index.score (Float, higher = more prioritary). Only trackid sets
+    carry a trackid_index row, so the join is scoped to source='trackid' and
+    keyed on external_id == CAST(trackid_id AS text) (same pattern as
+    import_trackid_index.seed_hydration). A set with no scored trackid_index
+    row (a recent live-flux set) is deliberately ABSENT from the map; callers
+    default it to FLUX_PRIORITY via ``.get(set_id, FLUX_PRIORITY)``.
+    """
+    if not set_ids:
+        return {}
+
+    from models import DJSet, TrackIdIndex
+    from sqlalchemy import String, cast, select
+
+    rows = session.execute(
+        select(DJSet.id, TrackIdIndex.score)
+        .join(
+            TrackIdIndex,
+            cast(TrackIdIndex.trackid_id, String) == DJSet.external_id,
+        )
+        .where(
+            DJSet.id.in_(set_ids),
+            DJSet.source == "trackid",
+            TrackIdIndex.score.isnot(None),
+        )
+    ).all()
+    return {sid: int(round(score)) for sid, score in rows}
+
+
 def _run_resolve_set_tracks(task):
     from sqlalchemy import select
     from sqlalchemy.orm import Session
@@ -207,11 +230,25 @@ def _run_resolve_set_tracks(task):
 
                 from utils import make_normalized_key
 
+                # C12 — stamp enrich_priority so the Beatport drain (L2 gate)
+                # processes the rows of prioritary sets first. The catalog rows
+                # are created with enrich_priority NULL by
+                # bulk_get_or_create_catalog (left untouched on purpose); we
+                # stamp them HERE from the source set's priority, MAX-merged when
+                # a row is shared across sets/runs.
+                prio_map = _build_set_priority_map(
+                    session, {st.set_id for st in tracks}
+                )
+
                 for st in tracks:
                     nk = make_normalized_key(st.raw_title, st.raw_artist)
                     entry = catalog_map.get(nk)
                     if entry:
                         st.catalog_id = entry.id
+                        prio = prio_map.get(st.set_id, FLUX_PRIORITY)
+                        entry.enrich_priority = _merge_priority(
+                            entry.enrich_priority, prio
+                        )
                         resolved += 1
 
                 session.commit()
@@ -798,19 +835,20 @@ def _run_crawl_trackid_latest(task):
     # duplicate deliveries. Deliberately NO autoretry_for=(Exception,):
     # SoftTimeLimitExceeded IS an Exception, so autoretry would spawn four
     # 30-min timeouts then DLQ every night. Progress is instead made resumable
-    # by advancing the Redis cursor inline and catching SoftTimeLimitExceeded
+    # by marking each hydrated row inline and catching SoftTimeLimitExceeded
     # gracefully (see below), so a re-raise/retry is neither needed nor wanted.
     soft_time_limit=TRACKID_BACKFILL_SOFT_TIME_LIMIT,
     time_limit=3900,
 )
 def backfill_trackid_sets(self):
     """
-    Rattrapage historique progressif de sets TrackID.net.
-    Remonte dans le temps depuis le curseur Redis trackid_backfill_cursor
-    (timestamp ISO8601 complet ; les anciennes valeurs date-only restent
-    compatibles par comparaison lexicographique) et reprend la pagination à
-    l'offset persisté trackid_backfill_page.
-    S'arrête quand le curseur dépasse TRACKID_BACKFILL_MIN_DATE ou que le batch est vide.
+    Hydratation progressive des sets TrackID.net par ordre de priorité (C12).
+    Ne crawle plus le listing par addedOn décroissant : consomme la table
+    trackid_index triée par score décroissant (les sets les plus prioritaires
+    d'abord ; les sets non scorés — score NULL — ne sont JAMAIS hydratés). Chaque
+    set retenu passe par import_audiostream (re-fetch du détail) puis est marqué
+    hydration_state='hydrated' pour ne pas être re-sélectionné.
+    No-op propre quand aucun set scoré non hydraté ne reste.
     Single-instance: a Redis lock skips the run if another one is still in
     flight (a slow run can overlap the next daily beat), same pattern as
     resolve_set_tracks / recrawl_incomplete_sets.
@@ -841,7 +879,6 @@ def backfill_trackid_sets(self):
 
 def _run_backfill_trackid_sets(task):
     import asyncio
-    from datetime import date, timedelta
 
     import redis as redis_lib
     from celery.exceptions import SoftTimeLimitExceeded
@@ -854,46 +891,28 @@ def _run_backfill_trackid_sets(task):
     REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
     r = redis_lib.from_url(REDIS_URL, decode_responses=True)
 
-    # Early exit if backfill already complete
+    # Manual kill switch (C11 Étape 0 → kept for C12 L4): an operator sets
+    # trackid_backfill_done=1 to pause the drain immediately. It is NEVER set
+    # automatically anymore — the drain is naturally a no-op once no scored,
+    # un-hydrated trackid_index row remains, so there is no "done" terminal
+    # state to auto-reach and no chronological cursor to advance.
     if r.get("trackid_backfill_done"):
         return {"status": "done"}
 
-    # Config. The CODE default is 1000 sets/night, but this OUTPACES downstream
-    # Beatport capacity: measured, 1000 backfilled sets (+ ~450 from
-    # crawl_trackid_latest) at ~7.6 tracks/set means ~12000 new tracks/day, above
-    # the Beatport drain ceiling of ~9900/day (18 hourly runs × 550) — so the
-    # backlog accumulated ~+2000/day. Break-even is ~800 sets/day; PROD therefore
-    # overrides this to TRACKID_BACKFILL_SETS_PER_DAY=600 (via .env) to leave a
-    # drainage margin. The 1000 default is kept in code but should not be run in
-    # prod without raising the Beatport ceiling.
+    # LIMIT on how many sets one run consumes from trackid_index (score order).
+    # Kept under the TRACKID_BACKFILL_SETS_PER_DAY name for prod-config
+    # continuity. The CODE default is 1000, but this OUTPACES downstream Beatport
+    # capacity (~9900/day = 18 hourly runs × 550), so PROD overrides it via .env
+    # (e.g. 400-600) to leave a drainage margin.
     sets_per_day = int(os.environ.get("TRACKID_BACKFILL_SETS_PER_DAY", "1000"))
-    default_min = (date.today() - timedelta(days=730)).isoformat()
-    min_date = os.environ.get("TRACKID_BACKFILL_MIN_DATE") or default_min
 
-    # Init or read cursor
-    cursor_date = r.get("trackid_backfill_cursor")
-    if not cursor_date:
-        cursor_date = date.today().isoformat()
-        r.set("trackid_backfill_cursor", cursor_date)
-
-    logger.info(
-        "backfill_trackid_sets: cursor=%s min_date=%s quota=%d",
-        cursor_date,
-        min_date,
-        sets_per_day,
-    )
-
-    # Termination check
-    if _should_skip_backfill(cursor_date, min_date):
-        r.set("trackid_backfill_done", "1")
-        logger.info("backfill_trackid_sets: min_date reached, marking done")
-        return {"status": "done", "reason": "min_date_reached"}
+    logger.info("backfill_trackid_sets: consuming trackid_index, cap=%d", sets_per_day)
 
     engine = get_engine()
 
     # AV9 — internal deadline (see TRACKID_BACKFILL_DEADLINE_MARGIN): checked
-    # BEFORE each collect/import iteration so a shortened run exits cleanly
-    # without depending on the SoftTimeLimitExceeded signal being delivered.
+    # BEFORE each import iteration so a shortened run exits cleanly without
+    # depending on the SoftTimeLimitExceeded signal being delivered.
     deadline = (
         time.monotonic()
         + TRACKID_BACKFILL_SOFT_TIME_LIMIT
@@ -913,98 +932,33 @@ def _run_backfill_trackid_sets(task):
         async_engine = create_async_engine(os.environ["DATABASE_URL"])
         AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
 
-        batch: list[dict] = []
-        # Resume paging from the persisted offset instead of re-scanning from
-        # page 0 every night: the listing keeps growing at the top, so a fixed
-        # start would push the skip-scan (items newer than the cursor) ever
-        # deeper. start_page is validated on the first fetch before it is
-        # trusted (see _resume_page_decision).
-        start_page = int(r.get("trackid_backfill_page") or 0)
-        page = start_page
-        # Page index of the last page that actually contributed sets to the
-        # batch — where the oldest (cursor) set lives. Persisted only on a
-        # complete batch, so the saved offset always sits at or above (newer
-        # than) the cursor position.
-        last_collected_page = start_page
-        resume_checked = False
+        # SELECTION (C12 L4): the next sets to hydrate are read from
+        # trackid_index ordered by score desc — NOT crawled from the TrackID
+        # listing. A single fast DB query, so no deadline check is needed here.
+        # import_audiostream reads only id + slug and re-fetches the detail.
+        async with AsyncS() as db:
+            rows = (
+                await db.execute(_select_sets_to_hydrate_stmt(sets_per_day))
+            ).all()
+
+        selected = len(rows)
+        if not selected:
+            await async_engine.dispose()
+            return 0, 0, 0
+
+        batch: list[dict] = [{"id": tid, "slug": slug} for tid, slug in rows]
+
+        imported = 0
+        skipped = 0
 
         async with TrackIDClient() as client:
-            # Collect up to sets_per_day audiostreams with addedOn < cursor_date.
-            # No except swallows a soft-timeout here, so it propagates cleanly to
-            # the task-level handler; nothing is imported yet, so no progress is
-            # lost and the next run resumes from the unchanged cursor.
-            while len(batch) < sets_per_day:
-                if time.monotonic() >= deadline:
-                    deadline_hit = True
-                    logger.warning(
-                        "backfill_trackid_sets hit internal deadline "
-                        "(soft limit %ds - margin %ds) during collection; "
-                        "importing the %d sets already collected",
-                        TRACKID_BACKFILL_SOFT_TIME_LIMIT,
-                        TRACKID_BACKFILL_DEADLINE_MARGIN,
-                        len(batch),
-                    )
-                    break
-                async with limiter.acquire("trackid"):
-                    audiostreams, _ = await client.search_sets(
-                        sort_field="addedOn",
-                        sort_direction="desc",
-                        page_size=20,
-                        current_page=page,
-                    )
-
-                # First fetch of a resumed run: validate the saved offset. A
-                # stale/overshot offset falls back to a full re-page — it must
-                # NOT be read as "empty → no more sets → done".
-                if not resume_checked:
-                    resume_checked = True
-                    if start_page > 0:
-                        first_added = (
-                            audiostreams[0].get("addedOn", "")
-                            if audiostreams
-                            else None
-                        )
-                        if (
-                            _resume_page_decision(start_page, first_added, cursor_date)
-                            != start_page
-                        ):
-                            logger.warning(
-                                "backfill_trackid_sets: saved page %d unusable "
-                                "(first=%s cursor=%s), restarting from page 0",
-                                start_page,
-                                first_added,
-                                cursor_date,
-                            )
-                            page = 0
-                            last_collected_page = 0
-                            continue
-
-                if not audiostreams:
-                    break
-                new_items, _ = _collect_backfill_batch(
-                    audiostreams, cursor_date, sets_per_day - len(batch)
-                )
-                if new_items:
-                    batch.extend(new_items)
-                    last_collected_page = page
-                if len(audiostreams) < 20:
-                    break
-                page += 1
-
-            if not batch:
-                await async_engine.dispose()
-                return 0, 0, None, None
-
-            imported = 0
-            skipped = 0
-
             for audiostream in batch:
                 if time.monotonic() >= deadline:
                     deadline_hit = True
                     logger.warning(
                         "backfill_trackid_sets hit internal deadline "
-                        "(soft limit %ds - margin %ds) during import; "
-                        "stopping (cursor persisted, next run resumes)",
+                        "(soft limit %ds - margin %ds) during import; stopping "
+                        "(hydrated sets marked, next run resumes from index)",
                         TRACKID_BACKFILL_SOFT_TIME_LIMIT,
                         TRACKID_BACKFILL_DEADLINE_MARGIN,
                     )
@@ -1019,6 +973,14 @@ def _run_backfill_trackid_sets(task):
                             await db.commit()
                             if result:
                                 imported += 1
+                                # Mark the index row hydrated so the next run
+                                # does not re-select it. Only on a real hydration
+                                # (result is not None) — a failed detail fetch
+                                # leaves the row not_hydrated for a retry.
+                                await db.execute(
+                                    _mark_hydrated_stmt(audiostream["id"])
+                                )
+                                await db.commit()
                             if parent_set_id is not None:
                                 from services.set_dedup_service import (
                                     materialize_parent,
@@ -1039,22 +1001,11 @@ def _run_backfill_trackid_sets(task):
                                         parent_set_id,
                                         exc_info=True,
                                     )
-                    # Advance the cursor after each processed set. The batch is
-                    # newest→oldest (addedOn desc), so the cursor decreases
-                    # monotonically: a soft-timeout mid-batch leaves it on the
-                    # last set handled and the next run resumes from there. The
-                    # cursor stores the FULL addedOn timestamp so sets sharing
-                    # the oldest processed day are not dropped next run (the
-                    # date-only truncation was the historical data-loss bug).
-                    added_on = audiostream.get("addedOn", "")
-                    if added_on:
-                        r.set("trackid_backfill_cursor", added_on)
                 except SoftTimeLimitExceeded:
                     # Re-raise BEFORE the generic handler: SoftTimeLimitExceeded
                     # IS an Exception, so without this clause it would be
                     # swallowed and the loop would run to the hard time_limit
-                    # SIGKILL. The cursor is already persisted up to the last
-                    # fully-processed set.
+                    # SIGKILL. Sets already hydrated were marked inline.
                     raise
                 except Exception:
                     logger.exception(
@@ -1063,9 +1014,8 @@ def _run_backfill_trackid_sets(task):
                     )
                     skipped += 1
 
-        new_cursor = batch[-1].get("addedOn", "")
         await async_engine.dispose()
-        return imported, skipped, new_cursor, last_collected_page
+        return imported, skipped, selected
 
     with Session(engine) as log_session:
         with CrawlLogger(
@@ -1074,53 +1024,38 @@ def _run_backfill_trackid_sets(task):
             celery_task_id=task.request.id,
         ) as clog:
             try:
-                imported, skipped, new_cursor, end_page = asyncio.run(_backfill_all())
+                imported, skipped, selected = asyncio.run(_backfill_all())
             except SoftTimeLimitExceeded:
-                # The cursor was advanced inline in the import loop, so progress
-                # is already persisted; kick off resolution of what was imported
-                # and return normally. Re-raising would route the task to the
-                # DLQ (no autoretry is present to absorb it) and lose nothing.
-                # The page offset is deliberately NOT persisted on this path:
-                # collection ran further (older) than the import reached, so the
-                # end-of-collection page sits below the cursor — saving it would
-                # skip the un-imported tail. The next run resumes from the
-                # previous offset (re-scanning a batch's worth of pages is the
-                # accepted cost).
+                # Hydrated rows were marked inline, so progress is already
+                # persisted; kick off resolution of what was imported and return
+                # normally. Re-raising would route the task to the DLQ (no
+                # autoretry is present to absorb it) and lose nothing — the next
+                # run re-selects the still-not_hydrated tail from trackid_index.
                 logger.warning(
-                    "backfill_trackid_sets: cut by soft time limit, cursor=%s "
-                    "(progress persisted, next run resumes)",
-                    r.get("trackid_backfill_cursor"),
+                    "backfill_trackid_sets: cut by soft time limit "
+                    "(hydrated sets marked, next run resumes)"
                 )
                 resolve_set_tracks.delay()
                 result = {"status": "interrupted", "deadline_hit": deadline_hit}
                 clog.set_stats(result)
                 return result
 
-            if new_cursor is None:
-                r.set("trackid_backfill_done", "1")
-                r.delete("trackid_backfill_page")
-                logger.info("backfill_trackid_sets: empty batch, marking done")
-                result = {"status": "done", "reason": "no_more_sets"}
-            else:
-                r.set("trackid_backfill_cursor", new_cursor)
-                # Persist the paging offset ONLY here, next to the cursor, on a
-                # complete batch: end_page is the page of the oldest imported set
-                # and is guaranteed at or above (newer than) the cursor.
-                if end_page is not None:
-                    r.set("trackid_backfill_page", end_page)
+            if selected == 0:
+                # Natural termination: every scored set is hydrated (or none is
+                # scored yet). No-op — NOT a terminal "done" (scores can be added
+                # later by the C12 import); the sentinel stays a manual switch.
                 logger.info(
-                    "backfill_trackid_sets: new cursor=%s page=%s",
-                    new_cursor,
-                    end_page,
+                    "backfill_trackid_sets: no scored un-hydrated set, no-op"
                 )
+                result = {"status": "idle", "imported": 0, "skipped": 0}
+            else:
                 if imported > 0:
                     resolve_set_tracks.delay()
                 result = {
                     "status": "running",
                     "imported": imported,
                     "skipped": skipped,
-                    "new_cursor": new_cursor,
-                    "page": end_page,
+                    "selected": selected,
                 }
 
             # Observability (AV9): a deadline exit is a SUCCESS with partial

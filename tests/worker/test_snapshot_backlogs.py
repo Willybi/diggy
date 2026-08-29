@@ -232,6 +232,86 @@ class TestSnapshotBacklogs:
         assert monitoring_task.mod.snapshot_backlogs.autoretry_for == ()
 
 
+class TestFluxBudgetAlert:
+    """C12 (L8): flux-vs-budget health signal on the Beatport source.
+
+    A live-flux row = enrich_priority >= FLUX_BAND (100), beatport_id NULL,
+    beatport_searched_at NULL. When those never-tried flux rows alone exceed the
+    Beatport daily budget, the backfill is starved → payload flag + Sentry warn.
+    """
+
+    def _add_flux_rows(self, engine, n):
+        with Session(engine) as s:
+            for i in range(n):
+                s.add(
+                    CatalogEntry(
+                        title=f"Flux{i}",
+                        artist="A",
+                        normalized_key=f"flux{i} - a",
+                        enrich_priority=100,  # == FLUX_BAND, and beatport_* NULL
+                    )
+                )
+            s.commit()
+
+    def test_flux_over_budget_sets_flag_and_alerts(self, monitoring_task, monkeypatch):
+        # Tiny budget so 2 flux rows exceed it.
+        monkeypatch.setenv("ENRICH_NIGHTLY_BUDGET_BEATPORT", "1")
+        self._add_flux_rows(monitoring_task.engine, 2)
+
+        fake_sentry = MagicMock()
+        monkeypatch.setitem(sys.modules, "sentry_sdk", fake_sentry)
+        monkeypatch.setattr(monitoring_task.mod, "SENTRY_DSN", "fake-dsn")
+
+        payload = monitoring_task.mod._run_snapshot_backlogs()
+
+        bp = payload["enrich"]["beatport"]
+        assert bp["flux_never_tried"] == 2
+        assert bp["flux_budget"] == 1
+        assert bp["flux_over_budget"] is True
+        # Sentry warning raised with both numbers in the message.
+        assert fake_sentry.capture_message.called
+        assert fake_sentry.capture_message.call_args.kwargs.get("level") == "warning"
+        msg = fake_sentry.capture_message.call_args.args[0]
+        assert "2 never-tried" in msg and "> 1/day" in msg
+
+    def test_flux_within_budget_no_alert(self, monitoring_task, monkeypatch):
+        monkeypatch.setenv("ENRICH_NIGHTLY_BUDGET_BEATPORT", "6000")
+        self._add_flux_rows(monitoring_task.engine, 2)
+
+        fake_sentry = MagicMock()
+        monkeypatch.setitem(sys.modules, "sentry_sdk", fake_sentry)
+        monkeypatch.setattr(monitoring_task.mod, "SENTRY_DSN", "fake-dsn")
+
+        payload = monitoring_task.mod._run_snapshot_backlogs()
+
+        bp = payload["enrich"]["beatport"]
+        assert bp["flux_never_tried"] == 2
+        assert bp["flux_over_budget"] is False
+        assert not fake_sentry.capture_message.called
+
+    def test_null_priority_row_is_not_flux(self, monitoring_task, monkeypatch):
+        # enrich_priority NULL coalesces to PRIORITY_BASELINE (75 < 100): the row
+        # IS a Beatport never-tried backlog entry but NOT a flux row.
+        monkeypatch.setenv("ENRICH_NIGHTLY_BUDGET_BEATPORT", "6000")
+        with Session(monitoring_task.engine) as s:
+            s.add(
+                CatalogEntry(
+                    title="Baseline",
+                    artist="A",
+                    normalized_key="baseline - a",
+                    # enrich_priority left NULL
+                )
+            )
+            s.commit()
+
+        payload = monitoring_task.mod._run_snapshot_backlogs()
+
+        bp = payload["enrich"]["beatport"]
+        assert bp["never_tried"] == 1  # counted as a beatport never-tried row
+        assert bp["flux_never_tried"] == 0  # but NOT flux
+        assert bp["flux_over_budget"] is False
+
+
 class TestRetentionPurge:
     """AV3: metric_snapshots + crawl_logs are purged past RETENTION_DAYS."""
 

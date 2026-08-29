@@ -293,3 +293,136 @@ class TestImportHookFailSafe:
         assert dj_set is not None
         assert isinstance(dj_set, DJSet)
         assert track_count == 0
+
+
+class TestImportDetailCapture:
+    """L7: label / end_time_ms (track-level) + can_reprocess (set-level) persisted."""
+
+    async def test_new_set_persists_detail_fields(self, db):
+        from trackid.importer import import_audiostream
+
+        fake_detail = {
+            "id": 77001,
+            "title": "Detail Capture Set",
+            "slug": "detail-capture-set",
+            "duration": "01:00:00.0000000",
+            "url": "https://trackid.net/detail-capture-set",
+            "artworkUrl": None,
+            "createdOn": "2024-03-10T20:00:00Z",
+            "canReprocess": True,
+            "detectionProcesses": [],
+        }
+        tracks = [
+            {
+                "title": "Track One",
+                "artist": "DJ Detail",
+                "startTime": "00:00:00.0000000",
+                "endTime": "00:05:00.0000000",
+                "musicTrackId": 1,
+                "label": "Drumcode",
+            },
+            # endTime + label absent → NULL
+            {
+                "title": "Track Two",
+                "artist": "DJ Detail",
+                "startTime": "00:05:00.0000000",
+                "musicTrackId": 2,
+            },
+        ]
+        mock_client = _make_mock_client(tracks=tracks)
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, track_count = await import_audiostream(
+            db, mock_client, {"id": 77001, "slug": "detail-capture-set"}
+        )
+        assert track_count == 2
+        assert dj_set.can_reprocess is True
+
+        rows = (
+            (
+                await db.execute(
+                    select(SetTrack)
+                    .where(SetTrack.set_id == dj_set.id)
+                    .order_by(SetTrack.position)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rows[0].label == "Drumcode"
+        assert rows[0].end_time_ms == 5 * 60_000
+        assert rows[1].label is None
+        assert rows[1].end_time_ms is None
+
+    async def test_missing_can_reprocess_is_null(self, db):
+        from trackid.importer import import_audiostream
+
+        fake_detail = {
+            "id": 77002,
+            "title": "No CanReprocess Set",
+            "slug": "no-canreprocess-set",
+            "duration": "00:30:00.0000000",
+            "url": "https://trackid.net/no-canreprocess-set",
+            "artworkUrl": None,
+            "createdOn": "2024-04-01T18:00:00Z",
+            "detectionProcesses": [],
+        }
+        mock_client = _make_mock_client(tracks=[])
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, _ = await import_audiostream(
+            db, mock_client, {"id": 77002, "slug": "no-canreprocess-set"}
+        )
+        assert dj_set.can_reprocess is None
+
+    async def test_reimport_refreshes_detail_fields(self, db):
+        """Re-import path (existing set) also persists the three fields."""
+        from datetime import datetime, timezone
+
+        from trackid.importer import import_audiostream
+
+        existing = DJSet(
+            external_id="77003",
+            source="trackid",
+            title="Old Title",
+            last_crawled_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+        db.add(existing)
+        await db.flush()
+        set_id = existing.id
+
+        fake_detail = {
+            "id": 77003,
+            "title": "Refreshed Set",
+            "slug": "refreshed-set",
+            "duration": "01:00:00.0000000",
+            "url": "https://trackid.net/refreshed-set",
+            "artworkUrl": None,
+            "createdOn": "2024-05-01T20:00:00Z",
+            "canReprocess": False,
+            "detectionProcesses": [],
+        }
+        tracks = [
+            {
+                "title": "Refreshed Track",
+                "artist": "DJ Detail",
+                "startTime": "00:00:00.0000000",
+                "endTime": "00:03:30.0000000",
+                "musicTrackId": 10,
+                "label": "Afterlife",
+            },
+        ]
+        mock_client = _make_mock_client(tracks=tracks)
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, track_count = await import_audiostream(
+            db, mock_client, {"id": 77003, "slug": "refreshed-set"}, min_age_hours=0
+        )
+        assert dj_set.id == set_id  # same row, re-imported
+        assert dj_set.can_reprocess is False
+
+        row = (
+            await db.execute(select(SetTrack).where(SetTrack.set_id == set_id))
+        ).scalar_one()
+        assert row.label == "Afterlife"
+        assert row.end_time_ms == 3 * 60_000 + 30_000

@@ -1,155 +1,159 @@
-"""
-Tests for backfill_trackid_sets pure logic (C6.a.1 — Lot B).
-Covers the extracted pure functions:
-  - _collect_backfill_batch(audiostreams, cursor_date, max_sets)
-  - _should_skip_backfill(cursor_date, min_date)
-  - _resume_page_decision(start_page, first_added_on, cursor_date)
-No Celery, no Redis, no DB required.
+"""C12 L4 — backfill_trackid_sets now consumes trackid_index by score.
+
+The chronological-cursor helpers this file used to cover
+(_collect_backfill_batch / _should_skip_backfill / _resume_page_decision) were
+DELETED in L4: the drain no longer crawls the TrackID listing by addedOn, it
+selects the next sets to hydrate straight from ``trackid_index`` ordered by
+score desc. Those pure-function tests are replaced here by DB-backed tests of
+the two new statement builders (_select_sets_to_hydrate_stmt /
+_mark_hydrated_stmt), driven against a real SQLite session (sync_session
+fixture) — same harness as test_resolve_set_tracks_priority.py.
 """
 
-import importlib.util
 import os
 import sys
 from unittest.mock import MagicMock
 
-# Mock celery ecosystem before any worker imports (celery is not installed locally)
-for _mod in ["celery", "celery.schedules", "celery.signals", "celery._state"]:
-    sys.modules.setdefault(_mod, MagicMock())
+# workers package importable (conftest only adds server/api)
+_SERVER_PATH = os.path.join(os.path.dirname(__file__), "../../server")
+if _SERVER_PATH not in sys.path:
+    sys.path.insert(0, _SERVER_PATH)
 
-# Add server paths
-_SERVER = os.path.join(os.path.dirname(__file__), "../../server")
-_API = os.path.join(os.path.dirname(__file__), "../../server/api")
-for _p in [_SERVER, _API]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-# Load sets.py directly to avoid workers.tasks.__init__ pulling all task modules
-_sets_path = os.path.join(_SERVER, "workers", "tasks", "sets.py")
-_spec = importlib.util.spec_from_file_location("workers.tasks.sets", _sets_path)
-_sets_mod = importlib.util.module_from_spec(_spec)
-sys.modules["workers.tasks.sets"] = _sets_mod
-_spec.loader.exec_module(_sets_mod)
-
-_collect_backfill_batch = _sets_mod._collect_backfill_batch
-_should_skip_backfill = _sets_mod._should_skip_backfill
-_resume_page_decision = _sets_mod._resume_page_decision
+_MOCK_MODULES = [
+    "celery", "celery.schedules", "celery.signals", "celery._state",
+    "redis", "redis.exceptions",
+    "requests",
+    "workers.celery_app",
+]
+for _mod in _MOCK_MODULES:
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
 
 
-class TestCollectBackfillBatch:
-    def test_collect_filters_by_cursor(self):
-        """Sets with addedOn >= cursor_date are excluded; older ones are included."""
-        audiostreams = [
-            {"id": "1", "addedOn": "2024-07-10T12:00:00Z"},  # >= cursor → excluded
-            {"id": "2", "addedOn": "2024-07-05T12:00:00Z"},  # < cursor → included
-            {"id": "3", "addedOn": "2024-07-01T12:00:00Z"},  # < cursor → included
-        ]
-        batch, _ = _collect_backfill_batch(audiostreams, "2024-07-07", 100)
-        assert len(batch) == 2
-        assert batch[0]["id"] == "2"
-        assert batch[1]["id"] == "3"
-
-    def test_collect_respects_max_sets(self):
-        """Stops at max_sets even if more eligible sets are available."""
-        audiostreams = [
-            {"id": str(i), "addedOn": f"2024-06-{i:02d}T00:00:00Z"}
-            for i in range(1, 9)  # 8 items, all before 2024-07-07
-        ]
-        batch, _ = _collect_backfill_batch(audiostreams, "2024-07-07", 3)
-        assert len(batch) == 3
-
-    def test_collect_empty_input(self):
-        """Empty input produces an empty batch with no oldest date."""
-        batch, oldest = _collect_backfill_batch([], "2024-07-07", 100)
-        assert batch == []
-        assert oldest is None
-
-    def test_collect_missing_added_on(self):
-        """Audiostreams without an addedOn field are silently skipped."""
-        audiostreams = [
-            {"id": "1"},  # missing addedOn
-            {"id": "2", "addedOn": "2024-06-01T00:00:00Z"},
-        ]
-        batch, _ = _collect_backfill_batch(audiostreams, "2024-07-07", 100)
-        assert len(batch) == 1
-        assert batch[0]["id"] == "2"
-
-    def test_collect_returns_oldest(self):
-        """oldest_added_on is the FULL addedOn timestamp of the oldest set.
-
-        Previously this returned only the YYYY-MM-DD date; the cursor now keeps
-        the full timestamp so the intra-day boundary is not lost.
-        """
-        audiostreams = [
-            {"id": "1", "addedOn": "2024-06-15T00:00:00Z"},
-            {"id": "2", "addedOn": "2024-06-01T00:00:00Z"},
-            {"id": "3", "addedOn": "2024-05-10T08:30:00Z"},
-        ]
-        batch, oldest = _collect_backfill_batch(audiostreams, "2024-07-07", 100)
-        assert len(batch) == 3
-        assert oldest == "2024-05-10T08:30:00Z"
-
-    def test_collect_splits_same_day_on_timestamp(self):
-        """Two sets on the same day either side of a timestamp cursor are split.
-
-        This is exactly the case the old date-only cursor lost: it truncated
-        both to the same YYYY-MM-DD, so both compared >= cursor and the whole
-        tail of the cursor's day was dropped forever.
-        """
-        cursor = "2024-06-01T12:00:00Z"
-        audiostreams = [
-            {"id": "after", "addedOn": "2024-06-01T15:00:00Z"},  # >= cursor → out
-            {"id": "before", "addedOn": "2024-06-01T09:00:00Z"},  # < cursor → in
-        ]
-        batch, oldest = _collect_backfill_batch(audiostreams, cursor, 100)
-        assert [a["id"] for a in batch] == ["before"]
-        assert oldest == "2024-06-01T09:00:00Z"
-
-    def test_collect_legacy_date_only_cursor(self):
-        """A date-only cursor left by an older build behaves as before.
-
-        "2024-07-07" is a lexicographic prefix of any "2024-07-07T..." value,
-        so same-day items still compare >= cursor and are skipped while
-        strictly-earlier days pass — the pre-timestamp semantics, unchanged.
-        """
-        audiostreams = [
-            {"id": "same_day", "addedOn": "2024-07-07T23:59:59Z"},  # skipped
-            {"id": "earlier", "addedOn": "2024-07-06T00:00:00Z"},  # included
-        ]
-        batch, _ = _collect_backfill_batch(audiostreams, "2024-07-07", 100)
-        assert [a["id"] for a in batch] == ["earlier"]
+# Set the FULL attribute surface (soft_time_limit / autoretry_for / …): this
+# file overwrites the shared workers.celery_app mock, and test_deadline_exit /
+# test_task_refactor assert those attributes on the decorated tasks. Whichever
+# import order pytest picks, the decorator must satisfy every file's assertions.
+def _task_decorator(*args, **kwargs):
+    def decorator(fn):
+        fn.name = kwargs.get("name", fn.__name__)
+        fn.autoretry_for = kwargs.get("autoretry_for", ())
+        fn.bind = kwargs.get("bind", False)
+        fn.soft_time_limit = kwargs.get("soft_time_limit")
+        fn.time_limit = kwargs.get("time_limit")
+        fn.delay = MagicMock()
+        fn.s = MagicMock()
+        return fn
+    if args and callable(args[0]):
+        return _task_decorator()(args[0])
+    return decorator
 
 
-class TestShouldSkipBackfill:
-    def test_skip_when_cursor_before_min(self):
-        """cursor_date < min_date means the cursor has gone too far back → True."""
-        assert _should_skip_backfill("2022-01-01", "2022-07-01") is True
+_celery_mock = MagicMock()
+_celery_mock.task.side_effect = _task_decorator
+sys.modules["workers.celery_app"] = MagicMock(celery_app=_celery_mock)
 
-    def test_no_skip_when_cursor_after_min(self):
-        """cursor_date >= min_date means there is still range to cover → False."""
-        assert _should_skip_backfill("2024-01-01", "2022-07-01") is False
-        assert _should_skip_backfill("2022-07-01", "2022-07-01") is False
+from sqlalchemy import select  # noqa: E402
+
+from models import TrackIdIndex  # noqa: E402
+from workers.tasks import sets as sets_mod  # noqa: E402
 
 
-class TestResumePageDecision:
-    def test_start_page_zero_returns_zero(self):
-        """No saved offset (0) → nothing to validate, collect from page 0."""
-        assert _resume_page_decision(0, "2024-06-01T00:00:00Z", "2024-05-01") == 0
+def _add(session, **kwargs):
+    row = TrackIdIndex(**kwargs)
+    session.add(row)
+    return row
 
-    def test_normal_resume_keeps_start_page(self):
-        """First item newer-or-equal to the cursor → resume from the saved offset."""
-        assert (
-            _resume_page_decision(12, "2024-06-10T00:00:00Z", "2024-06-01T00:00:00Z")
-            == 12
+
+class TestSelectSetsToHydrate:
+    def test_orders_by_score_desc(self, sync_session):
+        s = sync_session
+        _add(s, trackid_id=1, slug="a", score=10.0)
+        _add(s, trackid_id=2, slug="b", score=90.0)
+        _add(s, trackid_id=3, slug="c", score=50.0)
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        assert [tid for tid, _slug in rows] == [2, 3, 1]
+        # slug rides along for import_audiostream
+        assert dict(rows) == {2: "b", 3: "c", 1: "a"}
+
+    def test_respects_limit_cap(self, sync_session):
+        s = sync_session
+        for i in range(1, 6):
+            _add(s, trackid_id=i, slug=f"s{i}", score=float(i))
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(3)).all()
+        assert len(rows) == 3
+        # Highest scores first: 5, 4, 3
+        assert [tid for tid, _slug in rows] == [5, 4, 3]
+
+    def test_excludes_null_score(self, sync_session):
+        s = sync_session
+        _add(s, trackid_id=1, slug="scored", score=70.0)
+        _add(s, trackid_id=2, slug="unscored", score=None)
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        assert [tid for tid, _slug in rows] == [1]
+
+    def test_excludes_already_hydrated(self, sync_session):
+        s = sync_session
+        _add(s, trackid_id=1, slug="fresh", score=70.0)
+        _add(
+            s, trackid_id=2, slug="done", score=80.0, hydration_state="hydrated"
         )
+        s.commit()
 
-    def test_guard1_empty_page_falls_back_to_zero(self):
-        """Guard 1: empty page at the saved offset (stale) → full re-page from 0."""
-        assert _resume_page_decision(12, None, "2024-06-01T00:00:00Z") == 0
-        assert _resume_page_decision(12, "", "2024-06-01T00:00:00Z") == 0
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        # The higher-scored row is skipped because it is already hydrated.
+        assert [tid for tid, _slug in rows] == [1]
 
-    def test_guard2_overshoot_falls_back_to_zero(self):
-        """Guard 2: first item already older than the cursor (overshoot) → re-page."""
-        assert (
-            _resume_page_decision(12, "2024-05-20T00:00:00Z", "2024-06-01T00:00:00Z")
-            == 0
+    def test_tie_break_trackid_id_desc(self, sync_session):
+        s = sync_session
+        _add(s, trackid_id=1, slug="a", score=50.0)
+        _add(s, trackid_id=2, slug="b", score=50.0)
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        assert [tid for tid, _slug in rows] == [2, 1]
+
+    def test_empty_when_nothing_eligible(self, sync_session):
+        s = sync_session
+        _add(s, trackid_id=1, slug="unscored", score=None)
+        _add(
+            s, trackid_id=2, slug="done", score=80.0, hydration_state="hydrated"
         )
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        assert rows == []
+
+
+class TestMarkHydrated:
+    def test_marks_row_hydrated(self, sync_session):
+        s = sync_session
+        _add(s, trackid_id=42, slug="x", score=60.0)
+        s.commit()
+
+        s.execute(sets_mod._mark_hydrated_stmt(42))
+        s.commit()
+
+        row = s.execute(
+            select(TrackIdIndex).where(TrackIdIndex.trackid_id == 42)
+        ).scalar_one()
+        assert row.hydration_state == "hydrated"
+
+    def test_marked_row_is_no_longer_selected(self, sync_session):
+        s = sync_session
+        _add(s, trackid_id=1, slug="a", score=90.0)
+        _add(s, trackid_id=2, slug="b", score=50.0)
+        s.commit()
+
+        # Hydrate the top-scored one, then it drops out of the selection.
+        s.execute(sets_mod._mark_hydrated_stmt(1))
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        assert [tid for tid, _slug in rows] == [2]

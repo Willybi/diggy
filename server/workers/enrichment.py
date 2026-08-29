@@ -38,6 +38,12 @@ MAX_SEARCH_ATTEMPTS = 3
 # E1 — inline enrichment (sets/radar) skips entries searched within this window
 INLINE_SEARCH_COOLDOWN_HOURS = 24
 
+# C12 — priority-aware Beatport drain: a catalog row carries an optional
+# `enrich_priority` (bigger = enriched first; NULL = not yet stamped). An
+# un-stamped row is treated at this median baseline so it is neither starved
+# nor jumped ahead of genuinely high-priority work.
+PRIORITY_BASELINE = 75
+
 
 def _get_redis():
     try:
@@ -79,6 +85,8 @@ def select_enrich_candidates(
     budget: int,
     now: datetime,
     genre_only: bool = False,
+    order_by_priority: bool = False,
+    priority_floor: int | None = None,
 ) -> list:
     """Pick catalog entries to enrich, under a budget.
 
@@ -96,6 +104,15 @@ def select_enrich_candidates(
     beatport_id but no genre is still picked. The re-scan tiering (never / 30d /
     90d backoff, budget split) is otherwise unchanged. The default path is
     strictly untouched (same predicate as ``count_enrich_backlog`` mirrors).
+
+    ``order_by_priority`` / ``priority_floor`` (C12, both falsy by default so
+    every existing caller — Deezer included — is unchanged): applied to the
+    Tier-1 "fresh" selection ONLY. When ``order_by_priority`` is True, fresh rows
+    are ordered by ``coalesce(enrich_priority, PRIORITY_BASELINE)`` DESC (bigger =
+    first) with ``id`` DESC kept as the tie-break. When ``priority_floor`` is set,
+    fresh rows whose coalesced priority is below it are excluded. Retries (tiers
+    2-3) are DELIBERATELY never floored nor re-ordered by priority — that would
+    starve the 30/90-day re-scans.
     """
     from models import CatalogEntry
     from models.base import array_is_empty
@@ -108,11 +125,22 @@ def select_enrich_candidates(
     # The tier "base" predicate: id-missing (default) or genre-missing (gated).
     base = array_is_empty(CatalogEntry.genres) if genre_only else id_col.is_(None)
 
+    # C12 — un-stamped (NULL) priority folds to the median baseline.
+    priority_expr = func.coalesce(CatalogEntry.enrich_priority, PRIORITY_BASELINE)
+    fresh_where = [base, searched_col.is_(None)]
+    if priority_floor is not None:
+        fresh_where.append(priority_expr >= priority_floor)
+    fresh_order = (
+        (priority_expr.desc(), CatalogEntry.id.desc())
+        if order_by_priority
+        else (CatalogEntry.id.desc(),)
+    )
+
     fresh = (
         session.execute(
             select(CatalogEntry)
-            .where(base, searched_col.is_(None))
-            .order_by(CatalogEntry.id.desc())
+            .where(*fresh_where)
+            .order_by(*fresh_order)
             .limit(budget)
         )
         .scalars()
@@ -149,7 +177,13 @@ def select_enrich_candidates(
     return list(fresh) + list(retries)
 
 
-def count_enrich_backlog(session: Session, *, source: str, now: datetime) -> dict:
+def count_enrich_backlog(
+    session: Session,
+    *,
+    source: str,
+    now: datetime,
+    priority_floor: int | None = None,
+) -> dict:
     """Count catalog entries by enrichment tier for ``source`` (deezer/beatport).
 
     Faithful to :func:`select_enrich_candidates`: same columns (``_source_columns``)
@@ -166,11 +200,25 @@ def count_enrich_backlog(session: Session, *, source: str, now: datetime) -> dic
     ``total_linked`` = rows already carrying a ``{source}_id``. A naive
     "id NULL AND attempts < MAX" over-counts because it swallows the cooldown
     tier — hence the explicit split.
+
+    ``priority_floor`` (C12, default None → counts unchanged): when set, mirrors
+    the Tier-1 fresh eligibility of :func:`select_enrich_candidates` by applying
+    the same ``coalesce(enrich_priority, PRIORITY_BASELINE) >= priority_floor``
+    condition to the ``never_tried`` partition ONLY (retries are never floored),
+    so the monitoring never-tried figure reflects what the priority-floored drain
+    would actually pick up.
     """
     from models import CatalogEntry
 
     id_col, searched_col, attempts_col = _source_columns(source)
     missing = id_col.is_(None)
+
+    never_predicates = [missing, searched_col.is_(None)]
+    if priority_floor is not None:
+        never_predicates.append(
+            func.coalesce(CatalogEntry.enrich_priority, PRIORITY_BASELINE)
+            >= priority_floor
+        )
 
     def _count(*predicates) -> int:
         return (
@@ -195,7 +243,7 @@ def count_enrich_backlog(session: Session, *, source: str, now: datetime) -> dic
     )
 
     return {
-        "never_tried": _count(missing, searched_col.is_(None)),
+        "never_tried": _count(*never_predicates),
         "due_retry": _count(missing, due_retry),
         "cooldown": _count(missing, cooldown),
         "abandoned": _count(missing, attempts_col >= MAX_SEARCH_ATTEMPTS),
