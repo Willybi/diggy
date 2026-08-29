@@ -350,10 +350,16 @@ def _docker_embed(workdir, workers):
         os.path.join(PKG_DIR, "embed.py"),
         os.path.join(workdir, "embed.py"),
     )
+    env_flags = []
+    # Optional gentler Deezer pacing for a mop-up pass under a cumulative rate-limit.
+    min_interval = os.environ.get("EMBED_MIN_INTERVAL")
+    if min_interval:
+        env_flags += ["-e", f"EMBED_MIN_INTERVAL={min_interval}"]
     subprocess.run(
         [
             "docker", "run", "--rm",
             "-v", f"{workdir}:/work",
+            *env_flags,
             IMAGE,
             "python", "/work/embed.py",
             "--csv", "/work/to_analyze.csv",

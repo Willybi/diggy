@@ -49,7 +49,10 @@ EFFNET_GRAPH = "/models/discogs-effnet-bs64-1.pb"
 # itself is served by the CDN.
 _rl_lock = threading.Lock()
 _last = [0.0]
-MIN_INTERVAL = 0.2
+# Global inter-request floor on the Deezer /track/{id} lookup (seconds), shared
+# across worker threads. 0.2 = ~5 rps. Overridable via EMBED_MIN_INTERVAL to run
+# a gentler pass when a cumulative rate-limit ("HTTPError" storm) is suspected.
+MIN_INTERVAL = float(os.environ.get("EMBED_MIN_INTERVAL", "0.2"))
 
 # Each worker thread loads the EffNet graph ONCE (heavy TF graph) via thread-local
 # storage; the ThreadPoolExecutor provides the parallelism.
