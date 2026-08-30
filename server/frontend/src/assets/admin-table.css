@@ -84,7 +84,7 @@
   border-bottom: 1px solid var(--line);
   vertical-align: top;
   font-size: var(--fs-table);
-  color: var(--ink-2);
+  color: var(--ink);
 }
 .at-table tbody tr:hover {
   background: var(--surface-2);
@@ -116,6 +116,15 @@
   font: 500 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.07em;
   text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* Source nulle : le <td> est vide (le <span class="at-source"> est retiré par
+   v-if côté vue), pas un `.at-source` vide. En desktop on peint un tiret discret
+   pour ne pas lire "non chargé". Le ::before ne crée pas d'enfant réel, donc la
+   bascule mobile `td:empty { display:none }` masque toujours la rangée — le tiret
+   ne paraît qu'en desktop. */
+.at-table td[data-label='Source']:empty::before {
+  content: '—';
   color: var(--ink-3);
 }
 

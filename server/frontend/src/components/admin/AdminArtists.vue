@@ -909,6 +909,12 @@ onMounted(() => {
   margin-left: auto;
   flex: none;
 }
+/* État vide (D12) : ligne nue, comme .at-empty/.sf-empty. La bordure arrondie
+   vient du conteneur .dl-list (pas de .dl-empty) — quand la liste ne porte que
+   l'état vide, on retire son cadre pour ne pas simuler un input désactivé. */
+.dl-list:has(> .dl-empty) {
+  border: none;
+}
 .dl-empty {
   padding: var(--space-4);
   font-size: var(--fs-sm);

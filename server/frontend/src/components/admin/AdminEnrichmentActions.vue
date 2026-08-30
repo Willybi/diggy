@@ -431,6 +431,15 @@ async function doReset() {
   cursor: default;
 }
 
+/* buttons.css ne colore `.btn--danger` qu'au :hover → au repos le déclencheur ET
+   le bouton de confirmation ressemblent à un `.btn` neutre, le signal destructif
+   se perd. On donne aux boutons danger de CE composant un état de repos de
+   CONTOUR (texte + bordure --neg), sans toucher buttons.css. */
+.aj-row--danger .btn--danger {
+  color: var(--neg-ink);
+  border-color: var(--neg);
+}
+
 /* ── Responsive — palier unique 859 px (D18) : rangée en pile, cibles 44 px. ── */
 @container (max-width: 859px) {
   .aj-head {

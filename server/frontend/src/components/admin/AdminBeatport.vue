@@ -8,17 +8,6 @@
           Enrichit le catalogue via Beatport : BPM, key (Camelot), label, genre, artwork. ISRC
           d'abord, fallback titre+artiste.
         </p>
-        <label class="aj-field">
-          <span class="aj-field-label">Batch size</span>
-          <input
-            v-model.number="beatportBatchSize"
-            type="number"
-            min="0"
-            step="50"
-            placeholder="0 = tout"
-            class="aj-input"
-          />
-        </label>
 
         <!-- Job en cours (A7) : arc en rotation, mono --accent-ink. -->
         <p v-if="enrichingBeatport" class="aj-running">
@@ -48,6 +37,17 @@
         </div>
       </div>
       <div class="aj-action">
+        <label class="aj-field">
+          <span class="aj-field-label">Batch size</span>
+          <input
+            v-model.number="beatportBatchSize"
+            type="number"
+            min="0"
+            step="50"
+            placeholder="0 = tout"
+            class="aj-input"
+          />
+        </label>
         <button
           class="btn btn--sm btn--accent"
           :disabled="enrichingBeatport"
@@ -174,16 +174,20 @@ async function runEnrichBeatport() {
   text-wrap: pretty;
   max-width: 76ch;
 }
+/* Champ + bouton, colonne d'action à droite (calqué sur AdminGenres § reclassify). */
 .aj-action {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 190px;
 }
 
-/* Champ optionnel : label eyebrow mono + input mono --fs-input 16px. */
+/* Champ optionnel : label eyebrow mono AU-DESSUS de l'input mono --fs-input. */
 .aj-field {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 .aj-field-label {
   font: 600 var(--fs-nano)/1 var(--font-mono);
@@ -192,7 +196,7 @@ async function runEnrichBeatport() {
   color: var(--ink-3);
 }
 .aj-input {
-  width: 96px;
+  width: 100%;
   height: 38px;
   padding: 0 var(--space-2);
   background: var(--surface-2);
@@ -288,22 +292,17 @@ async function runEnrichBeatport() {
     flex-direction: column;
     gap: var(--space-3);
   }
-  .aj-field {
-    display: flex;
-    width: 100%;
-  }
-  .aj-input {
-    flex: 1;
-    width: auto;
-    height: var(--touch-min);
-  }
   .aj-action {
     width: 100%;
+    min-width: 0;
   }
   .aj-action .btn {
     width: 100%;
     min-height: var(--touch-min);
     justify-content: center;
+  }
+  .aj-input {
+    height: var(--touch-min);
   }
   .aj-fail-msg {
     max-width: none;

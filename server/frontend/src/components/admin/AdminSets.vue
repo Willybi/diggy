@@ -16,7 +16,7 @@
     <div v-else-if="flags.length === 0" class="sf-empty">Aucun flag en attente.</div>
     <template v-else>
       <div class="sf-cards">
-        <article v-for="flag in pagedFlags" :key="flag.id" class="sf-card">
+        <article v-for="flag in flags" :key="flag.id" class="sf-card">
           <div class="sf-card-head">
             <span class="sf-card-type">
               {{ flagTypeLabel(flag.flag_type) }} · {{ memberCount(flag) }} sets
@@ -56,11 +56,9 @@
         </article>
       </div>
       <div v-if="flagsPageCount > 1" class="at-pager">
-        <button class="btn btn--sm" :disabled="flagsPageSafe <= 1" @click="flagsPrev">
-          Précédent
-        </button>
-        <span class="at-pager-count">{{ flagsPageSafe }} / {{ flagsPageCount }}</span>
-        <button class="btn btn--sm" :disabled="flagsPageSafe >= flagsPageCount" @click="flagsNext">
+        <button class="btn btn--sm" :disabled="flagsPage <= 1" @click="flagsPrev">Précédent</button>
+        <span class="at-pager-count">{{ flagsPage }} / {{ flagsPageCount }}</span>
+        <button class="btn btn--sm" :disabled="flagsPage >= flagsPageCount" @click="flagsNext">
           Suivant
         </button>
       </div>
@@ -85,7 +83,7 @@
     <div v-else-if="attached.length === 0" class="sf-empty">Aucun set attaché.</div>
     <template v-else>
       <div class="sf-cards">
-        <article v-for="grp in pagedAttached" :key="grp.id" class="sf-card">
+        <article v-for="grp in attached" :key="grp.id" class="sf-card">
           <div class="sf-card-head">
             <span class="sf-card-type">Groupe #{{ grp.id }} · {{ grp.sets.length }} parties</span>
             <button
@@ -113,13 +111,13 @@
         </article>
       </div>
       <div v-if="attachedPageCount > 1" class="at-pager">
-        <button class="btn btn--sm" :disabled="attachedPageSafe <= 1" @click="attachedPrev">
+        <button class="btn btn--sm" :disabled="attachedPage <= 1" @click="attachedPrev">
           Précédent
         </button>
-        <span class="at-pager-count">{{ attachedPageSafe }} / {{ attachedPageCount }}</span>
+        <span class="at-pager-count">{{ attachedPage }} / {{ attachedPageCount }}</span>
         <button
           class="btn btn--sm"
-          :disabled="attachedPageSafe >= attachedPageCount"
+          :disabled="attachedPage >= attachedPageCount"
           @click="attachedNext"
         >
           Suivant
@@ -172,13 +170,14 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed, watch } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import api from '../../utils/api.js'
 import { useTaskPoll } from '../../composables/useTaskPoll.js'
 import AdminIcon from './AdminIcon.vue'
 
-// Pagination côté client : l'endpoint set-flags renvoie jusqu'à 50 items + un
-// `total` non paginé (0 back). On tranche la liste chargée par pages de 10 (D19).
+// Pagination SERVEUR (S1) : l'endpoint set-flags supporte déjà `limit`/`offset`.
+// On charge UNE page de 10 à la fois (offset=(page-1)*10) et le badge affiche le
+// `total` non paginé — la file au-delà de 50 n'est plus inatteignable.
 const PAGE_SIZE = 10
 
 function fmtInt(n) {
@@ -257,29 +256,31 @@ function signalChips(flag) {
   return chips
 }
 
-// Pagination client des flags.
+// Pagination serveur des flags : `flags` EST la page courante (≤10), le nombre
+// de pages dérive du `total` autoritaire.
 const flagsPage = ref(1)
-const flagsPageCount = computed(() => Math.max(1, Math.ceil(flags.value.length / PAGE_SIZE)))
-const flagsPageSafe = computed(() => Math.min(flagsPage.value, flagsPageCount.value))
-const pagedFlags = computed(() => {
-  const start = (flagsPageSafe.value - 1) * PAGE_SIZE
-  return flags.value.slice(start, start + PAGE_SIZE)
-})
+const flagsPageCount = computed(() => Math.max(1, Math.ceil(flagsTotal.value / PAGE_SIZE)))
 function flagsPrev() {
-  if (flagsPage.value > 1) flagsPage.value -= 1
+  if (flagsPage.value > 1) {
+    flagsPage.value -= 1
+    loadFlags()
+  }
 }
 function flagsNext() {
-  if (flagsPage.value < flagsPageCount.value) flagsPage.value += 1
+  if (flagsPage.value < flagsPageCount.value) {
+    flagsPage.value += 1
+    loadFlags()
+  }
 }
-watch(flagsPageCount, (n) => {
-  if (flagsPage.value > n) flagsPage.value = n
-})
 
 async function loadFlags() {
   flagsLoading.value = true
   flagsError.value = ''
   try {
-    const { data } = await api.get('/api/admin/set-flags?status=pending&limit=50')
+    const offset = (flagsPage.value - 1) * PAGE_SIZE
+    const { data } = await api.get(
+      `/api/admin/set-flags?status=pending&limit=${PAGE_SIZE}&offset=${offset}`,
+    )
     flags.value = data.items
     flagsTotal.value = data.total
   } catch (e) {
@@ -289,12 +290,21 @@ async function loadFlags() {
   }
 }
 
+// Après une action, recharge la page courante ; si elle devient vide (dernier
+// item de la dernière page), recule d'une page et recharge.
+async function reloadFlagsPage() {
+  await loadFlags()
+  if (flags.value.length === 0 && flagsPage.value > 1) {
+    flagsPage.value -= 1
+    await loadFlags()
+  }
+}
+
 async function attachFlag(flag) {
   flagLoadingIds.value = new Set([...flagLoadingIds.value, flag.id])
   try {
     await api.post(`/api/admin/set-flags/${flag.id}/attach`)
-    flags.value = flags.value.filter((f) => f.id !== flag.id)
-    flagsTotal.value = Math.max(0, flagsTotal.value - 1)
+    await reloadFlagsPage()
   } catch (e) {
     flagsError.value = e.response?.data?.detail || 'Erreur attach'
   } finally {
@@ -308,8 +318,7 @@ async function rejectFlag(flag) {
   flagLoadingIds.value = new Set([...flagLoadingIds.value, flag.id])
   try {
     await api.post(`/api/admin/set-flags/${flag.id}/reject`)
-    flags.value = flags.value.filter((f) => f.id !== flag.id)
-    flagsTotal.value = Math.max(0, flagsTotal.value - 1)
+    await reloadFlagsPage()
   } catch (e) {
     flagsError.value = e.response?.data?.detail || 'Erreur reject'
   } finally {
@@ -327,29 +336,30 @@ const attachedError = ref('')
 const detachLoadingIds = ref(new Set())
 const detachGroupLoadingIds = ref(new Set())
 
-// Pagination client des groupes attachés.
+// Pagination serveur des groupes attachés : `attached` EST la page courante.
 const attachedPage = ref(1)
-const attachedPageCount = computed(() => Math.max(1, Math.ceil(attached.value.length / PAGE_SIZE)))
-const attachedPageSafe = computed(() => Math.min(attachedPage.value, attachedPageCount.value))
-const pagedAttached = computed(() => {
-  const start = (attachedPageSafe.value - 1) * PAGE_SIZE
-  return attached.value.slice(start, start + PAGE_SIZE)
-})
+const attachedPageCount = computed(() => Math.max(1, Math.ceil(attachedTotal.value / PAGE_SIZE)))
 function attachedPrev() {
-  if (attachedPage.value > 1) attachedPage.value -= 1
+  if (attachedPage.value > 1) {
+    attachedPage.value -= 1
+    loadAttached()
+  }
 }
 function attachedNext() {
-  if (attachedPage.value < attachedPageCount.value) attachedPage.value += 1
+  if (attachedPage.value < attachedPageCount.value) {
+    attachedPage.value += 1
+    loadAttached()
+  }
 }
-watch(attachedPageCount, (n) => {
-  if (attachedPage.value > n) attachedPage.value = n
-})
 
 async function loadAttached() {
   attachedLoading.value = true
   attachedError.value = ''
   try {
-    const { data } = await api.get('/api/admin/set-flags?status=attached&limit=50')
+    const offset = (attachedPage.value - 1) * PAGE_SIZE
+    const { data } = await api.get(
+      `/api/admin/set-flags?status=attached&limit=${PAGE_SIZE}&offset=${offset}`,
+    )
     attachedTotal.value = data.total
     attached.value = data.items.map((flag) => ({
       id: flag.id,
@@ -368,15 +378,21 @@ async function loadAttached() {
   }
 }
 
+// Après un détachement, recharge la page courante ; si elle devient vide (dernier
+// groupe de la dernière page), recule d'une page et recharge.
+async function reloadAttachedPage() {
+  await loadAttached()
+  if (attached.value.length === 0 && attachedPage.value > 1) {
+    attachedPage.value -= 1
+    await loadAttached()
+  }
+}
+
 async function detachSet(grp, s) {
   detachLoadingIds.value = new Set([...detachLoadingIds.value, s.id])
   try {
     await api.post(`/api/admin/sets/${s.id}/detach`)
-    grp.sets = grp.sets.filter((x) => x.id !== s.id)
-    if (grp.sets.length === 0) {
-      attached.value = attached.value.filter((g) => g.id !== grp.id)
-      attachedTotal.value = Math.max(0, attachedTotal.value - 1)
-    }
+    await reloadAttachedPage()
   } catch (e) {
     attachedError.value = e.response?.data?.detail || 'Erreur détachement'
   } finally {
@@ -399,12 +415,7 @@ async function detachGroup(grp) {
   try {
     for (const s of [...grp.sets]) {
       await api.post(`/api/admin/sets/${s.id}/detach`)
-      grp.sets = grp.sets.filter((x) => x.id !== s.id)
       detached += 1
-    }
-    if (grp.sets.length === 0) {
-      attached.value = attached.value.filter((g) => g.id !== grp.id)
-      attachedTotal.value = Math.max(0, attachedTotal.value - 1)
     }
   } catch (e) {
     // Échec partiel : les N premiers sont bien détachés (état persisté côté back),
@@ -418,6 +429,8 @@ async function detachGroup(grp) {
     next.delete(grp.id)
     detachGroupLoadingIds.value = next
   }
+  // Reflète l'état serveur (succès total OU partiel) sur la page courante.
+  await reloadAttachedPage()
 }
 
 onMounted(() => {

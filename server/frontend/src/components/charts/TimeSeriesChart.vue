@@ -138,7 +138,24 @@ function niceCeil(v) {
   if (!(v > 0)) return 1
   const pow = Math.pow(10, Math.floor(Math.log10(v)))
   const n = v / pow
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10
+  // Steps finer than 1/2/5/10 keep tall series (e.g. ~230k) from being crushed
+  // against a 500k ceiling — 230k now rounds up to 250k (~92% of the plot).
+  const step =
+    n <= 1
+      ? 1
+      : n <= 1.5
+        ? 1.5
+        : n <= 2
+          ? 2
+          : n <= 2.5
+            ? 2.5
+            : n <= 3
+              ? 3
+              : n <= 4
+                ? 4
+                : n <= 5
+                  ? 5
+                  : 10
   return step * pow
 }
 const niceMax = computed(() => niceCeil(vMax.value))
