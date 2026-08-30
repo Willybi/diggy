@@ -1,133 +1,279 @@
 <template>
-  <!-- Flags en attente -->
-  <section class="admin-section">
-    <h2 class="section-title">
-      Flags en attente
-      <span v-if="flagsTotal > 0" class="flags-badge">{{ flagsTotal }}</span>
-    </h2>
-    <p class="section-sub">
-      Candidats dupliqués ou parties identifiés par le service de déduplication.
-    </p>
-    <div v-if="flagsLoading" class="section-sub">Chargement…</div>
-    <div v-else-if="flagsError" class="sync-error">{{ flagsError }}</div>
-    <div v-else-if="flags.length === 0" class="section-sub">Aucun flag en attente.</div>
-    <div v-else class="flags-list">
-      <div v-for="flag in flags" :key="flag.id" class="flag-card">
-        <div class="flag-sets">
-          <template v-if="flag.member_set_ids">
-            <div class="flag-members">
-              <span
-                v-for="(title, i) in flag.member_titles"
-                :key="i"
-                class="flag-set-title flag-member"
-                >{{ title }}</span
-              >
-            </div>
-          </template>
-          <template v-else>
-            <span class="flag-set-title">{{ flag.title_a }}</span>
-            <span class="flag-sep">↔</span>
-            <span class="flag-set-title">{{ flag.title_b }}</span>
-          </template>
-        </div>
-        <div class="flag-meta">
-          <span class="flag-type">{{ flagTypeLabel(flag.flag_type) }}</span>
-          <span v-if="flag.confidence != null" class="flag-conf">
-            Confiance : {{ Math.round(flag.confidence * 100) }}%
-          </span>
-          <span v-if="flag.signals?.part_numbers?.length" class="flag-conf">
-            Parts : {{ flag.signals.part_numbers.join(', ') }}
-          </span>
-          <span v-if="flag.signals?.date_span_days > 0" class="flag-conf">
-            Écart : {{ flag.signals.date_span_days }} j
-          </span>
-          <span v-if="typeof flag.signals?.date_gap_days === 'number'" class="flag-conf">
-            Écart : {{ flag.signals.date_gap_days }} j
-          </span>
-        </div>
-        <div class="flag-actions">
-          <button
-            class="btn-sync"
-            :disabled="flagLoadingIds.has(flag.id)"
-            @click="attachFlag(flag)"
-          >
-            Attacher
-          </button>
-          <button
-            class="btn-sync btn-reject"
-            :disabled="flagLoadingIds.has(flag.id)"
-            @click="rejectFlag(flag)"
-          >
-            Rejeter
-          </button>
-        </div>
-      </div>
+  <!-- ── Flags en attente — Archétype C (D11) : cartes de groupes paginées ── -->
+  <section class="sf-region">
+    <div class="sf-head">
+      <h2 class="sf-title">
+        Flags en attente
+        <span v-if="flagsTotal > 0" class="sf-count">{{ fmtInt(flagsTotal) }}</span>
+      </h2>
+      <span class="sf-eyebrow">Revue manuelle · 10 par page</span>
     </div>
-  </section>
 
-  <!-- Sets attachés -->
-  <section class="admin-section">
-    <h2 class="section-title">Sets attachés</h2>
-    <p class="section-sub">
-      Sets regroupés sous un parent virtuel. Détacher un set le ressort du groupe.
-    </p>
-    <div v-if="attachedLoading" class="section-sub">Chargement…</div>
-    <div v-else-if="attachedError" class="sync-error">{{ attachedError }}</div>
-    <div v-else-if="attached.length === 0" class="section-sub">Aucun set attaché.</div>
-    <div v-else class="flags-list">
-      <div v-for="grp in attached" :key="grp.id" class="flag-card">
-        <div class="flag-members">
-          <div v-for="s in grp.sets" :key="s.id" class="attached-set">
-            <span class="flag-set-title">{{ s.title || '—' }}</span>
-            <button
-              class="btn-sync btn-reject"
-              :disabled="detachLoadingIds.has(s.id)"
-              @click="detachSet(grp, s)"
-            >
-              Détacher
+    <div v-if="flagsLoading" class="sf-state">Chargement…</div>
+    <div v-else-if="flagsError && flags.length === 0" class="sf-state sf-state--err">
+      {{ flagsError }}
+    </div>
+    <div v-else-if="flags.length === 0" class="sf-empty">Aucun flag en attente.</div>
+    <template v-else>
+      <div class="sf-cards">
+        <article v-for="flag in pagedFlags" :key="flag.id" class="sf-card">
+          <div class="sf-card-head">
+            <span class="sf-card-type">
+              {{ flagTypeLabel(flag.flag_type) }} · {{ memberCount(flag) }} sets
+            </span>
+            <span v-if="flag.confidence != null" class="sf-card-conf">{{ confPct(flag) }}</span>
+          </div>
+          <div class="sf-members">
+            <div v-for="(m, i) in visibleMembers(flag)" :key="i" class="sf-member">
+              <span class="sf-member-pos">p. {{ i + 1 }}</span>
+              <span class="sf-member-title">{{ m.title || '—' }}</span>
+            </div>
+            <button v-if="hiddenCount(flag) > 0" class="sf-more" @click="expandFlag(flag)">
+              + {{ hiddenCount(flag) }} parties
             </button>
           </div>
-        </div>
+          <div class="sf-foot">
+            <div v-if="signalChips(flag).length" class="sf-chips">
+              <span v-for="(c, i) in signalChips(flag)" :key="i" class="sf-chip">{{ c }}</span>
+            </div>
+            <div class="sf-actions">
+              <button
+                class="btn btn--sm"
+                :disabled="flagLoadingIds.has(flag.id)"
+                @click="rejectFlag(flag)"
+              >
+                Rejeter
+              </button>
+              <button
+                class="btn btn--sm btn--accent"
+                :disabled="flagLoadingIds.has(flag.id)"
+                @click="attachFlag(flag)"
+              >
+                Attacher
+              </button>
+            </div>
+          </div>
+        </article>
       </div>
-    </div>
+      <div v-if="flagsPageCount > 1" class="at-pager">
+        <button class="btn btn--sm" :disabled="flagsPageSafe <= 1" @click="flagsPrev">
+          Précédent
+        </button>
+        <span class="at-pager-count">{{ flagsPageSafe }} / {{ flagsPageCount }}</span>
+        <button class="btn btn--sm" :disabled="flagsPageSafe >= flagsPageCount" @click="flagsNext">
+          Suivant
+        </button>
+      </div>
+      <div v-if="flagsError" class="sf-state sf-state--err">{{ flagsError }}</div>
+    </template>
   </section>
 
-  <!-- Lier artistes aux sets -->
-  <section class="admin-section">
-    <h2 class="section-title">Artistes des sets</h2>
-    <p class="section-sub">
-      Parse les titres des sets pour trouver les artistes et les lier. Idempotent.
-    </p>
-    <div class="sync-row">
-      <button class="btn-sync" :disabled="linkingSets" @click="runLinkSets">
-        {{ linkingSets ? 'Liaison en cours…' : 'Lier artistes aux sets' }}
-      </button>
-      <div v-if="linkSetsResult" class="sync-result">
-        <span class="result-item ok">✓ {{ linkSetsResult.linked }} liés</span>
-        <span class="result-item muted">↷ {{ linkSetsResult.skipped }} déjà liés</span>
+  <!-- ── Sets attachés — même carte C, détache par set ou par groupe ── -->
+  <section class="sf-region">
+    <div class="sf-head">
+      <h2 class="sf-title">
+        Sets attachés
+        <span v-if="attachedTotal > 0" class="sf-count">{{ fmtInt(attachedTotal) }}</span>
+      </h2>
+      <span class="sf-eyebrow">Groupes · 10 par page</span>
+    </div>
+
+    <div v-if="attachedLoading" class="sf-state">Chargement…</div>
+    <div v-else-if="attachedError && attached.length === 0" class="sf-state sf-state--err">
+      {{ attachedError }}
+    </div>
+    <div v-else-if="attached.length === 0" class="sf-empty">Aucun set attaché.</div>
+    <template v-else>
+      <div class="sf-cards">
+        <article v-for="grp in pagedAttached" :key="grp.id" class="sf-card">
+          <div class="sf-card-head">
+            <span class="sf-card-type">Groupe #{{ grp.id }} · {{ grp.sets.length }} parties</span>
+            <button
+              class="btn btn--sm"
+              :disabled="detachGroupLoadingIds.has(grp.id)"
+              @click="detachGroup(grp)"
+            >
+              Détacher le groupe
+            </button>
+          </div>
+          <div class="sf-members">
+            <div v-for="s in grp.sets" :key="s.id" class="sf-member attached-set">
+              <span class="sf-member-title">{{ s.title || '—' }}</span>
+              <button
+                class="sf-detach"
+                :disabled="detachLoadingIds.has(s.id)"
+                title="Détacher"
+                aria-label="Détacher"
+                @click="detachSet(grp, s)"
+              >
+                <AdminIcon name="link-off" :size="15" />
+              </button>
+            </div>
+          </div>
+        </article>
       </div>
-      <span v-if="linkSetsError" class="sync-error">{{ linkSetsError }}</span>
+      <div v-if="attachedPageCount > 1" class="at-pager">
+        <button class="btn btn--sm" :disabled="attachedPageSafe <= 1" @click="attachedPrev">
+          Précédent
+        </button>
+        <span class="at-pager-count">{{ attachedPageSafe }} / {{ attachedPageCount }}</span>
+        <button
+          class="btn btn--sm"
+          :disabled="attachedPageSafe >= attachedPageCount"
+          @click="attachedNext"
+        >
+          Suivant
+        </button>
+      </div>
+      <div v-if="attachedError" class="sf-state sf-state--err">{{ attachedError }}</div>
+    </template>
+  </section>
+
+  <!-- ── Artistes des sets — Archétype A (D4) : un job groupé ── -->
+  <section class="aj-region">
+    <div class="aj-head">
+      <h2 class="aj-title">Artistes des sets <span class="aj-count">1</span></h2>
+      <span class="aj-eyebrow">Idempotent</span>
+    </div>
+    <div class="aj-row">
+      <div class="aj-body">
+        <h3 class="aj-job-title">Lier artistes aux sets</h3>
+        <p class="aj-job-desc">
+          Parse les titres des sets pour trouver les artistes et les lier. Idempotent.
+        </p>
+        <p v-if="linkingSets" class="aj-running">
+          <AdminIcon name="arc" :size="13" /> Job en cours…
+        </p>
+        <div v-else-if="linkSetsPairs.length || linkSetsError" class="aj-result">
+          <span
+            v-for="(p, i) in linkSetsPairs"
+            :key="i"
+            class="aj-pair"
+            :class="`aj-pair--${p.channel}`"
+          >
+            <AdminIcon :name="channelIcon(p.channel)" :size="13" />
+            <span class="aj-num">{{ fmtInt(p.value) }}</span>
+            <span class="aj-lbl">{{ p.label }}</span>
+          </span>
+          <span v-if="linkSetsError" class="aj-fail">
+            <AdminIcon name="alert-triangle" :size="13" />
+            <span class="aj-fail-word">Échec</span>
+            <span class="aj-fail-msg">{{ linkSetsError }}</span>
+          </span>
+        </div>
+      </div>
+      <div class="aj-action">
+        <button class="btn btn--sm btn--accent" :disabled="linkingSets" @click="runLinkSets">
+          {{ linkingSets ? 'En cours…' : 'Lier artistes aux sets' }}
+        </button>
+      </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import api from '../../utils/api.js'
 import { useTaskPoll } from '../../composables/useTaskPoll.js'
+import AdminIcon from './AdminIcon.vue'
 
-// --- Flags ---
+// Pagination côté client : l'endpoint set-flags renvoie jusqu'à 50 items + un
+// `total` non paginé (0 back). On tranche la liste chargée par pages de 10 (D19).
+const PAGE_SIZE = 10
+
+function fmtInt(n) {
+  return Number(n).toLocaleString('fr-FR')
+}
+
+// ── Ligne de résultat de job (D3) : paires icône/nombre/label, 3 canaux ──
+const CHANNEL_ICON = { success: 'check', neutral: 'skip', error: 'alert-triangle' }
+function channelIcon(ch) {
+  return CHANNEL_ICON[ch]
+}
+function buildPairs(defs) {
+  return defs.filter((d) => d.value != null && d.value !== 0)
+}
+
+// --- Flags en attente (Archétype C) ---
 const flags = ref([])
 const flagsTotal = ref(0)
 const flagsLoading = ref(false)
 const flagsError = ref('')
 const flagLoadingIds = ref(new Set())
+// Groupes dépliés (troncature D19 : > 6 membres → 6 rangées + « + N parties »).
+const expandedFlagIds = ref(new Set())
 
 function flagTypeLabel(type) {
   if (type === 'duplicate_candidate') return 'Doublon'
   if (type === 'part_candidate') return 'Parties'
   return type
 }
+
+// Normalise un flag en liste de membres : groupe (member_titles) sinon paire.
+function flagMembers(flag) {
+  if (flag.member_set_ids && flag.member_set_ids.length) {
+    const titles =
+      flag.member_titles && flag.member_titles.length
+        ? flag.member_titles
+        : flag.member_set_ids.map(() => '')
+    return titles.map((title) => ({ title }))
+  }
+  return [{ title: flag.title_a }, { title: flag.title_b }]
+}
+function memberCount(flag) {
+  return flagMembers(flag).length
+}
+function visibleMembers(flag) {
+  const all = flagMembers(flag)
+  if (expandedFlagIds.value.has(flag.id) || all.length <= 6) return all
+  return all.slice(0, 6)
+}
+function hiddenCount(flag) {
+  if (expandedFlagIds.value.has(flag.id)) return 0
+  return Math.max(0, memberCount(flag) - 6)
+}
+function expandFlag(flag) {
+  expandedFlagIds.value = new Set([...expandedFlagIds.value, flag.id])
+}
+
+// Confiance en % avec espace insécable avant le signe (grille d'audit).
+function confPct(flag) {
+  return `confiance ${Math.round(flag.confidence * 100)}\u00A0%`
+}
+
+// Chips de signaux homogènes (D11) : tous rendus de même nature.
+function signalChips(flag) {
+  const s = flag.signals || {}
+  const chips = []
+  if (Array.isArray(s.part_numbers) && s.part_numbers.length) {
+    chips.push(`parts ${s.part_numbers.join(', ')}`)
+  }
+  if (typeof s.date_gap_days === 'number') {
+    chips.push(`écart ${s.date_gap_days} j`)
+  }
+  if (typeof s.date_span_days === 'number' && s.date_span_days > 0) {
+    chips.push(`plage ${s.date_span_days} j`)
+  }
+  return chips
+}
+
+// Pagination client des flags.
+const flagsPage = ref(1)
+const flagsPageCount = computed(() => Math.max(1, Math.ceil(flags.value.length / PAGE_SIZE)))
+const flagsPageSafe = computed(() => Math.min(flagsPage.value, flagsPageCount.value))
+const pagedFlags = computed(() => {
+  const start = (flagsPageSafe.value - 1) * PAGE_SIZE
+  return flags.value.slice(start, start + PAGE_SIZE)
+})
+function flagsPrev() {
+  if (flagsPage.value > 1) flagsPage.value -= 1
+}
+function flagsNext() {
+  if (flagsPage.value < flagsPageCount.value) flagsPage.value += 1
+}
+watch(flagsPageCount, (n) => {
+  if (flagsPage.value > n) flagsPage.value = n
+})
 
 async function loadFlags() {
   flagsLoading.value = true
@@ -175,15 +321,36 @@ async function rejectFlag(flag) {
 
 // --- Sets attachés (détacher) ---
 const attached = ref([])
+const attachedTotal = ref(0)
 const attachedLoading = ref(false)
 const attachedError = ref('')
 const detachLoadingIds = ref(new Set())
+const detachGroupLoadingIds = ref(new Set())
+
+// Pagination client des groupes attachés.
+const attachedPage = ref(1)
+const attachedPageCount = computed(() => Math.max(1, Math.ceil(attached.value.length / PAGE_SIZE)))
+const attachedPageSafe = computed(() => Math.min(attachedPage.value, attachedPageCount.value))
+const pagedAttached = computed(() => {
+  const start = (attachedPageSafe.value - 1) * PAGE_SIZE
+  return attached.value.slice(start, start + PAGE_SIZE)
+})
+function attachedPrev() {
+  if (attachedPage.value > 1) attachedPage.value -= 1
+}
+function attachedNext() {
+  if (attachedPage.value < attachedPageCount.value) attachedPage.value += 1
+}
+watch(attachedPageCount, (n) => {
+  if (attachedPage.value > n) attachedPage.value = n
+})
 
 async function loadAttached() {
   attachedLoading.value = true
   attachedError.value = ''
   try {
     const { data } = await api.get('/api/admin/set-flags?status=attached&limit=50')
+    attachedTotal.value = data.total
     attached.value = data.items.map((flag) => ({
       id: flag.id,
       sets: (flag.member_set_ids
@@ -208,6 +375,7 @@ async function detachSet(grp, s) {
     grp.sets = grp.sets.filter((x) => x.id !== s.id)
     if (grp.sets.length === 0) {
       attached.value = attached.value.filter((g) => g.id !== grp.id)
+      attachedTotal.value = Math.max(0, attachedTotal.value - 1)
     }
   } catch (e) {
     attachedError.value = e.response?.data?.detail || 'Erreur détachement'
@@ -218,14 +386,58 @@ async function detachSet(grp, s) {
   }
 }
 
+// Détacher le groupe entier = détacher chaque membre via l'endpoint existant
+// (aucun nouvel endpoint : le back est inchangé). Séquentiel, s'arrête au 1er
+// échec en laissant le reste du groupe intact (invariant #4).
+async function detachGroup(grp) {
+  detachGroupLoadingIds.value = new Set([...detachGroupLoadingIds.value, grp.id])
+  attachedError.value = ''
+  // Détachement séquentiel : on compte les succès pour distinguer un échec
+  // partiel (la boucle s'interrompt) d'un échec total, et le rapporter clairement.
+  const total = grp.sets.length
+  let detached = 0
+  try {
+    for (const s of [...grp.sets]) {
+      await api.post(`/api/admin/sets/${s.id}/detach`)
+      grp.sets = grp.sets.filter((x) => x.id !== s.id)
+      detached += 1
+    }
+    if (grp.sets.length === 0) {
+      attached.value = attached.value.filter((g) => g.id !== grp.id)
+      attachedTotal.value = Math.max(0, attachedTotal.value - 1)
+    }
+  } catch (e) {
+    // Échec partiel : les N premiers sont bien détachés (état persisté côté back),
+    // seul le reste échoue — on nomme le compte au lieu d'un « échec » muet.
+    const plural = detached > 1 ? 's' : ''
+    attachedError.value = `${detached} détaché${plural} sur ${total} — réessayez (${
+      e.response?.data?.detail || 'erreur détachement du groupe'
+    })`
+  } finally {
+    const next = new Set(detachGroupLoadingIds.value)
+    next.delete(grp.id)
+    detachGroupLoadingIds.value = next
+  }
+}
+
 onMounted(() => {
   loadFlags()
   loadAttached()
 })
 
+// --- Lier artistes aux sets (Archétype A) ---
 const linkingSets = ref(false)
 const linkSetsResult = ref(null)
 const linkSetsError = ref('')
+
+const linkSetsPairs = computed(() => {
+  const r = linkSetsResult.value
+  if (!r) return []
+  return buildPairs([
+    { value: r.linked, label: 'liés', channel: 'success' },
+    { value: r.skipped, label: 'déjà liés', channel: 'neutral' },
+  ])
+})
 
 const linkSetsPoll = useTaskPoll((taskId) => `/api/admin/tasks/${taskId}`, {
   intervalMs: 2000,
@@ -266,171 +478,384 @@ async function runLinkSets() {
 </script>
 
 <style scoped>
-.admin-section {
+.sf-region,
+.aj-region {
   container-type: inline-size;
+}
+
+/* ── Archétype C — région de cartes de groupes (D11) : cadre à bordure. ── */
+.sf-region {
   margin-bottom: var(--space-8);
-  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
+  overflow: hidden;
 }
-.section-title {
-  font: 600 var(--fs-title)/1 var(--font-ui);
-  color: var(--ink);
-  margin-bottom: var(--space-15);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.section-sub {
-  font: 400 var(--fs-sm)/1.4 var(--font-ui);
-  color: var(--ink-3);
-  margin-bottom: var(--space-4);
-}
-.sync-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-.btn-sync {
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--r-sm);
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.btn-sync:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.sync-result {
-  display: flex;
-  gap: var(--space-4);
-  font: 400 var(--fs-sm)/1 var(--font-mono);
-}
-.result-item.ok {
-  color: var(--pos-ink);
-}
-.result-item.muted {
-  color: var(--ink-3);
-}
-.sync-error {
-  font-size: var(--fs-sm);
-  color: var(--neg-ink);
-}
-.flags-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  padding: var(--space-05) var(--space-15);
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 var(--fs-xs)/1 var(--font-ui);
-}
-.flags-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-25);
-}
-.flag-card {
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-2, var(--surface));
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.flag-sets {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.flag-set-title {
-  font: 500 var(--fs-sm)/1.3 var(--font-ui);
-  color: var(--ink);
-}
-.flag-sep {
-  font-size: var(--fs-base);
-  color: var(--ink-3);
-}
-.flag-members {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-15);
-}
-.flag-member {
-  padding: var(--space-05) var(--space-2);
-  background: var(--surface-2, var(--surface));
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-}
-.attached-set {
-  width: 100%;
+.sf-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
 }
-.flag-meta {
+.sf-title {
   display: flex;
-  gap: var(--space-3);
-  font: 400 var(--fs-sm)/1 var(--font-ui);
+  align-items: center;
+  gap: var(--space-2);
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
 }
-.flag-type {
+.sf-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.sf-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--ink-3);
 }
-.flag-conf {
-  color: var(--ink-2, var(--ink-3));
+
+/* États (D17) : une ligne, à gauche, dans la région. */
+.sf-state {
+  padding: var(--space-4);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
 }
-.flag-actions {
+.sf-state--err {
+  color: var(--neg-ink);
+}
+.sf-empty {
+  padding: var(--space-6);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* Pile de cartes. */
+.sf-cards {
+  padding: var(--space-3) var(--space-4);
+}
+.sf-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.sf-card + .sf-card {
+  margin-top: var(--space-25);
+}
+
+/* En-tête de carte : type · N sets à gauche, confiance / action à droite. */
+.sf-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.sf-card-type {
+  font: 600 var(--fs-nano)/1.3 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.sf-card-conf {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* Membres : rangées p. N + titre, filet entre membres. */
+.sf-members {
+  display: flex;
+  flex-direction: column;
+}
+.sf-member {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+.sf-member + .sf-member,
+.sf-more {
+  border-top: 1px solid var(--line);
+}
+.sf-member-pos {
+  flex: none;
+  width: 34px;
+  font: 500 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-3);
+}
+.sf-member-title {
+  flex: 1;
+  min-width: 0;
+  font: 500 var(--fs-sm)/1.3 var(--font-ui);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Bouton-icône détacher : révélé au survol, --neg-ink au hover (D11). */
+.sf-detach {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  border-radius: var(--r-xs);
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.1s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.sf-member:hover .sf-detach,
+.sf-member:focus-within .sf-detach {
+  opacity: 1;
+}
+.sf-detach:hover {
+  color: var(--neg-ink);
+  border-color: var(--neg-ink);
+}
+.sf-detach:disabled {
+  cursor: default;
+}
+/* Rangée « + N parties » (troncature D19) : déplie le groupe sur place. */
+.sf-more {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  text-align: left;
+  font: 500 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.sf-more:hover {
+  color: var(--ink);
+}
+
+/* Pied de carte : chips de signaux + actions. */
+.sf-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-25) var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.sf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.sf-chip {
+  padding: 2px var(--space-15);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  font: 500 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.sf-actions {
+  flex: none;
   display: flex;
   gap: var(--space-2);
 }
-.btn-reject {
-  background: transparent;
+
+/* ── Archétype A — région de job groupé (D4) : carte à bordure, sans ombre. ── */
+.aj-region {
+  margin-bottom: var(--space-8);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.aj-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.aj-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.aj-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.aj-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.aj-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-4);
+}
+.aj-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.aj-job-title {
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.aj-job-desc {
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
+  text-wrap: pretty;
+  max-width: 76ch;
+}
+.aj-action {
+  flex: none;
+}
+.aj-running {
+  display: flex;
+  align-items: center;
+  gap: var(--space-15);
+  margin-top: var(--space-1);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
+  color: var(--accent-ink);
+}
+.aj-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-15);
+}
+.aj-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.aj-pair--success {
+  color: var(--pos-ink);
+}
+.aj-pair--neutral {
+  color: var(--ink-2);
+}
+.aj-pair--error {
   color: var(--neg-ink);
-  border: 1px solid var(--neg-ink);
+}
+.aj-num {
+  font: 600 var(--fs-xs)/1 var(--font-mono);
+}
+.aj-lbl {
+  font: 400 var(--fs-xs)/1 var(--font-ui);
+  color: var(--ink-3);
+}
+.aj-fail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--neg-ink);
+}
+.aj-fail-word {
+  font: 600 var(--fs-xs)/1 var(--font-ui);
+}
+.aj-fail-msg {
+  font: 400 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 340px;
 }
 
-/* ============ RESPONSIVE — empilement set-flags + cibles tactiles (palier 859) ============ */
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Responsive — palier unique 859 px (D14/D18). ── */
 @container (max-width: 859px) {
-  /* Paire empilée : les deux titres passent l'un sous l'autre. */
-  .flag-sets {
+  /* En-têtes de région en pile. */
+  .sf-head,
+  .aj-head {
     flex-direction: column;
     align-items: stretch;
   }
-  /* Le séparateur ↔ vertical devient une bande horizontale pleine largeur. */
-  .flag-sep {
-    align-self: stretch;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 20px;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-  }
-  .flag-meta {
-    flex-wrap: wrap;
-  }
-  /* Actions empilées, Attacher au-dessus de Rejeter. L'ordre DOM est déjà
-     [Attacher, Rejeter] → flex-direction: column suffit (voir compte rendu). */
-  .flag-actions {
+
+  /* Pied de carte en pile, actions en column-reverse (Attacher au-dessus). */
+  .sf-foot {
     flex-direction: column;
+    align-items: stretch;
   }
-  .flag-actions .btn-sync {
+  .sf-actions {
+    flex-direction: column-reverse;
     width: 100%;
   }
-  /* Cibles tactiles sur tous les boutons de job de l'onglet (les 3 sections). */
-  .btn-sync {
+  .sf-actions .btn {
+    width: 100%;
     min-height: var(--touch-min);
+    justify-content: center;
+  }
+  /* Détacher : cible tactile toujours visible. */
+  .sf-detach {
+    opacity: 1;
+    width: var(--touch-min);
+    height: var(--touch-min);
+  }
+  .sf-card-head .btn {
+    min-height: var(--touch-min);
+    justify-content: center;
+  }
+
+  /* Job en pile, bouton pleine largeur 44 px. */
+  .aj-row {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .aj-action {
+    width: 100%;
+  }
+  .aj-action .btn {
+    width: 100%;
+    min-height: var(--touch-min);
+    justify-content: center;
+  }
+  .aj-fail-msg {
+    max-width: none;
   }
 }
 </style>

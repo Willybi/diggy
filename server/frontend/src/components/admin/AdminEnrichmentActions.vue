@@ -1,84 +1,144 @@
 <template>
-  <section class="admin-section">
-    <h2 class="section-title">Actions d'enrichissement</h2>
+  <!-- Archétype A (D4/D18) : deux jobs d'enrichissement groupés dans UNE région. -->
+  <section class="aj-region">
+    <div class="aj-head">
+      <h2 class="aj-title">Actions d'enrichissement <span class="aj-count">2</span></h2>
+    </div>
 
     <!-- Action réversible : backfill multi-artistes -->
-    <div class="action-block">
-      <h3 class="action-title">Backfill multi-artistes</h3>
-      <p class="section-sub">
-        Re-interroge Deezer pour les titres à un seul artiste afin de découvrir les contributeurs
-        manquants. Sans effet destructif.
-      </p>
-      <div class="sync-row">
-        <button class="btn-sync" :disabled="backfilling" @click="runBackfill">
-          {{ backfilling ? 'Backfill en cours…' : 'Lancer le backfill' }}
-        </button>
-        <div v-if="backfillResult" class="sync-result">
-          <span class="result-item ok">✓ {{ backfillResult.enriched ?? 0 }} enrichis</span>
-          <span v-if="backfillResult.errors" class="result-item warn"
-            >⚠ {{ backfillResult.errors }} erreurs</span
+    <div class="aj-row">
+      <div class="aj-body">
+        <h3 class="aj-job-title">Backfill multi-artistes</h3>
+        <p class="aj-job-desc">
+          Re-interroge Deezer pour les titres à un seul artiste afin de découvrir les contributeurs
+          manquants. Sans effet destructif.
+        </p>
+        <p v-if="backfilling" class="aj-running">
+          <AdminIcon name="arc" :size="13" /> Job en cours…
+        </p>
+        <span v-else-if="backfillSkipped" class="aj-skip">
+          <AdminIcon name="arc" :size="13" /> Déjà en cours
+        </span>
+        <div v-else-if="backfillPairs.length || backfillError" class="aj-result">
+          <span
+            v-for="(p, i) in backfillPairs"
+            :key="i"
+            class="aj-pair"
+            :class="`aj-pair--${p.channel}`"
           >
-          <span v-if="backfillResult.total != null" class="result-item muted"
-            >/ {{ backfillResult.total }} traités</span
-          >
+            <AdminIcon :name="channelIcon(p.channel)" :size="13" />
+            <span class="aj-num">{{ fmtInt(p.value) }}</span>
+            <span class="aj-lbl">{{ p.label }}</span>
+          </span>
+          <span v-if="backfillError" class="aj-fail">
+            <AdminIcon name="alert-triangle" :size="13" />
+            <span class="aj-fail-word">Échec</span>
+            <span class="aj-fail-msg">{{ backfillError }}</span>
+          </span>
         </div>
-        <span v-if="backfillSkipped" class="sync-info">Backfill déjà en cours</span>
-        <span v-if="backfillError" class="sync-error">{{ backfillError }}</span>
+      </div>
+      <div class="aj-action">
+        <button class="btn btn--sm btn--accent" :disabled="backfilling" @click="runBackfill">
+          {{ backfilling ? 'En cours…' : 'Lancer le backfill' }}
+        </button>
       </div>
     </div>
 
-    <!-- Action destructive : reset Beatport (garde-fou de confirmation inline) -->
-    <div class="action-block action-block--danger">
-      <h3 class="action-title">Réinitialiser l'enrichissement Beatport</h3>
-      <p class="section-sub">
-        Efface TOUTES les données issues de Beatport (ids, BPM/key sourcés Beatport) pour relancer
-        l'enrichissement à zéro. Action destructive et irréversible.
-      </p>
-      <div class="sync-row">
-        <button
-          v-if="!confirmingReset"
-          class="btn-danger"
-          :disabled="resetting"
-          @click="confirmingReset = true"
-        >
-          Réinitialiser Beatport…
-        </button>
+    <!-- Action destructive : reset Beatport — variante danger (D6). -->
+    <div class="aj-row aj-row--danger">
+      <div class="aj-body">
+        <div class="aj-danger-head">
+          <h3 class="aj-job-title">Réinitialiser l'enrichissement Beatport</h3>
+          <span class="aj-badge-danger">Destructif</span>
+        </div>
+        <p class="aj-job-desc">
+          Efface TOUTES les données issues de Beatport (ids, BPM/key sourcés Beatport) pour relancer
+          l'enrichissement à zéro. Action destructive et irréversible.
+        </p>
 
-        <div v-else class="confirm-zone">
-          <p class="confirm-warning">
-            ⚠ Réinitialise TOUT l'enrichissement Beatport de la base — irréversible.
-          </p>
-          <div class="confirm-actions">
-            <button class="btn-danger" :disabled="resetting" @click="runReset">
-              {{ resetting ? 'Réinitialisation…' : 'Confirmer la réinitialisation' }}
-            </button>
-            <button class="btn-cancel" :disabled="resetting" @click="confirmingReset = false">
-              Annuler
-            </button>
+        <!-- Confirmation inline (D6) : dépliée sous la rangée, pas de modal. -->
+        <div v-if="confirmingReset" class="aj-confirm">
+          <span class="aj-confirm-mark">
+            <AdminIcon name="alert-triangle" :size="15" />
+          </span>
+          <div class="aj-confirm-body">
+            <p class="aj-confirm-q">
+              Effacer l'enrichissement Beatport de tout le catalogue&nbsp;?
+            </p>
+            <p class="aj-confirm-consequence">
+              <span class="aj-mono">Toutes</span> les données Beatport (ids, BPM et keys sourcés
+              Beatport) sont effacées et reviennent à leur valeur d'origine. Aucune sauvegarde,
+              aucun retour arrière.
+            </p>
+            <div class="aj-confirm-actions">
+              <button class="btn btn--sm" :disabled="resetting" @click="cancelReset">
+                Annuler
+              </button>
+              <button class="btn btn--sm btn--danger" :disabled="resetting" @click="doReset">
+                {{ resetting ? 'Réinitialisation…' : 'Confirmer la réinitialisation' }}
+              </button>
+            </div>
           </div>
         </div>
 
-        <div v-if="resetResult" class="sync-result">
-          <span class="result-item ok">✓ {{ resetResult.cleared }} réinitialisés</span>
-          <span class="result-item muted">↩ {{ resetResult.bpm_reverted }} BPM</span>
-          <span class="result-item muted">↩ {{ resetResult.key_reverted }} key</span>
+        <!-- Ligne de résultat NEUTRE (D6) : pas de rouge, le job a réussi. -->
+        <div v-if="resetPairs.length || resetError" class="aj-result">
+          <span v-for="(p, i) in resetPairs" :key="i" class="aj-pair aj-pair--neutral">
+            <AdminIcon name="skip" :size="13" />
+            <span class="aj-num">{{ fmtInt(p.value) }}</span>
+            <span class="aj-lbl">{{ p.label }}</span>
+          </span>
+          <span v-if="resetError" class="aj-fail">
+            <AdminIcon name="alert-triangle" :size="13" />
+            <span class="aj-fail-word">Échec</span>
+            <span class="aj-fail-msg">{{ resetError }}</span>
+          </span>
         </div>
-        <span v-if="resetError" class="sync-error">{{ resetError }}</span>
+      </div>
+      <div class="aj-action">
+        <button
+          v-if="!confirmingReset"
+          class="btn btn--sm btn--danger"
+          :disabled="resetting"
+          @click="askReset"
+        >
+          Réinitialiser Beatport…
+        </button>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import api from '../../utils/api.js'
 import { useTaskPoll } from '../../composables/useTaskPoll.js'
+import AdminIcon from './AdminIcon.vue'
+
+// ── Ligne de résultat de job (D3) : paires icône/nombre/label, 3 canaux ──
+const CHANNEL_ICON = { success: 'check', neutral: 'skip', error: 'alert-triangle' }
+function channelIcon(ch) {
+  return CHANNEL_ICON[ch]
+}
+function fmtInt(n) {
+  return Number(n).toLocaleString('fr-FR')
+}
 
 // ── Backfill multi-artistes (job) ──
 const backfilling = ref(false)
 const backfillResult = ref(null)
 const backfillSkipped = ref(false)
 const backfillError = ref('')
+
+const backfillPairs = computed(() => {
+  const r = backfillResult.value
+  if (!r) return []
+  return [
+    { value: r.enriched, label: 'enrichis', channel: 'success' },
+    { value: r.errors, label: 'erreurs', channel: 'error' },
+    { value: r.total, label: 'traités', channel: 'neutral' },
+  ].filter((d) => d.value != null && d.value !== 0)
+})
 
 const backfillPoll = useTaskPoll((taskId) => `/api/admin/tasks/${taskId}`, {
   intervalMs: 5000,
@@ -129,7 +189,26 @@ const resetting = ref(false)
 const resetResult = ref(null)
 const resetError = ref('')
 
-async function runReset() {
+const resetPairs = computed(() => {
+  const r = resetResult.value
+  if (!r) return []
+  // Canal NEUTRE uniquement (D6) : le reset a réussi, rien d'alarmant à peindre.
+  return [
+    { value: r.cleared, label: 'réinitialisés' },
+    { value: r.bpm_reverted, label: 'BPM rétablis' },
+    { value: r.key_reverted, label: 'key rétablies' },
+  ].filter((d) => d.value != null && d.value !== 0)
+})
+
+function askReset() {
+  confirmingReset.value = true
+}
+
+function cancelReset() {
+  confirmingReset.value = false
+}
+
+async function doReset() {
   resetting.value = true
   resetResult.value = null
   resetError.value = ''
@@ -146,127 +225,240 @@ async function runReset() {
 </script>
 
 <style scoped>
-.admin-section {
+/* ── Archétype A — région de jobs groupés (D4) : carte à bordure, sans ombre. ── */
+.aj-region {
   container-type: inline-size;
   margin-bottom: var(--space-8);
-  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
+  overflow: hidden;
 }
-.section-title {
-  font: 600 var(--fs-title)/1 var(--font-ui);
-  color: var(--ink);
-  margin-bottom: var(--space-4);
+.aj-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.aj-title {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
 }
-.action-block {
-  padding: var(--space-4) 0;
+.aj-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.04em;
 }
-.action-block + .action-block {
+.aj-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-4);
+}
+.aj-row + .aj-row {
   border-top: 1px solid var(--line);
 }
-.action-block--danger {
-  margin-top: var(--space-2);
-}
-.action-title {
-  font: 600 var(--fs-base)/1 var(--font-ui);
-  color: var(--ink);
-  margin-bottom: var(--space-15);
-}
-.section-sub {
-  font: 400 var(--fs-sm)/1.4 var(--font-ui);
-  color: var(--ink-3);
-  margin-bottom: var(--space-4);
-}
-.sync-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-.btn-sync {
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--r-sm);
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.btn-sync:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.btn-danger {
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--neg);
-  background: var(--neg-soft);
-  color: var(--neg-ink);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.btn-danger:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.btn-cancel {
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-}
-.btn-cancel:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.confirm-zone {
+.aj-body {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-1);
+}
+.aj-job-title {
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.aj-job-desc {
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
+  text-wrap: pretty;
+  max-width: 76ch;
+}
+.aj-action {
+  flex: none;
+}
+
+/* Variante danger (D6) : en-tête avec badge Destructif. */
+.aj-danger-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.aj-badge-danger {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
   background: var(--neg-soft);
+  color: var(--neg-ink);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Job en cours (A7) : arc en rotation, mono --accent-ink — seul mouvement. */
+.aj-running {
+  display: flex;
+  align-items: center;
+  gap: var(--space-15);
+  margin-top: var(--space-2);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
+  color: var(--accent-ink);
+}
+
+/* Cas already_running : pill neutre --surface-2 / --ink-3 + arc. */
+.aj-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-15);
+  margin-top: var(--space-2);
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-25);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
+}
+
+/* Confirmation inline danger (D6) : --neg cantonné (filet, pastille, bouton). */
+.aj-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
   border: 1px solid var(--neg);
   border-radius: var(--r-sm);
 }
-.confirm-warning {
-  font: 500 var(--fs-sm)/1.4 var(--font-ui);
+.aj-confirm-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--neg-soft);
   color: var(--neg-ink);
-  margin: 0;
 }
-.confirm-actions {
+.aj-confirm-body {
+  flex: 1;
+  min-width: 0;
+}
+.aj-confirm-q {
+  font: 600 var(--fs-base)/1.3 var(--font-ui);
+  color: var(--ink);
+}
+.aj-confirm-consequence {
+  margin-top: var(--space-1);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.aj-mono {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.aj-confirm-actions {
   display: flex;
-  gap: var(--space-3);
+  gap: var(--space-2);
   flex-wrap: wrap;
+  margin-top: var(--space-25);
 }
-.sync-result {
+
+/* Ligne de résultat (D3) : paires icône + nombre mono + label. */
+.aj-result {
   display: flex;
-  gap: var(--space-4);
-  font: 400 var(--fs-sm)/1 var(--font-mono);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
-.result-item.ok {
+.aj-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.aj-pair--success {
   color: var(--pos-ink);
 }
-.result-item.warn {
+.aj-pair--neutral {
+  color: var(--ink-2);
+}
+.aj-pair--error {
   color: var(--neg-ink);
 }
-.result-item.muted {
+.aj-num {
+  font: 600 var(--fs-xs)/1 var(--font-mono);
+}
+.aj-lbl {
+  font: 400 var(--fs-xs)/1 var(--font-ui);
   color: var(--ink-3);
 }
-.sync-info {
-  font: 400 var(--fs-sm)/1 var(--font-mono);
-  color: var(--ink-3);
-}
-.sync-error {
-  font-size: var(--fs-sm);
+.aj-fail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--neg-ink);
+}
+.aj-fail-word {
+  font: 600 var(--fs-xs)/1 var(--font-ui);
+}
+.aj-fail-msg {
+  font: 400 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Responsive — palier unique 859 px (D18) : rangée en pile, cibles 44 px. ── */
+@container (max-width: 859px) {
+  .aj-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .aj-row {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .aj-action {
+    width: 100%;
+  }
+  .aj-action .btn {
+    width: 100%;
+    min-height: var(--touch-min);
+    justify-content: center;
+  }
+  .aj-confirm-actions {
+    width: 100%;
+  }
+  .aj-confirm-actions .btn {
+    flex: 1;
+    min-height: var(--touch-min);
+    justify-content: center;
+  }
+  .aj-fail-msg {
+    max-width: none;
+  }
 }
 </style>

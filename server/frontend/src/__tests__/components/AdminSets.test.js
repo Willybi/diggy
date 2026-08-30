@@ -65,8 +65,12 @@ describe('AdminSets — section « Sets attachés »', () => {
     expect(rows.length).toBe(5)
     expect(wrapper.text()).toContain('Set A')
     expect(wrapper.text()).toContain('Grp 2')
+    // D11 reskin: the per-set detach control is now an icon button (link-off)
+    // labelled via aria-label instead of visible text.
     rows.forEach((row) => {
-      expect(row.find('button').text()).toBe('Détacher')
+      const btn = row.find('button')
+      expect(btn.exists()).toBe(true)
+      expect(btn.attributes('aria-label')).toBe('Détacher')
     })
   })
 
@@ -94,7 +98,8 @@ describe('AdminSets — section « Sets attachés »', () => {
     await wrapper.findAll('.attached-set')[0].find('button').trigger('click')
     await flushPromises()
 
-    // Same pattern as attach/reject: a section-level error message is shown.
-    expect(wrapper.find('.sync-error').text()).toContain('Boom')
+    // Same pattern as attach/reject: a section-level error line is shown.
+    // D11 reskin renamed the legacy `.sync-error` line to `.sf-state--err`.
+    expect(wrapper.find('.sf-state--err').text()).toContain('Boom')
   })
 })

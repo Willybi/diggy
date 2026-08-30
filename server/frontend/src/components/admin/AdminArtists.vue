@@ -1,130 +1,67 @@
 <template>
-  <!-- Sync artistes -->
-  <section class="admin-section">
-    <h2 class="section-title">Sync artistes</h2>
-    <p class="section-sub">
-      Parse les noms d'artistes du catalog et peuple la table artistes. Idempotent.
-    </p>
-    <div class="sync-row">
-      <button class="btn-sync" :disabled="syncing" @click="runSync">
-        {{ syncing ? 'Sync en cours… (peut prendre ~5-10 min)' : 'Lancer la sync' }}
-      </button>
-      <div v-if="syncResult" class="sync-result">
-        <span class="result-item ok">✓ {{ syncResult.created }} créés</span>
-        <span class="result-item warn">⚠ {{ syncResult.flagged }} flags</span>
-        <span class="result-item muted">↷ {{ syncResult.skipped }} skippés</span>
+  <!-- Archétype A (D4) : les 4 jobs artistes groupés dans UNE région. -->
+  <section class="aj-region">
+    <div class="aj-head">
+      <h2 class="aj-title">Jobs artistes <span class="aj-count">4</span></h2>
+      <span class="aj-eyebrow">Idempotents</span>
+    </div>
+    <div v-for="job in jobs" :key="job.key" class="aj-row">
+      <div class="aj-body">
+        <h3 class="aj-job-title">{{ job.title }}</h3>
+        <p class="aj-job-desc">{{ job.desc }}</p>
+        <p v-if="job.running" class="aj-running">
+          <AdminIcon name="arc" :size="13" /> Job en cours…
+        </p>
+        <div v-else-if="job.pairs.length || job.error" class="aj-result">
+          <span
+            v-for="(p, i) in job.pairs"
+            :key="i"
+            class="aj-pair"
+            :class="`aj-pair--${p.channel}`"
+          >
+            <AdminIcon :name="channelIcon(p.channel)" :size="13" />
+            <span class="aj-num">{{ fmtInt(p.value) }}</span>
+            <span class="aj-lbl">{{ p.label }}</span>
+          </span>
+          <span v-if="job.error" class="aj-fail">
+            <AdminIcon name="alert-triangle" :size="13" />
+            <span class="aj-fail-word">Échec</span>
+            <span class="aj-fail-msg">{{ job.error }}</span>
+          </span>
+        </div>
       </div>
-      <span v-if="syncError" class="sync-error">{{ syncError }}</span>
+      <div class="aj-action">
+        <button class="btn btn--sm btn--accent" :disabled="job.running" @click="job.run()">
+          {{ job.running ? 'En cours…' : job.label }}
+        </button>
+      </div>
     </div>
   </section>
 
-  <!-- Liaison Deezer (artistes) -->
-  <section class="admin-section">
-    <h2 class="section-title">Liaison Deezer (artistes)</h2>
-    <p class="section-sub">
-      Cherche sur Deezer les artistes sans deezer_id et les lie sur un match exact. Borné par run
-      (budget) et sûr contre les boucles. Idempotent.
-    </p>
-    <div class="sync-row">
-      <button class="btn-sync" :disabled="linkingArtists" @click="runLinkArtists">
-        {{ linkingArtists ? 'Liaison en cours…' : 'Lier artistes (Deezer)' }}
-      </button>
-      <div v-if="linkArtistsResult" class="sync-result">
-        <span class="result-item ok">🔗 {{ linkArtistsResult.linked }} liés</span>
-        <span class="result-item muted">🔎 {{ linkArtistsResult.searched }} cherchés</span>
-        <span v-if="linkArtistsResult.abandoned" class="result-item warn"
-          >⌀ {{ linkArtistsResult.abandoned }} abandonnés</span
-        >
-        <span v-if="linkArtistsResult.errors" class="result-item warn"
-          >⚠ {{ linkArtistsResult.errors }} erreurs</span
-        >
-        <span v-if="linkArtistsResult.dropped_by_budget" class="result-item muted"
-          >↷ {{ linkArtistsResult.dropped_by_budget }} en attente</span
-        >
-      </div>
-      <span v-if="linkArtistsError" class="sync-error">{{ linkArtistsError }}</span>
+  <!-- Archétype D (D12) : lier un artiste à Deezer — recherche + double liste. -->
+  <section class="dl-section">
+    <div class="dl-head">
+      <h2 class="dl-heading">Lier un artiste à Deezer</h2>
+      <p class="dl-sub">
+        Recherche un artiste dans la DB et l'associe manuellement à un compte Deezer.
+      </p>
     </div>
-  </section>
 
-  <!-- Fetch artworks -->
-  <section class="admin-section">
-    <h2 class="section-title">Artworks artistes</h2>
-    <p class="section-sub">
-      Fetche les images Deezer pour tous les artistes avec un deezer_id. Idempotent.
-    </p>
-    <div class="sync-row">
-      <button class="btn-sync" :disabled="fetchingArtworks" @click="runFetchArtworks">
-        {{ fetchingArtworks ? 'Fetch en cours…' : 'Fetch artworks' }}
-      </button>
-      <div v-if="artworksResult" class="sync-result">
-        <span class="result-item ok">✓ {{ artworksResult.fetched }} artworks</span>
-        <span class="result-item muted">↷ {{ artworksResult.skipped }} skippés</span>
-        <span v-if="artworksResult.errors" class="result-item warn"
-          >⚠ {{ artworksResult.errors }} erreurs</span
-        >
-        <span v-if="artworksResult.dropped_by_budget" class="result-item muted"
-          >↷ {{ artworksResult.dropped_by_budget }} en attente</span
-        >
-      </div>
-      <span v-if="artworksError" class="sync-error">{{ artworksError }}</span>
-    </div>
-  </section>
-
-  <!-- Artworks playlists -->
-  <section class="admin-section">
-    <h2 class="section-title">Artworks playlists</h2>
-    <p class="section-sub">
-      Fetche les images Deezer pour toutes les playlists sans artwork. Synchrone (~1s/playlist).
-    </p>
-    <div class="sync-row">
-      <button class="btn-sync" :disabled="fetchingPlArtworks" @click="runFetchPlArtworks">
-        {{ fetchingPlArtworks ? 'Fetch en cours…' : 'Fetch artworks playlists' }}
-      </button>
-      <div v-if="plArtworksResult" class="sync-result">
-        <span class="result-item ok">✓ {{ plArtworksResult.fetched }} importés</span>
-        <span v-if="plArtworksResult.failed" class="result-item warn"
-          >⚠ {{ plArtworksResult.failed }} échoués</span
-        >
-        <span class="result-item muted">/ {{ plArtworksResult.total }} sans artwork</span>
-      </div>
-      <span v-if="plArtworksError" class="sync-error">{{ plArtworksError }}</span>
-    </div>
-  </section>
-
-  <!-- Liaison manuelle artiste ↔ Deezer -->
-  <section class="admin-section link-section">
-    <h2 class="section-title">Lier un artiste à Deezer</h2>
-    <p class="section-sub">
-      Recherche un artiste dans la DB et l'associe manuellement à un compte Deezer.
-    </p>
-    <div class="link-form">
-      <input
-        v-model="linkArtistQuery"
-        class="form-input"
-        placeholder="Filtrer les artistes sans Deezer…"
-        @input="onLinkSearch"
-      />
-      <input
-        v-model="linkDeezerQuery"
-        class="form-input"
-        placeholder="Recherche sur Deezer…"
-        @input="onDeezerSearch"
-      />
-    </div>
-    <div class="link-results">
-      <div class="link-col">
-        <div class="col-head">
-          <p class="col-label">Artistes sans deezer_id</p>
-          <div class="view-toggle">
+    <div class="dl-grid">
+      <!-- Colonne gauche : artistes sans deezer_id -->
+      <div class="dl-col">
+        <div class="dl-col-head">
+          <span class="dl-eyebrow">Artistes sans deezer_id</span>
+          <div class="at-seg">
             <button
-              class="vt-btn"
+              class="at-seg-b"
               :class="{ active: viewMode === 'active' }"
               @click="setView('active')"
             >
               Actifs ({{ activeCount }})
             </button>
             <button
-              class="vt-btn"
+              class="at-seg-b"
               :class="{ active: viewMode === 'dormant' }"
               @click="setView('dormant')"
             >
@@ -132,89 +69,117 @@
             </button>
           </div>
         </div>
-        <div class="link-list">
+        <input
+          v-model="linkArtistQuery"
+          class="dl-input"
+          placeholder="Filtrer les artistes sans Deezer…"
+          @input="onLinkSearch"
+        />
+        <div class="dl-list">
           <div
             v-for="a in dbArtistResults"
             :key="a.id"
-            class="result-row"
-            :class="{ selected: selectedDbArtist?.id === a.id }"
+            class="dl-row"
+            :class="{ 'is-selected': selectedDbArtist?.id === a.id }"
             @click="selectArtistAndSearch(a)"
           >
-            <div class="cover-thumb-sm">
-              <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" />
-              <span v-else class="fallback-sm">{{ a.name?.[0] }}</span>
+            <div class="dl-thumb">
+              <img v-if="a.has_artwork" :src="`/storage/artist-artworks/${a.id}.jpg`" alt="" />
+              <span v-else class="dl-fallback">{{ a.name?.[0] }}</span>
             </div>
-            <span class="ar-name-sm">{{ stripDisambiguationNumber(a.name) }}</span>
-            <div class="row-actions" @click.stop>
-              <button class="btn-row-action" title="Pas sur Deezer" @click="markNoDeezer(a)">
-                ✗ Deezer
+            <span class="dl-name">{{ stripDisambiguationNumber(a.name) }}</span>
+            <span class="dl-id">#{{ a.id }}</span>
+            <div class="dl-actions" @click.stop>
+              <button class="dl-act" title="Marquer sans Deezer" @click="markNoDeezer(a)">
+                <AdminIcon name="link-off" :size="15" />
               </button>
               <button
                 v-if="detectSeparator(a.name)"
-                class="btn-row-action flag"
+                class="dl-act"
                 title="Envoyer vers les flags"
                 @click="flagArtist(a)"
               >
-                Flagguer
+                <AdminIcon name="flag" :size="15" />
               </button>
               <button
                 v-if="hasSpaces(a.name) || detectSeparator(a.name)"
-                class="btn-row-action split"
+                class="dl-act"
                 title="Découper manuellement en plusieurs artistes"
                 @click="openManualSplit(a)"
               >
-                Splitter
+                <AdminIcon name="split" :size="15" />
               </button>
             </div>
           </div>
+          <p v-if="dbArtistResults.length === 0" class="dl-empty">Aucun artiste sans deezer_id.</p>
         </div>
       </div>
-      <div class="link-col">
-        <p class="col-label">Résultats Deezer</p>
-        <div class="link-list">
+
+      <!-- Colonne droite : résultats Deezer -->
+      <div class="dl-col">
+        <div class="dl-col-head">
+          <span class="dl-eyebrow">Résultats Deezer</span>
+          <span class="dl-hits">{{ deezerHits.length }} hits</span>
+        </div>
+        <input
+          v-model="linkDeezerQuery"
+          class="dl-input"
+          placeholder="Recherche sur Deezer…"
+          @input="onDeezerSearch"
+        />
+        <div class="dl-list">
           <div
             v-for="h in deezerHits"
             :key="h.deezer_id"
-            class="result-row"
-            :class="{ selected: selectedDeezerHit?.deezer_id === h.deezer_id }"
-            @click="selectedDeezerHit = h"
+            class="dl-row"
+            :class="{ 'is-selected': selectedDeezerHit?.deezer_id === h.deezer_id }"
           >
-            <div class="cover-thumb-sm">
-              <img v-if="h.picture" :src="h.picture" />
-              <span v-else class="fallback-sm">{{ h.name?.[0] }}</span>
+            <div class="dl-thumb">
+              <img v-if="h.picture" :src="h.picture" alt="" />
+              <span v-else class="dl-fallback">{{ h.name?.[0] }}</span>
             </div>
-            <div class="row-main">
-              <span class="ar-name-sm">{{ h.name }}</span>
-              <span class="ar-meta mono muted">
-                {{ h.nb_fan?.toLocaleString() }} fans ·
+            <div class="dl-main">
+              <span class="dl-name">{{ h.name }}</span>
+              <span class="dl-meta">
+                {{ h.nb_fan?.toLocaleString('fr-FR') }} fans ·
                 <a
                   :href="`https://www.deezer.com/artist/${h.deezer_id}`"
                   target="_blank"
-                  class="dz-link"
+                  class="dl-dz"
                   @click.stop
                   >dz:{{ h.deezer_id }}</a
                 >
               </span>
             </div>
+            <button class="btn btn--sm dl-choose" @click="selectedDeezerHit = h">Choisir</button>
           </div>
-          <p v-if="linkDeezerQuery && deezerHits.length === 0" class="empty-hint">Aucun résultat</p>
+          <p v-if="linkDeezerQuery && deezerHits.length === 0" class="dl-empty">Aucun résultat.</p>
         </div>
       </div>
     </div>
-    <div v-if="selectedDbArtist && selectedDeezerHit" class="link-confirm">
-      <span class="link-summary">
-        Lier <strong>{{ stripDisambiguationNumber(selectedDbArtist.name) }}</strong> → Deezer
-        <strong>{{ selectedDeezerHit.name }}</strong> ({{ selectedDeezerHit.deezer_id }})
-      </span>
-      <button class="btn-confirm-link" :disabled="linking" @click="confirmLink">
-        {{ linking ? 'Liaison…' : 'Confirmer' }}
-      </button>
-      <span v-if="linkSuccess" class="result-item ok">✓ Lié</span>
-      <span v-if="linkError" class="sync-error">{{ linkError }}</span>
+
+    <!-- Carte de confirmation (D12) : bordée accent, geste à valider. -->
+    <div v-if="selectedDbArtist && selectedDeezerHit" class="dl-confirm">
+      <span class="dl-confirm-eyebrow">Confirmation</span>
+      <p class="dl-confirm-text">
+        Lier
+        <strong>{{ stripDisambiguationNumber(selectedDbArtist.name) }}</strong>
+        <span class="dl-mono">#{{ selectedDbArtist.id }}</span>
+        à Deezer
+        <strong>{{ selectedDeezerHit.name }}</strong>
+        <span class="dl-mono">{{ selectedDeezerHit.deezer_id }}</span>
+      </p>
+      <div class="dl-confirm-actions">
+        <button class="btn btn--sm" @click="cancelLink">Annuler</button>
+        <button class="btn btn--sm btn--accent" :disabled="linking" @click="confirmLink">
+          {{ linking ? 'Liaison…' : 'Confirmer' }}
+        </button>
+      </div>
+      <span v-if="linkError" class="dl-err">{{ linkError }}</span>
     </div>
 
-    <!-- Manual split panel (N-ary split + delete, shared component) -->
-    <div v-if="splitArtist" class="split-panel">
+    <!-- Panneau de découpe embarqué (N-ary split + delete, composant partagé). -->
+    <div v-if="splitArtist" class="dl-split">
       <ArtistSegmentSplitter
         :key="splitArtist.id"
         :raw="splitArtist.name"
@@ -228,11 +193,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../../utils/api.js'
 import { useTaskPoll } from '../../composables/useTaskPoll.js'
 import { detectSeparator, splitUnits, stripDisambiguationNumber } from '../../utils/artistSplit.js'
 import ArtistSegmentSplitter from './ArtistSegmentSplitter.vue'
+import AdminIcon from './AdminIcon.vue'
 
 const syncing = ref(false)
 const syncResult = ref(null)
@@ -254,7 +220,7 @@ const dbArtistResults = ref([])
 // True DB total for the current filter (may exceed the page shown in dbArtistResults).
 const noDeezerTotal = ref(0)
 // Two toggle views of the unlinked pool: 'active' (actionable, default) and
-// 'dormant' (abandoned + unsplittable, browsable to confirm absence via ✗ Deezer).
+// 'dormant' (abandoned + unsplittable, browsable to confirm absence via link-off).
 // Both counts come from the API response (global, q-independent).
 const viewMode = ref('active')
 const activeCount = ref(0)
@@ -268,6 +234,101 @@ const linkError = ref('')
 let linkDbTimer = null
 let linkDeezerTimer = null
 
+// ── Ligne de résultat de job (D3) : paires icône/nombre/label, 3 canaux ──
+// success (check, --pos-ink) · neutral (skip, --ink-2) · error (alert-triangle,
+// --neg-ink). Les compteurs à 0 (ou absents) sont MASQUÉS (comptZero, défaut).
+const CHANNEL_ICON = { success: 'check', neutral: 'skip', error: 'alert-triangle' }
+function channelIcon(ch) {
+  return CHANNEL_ICON[ch]
+}
+function fmtInt(n) {
+  return Number(n).toLocaleString('fr-FR')
+}
+function buildPairs(defs) {
+  return defs.filter((d) => d.value != null && d.value !== 0)
+}
+
+// Descripteur des 4 jobs de la région (D4) : titre, description, état courant,
+// paires de résultat et déclencheur. La logique (refs, handlers, polls) est
+// inchangée — ce computed n'est qu'une projection d'affichage.
+const jobs = computed(() => [
+  {
+    key: 'sync',
+    title: 'Sync artistes',
+    desc: "Parse les noms d'artistes du catalog et peuple la table artistes. Idempotent.",
+    running: syncing.value,
+    label: 'Lancer la sync',
+    error: syncError.value,
+    run: runSync,
+    pairs: syncResult.value
+      ? buildPairs([
+          { value: syncResult.value.created, label: 'créés', channel: 'success' },
+          { value: syncResult.value.flagged, label: 'flags', channel: 'neutral' },
+          { value: syncResult.value.skipped, label: 'skippés', channel: 'neutral' },
+        ])
+      : [],
+  },
+  {
+    key: 'link',
+    title: 'Liaison Deezer (artistes)',
+    desc: 'Cherche sur Deezer les artistes sans deezer_id et les lie sur un match exact. Borné par run (budget) et sûr contre les boucles. Idempotent.',
+    running: linkingArtists.value,
+    label: 'Lier artistes (Deezer)',
+    error: linkArtistsError.value,
+    run: runLinkArtists,
+    pairs: linkArtistsResult.value
+      ? buildPairs([
+          { value: linkArtistsResult.value.linked, label: 'liés', channel: 'success' },
+          { value: linkArtistsResult.value.searched, label: 'cherchés', channel: 'neutral' },
+          { value: linkArtistsResult.value.abandoned, label: 'abandonnés', channel: 'neutral' },
+          {
+            value: linkArtistsResult.value.dropped_by_budget,
+            label: 'en attente',
+            channel: 'neutral',
+          },
+          { value: linkArtistsResult.value.errors, label: 'erreurs', channel: 'error' },
+        ])
+      : [],
+  },
+  {
+    key: 'artworks',
+    title: 'Artworks artistes',
+    desc: 'Fetche les images Deezer pour tous les artistes avec un deezer_id. Idempotent.',
+    running: fetchingArtworks.value,
+    label: 'Fetch artworks',
+    error: artworksError.value,
+    run: runFetchArtworks,
+    pairs: artworksResult.value
+      ? buildPairs([
+          { value: artworksResult.value.fetched, label: 'artworks', channel: 'success' },
+          { value: artworksResult.value.skipped, label: 'skippés', channel: 'neutral' },
+          {
+            value: artworksResult.value.dropped_by_budget,
+            label: 'en attente',
+            channel: 'neutral',
+          },
+          { value: artworksResult.value.errors, label: 'erreurs', channel: 'error' },
+        ])
+      : [],
+  },
+  {
+    key: 'pl-artworks',
+    title: 'Artworks playlists',
+    desc: 'Fetche les images Deezer pour toutes les playlists sans artwork. Synchrone (~1s/playlist).',
+    running: fetchingPlArtworks.value,
+    label: 'Fetch artworks playlists',
+    error: plArtworksError.value,
+    run: runFetchPlArtworks,
+    pairs: plArtworksResult.value
+      ? buildPairs([
+          { value: plArtworksResult.value.fetched, label: 'importés', channel: 'success' },
+          { value: plArtworksResult.value.total, label: 'sans artwork', channel: 'neutral' },
+          { value: plArtworksResult.value.failed, label: 'échoués', channel: 'error' },
+        ])
+      : [],
+  },
+])
+
 function selectArtistAndSearch(a) {
   selectedDbArtist.value = a
   // Strip the Discogs "(N)" disambiguation counter to build the Deezer query
@@ -276,6 +337,11 @@ function selectArtistAndSearch(a) {
   // the display strip (utils/artistSplit.stripDisambiguationNumber).
   linkDeezerQuery.value = stripDisambiguationNumber(a.name)
   onDeezerSearch()
+}
+
+function cancelLink() {
+  selectedDbArtist.value = null
+  selectedDeezerHit.value = null
 }
 
 // Sync poll: ignores network errors and keeps polling (stopOnError: false).
@@ -476,8 +542,8 @@ async function markNoDeezer(artist) {
 
 // Manual split. SEPARATORS + detectSeparator live in utils/artistSplit.js (shared
 // with ArtistSegmentSplitter, kept in parity with the backend auto-split
-// detection). detectSeparator here only gates the "Flagguer"/"Splitter" row
-// buttons and the blind flagArtist tokenisation.
+// detection). detectSeparator here only gates the flag/split row buttons and the
+// blind flagArtist tokenisation.
 const splitArtist = ref(null)
 const splitting = ref(false)
 const splitError = ref('')
@@ -541,151 +607,228 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.admin-section {
+.aj-region,
+.dl-section {
   container-type: inline-size;
-  margin-bottom: var(--space-8);
-  padding: var(--space-5) var(--space-6);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-}
-.section-title {
-  font: 600 var(--fs-title)/1 var(--font-ui);
-  color: var(--ink);
-  margin-bottom: var(--space-15);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.section-sub {
-  font: 400 var(--fs-sm)/1.4 var(--font-ui);
-  color: var(--ink-3);
-  margin-bottom: var(--space-4);
-}
-.sync-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-.btn-sync {
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--r-sm);
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.btn-sync:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.sync-result {
-  display: flex;
-  gap: var(--space-4);
-  font: 400 var(--fs-sm)/1 var(--font-mono);
-}
-.result-item.ok {
-  color: var(--pos-ink);
-}
-.result-item.warn {
-  color: var(--warn-ink);
-}
-.result-item.muted {
-  color: var(--ink-3);
-}
-.sync-error {
-  font-size: var(--fs-sm);
-  color: var(--neg-ink);
-}
-.mono {
-  font-family: var(--font-mono);
-}
-.muted {
-  color: var(--ink-3);
 }
 
-/* Manual link */
-.link-section {
-  container-type: inline-size;
+/* ── Archétype A — région de jobs groupés (D4) : carte à bordure, sans ombre. ── */
+.aj-region {
+  margin-bottom: var(--space-8);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
 }
-.link-form {
-  display: flex;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-  flex-wrap: wrap;
-}
-.link-results {
-  display: flex;
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
-}
-.link-col {
-  flex: 1;
-  min-width: 200px;
-}
-.col-head {
+.aj-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
 }
-.col-label {
-  font: 500 var(--fs-xs)/1 var(--font-mono);
+.aj-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.aj-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.aj-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.view-toggle {
+.aj-row {
   display: flex;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  overflow: hidden;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-4);
 }
-.vt-btn {
-  padding: var(--space-1) var(--space-25);
-  border: none;
-  background: var(--surface);
-  color: var(--ink-3);
-  font: 500 var(--fs-xs)/1 var(--font-ui);
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
+.aj-row + .aj-row {
+  border-top: 1px solid var(--line);
 }
-.vt-btn:not(:last-child) {
-  border-right: 1px solid var(--line-2);
+.aj-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
-.vt-btn.active {
-  background: var(--accent-soft);
+.aj-job-title {
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.aj-job-desc {
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
+  text-wrap: pretty;
+  max-width: 76ch;
+}
+.aj-action {
+  flex: none;
+}
+
+/* Job en cours (A7) : arc en rotation, mono --accent-ink — seul mouvement. */
+.aj-running {
+  display: flex;
+  align-items: center;
+  gap: var(--space-15);
+  margin-top: var(--space-1);
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   color: var(--accent-ink);
 }
-.result-row {
+
+/* Ligne de résultat (D3) : paires icône + nombre mono + label. */
+.aj-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-15);
+}
+.aj-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.aj-pair--success {
+  color: var(--pos-ink);
+}
+.aj-pair--neutral {
+  color: var(--ink-2);
+}
+.aj-pair--error {
+  color: var(--neg-ink);
+}
+.aj-num {
+  font: 600 var(--fs-xs)/1 var(--font-mono);
+}
+.aj-lbl {
+  font: 400 var(--fs-xs)/1 var(--font-ui);
+  color: var(--ink-3);
+}
+.aj-fail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--neg-ink);
+}
+.aj-fail-word {
+  font: 600 var(--fs-xs)/1 var(--font-ui);
+}
+.aj-fail-msg {
+  font: 400 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+/* ── Archétype D — recherche + double liste (D12). ── */
+.dl-section {
+  margin-bottom: var(--space-8);
+  padding: var(--space-5) var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.dl-head {
+  margin-bottom: var(--space-4);
+}
+.dl-heading {
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.dl-sub {
+  margin-top: var(--space-1);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
+}
+.dl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+.dl-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.dl-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.dl-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.dl-hits {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+}
+.dl-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  font: 400 var(--fs-input)/1 var(--font-ui);
+  color: var(--ink);
+}
+.dl-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.dl-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.dl-row {
   display: flex;
   align-items: center;
   gap: var(--space-25);
-  padding: var(--space-15) var(--space-25);
-  border-radius: var(--r-sm);
+  min-height: 44px;
+  padding: var(--space-1) var(--space-25);
   cursor: pointer;
-  border: 1px solid transparent;
-  transition: background 0.1s;
+  border-bottom: 1px solid var(--line);
 }
-.result-row:hover {
+.dl-row:last-child {
+  border-bottom: 0;
+}
+.dl-row:hover {
   background: var(--surface-2);
 }
-.result-row.selected {
-  border-color: var(--accent);
+.dl-row.is-selected {
   background: var(--accent-soft);
 }
-.cover-thumb-sm {
-  width: 32px;
-  height: 32px;
+.dl-thumb {
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: var(--surface-2);
+  background: var(--surface-3);
   border: 1px solid var(--line);
   overflow: hidden;
   flex: none;
@@ -693,162 +836,183 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
 }
-.cover-thumb-sm img {
+.dl-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.fallback-sm {
+.dl-fallback {
   font: 600 var(--fs-sm)/1 var(--font-ui);
   color: var(--ink-3);
 }
-.ar-name-sm {
-  display: block;
-  font: 500 var(--fs-sm)/1 var(--font-ui);
+.dl-name {
+  font: 500 var(--fs-base)/1.2 var(--font-ui);
   color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.row-main {
+.dl-id {
+  font: 400 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+  flex: none;
+}
+.dl-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
 }
-.ar-meta {
-  display: block;
-  font-size: var(--fs-xs);
-  margin-top: var(--space-05);
-}
-.empty-hint {
-  font-size: var(--fs-sm);
+.dl-meta {
+  font: 400 var(--fs-xs)/1 var(--font-mono);
   color: var(--ink-3);
-  font-style: italic;
-  padding: var(--space-2) var(--space-25);
 }
-.link-list {
-  max-height: 320px;
-  overflow-y: auto;
-}
-.dz-link {
+.dl-dz {
   color: var(--accent-ink);
   text-decoration: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
 }
-.dz-link:hover {
+.dl-dz:hover {
   text-decoration: underline;
 }
-.row-actions {
+.dl-actions {
   margin-left: auto;
   display: flex;
   gap: var(--space-1);
   opacity: 0;
   transition: opacity 0.1s;
 }
-.result-row:hover .row-actions {
+.dl-row:hover .dl-actions,
+.dl-row:focus-within .dl-actions {
   opacity: 1;
 }
-.btn-row-action {
-  padding: var(--space-05) var(--space-15);
-  border-radius: 4px;
+.dl-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border: 1px solid var(--line-2);
   background: var(--surface);
+  border-radius: var(--r-xs);
   color: var(--ink-3);
-  font: 500 var(--fs-xs)/1 var(--font-ui);
   cursor: pointer;
-  white-space: nowrap;
+  transition:
+    color 0.12s,
+    border-color 0.12s;
 }
-.btn-row-action:hover {
-  color: var(--neg-ink);
-  border-color: var(--neg-ink);
+.dl-act:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
 }
-.btn-row-action.flag:hover {
-  color: var(--warn-ink);
-  border-color: var(--warn-ink);
+.dl-choose {
+  margin-left: auto;
+  flex: none;
 }
-.link-confirm {
+.dl-empty {
+  padding: var(--space-4);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* Carte de confirmation (D12) : bordée accent, geste à valider (pas un succès). */
+.dl-confirm {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-2);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
   flex-wrap: wrap;
 }
-.link-summary {
+.dl-confirm-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.dl-confirm-text {
   font: 400 var(--fs-sm)/1.4 var(--font-ui);
   color: var(--ink-2);
 }
-.btn-confirm-link {
-  padding: var(--space-15) var(--space-4);
-  border-radius: var(--r-sm);
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
+.dl-confirm-text strong {
+  color: var(--ink);
+  font-weight: 600;
 }
-.btn-confirm-link:disabled {
+.dl-mono {
+  font-family: var(--font-mono);
+  color: var(--ink-3);
+}
+.dl-confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.dl-err {
+  font-size: var(--fs-sm);
+  color: var(--neg-ink);
+}
+
+.dl-split {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-/* Manual split — the panel wraps the shared ArtistSegmentSplitter component. */
-.split-panel {
-  margin-top: var(--space-4);
-}
-.btn-row-action.split:hover {
-  color: var(--accent-ink);
-  border-color: var(--accent);
-}
-
-/* ============ RESPONSIVE — sections sync : bouton pleine largeur + tactile (palier 859) ============ */
+/* ── Responsive — palier unique 859 px (D18). ── */
 @container (max-width: 859px) {
-  .sync-row {
+  .aj-head {
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
   }
-  .sync-row .btn-sync {
+  .aj-row {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .aj-action {
+    width: 100%;
+  }
+  .aj-action .btn {
     width: 100%;
     min-height: var(--touch-min);
+    justify-content: center;
   }
-  /* Ligne de résultat mono en pied, wrap sur mobile. */
-  .sync-result {
-    flex-wrap: wrap;
+  .aj-fail-msg {
+    max-width: none;
   }
-}
 
-/* ============ RESPONSIVE — empilement mobile (palier aligné sur ExplorerView) ============ */
-@container (max-width: 639px) {
-  .link-form {
-    flex-direction: column;
+  .dl-grid {
+    grid-template-columns: 1fr;
   }
-  .link-form .form-input {
-    width: 100%;
-    min-height: var(--touch-min);
+  .dl-input {
+    height: var(--touch-min);
   }
-  .link-results {
-    flex-direction: column;
-  }
-  .link-col {
-    min-width: 0;
-  }
-  .link-list {
-    max-height: 240px;
-  }
-  .result-row {
-    flex-wrap: wrap;
-    padding: var(--space-2) var(--space-25);
-  }
-  .result-row .ar-name-sm {
-    flex: 1;
-    min-width: 0;
-  }
-  /* Pas de hover en tactile : actions toujours visibles et tapables. */
-  .row-actions {
+  /* Tactile : pas de survol → actions toujours visibles et 44 px. */
+  .dl-actions {
     opacity: 1;
   }
-  .btn-row-action {
-    padding: var(--space-2) var(--space-25);
-    min-height: var(--space-8);
+  .dl-act {
+    width: var(--touch-min);
+    height: var(--touch-min);
+  }
+  .dl-choose {
+    min-height: var(--touch-min);
+  }
+  .dl-confirm-actions {
+    width: 100%;
+  }
+  .dl-confirm-actions .btn {
+    flex: 1;
+    min-height: var(--touch-min);
+    justify-content: center;
   }
 }
 </style>

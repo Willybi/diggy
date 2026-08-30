@@ -26,7 +26,8 @@ describe('AdminEnrichmentActions', () => {
     apiMock.post.mockResolvedValue({ data: { task_id: 'xyz' } })
     const wrapper = mount(AdminEnrichmentActions)
 
-    await wrapper.find('.btn-sync').trigger('click')
+    // D11 reskin: the backfill trigger is the accent job button (.btn--accent).
+    await wrapper.find('.btn--accent').trigger('click')
     await flushPromises()
 
     expect(apiMock.post).toHaveBeenCalledWith('/api/admin/artists/backfill-multi-artists')
@@ -37,7 +38,11 @@ describe('AdminEnrichmentActions', () => {
       { stop: vi.fn() },
     )
     await flushPromises()
-    expect(wrapper.find('.sync-result').text()).toContain('3 enrichis')
+    // Counters render as icon/number/label pairs (.aj-result); the number and
+    // label sit in adjacent spans, so .text() has no space between them.
+    const result = wrapper.find('.aj-result')
+    expect(result.text()).toContain('3')
+    expect(result.text()).toContain('enrichis')
   })
 
   it('does NOT POST reset on the first click, only after confirmation', async () => {
@@ -46,31 +51,37 @@ describe('AdminEnrichmentActions', () => {
     })
     const wrapper = mount(AdminEnrichmentActions)
 
-    // First click only reveals the confirmation zone.
-    await wrapper.find('.btn-danger').trigger('click')
+    // D11 reskin: the danger button (.btn--danger) is the reset trigger; before
+    // confirmation it's the only .btn--danger on screen. First click only reveals
+    // the inline confirmation zone (.aj-confirm).
+    await wrapper.find('.btn--danger').trigger('click')
     await flushPromises()
     expect(apiMock.post).not.toHaveBeenCalled()
-    expect(wrapper.find('.confirm-zone').exists()).toBe(true)
+    expect(wrapper.find('.aj-confirm').exists()).toBe(true)
 
-    // Confirm → the actual POST fires.
-    const confirmBtn = wrapper.findAll('.confirm-actions .btn-danger').at(0)
+    // Confirm → the trigger is hidden, the confirm .btn--danger fires the POST.
+    const confirmBtn = wrapper.find('.aj-confirm-actions .btn--danger')
     await confirmBtn.trigger('click')
     await flushPromises()
 
     expect(apiMock.post).toHaveBeenCalledTimes(1)
     expect(apiMock.post).toHaveBeenCalledWith('/api/admin/reset-beatport')
-    expect(wrapper.find('.sync-result').text()).toContain('5 réinitialisés')
+    // Neutral result pairs (D6): number and label in adjacent spans.
+    const result = wrapper.find('.aj-result')
+    expect(result.text()).toContain('5')
+    expect(result.text()).toContain('réinitialisés')
   })
 
   it('cancels the reset confirmation without POSTing', async () => {
     const wrapper = mount(AdminEnrichmentActions)
 
-    await wrapper.find('.btn-danger').trigger('click')
+    await wrapper.find('.btn--danger').trigger('click')
     await flushPromises()
-    await wrapper.find('.btn-cancel').trigger('click')
+    // Cancel is the neutral first button of the confirmation actions.
+    await wrapper.find('.aj-confirm-actions .btn:not(.btn--danger)').trigger('click')
     await flushPromises()
 
     expect(apiMock.post).not.toHaveBeenCalled()
-    expect(wrapper.find('.confirm-zone').exists()).toBe(false)
+    expect(wrapper.find('.aj-confirm').exists()).toBe(false)
   })
 })

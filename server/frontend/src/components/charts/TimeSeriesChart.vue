@@ -10,63 +10,38 @@
         </span>
       </div>
 
-      <div class="tsc-grid" :style="{ '--tsc-h': height + 'px' }">
-        <div class="tsc-yaxis">
-          <span
-            v-for="t in yTicks"
-            :key="t.f"
-            class="tsc-ylabel"
-            :style="{ top: (1 - t.f) * 100 + '%' }"
+      <!-- Plot wrapper owns the responsive height var; .tsc-chart carries the CSS
+           axis gutter (padding-left 52px), the SVG holds ONLY the plot area, and
+           the axis labels are HTML positioned in that gutter (never <text> — a
+           preserveAspectRatio="none" SVG stretches text and interpolated SVG
+           <text> is created in the wrong namespace and never renders). -->
+      <div class="tsc-plotwrap" :style="{ '--tsc-h-desktop': height + 'px' }">
+        <div class="tsc-chart">
+          <svg
+            class="tsc-svg"
+            viewBox="0 0 1000 300"
+            preserveAspectRatio="none"
+            role="img"
+            :aria-label="ariaLabel"
           >
-            {{ yFormat(t.v) }}
-          </span>
-        </div>
-
-        <div
-          class="tsc-plot"
-          role="img"
-          :aria-label="ariaLabel"
-          @mousemove="onMove"
-          @mouseleave="onLeave"
-        >
-          <svg class="tsc-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <defs>
-              <linearGradient
-                v-for="(s, i) in norm"
-                :id="`${uid}-g${i}`"
-                :key="`${uid}-g${i}`"
-                x1="0"
-                y1="0"
-                x2="0"
-                y2="1"
-              >
-                <stop offset="0" :style="{ stopColor: s.color }" stop-opacity="0.24" />
-                <stop offset="1" :style="{ stopColor: s.color }" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-
-            <!-- horizontal gridlines + baseline + left axis -->
+            <!-- 5 horizontal gridlines, full plot width -->
             <line
               v-for="t in yTicks"
               :key="`grid-${t.f}`"
               class="tsc-gridline"
               x1="0"
-              :y1="(1 - t.f) * 100"
-              x2="100"
-              :y2="(1 - t.f) * 100"
+              :y1="t.y"
+              x2="1000"
+              :y2="t.y"
             />
-            <line class="tsc-axis" x1="0" y1="0" x2="0" y2="100" />
-
-            <!-- optional area fills -->
-            <template v-if="showArea">
-              <path
-                v-for="(s, i) in norm"
-                :key="`area-${i}`"
-                :d="areaPath(s.points)"
-                :fill="`url(#${uid}-g${i})`"
-              />
-            </template>
-
+            <!-- area under the « total » (soft) curve only (D22) -->
+            <path
+              v-for="(s, i) in areaSeries"
+              :key="`area-${i}`"
+              class="tsc-area"
+              :d="areaPath(s.points)"
+              :style="{ fill: s.color }"
+            />
             <!-- series lines -->
             <path
               v-for="(s, i) in norm"
@@ -75,56 +50,20 @@
               :d="linePath(s.points)"
               :style="{ stroke: s.color }"
             />
-
-            <!-- hover crosshair -->
-            <line
-              v-if="hover"
-              class="tsc-crosshair"
-              :x1="hover.f * 100"
-              y1="0"
-              :x2="hover.f * 100"
-              y2="100"
-            />
           </svg>
 
-          <!-- last-point markers (HTML → always round, distortion-immune) -->
           <span
-            v-for="(s, i) in norm"
-            :key="`dot-${i}`"
-            v-show="s.points.length"
-            class="tsc-dot"
-            :style="lastDotStyle(s)"
-          />
-
-          <!-- hover markers -->
-          <template v-if="hover">
-            <span
-              v-for="(it, i) in hover.items"
-              :key="`hd-${i}`"
-              class="tsc-dot tsc-dot--hover"
-              :style="dotStyle(hover.f, it.fy)"
-            />
-          </template>
-
-          <div v-if="hover && hover.items.length" class="tsc-tooltip" :style="tipStyle()">
-            <div class="tsc-tip-date">{{ fmtX(hover.ts) }}</div>
-            <div v-for="(it, i) in hover.items" :key="`ti-${i}`" class="tsc-tip-row">
-              <span class="tsc-swatch" :style="{ background: it.color }" />
-              <span class="tsc-tip-label">{{ it.label }}</span>
-              <span class="tsc-tip-val">{{ yFormat(it.v) }}</span>
-            </div>
-          </div>
+            v-for="t in yTicks"
+            :key="`y-${t.f}`"
+            class="tsc-ylabel"
+            :style="{ top: `calc(var(--tsc-h) * ${t.k})` }"
+          >
+            {{ yFormat(t.v) }}
+          </span>
         </div>
 
         <div class="tsc-xaxis">
-          <span
-            v-for="(t, i) in xTicks"
-            :key="`x-${i}`"
-            class="tsc-xlabel"
-            :style="{ left: t.f * 100 + '%' }"
-          >
-            {{ fmtX(t.ts) }}
-          </span>
+          <span v-for="(t, i) in xTicks" :key="`x-${i}`" class="tsc-xlabel">{{ fmtX(t.ts) }}</span>
         </div>
       </div>
     </template>
@@ -132,23 +71,27 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-
-// Deterministic per-instance id namespace for the gradient <defs> (no Math.random,
-// keeps SSR/tests stable).
-let _seq = 0
-_seq += 1
-const uid = `tsc${_seq}`
+import { computed } from 'vue'
 
 const props = defineProps({
   // series: [{ label, color (a `var(--…)` string), points: [{ t, v }] }]
   series: { type: Array, default: () => [] },
-  height: { type: Number, default: 200 },
+  height: { type: Number, default: 260 },
   yFormat: { type: Function, default: (v) => String(Math.round(v)) },
   // Optional x-axis formatter; defaults to DD/MM from the parsed timestamp.
   xFormat: { type: Function, default: null },
   showArea: { type: Boolean, default: false },
 })
+
+// ── Plot geometry ── viewBox is the plot area ONLY (1000×300), with tiny inner
+// top/bottom margins so the stroke isn't clipped at the extremes. The axis gutter
+// lives in CSS (padding-left on .tsc-chart), never inside the viewBox.
+const VW = 1000
+const VH = 300
+const TOP_PAD = 8
+const BOT_PAD = 6
+const USABLE = VH - TOP_PAD - BOT_PAD
+const BASE_Y = VH - BOT_PAD
 
 function toTs(t) {
   if (t == null) return NaN
@@ -169,6 +112,13 @@ const norm = computed(() =>
 )
 
 const hasData = computed(() => norm.value.some((s) => s.points.length > 0))
+
+// Area fill (when show-area) goes ONLY under the « total » curve — identified by
+// its `-soft` colour token (D22: soft variant = total/parked). Filling under the
+// « à traiter » line too would muddy the 2-tone band.
+const areaSeries = computed(() =>
+  props.showArea ? norm.value.filter((s) => /-soft/.test(s.color) && s.points.length) : [],
+)
 
 const allTs = computed(() => {
   const set = new Set()
@@ -200,27 +150,33 @@ function fx(ts) {
 function fy(v) {
   return niceMax.value ? Math.min(1, Math.max(0, v / niceMax.value)) : 0
 }
+function X(ts) {
+  return fx(ts) * VW
+}
+function Y(v) {
+  return TOP_PAD + (1 - fy(v)) * USABLE
+}
 
 function linePath(pts) {
   if (!pts.length) return ''
-  return pts
-    .map(
-      (p, i) =>
-        `${i ? 'L' : 'M'}${(fx(p.ts) * 100).toFixed(2)} ${((1 - fy(p.v)) * 100).toFixed(2)}`,
-    )
-    .join(' ')
+  return pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.ts).toFixed(2)} ${Y(p.v).toFixed(2)}`).join(' ')
 }
 function areaPath(pts) {
   if (!pts.length) return ''
-  const body = pts
-    .map((p) => `L${(fx(p.ts) * 100).toFixed(2)} ${((1 - fy(p.v)) * 100).toFixed(2)}`)
-    .join(' ')
-  const x0 = (fx(pts[0].ts) * 100).toFixed(2)
-  const xN = (fx(pts[pts.length - 1].ts) * 100).toFixed(2)
-  return `M${x0} 100 ${body} L${xN} 100 Z`
+  const body = pts.map((p) => `L${X(p.ts).toFixed(2)} ${Y(p.v).toFixed(2)}`).join(' ')
+  const x0 = X(pts[0].ts).toFixed(2)
+  const xN = X(pts[pts.length - 1].ts).toFixed(2)
+  return `M${x0} ${BASE_Y} ${body} L${xN} ${BASE_Y} Z`
 }
 
-const yTicks = computed(() => [0, 0.25, 0.5, 0.75, 1].map((f) => ({ f, v: niceMax.value * f })))
+// yTicks carry both the SVG y (0–300) for the gridline and `k` (fraction of the
+// plot height) for the HTML label's `top: calc(var(--tsc-h) * k)`.
+const yTicks = computed(() =>
+  [0, 0.25, 0.5, 0.75, 1].map((f) => {
+    const y = TOP_PAD + (1 - f) * USABLE
+    return { f, v: niceMax.value * f, y, k: y / VH }
+  }),
+)
 
 const xTicks = computed(() => {
   const ts = allTs.value
@@ -241,48 +197,6 @@ function defaultXFormat(ts) {
 }
 function fmtX(ts) {
   return props.xFormat ? props.xFormat(ts) : defaultXFormat(ts)
-}
-
-function lastDotStyle(s) {
-  const p = s.points[s.points.length - 1]
-  return { left: fx(p.ts) * 100 + '%', top: (1 - fy(p.v)) * 100 + '%', background: s.color }
-}
-function dotStyle(fxv, fyv) {
-  return { left: fxv * 100 + '%', top: (1 - fyv) * 100 + '%' }
-}
-
-const hover = ref(null)
-function onMove(e) {
-  if (!allTs.value.length) return
-  const rect = e.currentTarget.getBoundingClientRect()
-  if (!rect.width) return
-  const rx = (e.clientX - rect.left) / rect.width
-  let best = allTs.value[0]
-  let bd = Infinity
-  for (const t of allTs.value) {
-    const d = Math.abs(fx(t) - rx)
-    if (d < bd) {
-      bd = d
-      best = t
-    }
-  }
-  const items = []
-  for (const s of norm.value) {
-    const p = s.points.find((pt) => pt.ts === best)
-    if (p) items.push({ label: s.label, color: s.color, v: p.v, fy: fy(p.v) })
-  }
-  hover.value = { ts: best, f: fx(best), items }
-}
-function onLeave() {
-  hover.value = null
-}
-function tipStyle() {
-  if (!hover.value) return {}
-  const f = hover.value.f
-  return {
-    left: f * 100 + '%',
-    transform: f > 0.5 ? 'translateX(calc(-100% - 10px))' : 'translateX(10px)',
-  }
 }
 
 const ariaLabel = computed(() => {
@@ -313,51 +227,31 @@ const ariaLabel = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font: 500 var(--fs-xs)/1 var(--font-ui);
+  font: 400 var(--fs-xs)/1 var(--font-ui);
   color: var(--ink-2);
 }
 .tsc-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-xs);
   flex: none;
 }
-.tsc-grid {
-  /* Y-axis gutter floor: its .tsc-ylabel children are all position:absolute, so
-     they add nothing to the column's max-content (which would collapse to 0).
-     minmax(floor, max-content) → the track takes the floor. 44px holds the worst
-     realistic label: ~7 mono chars in --fs-nano ("127 000") or "100 %". */
-  --tsc-yaxis-w: 44px;
-  display: grid;
-  grid-template-columns: minmax(var(--tsc-yaxis-w), max-content) 1fr;
-  grid-template-rows: var(--tsc-h) max-content;
-  column-gap: var(--space-2);
-  row-gap: var(--space-1);
+
+/* Responsive plot height carried by a stylesheet var (NOT inline) so the 859px
+   container query can override it and keep the SVG and the HTML labels in sync. */
+.tsc-plotwrap {
+  --tsc-h: var(--tsc-h-desktop, 260px);
 }
-.tsc-yaxis {
+.tsc-chart {
   position: relative;
-  grid-column: 1;
-  grid-row: 1;
-  width: 100%;
-}
-.tsc-ylabel {
-  position: absolute;
-  right: 0;
-  transform: translateY(-50%);
-  font: 400 var(--fs-nano)/1 var(--font-mono);
-  color: var(--chart-axis);
-  white-space: nowrap;
-}
-.tsc-plot {
-  position: relative;
-  grid-column: 2;
-  grid-row: 1;
-  min-width: 0;
+  height: var(--tsc-h);
+  padding-left: 52px;
+  padding-right: 12px;
 }
 .tsc-svg {
-  width: 100%;
-  height: 100%;
   display: block;
+  width: 100%;
+  height: var(--tsc-h);
   overflow: visible;
 }
 .tsc-gridline {
@@ -365,91 +259,44 @@ const ariaLabel = computed(() => {
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
-.tsc-axis {
-  stroke: var(--chart-axis);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-  opacity: 0.5;
+.tsc-area {
+  opacity: 0.14;
+  stroke: none;
 }
 .tsc-line {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
-.tsc-crosshair {
-  stroke: var(--chart-axis);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-  vector-effect: non-scaling-stroke;
-}
-.tsc-dot {
+/* Y labels: HTML, absolute in the 52px CSS gutter, aligned to the gridlines. */
+.tsc-ylabel {
   position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  border: 1.5px solid var(--surface);
-  pointer-events: none;
-}
-.tsc-dot--hover {
-  width: 9px;
-  height: 9px;
-  background: var(--surface);
-  border-width: 2px;
-  border-color: var(--ink-2);
-}
-.tsc-tooltip {
-  position: absolute;
-  top: 0;
-  z-index: 2;
-  min-width: 96px;
-  padding: var(--space-15) var(--space-2);
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-xs);
-  box-shadow: var(--shadow-md);
-  pointer-events: none;
-}
-.tsc-tip-date {
-  font: 500 var(--fs-nano)/1.2 var(--font-mono);
-  color: var(--ink-3);
-  margin-bottom: var(--space-1);
-}
-.tsc-tip-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font: 400 var(--fs-xs)/1.4 var(--font-ui);
-  color: var(--ink);
-}
-.tsc-tip-label {
-  color: var(--ink-2);
-}
-.tsc-tip-val {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-weight: 500;
-}
-.tsc-xaxis {
-  position: relative;
-  grid-column: 2;
-  grid-row: 2;
-  height: var(--space-4);
-}
-.tsc-xlabel {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  font: 400 var(--fs-nano)/1 var(--font-mono);
+  left: 0;
+  width: 46px;
+  text-align: right;
+  transform: translateY(-50%);
+  font: 400 9px/1 var(--font-mono);
   color: var(--chart-axis);
   white-space: nowrap;
+  pointer-events: none;
 }
-.tsc-xlabel:first-child {
-  transform: translateX(0);
+/* X labels: HTML row under the plot, same left/right bounds as the plot area. */
+.tsc-xaxis {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-1) 12px 0 52px;
+  font: 400 9px/1 var(--font-mono);
+  color: var(--chart-axis);
 }
-.tsc-xlabel:last-child {
-  transform: translateX(-100%);
+.tsc-xlabel {
+  white-space: nowrap;
+}
+
+@container (max-width: 859px) {
+  .tsc-plotwrap {
+    --tsc-h: 200px;
+  }
 }
 </style>

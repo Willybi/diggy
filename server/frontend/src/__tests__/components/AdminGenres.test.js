@@ -44,6 +44,8 @@ describe('AdminGenres mapping stats', () => {
     const wrapper = mount(AdminGenres)
     await flushPromises()
 
-    expect(wrapper.find('.flag-count').text()).toContain('12 / 40')
+    // D11 reskin: the mappings badge moved to the shared archétype-B socle class
+    // `.at-count` (was the ad-hoc `.flag-count`). Same content, renamed class.
+    expect(wrapper.find('.at-count').text()).toContain('12 / 40')
   })
 })

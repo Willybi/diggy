@@ -19,7 +19,7 @@ vi.mock('../../composables/useTaskPoll.js', () => ({
 import AdminBeatport from '../../components/admin/AdminBeatport.vue'
 
 async function startRun(wrapper) {
-  await wrapper.find('.btn-sync').trigger('click')
+  await wrapper.find('.btn').trigger('click')
   await flushPromises()
 }
 
@@ -41,11 +41,13 @@ describe('AdminBeatport skip-lock', () => {
     )
     await flushPromises()
 
-    const info = wrapper.find('.sync-info')
+    // D11 reskin: the already_running case renders the neutral pill (.aj-skip),
+    // not the old .sync-info span, and no result-pair row (.aj-result).
+    const info = wrapper.find('.aj-skip')
     expect(info.exists()).toBe(true)
-    expect(info.text()).toContain('déjà en cours')
+    expect(info.text()).toContain('Déjà en cours')
     // No blank counters row.
-    expect(wrapper.find('.sync-result').exists()).toBe(false)
+    expect(wrapper.find('.aj-result').exists()).toBe(false)
   })
 
   it('shows the counters on a normal completion', async () => {
@@ -58,9 +60,12 @@ describe('AdminBeatport skip-lock', () => {
     )
     await flushPromises()
 
-    const result = wrapper.find('.sync-result')
+    // D11 reskin: counters render as icon/number/label pairs (.aj-result), the
+    // number and label sit in adjacent spans (.text() has no space between them).
+    const result = wrapper.find('.aj-result')
     expect(result.exists()).toBe(true)
-    expect(result.text()).toContain('4 enrichis')
-    expect(wrapper.find('.sync-info').exists()).toBe(false)
+    expect(result.text()).toContain('4')
+    expect(result.text()).toContain('enrichis')
+    expect(wrapper.find('.aj-skip').exists()).toBe(false)
   })
 })

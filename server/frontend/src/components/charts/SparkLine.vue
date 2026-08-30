@@ -5,7 +5,7 @@
     role="img"
     :aria-label="ariaLabel"
   >
-    <svg class="spark-svg" :viewBox="`0 0 100 ${vh}`" preserveAspectRatio="none">
+    <svg class="spark-svg" viewBox="0 0 120 30" preserveAspectRatio="none">
       <path
         v-if="showArea && vals.length > 1"
         class="spark-area"
@@ -15,8 +15,8 @@
       <path v-if="vals.length > 1" class="spark-line" :d="linePath" :style="{ stroke: color }" />
     </svg>
     <!-- Endpoint marker as an HTML dot (immune to the non-uniform viewBox scaling
-         that would squash an in-SVG <circle> into an ellipse). lastX is 0–100 and
-         lastY is 0–vh(100), so both map directly to a % of the wrapper box. -->
+         that would squash an in-SVG <circle> into an ellipse). lastX/lastY are
+         expressed as a % of the wrapper box, so they map directly. -->
     <span
       v-if="vals.length"
       class="spark-dot"
@@ -33,11 +33,14 @@ const props = defineProps({
   points: { type: Array, default: () => [] },
   color: { type: String, default: 'var(--chart-neutral)' },
   width: { type: String, default: '100%' },
-  height: { type: Number, default: 28 },
+  height: { type: Number, default: 30 },
   showArea: { type: Boolean, default: true },
 })
 
-const vh = 100 // internal viewBox height; preserveAspectRatio="none" scales it out
+// Internal viewBox (archétype F: 120×30). preserveAspectRatio="none" stretches it
+// to the wrapper box, so the aspect only sets the coordinate space, not the shape.
+const VW = 120
+const VH = 30
 
 const vals = computed(() =>
   props.points
@@ -63,13 +66,13 @@ const bounds = computed(() => {
 
 function px(i) {
   const n = vals.value.length
-  return n <= 1 ? 50 : (i / (n - 1)) * 100
+  return n <= 1 ? VW / 2 : (i / (n - 1)) * VW
 }
 function py(v) {
   const { min, max } = bounds.value
   // Pad 8% top/bottom so the stroke isn't clipped at the extremes.
   const f = (v - min) / (max - min)
-  return vh - (0.08 * vh + f * 0.84 * vh)
+  return VH - (0.08 * VH + f * 0.84 * VH)
 }
 
 const linePath = computed(() =>
@@ -79,11 +82,11 @@ const areaPath = computed(() => {
   const vs = vals.value
   if (vs.length < 2) return ''
   const body = vs.map((v, i) => `L${px(i).toFixed(2)} ${py(v).toFixed(2)}`).join(' ')
-  return `M0 ${vh} ${body} L100 ${vh} Z`
+  return `M0 ${VH} ${body} L${VW} ${VH} Z`
 })
 
-const lastX = computed(() => px(vals.value.length - 1))
-const lastY = computed(() => py(vals.value[vals.value.length - 1]))
+const lastX = computed(() => (px(vals.value.length - 1) / VW) * 100)
+const lastY = computed(() => (py(vals.value[vals.value.length - 1]) / VH) * 100)
 
 const ariaLabel = computed(() => `Tendance (${vals.value.length} points)`)
 </script>

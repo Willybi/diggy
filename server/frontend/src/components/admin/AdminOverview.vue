@@ -3,13 +3,7 @@
     <!-- ── Erreur de chargement du backlog : bandeau, grille NON rendue ── -->
     <div v-if="error" class="oc-error" role="alert">
       <span class="oc-error-badge">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-          />
-          <path d="M12 9v4" />
-          <path d="M12 17h.01" />
-        </svg>
+        <AdminIcon name="alert-triangle" :size="16" />
       </span>
       <div class="oc-error-body">
         <p class="oc-error-title">Backlog indisponible</p>
@@ -31,15 +25,7 @@
           <span class="oc-snapshot">Snapshot {{ backlog ? snapshotLabel : '—' }}</span>
         </div>
         <button class="btn btn--sm oc-refresh" :disabled="loading" @click="emit('refresh')">
-          <svg
-            class="oc-refresh-icon"
-            :class="{ spinning: loading }"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
-          </svg>
+          <AdminIcon name="refresh" :size="14" :class="{ spinning: loading }" />
           Actualiser
         </button>
       </div>
@@ -73,9 +59,7 @@
               </template>
               <template v-else-if="card.regime === 'ok'">
                 <span class="oc-check">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
+                  <AdminIcon name="check" :size="14" />
                 </span>
                 <span class="oc-uptodate">À jour</span>
               </template>
@@ -91,9 +75,7 @@
             </p>
 
             <p v-if="isRunning(card.id)" class="oc-job">
-              <svg class="oc-arc" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-              </svg>
+              <AdminIcon name="arc" :size="13" />
               Job en cours…
             </p>
 
@@ -125,6 +107,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import api from '../../utils/api.js'
+import AdminIcon from './AdminIcon.vue'
 
 const props = defineProps({
   backlog: { type: Object, default: null },
@@ -395,16 +378,7 @@ function fmtInt(n) {
 .oc-refresh {
   flex: none;
 }
-.oc-refresh-icon {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.oc-refresh-icon.spinning {
+.oc-refresh .spinning {
   animation: spin 0.9s linear infinite;
 }
 
@@ -442,6 +416,7 @@ function fmtInt(n) {
 }
 .oc-card--ok {
   background: var(--bg);
+  box-shadow: none;
 }
 .oc-card--unknown {
   background: var(--bg);
@@ -466,9 +441,12 @@ function fmtInt(n) {
   text-wrap: pretty;
 }
 
+/* Slot de compteur : hauteur constante 42px + contenu centré verticalement dans
+   les trois régimes (chiffre backlog · pastille à jour · tiret inconnu), pour que
+   la ligne de contexte soit toujours à la même distance (D20 iii). */
 .oc-counter {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-15);
   min-height: 42px;
 }
@@ -485,14 +463,6 @@ function fmtInt(n) {
   font: 600 var(--fs-display)/1 var(--font-mono);
   color: var(--ink-3);
 }
-/* Régime à jour : pastille + check, pas de chiffre. Le slot ne réserve plus la
-   hauteur d'un gros chiffre (min-height:0) — sinon la pastille ~24px top-alignée
-   creuse un écart avant le contexte plus grand que sur une carte à chiffre. Le
-   contexte reste ainsi à distance constante (le gap flex) du bloc compteur. */
-.oc-counter:has(.oc-check) {
-  align-items: center;
-  min-height: 0;
-}
 .oc-check {
   display: inline-flex;
   align-items: center;
@@ -501,16 +471,8 @@ function fmtInt(n) {
   height: 24px;
   border-radius: 50%;
   background: var(--pos-soft);
+  color: var(--pos-ink);
   flex: none;
-}
-.oc-check svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: var(--pos-ink);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 .oc-uptodate {
   font: 600 var(--fs-title)/1 var(--font-ui);
@@ -530,16 +492,6 @@ function fmtInt(n) {
   gap: var(--space-15);
   font: 400 var(--fs-xs)/1 var(--font-mono);
   color: var(--accent-ink);
-}
-.oc-arc {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: var(--accent-ink);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-dasharray: 40 60;
-  animation: spin 0.9s linear infinite;
 }
 
 /* ── Actions : alignées en pied de carte entre voisines ── */
@@ -624,16 +576,8 @@ function fmtInt(n) {
   height: 30px;
   border-radius: 50%;
   background: var(--neg-soft);
+  color: var(--neg-ink);
   flex: none;
-}
-.oc-error-badge svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: var(--neg-ink);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 .oc-error-body {
   display: flex;

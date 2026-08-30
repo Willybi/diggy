@@ -186,7 +186,9 @@ describe('AdminMonitoring', () => {
 
     // Charts actually drew lines (not the empty state).
     expect(wrapper.findAll('.tsc-line').length).toBeGreaterThan(0)
-    expect(wrapper.find('.run-list').exists()).toBe(true)
+    // D21: the "Dernier passage par tâche" list is now the shared .at-* table.
+    expect(wrapper.find('.at-table').exists()).toBe(true)
+    expect(wrapper.findAll('.at-table tbody tr').length).toBe(2)
 
     // A · Platform chart carries the 2-tone Deezer/Beatport band, NOT the
     // content/residual series.
@@ -232,9 +234,10 @@ describe('AdminMonitoring', () => {
     // No crash; still shows the five charts, each in their empty state.
     expect(wrapper.findAllComponents(TimeSeriesChart)).toHaveLength(5)
     expect(wrapper.text()).toContain('Aucune donnée sur la période.')
-    // No lock chip, no run rows.
+    // No lock chip, no run rows (empty state instead of the .at-* table body).
     expect(wrapper.find('.lock-chip').exists()).toBe(false)
-    expect(wrapper.find('.run-list').exists()).toBe(false)
+    expect(wrapper.find('.at-table').exists()).toBe(false)
+    expect(wrapper.find('.at-empty').exists()).toBe(true)
     // Tiles still render with an em-dash placeholder for missing values.
     expect(wrapper.findAllComponents(StatTile).length).toBeGreaterThan(0)
   })

@@ -7,6 +7,7 @@ import './assets/buttons.css'
 import './assets/table.css'
 import './assets/list-table.css'
 import './assets/page.css'
+import './assets/admin-table.css'
 
 const pinia = createPinia()
 const app = createApp(App)

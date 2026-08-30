@@ -1,0 +1,399 @@
+/* ── admin-table.css · shared admin-local socle for the 4 dense tables
+   (Flags, Mappings genres, Historique de crawl, Journal d'audit) + the
+   "Dernier passage par tâche" table of Monitoring. Admin-ONLY : `list-table.css`
+   ships in prod on Sets/Watchlist, so the admin console gets its own sheet
+   rather than extending a shared one (D1). ALL selectors are prefixed `.at-*`
+   or scoped under `.at-region` / `.at-table` : the sheet is inert until a view
+   opts in — importing it affects nothing on its own.
+
+   Anatomy of a region :
+     .at-region                     ← carte : --surface, 1px --line, --r-md
+       .at-head                     ← titre + badge + filtres (facultatif)
+       .at-scroll                   ← conteneur de scroll horizontal INTÉRIEUR
+         table.at-table             ← seule la table scrolle, jamais le cadre
+       .at-pager                    ← pied de pagination (D16)
+
+   Palier unique 859 px, container queries UNIQUEMENT (aucun @media) : la région
+   est son propre conteneur, la table bascule en cartes `data-label` (D15). ── */
+
+/* ── Région : le cadre porte la bordure et clippe la table à ses coins. Elle est
+   son propre contexte de conteneur, donc les requêtes ci-dessous interrogent SA
+   largeur — pas celle du viewport. ── */
+.at-region {
+  container-type: inline-size;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+/* En-tête de région : titre + badge de compte à gauche, filtres fer à droite. */
+.at-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.at-title {
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.at-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+/* ── Conteneur de scroll horizontal, INTÉRIEUR à la région (bande critique
+   860–1050 px, cf. BRIEF archétype B) : le cadre, l'en-tête et le pied ne
+   bougent jamais, seule la table déborde ici. ── */
+.at-scroll {
+  overflow-x: auto;
+}
+
+/* ── Table dense ── */
+.at-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* thead : fond --surface-2, cellules mono uppercase discrètes. */
+.at-table th {
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  font: 600 var(--fs-label)/1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+
+/* tbody : filet bas par rangée, alignement haut, hover sans transform. */
+.at-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  font-size: var(--fs-table);
+  color: var(--ink-2);
+}
+.at-table tbody tr:hover {
+  background: var(--surface-2);
+}
+/* La dernière rangée n'ajoute pas de filet : le pied (ou le cadre) borne déjà. */
+.at-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+/* Colonne stats plafonnée en desktop → ses chips wrappent sur 2–3 lignes. */
+.at-table td[data-stack] {
+  max-width: 260px;
+}
+
+/* Identifiant de ligne : chaîne brute, nom brut, cible… en mono appuyé. */
+.at-id {
+  font: 600 var(--fs-table-sm)/1.35 var(--font-mono);
+  color: var(--ink);
+}
+/* Valeurs techniques : dates, types, auteurs, durées. */
+.at-tech {
+  font: 400 var(--fs-table-sm)/1.35 var(--font-mono);
+  color: var(--ink-2);
+}
+.at-tech--right {
+  text-align: right;
+}
+/* Source en eyebrow mono nano uppercase. */
+.at-source {
+  font: 500 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── Pills de statut (D7) : mono nano uppercase, forme + couleur. Le canal
+   `run` héberge l'arc rotatif (seul mouvement autorisé). ── */
+.at-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  font: 600 var(--fs-nano)/1.4 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.at-pill--ok {
+  background: var(--pos-soft);
+  color: var(--pos-ink);
+}
+.at-pill--err {
+  background: var(--neg-soft);
+  color: var(--neg-ink);
+}
+.at-pill--run {
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
+.at-pill--neutral {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+
+/* ── Chips clé/valeur (D8) : la colonne `stats` de Crawl. Toutes les clés
+   conservées, `flex-wrap`. Un booléen à `true` se distingue par le POIDS de sa
+   valeur (700 --ink), jamais par la couleur. ── */
+.at-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.at-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: 2px var(--space-15);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+}
+.at-chip-k {
+  font: 600 var(--fs-nano)/1.3 var(--font-mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.at-chip-v {
+  font: 500 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-2);
+}
+.at-chip--true .at-chip-v {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* ── Payload `<details>` (D9) : fermé par défaut, résumé + chevron, ouvert =
+   grille clé·valeur. Aucun JSON brut, aucune coloration syntaxique. ── */
+.at-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  list-style: none;
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+}
+.at-details summary::-webkit-details-marker {
+  display: none;
+}
+.at-details-chev {
+  transition: transform 0.15s;
+}
+.at-details[open] .at-details-chev {
+  transform: rotate(180deg);
+}
+.at-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
+}
+.at-kv-k {
+  font: 600 var(--fs-nano)/1.4 var(--font-mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.at-kv-v {
+  font: 500 var(--fs-xs)/1.4 var(--font-mono);
+  color: var(--ink-2);
+}
+
+/* Message d'erreur de log : mono --neg-ink, une ligne, ellipsis, borné. */
+.at-err-msg {
+  display: block;
+  max-width: 340px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 500 var(--fs-xs)/1.4 var(--font-mono);
+  color: var(--neg-ink);
+}
+
+/* ── Pagination (D16) : pied de région, filet haut, centré. Les boutons
+   réutilisent `.btn--sm` de buttons.css. ── */
+.at-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.at-pager-count {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-2);
+}
+
+/* État vide (D17) : une ligne, à gauche, dans la région — une file vide est le
+   bon état, pas une anomalie à mettre en scène. */
+.at-empty {
+  padding: var(--space-6);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* ── Bascule mobile · palier 859 px · grammaire `data-label` hybride (D15) ──
+   thead masqué, chaque rangée devient une carte, filet 1px --line entre TOUTES
+   les rangées. `td` en flex label·valeur pour les valeurs courtes ; empilé sous
+   le label pour `[data-stack]` (stats, détails, segments). ── */
+@container (max-width: 859px) {
+  /* La table est déjà en cartes : plus de scroll ni de plafond stats. */
+  .at-scroll {
+    overflow-x: visible;
+  }
+  .at-table td[data-stack] {
+    max-width: none;
+  }
+
+  /* En-tête de région en pile, contrôles pleine largeur. */
+  .at-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .at-table thead {
+    display: none;
+  }
+  .at-table,
+  .at-table tbody,
+  .at-table tr,
+  .at-table td {
+    display: block;
+  }
+
+  /* Rangée → carte. */
+  .at-table tbody tr {
+    margin: var(--space-3);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    overflow: hidden;
+  }
+  .at-table tbody tr:hover {
+    background: var(--surface);
+  }
+
+  /* Cellule : label · valeur sur une ligne (filet entre toutes les rangées). */
+  .at-table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--line);
+  }
+  .at-table td:last-child {
+    border-bottom: 0;
+  }
+  .at-table td::before {
+    content: attr(data-label);
+    flex: none;
+    font: 600 var(--fs-label)/1.3 var(--font-mono);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  /* Une cellule vide n'affiche pas un label orphelin. */
+  .at-table td:empty {
+    display: none;
+  }
+
+  /* Valeurs longues / multi-jetons : empilées sous leur label. */
+  .at-table td[data-stack] {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-15);
+  }
+
+  /* Ligne de tête : l'identifiant, sans label. */
+  .at-table td[data-lead]::before {
+    display: none;
+  }
+
+  /* Action : bouton pleine largeur, cible tactile 44 px. */
+  .at-table td[data-act] {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+  }
+  .at-table td[data-act]::before {
+    display: none;
+  }
+  .at-table td[data-act] > .btn,
+  .at-table td[data-act] button {
+    width: 100%;
+    min-height: var(--touch-min);
+  }
+
+  /* Pagination : les deux boutons s'étirent, le compteur reste au centre. */
+  .at-pager > .btn {
+    flex: 1;
+    min-height: var(--touch-min);
+  }
+}
+
+/* ── Segmenté admin (D5) : rail --surface-2, segment ACTIF = pastille surélevée
+   (--surface + --ink 600 + --shadow-sm), JAMAIS d'accent. Le canal de sélection
+   est le RELIEF, pas la couleur — le mauve reste réservé à l'action. Géométrie
+   calquée sur SegmentedFilter (non modifié, non importé ici). ── */
+.at-seg {
+  display: inline-flex;
+  gap: var(--space-05);
+  padding: var(--space-05);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+}
+.at-seg-b {
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  background: transparent;
+  border-radius: var(--r-pill);
+  font: 500 var(--fs-sm)/1 var(--font-ui);
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color 0.12s,
+    background 0.12s;
+}
+.at-seg-b:hover {
+  color: var(--ink);
+}
+.at-seg-b.active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Sous 859 px : chaque segment s'étire et prend la cible tactile 44 px (D14). */
+@container (max-width: 859px) {
+  .at-seg {
+    display: flex;
+    width: 100%;
+  }
+  .at-seg-b {
+    flex: 1;
+    min-height: var(--touch-min);
+  }
+}

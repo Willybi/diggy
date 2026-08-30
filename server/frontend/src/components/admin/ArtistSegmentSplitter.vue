@@ -1,12 +1,12 @@
 <template>
   <div class="seg-splitter">
-    <div class="seg-header">
-      <span class="seg-label">Découper :</span>
-      <strong class="seg-raw">{{ raw }}</strong>
-      <button class="btn-seg-ghost" @click="emit('cancel')">Annuler</button>
+    <div class="seg-top">
+      <span class="seg-eyebrow">Découper la chaîne</span>
+      <span class="seg-count">{{ outputTokens.length }} segment{{ plural }}</span>
     </div>
 
-    <!-- Units + toggleable cut boundaries: toggling a "·" splits/merges. -->
+    <!-- Bandeau de la chaîne : unités mono + boutons de coupe (barre verticale,
+         D13). Toggler une coupe scinde/fusionne les deux morceaux adjacents. -->
     <div class="seg-units">
       <template v-for="(unit, i) in units" :key="i">
         <span class="seg-unit">{{ unit }}</span>
@@ -17,7 +17,7 @@
           :title="cuts[i] ? 'Fusionner ces deux morceaux' : 'Couper ici'"
           @click="toggleCut(i)"
         >
-          {{ cuts[i] ? '|' : '·' }}
+          <span class="seg-bar"></span>
         </button>
       </template>
     </div>
@@ -28,40 +28,48 @@
       <div v-for="(seg, i) in segments" :key="i" class="seg-chip" :class="{ deleted: !seg.kept }">
         <span class="seg-chip-text">{{ seg.text }}</span>
         <span v-if="seg.kept && seg.deezer" class="seg-deezer">
-          <span
+          <AdminIcon
             v-if="seg.deezer.status === 'searching'"
+            name="arc"
             class="seg-dz-spin"
-            title="Recherche Deezer…"
-          ></span>
+            :size="12"
+          />
           <span
             v-else-if="seg.deezer.status === 'found'"
             class="seg-dz-found"
             :title="`Match exact Deezer : ${seg.deezer.hit.name}`"
           >
-            ✓ {{ seg.deezer.hit.name }} · {{ seg.deezer.hit.nb_fan?.toLocaleString() }} fans
+            <AdminIcon name="check" :size="12" />
+            <span class="seg-dz-text">
+              {{ seg.deezer.hit.name }} · {{ seg.deezer.hit.nb_fan?.toLocaleString('fr-FR') }} fans
+            </span>
           </span>
-          <span v-else class="seg-dz-missing" title="Aucun match exact sur Deezer">✗</span>
+          <span v-else class="seg-dz-missing" title="Aucun match exact sur Deezer">
+            <AdminIcon name="x" :size="12" />
+            <span class="seg-dz-text">0</span>
+          </span>
         </span>
         <button
           class="seg-trash"
           :title="seg.kept ? 'Marquer comme à supprimer' : 'Rétablir'"
           @click="toggleSegment(seg)"
         >
-          {{ seg.kept ? '🗑' : '↩' }}
+          <AdminIcon :name="seg.kept ? 'trash' : 'skip'" :size="14" />
         </button>
       </div>
     </div>
 
     <div class="seg-actions">
+      <span v-if="outputTokens.length === 0" class="seg-hint">Gardez au moins un segment.</span>
+      <span v-if="error" class="seg-error">{{ error }}</span>
+      <button class="btn btn--sm btn-seg-ghost" @click="emit('cancel')">Annuler</button>
       <button
-        class="btn-seg-confirm"
+        class="btn btn--sm btn--accent btn-seg-confirm"
         :disabled="pending || outputTokens.length === 0"
         @click="confirm"
       >
-        {{ pending ? 'Split…' : confirmLabel }}
+        {{ pending ? 'Découpe…' : confirmLabel }}
       </button>
-      <span v-if="outputTokens.length === 0" class="seg-hint"> Gardez au moins un segment. </span>
-      <span v-if="error" class="seg-error">{{ error }}</span>
     </div>
   </div>
 </template>
@@ -75,6 +83,7 @@ import {
   keptTokens,
   foldArtistName,
 } from '../../utils/artistSplit.js'
+import AdminIcon from './AdminIcon.vue'
 
 const props = defineProps({
   // Full original artist string — drives the backend relink/cleanup, must reach
@@ -82,7 +91,7 @@ const props = defineProps({
   raw: { type: String, required: true },
   pending: { type: Boolean, default: false },
   error: { type: String, default: '' },
-  confirmLabel: { type: String, default: 'Confirmer le split' },
+  confirmLabel: { type: String, default: 'Confirmer la découpe' },
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
@@ -103,6 +112,8 @@ watch(() => props.raw, reset, { immediate: true })
 const baseSegments = computed(() => computeSegments(units.value, cuts.value, keep.value))
 
 const outputTokens = computed(() => keptTokens(units.value, cuts.value, keep.value))
+
+const plural = computed(() => (outputTokens.value.length > 1 ? 's' : ''))
 
 // ── Live Deezer signal (display only) ────────────────────────────────────────
 // Every KEPT segment is searched on Deezer and shows ✓ (exact fold-match) or ✗
@@ -193,85 +204,79 @@ function confirm() {
 </script>
 
 <style scoped>
+/* Archétype E (D13) : le splitter est embarqué dans une surface --surface-2
+   (editor-row des Flags / split-panel des Artistes) — il reste sans fond propre
+   et laisse le bandeau de la chaîne porter le contraste. */
 .seg-splitter {
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-2);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
+  container-type: inline-size;
 }
-.seg-header {
+.seg-top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  font: 400 var(--fs-sm)/1.4 var(--font-ui);
-  color: var(--ink-2);
-  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
 }
-.seg-label {
-  white-space: nowrap;
-}
-.seg-raw {
-  color: var(--ink);
-}
-.btn-seg-ghost {
-  margin-left: auto;
-  padding: var(--space-05) var(--space-15);
-  border-radius: 4px;
-  border: 1px solid var(--line-2);
-  background: var(--surface);
+.seg-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--ink-3);
-  font: 500 var(--fs-xs)/1 var(--font-ui);
-  cursor: pointer;
-  white-space: nowrap;
 }
-.btn-seg-ghost:hover {
-  color: var(--ink-2);
-  border-color: var(--ink-3);
+.seg-count {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
 }
 
-/* Units + cut toggles */
+/* Bandeau de la chaîne : unités mono + coupes (barre verticale). */
 .seg-units {
   display: flex;
   align-items: center;
   gap: 0;
   flex-wrap: wrap;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   margin-bottom: var(--space-3);
 }
 .seg-unit {
-  font: 500 var(--fs-base)/1 var(--font-ui);
+  font: 500 var(--fs-base)/1 var(--font-mono);
   color: var(--ink);
   padding: var(--space-1) 0;
 }
+/* Bouton de coupe : cible tactile 22×44, rendu = barre verticale dont la LARGEUR
+   dit l'état (repos 5 px --line-2 · hover 14 px --ink-3 · actif 22 px --ink-2). */
 .seg-cut {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 24px;
-  margin: 0 var(--space-05);
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: 2px;
+  width: 22px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
   cursor: pointer;
-  font: 700 var(--fs-base)/1 var(--font-mono);
-  color: var(--ink-3);
+}
+.seg-bar {
+  width: 5px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  background: var(--line-2);
   transition:
-    background 0.12s,
-    color 0.12s,
-    border-color 0.12s;
+    width 0.12s,
+    background 0.12s;
 }
-.seg-cut:hover {
-  border-color: var(--accent);
-  color: var(--accent-ink);
+.seg-cut:hover .seg-bar {
+  width: 14px;
+  background: var(--ink-3);
 }
-.seg-cut.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+.seg-cut.active .seg-bar {
+  width: 22px;
+  background: var(--ink-2);
 }
 
-/* Resulting segments */
+/* Chips de segments (38 px, --surface-2 + 1px --line). */
 .seg-chips {
   display: flex;
   align-items: center;
@@ -282,99 +287,111 @@ function confirm() {
 .seg-chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  padding: var(--space-05) var(--space-1) var(--space-05) var(--space-25);
-  border-radius: 4px;
-  border: 1px solid transparent;
+  gap: var(--space-15);
+  min-height: 38px;
+  padding: 0 var(--space-1) 0 var(--space-25);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
 }
+/* Segment supprimé : estompé mais rétablissable (le geste est exploratoire). */
 .seg-chip.deleted {
-  background: var(--surface);
-  border-color: var(--line-2);
-  color: var(--ink-3);
-}
-.seg-chip.deleted .seg-chip-text {
-  text-decoration: line-through;
+  opacity: 0.45;
 }
 .seg-chip-text {
   font: 500 var(--fs-sm)/1 var(--font-ui);
+  color: var(--ink);
   white-space: nowrap;
 }
 
-/* Live Deezer signal */
+/* Signal Deezer par segment — 3 états (arc accent · check + fans --pos · skip + 0 --ink-3). */
 .seg-deezer {
   display: inline-flex;
   align-items: center;
   gap: var(--space-05);
-  font: 400 var(--fs-xs)/1 var(--font-ui);
   white-space: nowrap;
 }
 .seg-dz-spin {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid var(--line-2);
-  border-top-color: var(--accent);
-  animation: spin 0.7s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .seg-dz-spin {
-    animation: none;
-  }
+  color: var(--accent-ink);
 }
 .seg-dz-found {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-05);
   color: var(--pos-ink);
 }
 .seg-dz-missing {
-  color: var(--neg-ink);
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-05);
+  color: var(--ink-3);
+}
+.seg-dz-text {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
 }
 
 .seg-trash {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: var(--fs-xs);
-  line-height: 1;
-  padding: var(--space-05);
-  border-radius: 3px;
-  color: inherit;
+  border-radius: var(--r-xs);
+  color: var(--ink-3);
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 .seg-trash:hover {
-  background: var(--surface-2);
+  background: var(--surface-3);
+  color: var(--ink-2);
 }
 
-/* Actions */
+/* Actions : fer à droite (hint/erreur poussés à gauche). */
 .seg-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-.btn-seg-confirm {
-  padding: var(--space-15) var(--space-4);
-  border-radius: var(--r-sm);
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-}
-.btn-seg-confirm:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 .seg-hint {
+  margin-right: auto;
   font-size: var(--fs-xs);
   color: var(--ink-3);
-  font-style: italic;
 }
 .seg-error {
   font-size: var(--fs-sm);
   color: var(--neg-ink);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@container (max-width: 859px) {
+  .seg-cut {
+    width: var(--touch-min);
+    height: var(--touch-min);
+  }
+  .seg-trash {
+    width: var(--touch-min);
+    height: var(--touch-min);
+  }
+  .seg-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .seg-actions .btn {
+    width: 100%;
+    min-height: var(--touch-min);
+  }
+  .seg-hint,
+  .seg-error {
+    margin-right: 0;
+  }
 }
 </style>

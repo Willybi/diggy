@@ -37,13 +37,34 @@ describe('TimeSeriesChart', () => {
     expect(wrapper.find('.tsc-legend').exists()).toBe(false)
   })
 
-  it('renders area fills only when show-area is set', () => {
+  // D21/D22 re-style: no decorative gradient; the area fill is a flat 0.14 shape
+  // drawn ONLY under the « total » curve, identified by its `-soft` colour token.
+  it('renders an area fill only under the soft/total series when show-area is set', () => {
+    const softBand = [
+      {
+        label: 'Deezer · total',
+        color: 'var(--chart-deezer-soft)',
+        points: [
+          { t: '2026-07-20', v: 50 },
+          { t: '2026-07-21', v: 40 },
+        ],
+      },
+      {
+        label: 'Deezer · à traiter',
+        color: 'var(--chart-deezer)',
+        points: [
+          { t: '2026-07-20', v: 30 },
+          { t: '2026-07-21', v: 20 },
+        ],
+      },
+    ]
     const withArea = mount(TimeSeriesChart, {
-      props: { series: twoSeries, showArea: true },
+      props: { series: softBand, showArea: true },
     })
-    expect(withArea.findAll('path[fill^="url("]')).toHaveLength(2)
-    const without = mount(TimeSeriesChart, { props: { series: twoSeries } })
-    expect(without.findAll('path[fill^="url("]')).toHaveLength(0)
+    // Only the soft (total) series gets an area, not the full-colour "à traiter".
+    expect(withArea.findAll('.tsc-area')).toHaveLength(1)
+    const without = mount(TimeSeriesChart, { props: { series: softBand } })
+    expect(without.findAll('.tsc-area')).toHaveLength(0)
   })
 
   it('shows an empty state and no lines when there is no data', () => {
@@ -52,7 +73,7 @@ describe('TimeSeriesChart', () => {
     expect(wrapper.findAll('.tsc-line')).toHaveLength(0)
   })
 
-  it('handles a single sparse point without crashing (marker still shown)', () => {
+  it('handles a single sparse point without crashing', () => {
     const wrapper = mount(TimeSeriesChart, {
       props: {
         series: [
@@ -60,8 +81,9 @@ describe('TimeSeriesChart', () => {
         ],
       },
     })
-    // One line path element exists (a lone "M" moveto) plus a last-point dot.
-    expect(wrapper.findAll('.tsc-dot').length).toBeGreaterThanOrEqual(1)
+    // One line path element exists (a lone "M" moveto); not the empty state.
+    // Data-point dots were removed in the D21 re-style (archétype F: no markers).
+    expect(wrapper.findAll('.tsc-line')).toHaveLength(1)
     expect(wrapper.find('.state').exists()).toBe(false)
   })
 

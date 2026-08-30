@@ -5,18 +5,23 @@
 
     <template v-else>
       <div v-if="snapshotStale" class="mon-alert" role="alert">
-        <strong>⚠️ Échantillonnage du monitoring interrompu.</strong>
-        Dernier instantané {{ snapshotAge }}. Au-delà d'une heure, le worker
-        <code>diggy_worker</code> (queue <code>celery</code>) ne prélève plus les backlogs : les
-        courbes se figent à cette date et l'interpolation masque le trou. Vérifier le conteneur
-        worker (<code>docker compose ps</code>).
+        <span class="mon-alert-icon"><AdminIcon name="alert-triangle" :size="15" /></span>
+        <span>
+          <strong>Échantillonnage du monitoring interrompu.</strong>
+          Dernier instantané {{ snapshotAge }}. Au-delà d'une heure, le worker
+          <code>diggy_worker</code> (queue <code>celery</code>) ne prélève plus les backlogs : les
+          courbes se figent à cette date et l'interpolation masque le trou. Vérifier le conteneur
+          worker (<code>docker compose ps</code>).
+        </span>
       </div>
       <div class="mon-toolbar">
         <div class="mon-toolbar-left">
           <span class="mon-snapshot" :class="{ 'is-stale': snapshotStale }">
-            Dernier instantané : {{ snapshotAge }}
+            Dernier instantané · {{ snapshotAge }}
           </span>
-          <span v-if="lockActive" class="lock-chip">🔒 Enrichissement en cours</span>
+          <span v-if="lockActive" class="lock-chip">
+            <AdminIcon name="arc" :size="12" /> Enrichissement en cours
+          </span>
         </div>
         <div class="mon-toolbar-right">
           <select v-model.number="days" class="mon-select" @change="load">
@@ -24,7 +29,9 @@
             <option :value="14">14 jours</option>
             <option :value="30">30 jours</option>
           </select>
-          <button class="mon-refresh" @click="load">Rafraîchir</button>
+          <button class="btn btn--sm mon-refresh" @click="load">
+            <AdminIcon name="refresh" :size="15" /> Rafraîchir
+          </button>
         </div>
       </div>
 
@@ -71,7 +78,7 @@
               class="tile-spark"
               :points="catalogSeries"
               color="var(--accent)"
-              :height="24"
+              :height="30"
             />
           </StatTile>
           <StatTile
@@ -86,14 +93,14 @@
             :sublabel="
               embCoveragePct != null ? `${embCoveragePct} % couverts` : 'audio « sonne comme »'
             "
-            tone="neutral"
+            tone="embeddings"
           >
             <SparkLine
               v-if="embCoverageSeries.length > 1"
               class="tile-spark"
               :points="embCoverageSeries"
               color="var(--chart-embeddings)"
-              :height="24"
+              :height="30"
             />
           </StatTile>
           <StatTile
@@ -149,7 +156,7 @@
         </p>
         <TimeSeriesChart
           :series="platformBurn"
-          :height="220"
+          :height="260"
           show-area
           :y-format="fmtInt"
           :x-format="fmtDayShort"
@@ -167,7 +174,7 @@
         </p>
         <TimeSeriesChart
           :series="contentBurn"
-          :height="220"
+          :height="260"
           :y-format="fmtInt"
           :x-format="fmtDayShort"
         />
@@ -183,7 +190,7 @@
         </p>
         <TimeSeriesChart
           :series="residualBurn"
-          :height="200"
+          :height="260"
           :y-format="fmtInt"
           :x-format="fmtDayShort"
         />
@@ -199,7 +206,7 @@
             <h3 class="chart-h3">Enrichissements / jour</h3>
             <TimeSeriesChart
               :series="throughputChart"
-              :height="200"
+              :height="260"
               :y-format="fmtInt"
               :x-format="fmtDayShort"
             />
@@ -208,7 +215,7 @@
             <h3 class="chart-h3">Taux de réussite / jour</h3>
             <TimeSeriesChart
               :series="hitRateChart"
-              :height="200"
+              :height="260"
               :y-format="fmtPct"
               :x-format="fmtDayShort"
             />
@@ -233,7 +240,7 @@
               class="tile-spark"
               :points="errorsByDay"
               color="var(--neg)"
-              :height="24"
+              :height="30"
             />
           </StatTile>
           <StatTile
@@ -261,18 +268,46 @@
             <span v-if="lastRuns.length" class="flag-count">{{ lastRuns.length }}</span>
           </h2>
         </div>
-        <div v-if="!lastRuns.length" class="state">Aucun run enregistré.</div>
-        <ul v-else class="run-list">
-          <li v-for="r in lastRuns" :key="r.task_type + (r.source || '')" class="run-row">
-            <span class="run-name">{{ taskLabel(r.task_type) }}</span>
-            <span v-if="r.source" class="token-pill">{{ r.source }}</span>
-            <span class="status-badge" :class="r.status">{{ statusFr(r.status) }}</span>
-            <span class="run-meta">{{ fmtAge(r.started_at) }}</span>
-            <span class="run-meta mono">{{
-              r.duration_ms != null ? fmtDuration(r.duration_ms) : '—'
-            }}</span>
-          </li>
-        </ul>
+        <div class="at-region">
+          <div v-if="!lastRuns.length" class="at-empty">Aucun run enregistré.</div>
+          <div v-else class="at-scroll">
+            <table class="at-table">
+              <thead>
+                <tr>
+                  <th>Tâche</th>
+                  <th>Source</th>
+                  <th>Statut</th>
+                  <th>Âge</th>
+                  <th class="at-tech--right">Durée</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in lastRuns" :key="r.task_type + (r.source || '')">
+                  <td data-label="Tâche" data-lead>
+                    <span class="at-id">{{ taskLabel(r.task_type) }}</span>
+                  </td>
+                  <td data-label="Source">
+                    <span v-if="r.source" class="at-source">{{ r.source }}</span>
+                  </td>
+                  <td data-label="Statut">
+                    <span class="at-pill" :class="pillClass(r.status)">
+                      <AdminIcon v-if="r.status === 'running'" name="arc" :size="10" />
+                      {{ statusFr(r.status) }}
+                    </span>
+                  </td>
+                  <td data-label="Âge">
+                    <span class="at-tech">{{ fmtAge(r.started_at) }}</span>
+                  </td>
+                  <td data-label="Durée" class="at-tech--right">
+                    <span class="at-tech">{{
+                      r.duration_ms != null ? fmtDuration(r.duration_ms) : '—'
+                    }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
     </template>
   </div>
@@ -284,6 +319,7 @@ import api from '../../utils/api.js'
 import TimeSeriesChart from '../charts/TimeSeriesChart.vue'
 import SparkLine from '../charts/SparkLine.vue'
 import StatTile from '../charts/StatTile.vue'
+import AdminIcon from './AdminIcon.vue'
 
 const SOURCES = [
   {
@@ -601,12 +637,19 @@ function taskLabel(t) {
 function statusFr(s) {
   return STATUS_FR[s] || s
 }
+// Map a run status to the shared .at-pill variant (D7).
+const STATUS_PILL = { success: 'at-pill--ok', error: 'at-pill--err', running: 'at-pill--run' }
+function pillClass(s) {
+  return STATUS_PILL[s] || 'at-pill--neutral'
+}
 </script>
 
 <style scoped>
 .monitoring {
   container-type: inline-size;
 }
+
+/* ── Toolbar (archétype F) : instantané ⟷ sélecteur de fenêtre + Rafraîchir ── */
 .mon-toolbar {
   display: flex;
   align-items: center;
@@ -629,20 +672,10 @@ function statusFr(s) {
   color: var(--warn-ink);
   font-weight: 600;
 }
-.mon-alert {
-  margin-bottom: var(--space-5);
-  padding: var(--space-3) var(--space-4);
-  background: var(--warn-soft);
-  color: var(--warn-ink);
-  border: 1px solid var(--warn);
-  border-radius: var(--r-sm);
-  font: 400 var(--fs-sm)/1.5 var(--font-ui);
-}
-.mon-alert code {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-}
 .lock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font: 500 var(--fs-xs)/1 var(--font-ui);
   background: var(--accent-soft);
   color: var(--accent-ink);
@@ -654,76 +687,96 @@ function statusFr(s) {
   align-items: center;
   gap: var(--space-2);
 }
+/* Sélecteur de fenêtre : hauteur desktop 34px portée par la classe (D14). */
 .mon-select {
-  padding: var(--space-1) var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-2);
   border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink-2);
-  font: 400 var(--fs-xs)/1 var(--font-mono);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
   cursor: pointer;
-}
-.mon-refresh {
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 var(--fs-xs)/1 var(--font-ui);
-  cursor: pointer;
-}
-.mon-refresh:hover {
-  color: var(--ink);
-  border-color: var(--line);
 }
 
+/* ── Alerte « échantillonnage interrompu » (icône, jamais un emoji) ── */
+.mon-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-sm);
+  font: 400 var(--fs-sm)/1.5 var(--font-ui);
+}
+.mon-alert-icon {
+  display: inline-flex;
+  flex: none;
+  margin-top: 2px;
+}
+.mon-alert code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+/* ── Bloc de section : --surface + 1px --line + --r-md, pile titre/sous-titre/
+   contenu espacée de --space-25, blocs espacés de --space-4 ── */
 .admin-section {
-  margin-bottom: var(--space-6);
-  padding: var(--space-5) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-25);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
 }
 .section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-4);
 }
 .section-title {
-  font: 600 var(--fs-title)/1 var(--font-ui);
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
   color: var(--ink);
-  margin-bottom: 0;
+  margin: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 .flag-count {
-  font: 400 var(--fs-xs)/1 var(--font-mono);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  padding: var(--space-05) var(--space-15);
-  border-radius: 10px;
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
 }
 .mon-caption {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
-  font: 400 var(--fs-xs)/1.4 var(--font-ui);
-  color: var(--ink-3);
+  max-width: 96ch;
+  margin: 0;
+  font: 400 var(--fs-sm)/1.5 var(--font-ui);
+  color: var(--ink-2);
+  text-wrap: pretty;
 }
 
+/* ── Grille de tuiles ── */
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: var(--space-25);
 }
 .tile-spark {
-  margin-top: var(--space-2);
   width: 100%;
 }
 
+/* ── Duo Débit & taux : deux graphes côte à côte, une colonne sous 859px ── */
 .chart-duo {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-6);
 }
 .chart-cell {
@@ -735,63 +788,37 @@ function statusFr(s) {
   margin-bottom: var(--space-3);
 }
 
-.run-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.run-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--fs-sm);
-}
-.run-row:last-child {
-  border-bottom: none;
-}
-.run-name {
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  color: var(--ink);
-  min-width: 120px;
-}
-.run-meta {
-  font: 400 var(--fs-xs)/1 var(--font-ui);
-  color: var(--ink-3);
-}
-.run-meta.mono {
-  font-family: var(--font-mono);
-  margin-left: auto;
-}
-.token-pill {
-  font: 400 var(--fs-xs)/1 var(--font-mono);
-  background: var(--surface-2);
-  color: var(--ink-2);
-  padding: var(--space-05) var(--space-15);
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.status-badge {
-  font: 500 var(--fs-xs)/1 var(--font-mono);
-  padding: var(--space-05) var(--space-2);
-  border-radius: 4px;
-}
-.status-badge.running {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.status-badge.success {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
-}
-.status-badge.error {
-  background: var(--neg-soft);
-  color: var(--neg-ink);
-}
+/* Loading / error utility (compact admin-panel variant). */
 .state {
-  /* diverges from canonical .state: compact admin-panel padding + smaller font */
   font-size: var(--fs-sm);
   padding: var(--space-3) 0;
+}
+
+/* ── Palier unique 859px, container queries uniquement ── */
+@container (max-width: 859px) {
+  .mon-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mon-toolbar-right {
+    width: 100%;
+  }
+  .mon-select {
+    flex: 1;
+    min-height: var(--touch-min);
+  }
+  .mon-refresh {
+    width: 100%;
+    min-height: var(--touch-min);
+  }
+  .admin-section {
+    padding: var(--space-3);
+  }
+  .tiles {
+    grid-template-columns: 1fr;
+  }
+  .chart-duo {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -1,130 +1,165 @@
 <template>
-  <!-- Reclassifier genres -->
-  <section class="admin-section">
-    <h2 class="section-title">Reclassifier tous les genres</h2>
-    <p class="section-sub">
-      Efface tous les genres et re-fetche : Deezer (album) d'abord, fallback Beatport. ~5200 tracks,
-      peut prendre plusieurs heures.
-    </p>
-    <div class="sync-row">
-      <label class="batch-label">
-        Planifier à
-        <input
-          v-model="reclassifyEta"
-          type="datetime-local"
-          class="batch-input"
-          style="width: 180px"
-        />
-      </label>
-      <button class="btn-sync" :disabled="reclassifying" @click="runReclassify">
-        {{ reclassifying ? 'Lancé…' : reclassifyEta ? 'Planifier' : 'Lancer maintenant' }}
-      </button>
-      <span v-if="reclassifyResult" class="enrich-result" :class="reclassifyResult.cls">{{
-        reclassifyResult.text
-      }}</span>
+  <!-- Archétype A (D4) : reclassifier tous les genres — une région, un job. -->
+  <section class="aj-region">
+    <div class="aj-head">
+      <h2 class="aj-title">Jobs genres <span class="aj-count">1</span></h2>
+      <span class="aj-eyebrow">Reclassification</span>
     </div>
-  </section>
-
-  <!-- Mappings genres -->
-  <section class="admin-section">
-    <div class="section-header">
-      <h2 class="section-title">
-        Mappings genres
-        <span v-if="mappingStats" class="flag-count"
-          >{{ mappingStats.unmapped }} / {{ mappingStats.total }} non mappés</span
-        >
-      </h2>
-      <div class="filter-group">
-        <button
-          class="filter-btn"
-          :class="{ active: !mappingShowUnmapped }"
-          @click="showAllMappings()"
-        >
-          Tous
-        </button>
-        <button
-          class="filter-btn"
-          :class="{ active: mappingShowUnmapped }"
-          @click="showUnmappedOnly()"
-        >
-          Non mappés
+    <div class="aj-row">
+      <div class="aj-body">
+        <h3 class="aj-job-title">Reclassifier tous les genres</h3>
+        <p class="aj-job-desc">
+          Efface tous les genres et re-fetche : Deezer (album) d'abord, fallback Beatport.
+          <span class="aj-num">~5 200</span> tracks, peut prendre plusieurs heures.
+        </p>
+        <div v-if="reclassifyResult" class="aj-result">
+          <span v-if="reclassifyResult.ok" class="aj-pair aj-pair--success">
+            <AdminIcon name="check" :size="13" />
+            <span class="aj-lbl">{{ reclassifyLabel }}</span>
+            <span class="aj-task-id">{{ reclassifyResult.taskId.slice(0, 8) }}…</span>
+          </span>
+          <span v-else class="aj-fail">
+            <AdminIcon name="alert-triangle" :size="13" />
+            <span class="aj-fail-word">Échec</span>
+            <span class="aj-fail-msg">{{ reclassifyResult.message }}</span>
+          </span>
+        </div>
+      </div>
+      <div class="aj-action">
+        <label class="aj-field">
+          <span class="aj-field-label">Planifier à</span>
+          <input v-model="reclassifyEta" type="datetime-local" class="aj-input" />
+        </label>
+        <button class="btn btn--sm btn--accent" :disabled="reclassifying" @click="runReclassify">
+          {{ reclassifying ? 'En cours…' : reclassifyEta ? 'Planifier' : 'Lancer maintenant' }}
         </button>
       </div>
     </div>
-    <p class="section-sub">
-      Associe les noms de genres bruts (Beatport/Deezer) aux nœuds de la taxonomie Wikidata.
-    </p>
+  </section>
 
-    <div v-if="loadingMappings" class="state">Chargement…</div>
-    <div v-else-if="mappings.length === 0" class="state">Aucun mapping.</div>
+  <!-- Archétype B (D1) : mappings genres au socle .at-* + recherche de node inline (D9). -->
+  <section class="gm-wrap">
+    <div class="at-region">
+      <div class="at-head">
+        <h2 class="at-title">
+          Mappings genres
+          <span v-if="mappingStats" class="at-count"
+            >{{ mappingStats.unmapped }} / {{ mappingStats.total }} non mappés</span
+          >
+        </h2>
+        <div class="at-seg">
+          <button
+            class="at-seg-b"
+            :class="{ active: !mappingShowUnmapped }"
+            @click="showAllMappings()"
+          >
+            Tous
+          </button>
+          <button
+            class="at-seg-b"
+            :class="{ active: mappingShowUnmapped }"
+            @click="showUnmappedOnly()"
+          >
+            Non mappés
+          </button>
+        </div>
+      </div>
+      <p class="gm-caption">
+        Associe les noms de genres bruts (Beatport/Deezer) aux nœuds de la taxonomie Wikidata.
+      </p>
 
-    <div v-else class="table-wrap">
-      <table class="flag-table">
-        <thead>
-          <tr>
-            <th>Nom brut</th>
-            <th>Nœud taxonomique</th>
-            <th style="width: 260px">Recherche</th>
-            <th style="width: 80px" />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="m in mappings" :key="m.id">
-            <td data-lead>
-              <span class="raw-string">{{ m.rawName }}</span>
-            </td>
-            <td data-label="Nœud taxonomique">
-              <span v-if="m.nodeLabel" class="token-pill">{{ m.nodeLabel }}</span>
-              <span v-else class="muted" style="font-size: var(--fs-sm); color: var(--ink-3)"
-                >—</span
-              >
-            </td>
-            <td data-label="Recherche">
-              <div class="mapping-search-wrap">
-                <input
-                  v-model="mappingSearch[m.id]"
-                  class="mapping-search-input"
-                  placeholder="Chercher un genre…"
-                  @input="onMappingSearch(m.id)"
-                />
-                <div v-if="mappingResults[m.id]?.length" class="mapping-dropdown">
-                  <div
-                    v-for="n in mappingResults[m.id]"
-                    :key="n.id"
-                    class="mapping-option"
-                    :class="{ selected: mappingSelected[m.id] === n.id }"
-                    @click="selectMappingOption(m, n)"
-                  >
-                    <span class="mapping-option-label">{{ n.label }}</span>
-                    <span class="mapping-option-qid mono">{{ n.wikidataId }}</span>
-                  </div>
+      <div v-if="loadingMappings" class="at-empty">Chargement…</div>
+      <div v-else-if="mappings.length === 0" class="at-empty">Aucun mapping.</div>
+
+      <div v-else class="at-scroll">
+        <table class="at-table">
+          <thead>
+            <tr>
+              <th>Nom brut</th>
+              <th>Nœud taxonomie</th>
+              <th>Statut</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in mappings" :key="m.id">
+              <td data-label="Nom brut" data-lead>
+                <span class="at-id">{{ m.rawName }}</span>
+              </td>
+              <td data-label="Nœud taxonomie" data-stack>
+                <div class="gm-node">
+                  <span v-if="m.nodeLabel" class="gm-node-label">{{ m.nodeLabel }}</span>
+                  <span v-else class="gm-node-empty">—</span>
+                  <span v-if="m.nodeWikidataId" class="gm-node-qid">{{ m.nodeWikidataId }}</span>
                 </div>
-              </div>
-            </td>
-            <td data-act>
-              <button
-                v-if="mappingSelected[m.id]"
-                class="btn-sync"
-                style="padding: var(--space-1) var(--space-3); font-size: var(--fs-xs)"
-                :disabled="savingMapping[m.id]"
-                @click="saveMapping(m)"
-              >
-                {{ savingMapping[m.id] ? '…' : 'Associer' }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              </td>
+              <td data-label="Statut">
+                <span class="at-pill" :class="m.nodeLabel ? 'at-pill--ok' : 'at-pill--neutral'">{{
+                  m.nodeLabel ? 'Mappé' : 'Non mappé'
+                }}</span>
+              </td>
+              <td data-act>
+                <button
+                  class="btn btn--sm gm-search-btn"
+                  :class="{ 'is-open': activeSearchId === m.id }"
+                  @click="toggleSearch(m)"
+                >
+                  <AdminIcon name="search" :size="15" />
+                  Chercher un node
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recherche de node inline (D9) : dépliée sous la table, --surface-2 + filet haut. -->
+      <div v-if="activeMapping" class="gm-search">
+        <span class="gm-search-eyebrow">
+          Chercher un node · <span class="gm-search-raw">{{ activeMapping.rawName }}</span>
+        </span>
+        <input
+          v-model="mappingSearch[activeMapping.id]"
+          class="gm-search-input"
+          placeholder="Chercher un node…"
+          @input="onMappingSearch(activeMapping.id)"
+        />
+        <div v-if="mappingResults[activeMapping.id]?.length" class="gm-hits">
+          <button
+            v-for="n in mappingResults[activeMapping.id]"
+            :key="n.id"
+            type="button"
+            class="gm-hit"
+            :class="{ selected: mappingSelected[activeMapping.id] === n.id }"
+            @click="selectMappingOption(activeMapping, n)"
+          >
+            <span class="gm-hit-label">{{ n.label }}</span>
+            <span class="gm-hit-qid">{{ n.wikidataId }}</span>
+          </button>
+        </div>
+        <div class="gm-search-actions">
+          <button class="btn btn--sm" @click="closeSearch">Annuler</button>
+          <button
+            class="btn btn--sm btn--accent"
+            :disabled="!mappingSelected[activeMapping.id] || savingMapping[activeMapping.id]"
+            @click="saveMapping(activeMapping)"
+          >
+            {{ savingMapping[activeMapping.id] ? '…' : 'Associer' }}
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import api from '../../utils/api.js'
+import AdminIcon from './AdminIcon.vue'
 
 const reclassifying = ref(false)
 const reclassifyEta = ref('')
+// { ok: true, taskId, when } on success · { ok: false, message } on error.
 const reclassifyResult = ref(null)
 
 const mappings = ref([])
@@ -137,14 +172,39 @@ const mappingSelected = reactive({})
 const savingMapping = reactive({})
 let mappingTimers = {}
 
+// Recherche de node inline (D9) : un seul panneau sous la table, rattaché à la
+// rangée dont l'action « Chercher un node » est ouverte.
+const activeSearchId = ref(null)
+const activeMapping = computed(
+  () => mappings.value.find((m) => m.id === activeSearchId.value) || null,
+)
+
+// Ligne de résultat du job de reclassify (D3, canal succès) : le job renvoie un
+// task_id sans polling → confirmation simple, jamais de suivi de tâche.
+const reclassifyLabel = computed(() => {
+  if (!reclassifyResult.value?.ok) return ''
+  const when = reclassifyResult.value.when
+  return when ? `Tâche planifiée · ${when}` : 'Tâche planifiée'
+})
+
 function showAllMappings() {
   mappingShowUnmapped.value = false
+  activeSearchId.value = null
   fetchMappings()
 }
 
 function showUnmappedOnly() {
   mappingShowUnmapped.value = true
+  activeSearchId.value = null
   fetchMappings()
+}
+
+function toggleSearch(m) {
+  activeSearchId.value = activeSearchId.value === m.id ? null : m.id
+}
+
+function closeSearch() {
+  activeSearchId.value = null
 }
 
 function selectMappingOption(m, n) {
@@ -159,13 +219,9 @@ async function runReclassify() {
   try {
     const params = reclassifyEta.value ? `?eta=${new Date(reclassifyEta.value).toISOString()}` : ''
     const { data } = await api.post(`/api/admin/genres/reclassify${params}`)
-    const when = reclassifyEta.value ? ` pour ${reclassifyEta.value}` : ''
-    reclassifyResult.value = {
-      text: `Task planifiée${when} (${data.task_id.slice(0, 8)}…)`,
-      cls: 'ok',
-    }
+    reclassifyResult.value = { ok: true, taskId: data.task_id, when: reclassifyEta.value }
   } catch (e) {
-    reclassifyResult.value = { text: e.response?.data?.detail || 'Erreur', cls: 'err' }
+    reclassifyResult.value = { ok: false, message: e.response?.data?.detail || 'Erreur' }
   } finally {
     reclassifying.value = false
   }
@@ -245,6 +301,7 @@ async function saveMapping(m) {
     mappingSearch[m.id] = ''
     mappingResults[m.id] = []
     mappingSelected[m.id] = null
+    activeSearchId.value = null
     if (mappingShowUnmapped.value) {
       mappings.value = mappings.value.filter((x) => x.id !== m.id)
     }
@@ -265,273 +322,316 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.admin-section {
+.aj-region,
+.gm-wrap {
   container-type: inline-size;
+}
+
+/* ── Archétype A — région de job (D4) : carte à bordure, sans ombre. ── */
+.aj-region {
   margin-bottom: var(--space-8);
-  padding: var(--space-5) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
+  overflow: hidden;
 }
-.section-header {
+.aj-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
 }
-.section-title {
-  font: 600 var(--fs-title)/1 var(--font-ui);
-  color: var(--ink);
-  margin-bottom: var(--space-15);
+.aj-title {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-}
-.section-header .section-title {
-  margin-bottom: 0;
-}
-.section-sub {
-  font: 400 var(--fs-sm)/1.4 var(--font-ui);
-  color: var(--ink-3);
-  margin-bottom: var(--space-4);
-}
-.flag-count {
-  font: 400 var(--fs-xs)/1 var(--font-mono);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  padding: var(--space-05) var(--space-15);
-  border-radius: 10px;
-}
-.sync-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-.btn-sync {
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--r-sm);
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.btn-sync:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.batch-label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font: 400 var(--fs-sm)/1 var(--font-ui);
-  color: var(--ink-3);
-}
-.batch-input {
-  width: 80px;
-  padding: var(--space-15) var(--space-2);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
-  background: var(--surface-2);
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
   color: var(--ink);
-  font: 400 var(--fs-sm)/1 var(--font-mono);
 }
-.enrich-result.ok {
-  color: var(--pos-ink);
-  font-size: var(--fs-sm);
+.aj-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.04em;
 }
-.enrich-result.err {
-  color: var(--neg-ink);
-  font-size: var(--fs-sm);
-}
-.filter-group {
-  display: flex;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-}
-.filter-btn {
-  padding: var(--space-15) var(--space-3);
-  border: none;
-  background: var(--surface);
-  color: var(--ink-3);
-  font: 500 var(--fs-xs)/1 var(--font-ui);
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-.filter-btn:not(:last-child) {
-  border-right: 1px solid var(--line-2);
-}
-.filter-btn.active {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.table-wrap {
-  overflow-x: auto;
-}
-.flag-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--fs-sm);
-}
-.flag-table thead th {
-  text-align: left;
-  padding: 0 var(--space-3) var(--space-25);
-  font: 500 var(--fs-xs)/1 var(--font-mono);
+.aj-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
 }
-.flag-table tbody td {
-  padding: var(--space-25) var(--space-3);
-  vertical-align: top;
-  border-bottom: 1px solid var(--line);
+.aj-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-4);
 }
-.flag-table tbody tr:last-child td {
-  border-bottom: none;
+.aj-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
-.raw-string {
-  font: 500 var(--fs-sm)/1.3 var(--font-ui);
+.aj-job-title {
+  font: 600 var(--fs-title)/1.2 var(--font-ui);
   color: var(--ink);
 }
-.token-pill {
-  font: 400 var(--fs-xs)/1 var(--font-mono);
-  background: var(--surface-2);
+.aj-job-desc {
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
   color: var(--ink-2);
-  padding: var(--space-05) var(--space-15);
-  border-radius: 4px;
-  white-space: nowrap;
+  text-wrap: pretty;
+  max-width: 76ch;
 }
-.state {
-  /* diverges from canonical .state: smaller font + compact padding (admin panel) */
-  font-size: var(--fs-sm);
-  padding: var(--space-3) 0;
-}
-.mono {
+/* Nombres de la description en mono (grille d'audit). */
+.aj-num {
   font-family: var(--font-mono);
-}
-.muted {
-  color: var(--ink-3);
+  color: var(--ink);
 }
 
-/* Genre mappings */
-.mapping-search-wrap {
-  position: relative;
+/* Champ + bouton, colonne d'action à droite. */
+.aj-action {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 190px;
 }
-.mapping-search-input {
-  width: 100%;
-  padding: var(--space-1) var(--space-2);
+.aj-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.aj-field-label {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.aj-input {
+  height: 38px;
+  padding: 0 var(--space-2);
+  background: var(--surface-2);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  background: var(--surface);
   color: var(--ink);
-  font: 400 var(--fs-sm)/1 var(--font-ui);
-  box-sizing: border-box;
+  font: 400 var(--fs-input)/1 var(--font-mono);
 }
-.mapping-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 10;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  box-shadow: 0 4px 12px oklch(0 0 0 / 0.15);
-  max-height: 200px;
-  overflow-y: auto;
-  margin-top: var(--space-05);
+.aj-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
-.mapping-option {
+
+/* Ligne de résultat (D3) : paire icône + label, canal succès / erreur. */
+.aj-result {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  padding: var(--space-15) var(--space-25);
-  cursor: pointer;
-  transition: background 0.1s;
+  gap: var(--space-3);
+  margin-top: var(--space-15);
 }
-.mapping-option:hover {
-  background: var(--surface-2);
+.aj-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
-.mapping-option.selected {
-  background: var(--accent-soft);
+.aj-pair--success {
+  color: var(--pos-ink);
 }
-.mapping-option-label {
-  font: 400 var(--fs-sm)/1.3 var(--font-ui);
+.aj-lbl {
+  font: 400 var(--fs-xs)/1 var(--font-ui);
+  color: var(--ink-3);
+}
+.aj-task-id {
+  font: 500 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+}
+.aj-fail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--neg-ink);
+}
+.aj-fail-word {
+  font: 600 var(--fs-xs)/1 var(--font-ui);
+}
+.aj-fail-msg {
+  font: 400 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Archétype B — mappings genres (socle .at-*). ── */
+.gm-wrap {
+  margin-bottom: var(--space-8);
+}
+/* Intro de la région : sous l'en-tête, au-dessus de la table. */
+.gm-caption {
+  padding: var(--space-2) var(--space-4);
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
+}
+
+/* Cellule node : label + wikidataId empilés (colonne [data-stack]). */
+.gm-node {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+  min-width: 0;
+}
+.gm-node-label {
+  font: 500 var(--fs-table-sm)/1.35 var(--font-ui);
   color: var(--ink);
 }
-.mapping-option-qid {
-  font-size: var(--fs-xs);
+.gm-node-empty {
+  font: 400 var(--fs-table-sm)/1.35 var(--font-ui);
+  color: var(--ink-3);
+}
+.gm-node-qid {
+  font: 400 var(--fs-nano)/1.3 var(--font-mono);
   color: var(--ink-3);
 }
 
-/* ============ RESPONSIVE — table mappings → cartes (grammaire AdminFlags, palier 859) ============ */
+/* Bouton d'action de rangée : neutre, icône + libellé. */
+.gm-search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+/* Recherche de node inline (D9) : bloc --surface-2 + filet haut sous la table. */
+.gm-search {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.gm-search-eyebrow {
+  font: 600 var(--fs-nano)/1.3 var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.gm-search-raw {
+  color: var(--ink);
+  text-transform: none;
+}
+.gm-search-input {
+  width: 100%;
+  max-width: 420px;
+  height: 38px;
+  padding: 0 var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font: 400 var(--fs-input)/1 var(--font-ui);
+}
+.gm-search-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.gm-hits {
+  display: flex;
+  flex-direction: column;
+  max-width: 420px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+.gm-hit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-15) var(--space-25);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.gm-hit + .gm-hit {
+  border-top: 1px solid var(--line);
+}
+.gm-hit:hover {
+  background: var(--surface-2);
+}
+.gm-hit.selected {
+  background: var(--accent-soft);
+}
+.gm-hit-label {
+  font: 500 var(--fs-base)/1.3 var(--font-ui);
+  color: var(--ink);
+}
+.gm-hit-qid {
+  font: 400 var(--fs-xs)/1 var(--font-mono);
+  color: var(--ink-3);
+  flex: none;
+}
+.gm-search-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ── Responsive — palier unique 859 px (D14/D18). ── */
 @container (max-width: 859px) {
-  /* En-tête empilé : titre (+ badge) sur la 1re ligne, segments Tous/Non mappé sur
-     la 2e — sinon le contrôle déborde et se coupe au bord droit. */
-  .section-header {
+  .aj-head {
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
+  }
+  .aj-row {
+    flex-direction: column;
     gap: var(--space-3);
   }
-  .section-header .filter-group {
-    align-self: flex-start;
+  .aj-action {
+    width: 100%;
+    min-width: 0;
   }
-  .filter-btn {
-    min-height: var(--touch-min);
-  }
-  .table-wrap {
-    overflow-x: visible;
-  }
-  .flag-table,
-  .flag-table tbody {
-    display: block;
-  }
-  .flag-table thead {
-    display: none;
-  }
-  .flag-table tbody tr {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-25);
-    padding: var(--space-3);
-    border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    background: var(--surface);
-  }
-  .flag-table tbody tr + tr {
-    margin-top: var(--space-25);
-  }
-  .flag-table tbody td {
-    display: block;
-    padding: 0;
-    border-bottom: none;
-  }
-  .flag-table tbody td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: var(--space-1);
-    font: 500 var(--fs-xs)/1 var(--font-mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-  .raw-string {
-    font-size: var(--fs-base);
-  }
-  /* Node search input: 16px min to prevent iOS zoom-on-focus. */
-  .mapping-search-input {
-    font-size: var(--fs-input);
-  }
-  .flag-table tbody td[data-act] .btn-sync {
+  .aj-action .btn {
     width: 100%;
     min-height: var(--touch-min);
+    justify-content: center;
+  }
+  .aj-input {
+    height: var(--touch-min);
+  }
+  .aj-fail-msg {
+    max-width: none;
+  }
+
+  .gm-search-input {
+    height: var(--touch-min);
+    max-width: none;
+  }
+  .gm-hits {
+    max-width: none;
+  }
+  .gm-hit {
+    min-height: var(--touch-min);
+  }
+  .gm-search-actions .btn {
+    flex: 1;
+    min-height: var(--touch-min);
+    justify-content: center;
   }
 }
 </style>

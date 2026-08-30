@@ -63,7 +63,7 @@ describe('AdminAuditLog', () => {
     await flushPromises()
 
     // total 25 / 20 per page → 2 pages, Next enabled
-    const nextBtn = wrapper.findAll('.crawl-pagination button').at(1)
+    const nextBtn = wrapper.findAll('.at-pager button').at(1)
     await nextBtn.trigger('click')
     await flushPromises()
 

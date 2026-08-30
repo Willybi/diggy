@@ -1,94 +1,119 @@
 <template>
-  <section class="admin-section">
-    <div class="section-header">
-      <h2 class="section-title">
-        Crawl History
-        <span v-if="crawlTotal" class="flag-count">{{ crawlTotal }}</span>
-      </h2>
-      <div class="crawl-filters">
-        <select v-model="crawlTaskType" class="crawl-select" @change="setCrawlFilter(crawlFilter)">
-          <option value="">Tous les types</option>
-          <option v-for="t in crawlTaskTypes" :key="t" :value="t">{{ t }}</option>
-        </select>
-        <div class="filter-group">
-          <button
-            v-for="f in crawlFilters"
-            :key="f.value"
-            class="filter-btn"
-            :class="{ active: crawlFilter === f.value }"
-            @click="setCrawlFilter(f.value)"
-          >
-            {{ f.label }}
-          </button>
+  <section class="cr-wrap">
+    <!-- Couture D10 : ce composant est monté juste sous le dashboard Monitoring.
+         Filet --line pleine largeur (border-top de la rangée) + eyebrow JOURNAUX,
+         fraîcheur fer à droite. Rien au-dessus du filet. -->
+    <div class="cr-seam">
+      <span class="cr-eyebrow">Journaux</span>
+      <span class="cr-fresh">{{ freshnessLabel }}</span>
+    </div>
+
+    <div class="at-region">
+      <div class="at-head">
+        <h2 class="at-title">
+          Historique de crawl
+          <span v-if="crawlTotal" class="at-count">{{ crawlTotal.toLocaleString('fr-FR') }}</span>
+        </h2>
+        <div class="cr-filters">
+          <select v-model="crawlTaskType" class="cr-select" @change="setCrawlFilter(crawlFilter)">
+            <option value="">Tous les types</option>
+            <option v-for="t in crawlTaskTypes" :key="t" :value="t">{{ t }}</option>
+          </select>
+          <div class="at-seg">
+            <button
+              v-for="f in crawlFilters"
+              :key="f.value"
+              class="at-seg-b"
+              :class="{ active: crawlFilter === f.value }"
+              @click="setCrawlFilter(f.value)"
+            >
+              {{ f.label }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="loadingCrawlLogs" class="state">Chargement...</div>
-    <div v-else-if="crawlLogs.length === 0" class="state">Aucun crawl log.</div>
+      <div v-if="loadingCrawlLogs" class="at-empty">Chargement…</div>
+      <div v-else-if="crawlLogs.length === 0" class="at-empty">Aucun crawl log.</div>
 
-    <div v-else class="table-wrap">
-      <table class="flag-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Type</th>
-            <th>Cible</th>
-            <th>Source</th>
-            <th>Status</th>
-            <th>Duree</th>
-            <th>Stats</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="log in crawlLogs" :key="log.id">
-            <td class="log-date mono" data-label="Date">
-              {{ formatDate(log.started_at) }}
-            </td>
-            <td data-label="Type" :class="{ 'log-type--dup': !log.target_label }">
-              <span class="token-pill">{{ log.task_type }}</span>
-            </td>
-            <td class="raw-string log-target" data-lead>
-              {{ log.target_label || log.task_type }}
-            </td>
-            <td data-label="Source">
-              <span v-if="log.source" class="token-pill">{{ log.source }}</span>
-              <span v-else class="muted">-</span>
-            </td>
-            <td data-label="Statut">
-              <span class="status-badge" :class="log.status">{{ log.status }}</span>
-            </td>
-            <td class="log-duration mono" data-label="Durée">
-              {{ log.duration_ms != null ? formatDuration(log.duration_ms) : '-' }}
-            </td>
-            <td class="log-stats" data-label="Stats">
-              <template v-if="log.stats">
-                <span v-for="(v, k) in log.stats" :key="k" class="stat-chip">
-                  {{ k }}: {{ v }}
+      <div v-else class="at-scroll">
+        <table class="at-table">
+          <thead>
+            <tr>
+              <th>Cible</th>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Source</th>
+              <th>Statut</th>
+              <th class="cr-th-right">Durée</th>
+              <th>Stats</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="log in crawlLogs" :key="log.id">
+              <td data-label="Cible" data-lead>
+                <span class="at-id">{{ log.target_label || log.task_type }}</span>
+              </td>
+              <td class="at-tech" data-label="Date">
+                {{ formatDate(log.started_at) }}
+              </td>
+              <td class="at-tech" data-label="Type" :class="{ 'cr-type-dup': !log.target_label }">
+                {{ log.task_type }}
+              </td>
+              <td data-label="Source">
+                <span v-if="log.source" class="at-source">{{ log.source }}</span>
+              </td>
+              <td data-label="Statut">
+                <span class="at-pill" :class="statusPill(log.status)">
+                  <AdminIcon v-if="log.status === 'running'" name="arc" :size="10" />
+                  {{ log.status }}
                 </span>
-              </template>
-              <span v-if="log.error_message" class="log-error" :title="log.error_message">
-                {{ log.error_message.slice(0, 60) }}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+              </td>
+              <td class="at-tech at-tech--right" data-label="Durée">
+                <span v-if="log.duration_ms != null">{{ formatDuration(log.duration_ms) }}</span>
+              </td>
+              <td data-label="Stats" data-stack>
+                <div v-if="log.stats" class="at-chips">
+                  <span
+                    v-for="(v, k) in log.stats"
+                    :key="k"
+                    class="at-chip"
+                    :class="{ 'at-chip--true': v === true }"
+                  >
+                    <span class="at-chip-k">{{ k }}</span>
+                    <span class="at-chip-v">{{ chipValue(v) }}</span>
+                  </span>
+                </div>
+                <span v-if="log.error_message" class="at-err-msg" :title="log.error_message">
+                  {{ log.error_message }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-    <div v-if="crawlTotalPages > 1" class="crawl-pagination">
-      <button :disabled="crawlPage <= 1" @click="prevCrawlPage()">Prev</button>
-      <span class="mono" style="font-size: var(--fs-sm)"
-        >{{ crawlPage }} / {{ crawlTotalPages }}</span
-      >
-      <button :disabled="crawlPage >= crawlTotalPages" @click="nextCrawlPage()">Next</button>
+      <div v-if="crawlTotalPages > 1" class="at-pager">
+        <button class="btn btn--sm" :disabled="crawlPage <= 1" @click="prevCrawlPage()">
+          Précédent
+        </button>
+        <span class="at-pager-count">{{ crawlPage }} / {{ crawlTotalPages }}</span>
+        <button
+          class="btn btn--sm"
+          :disabled="crawlPage >= crawlTotalPages"
+          @click="nextCrawlPage()"
+        >
+          Suivant
+        </button>
+      </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../../utils/api.js'
+import AdminIcon from './AdminIcon.vue'
 
 const crawlLogs = ref([])
 const loadingCrawlLogs = ref(false)
@@ -97,6 +122,7 @@ const crawlTotal = ref(0)
 const crawlTotalPages = ref(0)
 const crawlFilter = ref('')
 const crawlTaskType = ref('')
+const lastFetchedAt = ref(null)
 const crawlFilters = [
   { label: 'Tous', value: '' },
   { label: 'Success', value: 'success' },
@@ -113,6 +139,15 @@ const crawlTaskTypes = [
   'fetch_artworks',
   'resolve_set_tracks',
 ]
+
+// Fraîcheur des journaux (couture D10) : heure du dernier fetch, libellé neutre avant
+// le premier chargement. Pas de timer — un horaire figé suffit à situer le rafraîchissement.
+const freshnessLabel = computed(() => {
+  if (!lastFetchedAt.value) return 'Journaux serveur'
+  const d = lastFetchedAt.value
+  const pad = (n) => String(n).padStart(2, '0')
+  return `Rafraîchi à ${pad(d.getHours())}:${pad(d.getMinutes())}`
+})
 
 function prevCrawlPage() {
   crawlPage.value--
@@ -136,6 +171,7 @@ async function fetchCrawlLogs() {
     crawlTotalPages.value = Math.ceil(data.total / data.per_page)
   } finally {
     loadingCrawlLogs.value = false
+    lastFetchedAt.value = new Date()
   }
 }
 
@@ -143,6 +179,23 @@ function setCrawlFilter(val) {
   crawlFilter.value = val
   crawlPage.value = 1
   fetchCrawlLogs()
+}
+
+// Canal de la pill de statut (D7) : success → --ok, error → --err, running → --run
+// (héberge l'arc), tout le reste neutre.
+function statusPill(status) {
+  if (status === 'success') return 'at-pill--ok'
+  if (status === 'error') return 'at-pill--err'
+  if (status === 'running') return 'at-pill--run'
+  return 'at-pill--neutral'
+}
+
+// Valeur d'une chip stats (D8) : nombres groupés fr-FR, booléens en toutes lettres
+// (le poids 700 de la classe --true porte la distinction, pas la couleur).
+function chipValue(v) {
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (typeof v === 'number') return v.toLocaleString('fr-FR')
+  return v
 }
 
 function formatDate(iso) {
@@ -166,271 +219,70 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.admin-section {
-  container-type: inline-size;
-  margin-bottom: var(--space-8);
-  padding: var(--space-5) var(--space-6);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+.cr-wrap {
+  margin-bottom: var(--space-5);
 }
-.section-header {
+
+/* ── Couture D10 : filet pleine largeur + eyebrow JOURNAUX, fraîcheur fer à droite. ── */
+.cr-seam {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-25);
+  padding-top: var(--space-2);
   margin-bottom: var(--space-4);
+  border-top: 1px solid var(--line);
 }
-.section-title {
-  font: 600 var(--fs-title)/1 var(--font-ui);
-  color: var(--ink);
-  margin-bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.flag-count {
-  font: 400 var(--fs-xs)/1 var(--font-mono);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  padding: var(--space-05) var(--space-15);
-  border-radius: 10px;
-}
-.filter-group {
-  display: flex;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-}
-.filter-btn {
-  padding: var(--space-15) var(--space-3);
-  border: none;
-  background: var(--surface);
-  color: var(--ink-3);
-  font: 500 var(--fs-xs)/1 var(--font-ui);
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-.filter-btn:not(:last-child) {
-  border-right: 1px solid var(--line-2);
-}
-.filter-btn.active {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.table-wrap {
-  overflow-x: auto;
-}
-.flag-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--fs-sm);
-}
-.flag-table thead th {
-  text-align: left;
-  padding: 0 var(--space-3) var(--space-25);
-  font: 500 var(--fs-xs)/1 var(--font-mono);
+.cr-eyebrow {
+  font: 600 var(--fs-nano)/1 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
 }
-.flag-table tbody td {
-  padding: var(--space-25) var(--space-3);
-  vertical-align: top;
-  border-bottom: 1px solid var(--line);
-}
-.flag-table tbody tr:last-child td {
-  border-bottom: none;
-}
-.raw-string {
-  font: 500 var(--fs-sm)/1.3 var(--font-ui);
-  color: var(--ink);
-}
-.token-pill {
+.cr-fresh {
   font: 400 var(--fs-xs)/1 var(--font-mono);
-  background: var(--surface-2);
-  color: var(--ink-2);
-  padding: var(--space-05) var(--space-15);
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.status-badge {
-  font: 500 var(--fs-xs)/1 var(--font-mono);
-  padding: var(--space-05) var(--space-2);
-  border-radius: 4px;
-}
-.status-badge.running {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.status-badge.success {
-  background: var(--pos-soft);
-  color: var(--pos-ink);
-}
-.status-badge.error {
-  background: var(--neg-soft);
-  color: var(--neg-ink);
-}
-.log-error {
-  font-size: var(--fs-xs);
-  color: var(--neg-ink);
-}
-.state {
-  /* diverges from canonical .state: smaller font + compact padding (admin panel) */
-  font-size: var(--fs-sm);
-  padding: var(--space-3) 0;
-}
-.mono {
-  font-family: var(--font-mono);
-}
-.muted {
   color: var(--ink-3);
 }
-.stat-chip {
-  display: inline-block;
-  font: 400 var(--fs-xs)/1 var(--font-mono);
-  background: var(--surface-2);
-  color: var(--ink-2);
-  padding: var(--space-05) var(--space-15);
-  border-radius: 3px;
-  margin: var(--space-05) var(--space-05);
-  white-space: nowrap;
-}
-.crawl-filters {
+
+/* ── Barre de filtres (D14) : select + segmenté fer à droite. La hauteur desktop
+   34 px du select est portée par cette CLASSE, jamais en style inline — sinon un
+   inline gagnerait sur la règle du palier 44 px. ── */
+.cr-filters {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
-.crawl-select {
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--r-sm);
+.cr-select {
+  height: 34px;
+  padding: 0 var(--space-2);
   border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--ink-2);
-  font: 400 var(--fs-xs)/1 var(--font-mono);
+  font: 400 var(--fs-sm)/1 var(--font-mono);
   cursor: pointer;
 }
-.crawl-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-}
-.crawl-pagination button {
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 var(--fs-sm)/1 var(--font-ui);
-  cursor: pointer;
-}
-.crawl-pagination button:disabled {
-  opacity: 0.4;
-  cursor: default;
+
+/* Alignement à droite de l'en-tête « Durée ». */
+.cr-th-right {
+  text-align: right;
 }
 
-/* Log cell styles (extracted from inline styles so the mobile card can restack them). */
-.log-date {
-  font-size: var(--fs-xs);
-  white-space: nowrap;
-}
-.log-target {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.log-duration {
-  font-size: var(--fs-xs);
-}
-.log-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-05);
-  align-items: center;
-  font-size: var(--fs-xs);
-}
-
-/* ============ RESPONSIVE — table logs → cartes (grammaire AdminFlags, palier 859) ============ */
+/* Sous 859 px : la cible retombe parfois sur le task_type (logs sans cible) — la
+   rangée Type ferait alors doublon avec la ligne de tête → on l'omet de la carte.
+   Desktop garde la colonne Type intacte. */
 @container (max-width: 859px) {
-  /* En-tête empilé : titre (+ badge) sur la 1re ligne, filtres sur la 2e —
-     sinon le dernier contrôle déborde et se coupe au bord droit. */
-  .section-header {
+  .cr-filters {
     flex-direction: column;
     align-items: stretch;
-    gap: var(--space-3);
+    width: 100%;
   }
-  .crawl-filters {
-    flex-wrap: wrap;
-    gap: var(--space-15);
-  }
-  .crawl-select,
-  .filter-btn {
+  .cr-select {
+    width: 100%;
     min-height: var(--touch-min);
   }
-  .table-wrap {
-    overflow-x: visible;
-  }
-  .flag-table,
-  .flag-table tbody {
-    display: block;
-  }
-  .flag-table thead {
+  .cr-type-dup {
     display: none;
-  }
-  .flag-table tbody tr {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-25);
-    padding: var(--space-3);
-    border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    background: var(--surface);
-  }
-  .flag-table tbody tr + tr {
-    margin-top: var(--space-25);
-  }
-  .flag-table tbody td {
-    display: block;
-    padding: 0;
-    border-bottom: none;
-  }
-  .flag-table tbody td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: var(--space-1);
-    font: 500 var(--fs-xs)/1 var(--font-mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-  /* Cible = ligne de tête : remontée en haut de la carte sans toucher l'ordre desktop. */
-  .flag-table tbody td[data-lead] {
-    order: -1;
-  }
-  /* Tête = target_label || task_type. Quand elle retombe sur le task_type (logs
-     sans cible, ex. enrich_beatport), la rangée Type ferait doublon → on l'omet
-     de la carte. Desktop garde la colonne Type intacte. */
-  .flag-table tbody td.log-type--dup {
-    display: none;
-  }
-  .raw-string {
-    font-size: var(--fs-base);
-  }
-  .log-target {
-    max-width: none;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-  }
-  /* Stats : le label ::before doit se poser AU-DESSUS des chips (pas dans la rangée flex). */
-  .log-stats {
-    display: block;
   }
 }
 </style>
