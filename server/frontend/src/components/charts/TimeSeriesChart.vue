@@ -50,6 +50,15 @@
               :d="linePath(s.points)"
               :style="{ stroke: s.color }"
             />
+            <!-- hover crosshair (SVG: x = fraction × VW, non-scaling stroke) -->
+            <line
+              v-if="hover"
+              class="tsc-crosshair"
+              :x1="hover.f * VW"
+              y1="0"
+              :x2="hover.f * VW"
+              :y2="VH"
+            />
           </svg>
 
           <span
@@ -60,6 +69,31 @@
           >
             {{ yFormat(t.v) }}
           </span>
+
+          <!-- Hover interaction layer: absolutely positioned to overlap the plot
+               content box EXACTLY (left/right match the CSS axis gutter of
+               .tsc-chart), so getBoundingClientRect() already excludes the 52px
+               gutter — the mouse fraction needs no manual offset. Hosts the HTML
+               markers + tooltip; a <text> in the preserveAspectRatio="none" SVG
+               would be stretched, so both stay HTML. -->
+          <div class="tsc-hover" @mousemove="onMove" @mouseleave="onLeave">
+            <template v-if="hover">
+              <span
+                v-for="(it, i) in hover.items"
+                :key="`hm-${i}`"
+                class="tsc-marker"
+                :style="{ left: hover.f * 100 + '%', top: it.top + '%', background: it.color }"
+              />
+              <div v-if="hover.items.length" class="tsc-tooltip" :style="tipStyle()">
+                <div class="tsc-tip-date">{{ fmtX(hover.ts) }}</div>
+                <div v-for="(it, i) in hover.items" :key="`tr-${i}`" class="tsc-tip-row">
+                  <span class="tsc-swatch" :style="{ background: it.color }" />
+                  <span class="tsc-tip-label">{{ it.label }}</span>
+                  <span class="tsc-tip-val">{{ yFormat(it.v) }}</span>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
 
         <div class="tsc-xaxis">
@@ -71,7 +105,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   // series: [{ label, color (a `var(--…)` string), points: [{ t, v }] }]
@@ -220,6 +254,50 @@ const ariaLabel = computed(() => {
   const names = norm.value.filter((s) => s.points.length).map((s) => s.label)
   return names.length ? `Graphique temporel : ${names.join(', ')}` : 'Graphique temporel'
 })
+
+// ── Hover (restored post-D11 at the product owner's request) ──
+// State is internal to the instance, so each chart on the page tracks its own
+// hover independently. onMove maps the cursor to the nearest data timestamp and
+// collects each series' value at that index; markers/tooltip render in HTML.
+const hover = ref(null)
+function onMove(e) {
+  if (!allTs.value.length) return
+  const rect = e.currentTarget.getBoundingClientRect()
+  if (!rect.width) return
+  // rect is the plot content box (the hover layer overlaps it exactly), so the
+  // 52px axis gutter is already excluded — no manual offset needed.
+  const rx = (e.clientX - rect.left) / rect.width
+  let best = allTs.value[0]
+  let bd = Infinity
+  for (const t of allTs.value) {
+    const d = Math.abs(fx(t) - rx)
+    if (d < bd) {
+      bd = d
+      best = t
+    }
+  }
+  const items = []
+  for (const s of norm.value) {
+    const p = s.points.find((pt) => pt.ts === best)
+    // top% mirrors the SVG Y mapping (viewBox 0–VH → plot height, preserveAspect
+    // none) so the marker lands exactly on the line vertex.
+    if (p) items.push({ label: s.label, color: s.color, v: p.v, top: (Y(p.v) / VH) * 100 })
+  }
+  hover.value = { ts: best, f: fx(best), items }
+}
+function onLeave() {
+  hover.value = null
+}
+function tipStyle() {
+  if (!hover.value) return {}
+  const f = hover.value.f
+  // Flip the tooltip to the left of the cursor past mid-plot so it never spills
+  // off the right edge.
+  return {
+    left: f * 100 + '%',
+    transform: f > 0.5 ? 'translateX(calc(-100% - 10px))' : 'translateX(10px)',
+  }
+}
 </script>
 
 <style scoped>
@@ -298,6 +376,65 @@ const ariaLabel = computed(() => {
   color: var(--chart-axis);
   white-space: nowrap;
   pointer-events: none;
+}
+/* Hover crosshair: dashed vertical line at the hovered point. */
+.tsc-crosshair {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+/* Hover capture layer: overlaps the plot content box exactly (left/right = the
+   .tsc-chart CSS gutter). Transparent, above the SVG, so it also anchors the
+   HTML markers/tooltip whose left/top percentages map to the plot area. */
+.tsc-hover {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 52px;
+  right: 12px;
+  z-index: 1;
+}
+.tsc-marker {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid var(--surface);
+  pointer-events: none;
+}
+.tsc-tooltip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  min-width: 96px;
+  padding: var(--space-15) var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+.tsc-tip-date {
+  font: 500 var(--fs-xs)/1.2 var(--font-mono);
+  color: var(--ink-3);
+  margin-bottom: var(--space-1);
+}
+.tsc-tip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: 400 var(--fs-xs)/1.4 var(--font-ui);
+  color: var(--ink);
+}
+.tsc-tip-label {
+  color: var(--ink-2);
+}
+.tsc-tip-val {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: 500;
 }
 /* X labels: HTML row under the plot, same left/right bounds as the plot area. */
 .tsc-xaxis {
