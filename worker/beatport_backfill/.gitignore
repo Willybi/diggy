@@ -1,0 +1,2 @@
+# run artifacts (candidates CSV + matches NDJSON + checkpoint) — never committed
+data/

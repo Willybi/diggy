@@ -232,3 +232,41 @@ class TestFailOpen:
         limiter = RateLimiter()
         with limiter.acquire_sync("deezer"):
             pass
+
+
+class TestBeatportRateKnob:
+    """The Beatport local bucket rate/concurrency are env-tunable (additive):
+    default = the historical (2, 0.66) so PROD is unchanged unless the env is
+    posted; BEATPORT_RATE / BEATPORT_CONCURRENCY override them so the LOCAL
+    scraper container can drain faster off its own IP. _SOURCE_CONFIG is built at
+    import, so these tests reload the module to re-read the env."""
+
+    def test_default_beatport_rate_unchanged(self, monkeypatch):
+        import importlib
+
+        monkeypatch.delenv("BEATPORT_RATE", raising=False)
+        monkeypatch.delenv("BEATPORT_CONCURRENCY", raising=False)
+        importlib.reload(rate_limiter_module)
+        try:
+            assert rate_limiter_module._SOURCE_CONFIG["beatport"] == (2, 0.66)
+            # The shared Redis window is DELIBERATELY not tuned: it stays 0.66.
+            assert rate_limiter_module._SHARED_WINDOWS["beatport"] == (3, 2)
+        finally:
+            monkeypatch.undo()
+            importlib.reload(rate_limiter_module)
+
+    def test_env_overrides_beatport_rate_and_concurrency(self, monkeypatch):
+        import importlib
+
+        monkeypatch.setenv("BEATPORT_RATE", "5.0")
+        monkeypatch.setenv("BEATPORT_CONCURRENCY", "4")
+        importlib.reload(rate_limiter_module)
+        try:
+            assert rate_limiter_module._SOURCE_CONFIG["beatport"] == (4, 5.0)
+            # Only the local bucket is tuned; the shared window stays at 0.66.
+            assert rate_limiter_module._SHARED_WINDOWS["beatport"] == (3, 2)
+            # Other sources are untouched by the Beatport knob.
+            assert rate_limiter_module._SOURCE_CONFIG["deezer"] == (5, 10.0)
+        finally:
+            monkeypatch.undo()
+            importlib.reload(rate_limiter_module)

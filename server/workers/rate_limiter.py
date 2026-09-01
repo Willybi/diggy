@@ -42,7 +42,18 @@ _SOURCE_CONFIG = {
         int(os.environ.get("BPM_PREVIEW_CONCURRENCY", "2")),
         float(os.environ.get("BPM_PREVIEW_RATE", "1.0")),
     ),
-    "beatport": (2, 0.66),  # ~1 per 1.5s
+    # Beatport scraping. Rate/concurrency are env-tunable (no deploy), defaulting
+    # to the historical (2, 0.66) ≈ 1 req/1.5s anti-ban pace so PROD is unchanged
+    # unless the env is posted. The LOCAL residential-IP scraper container sets
+    # BEATPORT_RATE (and optionally BEATPORT_CONCURRENCY) higher to drain faster
+    # off its own IP. NB: the shared Redis window below (_SHARED_WINDOWS) stays at
+    # 0.66 and is DELIBERATELY not tuned — in the local container there is no Redis
+    # to reach, so _RateLimitContext fails open and only this local bucket governs;
+    # in PROD the env is absent so both the bucket and the window stay at 0.66.
+    "beatport": (
+        int(os.environ.get("BEATPORT_CONCURRENCY", "2")),
+        float(os.environ.get("BEATPORT_RATE", "0.66")),
+    ),
     "tidal": (2, 2.0),
     "minio": (10, 0.0),  # local bucket, no rate limit
     "trackid": (1, 0.66),  # ~1 per 1.5s (sequential crawl)
