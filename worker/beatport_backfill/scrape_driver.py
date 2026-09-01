@@ -15,13 +15,22 @@ verbatim. Zero vendoring of the matchers here: this driver runs the same code th
 hourly VPS drain runs (``enrich_beatport_batch`` -> ``_search_beatport_async``),
 only from the residential IP.
 
-OUTAGE ≠ ATTEMPT (E1 invariant): a ``BeatportHTTPError`` (e.g. a 403 Cloudflare
-block, or any non-200) emits NOTHING for that row — the line is simply absent from
-the NDJSON, so the row stays fresh (``beatport_searched_at`` untouched) and is
-re-tried on a later run. Any other exception is likewise not emitted (logged and
-skipped). Only a clean ``found`` / ``not_found`` outcome is written.
+OUTAGE ≠ ATTEMPT (E1 invariant): the reused server fn ``_search_beatport_async``
+raises ``BeatportHTTPError`` on ANY non-200, so we reclassify by status:
 
-403 GUARD (supervised run): consecutive 403s are counted; once they reach
+  * 404 → NOT FOUND (a marked attempt). The Beatport ``release`` fallback probes
+    ``/release/{slug}/{id}`` for a title, and a 404 there just means that title
+    isn't in Beatport's electronic-music catalogue — a genuine "no match", not an
+    outage. We emit a ``not_found`` line (which the import marks searched, correct
+    E1 behaviour) so the row doesn't stay fresh and re-404 forever.
+  * 403 / 429 / 5xx (and any network error / other exception) → OUTAGE: emit
+    NOTHING for that row — the line is simply absent from the NDJSON, so the row
+    stays fresh (``beatport_searched_at`` untouched) and is re-tried on a later run.
+
+Only a clean ``found`` / ``not_found`` outcome is written; outages are logged/skipped.
+
+403 GUARD (supervised run): consecutive 403s are counted (a 404 is a successful
+attempt and resets the counter); once they reach
 ``BEATPORT_MAX_CONSECUTIVE_403`` (env, default 5) the batch is ABORTED cleanly —
 the remaining rows are never scraped, so they stay fresh and un-emitted. A simple
 net abort is enough for a supervised run; no elaborate multi-tier back-off.
@@ -56,6 +65,17 @@ print = functools.partial(print, flush=True)  # noqa: A001
 
 # Consecutive 403s that trip a clean batch abort (Cloudflare blocking the IP).
 MAX_CONSECUTIVE_403 = int(os.environ.get("BEATPORT_MAX_CONSECUTIVE_403", "5"))
+
+
+def classify_beatport_error(status_code):
+    """Map a ``BeatportHTTPError`` status to a driver outcome.
+
+    A 404 is a genuine "no match" (the release fallback probed a title Beatport's
+    electronic catalogue doesn't carry), so it counts as a completed attempt and is
+    emitted as ``not_found``. Everything else (403 / 429 / 5xx) is a transient
+    outage that must leave the row fresh for a later re-scan.
+    """
+    return "not_found" if status_code == 404 else "outage"
 
 
 def _match_artist(row):
@@ -100,7 +120,19 @@ async def _scrape(csv_path, out_path):
                         pool, title, _match_artist(row), isrc, rcache=None
                     )
                 except BeatportHTTPError as e:
-                    # Outage, NOT an attempt: emit nothing, leave the row fresh.
+                    if classify_beatport_error(e.status_code) == "not_found":
+                        # A 404 is the release fallback saying "not on Beatport"
+                        # (not in its electronic catalogue), NOT a panne: emit a
+                        # not_found line so the import marks it searched (E1) and it
+                        # won't stay fresh and re-404 on every run.
+                        consecutive_403 = 0
+                        rec = {"catalog_id": cid, "status": "not_found", "bp_track": None}
+                        counts["not_found"] += 1
+                        out_f.write(json.dumps(rec) + "\n")
+                        out_f.flush()
+                        continue
+                    # Outage (403 / 429 / 5xx), NOT an attempt: emit nothing, leave
+                    # the row fresh for a later re-scan.
                     counts["outage"] += 1
                     if e.status_code == 403:
                         consecutive_403 += 1
