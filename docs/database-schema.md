@@ -111,20 +111,20 @@ PK: `id`
 | `enrich_priority` | SmallInteger | yes |  |  |  |
 
 **Indexes:**
+- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_release_date`: `release_date`
+- `ix_catalog_owner`: `owner_id`
+- `ix_catalog_deezer_id`: `deezer_id`
+- `ix_catalog_scope`: `scope`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_key`: `key`
+- `ix_catalog_created_at_id`: 
 - `ix_catalog_bpm_analysis_backlog`: `id`
+- `ix_catalog_genres`: `genres`
 - `ix_catalog_beatport_id`: `beatport_id`
 - `ix_catalog_enrich_priority`: `enrich_priority`
 - `ix_catalog_duration_ms`: `duration_ms`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
-- `ix_catalog_genres`: `genres`
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
-- `ix_catalog_owner`: `owner_id`
-- `ix_catalog_bpm`: `bpm`
-- `ix_catalog_release_date`: `release_date`
-- `ix_catalog_scope`: `scope`
-- `ix_catalog_deezer_id`: `deezer_id`
-- `ix_catalog_key`: `key`
-- `ix_catalog_created_at_id`: 
 
 ### `catalog_artists`
 
@@ -158,8 +158,8 @@ PK: `id`
 | `created_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_albums_artist_id`: `artist_id`
 - `uq_albums_deezer_id`: `deezer_album_id` (unique)
+- `ix_albums_artist_id`: `artist_id`
 
 ### `catalog_albums`
 
@@ -350,9 +350,9 @@ PK: `id`
 | `is_initial_detection` | Boolean | no |  |  | server_default='false', default=False |
 
 **Indexes:**
+- `ix_radar_tracks_catalog`: `catalog_id`
 - `ix_radar_tracks_source_detected`: `source`
 - `ix_radar_tracks_watched_entity`: `watched_entity_id`
-- `ix_radar_tracks_catalog`: `catalog_id`
 
 **Unique constraints:**
 - `watched_entity_id`, `external_track_id` (`uq_radar_playlist_track`)
@@ -375,8 +375,8 @@ PK: `catalog_id`
 | `computed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_radar_trends_family_rank`: `family`, `rank_in_family`
 - `ix_radar_trends_rank_global`: `rank_global`
+- `ix_radar_trends_family_rank`: `family`, `rank_in_family`
 
 ### `user_radar_state`
 
@@ -477,8 +477,8 @@ PK: `id`
 | `payload` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_artist_activity_artist_id`: `artist_id`
 - `ix_artist_activity_detected_at`: `detected_at`
+- `ix_artist_activity_artist_id`: `artist_id`
 
 **Unique constraints:**
 - `artist_id`, `activity_type`, `source`, `external_id` (`uq_artist_activity_ext`)
@@ -508,6 +508,7 @@ PK: `id`
 | `parent_set_id` | Integer | yes |  | FK → sets.id ON DELETE SET NULL |  |
 | `is_virtual` | Boolean | no |  |  | server_default='false', default=False |
 | `normalized_title` | String(500) | yes |  |  |  |
+| `search_text` | String(500) | yes |  |  |  |
 | `part_number` | Integer | yes |  |  |  |
 | `part_total` | Integer | yes |  |  |  |
 | `completion_pct` | Float | yes |  |  |  |
@@ -556,9 +557,9 @@ PK: `id`
 | `end_time_ms` | Integer | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_tracks_set_id`: `set_id`
 - `ix_set_tracks_catalog_id`: `catalog_id`
 - `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
+- `ix_set_tracks_set_id`: `set_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -583,10 +584,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_set_id_b`: `set_id_b`
 - `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_group_key`: `group_key`
 - `ix_set_flags_set_id_a`: `set_id_a`
+- `ix_set_flags_set_id_b`: `set_id_b`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
@@ -642,8 +643,8 @@ PK: `id`
 | `indexed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_trackid_index_hydration_state`: `hydration_state`
 - `ix_trackid_index_added_on`: `added_on`
+- `ix_trackid_index_hydration_state`: `hydration_state`
 
 ## Genres
 
@@ -674,8 +675,8 @@ PK: `id`
 | `source` | String(50) | no |  |  |  |
 
 **Indexes:**
-- `ix_genre_edges_to_node_id`: `to_node_id`
 - `ix_genre_edges_from_node_id`: `from_node_id`
+- `ix_genre_edges_to_node_id`: `to_node_id`
 
 **Unique constraints:**
 - `from_node_id`, `to_node_id`, `type` (`uq_genre_edge`)
@@ -710,8 +711,8 @@ PK: `id`
 | `created_at` | DateTime(tz) | no |  |  |  |
 
 **Indexes:**
-- `ix_admin_audit_log_action`: `action`
 - `ix_admin_audit_log_user_id`: `user_id`
+- `ix_admin_audit_log_action`: `action`
 
 ### `crawl_logs`
 

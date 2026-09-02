@@ -14,6 +14,7 @@ from utils import (
     like_escape,
     make_normalized_key,
     normalize,
+    search_fold,
     space_insensitive_contains,
     space_insensitive_ilike,
 )
@@ -45,6 +46,49 @@ class TestNormalize:
 
     def test_preserves_numbers(self):
         assert normalize("Track 123") == "track 123"
+
+
+class TestSearchFold:
+    """L1: search-only fold — lowercased, accent-stripped, punctuation collapsed
+    to single spaces. Symmetric (query and stored column fold identically) and
+    deliberately DIFFERENT from normalize(), which keeps accents."""
+
+    def test_none_returns_empty(self):
+        assert search_fold(None) == ""
+
+    def test_empty_string(self):
+        assert search_fold("") == ""
+
+    def test_lowercase(self):
+        assert search_fold("ANNA") == "anna"
+
+    def test_curly_and_straight_apostrophe_fold_identically(self):
+        # "Barry Can’t Swim" (curly) and "Barry Can't Swim" (straight) fold the same.
+        assert search_fold("Barry Can’t Swim") == search_fold("Barry Can't Swim")
+        assert search_fold("Barry Can’t Swim") == "barry can t swim"
+
+    def test_accents_stripped(self):
+        assert search_fold("Beyoncé") == "beyonce"
+
+    def test_dashes_pipes_at_become_spaces(self):
+        assert search_fold("Foo-Bar|Baz@Qux") == "foo bar baz qux"
+
+    def test_multiple_spaces_collapsed(self):
+        assert search_fold("a    b\t\tc") == "a b c"
+
+    def test_leading_trailing_punctuation_stripped(self):
+        assert search_fold("  --Hello!!  ") == "hello"
+
+    def test_non_latin_does_not_crash(self):
+        # A fully non-Latin string folds to "" (no ASCII alphanumerics) — no crash.
+        assert search_fold("こんにちは") == ""
+        assert isinstance(search_fold("Артист"), str)
+
+    def test_symmetric_same_source(self):
+        # The same source text yields the same fold on both query and stored sides.
+        assert search_fold("DJ Déià — Live @ Berlin!") == search_fold(
+            "dj deia   live   berlin"
+        )
 
 
 class TestMakeNormalizedKey:

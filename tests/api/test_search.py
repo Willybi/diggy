@@ -1,7 +1,18 @@
 """Tests for /api/search endpoint."""
 from datetime import date
 
-from models import Album, AlbumType, Artist, CatalogEntry, DJSet, WatchedEntity
+from models import (
+    Album,
+    AlbumType,
+    Artist,
+    CatalogEntry,
+    DJSet,
+    SetTrack,
+    TrackIdIndex,
+    WatchedEntity,
+)
+from services.search_service import _search_sets
+from utils import search_fold
 
 
 class TestSearch:
@@ -43,8 +54,10 @@ class TestSearch:
         assert data["items"][0]["name"] == "CamelPhat"
 
     async def test_search_sets(self, client, db):
-        db.add(DJSet(title="Boiler Room Set", source="trackid"))
-        db.add(DJSet(title="Radio Show", source="trackid"))
+        # Set search now matches the pre-folded `search_text` column (L3), so
+        # fixtures must populate it explicitly (the importer does this in prod).
+        db.add(DJSet(title="Boiler Room Set", source="trackid", search_text="boiler room set"))
+        db.add(DJSet(title="Radio Show", source="trackid", search_text="radio show"))
         await db.commit()
 
         r = await client.get("/api/search?q=boiler&scope=set")
@@ -53,10 +66,19 @@ class TestSearch:
         assert data["items"][0]["title"] == "Boiler Room Set"
 
     async def test_search_sets_excludes_children(self, client, db):
-        parent = DJSet(title="Boiler Room London", source="trackid")
+        parent = DJSet(
+            title="Boiler Room London",
+            source="trackid",
+            search_text="boiler room london",
+        )
         db.add(parent)
         await db.flush()
-        child = DJSet(title="Boiler Room London Part 2", source="trackid", parent_set_id=parent.id)
+        child = DJSet(
+            title="Boiler Room London Part 2",
+            source="trackid",
+            search_text="boiler room london part 2",
+            parent_set_id=parent.id,
+        )
         db.add(child)
         await db.commit()
 
@@ -69,8 +91,17 @@ class TestSearch:
 
     async def test_search_sets_excludes_unreliable(self, client, db):
         # C8 (L2): a flagged set must drop out of search results AND the count.
-        db.add(DJSet(title="Boiler Room Trusted", source="trackid"))
-        db.add(DJSet(title="Boiler Room Flagged", source="trackid", unreliable=True))
+        db.add(DJSet(
+            title="Boiler Room Trusted",
+            source="trackid",
+            search_text="boiler room trusted",
+        ))
+        db.add(DJSet(
+            title="Boiler Room Flagged",
+            source="trackid",
+            search_text="boiler room flagged",
+            unreliable=True,
+        ))
         await db.commit()
 
         r = await client.get("/api/search?q=boiler&scope=set")
@@ -94,7 +125,7 @@ class TestSearch:
         """Test searching across multiple entity types (not genre, which needs PG)."""
         db.add(CatalogEntry(title="Deep Track", artist="DJ Deep", normalized_key="deep track - dj deep"))
         db.add(Artist(name="DJ Deep", normalized_name="dj deep"))
-        db.add(DJSet(title="Deep Session", source="trackid"))
+        db.add(DJSet(title="Deep Session", source="trackid", search_text="deep session"))
         await db.commit()
 
         # Search tracks
@@ -331,8 +362,12 @@ class TestSearchSpaceInsensitive:
         assert r.json()["totals"]["track"] == 1
 
     async def test_sets_spaced_title_found_and_total_consistent(self, client, db):
-        db.add(DJSet(title="t e s t p r e s s", source="trackid"))
-        db.add(DJSet(title="Radio Show", source="trackid"))
+        db.add(DJSet(
+            title="t e s t p r e s s",
+            source="trackid",
+            search_text="t e s t p r e s s",
+        ))
+        db.add(DJSet(title="Radio Show", source="trackid", search_text="radio show"))
         await db.commit()
 
         r = await client.get("/api/search", params={"q": "testpress", "scope": "set"})
@@ -390,3 +425,152 @@ class TestSearchPagination:
         assert len(ids2) == 2
         # Real DB pagination: the two windows never overlap.
         assert ids0.isdisjoint(ids2)
+
+
+class TestSearchSetsWeighted:
+    """L3: multi-field, fold-insensitive set search — title (via search_text,
+    incl. children), artist, channel, date, weighted and roots-only."""
+
+    async def test_curly_apostrophe_title_found_by_straight_quote(self, client, db):
+        # search_text holds the folded form of a curly-apostrophe title; a query
+        # typed with a straight apostrophe folds to the same string and matches.
+        db.add(DJSet(
+            title="DJ’s Warehouse Set",
+            source="trackid",
+            search_text=search_fold("DJ’s Warehouse Set"),
+        ))
+        db.add(DJSet(title="Radio Show", source="trackid", search_text="radio show"))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "dj's warehouse", "scope": "set"})
+        data = r.json()
+        assert data["totals"]["set"] == 1
+        assert data["items"][0]["title"] == "DJ’s Warehouse Set"
+
+    async def test_deaccented_query_matches_accented_title(self, client, db):
+        db.add(DJSet(
+            title="Beyoncé Live",
+            source="trackid",
+            search_text=search_fold("Beyoncé Live"),
+        ))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "beyonce", "scope": "set"})
+        data = r.json()
+        assert data["totals"]["set"] == 1
+        assert data["items"][0]["title"] == "Beyoncé Live"
+
+    async def test_child_title_match_bubbles_to_root_once(self, client, db):
+        # A dedup root carries an abbreviated title; the rich title is on the
+        # CHILD. A query hitting the child's search_text must return the ROOT,
+        # exactly once, and never the child as a standalone result.
+        root = DJSet(title="Boiler Room", source="trackid", search_text="boiler room")
+        db.add(root)
+        await db.flush()
+        child = DJSet(
+            title="Boiler Room Amsterdam Warehouse",
+            source="trackid",
+            search_text="boiler room amsterdam warehouse",
+            parent_set_id=root.id,
+        )
+        db.add(child)
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "warehouse", "scope": "set"})
+        data = r.json()
+        set_items = [i for i in data["items"] if i["type"] == "set"]
+        assert len(set_items) == 1
+        assert set_items[0]["id"] == root.id
+        assert data["totals"]["set"] == 1
+
+    async def test_title_outranks_channel_at_endpoint(self, client, db):
+        # Same weighting, but through the HTTP endpoint: proves the helper's
+        # weighted order survives the orchestrator's global re-sort (skipped for
+        # scope="set"). The channel-only set has a HIGHER track_count, so a naive
+        # relevance+popularity re-sort would wrongly float it above the title
+        # match (both have _relevance=1 on their title).
+        titled = DJSet(title="Warehouse Night", source="trackid", search_text="warehouse night")
+        channeled = DJSet(title="Random Show", source="trackid", search_text="random show")
+        db.add_all([titled, channeled])
+        await db.flush()
+        # Give the channel-only set more tracks (higher popularity).
+        for pos in range(5):
+            db.add(SetTrack(set_id=channeled.id, position=pos, raw_title=f"t{pos}"))
+        db.add(SetTrack(set_id=titled.id, position=0, raw_title="only"))
+        db.add(TrackIdIndex(
+            trackid_id=903, set_id=channeled.id, channel="Warehouse Radio",
+            hydration_state="hydrated",
+        ))
+        await db.commit()
+
+        r = await client.get("/api/search", params={"q": "warehouse", "scope": "set"})
+        data = r.json()
+        set_items = [i for i in data["items"] if i["type"] == "set"]
+        assert data["totals"]["set"] == 2
+        # Title match (weight 3) must come first despite fewer tracks.
+        assert set_items[0]["title"] == "Warehouse Night"
+        assert set_items[1]["title"] == "Random Show"
+
+    async def test_title_match_outranks_channel_match(self, db):
+        # Direct service call so the assertion targets the helper's own weighted
+        # ordering (title weight 3 > channel weight 2), independent of the
+        # cross-scope re-sort the orchestrator applies for scope="all".
+        a = DJSet(title="Techno Night", source="trackid", search_text="techno night")
+        b = DJSet(title="Random Show", source="trackid", search_text="random show")
+        db.add_all([a, b])
+        await db.flush()
+        # b only matches "techno" through its trackid_index channel.
+        db.add(TrackIdIndex(
+            trackid_id=901, set_id=b.id, channel="Techno Radio",
+            hydration_state="hydrated",
+        ))
+        await db.commit()
+
+        items, total = await _search_sets(db, "techno", 10, 0)
+        titles = [i.title for i in items]
+        assert titles == ["Techno Night", "Random Show"]
+        assert total == 2
+
+    async def test_channel_match_via_child_trackid_index(self, db):
+        # A virtual root has no trackid_index of its own; the listing (and its
+        # channel) hangs off the CHILD. The channel signal must still lift the root.
+        root = DJSet(title="Set A", source="virtual", search_text="set a", is_virtual=True)
+        db.add(root)
+        await db.flush()
+        child = DJSet(
+            title="Set A raw", source="trackid", search_text="set a raw",
+            parent_set_id=root.id,
+        )
+        db.add(child)
+        await db.flush()
+        db.add(TrackIdIndex(
+            trackid_id=902, set_id=child.id, channel="HATE Channel",
+            hydration_state="hydrated",
+        ))
+        await db.commit()
+
+        items, total = await _search_sets(db, "hate", 10, 0)
+        assert [i.id for i in items] == [root.id]
+        assert total == 1
+
+    async def test_roots_only_and_reliable_enforced(self, db):
+        # A matching CHILD is never a standalone result (roots-only), and a
+        # matching UNRELIABLE root is excluded entirely — only the clean root
+        # that a child lifts comes back.
+        root = DJSet(title="Parent", source="trackid", search_text="parent")
+        db.add(root)
+        await db.flush()
+        child = DJSet(
+            title="Warehouse Rave", source="trackid",
+            search_text="warehouse rave", parent_set_id=root.id,
+        )
+        unreliable = DJSet(
+            title="Warehouse Trash", source="trackid",
+            search_text="warehouse trash", unreliable=True,
+        )
+        db.add_all([child, unreliable])
+        await db.commit()
+
+        items, total = await _search_sets(db, "warehouse", 10, 0)
+        assert [i.id for i in items] == [root.id]
+        assert total == 1

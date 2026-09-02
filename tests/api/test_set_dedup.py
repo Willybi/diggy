@@ -16,6 +16,7 @@ from services.set_dedup_service import (
     find_or_create_virtual_parent,
     get_part_candidates,
     materialize_parent,
+    pick_best_parent_title,
 )
 
 
@@ -73,8 +74,8 @@ class TestFindOrCreateVirtualParent:
         db.expire_all()
         parent = (await db.execute(select(DJSet).where(DJSet.id == parent_id))).scalar_one()
         assert parent.is_virtual is True
-        # Shorter title chosen
-        assert parent.title == "Short"
+        # Most-descriptive title chosen (more significant tokens), not the shortest
+        assert parent.title == "Long Title Set A"
 
         s1_ref = (await db.execute(select(DJSet).where(DJSet.id == s1_id))).scalar_one()
         s2_ref = (await db.execute(select(DJSet).where(DJSet.id == s2_id))).scalar_one()
@@ -135,6 +136,50 @@ class TestFindOrCreateVirtualParent:
         db.expire_all()
         parent = (await db.execute(select(DJSet).where(DJSet.id == parent_id))).scalar_one()
         assert parent.title == "Custom Title"
+
+    async def test_created_parent_has_search_text(self, db):
+        s1 = await _make_set(db, "Beyoncé @ Coachella [DJ Mix]")
+        s2 = await _make_set(db, "Short")
+
+        parent_id, _ = await find_or_create_virtual_parent(
+            db, s1.id, s2.id, None, None
+        )
+
+        db.expire_all()
+        parent = (await db.execute(select(DJSet).where(DJSet.id == parent_id))).scalar_one()
+        # search_text is the folded form of the chosen title (accents stripped,
+        # punctuation collapsed to spaces).
+        assert parent.search_text
+        assert parent.search_text == "beyonce coachella dj mix"
+
+
+# ---------------------------------------------------------------------------
+# TestPickBestParentTitle (pure)
+# ---------------------------------------------------------------------------
+
+
+class TestPickBestParentTitle:
+    def test_prefers_most_descriptive_over_shortest(self):
+        bcs = "BCS @ 314 Scholes, Brooklyn [DJ Mix]"
+        barry = "Barry Can't Swim DJ Set (Brooklyn, NYC - 20th June 2026)"
+        assert pick_best_parent_title([bcs, barry]) == barry
+        # order-independent (winner has strictly more significant tokens)
+        assert pick_best_parent_title([barry, bcs]) == barry
+
+    def test_empty_list(self):
+        assert pick_best_parent_title([]) == ""
+
+    def test_all_none_or_empty(self):
+        assert pick_best_parent_title([None, "", None]) == ""
+
+    def test_ignores_none_and_empty_entries(self):
+        assert pick_best_parent_title([None, "Only Real Title", ""]) == "Only Real Title"
+
+    def test_tie_break_prefers_longer_then_first(self):
+        # Same significant-token count (2 each) -> longer total length wins.
+        assert pick_best_parent_title(["Set Two", "Longer Set"]) == "Longer Set"
+        # Full tie (same tokens AND same length) -> stable first.
+        assert pick_best_parent_title(["Alpha Bravo", "Gamma Delta"]) == "Alpha Bravo"
 
 
 # ---------------------------------------------------------------------------
@@ -525,8 +570,8 @@ class TestAttachSetFlagRefactor:
         # Parent is virtual
         parent = (await db.execute(select(DJSet).where(DJSet.id == parent_id))).scalar_one()
         assert parent.is_virtual is True
-        # Shorter title
-        assert parent.title == "Short"
+        # Most-descriptive title (more significant tokens), not the shortest
+        assert parent.title == "Long Title For Set A"
 
         # Both sets attached
         for sid in (s1_id, s2_id):

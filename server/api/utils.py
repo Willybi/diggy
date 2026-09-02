@@ -20,6 +20,33 @@ def normalize(s: str) -> str:
     return s
 
 
+def search_fold(s: str | None) -> str:
+    """Fold a string to a canonical, search-only form: lowercased, curly quotes
+    straightened, ACCENTS STRIPPED, and every run of non-alphanumeric characters
+    collapsed to a single space.
+
+    Deliberately DIFFERENT from :func:`normalize`, which keeps accents (it backs
+    the identity key ``normalized_key`` and must never merge distinct texts).
+    ``search_fold`` is search-only: it exists to match the SAME text spelled with
+    different punctuation, quotes or accents, so it DOES strip accents
+    ("Beyoncé" -> "beyonce") and turns apostrophes/dashes/pipes/@/punctuation
+    into spaces. It is symmetric — applied to both the query and the stored
+    ``search_text`` column, one source text folds to the same string on both
+    sides.
+    """
+    if not s:
+        return ""
+    s = s.lower()
+    s = s.replace("’", "'").replace("‘", "'")
+    # NFKD then drop the combining marks = accent folding (accents removed).
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    # Any run of non-alphanumeric chars -> one space; this also collapses
+    # multiple spaces. Strip the edges afterwards.
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return s.strip()
+
+
 def make_normalized_key(title: str, artist: str | None) -> str:
     return normalize(title) + " - " + normalize(artist or "")
 

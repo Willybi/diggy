@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from models import Artist, ArtistAlias, DJSet, SetArtist, SetTrack
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils import normalize
+from utils import normalize, search_fold
 
 from trackid.client import TrackIDClient
 from trackid.parsing import is_id_track, parse_timespan_to_ms, parse_trackid_date
@@ -117,6 +117,10 @@ async def import_audiostream(
         )
         db.add(dj_set)
         await db.flush()
+
+    # Keep the search-only folded form of the finalized title in sync on every
+    # (re-)import — set in both the create and update branches above.
+    dj_set.search_text = search_fold(dj_set.title)
 
     # Fetch artwork from TrackID if available and not yet stored
     artwork_url = detail.get("artworkUrl")

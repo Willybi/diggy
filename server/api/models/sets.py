@@ -44,6 +44,11 @@ class DJSet(Base):
     )
     is_virtual = Column(Boolean, nullable=False, default=False, server_default="false")
     normalized_title = Column(String(500), nullable=True)
+    # Search-only folded form of the set's searchable text (title + artists):
+    # lowercased, accent-stripped, punctuation collapsed to spaces (utils.search_fold).
+    # Populated by the importer/backfill; drives the accent/punctuation-insensitive
+    # set search. NOT an identity key (distinct from normalized_title).
+    search_text = Column(String(500), nullable=True)
     part_number = Column(Integer, nullable=True)
     part_total = Column(Integer, nullable=True)
     # C6.b re-crawl state — completion_pct is is_id-based (catalog_id is reset

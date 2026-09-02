@@ -9,7 +9,7 @@ from statistics import median as _median
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils import normalize
+from utils import normalize, search_fold
 
 # ---------------------------------------------------------------------------
 # Types
@@ -977,6 +977,34 @@ def _merge_parts(
 # ---------------------------------------------------------------------------
 
 
+def pick_best_parent_title(titles: list[str]) -> str:
+    """Pick the MOST DESCRIPTIVE title from a list (not the shortest).
+
+    A virtual dedup parent should carry the title that best names the set — e.g.
+    "Barry Can't Swim DJ Set (Brooklyn, NYC - 20th June 2026)" over
+    "BCS @ 314 Scholes, Brooklyn [DJ Mix]" — so a plain shortest-title heuristic
+    is wrong. Ranks by the number of significant alphabetic tokens (words of
+    length >= 2 after a simple split), tie-broken by longer total length, then
+    stable (first). Empty/None entries are ignored defensively; an all-empty
+    input returns "".
+    """
+    candidates = [t for t in titles if t]
+    if not candidates:
+        return ""
+
+    def _significant_tokens(title: str) -> int:
+        return sum(1 for tok in title.split() if len(tok) >= 2 and tok.isalpha())
+
+    best_idx = 0
+    best_key: tuple[int, int] | None = None
+    for idx, title in enumerate(candidates):
+        key = (_significant_tokens(title), len(title))
+        if best_key is None or key > best_key:
+            best_key = key
+            best_idx = idx
+    return candidates[best_idx]
+
+
 async def find_or_create_virtual_parent(
     db: AsyncSession,
     set_id_a: int,
@@ -1008,7 +1036,9 @@ async def find_or_create_virtual_parent(
 
     now = datetime.now(timezone.utc)
     chosen_title = (
-        title if title is not None else min(set_a.title, set_b.title, key=len)
+        title
+        if title is not None
+        else pick_best_parent_title([set_a.title, set_b.title])
     )
     artwork_donor = next(
         (s for s in (set_a, set_b) if s.has_artwork), None
@@ -1017,6 +1047,7 @@ async def find_or_create_virtual_parent(
         source="virtual",
         is_virtual=True,
         title=chosen_title,
+        search_text=search_fold(chosen_title),
         played_date=played_date if played_date is not None else set_a.played_date,
         has_artwork=artwork_donor is not None,
         created_at=now,

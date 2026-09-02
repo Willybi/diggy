@@ -187,8 +187,8 @@ class TestAttachSetFlag:
         ).scalar_one_or_none()
         assert parent is not None
         assert parent.is_virtual is True
-        # Shorter title chosen
-        assert parent.title == "Short"
+        # Most-descriptive title chosen (more significant tokens), not the shortest
+        assert parent.title == "Long Title For Set A"
 
         # Both sets attached
         set_a = (await db.execute(select(DJSet).where(DJSet.id == s1_id))).scalar_one()

@@ -13,15 +13,18 @@ from models import (
     CatalogArtist,
     CatalogEntry,
     DJSet,
+    SetArtist,
     SetTrack,
+    TrackIdIndex,
     UserTrack,
     WatchedEntity,
 )
 from schemas import SearchItem, SearchResponse, SearchTotals
-from sqlalchemy import func, select, text
+from sqlalchemy import String, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from trackid.reliability import set_reliable
-from utils import like_escape, space_insensitive_ilike
+from utils import like_escape, search_fold, space_insensitive_ilike
 
 from services.catalog_service import catalog_visible
 from services.genre_service import ensure_pillar_cache, genre_pillar
@@ -169,15 +172,111 @@ async def _search_artists(
     return items, total
 
 
+# Cap on the number of candidate roots pulled from the DB before the in-memory
+# weighted ranking. A set can match on several fields (title, artist, channel,
+# date) with different per-field weights, so the final order can only be computed
+# in Python — but selecting every match would be unbounded. 500 is comfortably
+# above any realistic single-query match count; if a query somehow exceeds it,
+# the lowest-priority (oldest) candidates beyond the cap are dropped from ranking
+# only — the returned `total` stays exact via the separate uncapped count query.
+_SET_CANDIDATE_CAP = 500
+
+
 async def _search_sets(
     db: AsyncSession,
     q: str,
     limit: int,
     offset: int = 0,
 ) -> tuple[list[SearchItem], int]:
-    # X4.h: space-insensitive on the set title (shared helper). Applied to BOTH
-    # the items query AND the separate count query so `total` stays in sync.
-    title_match = space_insensitive_ilike(q, DJSet.title)
+    """Weighted, fold-insensitive set search (roots only, reliable only).
+
+    A ROOT set matches when the folded query hits any of, in priority order:
+      - its TITLE or one of its CHILDREN's titles (weight 3) — matched against
+        the pre-folded ``search_text`` column, plain and space-compacted, so an
+        accent/punctuation-insensitive hit works and a rich child title lifts its
+        abbreviated virtual root;
+      - a linked ARTIST name (weight 3, rare — ~60 sets carry ``set_artists``);
+      - the CHANNEL of its (or a child's) ``trackid_index`` listing (weight 2) —
+        a deduplicated root is virtual and has no ``trackid_index`` of its own,
+        the row hangs off the CHILD, so both are covered;
+      - its played DATE typed as text (weight 1) — an entered year/date.
+
+    Only roots (``parent_set_id IS NULL``) that are reliable (C8) are returned,
+    each exactly once. Ranking (weight desc, relevance desc, track_count desc,
+    id desc) is done in Python over a capped candidate set; offset/limit are
+    applied AFTER the sort.
+    """
+    fq = search_fold(q)
+    if not fq:
+        return [], 0
+
+    fq_compact = fq.replace(" ", "")
+    title_plain = f"%{like_escape(fq)}%"
+    title_compact = f"%{like_escape(fq_compact)}%"
+    # Artist/channel/date match the raw (already lowercased) query — no SQL
+    # accent folding on these secondary signals (assumed acceptable).
+    raw_plain = f"%{like_escape(q)}%"
+    raw_compact = f"%{like_escape(q.replace(' ', ''))}%"
+
+    def _title_pred(col):
+        # ``search_text`` is stored pre-folded (lowercased, accents stripped) so
+        # a plain LIKE is correct and NULL simply never matches. The compact
+        # clause catches letter-spaced titles ("t e s t p r e s s" vs "testpress").
+        return or_(
+            col.like(title_plain, escape="\\"),
+            func.replace(col, " ", "").like(title_compact, escape="\\"),
+        )
+
+    def _channel_pred(col):
+        # Fold on the fly = lower + space-compaction only (no SQL de-accenting).
+        lc = func.lower(col)
+        return or_(
+            lc.like(raw_plain, escape="\\"),
+            func.replace(lc, " ", "").like(raw_compact, escape="\\"),
+        )
+
+    child = aliased(DJSet)
+    child_title_exists = (
+        select(child.id)
+        .where(child.parent_set_id == DJSet.id, _title_pred(child.search_text))
+        .exists()
+    )
+
+    artist_exists = (
+        select(SetArtist.set_id)
+        .where(
+            SetArtist.set_id == DJSet.id,
+            SetArtist.artist_id == Artist.id,
+            func.lower(Artist.name).like(raw_plain, escape="\\"),
+        )
+        .exists()
+    )
+
+    tid_set = aliased(DJSet)
+    channel_exists = (
+        select(TrackIdIndex.id)
+        .join(tid_set, TrackIdIndex.set_id == tid_set.id)
+        .where(
+            or_(tid_set.id == DJSet.id, tid_set.parent_set_id == DJSet.id),
+            _channel_pred(TrackIdIndex.channel),
+        )
+        .exists()
+    )
+
+    date_hit = DJSet.played_date.cast(String).like(raw_plain, escape="\\")
+
+    title_hit = or_(_title_pred(DJSet.search_text), child_title_exists)
+    match = or_(title_hit, artist_exists, channel_exists, date_hit)
+
+    where_clauses = (DJSet.parent_set_id.is_(None), set_reliable(), match)
+
+    # Correlated scalar count avoids a GROUP BY next to the boolean-hit columns.
+    track_count_sq = (
+        select(func.count(SetTrack.id))
+        .where(SetTrack.set_id == DJSet.id)
+        .correlate(DJSet)
+        .scalar_subquery()
+    )
 
     base = (
         select(
@@ -185,36 +284,44 @@ async def _search_sets(
             DJSet.title,
             DJSet.played_date,
             DJSet.has_artwork,
-            func.count(SetTrack.id).label("track_count"),
+            track_count_sq.label("track_count"),
+            title_hit.label("title_hit"),
+            artist_exists.label("artist_hit"),
+            channel_exists.label("channel_hit"),
         )
-        .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
-        # C8: exclude unreliable TrackID sets (adds to the roots-only filter);
-        # applied to BOTH the items and count queries so `total` stays in sync.
-        .where(
-            title_match,
-            DJSet.parent_set_id.is_(None),
-            set_reliable(),
-        )
-        .group_by(DJSet.id)
-        .order_by(DJSet.played_date.desc().nulls_last(), DJSet.id)
+        .where(*where_clauses)
+        .order_by(DJSet.played_date.desc().nulls_last(), DJSet.id.desc())
+        .limit(_SET_CANDIDATE_CAP)
     )
 
-    # count total matching sets
+    # Exact, uncapped total consistent with the same WHERE.
     count_q = select(func.count()).select_from(
-        select(DJSet.id)
-        .where(
-            title_match,
-            DJSet.parent_set_id.is_(None),
-            set_reliable(),
-        )
-        .subquery()
+        select(DJSet.id).where(*where_clauses).subquery()
     )
     total = (await db.execute(count_q)).scalar() or 0
 
-    rows = (await db.execute(base.offset(offset).limit(limit))).all()
+    rows = (await db.execute(base)).all()
+
+    def _weight(r) -> int:
+        if r.title_hit or r.artist_hit:
+            return 3
+        if r.channel_hit:
+            return 2
+        return 1
+
+    ranked = sorted(
+        rows,
+        key=lambda r: (
+            -_weight(r),
+            -_relevance(search_fold(r.title or ""), fq),
+            -(r.track_count or 0),
+            -r.id,
+        ),
+    )
+    window = ranked[offset : offset + limit]
 
     items: list[SearchItem] = []
-    for r in rows:
+    for r in window:
         items.append(
             SearchItem(
                 type="set",
@@ -444,7 +551,14 @@ async def search(
         pop = item.track_count or 0
         return (-rel, -pop)
 
-    all_items.sort(key=sort_key)
+    # This global re-sort serves the cross-type interleaving of scope="all" and
+    # the relevance-first ranking of the other single-type scopes. It is skipped
+    # for scope="set": there `_search_sets` already returns its window in the
+    # authoritative WEIGHTED order (title/artist > channel > date), which this
+    # title-relevance-only sort would otherwise flatten (a channel match with a
+    # high track_count could overtake a substring title match — both _relevance=1).
+    if scope != "set":
+        all_items.sort(key=sort_key)
 
     total = (
         totals.track
