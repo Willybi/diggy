@@ -574,3 +574,45 @@ class TestSearchSetsWeighted:
         items, total = await _search_sets(db, "warehouse", 10, 0)
         assert [i.id for i in items] == [root.id]
         assert total == 1
+
+    async def test_broad_term_exact_total_and_weight_after_rewrite(self, db):
+        # A broad query hitting several roots via DIFFERENT signals: the set-based
+        # rewrite must return an EXACT total over the full match union (roots-only
+        # + reliable), even when `limit` is smaller than the match count, AND keep
+        # the weighted order (title 3 > channel 2).
+        titled = DJSet(title="Warehouse Night", source="trackid", search_text="warehouse night")
+        child_root = DJSet(title="Root", source="trackid", search_text="root")
+        channeled = DJSet(title="Basement Show", source="trackid", search_text="basement show")
+        flagged = DJSet(
+            title="Warehouse Trash",
+            source="trackid",
+            search_text="warehouse trash",
+            unreliable=True,
+        )
+        db.add_all([titled, child_root, channeled, flagged])
+        await db.flush()
+        # child_root matches "warehouse" ONLY through a CHILD title (bubbles up).
+        db.add(DJSet(
+            title="Warehouse Bootleg",
+            source="trackid",
+            search_text="warehouse bootleg",
+            parent_set_id=child_root.id,
+        ))
+        # channeled matches "warehouse" ONLY through its trackid_index channel.
+        db.add(TrackIdIndex(
+            trackid_id=950, set_id=channeled.id, channel="Warehouse FM",
+            hydration_state="hydrated",
+        ))
+        await db.commit()
+
+        # 3 reliable roots match (titled + child_root via title, channeled via
+        # channel); the unreliable "Warehouse Trash" is excluded → total EXACT = 3
+        # despite the limit=2 window.
+        items, total = await _search_sets(db, "warehouse", 2, 0)
+        assert total == 3
+        # Weight order: the two title matches (weight 3) rank above the
+        # channel-only match (weight 2), so the limit=2 window is exactly them.
+        top_ids = {i.id for i in items}
+        assert top_ids == {titled.id, child_root.id}
+        assert channeled.id not in top_ids
+        assert flagged.id not in top_ids

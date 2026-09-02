@@ -644,6 +644,7 @@ PK: `id`
 
 **Indexes:**
 - `ix_trackid_index_added_on`: `added_on`
+- `ix_trackid_index_set_id`: `set_id`
 - `ix_trackid_index_hydration_state`: `hydration_state`
 
 ## Genres

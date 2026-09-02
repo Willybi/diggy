@@ -76,4 +76,7 @@ class TrackIdIndex(Base):
         UniqueConstraint("trackid_id", name="uq_trackid_index_trackid_id"),
         Index("ix_trackid_index_hydration_state", "hydration_state"),
         Index("ix_trackid_index_added_on", "added_on"),
+        # Backs the set-search channel join (sets.id ← trackid_index.set_id) and
+        # any set_id lookup. Created by hand in prod, codified in migration 0054.
+        Index("ix_trackid_index_set_id", "set_id"),
     )

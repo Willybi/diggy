@@ -8,7 +8,7 @@
 
 | Layer | Tech |
 |-------|------|
-| API | FastAPI 0.141 + SQLAlchemy 2.0 async + Alembic (53 migrations) + pgvector |
+| API | FastAPI 0.141 + SQLAlchemy 2.0 async + Alembic (54 migrations) + pgvector |
 | Database | PostgreSQL 16 |
 | Queue | Celery 5.4 + Redis (2 workers: `diggy_worker` + `diggy_worker_enrich`) |
 | Storage | MinIO (S3-compatible) |

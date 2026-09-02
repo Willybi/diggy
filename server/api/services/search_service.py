@@ -22,7 +22,6 @@ from models import (
 from schemas import SearchItem, SearchResponse, SearchTotals
 from sqlalchemy import String, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 from trackid.reliability import set_reliable
 from utils import like_escape, search_fold, space_insensitive_ilike
 
@@ -172,14 +171,14 @@ async def _search_artists(
     return items, total
 
 
-# Cap on the number of candidate roots pulled from the DB before the in-memory
+# Cap on the number of candidate roots pulled from the DB for the in-memory
 # weighted ranking. A set can match on several fields (title, artist, channel,
 # date) with different per-field weights, so the final order can only be computed
-# in Python — but selecting every match would be unbounded. 500 is comfortably
-# above any realistic single-query match count; if a query somehow exceeds it,
-# the lowest-priority (oldest) candidates beyond the cap are dropped from ranking
-# only — the returned `total` stays exact via the separate uncapped count query.
-_SET_CANDIDATE_CAP = 500
+# in Python — but ranking every match would be unbounded. 1000 is comfortably
+# above any realistic search window; if the matching-root union exceeds it, only
+# the newest 1000 valid roots are ranked (played_date desc, id desc) — the
+# returned `total` stays EXACT via the separate uncapped count query.
+_SET_CANDIDATE_CAP = 1000
 
 
 async def _search_sets(
@@ -205,6 +204,14 @@ async def _search_sets(
     each exactly once. Ranking (weight desc, relevance desc, track_count desc,
     id desc) is done in Python over a capped candidate set; offset/limit are
     applied AFTER the sort.
+
+    SET-BASED implementation (perf hotfix): instead of scanning every root with a
+    per-row OR of correlated ``EXISTS`` subqueries, each signal is collected once
+    as an index-friendly SET of matching ROOT ids (a child match bubbles to its
+    parent via ``COALESCE(parent_set_id, id)``). The Python union is then fed to
+    a single roots-only + reliable filter (exact ``total``) and a capped detail
+    fetch. Every collector is ONE scan/indexed join — no correlated subquery —
+    and the DB awaits are sequential (never gathered on a shared session).
     """
     fq = search_fold(q)
     if not fq:
@@ -235,84 +242,98 @@ async def _search_sets(
             func.replace(lc, " ", "").like(raw_compact, escape="\\"),
         )
 
-    child = aliased(DJSet)
-    child_title_exists = (
-        select(child.id)
-        .where(child.parent_set_id == DJSet.id, _title_pred(child.search_text))
-        .exists()
-    )
+    # Root-id for a matched set: itself when it is a root, else its parent.
+    root_of = func.coalesce(DJSet.parent_set_id, DJSet.id)
 
-    artist_exists = (
-        select(SetArtist.set_id)
-        .where(
-            SetArtist.set_id == DJSet.id,
-            SetArtist.artist_id == Artist.id,
-            func.lower(Artist.name).like(raw_plain, escape="\\"),
+    # (1) TITLE — a matching root OR a matching child (bubbled to its parent).
+    #     One seq scan on `sets`, no correlated child EXISTS.
+    title_rows = (
+        await db.execute(
+            select(DJSet.id, DJSet.parent_set_id).where(_title_pred(DJSet.search_text))
         )
-        .exists()
-    )
+    ).all()
+    title_ids = {r.parent_set_id if r.parent_set_id is not None else r.id for r in title_rows}
 
-    tid_set = aliased(DJSet)
-    channel_exists = (
-        select(TrackIdIndex.id)
-        .join(tid_set, TrackIdIndex.set_id == tid_set.id)
-        .where(
-            or_(tid_set.id == DJSet.id, tid_set.parent_set_id == DJSet.id),
-            _channel_pred(TrackIdIndex.channel),
+    # (2) ARTIST — linked artist name (rare), bubbled to the root.
+    artist_rows = (
+        await db.execute(
+            select(root_of)
+            .join(SetArtist, SetArtist.set_id == DJSet.id)
+            .join(Artist, Artist.id == SetArtist.artist_id)
+            .where(func.lower(Artist.name).like(raw_plain, escape="\\"))
         )
-        .exists()
+    ).all()
+    artist_ids = {r[0] for r in artist_rows}
+
+    # (3) CHANNEL — via `trackid_index` of the set (or a child), bubbled to root.
+    #     The join keys on trackid_index.set_id (index ix_trackid_index_set_id);
+    #     no OR inside the join condition, no correlated EXISTS.
+    channel_rows = (
+        await db.execute(
+            select(root_of)
+            .join(TrackIdIndex, TrackIdIndex.set_id == DJSet.id)
+            .where(_channel_pred(TrackIdIndex.channel))
+        )
+    ).all()
+    channel_ids = {r[0] for r in channel_rows}
+
+    # (4) DATE — a root's own played_date typed as text (roots only, as before).
+    date_rows = (
+        await db.execute(
+            select(DJSet.id).where(
+                DJSet.parent_set_id.is_(None),
+                DJSet.played_date.cast(String).like(raw_plain, escape="\\"),
+            )
+        )
+    ).all()
+    date_ids = {r.id for r in date_rows}
+
+    weight3 = title_ids | artist_ids
+    weight2 = channel_ids
+    weight1 = date_ids
+    union = weight3 | weight2 | weight1
+    if not union:
+        return [], 0
+
+    union_list = list(union)
+
+    # Exact, uncapped total: roots-only + reliable applied to the full union.
+    count_q = select(func.count()).select_from(
+        select(DJSet.id)
+        .where(DJSet.id.in_(union_list), DJSet.parent_set_id.is_(None), set_reliable())
+        .subquery()
     )
+    total = (await db.execute(count_q)).scalar() or 0
 
-    date_hit = DJSet.played_date.cast(String).like(raw_plain, escape="\\")
-
-    title_hit = or_(_title_pred(DJSet.search_text), child_title_exists)
-    match = or_(title_hit, artist_exists, channel_exists, date_hit)
-
-    where_clauses = (DJSet.parent_set_id.is_(None), set_reliable(), match)
-
-    # Correlated scalar count avoids a GROUP BY next to the boolean-hit columns.
-    track_count_sq = (
-        select(func.count(SetTrack.id))
-        .where(SetTrack.set_id == DJSet.id)
-        .correlate(DJSet)
-        .scalar_subquery()
-    )
-
-    base = (
+    # Capped detail fetch of the valid roots, with their track counts. The LEFT
+    # JOIN + GROUP BY yields 0 for a track-less root (matches the old scalar sq).
+    detail_q = (
         select(
             DJSet.id,
             DJSet.title,
             DJSet.played_date,
             DJSet.has_artwork,
-            track_count_sq.label("track_count"),
-            title_hit.label("title_hit"),
-            artist_exists.label("artist_hit"),
-            channel_exists.label("channel_hit"),
+            func.count(SetTrack.id).label("track_count"),
         )
-        .where(*where_clauses)
+        .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
+        .where(DJSet.id.in_(union_list), DJSet.parent_set_id.is_(None), set_reliable())
+        .group_by(DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork)
         .order_by(DJSet.played_date.desc().nulls_last(), DJSet.id.desc())
         .limit(_SET_CANDIDATE_CAP)
     )
+    rows = (await db.execute(detail_q)).all()
 
-    # Exact, uncapped total consistent with the same WHERE.
-    count_q = select(func.count()).select_from(
-        select(DJSet.id).where(*where_clauses).subquery()
-    )
-    total = (await db.execute(count_q)).scalar() or 0
-
-    rows = (await db.execute(base)).all()
-
-    def _weight(r) -> int:
-        if r.title_hit or r.artist_hit:
+    def _weight(sid: int) -> int:
+        if sid in weight3:
             return 3
-        if r.channel_hit:
+        if sid in weight2:
             return 2
         return 1
 
     ranked = sorted(
         rows,
         key=lambda r: (
-            -_weight(r),
+            -_weight(r.id),
             -_relevance(search_fold(r.title or ""), fq),
             -(r.track_count or 0),
             -r.id,
