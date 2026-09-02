@@ -53,6 +53,26 @@ def test_build_pull_query_limit_after_id_shard():
     assert "AND c.id % 4 = 1" in sql
 
 
+def test_build_pull_query_rescan_days_default_is_fresh_only():
+    # default (0) == current behaviour == fresh-only pull, byte-for-byte
+    assert build_pull_query(rescan_days=0) == build_pull_query()
+    sql = build_pull_query(rescan_days=0)
+    assert "c.beatport_id IS NULL" in sql
+    assert "c.beatport_searched_at IS NULL" in sql
+    # no temporal widening
+    assert "make_interval" not in sql
+    assert "beatport_searched_at <" not in sql
+
+
+def test_build_pull_query_rescan_days_widens_pull():
+    sql = build_pull_query(rescan_days=90)
+    assert "c.beatport_id IS NULL" in sql
+    # the temporal OR clause: fresh OR searched more than N days ago
+    assert "c.beatport_searched_at IS NULL" in sql
+    assert "make_interval(days => 90)" in sql
+    assert "c.beatport_searched_at < now() - make_interval(days => 90)" in sql
+
+
 def test_parse_shard():
     assert parse_shard(None) is None
     assert parse_shard("") is None

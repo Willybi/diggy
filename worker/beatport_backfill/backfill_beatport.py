@@ -12,18 +12,32 @@ code — artwork upload AND the merge-on-collision are handled there, invariant 
 
 The three steps:
 
-  1. PULL   — stream the FRESH Tier-1 candidates (``id,title,isrc,flat_artist,
+  1. PULL   — stream the Tier-1 candidates (``id,title,isrc,flat_artist,
               m2m_artists``) from prod, read-only, via the documented SSH/psql
-              channel fed a ``COPY (...) TO STDOUT``. Fresh only:
+              channel fed a ``COPY (...) TO STDOUT``. Fresh only by default:
               ``beatport_id IS NULL AND beatport_searched_at IS NULL`` — the E1
-              retries (30/90d) are left entirely to the VPS. Ordered by the C12
-              priority scalar (``coalesce(enrich_priority, 75) DESC, id DESC``).
-              ``--after-id`` / ``--limit`` window a salvo; ``--shard M/N`` splits
-              the backlog by ``id % N``.
+              retries (30/90d) are left entirely to the VPS. ``--rescan-days N``
+              WIDENS the pull to ALSO re-scan rows searched more than N days ago
+              (``beatport_searched_at < now() - make_interval(days => N)``), a
+              purely temporal re-scan that ignores the E1 attempt counter — two
+              use cases: (a) ``--rescan-days 90`` to grind the due retries now, and
+              (b) ``--rescan-days 365`` for an annual pass over every no-match
+              Beatport row (re-check the meantime Beatport additions). Ordered by
+              the C12 priority scalar (``coalesce(enrich_priority, 75) DESC, id
+              DESC``). ``--after-id`` / ``--limit`` window a salvo; ``--shard M/N``
+              splits the backlog by ``id % N``. Because a rescan pull re-picks the
+              same rows until they are re-searched (no ``searched_at IS NULL`` self-
+              guard), run it in the VPS Beatport off-hours (~23h→6h) or with
+              ``--shard`` to avoid overlap — a daytime unsharded run already
+              measured ~80% ``already_linked`` waste.
   2. SCRAPE — ``docker run`` the driver in the PROD server image (beatport/ +
               workers/ + curl_cffi), passing the L1b rate knob ``BEATPORT_RATE``
               (``--rate``, default a prudent 4 rps under the probed 6 rps ceiling)
-              via ``-e``. Produces ``matches.ndjson`` on the L1b contract.
+              AND ``BEATPORT_CONCURRENCY`` (``--concurrency``, default 6) via ``-e``.
+              The driver scrapes titles CONCURRENTLY bounded by that semaphore (it
+              was latency-bound sequentially, ~1.6 rps); the same env value pins the
+              rate limiter's beatport semaphore so it doesn't bind requests to its
+              prod default of 2. Produces ``matches.ndjson`` on the L1b contract.
   3. APPLY  — pipe ``matches.ndjson`` over ssh stdin to the OPS import script,
               propagating ``--apply``. In dry-run (default) the OPS script is
               invoked WITHOUT ``--apply`` (it runs the enrichment code, prints its
@@ -46,6 +60,8 @@ Usage (from the repo root, or anywhere):
     python worker/beatport_backfill/backfill_beatport.py                       # dry-run, full backlog
     python worker/beatport_backfill/backfill_beatport.py --apply               # scrape + write
     python worker/beatport_backfill/backfill_beatport.py --shard 0/4 --apply   # one quarter of the backlog
+    python worker/beatport_backfill/backfill_beatport.py --rescan-days 90 --apply   # grind due retries
+    python worker/beatport_backfill/backfill_beatport.py --rescan-days 365 --shard 0/4 --apply  # annual pass, sharded
     python worker/beatport_backfill/backfill_beatport.py --reuse-matches --apply  # write last matches
 """
 
@@ -95,6 +111,12 @@ CANDIDATE_FIELDS = ["id", "title", "isrc", "flat_artist", "m2m_artists"]
 # container as BEATPORT_RATE (the L1b knob).
 DEFAULT_RATE = 4.0
 
+# Default title-level concurrency: passed to the container as BEATPORT_CONCURRENCY,
+# read by BOTH the driver's own semaphore AND the rate limiter's beatport semaphore
+# — they MUST agree, else the smaller binds. Always posted (never left at the rate
+# limiter's prod default of 2) so the concurrent driver can actually parallelise.
+DEFAULT_CONCURRENCY = 6
+
 
 def parse_shard(spec):
     """Parse a ``"M/N"`` shard spec -> ``(m, n)`` ints, or ``None`` for a falsy spec.
@@ -113,19 +135,35 @@ def parse_shard(spec):
     return m, n
 
 
-def build_pull_query(limit=0, after_id=0, shard=None):
-    """COPY query for the FRESH Tier-1 Beatport candidates.
+def build_pull_query(limit=0, after_id=0, shard=None, rescan_days=0):
+    """COPY query for the Tier-1 Beatport candidates.
 
-    Fresh only (``beatport_id IS NULL AND beatport_searched_at IS NULL``): E1
-    retries are the VPS's job, never this tool's. M2M artist names are aggregated
+    By default fresh only (``beatport_id IS NULL AND beatport_searched_at IS
+    NULL``): E1 retries are the VPS's job, never this tool's. ``rescan_days > 0``
+    WIDENS the pull to also re-scan rows searched more than N days ago
+    (``beatport_searched_at < now() - make_interval(days => N)``) — a purely
+    TEMPORAL re-scan that ignores the E1 attempt counter (grind due retries, or an
+    annual pass over every no-match Beatport row). M2M artist names are aggregated
     (``string_agg`` ordered by ``catalog_artists.position``) with the flat
     ``catalog.artist`` carried alongside as a fallback — the driver picks
     ``m2m or flat`` exactly like the drain. Ordered by the C12 priority scalar so
     the residential IP drains the highest-value rows first. ``after_id`` (an id
     window, not a strict keyset over the priority sort) and ``shard`` (``id % N``)
-    partition a salvo; the ``beatport_searched_at IS NULL`` guard makes the whole
-    thing self-idempotent across runs.
+    partition a salvo; the ``beatport_searched_at IS NULL`` guard makes the fresh
+    pull self-idempotent across runs (a rescan pull re-picks the same rows until
+    they are re-searched, so run it in the VPS off-hours or sharded).
     """
+    if rescan_days > 0:
+        freshness = (
+            "  WHERE c.beatport_id IS NULL\n"
+            "    AND (c.beatport_searched_at IS NULL\n"
+            f"         OR c.beatport_searched_at < now() - make_interval(days => {int(rescan_days)}))\n"
+        )
+    else:
+        freshness = (
+            "  WHERE c.beatport_id IS NULL\n"
+            "    AND c.beatport_searched_at IS NULL\n"
+        )
     clauses = ""
     if after_id:
         clauses += f"    AND c.id > {int(after_id)}\n"
@@ -144,8 +182,7 @@ def build_pull_query(limit=0, after_id=0, shard=None):
         "  FROM catalog c\n"
         "  LEFT JOIN catalog_artists ca ON ca.catalog_id = c.id\n"
         "  LEFT JOIN artists a ON a.id = ca.artist_id\n"
-        "  WHERE c.beatport_id IS NULL\n"
-        "    AND c.beatport_searched_at IS NULL\n"
+        f"{freshness}"
         f"{clauses}"
         "  GROUP BY c.id\n"
         f"  ORDER BY coalesce(c.enrich_priority, {PRIORITY_BASELINE}) DESC, c.id DESC\n"
@@ -329,14 +366,27 @@ def _docker_build():
 
 
 def _docker_scrape(workdir, rate, concurrency=None, max_403=None):
-    """Run scrape_driver.py in the container over <workdir>/to_analyze.csv."""
+    """Run scrape_driver.py in the container over <workdir>/to_analyze.csv.
+
+    BEATPORT_CONCURRENCY is ALWAYS posted (defaulting to DEFAULT_CONCURRENCY): the
+    driver's title-level semaphore AND the rate limiter's beatport semaphore both
+    read it, so they must agree — leaving it unset would peg the limiter at its prod
+    default of 2 and throttle requests to 2 even though the driver launches more.
+    """
     shutil.copy2(
         os.path.join(PKG_DIR, "scrape_driver.py"),
         os.path.join(workdir, "scrape_driver.py"),
     )
-    env_flags = ["-e", f"BEATPORT_RATE={rate}"]
-    if concurrency:
-        env_flags += ["-e", f"BEATPORT_CONCURRENCY={concurrency}"]
+    conc = concurrency or DEFAULT_CONCURRENCY
+    # Le conteneur local n'a pas de Redis. Le défaut redis:6379 (rate-limit
+    # acquire) timeout ~1,3 s À CHAQUE requête avant de fail-open. Une adresse
+    # qui refuse vite (port fermé) déclenche le fail-open immédiat → seul le
+    # bucket local (BEATPORT_RATE) gouverne. Mesure : 1,3 s → 0,04 s/req.
+    env_flags = [
+        "-e", "REDIS_URL=redis://127.0.0.1:1/0",
+        "-e", f"BEATPORT_RATE={rate}",
+        "-e", f"BEATPORT_CONCURRENCY={conc}",
+    ]
     if max_403:
         env_flags += ["-e", f"BEATPORT_MAX_CONSECUTIVE_403={max_403}"]
     subprocess.run(
@@ -382,7 +432,8 @@ def main(args):
         f"after_id={args.after_id or 'none'}, shard={args.shard or 'none'})..."
     )
     csv_text = run_remote_sql(
-        REMOTE_PSQL_PULL, build_pull_query(args.limit, args.after_id, shard)
+        REMOTE_PSQL_PULL,
+        build_pull_query(args.limit, args.after_id, shard, args.rescan_days),
     )
     candidates = parse_candidates(csv_text)
     _write_csv(
@@ -448,6 +499,15 @@ if __name__ == "__main__":
         "residential-IP salvos in parallel without overlap",
     )
     parser.add_argument(
+        "--rescan-days",
+        dest="rescan_days",
+        type=int,
+        default=0,
+        help="also re-scan rows searched more than N days ago (0 = fresh only; "
+        "e.g. 90 = grind the due retries, 365 = annual pass over every no-match "
+        "Beatport row). Ignores the E1 attempt counter: a purely temporal re-scan.",
+    )
+    parser.add_argument(
         "--rate",
         type=float,
         default=DEFAULT_RATE,
@@ -458,9 +518,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=None,
-        help="optional BEATPORT_CONCURRENCY override for the container "
-        "(rows are scraped sequentially; this only bounds the per-row requests)",
+        default=DEFAULT_CONCURRENCY,
+        help=f"BEATPORT_CONCURRENCY for the container (default {DEFAULT_CONCURRENCY}): "
+        "the driver scrapes titles CONCURRENTLY bounded by this, and the rate limiter "
+        "uses the same value for its beatport semaphore — the token bucket (--rate) "
+        "still caps the total request rate. NB: the shared curl_cffi executor in the "
+        "prod image caps in-flight Beatport requests at 2, so raising this past ~4 "
+        "may not add throughput without a server-side change.",
     )
     parser.add_argument(
         "--max-403",

@@ -16,6 +16,7 @@ Usage:
 import asyncio
 import logging
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -79,16 +80,37 @@ class HttpPool:
                 max_connections=HTTP_MAX_CONNECTIONS, max_keepalive_connections=10
             ),
         )
-        self._bp_session = curl_requests.Session(impersonate="chrome124")
-        self._bp_executor = ThreadPoolExecutor(max_workers=2)
+        # Beatport scraping runs curl_cffi (a sync client) in a threadpool.
+        # The executor width is env-tunable via BEATPORT_CONCURRENCY (SAME env +
+        # default 2 as the rate limiter's beatport semaphore — see rate_limiter.py
+        # — so executor width and the concurrency cap stay aligned). Default 2 →
+        # PROD is unchanged. The LOCAL residential-IP scraper posts it higher.
+        bp_concurrency = int(os.environ.get("BEATPORT_CONCURRENCY", "2"))
+        # curl_cffi Sessions are NOT thread-safe, so each executor thread gets its
+        # OWN session (thread-local) instead of one shared instance. At the default
+        # width of 2 this is functionally identical to before — just 2 thread-local
+        # sessions rather than 1 shared — and it stays correct when the width is
+        # raised above 2. threading.local can't enumerate its per-thread values, so
+        # we also track every created session in a lock-guarded list to close them
+        # all on exit.
+        self._bp_local = threading.local()
+        self._bp_sessions: list = []
+        self._bp_sessions_lock = threading.Lock()
+        self._bp_executor = ThreadPoolExecutor(max_workers=bp_concurrency)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._client:
             await self._client.aclose()
             self._client = None
-        if hasattr(self, "_bp_session"):
-            self._bp_session.close()
+        if hasattr(self, "_bp_sessions"):
+            with self._bp_sessions_lock:
+                for session in self._bp_sessions:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+                self._bp_sessions.clear()
         if hasattr(self, "_bp_executor"):
             self._bp_executor.shutdown(wait=False)
         return False
@@ -166,7 +188,16 @@ class HttpPool:
         async with self.limiter.acquire("beatport"):
 
             def _sync_get():
-                return self._bp_session.get(url, timeout=15)
+                # Get-or-create a curl_cffi session for THIS executor thread:
+                # curl_cffi Sessions are not thread-safe, so each thread owns its
+                # own. Track it under the lock so __aexit__ can close them all.
+                session = getattr(self._bp_local, "session", None)
+                if session is None:
+                    session = curl_requests.Session(impersonate="chrome124")
+                    with self._bp_sessions_lock:
+                        self._bp_sessions.append(session)
+                    self._bp_local.session = session
+                return session.get(url, timeout=15)
 
             resp = await loop.run_in_executor(self._bp_executor, _sync_get)
 

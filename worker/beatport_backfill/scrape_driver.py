@@ -29,19 +29,31 @@ raises ``BeatportHTTPError`` on ANY non-200, so we reclassify by status:
 
 Only a clean ``found`` / ``not_found`` outcome is written; outages are logged/skipped.
 
-403 GUARD (supervised run): consecutive 403s are counted (a 404 is a successful
-attempt and resets the counter); once they reach
-``BEATPORT_MAX_CONSECUTIVE_403`` (env, default 5) the batch is ABORTED cleanly —
-the remaining rows are never scraped, so they stay fresh and un-emitted. A simple
-net abort is enough for a supervised run; no elaborate multi-tier back-off.
+CONCURRENCY: rows are scraped CONCURRENTLY, bounded by ``BEATPORT_CONCURRENCY``
+(env, default 6) through an ``asyncio.Semaphore`` + one ``asyncio.gather`` over all
+rows. The old sequential driver was latency-bound (~0.6 s/req -> ~1.6 rps) and never
+saturated the allowed rate; parallelising the TITLES lets the run finally hit the
+rate ceiling (~4x throughput). The TOTAL request rate stays capped by the rate
+limiter (``BEATPORT_RATE`` token bucket + its OWN ``BEATPORT_CONCURRENCY`` semaphore,
+which MUST match this one — the host orchestrator posts both env vars), so this
+driver only parallelises titles; the limiter caps requests. NDJSON line order is
+irrelevant (the import reads by ``catalog_id``); each line is a single sync
+``write``+``flush`` with no ``await`` between, so the event loop can never interleave
+two lines, and counter increments are likewise ``await``-free -> atomic.
 
-Throughput is governed by the L1b rate knob ``BEATPORT_RATE`` (+ optional
-``BEATPORT_CONCURRENCY``) read by ``workers.rate_limiter.RateLimiter``: the host
-orchestrator passes it into the container via ``docker run -e``. With no Redis
-reachable in the local container, the shared Redis window fails open and only the
-local token bucket governs — so the residential IP is throttled independently of
-the VPS's own 0.66 rps window. Rows are processed SEQUENTIALLY (the token bucket
-paces them), which keeps the 403-abort accounting exact.
+403 GUARD (supervised run): now a TOTAL 403 budget, not a consecutive count —
+"consecutive" is meaningless when N requests are in flight at once. A shared counter
+tallies every 403; once it reaches ``BEATPORT_MAX_CONSECUTIVE_403`` (env, default 5 —
+the name is kept for continuity) a shared ``aborted`` flag is set, and every
+coroutine that acquires the semaphore afterwards returns immediately, leaving its row
+fresh and un-emitted. A simple net abort is enough for a supervised run; no elaborate
+multi-tier back-off.
+
+Throughput is governed by the L1b rate knob ``BEATPORT_RATE`` (+ ``BEATPORT_CONCURRENCY``)
+read by ``workers.rate_limiter.RateLimiter``: the host orchestrator passes both into
+the container via ``docker run -e``. With no Redis reachable in the local container,
+the shared Redis window fails open and only the local token bucket governs — so the
+residential IP is throttled independently of the VPS's own 0.66 rps window.
 
 Usage (container, via backfill_beatport.py or by hand):
     python /work/scrape_driver.py --csv /work/to_analyze.csv --out /work/matches.ndjson
@@ -63,8 +75,11 @@ sys.path.insert(0, "/app")
 # progress must stay ordered even when the container stdout is piped
 print = functools.partial(print, flush=True)  # noqa: A001
 
-# Consecutive 403s that trip a clean batch abort (Cloudflare blocking the IP).
-MAX_CONSECUTIVE_403 = int(os.environ.get("BEATPORT_MAX_CONSECUTIVE_403", "5"))
+# TOTAL 403 budget that trips a clean run abort (Cloudflare blocking the IP). The
+# old sequential driver counted CONSECUTIVE 403s, but "consecutive" is meaningless
+# once several requests are in flight at once, so this is now a budget over the whole
+# run. The env var keeps its historical name for continuity.
+MAX_403_BUDGET = int(os.environ.get("BEATPORT_MAX_CONSECUTIVE_403", "5"))
 
 
 def classify_beatport_error(status_code):
@@ -91,10 +106,13 @@ def _match_artist(row):
 
 
 async def _scrape(csv_path, out_path):
-    """Scrape every candidate row and stream NDJSON to ``out_path``.
+    """Scrape every candidate row CONCURRENTLY and stream NDJSON to ``out_path``.
 
-    Returns a counters dict. Streams (flush per line) so a mid-run 403 abort or a
-    container kill still leaves a valid partial NDJSON the host can import.
+    Returns a counters dict. Rows are fanned out over an ``asyncio.gather`` bounded
+    by an ``asyncio.Semaphore(BEATPORT_CONCURRENCY)`` (default 6) — the rate limiter
+    caps the actual request rate. Streams (flush per line) so a mid-run 403 abort or
+    a container kill still leaves a valid partial NDJSON the host can import; line
+    order is irrelevant (the import reads by ``catalog_id``).
     """
     from workers.async_http import BeatportHTTPError, HttpPool
     from workers.enrichment import _search_beatport_async
@@ -103,73 +121,87 @@ async def _scrape(csv_path, out_path):
     with open(csv_path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
+    total = len(rows)
     counts = {"found": 0, "not_found": 0, "outage": 0, "error": 0, "aborted": False}
-    consecutive_403 = 0
+    # Title-level concurrency: MUST match the rate limiter's beatport semaphore
+    # (both read BEATPORT_CONCURRENCY) so neither silently binds the other.
+    concurrency = int(os.environ.get("BEATPORT_CONCURRENCY", "6"))
+    sem = asyncio.Semaphore(concurrency)
+    # Shared, mutable guard state. total_403 = the run-wide 403 budget; done = the
+    # completion counter for progress. Both are only ever read/written between
+    # ``await`` points -> atomic in the single-threaded event loop.
+    guard = {"total_403": 0, "done": 0}
     t0 = time.monotonic()
 
     limiter = RateLimiter()
     with open(out_path, "w", encoding="utf-8") as out_f:
         async with HttpPool(limiter) as pool:
-            for i, row in enumerate(rows, 1):
-                cid = int(str(row["id"]).strip())
-                title = (row.get("title") or "").strip()
-                isrc = (row.get("isrc") or "").strip() or None
 
-                try:
-                    bp_track = await _search_beatport_async(
-                        pool, title, _match_artist(row), isrc, rcache=None
-                    )
-                except BeatportHTTPError as e:
-                    if classify_beatport_error(e.status_code) == "not_found":
-                        # A 404 is the release fallback saying "not on Beatport"
-                        # (not in its electronic catalogue), NOT a panne: emit a
-                        # not_found line so the import marks it searched (E1) and it
-                        # won't stay fresh and re-404 on every run.
-                        consecutive_403 = 0
-                        rec = {"catalog_id": cid, "status": "not_found", "bp_track": None}
-                        counts["not_found"] += 1
+            async def process(row):
+                async with sem:
+                    # Budget already spent by a sibling: skip, leave the row fresh.
+                    if counts["aborted"]:
+                        return
+                    cid = int(str(row["id"]).strip())
+                    title = (row.get("title") or "").strip()
+                    isrc = (row.get("isrc") or "").strip() or None
+
+                    rec = None
+                    try:
+                        bp_track = await _search_beatport_async(
+                            pool, title, _match_artist(row), isrc, rcache=None
+                        )
+                    except BeatportHTTPError as e:
+                        if classify_beatport_error(e.status_code) == "not_found":
+                            # A 404 is the release fallback saying "not on Beatport"
+                            # (not in its electronic catalogue), NOT a panne: emit a
+                            # not_found line so the import marks it searched (E1) and
+                            # it won't stay fresh and re-404 on every run.
+                            rec = {"catalog_id": cid, "status": "not_found", "bp_track": None}
+                            counts["not_found"] += 1
+                        else:
+                            # Outage (403 / 429 / 5xx), NOT an attempt: emit nothing,
+                            # leave the row fresh for a later re-scan.
+                            counts["outage"] += 1
+                            if e.status_code == 403:
+                                guard["total_403"] += 1
+                                if (
+                                    guard["total_403"] >= MAX_403_BUDGET
+                                    and not counts["aborted"]
+                                ):
+                                    counts["aborted"] = True
+                                    print(
+                                        f"  ABORT: {guard['total_403']} total 403(s) "
+                                        "(Cloudflare blocking the IP); remaining rows "
+                                        "left un-scraped and fresh."
+                                    )
+                    except Exception as e:  # noqa: BLE001 — one dead row must not abort
+                        counts["error"] += 1
+                        print(f"  catalog {cid}: {type(e).__name__}: {e}")
+                    else:
+                        if bp_track:
+                            rec = {"catalog_id": cid, "status": "found", "bp_track": bp_track}
+                            counts["found"] += 1
+                        else:
+                            rec = {"catalog_id": cid, "status": "not_found", "bp_track": None}
+                            counts["not_found"] += 1
+
+                    # One sync write+flush, no await between -> lines never interleave.
+                    if rec is not None:
                         out_f.write(json.dumps(rec) + "\n")
                         out_f.flush()
-                        continue
-                    # Outage (403 / 429 / 5xx), NOT an attempt: emit nothing, leave
-                    # the row fresh for a later re-scan.
-                    counts["outage"] += 1
-                    if e.status_code == 403:
-                        consecutive_403 += 1
-                        if consecutive_403 >= MAX_CONSECUTIVE_403:
-                            counts["aborted"] = True
-                            print(
-                                f"  ABORT: {consecutive_403} consecutive 403s "
-                                f"(Cloudflare blocking the IP); {len(rows) - i} "
-                                "row(s) left un-scraped and fresh."
-                            )
-                            break
-                    else:
-                        consecutive_403 = 0
-                    continue
-                except Exception as e:  # noqa: BLE001 — one dead row must not abort
-                    counts["error"] += 1
-                    consecutive_403 = 0
-                    print(f"  catalog {cid}: {type(e).__name__}: {e}")
-                    continue
 
-                consecutive_403 = 0
-                if bp_track:
-                    rec = {"catalog_id": cid, "status": "found", "bp_track": bp_track}
-                    counts["found"] += 1
-                else:
-                    rec = {"catalog_id": cid, "status": "not_found", "bp_track": None}
-                    counts["not_found"] += 1
-                out_f.write(json.dumps(rec) + "\n")
-                out_f.flush()
+                    guard["done"] += 1
+                    done = guard["done"]
+                    if done % 50 == 0 or done == total:
+                        print(
+                            f"[beatport-scrape] {done}/{total} "
+                            f"found={counts['found']} not_found={counts['not_found']} "
+                            f"outage={counts['outage']} error={counts['error']} "
+                            f"elapsed={time.monotonic() - t0:.0f}s"
+                        )
 
-                if i % 25 == 0 or i == len(rows):
-                    print(
-                        f"[beatport-scrape] {i}/{len(rows)} "
-                        f"found={counts['found']} not_found={counts['not_found']} "
-                        f"outage={counts['outage']} error={counts['error']} "
-                        f"elapsed={time.monotonic() - t0:.0f}s"
-                    )
+            await asyncio.gather(*(process(row) for row in rows))
 
     return counts
 
