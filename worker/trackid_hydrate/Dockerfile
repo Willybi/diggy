@@ -29,6 +29,11 @@ RUN mkdir -p /models \
          -O /models/discogs-effnet-bs64-1.pb \
     && chown -R diggy:diggy /models
 
+# The server image COPYs /root/.local -> /home/diggy/.local as ROOT (no --chown in
+# server/Dockerfile), so USER diggy cannot uninstall its own essentia below
+# (PermissionError on the root-owned dist-info). Hand .local to diggy first.
+RUN chown -R diggy:diggy /home/diggy/.local
+
 USER diggy
 # essentia-tensorflow is a SUPERSET of the plain `essentia` wheel already installed in
 # the server image (requirements.txt: essentia==2.1b6.dev1389, for BPM): it ships the
