@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 
 from workers.artist_names import fold_base
@@ -339,6 +340,18 @@ SYNC_ARTISTS_LOCK_TTL = 4800  # > sync_artists time_limit (4500)
 # link_set_artists has no explicit time_limit → the global CELERY_TIME_LIMIT (3600)
 LINK_SET_ARTISTS_LOCK_TTL = 4200  # > global time_limit (3600)
 BACKFILL_MULTI_ARTISTS_LOCK_TTL = 9300  # > backfill time_limit (9000)
+# AV9 — soft time limit extracted as a module constant so the task decorator AND
+# the internal deadline guard share ONE source of truth. Never read
+# task.soft_time_limit at runtime (fragile under the MagicMock test harness).
+BACKFILL_MULTI_ARTISTS_SOFT_TIME_LIMIT = 7200
+# AV9 — margin (seconds) subtracted from the soft limit to build an internal
+# monotonic deadline checked BEFORE each chunk. billiard's SoftTimeLimitExceeded
+# can fire WHILE the asyncio internals are mid-write and be swallowed by the
+# transport's error handler (Sentry DIGGY-APP-J): it then never reaches the
+# task's except clause and the run dies at the hard limit (SIGKILL — uncommitted
+# work lost + orphaned lock). The deadline exits the loop cleanly WITHOUT
+# depending on signal delivery. Mirrors workers/tasks/catalog.py.
+DEADLINE_MARGIN = int(os.environ.get("ENRICH_DEADLINE_MARGIN", "120"))
 # autosplit_with_artists: budget-capped like the link task (primary loop guard,
 # sized well under the soft limit), single-instance Redis lock TTL > time_limit.
 AUTOSPLIT_WITH_DEFAULT_BUDGET = 500
@@ -2400,7 +2413,7 @@ def _run_link_set_artists(task):
 @celery_app.task(
     name="workers.tasks.backfill_multi_artists",
     bind=True,
-    soft_time_limit=7200,
+    soft_time_limit=BACKFILL_MULTI_ARTISTS_SOFT_TIME_LIMIT,
     time_limit=9000,
 )
 def backfill_multi_artists(self):
@@ -2466,6 +2479,17 @@ def _run_backfill_multi_artists(task):
         enriched = 0
         errors = 0
 
+        # AV9 — internal deadline (see DEADLINE_MARGIN): checked BEFORE each
+        # chunk, never mid-chunk, so a shortened run stamps nothing on the
+        # entries it never reached. The already-committed chunks survive (the
+        # per-chunk commit below is unchanged).
+        deadline = (
+            time.monotonic()
+            + BACKFILL_MULTI_ARTISTS_SOFT_TIME_LIMIT
+            - DEADLINE_MARGIN
+        )
+        deadline_hit = False
+
         async with HttpPool(limiter) as pool:
             with Session(engine) as session:
                 # Entries with a deezer_id and exactly 1 catalog_artist link
@@ -2529,6 +2553,18 @@ def _run_backfill_multi_artists(task):
                 # any chunk keeps the committed chunks (pattern:
                 # fetch_artist_artworks).
                 for i in range(0, len(entries), ARTIST_BACKLOG_BATCH):
+                    if time.monotonic() >= deadline:
+                        deadline_hit = True
+                        logger.warning(
+                            "backfill_multi_artists hit internal deadline "
+                            "(soft limit %ds - margin %ds); stopping before "
+                            "next chunk, partial stats: enriched=%d errors=%d",
+                            BACKFILL_MULTI_ARTISTS_SOFT_TIME_LIMIT,
+                            DEADLINE_MARGIN,
+                            enriched,
+                            errors,
+                        )
+                        break
                     chunk = entries[i : i + ARTIST_BACKLOG_BATCH]
                     await asyncio.gather(*[_process_one(e) for e in chunk])
                     session.commit()
@@ -2539,7 +2575,12 @@ def _run_backfill_multi_artists(task):
                         enriched,
                     )
 
-        return {"enriched": enriched, "errors": errors, "total": len(entries)}
+        return {
+            "enriched": enriched,
+            "errors": errors,
+            "total": len(entries),
+            "deadline_hit": deadline_hit,
+        }
 
     try:
         result = asyncio.run(_async_backfill())

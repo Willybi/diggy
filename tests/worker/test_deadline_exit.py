@@ -522,6 +522,110 @@ class TestBackfillTrackidDeadline:
         sets_infra.clog.set_stats.assert_called_once_with(result)
 
 
+class _FakeDeezerPool:
+    """HttpPool stand-in for backfill_multi_artists: an async CM whose
+    deezer_get is an AsyncMock so a test can assert it was NEVER awaited when
+    the deadline fires before the first chunk."""
+
+    def __init__(self):
+        self.deezer_get = AsyncMock(
+            return_value={"id": 1, "contributors": [{"a": 1}, {"b": 2}]}
+        )
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+@pytest.fixture
+def artists_mod():
+    mods_to_clear = [k for k in sys.modules if k.startswith("workers.tasks")]
+    for m in mods_to_clear:
+        del sys.modules[m]
+    import workers.tasks.artists as artists
+    return artists
+
+
+@pytest.fixture
+def artists_env(monkeypatch):
+    """Everything _run_backfill_multi_artists imports at CALL time, mocked. The
+    runner builds its CrawlLogger and calls _clog.set_stats on the CrawlLogger
+    instance itself (not the __enter__ value), so `clog` here is that instance."""
+    session = MagicMock()
+    # Selection query: session.execute(select(...)).scalars().all() → entries
+    orm_mod = MagicMock()
+    orm_mod.Session.return_value.__enter__.return_value = session
+
+    crawl_mod = MagicMock()
+    clog = crawl_mod.CrawlLogger.return_value
+
+    pool = _FakeDeezerPool()
+
+    monkeypatch.setitem(sys.modules, "sqlalchemy", MagicMock())
+    monkeypatch.setitem(sys.modules, "sqlalchemy.orm", orm_mod)
+    monkeypatch.setitem(sys.modules, "models", MagicMock())
+    monkeypatch.setitem(sys.modules, "workers.db", MagicMock())
+    monkeypatch.setitem(sys.modules, "workers.crawl_logger", crawl_mod)
+    monkeypatch.setitem(
+        sys.modules,
+        "workers.async_http",
+        MagicMock(HttpPool=MagicMock(side_effect=lambda limiter: pool)),
+    )
+    monkeypatch.setitem(sys.modules, "workers.rate_limiter", MagicMock())
+    monkeypatch.setitem(sys.modules, "workers.deezer_enrich", MagicMock())
+
+    def _set_entries(n):
+        entries = [MagicMock(id=i, deezer_id="123") for i in range(n)]
+        session.execute.return_value.scalars.return_value.all.return_value = entries
+        return entries
+
+    return SimpleNamespace(
+        session=session, clog=clog, pool=pool, set_entries=_set_entries
+    )
+
+
+class TestBackfillMultiArtistsDeadline:
+    """backfill_multi_artists reached its 9000s HARD limit in prod (Sentry
+    DIGGY-APP-T/V/W → billiard SIGKILL). The AV9 deadline guard exits the
+    per-chunk loop cleanly before the hard limit instead."""
+
+    def test_deadline_stops_before_first_chunk(
+        self, artists_mod, artists_env, fake_redis, fake_self, monkeypatch
+    ):
+        # 250 entries → 3 chunks of 100; the deadline fires before chunk 1.
+        artists_env.set_entries(250)
+        monkeypatch.setattr(artists_mod, "time", _FakeClock([0.0, 10**9]))
+
+        result = artists_mod.backfill_multi_artists(fake_self)
+
+        # The loop broke at the top of the first iteration: nothing fetched.
+        assert artists_env.pool.deezer_get.await_count == 0
+        assert result["deadline_hit"] is True
+        assert result["enriched"] == 0
+        assert result["errors"] == 0
+        assert result["total"] == 250
+        # Partial stats recorded, lock released by the wrapper.
+        artists_env.clog.set_stats.assert_called_once_with(result)
+        fake_redis.delete.assert_called_once_with("lock:backfill_multi_artists")
+
+    def test_nominal_run_unaffected(
+        self, artists_mod, artists_env, fake_redis, fake_self, monkeypatch
+    ):
+        # 150 entries → 2 chunks; the deadline never fires, both chunks run.
+        artists_env.set_entries(150)
+        monkeypatch.setattr(artists_mod, "time", _FakeClock(_NEVER))
+
+        result = artists_mod.backfill_multi_artists(fake_self)
+
+        assert artists_env.pool.deezer_get.await_count == 150
+        assert result["deadline_hit"] is False
+        # Each hit has 2 contributors → link_catalog_artist_from_hit → enriched.
+        assert result["enriched"] == 150
+        assert result["total"] == 150
+
+
 class TestConstantsAreSingleSourceOfTruth:
     """The decorators must reference the module constants (one source of truth
     for the decorator AND the deadline computation — never task.soft_time_limit
@@ -559,4 +663,16 @@ class TestConstantsAreSingleSourceOfTruth:
             0
             < sets_mod.TRACKID_BACKFILL_DEADLINE_MARGIN
             < sets_mod.TRACKID_BACKFILL_SOFT_TIME_LIMIT
+        )
+
+    def test_backfill_multi_artists_decorator_references_constant(self, artists_mod):
+        assert artists_mod.BACKFILL_MULTI_ARTISTS_SOFT_TIME_LIMIT == 7200
+        assert (
+            artists_mod.backfill_multi_artists.soft_time_limit
+            == artists_mod.BACKFILL_MULTI_ARTISTS_SOFT_TIME_LIMIT
+        )
+        assert (
+            0
+            < artists_mod.DEADLINE_MARGIN
+            < artists_mod.BACKFILL_MULTI_ARTISTS_SOFT_TIME_LIMIT
         )

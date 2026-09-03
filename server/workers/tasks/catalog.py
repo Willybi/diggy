@@ -83,6 +83,53 @@ def _priority_floor() -> int | None:
     return int(raw) if raw else None
 
 
+# DIGGY-APP-H — the per-batch commit of the Beatport drain can hit a Postgres
+# deadlock (SQLSTATE 40P01, DeadlockDetected) when the LOCAL Beatport backfill
+# tool writes the same `catalog` rows in a crossed lock order in parallel with
+# the VPS drain. A deadlock is transient: Postgres has already rolled back OUR
+# transaction, so we roll back the Session, back off briefly and re-issue the
+# same commit. The business loop has already applied `_mark_searched` on the
+# in-session objects, so the retried commit re-emits the identical UPDATE —
+# nothing incorrect is re-stamped. We detect the deadlock via the driver-agnostic
+# SQLSTATE exposed on `err.orig.pgcode` rather than importing psycopg2's
+# DeadlockDetected (keeps the worker driver-agnostic and avoids a hard psycopg2
+# import). Any NON-deadlock OperationalError is re-raised immediately; after the
+# bounded retries the last error propagates (unchanged behaviour for a
+# non-transient failure).
+COMMIT_DEADLOCK_MAX_RETRIES = 3
+COMMIT_DEADLOCK_BACKOFF = float(
+    os.environ.get("ENRICH_COMMIT_DEADLOCK_BACKOFF", "0.5")
+)
+
+
+def _commit_with_deadlock_retry(session):
+    """Commit ``session``, retrying only on a transient Postgres deadlock (40P01).
+
+    Non-deadlock ``OperationalError`` is re-raised at once; a persistent deadlock
+    propagates once the retry budget is spent (see DIGGY-APP-H above).
+    """
+    from sqlalchemy.exc import OperationalError
+
+    for attempt in range(1, COMMIT_DEADLOCK_MAX_RETRIES + 1):
+        try:
+            session.commit()
+            return
+        except OperationalError as err:
+            # SQLSTATE 40P01 = deadlock_detected; anything else is not retryable.
+            if getattr(err.orig, "pgcode", None) != "40P01":
+                raise
+            session.rollback()
+            if attempt == COMMIT_DEADLOCK_MAX_RETRIES:
+                raise
+            logger.warning(
+                "Beatport enrich commit deadlock (40P01), retry %d/%d",
+                attempt,
+                COMMIT_DEADLOCK_MAX_RETRIES,
+            )
+            # Short, mildly increasing backoff to let the other txn clear.
+            time.sleep(COMMIT_DEADLOCK_BACKOFF * attempt)
+
+
 @celery_app.task(
     name="workers.tasks.enrich_catalog",
     bind=True,
@@ -373,7 +420,10 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
                             progress["not_found"] += stats.get("not_found", 0)
                             progress["errors"] += stats.get("errors", 0)
                             progress["merged"] += stats.get("merged", 0)
-                            session.commit()
+                            # DIGGY-APP-H: retry the per-batch commit on a
+                            # transient Postgres deadlock (parallel LOCAL backfill
+                            # writing the same catalog rows in crossed order).
+                            _commit_with_deadlock_retry(session)
                             logger.info(
                                 "Beatport enrich progress: %d/%d",
                                 min(i + 50, progress["total"]),

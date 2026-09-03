@@ -283,3 +283,35 @@ class TestBeatportBatchM2m:
         await enrich_beatport_batch(sync_session, [entry], MagicMock(), None)
 
         assert search.call_args.args[2] == "Solo Artist"
+
+
+# ── _load_m2m_artist_names: a row deleted mid-batch (concurrent merge race) ────
+
+
+class TestLoadM2mArtistNamesObjectDeletedRace:
+    """The M2M pre-load builds its id list BEFORE the per-entry try/except in the
+    callers, so a row deleted mid-batch by a concurrent merge (whose expired ORM
+    object raises ObjectDeletedError on the ``e.id`` reload) used to kill the whole
+    batch here → retries → DLQ (Sentry DIGGY-APP-1E / DIGGY-APP-4). It must skip
+    the dead row and return only the survivors' names."""
+
+    async def test_deleted_entry_skipped_survivors_returned(self, sync_session):
+        survivor = _make_row(sync_session, "Alive", "Flat")
+        _link_artist(sync_session, survivor.id, "Real Name", 0)
+        doomed = _make_row(sync_session, "Doomed", "Gone")
+        # Full expire → even .id reloads → ObjectDeletedError on the id-collect loop.
+        _delete_row_keep_persistent(sync_session, doomed, None)
+
+        with pytest.raises(ObjectDeletedError):
+            _ = doomed.id
+
+        # Doomed first so the raise happens before the survivor is collected.
+        result = _load_m2m_artist_names(sync_session, [doomed, survivor])
+
+        assert result == {survivor.id: "Real Name"}
+
+    async def test_all_deleted_returns_empty(self, sync_session):
+        doomed = _make_row(sync_session, "Doomed", "Gone")
+        _delete_row_keep_persistent(sync_session, doomed, None)
+
+        assert _load_m2m_artist_names(sync_session, [doomed]) == {}

@@ -302,7 +302,17 @@ def _load_m2m_artist_names(session, entries) -> dict[int, str]:
     """
     from models import Artist, CatalogArtist
 
-    ids = [e.id for e in entries]
+    # A row deleted mid-batch by a concurrent merge (a sibling enrich worker or the
+    # local beatport_backfill tool) leaves its ORM object expired, so reloading
+    # ``e.id`` here raises ObjectDeletedError. Skip the dead row instead of letting
+    # it kill the whole batch — the per-entry path in the callers already handles a
+    # row that disappears mid-flight (its own ObjectDeletedError / except guard).
+    ids = []
+    for e in entries:
+        try:
+            ids.append(e.id)
+        except ObjectDeletedError:
+            continue
     if not ids:
         return {}
 
