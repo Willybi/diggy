@@ -30,10 +30,16 @@ DEEZER_API = "https://api.deezer.com"
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 _BEATPORT_CACHE_TTL = int(os.environ.get("BEATPORT_CACHE_TTL", "86400"))  # default 24h
 
-# E1 — re-scan backoff: a not-found entry is retried after 30 days, then 90,
-# then abandoned for good after 3 attempts.
-RESCAN_TIER2_DAYS = 30
-RESCAN_TIER3_DAYS = 90
+# E1 — re-scan backoff (BOTH Deezer + Beatport enrichment: select_enrich_candidates
+# is source-agnostic). A not-found entry is retried after RESCAN_TIER2_DAYS, then
+# RESCAN_TIER3_DAYS, then abandoned for good after MAX_SEARCH_ATTEMPTS. Stretched
+# from 30/90 to ~1 year (2026-09-03): a not-found row is mostly genuinely absent
+# from the source (Beatport is electronic-only), so re-searching it every month
+# was near-zero-yield churn (measured ~3% on the residual). The bulk drain + an
+# explicit yearly re-check now run out-of-band (the local worker/beatport_backfill
+# tool, --rescan-days 365), so the nightly VPS sweep only needs a yearly cadence.
+RESCAN_TIER2_DAYS = 365
+RESCAN_TIER3_DAYS = 365
 MAX_SEARCH_ATTEMPTS = 3
 # E1 — inline enrichment (sets/radar) skips entries searched within this window
 INLINE_SEARCH_COOLDOWN_HOURS = 24

@@ -24,7 +24,11 @@ sys.modules.setdefault("redis", MagicMock())
 _saved_curl = sys.modules.get("curl_cffi")
 sys.modules.setdefault("curl_cffi", MagicMock())
 
-from workers.enrichment import count_enrich_backlog  # noqa: E402
+from workers.enrichment import (  # noqa: E402
+    RESCAN_TIER2_DAYS,
+    RESCAN_TIER3_DAYS,
+    count_enrich_backlog,
+)
 
 if _saved_redis is None:
     sys.modules.pop("redis", None)
@@ -62,14 +66,26 @@ def _seed_all_deezer_tiers(session):
     """One row per tier, deezer source. Returns the expected count dict."""
     # never_tried: no id, never searched
     _make_row(session, 1)
-    # due_retry — tier2: 1 attempt, searched > 30d ago
-    _make_row(session, 2, deezer_searched_at=_days_ago(40), deezer_search_attempts=1)
-    # due_retry — tier3: 2 attempts, searched > 90d ago
-    _make_row(session, 3, deezer_searched_at=_days_ago(100), deezer_search_attempts=2)
-    # cooldown — tier2: 1 attempt, searched <= 30d ago (not due yet)
-    _make_row(session, 4, deezer_searched_at=_days_ago(20), deezer_search_attempts=1)
-    # cooldown — tier3: 2 attempts, searched <= 90d ago (not due yet)
-    _make_row(session, 5, deezer_searched_at=_days_ago(60), deezer_search_attempts=2)
+    # due_retry — tier2: 1 attempt, searched > RESCAN_TIER2_DAYS ago
+    _make_row(
+        session, 2, deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
+        deezer_search_attempts=1,
+    )
+    # due_retry — tier3: 2 attempts, searched > RESCAN_TIER3_DAYS ago
+    _make_row(
+        session, 3, deezer_searched_at=_days_ago(RESCAN_TIER3_DAYS + 10),
+        deezer_search_attempts=2,
+    )
+    # cooldown — tier2: 1 attempt, searched <= RESCAN_TIER2_DAYS ago (not due yet)
+    _make_row(
+        session, 4, deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS - 10),
+        deezer_search_attempts=1,
+    )
+    # cooldown — tier3: 2 attempts, searched <= RESCAN_TIER3_DAYS ago (not due yet)
+    _make_row(
+        session, 5, deezer_searched_at=_days_ago(RESCAN_TIER3_DAYS - 10),
+        deezer_search_attempts=2,
+    )
     # abandoned: 3 attempts
     _make_row(session, 6, deezer_searched_at=_days_ago(400), deezer_search_attempts=3)
     # linked: already carries a deezer_id (never a backlog row)
@@ -116,11 +132,14 @@ class TestCountEnrichBacklogTiers:
             "total_linked": 0,
         }
 
-    def test_attempt1_exactly_at_30d_is_cooldown_not_due(self, sync_session):
-        # `< now - 30d` is due, `>= now - 30d` is cooldown — the boundary row
-        # (searched exactly 30d ago) is NOT yet due, it is cooling down.
+    def test_attempt1_exactly_at_tier2_is_cooldown_not_due(self, sync_session):
+        # `< now - tier2` is due, `>= now - tier2` is cooldown — the boundary row
+        # (searched exactly RESCAN_TIER2_DAYS ago) is NOT yet due, it is cooling down.
         _make_row(
-            sync_session, 1, deezer_searched_at=_days_ago(30), deezer_search_attempts=1
+            sync_session,
+            1,
+            deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS),
+            deezer_search_attempts=1,
         )
 
         c = count_enrich_backlog(sync_session, source="deezer", now=NOW)
@@ -157,7 +176,10 @@ class TestCountEnrichBacklogPriorityFloor:
         _make_row(sync_session, 3)  # NULL → baseline 75 → kept
         # a due retry with low priority must NOT be filtered by the floor
         _make_row(
-            sync_session, 4, enrich_priority=1, deezer_searched_at=_days_ago(40),
+            sync_session,
+            4,
+            enrich_priority=1,
+            deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
             deezer_search_attempts=1,
         )
 
@@ -184,7 +206,7 @@ class TestCountEnrichBacklogSourceIsolation:
             sync_session,
             1,
             deezer_id="dz-1",
-            beatport_searched_at=_days_ago(40),
+            beatport_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
             beatport_search_attempts=1,
         )
 

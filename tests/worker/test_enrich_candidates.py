@@ -1,7 +1,7 @@
 """Tests for the E1 re-scan selection and attempt accounting in workers/enrichment.
 
 select_enrich_candidates picks entries per tier (never searched first, then
-30-day and 90-day backoff retries) under a global budget; not_recently_searched
+RESCAN_TIER2/TIER3-day backoff retries) under a global budget; not_recently_searched
 guards inline enrichment (sets/radar) against re-searching entries the nightly
 sweep just covered; _mark_searched increments the attempt counters.
 Uses a real sync SQLite session (sync_session fixture) so the tier queries
@@ -30,6 +30,8 @@ sys.modules.setdefault("curl_cffi", MagicMock())
 
 import workers.enrichment as enrichment_mod  # noqa: E402
 from workers.enrichment import (  # noqa: E402
+    RESCAN_TIER2_DAYS,
+    RESCAN_TIER3_DAYS,
     _mark_searched,
     not_recently_searched,
     select_enrich_candidates,
@@ -78,11 +80,11 @@ class TestSelectEnrichCandidatesTiers:
 
         assert [e.id for e in result] == [newer.id, older.id]
 
-    def test_attempt1_within_30_days_excluded(self, sync_session):
+    def test_attempt1_within_tier2_excluded(self, sync_session):
         _make_row(
             sync_session,
             1,
-            deezer_searched_at=_days_ago(20),
+            deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS - 10),
             deezer_search_attempts=1,
         )
 
@@ -92,11 +94,11 @@ class TestSelectEnrichCandidatesTiers:
 
         assert result == []
 
-    def test_attempt1_after_30_days_included(self, sync_session):
+    def test_attempt1_after_tier2_included(self, sync_session):
         entry = _make_row(
             sync_session,
             1,
-            deezer_searched_at=_days_ago(40),
+            deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
             deezer_search_attempts=1,
         )
 
@@ -106,11 +108,11 @@ class TestSelectEnrichCandidatesTiers:
 
         assert [e.id for e in result] == [entry.id]
 
-    def test_attempt2_within_90_days_excluded(self, sync_session):
+    def test_attempt2_within_tier3_excluded(self, sync_session):
         _make_row(
             sync_session,
             1,
-            deezer_searched_at=_days_ago(40),
+            deezer_searched_at=_days_ago(RESCAN_TIER3_DAYS - 10),
             deezer_search_attempts=2,
         )
 
@@ -120,11 +122,11 @@ class TestSelectEnrichCandidatesTiers:
 
         assert result == []
 
-    def test_attempt2_after_90_days_included(self, sync_session):
+    def test_attempt2_after_tier3_included(self, sync_session):
         entry = _make_row(
             sync_session,
             1,
-            deezer_searched_at=_days_ago(100),
+            deezer_searched_at=_days_ago(RESCAN_TIER3_DAYS + 10),
             deezer_search_attempts=2,
         )
 
@@ -161,7 +163,7 @@ class TestSelectEnrichCandidatesTiers:
         retry = _make_row(
             sync_session,
             1,
-            beatport_searched_at=_days_ago(40),
+            beatport_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
             beatport_search_attempts=1,
             # Deezer state must not leak into the beatport selection
             deezer_id="123",
@@ -197,13 +199,13 @@ class TestSelectEnrichCandidatesBudget:
         oldest_retry = _make_row(
             sync_session,
             1,
-            deezer_searched_at=_days_ago(60),
+            deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS + 30),
             deezer_search_attempts=1,
         )
         _make_row(
             sync_session,
             2,
-            deezer_searched_at=_days_ago(40),
+            deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
             deezer_search_attempts=1,
         )
         fresh = [_make_row(sync_session, n) for n in range(3, 6)]
@@ -222,7 +224,7 @@ class TestSelectEnrichCandidatesBudget:
         _make_row(
             sync_session,
             1,
-            deezer_searched_at=_days_ago(60),
+            deezer_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
             deezer_search_attempts=1,
         )
         fresh = [_make_row(sync_session, n) for n in range(2, 4)]
@@ -345,7 +347,7 @@ class TestSelectEnrichCandidatesPriority:
             sync_session,
             1,
             enrich_priority=1,
-            beatport_searched_at=_days_ago(40),
+            beatport_searched_at=_days_ago(RESCAN_TIER2_DAYS + 10),
             beatport_search_attempts=1,
         )
 
