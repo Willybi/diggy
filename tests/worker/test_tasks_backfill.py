@@ -53,6 +53,7 @@ _celery_mock = MagicMock()
 _celery_mock.task.side_effect = _task_decorator
 sys.modules["workers.celery_app"] = MagicMock(celery_app=_celery_mock)
 
+import pytest  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 from models import TrackIdIndex  # noqa: E402
@@ -129,6 +130,70 @@ class TestSelectSetsToHydrate:
 
         rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
         assert rows == []
+
+
+class TestParseExcludeShard:
+    def test_falsy_spec_is_off(self):
+        assert sets_mod._parse_exclude_shard("") is None
+        assert sets_mod._parse_exclude_shard(None) is None
+
+    def test_valid_specs(self):
+        assert sets_mod._parse_exclude_shard("0/4") == (0, 4)
+        assert sets_mod._parse_exclude_shard("3/4") == (3, 4)
+
+    @pytest.mark.parametrize(
+        "bad", ["1", "1/2/3", "4/4", "5/4", "-1/4", "1/0", "a/2"]
+    )
+    def test_malformed_specs_raise(self, bad):
+        with pytest.raises(ValueError):
+            sets_mod._parse_exclude_shard(bad)
+
+
+class TestSelectSetsToHydrateShardExclusion:
+    def test_env_absent_is_unchanged(self, sync_session, monkeypatch):
+        # Non-regression: no env → NO shard filter, both rows selected.
+        monkeypatch.delenv("TRACKID_BACKFILL_EXCLUDE_SHARD", raising=False)
+        s = sync_session
+        _add(s, trackid_id=1, slug="odd", score=50.0)
+        _add(s, trackid_id=2, slug="even", score=40.0)
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        assert [tid for tid, _slug in rows] == [1, 2]
+
+    def test_env_excludes_reserved_residue(self, sync_session, monkeypatch):
+        # "1/2" → the drain EXCLUDES residue 1 (trackid_id % 2 != 1): keeps evens.
+        monkeypatch.setenv("TRACKID_BACKFILL_EXCLUDE_SHARD", "1/2")
+        s = sync_session
+        for i in range(1, 5):  # ids 1,2,3,4, scores 1..4
+            _add(s, trackid_id=i, slug=f"s{i}", score=float(i))
+        s.commit()
+
+        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        # complement of residue 1 = even ids, highest score first
+        assert [tid for tid, _slug in rows] == [4, 2]
+
+    def test_env_and_local_shard_are_complementary(self, sync_session, monkeypatch):
+        # VPS excludes "1/2"; the local tool takes --shard 1/2 (residue 1).
+        # Together the two sets cover the whole worklist with zero overlap.
+        s = sync_session
+        for i in range(1, 5):
+            _add(s, trackid_id=i, slug=f"s{i}", score=float(i))
+        s.commit()
+
+        monkeypatch.setenv("TRACKID_BACKFILL_EXCLUDE_SHARD", "1/2")
+        vps_ids = {
+            tid for tid, _ in s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
+        }
+        local_ids = {i for i in range(1, 5) if i % 2 == 1}  # local --shard 1/2
+        assert vps_ids == {2, 4}
+        assert vps_ids & local_ids == set()
+        assert vps_ids | local_ids == {1, 2, 3, 4}
+
+    def test_malformed_env_raises(self, sync_session, monkeypatch):
+        monkeypatch.setenv("TRACKID_BACKFILL_EXCLUDE_SHARD", "nope")
+        with pytest.raises(ValueError):
+            sets_mod._select_sets_to_hydrate_stmt(10)
 
 
 class TestMarkHydrated:

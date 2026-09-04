@@ -10,6 +10,8 @@ inside the container). Run standalone from the repo root:
 
 import json
 
+import pytest
+
 from worker.trackid_hydrate.hydrate import (
     DRIVER_CSV_FIELDS,
     DetailFetcher,
@@ -25,6 +27,7 @@ from worker.trackid_hydrate.hydrate import (
     load_checkpoint,
     merge_tracklist,
     parse_driver_output,
+    parse_shard,
     parse_worklist,
     push_bundle,
 )
@@ -55,6 +58,31 @@ def test_build_worklist_query_after_score_zero_is_emitted():
     # 0.0 is a legitimate bound (score >= 0), so it must NOT be treated as "no bound"
     sql = build_worklist_query(after_score=0.0)
     assert "AND score < 0.0" in sql
+
+
+def test_build_worklist_query_no_shard_by_default():
+    sql = build_worklist_query()
+    assert "trackid_id %" not in sql
+
+
+def test_build_worklist_query_shard_restricts_to_residue():
+    # --shard 1/2 → the local tool takes ONLY residue 1 (trackid_id % 2 = 1)
+    sql = build_worklist_query(shard=(1, 2))
+    assert "AND trackid_id % 2 = 1" in sql
+
+
+# ── shard parsing ──
+
+
+def test_parse_shard():
+    assert parse_shard(None) is None
+    assert parse_shard("") is None
+    assert parse_shard("1/2") == (1, 2)
+    assert parse_shard("0/4") == (0, 4)
+    assert parse_shard("3/4") == (3, 4)
+    for bad in ("1", "1/2/3", "4/4", "5/4", "-1/4", "1/0", "a/2"):
+        with pytest.raises(ValueError):
+            parse_shard(bad)
 
 
 # ── worklist parsing ──

@@ -61,6 +61,30 @@ CRAWL_TRACKID_LATEST_LOCK_TTL = 4200
 CADENCE_SLACK_DAYS = 0.25  # 6h: queue latency + crawl duration + clock skew
 
 
+def _parse_exclude_shard(spec):
+    """Parse the ``TRACKID_BACKFILL_EXCLUDE_SHARD`` env value ``"M/N"`` -> ``(m, n)``.
+
+    Mirrors ``worker/beatport_backfill.parse_shard`` (same validations). Returns
+    ``None`` for a falsy spec (feature off) and raises ``ValueError`` on a malformed
+    one — the caller MUST NOT silently fall back to an unsharded (full-worklist)
+    selection, which would double-hydrate the residue the local ``trackid_hydrate``
+    tool has reserved via its own ``--shard M/N``.
+    """
+    if not spec:
+        return None
+    parts = str(spec).split("/")
+    if len(parts) != 2:
+        raise ValueError(
+            f"TRACKID_BACKFILL_EXCLUDE_SHARD must be 'M/N', got {spec!r}"
+        )
+    m, n = int(parts[0]), int(parts[1])
+    if n < 1 or not (0 <= m < n):
+        raise ValueError(
+            f"TRACKID_BACKFILL_EXCLUDE_SHARD needs 0 <= M < N and N >= 1, got {spec!r}"
+        )
+    return m, n
+
+
 def _select_sets_to_hydrate_stmt(limit: int):
     """Statement selecting the next sets to hydrate, highest score first (C12 L4).
 
@@ -71,19 +95,34 @@ def _select_sets_to_hydrate_stmt(limit: int):
     Tie-break on ``trackid_id`` desc for a stable order across runs; capped at
     ``limit`` (``TRACKID_BACKFILL_SETS_PER_DAY``). Returns ``(trackid_id, slug)``
     rows — all ``import_audiostream`` needs (it re-fetches the detail itself).
+
+    Shard exclusion (read at RUNTIME, so ``docker compose up -d`` applies it without
+    a code redeploy): when ``TRACKID_BACKFILL_EXCLUDE_SHARD="M/N"`` is set, the drain
+    EXCLUDES the residue M (``trackid_id % N != M``), leaving it to the local
+    ``trackid_hydrate`` tool running ``--shard M/N`` — together they cover the whole
+    worklist with zero overlap. Env absent/empty → NO filter, behaviour strictly
+    unchanged. A malformed value raises ``ValueError`` (see ``_parse_exclude_shard``);
+    the task guards against that upstream and skips the run rather than fall back to
+    an unsharded selection.
     """
     from models import TrackIdIndex
     from sqlalchemy import select
 
-    return (
-        select(TrackIdIndex.trackid_id, TrackIdIndex.slug)
-        .where(
-            TrackIdIndex.hydration_state == "not_hydrated",
-            TrackIdIndex.score.isnot(None),
-        )
-        .order_by(TrackIdIndex.score.desc(), TrackIdIndex.trackid_id.desc())
-        .limit(limit)
+    stmt = select(TrackIdIndex.trackid_id, TrackIdIndex.slug).where(
+        TrackIdIndex.hydration_state == "not_hydrated",
+        TrackIdIndex.score.isnot(None),
     )
+
+    exclude = _parse_exclude_shard(
+        os.environ.get("TRACKID_BACKFILL_EXCLUDE_SHARD", "").strip()
+    )
+    if exclude is not None:
+        m, n = exclude
+        stmt = stmt.where(TrackIdIndex.trackid_id % n != m)
+
+    return stmt.order_by(
+        TrackIdIndex.score.desc(), TrackIdIndex.trackid_id.desc()
+    ).limit(limit)
 
 
 def _mark_hydrated_stmt(trackid_id: int):
@@ -898,6 +937,25 @@ def _run_backfill_trackid_sets(task):
     # state to auto-reach and no chronological cursor to advance.
     if r.get("trackid_backfill_done"):
         return {"status": "done"}
+
+    # Shard-exclusion validation (read at RUNTIME; see _select_sets_to_hydrate_stmt).
+    # A malformed TRACKID_BACKFILL_EXCLUDE_SHARD must NOT silently fall through to an
+    # unsharded selection — that would double-hydrate the residue the local
+    # trackid_hydrate tool reserved via its own --shard M/N. Safest against
+    # double-hydration: log the misconfiguration and SKIP the run (a clean no-op),
+    # rather than crash into the DLQ or hydrate the full worklist. The next run
+    # re-reads a corrected env.
+    raw_exclude = os.environ.get("TRACKID_BACKFILL_EXCLUDE_SHARD", "").strip()
+    try:
+        _parse_exclude_shard(raw_exclude)
+    except ValueError:
+        logger.error(
+            "backfill_trackid_sets: malformed TRACKID_BACKFILL_EXCLUDE_SHARD=%r "
+            "(expected 'M/N' with 0 <= M < N); skipping the run to avoid "
+            "double-hydration with the local trackid_hydrate tool",
+            raw_exclude,
+        )
+        return {"status": "skipped", "reason": "malformed_exclude_shard"}
 
     # LIMIT on how many sets one run consumes from trackid_index (score order).
     # Kept under the TRACKID_BACKFILL_SETS_PER_DAY name for prod-config

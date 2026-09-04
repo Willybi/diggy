@@ -296,7 +296,26 @@ def download_artwork(url, getter=_urllib_get):
 # ── worklist / checkpoint (pure host logic) ──────────────────────────────────────
 
 
-def build_worklist_query(limit=0, after_score=None):
+def parse_shard(spec):
+    """Parse a ``"M/N"`` shard spec -> ``(m, n)`` ints, or ``None`` for a falsy spec.
+
+    Mirrors ``worker/beatport_backfill.parse_shard`` (same validations, same error
+    message shape). Validates ``0 <= m < n`` (n >= 1). Raises ``ValueError`` on a
+    malformed spec so the CLI surfaces it instead of silently hydrating the whole
+    worklist — which would overlap the VPS drain.
+    """
+    if not spec:
+        return None
+    parts = str(spec).split("/")
+    if len(parts) != 2:
+        raise ValueError(f"--shard must be 'M/N', got {spec!r}")
+    m, n = int(parts[0]), int(parts[1])
+    if n < 1 or not (0 <= m < n):
+        raise ValueError(f"--shard M/N needs 0 <= M < N and N >= 1, got {spec!r}")
+    return m, n
+
+
+def build_worklist_query(limit=0, after_score=None, shard=None):
     """COPY query for the not-hydrated SCORED sets, highest score first.
 
     ``hydration_state='not_hydrated' AND score IS NOT NULL`` (unscored "reste" sets are
@@ -304,11 +323,17 @@ def build_worklist_query(limit=0, after_score=None):
     C12 drain consumes. ``after_score`` is a COARSE salvo bound (``score < :after_score``,
     mirroring backfill_beatport's coarse ``after_id``, not a strict keyset — score is a
     non-unique float); the checkpoint and the L3 ``hydration_state`` flip are the real
-    cross-run guards. ``limit`` caps the pull.
+    cross-run guards. ``shard`` (``(m, n)`` from ``parse_shard``) restricts the pull to
+    the residue M (``trackid_id % N = M``) so this local tool can run in parallel with
+    the VPS drain (which EXCLUDES that same residue via TRACKID_BACKFILL_EXCLUDE_SHARD)
+    with zero overlap. ``limit`` caps the pull.
     """
     clauses = ""
     if after_score is not None:
         clauses += f"    AND score < {float(after_score)}\n"
+    if shard is not None:
+        m, n = shard
+        clauses += f"    AND trackid_id % {int(n)} = {int(m)}\n"
     limit_clause = f"  LIMIT {int(limit)}\n" if limit else ""
     return (
         "COPY (\n"
@@ -690,13 +715,16 @@ def main(args):
         )
         return
 
+    shard = parse_shard(args.shard)
+
     # 1. WORKLIST — read-only COPY from prod through the documented SSH channel
     print(
         f"[worklist] fetching not-hydrated scored sets "
-        f"(limit={args.limit or 'none'}, after_score={args.after_score or 'none'})..."
+        f"(limit={args.limit or 'none'}, after_score={args.after_score or 'none'}, "
+        f"shard={args.shard or 'none'})..."
     )
     csv_text = run_remote_sql(
-        REMOTE_PSQL_PULL, build_worklist_query(args.limit, args.after_score)
+        REMOTE_PSQL_PULL, build_worklist_query(args.limit, args.after_score, shard)
     )
     rows = parse_worklist(csv_text)
     done = load_checkpoint(checkpoint_path)
@@ -824,6 +852,14 @@ def _build_parser():
         default=None,
         help="only pull sets with score < this value (coarse salvo bound; the "
         "checkpoint + the hydration_state flip are the real cross-run guards)",
+    )
+    parser.add_argument(
+        "--shard",
+        default=None,
+        help="hydrate only the 'M/N' residue (adds AND trackid_id %% N = M) so this "
+        "tool can run in parallel with the VPS drain — set the VPS "
+        "TRACKID_BACKFILL_EXCLUDE_SHARD='M/N' to exclude the SAME residue there "
+        "(together = full coverage, zero overlap)",
     )
     parser.add_argument(
         "--detail-rate",
