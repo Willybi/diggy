@@ -10,16 +10,17 @@ inside the container). Run standalone from the repo root:
 
 import json
 
-import pytest
-
 from worker.trackid_hydrate.hydrate import (
     DRIVER_CSV_FIELDS,
     DetailFetcher,
     _bundle_ids,
+    _release_claims,
     _trim_deezer,
     append_checkpoint,
     assemble_bundle,
+    build_claim_query,
     build_driver_rows,
+    build_release_query,
     build_tracklist,
     build_worklist_query,
     filter_new,
@@ -27,7 +28,6 @@ from worker.trackid_hydrate.hydrate import (
     load_checkpoint,
     merge_tracklist,
     parse_driver_output,
-    parse_shard,
     parse_worklist,
     push_bundle,
 )
@@ -60,29 +60,85 @@ def test_build_worklist_query_after_score_zero_is_emitted():
     assert "AND score < 0.0" in sql
 
 
-def test_build_worklist_query_no_shard_by_default():
-    sql = build_worklist_query()
-    assert "trackid_id %" not in sql
+# ── claim SQL (atomic reservation, --apply) ──
 
 
-def test_build_worklist_query_shard_restricts_to_residue():
-    # --shard 1/2 → the local tool takes ONLY residue 1 (trackid_id % 2 = 1)
-    sql = build_worklist_query(shard=(1, 2))
-    assert "AND trackid_id % 2 = 1" in sql
+def test_build_claim_query_shape():
+    sql = build_claim_query()
+    # data-modifying CTE that flips the reserved rows to 'claimed' + stamps claimed_at
+    assert "WITH claimed AS (" in sql
+    assert "UPDATE trackid_index" in sql
+    assert "SET hydration_state = 'claimed', claimed_at = now()" in sql
+    # same eligibility + order as the read-only worklist
+    assert "hydration_state = 'not_hydrated'" in sql
+    assert "score IS NOT NULL" in sql
+    assert "ORDER BY score DESC, trackid_id DESC" in sql
+    # the disjoint-reservation primitive + the streamed RETURNING
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "RETURNING trackid_id, slug, score" in sql
+    assert "TO STDOUT WITH (FORMAT csv, HEADER true)" in sql
+    # no windowing by default
+    assert "LIMIT" not in sql
+    assert "score <" not in sql
 
 
-# ── shard parsing ──
+def test_build_claim_query_limit_and_after_score():
+    sql = build_claim_query(limit=20, after_score=87.5)
+    assert "LIMIT 20" in sql
+    assert "AND score < 87.5" in sql
 
 
-def test_parse_shard():
-    assert parse_shard(None) is None
-    assert parse_shard("") is None
-    assert parse_shard("1/2") == (1, 2)
-    assert parse_shard("0/4") == (0, 4)
-    assert parse_shard("3/4") == (3, 4)
-    for bad in ("1", "1/2/3", "4/4", "5/4", "-1/4", "1/0", "a/2"):
-        with pytest.raises(ValueError):
-            parse_shard(bad)
+# ── release SQL (return un-hydrated claims to the pool) ──
+
+
+def test_build_release_query_resets_only_claimed():
+    sql = build_release_query(["101", "102", 103])
+    assert "UPDATE trackid_index" in sql
+    assert "SET hydration_state = 'not_hydrated', claimed_at = NULL" in sql
+    assert "WHERE trackid_id IN (101, 102, 103)" in sql
+    # guard: never touch a set already flipped to 'hydrated' by a successful push
+    assert "AND hydration_state = 'claimed'" in sql
+
+
+def test_build_release_query_coerces_and_skips_bad_ids():
+    # ids are int-coerced (no raw-CSV interpolation); non-ints dropped
+    sql = build_release_query(["  7 ", "x", None, "9"])
+    assert "IN (7, 9)" in sql
+
+
+def test_build_release_query_empty_is_none():
+    assert build_release_query([]) is None
+    assert build_release_query(["nope", None]) is None
+
+
+def test_release_claims_runs_write_channel_when_ids():
+    from worker.trackid_hydrate.hydrate import REMOTE_PSQL_APPLY
+
+    calls = []
+
+    def runner(cmd, sql):
+        calls.append((cmd, sql))
+        return ""
+
+    _release_claims(["1", "2"], runner=runner)
+    assert len(calls) == 1
+    assert calls[0][0] == REMOTE_PSQL_APPLY      # write channel (ON_ERROR_STOP)
+    assert "IN (1, 2)" in calls[0][1]
+    assert "hydration_state = 'claimed'" in calls[0][1]
+
+
+def test_release_claims_no_ids_is_noop():
+    calls = []
+    _release_claims([], runner=lambda c, s: calls.append((c, s)))
+    assert calls == []
+
+
+def test_release_claims_swallows_runner_error():
+    # best-effort: a failed release must NOT raise (the VPS reaper backstops)
+    def runner(cmd, sql):
+        raise RuntimeError("ssh down")
+
+    _release_claims(["1"], runner=runner)  # no exception
 
 
 # ── worklist parsing ──

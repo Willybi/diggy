@@ -71,6 +71,10 @@ class TrackIdIndex(Base):
         Integer, ForeignKey("sets.id", ondelete="SET NULL"), nullable=True
     )
     indexed_at = Column(DateTime(timezone=True), nullable=True)
+    # Local-hydration lease (worker/trackid_hydrate): stamped now() when the local
+    # tool atomically CLAIMS a set (hydration_state='claimed'); the VPS drain's
+    # reaper returns a claim older than TRACKID_CLAIM_LEASE_SECONDS to the pool.
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("trackid_id", name="uq_trackid_index_trackid_id"),

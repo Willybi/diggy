@@ -641,6 +641,7 @@ PK: `id`
 | `matched_artist_ids` | JSON | yes |  |  |  |
 | `set_id` | Integer | yes |  | FK → sets.id ON DELETE SET NULL |  |
 | `indexed_at` | DateTime(tz) | yes |  |  |  |
+| `claimed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
 - `ix_trackid_index_added_on`: `added_on`

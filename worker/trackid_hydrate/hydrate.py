@@ -12,13 +12,20 @@ shape, same container-driven compute.
 
 The pipeline, per batch of N sets:
 
-  1. WORKLIST — stream the not-hydrated, SCORED sets (``trackid_id, slug, score``)
-     from prod, read-only, via the documented SSH/psql channel fed a ``COPY (...)
-     TO STDOUT`` — ``hydration_state='not_hydrated' AND score IS NOT NULL ORDER BY
-     score DESC, trackid_id DESC``. ``--limit`` / ``--after-score`` window a salvo
-     (a coarse score bound, mirroring backfill's coarse ``--after-id``; the checkpoint
-     + the L3 ``hydration_state`` flip are the real cross-run guards). Rows already in
-     the local checkpoint are filtered out.
+  1. WORKLIST — the not-hydrated, SCORED sets (``trackid_id, slug, score``),
+     ``hydration_state='not_hydrated' AND score IS NOT NULL ORDER BY score DESC,
+     trackid_id DESC``, via the documented SSH/psql channel fed a ``COPY (...) TO
+     STDOUT``. In ``--apply`` this is an ATOMIC CLAIM: a data-modifying CTE flips the
+     reserved rows to ``hydration_state='claimed'`` (``FOR UPDATE SKIP LOCKED`` → the
+     VPS drain and any parallel local instance take DISJOINT rows) so the drain (which
+     selects only ``not_hydrated``) ignores them until this run finalises them
+     (``hydrated``) or the drain's reaper leases them back after
+     ``TRACKID_CLAIM_LEASE_SECONDS``. A dry-run only READS (nothing to reserve).
+     ``--limit`` / ``--after-score`` window a salvo (a coarse score bound; the
+     checkpoint + the L3 ``hydration_state`` flip are the real cross-run guards). Rows
+     already in the local checkpoint are filtered out. A claimed set that this run does
+     NOT hydrate (fetch dropped, push failed, interrupt) is RELEASED back to
+     ``not_hydrated`` in a finally on exit.
   2. DETAIL — for each set, fetch ``GET .../audiostreams/{slug}`` with the ADAPTIVE
      rate ladder (6→3→2→1) + cooldown recopied faithfully from the shadow tool
      (``scripts/local/trackid_spider/shadow.py``). Keeps the FULL ``detail`` payload
@@ -79,10 +86,18 @@ import urllib.request
 print = functools.partial(print, flush=True)  # noqa: A001
 
 SSH_HOST = "diggy-vps"
-# Read path (WORKLIST): -q keeps the COPY stream clean (CSV only on stdout).
+# Read path (dry-run WORKLIST): -q keeps the COPY stream clean (CSV only on stdout).
 REMOTE_PSQL_PULL = (
     "cd /root/diggy && docker compose exec -T postgres "
     "sh -c 'psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -q -f -'"
+)
+# Write path (CLAIM + RELEASE): ON_ERROR_STOP=1 makes a failed statement abort
+# with a non-zero exit — a failed CLAIM must NEVER silently return an empty CSV
+# (which would read as "nothing to hydrate"). -q keeps the CLAIM's COPY stream
+# clean. Mirrors the REMOTE_PSQL_APPLY channel of worker/embedding_backfill (+ -q).
+REMOTE_PSQL_APPLY = (
+    "cd /root/diggy && docker compose exec -T postgres "
+    "sh -c 'psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -q -v ON_ERROR_STOP=1 -f -'"
 )
 
 # Prod server image (context ./server via server/Dockerfile) carries workers/ +
@@ -296,44 +311,20 @@ def download_artwork(url, getter=_urllib_get):
 # ── worklist / checkpoint (pure host logic) ──────────────────────────────────────
 
 
-def parse_shard(spec):
-    """Parse a ``"M/N"`` shard spec -> ``(m, n)`` ints, or ``None`` for a falsy spec.
+def build_worklist_query(limit=0, after_score=None):
+    """Read-only COPY for the not-hydrated SCORED sets, highest score first (DRY-RUN).
 
-    Mirrors ``worker/beatport_backfill.parse_shard`` (same validations, same error
-    message shape). Validates ``0 <= m < n`` (n >= 1). Raises ``ValueError`` on a
-    malformed spec so the CLI surfaces it instead of silently hydrating the whole
-    worklist — which would overlap the VPS drain.
-    """
-    if not spec:
-        return None
-    parts = str(spec).split("/")
-    if len(parts) != 2:
-        raise ValueError(f"--shard must be 'M/N', got {spec!r}")
-    m, n = int(parts[0]), int(parts[1])
-    if n < 1 or not (0 <= m < n):
-        raise ValueError(f"--shard M/N needs 0 <= M < N and N >= 1, got {spec!r}")
-    return m, n
-
-
-def build_worklist_query(limit=0, after_score=None, shard=None):
-    """COPY query for the not-hydrated SCORED sets, highest score first.
-
+    Used only in a DRY-RUN (no write, so nothing to reserve): ``--apply`` goes
+    through ``build_claim_query`` instead, which atomically reserves the rows.
     ``hydration_state='not_hydrated' AND score IS NOT NULL`` (unscored "reste" sets are
     NEVER hydrated) ordered ``score DESC, trackid_id DESC`` — the same order the nightly
     C12 drain consumes. ``after_score`` is a COARSE salvo bound (``score < :after_score``,
     mirroring backfill_beatport's coarse ``after_id``, not a strict keyset — score is a
-    non-unique float); the checkpoint and the L3 ``hydration_state`` flip are the real
-    cross-run guards. ``shard`` (``(m, n)`` from ``parse_shard``) restricts the pull to
-    the residue M (``trackid_id % N = M``) so this local tool can run in parallel with
-    the VPS drain (which EXCLUDES that same residue via TRACKID_BACKFILL_EXCLUDE_SHARD)
-    with zero overlap. ``limit`` caps the pull.
+    non-unique float). ``limit`` caps the pull.
     """
     clauses = ""
     if after_score is not None:
         clauses += f"    AND score < {float(after_score)}\n"
-    if shard is not None:
-        m, n = shard
-        clauses += f"    AND trackid_id % {int(n)} = {int(m)}\n"
     limit_clause = f"  LIMIT {int(limit)}\n" if limit else ""
     return (
         "COPY (\n"
@@ -347,6 +338,73 @@ def build_worklist_query(limit=0, after_score=None, shard=None):
         "  ORDER BY score DESC, trackid_id DESC\n"
         f"{limit_clause}"
         ") TO STDOUT WITH (FORMAT csv, HEADER true);\n"
+    )
+
+
+def build_claim_query(limit=0, after_score=None):
+    """Atomic CLAIM COPY (``--apply``): reserve the top-scored sets for THIS run.
+
+    A data-modifying CTE flips the selected rows to ``hydration_state='claimed'``
+    (stamping ``claimed_at=now()``) and streams the reserved
+    ``(trackid_id, slug, score)`` back as CSV. The inner
+    ``SELECT ... FOR UPDATE SKIP LOCKED`` guarantees the VPS drain and any parallel
+    local instance take DISJOINT rows with no race: a row a claimant has locked is
+    SKIPPED by the others. Same eligibility + order as ``build_worklist_query``.
+    Because the drain selects only ``not_hydrated``, a ``claimed`` row is invisible
+    to it until this run finalises it (``hydrated`` via the clean-import) OR the
+    drain's reaper leases it back after ``TRACKID_CLAIM_LEASE_SECONDS``. Run through
+    the ON_ERROR_STOP write channel (a failed claim must abort, not return an empty
+    CSV). ``after_score`` / ``limit`` window a salvo exactly as the read-only query.
+    """
+    clauses = ""
+    if after_score is not None:
+        clauses += f"          AND score < {float(after_score)}\n"
+    limit_clause = f"        LIMIT {int(limit)}\n" if limit else ""
+    return (
+        "COPY (\n"
+        "  WITH claimed AS (\n"
+        "    UPDATE trackid_index\n"
+        "       SET hydration_state = 'claimed', claimed_at = now()\n"
+        "     WHERE trackid_id IN (\n"
+        "       SELECT trackid_id FROM trackid_index\n"
+        "        WHERE hydration_state = 'not_hydrated'\n"
+        "          AND score IS NOT NULL\n"
+        f"{clauses}"
+        "        ORDER BY score DESC, trackid_id DESC\n"
+        f"{limit_clause}"
+        "        FOR UPDATE SKIP LOCKED\n"
+        "     )\n"
+        "     RETURNING trackid_id, slug, score\n"
+        "  )\n"
+        "  SELECT trackid_id, slug, score FROM claimed\n"
+        ") TO STDOUT WITH (FORMAT csv, HEADER true);\n"
+    )
+
+
+def build_release_query(ids):
+    """UPDATE resetting THIS run's still-``claimed`` sets back to ``not_hydrated``.
+
+    Called in a finally at shutdown (see ``_release_claims``). The guard
+    ``hydration_state='claimed'`` leaves alone any set already flipped to
+    ``hydrated`` by a successful clean-import push — only sets we reserved but did
+    NOT hydrate (bundle not pushed, a fetch/driver failure, or an interrupt) come
+    back to the VPS pool. Ids are coerced to int (never interpolate raw CSV into
+    SQL). Returns ``None`` for an empty/invalid id list (nothing to run).
+    """
+    safe = []
+    for i in ids:
+        try:
+            safe.append(str(int(str(i).strip())))
+        except (TypeError, ValueError):
+            continue
+    if not safe:
+        return None
+    id_list = ", ".join(safe)
+    return (
+        "UPDATE trackid_index\n"
+        "   SET hydration_state = 'not_hydrated', claimed_at = NULL\n"
+        f" WHERE trackid_id IN ({id_list})\n"
+        "   AND hydration_state = 'claimed';\n"
     )
 
 
@@ -546,6 +604,31 @@ def run_remote_sql(remote_cmd, sql):
     return proc.stdout
 
 
+def _release_claims(ids, runner=run_remote_sql):
+    """Return THIS run's still-``claimed`` sets to the VPS pool (``not_hydrated``).
+
+    Called in a ``finally`` at shutdown (covers a normal exit, an early return AND
+    a crash/interrupt). The release UPDATE is guarded on ``hydration_state='claimed'``
+    so a set already flipped to ``hydrated`` by a successful push is left untouched —
+    only sets we reserved but did NOT hydrate come back. Best-effort: a failed
+    release is logged, not fatal (the VPS reaper leases stale claims back after
+    ``TRACKID_CLAIM_LEASE_SECONDS`` anyway).
+    """
+    sql = build_release_query(ids)
+    if sql is None:
+        return
+    try:
+        runner(REMOTE_PSQL_APPLY, sql)
+        print(
+            f"[release] returned up to {len(ids)} un-hydrated claim(s) to not_hydrated"
+        )
+    except Exception as e:  # noqa: BLE001 — release is best-effort; the reaper backstops
+        print(
+            f"[release] WARNING: could not release claims ({type(e).__name__}: {e}); "
+            "the VPS reaper will lease them back after the TTL"
+        )
+
+
 def build_import_command(apply):
     """Remote command piping the bundle NDJSON into the OPS clean-import script.
 
@@ -715,89 +798,127 @@ def main(args):
         )
         return
 
-    shard = parse_shard(args.shard)
-
-    # 1. WORKLIST — read-only COPY from prod through the documented SSH channel
-    print(
-        f"[worklist] fetching not-hydrated scored sets "
-        f"(limit={args.limit or 'none'}, after_score={args.after_score or 'none'}, "
-        f"shard={args.shard or 'none'})..."
-    )
-    csv_text = run_remote_sql(
-        REMOTE_PSQL_PULL, build_worklist_query(args.limit, args.after_score, shard)
-    )
-    rows = parse_worklist(csv_text)
-    done = load_checkpoint(checkpoint_path)
-    fresh = filter_new(rows, done)
-    print(
-        f"[worklist] {len(rows)} set(s), {len(rows) - len(fresh)} already processed "
-        f"(checkpoint), {len(fresh)} to hydrate"
-    )
-    if not fresh:
-        print("Nothing new to hydrate — done.")
-        return
-
-    # 2. DETAIL — adaptive-rate TrackID fetch + tracklist + set cover, per set
-    fetcher = DetailFetcher(args.detail_rate)
-    fetched = []          # (row, detail, tracklist, set_artwork_b64)
-    driver_rows = []
-    for i, row in enumerate(fresh, 1):
-        slug = row.get("slug")
-        detail = fetcher.fetch(slug)
-        if not detail:
-            continue      # outage / exhausted throttle → drop (not checkpointed)
-        tracklist = build_tracklist(detail)
-        artwork_b64 = download_artwork(detail.get("artworkUrl"))
-        fetched.append((row, detail, tracklist, artwork_b64))
-        driver_rows.extend(build_driver_rows(_to_int(row.get("trackid_id")), tracklist))
-        if i % 50 == 0 or i == len(fresh):
+    # A real write (``--apply`` without ``--dry-run-push``) atomically CLAIMS its
+    # worklist so the VPS drain ignores the reserved sets; a dry-run only READS
+    # (nothing to reserve). Everything after the claim runs under a try/finally so
+    # any set we reserved but did NOT hydrate is RELEASED back to the VPS pool on
+    # exit — including an early return (nothing fresh / all outages) or a crash.
+    will_claim = args.apply and not args.dry_run_push
+    claimed_ids = []
+    try:
+        # 1. WORKLIST — CLAIM (write, --apply) or read-only SELECT (dry-run)
+        if will_claim:
             print(
-                f"  [detail] {i}/{len(fresh)} fetched={len(fetched)} "
-                f"tracks={len(driver_rows)} throttled={fetcher.throttled}"
+                f"[claim] atomically reserving not-hydrated scored sets "
+                f"(limit={args.limit or 'none'}, "
+                f"after_score={args.after_score or 'none'})..."
             )
-    if not fetched:
-        print("No set detail fetched (all outages) — nothing to hydrate.")
-        return
-    print(
-        f"[detail] {len(fetched)} set(s) fetched, {len(driver_rows)} track(s) to drive"
-    )
-    _write_csv(os.path.join(workdir, DRIVER_CSV), driver_rows, DRIVER_CSV_FIELDS)
+            csv_text = run_remote_sql(
+                REMOTE_PSQL_APPLY, build_claim_query(args.limit, args.after_score)
+            )
+            rows = parse_worklist(csv_text)
+            claimed_ids = [
+                str(r["trackid_id"]).strip()
+                for r in rows
+                if str(r.get("trackid_id") or "").strip()
+            ]
+            print(
+                f"[claim] reserved {len(rows)} set(s) as hydration_state='claimed'"
+            )
+        else:
+            print(
+                f"[worklist] fetching not-hydrated scored sets (read-only dry-run; "
+                f"limit={args.limit or 'none'}, "
+                f"after_score={args.after_score or 'none'})..."
+            )
+            csv_text = run_remote_sql(
+                REMOTE_PSQL_PULL, build_worklist_query(args.limit, args.after_score)
+            )
+            rows = parse_worklist(csv_text)
 
-    # 3. DRIVER — enrich every track in the prod server image (real matchers + EffNet)
-    _docker_build()
-    _docker_run(
-        workdir,
-        deezer_rate=args.rate,
-        deezer_concurrency=args.concurrency,
-        beatport_rate=args.beatport_rate,
-        beatport_concurrency=args.beatport_concurrency,
-        executor_workers=args.executor_workers,
-    )
-    driver_out_path = os.path.join(workdir, DRIVER_OUT)
-    if not os.path.exists(driver_out_path):
-        sys.exit(f"[driver] the container produced no {driver_out_path}")
-    with open(driver_out_path, encoding="utf-8") as f:
-        driver_index = parse_driver_output(f.read())
+        done = load_checkpoint(checkpoint_path)
+        fresh = filter_new(rows, done)
+        print(
+            f"[worklist] {len(rows)} set(s), {len(rows) - len(fresh)} already processed "
+            f"(checkpoint), {len(fresh)} to hydrate"
+        )
+        if not fresh:
+            print("Nothing new to hydrate — done.")
+            return
 
-    # 4. BUNDLE — join driver output onto tracklists, one NDJSON line per set
-    pushed_ids = []
-    with open(bundle_path, "w", encoding="utf-8") as out_f:
-        for row, detail, tracklist, artwork_b64 in fetched:
-            bundle = assemble_bundle(row, detail, tracklist, driver_index, artwork_b64)
-            out_f.write(json.dumps(bundle) + "\n")
-            pushed_ids.append(str(bundle["trackid_id"]))
-    print(f"[bundle] wrote {len(pushed_ids)} set bundle(s) to {bundle_path}")
+        # 2. DETAIL — adaptive-rate TrackID fetch + tracklist + set cover, per set
+        fetcher = DetailFetcher(args.detail_rate)
+        fetched = []          # (row, detail, tracklist, set_artwork_b64)
+        driver_rows = []
+        for i, row in enumerate(fresh, 1):
+            slug = row.get("slug")
+            detail = fetcher.fetch(slug)
+            if not detail:
+                continue      # outage / exhausted throttle → drop (released on exit)
+            tracklist = build_tracklist(detail)
+            artwork_b64 = download_artwork(detail.get("artworkUrl"))
+            fetched.append((row, detail, tracklist, artwork_b64))
+            driver_rows.extend(
+                build_driver_rows(_to_int(row.get("trackid_id")), tracklist)
+            )
+            if i % 50 == 0 or i == len(fresh):
+                print(
+                    f"  [detail] {i}/{len(fresh)} fetched={len(fetched)} "
+                    f"tracks={len(driver_rows)} throttled={fetcher.throttled}"
+                )
+        if not fetched:
+            print("No set detail fetched (all outages) — nothing to hydrate.")
+            return
+        print(
+            f"[detail] {len(fetched)} set(s) fetched, {len(driver_rows)} track(s) to drive"
+        )
+        _write_csv(os.path.join(workdir, DRIVER_CSV), driver_rows, DRIVER_CSV_FIELDS)
 
-    # 5. PUSH (local dry-run / dry-run-push / apply)
-    with open(bundle_path, encoding="utf-8") as f:
-        bundle_text = f.read()
-    push_bundle(
-        bundle_text,
-        pushed_ids,
-        apply=args.apply,
-        dry_run_push=args.dry_run_push,
-        checkpoint_path=checkpoint_path,
-    )
+        # 3. DRIVER — enrich every track in the prod server image (real matchers + EffNet)
+        _docker_build()
+        _docker_run(
+            workdir,
+            deezer_rate=args.rate,
+            deezer_concurrency=args.concurrency,
+            beatport_rate=args.beatport_rate,
+            beatport_concurrency=args.beatport_concurrency,
+            executor_workers=args.executor_workers,
+        )
+        driver_out_path = os.path.join(workdir, DRIVER_OUT)
+        if not os.path.exists(driver_out_path):
+            sys.exit(f"[driver] the container produced no {driver_out_path}")
+        with open(driver_out_path, encoding="utf-8") as f:
+            driver_index = parse_driver_output(f.read())
+
+        # 4. BUNDLE — join driver output onto tracklists, one NDJSON line per set
+        pushed_ids = []
+        with open(bundle_path, "w", encoding="utf-8") as out_f:
+            for row, detail, tracklist, artwork_b64 in fetched:
+                bundle = assemble_bundle(
+                    row, detail, tracklist, driver_index, artwork_b64
+                )
+                out_f.write(json.dumps(bundle) + "\n")
+                pushed_ids.append(str(bundle["trackid_id"]))
+        print(f"[bundle] wrote {len(pushed_ids)} set bundle(s) to {bundle_path}")
+
+        # 5. PUSH (local dry-run / dry-run-push / apply). On --apply, the OPS
+        #    clean-import flips each pushed set to hydration_state='hydrated', so the
+        #    release below (guarded on 'claimed') leaves them alone — only fetch-
+        #    dropped or never-pushed claims are returned to the pool.
+        with open(bundle_path, encoding="utf-8") as f:
+            bundle_text = f.read()
+        push_bundle(
+            bundle_text,
+            pushed_ids,
+            apply=args.apply,
+            dry_run_push=args.dry_run_push,
+            checkpoint_path=checkpoint_path,
+        )
+    finally:
+        # RELEASE — return any still-'claimed' set of THIS run to the VPS pool
+        # (no-op in a dry-run: nothing was claimed).
+        if claimed_ids:
+            _release_claims(claimed_ids)
 
 
 def _bundle_ids(bundle_text):
@@ -852,14 +973,6 @@ def _build_parser():
         default=None,
         help="only pull sets with score < this value (coarse salvo bound; the "
         "checkpoint + the hydration_state flip are the real cross-run guards)",
-    )
-    parser.add_argument(
-        "--shard",
-        default=None,
-        help="hydrate only the 'M/N' residue (adds AND trackid_id %% N = M) so this "
-        "tool can run in parallel with the VPS drain — set the VPS "
-        "TRACKID_BACKFILL_EXCLUDE_SHARD='M/N' to exclude the SAME residue there "
-        "(together = full coverage, zero overlap)",
     )
     parser.add_argument(
         "--detail-rate",

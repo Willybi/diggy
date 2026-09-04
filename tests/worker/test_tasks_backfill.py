@@ -54,9 +54,8 @@ _celery_mock.task.side_effect = _task_decorator
 sys.modules["workers.celery_app"] = MagicMock(celery_app=_celery_mock)
 
 import pytest  # noqa: E402
-from sqlalchemy import select  # noqa: E402
-
 from models import TrackIdIndex  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 from workers.tasks import sets as sets_mod  # noqa: E402
 
 
@@ -132,68 +131,18 @@ class TestSelectSetsToHydrate:
         assert rows == []
 
 
-class TestParseExcludeShard:
-    def test_falsy_spec_is_off(self):
-        assert sets_mod._parse_exclude_shard("") is None
-        assert sets_mod._parse_exclude_shard(None) is None
-
-    def test_valid_specs(self):
-        assert sets_mod._parse_exclude_shard("0/4") == (0, 4)
-        assert sets_mod._parse_exclude_shard("3/4") == (3, 4)
-
-    @pytest.mark.parametrize(
-        "bad", ["1", "1/2/3", "4/4", "5/4", "-1/4", "1/0", "a/2"]
-    )
-    def test_malformed_specs_raise(self, bad):
-        with pytest.raises(ValueError):
-            sets_mod._parse_exclude_shard(bad)
-
-
-class TestSelectSetsToHydrateShardExclusion:
-    def test_env_absent_is_unchanged(self, sync_session, monkeypatch):
-        # Non-regression: no env → NO shard filter, both rows selected.
-        monkeypatch.delenv("TRACKID_BACKFILL_EXCLUDE_SHARD", raising=False)
+class TestSelectSetsIgnoresClaimed:
+    def test_claimed_rows_are_not_selected(self, sync_session):
+        # A set the local trackid_hydrate tool has CLAIMED is invisible to the drain
+        # (it selects only 'not_hydrated'), even at a higher score — the dynamic
+        # reservation, no static shard needed.
         s = sync_session
-        _add(s, trackid_id=1, slug="odd", score=50.0)
-        _add(s, trackid_id=2, slug="even", score=40.0)
+        _add(s, trackid_id=1, slug="free", score=50.0)
+        _add(s, trackid_id=2, slug="reserved", score=90.0, hydration_state="claimed")
         s.commit()
 
         rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
-        assert [tid for tid, _slug in rows] == [1, 2]
-
-    def test_env_excludes_reserved_residue(self, sync_session, monkeypatch):
-        # "1/2" → the drain EXCLUDES residue 1 (trackid_id % 2 != 1): keeps evens.
-        monkeypatch.setenv("TRACKID_BACKFILL_EXCLUDE_SHARD", "1/2")
-        s = sync_session
-        for i in range(1, 5):  # ids 1,2,3,4, scores 1..4
-            _add(s, trackid_id=i, slug=f"s{i}", score=float(i))
-        s.commit()
-
-        rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
-        # complement of residue 1 = even ids, highest score first
-        assert [tid for tid, _slug in rows] == [4, 2]
-
-    def test_env_and_local_shard_are_complementary(self, sync_session, monkeypatch):
-        # VPS excludes "1/2"; the local tool takes --shard 1/2 (residue 1).
-        # Together the two sets cover the whole worklist with zero overlap.
-        s = sync_session
-        for i in range(1, 5):
-            _add(s, trackid_id=i, slug=f"s{i}", score=float(i))
-        s.commit()
-
-        monkeypatch.setenv("TRACKID_BACKFILL_EXCLUDE_SHARD", "1/2")
-        vps_ids = {
-            tid for tid, _ in s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
-        }
-        local_ids = {i for i in range(1, 5) if i % 2 == 1}  # local --shard 1/2
-        assert vps_ids == {2, 4}
-        assert vps_ids & local_ids == set()
-        assert vps_ids | local_ids == {1, 2, 3, 4}
-
-    def test_malformed_env_raises(self, sync_session, monkeypatch):
-        monkeypatch.setenv("TRACKID_BACKFILL_EXCLUDE_SHARD", "nope")
-        with pytest.raises(ValueError):
-            sets_mod._select_sets_to_hydrate_stmt(10)
+        assert [tid for tid, _slug in rows] == [1]
 
 
 class TestMarkHydrated:
@@ -222,3 +171,122 @@ class TestMarkHydrated:
 
         rows = s.execute(sets_mod._select_sets_to_hydrate_stmt(10)).all()
         assert [tid for tid, _slug in rows] == [2]
+
+
+# ── reaper (PG-only: now()/make_interval + timestamptz arithmetic) ──────────────
+#
+# The reaper SQL (_REAP_STALE_CLAIMS_SQL, executed by the async _reap_stale_claims)
+# uses now()/make_interval, which SQLite cannot run. So this section is skipped
+# unless DATABASE_URL points at PostgreSQL, and it creates its OWN throwaway
+# database (never create_all/drop_all on the shared DATABASE_URL — under xdist
+# loadscope a tests/api module can share this worker process and rely on that
+# schema; same guard as tests/worker/test_import_rb_upsert.py).
+
+_PG_ONLY = pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="reaper SQL is PostgreSQL-only (now()/make_interval on timestamptz)",
+)
+
+_MAINT_LOCK_KEY = 0xC1A1  # serialises the throwaway-DB DDL
+
+
+def _run_maintenance(maint_dsn, statements):
+    import psycopg2
+
+    conn = psycopg2.connect(maint_dsn)
+    conn.autocommit = True
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT pg_advisory_lock(%s)", (_MAINT_LOCK_KEY,))
+        try:
+            for stmt in statements:
+                cur.execute(stmt)
+        finally:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (_MAINT_LOCK_KEY,))
+        cur.close()
+    finally:
+        conn.close()
+
+
+def _terminate_backends_sql(db_name):
+    return (
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid()"
+    )
+
+
+@pytest.fixture
+def pg_reaper_engine():
+    from database import Base
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+
+    base_url = make_url(os.environ["DATABASE_URL"].replace("+asyncpg", ""))
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "solo")
+    test_db = f"{base_url.database}_claimreaper_{worker}"
+    maint_dsn = base_url.render_as_string(hide_password=False)
+
+    _run_maintenance(
+        maint_dsn,
+        [
+            _terminate_backends_sql(test_db),
+            f'DROP DATABASE IF EXISTS "{test_db}"',
+            f'CREATE DATABASE "{test_db}"',
+        ],
+    )
+    engine = create_engine(
+        base_url.set(database=test_db).render_as_string(hide_password=False)
+    )
+    try:
+        Base.metadata.create_all(engine)
+        yield engine
+    finally:
+        engine.dispose()
+        _run_maintenance(
+            maint_dsn,
+            [
+                _terminate_backends_sql(test_db),
+                f'DROP DATABASE IF EXISTS "{test_db}"',
+            ],
+        )
+
+
+@_PG_ONLY
+def test_reaper_resets_only_stale_claims(pg_reaper_engine):
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+
+    with Session(pg_reaper_engine) as s:
+        # A claim older than the 2h lease (stale), a fresh claim, and a plain
+        # not_hydrated row that must stay untouched.
+        s.execute(
+            text(
+                "INSERT INTO trackid_index "
+                "(trackid_id, slug, score, hydration_state, claimed_at) VALUES "
+                "(1, 'stale', 90, 'claimed', now() - make_interval(secs => 10800)),"
+                "(2, 'fresh', 80, 'claimed', now()),"
+                "(3, 'free',  70, 'not_hydrated', NULL)"
+            )
+        )
+        s.commit()
+
+        # Execute the SAME SQL the async reaper runs (lease = 2h).
+        res = s.execute(
+            text(sets_mod._REAP_STALE_CLAIMS_SQL), {"lease": 7200}
+        )
+        s.commit()
+        assert res.rowcount == 1  # only the stale claim was reaped
+
+        states = dict(
+            s.execute(
+                text("SELECT trackid_id, hydration_state FROM trackid_index")
+            ).all()
+        )
+        assert states[1] == "not_hydrated"  # stale claim returned to the pool
+        assert states[2] == "claimed"       # fresh claim untouched
+        assert states[3] == "not_hydrated"  # plain row untouched
+
+        claimed_at_1 = s.execute(
+            text("SELECT claimed_at FROM trackid_index WHERE trackid_id = 1")
+        ).scalar_one()
+        assert claimed_at_1 is None  # reaper nulls claimed_at on reset

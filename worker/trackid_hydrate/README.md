@@ -40,26 +40,40 @@ jour après jour au fil des UPDATE.
 
 ## Le flux (par lot de N sets)
 
-1. **WORKLIST** — les sets `not_hydrated` **scorés** (`trackid_id, slug, score`)
-   streamés depuis la prod, lecture seule, via le canal SSH/psql documenté alimenté
-   d'un `COPY (...) TO STDOUT` :
+1. **WORKLIST** — les sets `not_hydrated` **scorés** (`trackid_id, slug, score`),
+   `hydration_state='not_hydrated' AND score IS NOT NULL ORDER BY score DESC,
+   trackid_id DESC`, via le canal SSH/psql documenté alimenté d'un `COPY (...) TO
+   STDOUT`. En **`--apply`** c'est un **CLAIM ATOMIQUE** (réservation dynamique) : une
+   CTE data-modifying flippe les lignes retenues en `hydration_state='claimed'`
+   (`FOR UPDATE SKIP LOCKED` ⇒ le drain VPS et tout local parallèle prennent des
+   lignes **disjointes** sans race), le drain (qui ne sélectionne que `not_hydrated`)
+   les ignore alors jusqu'à ce que ce run les finalise (`hydrated`) OU que le **reaper**
+   du drain les rende au pool après `TRACKID_CLAIM_LEASE_SECONDS`. En **dry-run** c'est
+   un simple `SELECT` lecture seule (rien à réserver) :
 
    ```sql
+   -- --apply : CLAIM atomique
    COPY (
-     SELECT trackid_id, slug, score
-     FROM trackid_index
-     WHERE hydration_state = 'not_hydrated'
-       AND score IS NOT NULL          -- les sets « reste » à score NULL ne sont JAMAIS hydratés
-     -- [AND score < :after_score]     -- borne grossière de salve
-     ORDER BY score DESC, trackid_id DESC
-     -- [LIMIT :n]
+     WITH claimed AS (
+       UPDATE trackid_index SET hydration_state = 'claimed', claimed_at = now()
+        WHERE trackid_id IN (
+          SELECT trackid_id FROM trackid_index
+           WHERE hydration_state = 'not_hydrated'
+             AND score IS NOT NULL       -- les sets « reste » à score NULL ne sont JAMAIS hydratés
+           -- [AND score < :after_score]  -- borne grossière de salve
+           ORDER BY score DESC, trackid_id DESC
+           -- [LIMIT :n]
+           FOR UPDATE SKIP LOCKED
+        ) RETURNING trackid_id, slug, score
+     ) SELECT trackid_id, slug, score FROM claimed
    ) TO STDOUT WITH (FORMAT csv, HEADER true);
    ```
 
    Même ordre que le drain nocturne C12. Les ids déjà dans le checkpoint local sont
-   filtrés. Le vrai garde inter-runs = le checkpoint + le flip `hydration_state` fait
-   par L3 (`--after-score` n'est qu'une borne grossière, `score` étant un float non
-   unique).
+   filtrés. Un set claimé que ce run n'hydrate PAS (fetch droppé, push échoué,
+   interruption) est **relâché** en `not_hydrated` dans un `finally` à la sortie (et le
+   reaper VPS rattrape un crash dur). `--after-score` n'est qu'une borne grossière
+   (`score` étant un float non unique).
 2. **DÉTAIL** — pour chaque set, `GET .../audiostreams/{slug}` avec l'**échelle de
    débit adaptative** (6→3→2→1 + cooldown) recopiée fidèlement de l'outil shadow
    (`scripts/local/trackid_spider/shadow.py`, lui-même réplique de
@@ -137,16 +151,22 @@ python worker/trackid_hydrate/hydrate.py --after-score 80 --limit 5000 --apply
 
 1. **Déployer `import_trackid_clean.py` d'abord** (push → CI → image) : le script OPS
    doit être en prod dans l'image `api`.
-2. **STOPPER le drain VPS** pendant le marathon local — sinon le VPS **et** le local
-   hydratent les mêmes sets (`not_hydrated` scorés, même tri) :
+2. **(Optionnel) STOPPER le drain VPS.** Ce n'est **plus obligatoire** : la
+   **réservation dynamique** (CLAIM `FOR UPDATE SKIP LOCKED` côté local + le drain qui
+   ne voit que `not_hydrated`) garantit que le VPS et le local prennent des sets
+   **disjoints**, sans double-traitement — le drain continue à hydrater le reste du
+   backlog en parallèle (plus de moitié figée quand le local ne tourne pas). Un crash
+   dur du local est rattrapé par le **reaper** (les claims > `TRACKID_CLAIM_LEASE_SECONDS`
+   reviennent au pool). Le kill-switch reste disponible si l'on veut vraiment mettre le
+   drain en pause :
 
    ```bash
    ssh diggy-vps "cd /root/diggy && docker compose exec -T redis redis-cli SET trackid_backfill_done 1"
    ```
 
    (le sentinel `trackid_backfill_done=1` fait no-op le drain `backfill_trackid_sets`
-   au prochain beat — c'est un interrupteur manuel, il n'est jamais reposé
-   automatiquement).
+   au prochain beat — interrupteur manuel, jamais reposé automatiquement ; `DEL` pour
+   ré-armer).
 3. **Dry-run** (`--limit 20`, puis `--dry-run-push` pour voir tourner le funnel L3 et
    lire ses compteurs). Aucune écriture.
 4. **DUMP** chiffré de la prod (`docs/restore.md`) — **avant** tout `--apply`.
@@ -154,7 +174,8 @@ python worker/trackid_hydrate/hydrate.py --after-score 80 --limit 5000 --apply
    (checkpoint + `hydration_state='not_hydrated'` + `already_*` côté OPS).
 6. **Re-vérifier la convergence** (re-dry-run : le backlog `not_hydrated` scoré
    décroît ; un re-`--apply` recompte tout en `already_*` sans rien re-stamper).
-7. **Ré-armer le drain VPS** une fois le marathon fini :
+7. **Ré-armer le drain VPS** une fois le marathon fini (uniquement **si** stoppé à
+   l'étape 2 — sinon il n'a jamais été mis en pause) :
 
    ```bash
    ssh diggy-vps "cd /root/diggy && docker compose exec -T redis redis-cli DEL trackid_backfill_done"

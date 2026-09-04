@@ -52,6 +52,25 @@ TRACKID_BACKFILL_DEADLINE_MARGIN = int(
 # loses its lock mid-flight.
 CRAWL_TRACKID_LATEST_LOCK_TTL = 4200
 
+# Local-hydration lease TTL (seconds), read at RUNTIME (a `docker compose up -d`
+# applies a change without a code redeploy). The local trackid_hydrate tool
+# atomically CLAIMS a batch of trackid_index rows (hydration_state='claimed',
+# claimed_at=now()) that this drain then ignores (it selects only 'not_hydrated').
+# A claim not finalised (flipped to 'hydrated') within this TTL is REAPED back to
+# 'not_hydrated' at the top of each run — auto-healing a hard crash of the local
+# tool that skipped its own release. Default 2h (a local batch's detail-fetch +
+# container run + push). Env: TRACKID_CLAIM_LEASE_SECONDS.
+_DEFAULT_CLAIM_LEASE_SECONDS = 7200
+
+# Reaper UPDATE (PG-only: now()/make_interval). Kept as a module constant so the
+# same SQL backs both the async drain path and the PG integration test.
+_REAP_STALE_CLAIMS_SQL = (
+    "UPDATE trackid_index "
+    "SET hydration_state = 'not_hydrated', claimed_at = NULL "
+    "WHERE hydration_state = 'claimed' "
+    "AND claimed_at < now() - make_interval(secs => :lease)"
+)
+
 # recrawl_incomplete_sets' beat fires every 24h sharp, but the reference is
 # stamped during the previous run. Without slack, a set re-crawled last night
 # reads ~23h55 < 1.0d at the next beat and would wait a whole extra day (daily
@@ -61,28 +80,20 @@ CRAWL_TRACKID_LATEST_LOCK_TTL = 4200
 CADENCE_SLACK_DAYS = 0.25  # 6h: queue latency + crawl duration + clock skew
 
 
-def _parse_exclude_shard(spec):
-    """Parse the ``TRACKID_BACKFILL_EXCLUDE_SHARD`` env value ``"M/N"`` -> ``(m, n)``.
+async def _reap_stale_claims(db, lease_seconds: int) -> int:
+    """Return local-hydration claims older than the lease to the pool. Returns count.
 
-    Mirrors ``worker/beatport_backfill.parse_shard`` (same validations). Returns
-    ``None`` for a falsy spec (feature off) and raises ``ValueError`` on a malformed
-    one — the caller MUST NOT silently fall back to an unsharded (full-worklist)
-    selection, which would double-hydrate the residue the local ``trackid_hydrate``
-    tool has reserved via its own ``--shard M/N``.
+    A trackid_index row the local ``trackid_hydrate`` tool CLAIMED
+    (``hydration_state='claimed'``) but did NOT finalise (flip to ``hydrated``) within
+    ``lease_seconds`` is reset to ``not_hydrated`` so this drain re-selects it —
+    auto-healing a hard crash of the local tool that skipped its own release. Run at
+    the top of a drain run, BEFORE the selection, so a stale claim becomes eligible
+    again this run. PG-only (``now()``/``make_interval``); the drain runs on PG.
     """
-    if not spec:
-        return None
-    parts = str(spec).split("/")
-    if len(parts) != 2:
-        raise ValueError(
-            f"TRACKID_BACKFILL_EXCLUDE_SHARD must be 'M/N', got {spec!r}"
-        )
-    m, n = int(parts[0]), int(parts[1])
-    if n < 1 or not (0 <= m < n):
-        raise ValueError(
-            f"TRACKID_BACKFILL_EXCLUDE_SHARD needs 0 <= M < N and N >= 1, got {spec!r}"
-        )
-    return m, n
+    from sqlalchemy import text
+
+    res = await db.execute(text(_REAP_STALE_CLAIMS_SQL), {"lease": lease_seconds})
+    return res.rowcount or 0
 
 
 def _select_sets_to_hydrate_stmt(limit: int):
@@ -91,38 +102,28 @@ def _select_sets_to_hydrate_stmt(limit: int):
     The backfill no longer crawls the TrackID listing by addedOn: it consumes
     ``trackid_index`` rows ordered by ``score`` desc. Only rows that are scored
     (``score IS NOT NULL``) AND still ``hydration_state='not_hydrated'`` are
-    eligible — the un-scored "rest" of the index is NEVER hydrated by the drain.
-    Tie-break on ``trackid_id`` desc for a stable order across runs; capped at
-    ``limit`` (``TRACKID_BACKFILL_SETS_PER_DAY``). Returns ``(trackid_id, slug)``
-    rows — all ``import_audiostream`` needs (it re-fetches the detail itself).
-
-    Shard exclusion (read at RUNTIME, so ``docker compose up -d`` applies it without
-    a code redeploy): when ``TRACKID_BACKFILL_EXCLUDE_SHARD="M/N"`` is set, the drain
-    EXCLUDES the residue M (``trackid_id % N != M``), leaving it to the local
-    ``trackid_hydrate`` tool running ``--shard M/N`` — together they cover the whole
-    worklist with zero overlap. Env absent/empty → NO filter, behaviour strictly
-    unchanged. A malformed value raises ``ValueError`` (see ``_parse_exclude_shard``);
-    the task guards against that upstream and skips the run rather than fall back to
-    an unsharded selection.
+    eligible — the un-scored "rest" of the index is NEVER hydrated by the drain, and
+    a row the local ``trackid_hydrate`` tool has CLAIMED (``hydration_state='claimed'``)
+    is naturally invisible here (it is not ``not_hydrated``) until it is hydrated or
+    reaped back (see ``_reap_stale_claims``) — the dynamic reservation replaces the
+    old static shard exclusion, with zero overlap and no wasted half of the backlog
+    when the local tool is idle. Tie-break on ``trackid_id`` desc for a stable order
+    across runs; capped at ``limit`` (``TRACKID_BACKFILL_SETS_PER_DAY``). Returns
+    ``(trackid_id, slug)`` rows — all ``import_audiostream`` needs (it re-fetches the
+    detail itself).
     """
     from models import TrackIdIndex
     from sqlalchemy import select
 
-    stmt = select(TrackIdIndex.trackid_id, TrackIdIndex.slug).where(
-        TrackIdIndex.hydration_state == "not_hydrated",
-        TrackIdIndex.score.isnot(None),
+    return (
+        select(TrackIdIndex.trackid_id, TrackIdIndex.slug)
+        .where(
+            TrackIdIndex.hydration_state == "not_hydrated",
+            TrackIdIndex.score.isnot(None),
+        )
+        .order_by(TrackIdIndex.score.desc(), TrackIdIndex.trackid_id.desc())
+        .limit(limit)
     )
-
-    exclude = _parse_exclude_shard(
-        os.environ.get("TRACKID_BACKFILL_EXCLUDE_SHARD", "").strip()
-    )
-    if exclude is not None:
-        m, n = exclude
-        stmt = stmt.where(TrackIdIndex.trackid_id % n != m)
-
-    return stmt.order_by(
-        TrackIdIndex.score.desc(), TrackIdIndex.trackid_id.desc()
-    ).limit(limit)
 
 
 def _mark_hydrated_stmt(trackid_id: int):
@@ -938,25 +939,6 @@ def _run_backfill_trackid_sets(task):
     if r.get("trackid_backfill_done"):
         return {"status": "done"}
 
-    # Shard-exclusion validation (read at RUNTIME; see _select_sets_to_hydrate_stmt).
-    # A malformed TRACKID_BACKFILL_EXCLUDE_SHARD must NOT silently fall through to an
-    # unsharded selection — that would double-hydrate the residue the local
-    # trackid_hydrate tool reserved via its own --shard M/N. Safest against
-    # double-hydration: log the misconfiguration and SKIP the run (a clean no-op),
-    # rather than crash into the DLQ or hydrate the full worklist. The next run
-    # re-reads a corrected env.
-    raw_exclude = os.environ.get("TRACKID_BACKFILL_EXCLUDE_SHARD", "").strip()
-    try:
-        _parse_exclude_shard(raw_exclude)
-    except ValueError:
-        logger.error(
-            "backfill_trackid_sets: malformed TRACKID_BACKFILL_EXCLUDE_SHARD=%r "
-            "(expected 'M/N' with 0 <= M < N); skipping the run to avoid "
-            "double-hydration with the local trackid_hydrate tool",
-            raw_exclude,
-        )
-        return {"status": "skipped", "reason": "malformed_exclude_shard"}
-
     # LIMIT on how many sets one run consumes from trackid_index (score order).
     # Kept under the TRACKID_BACKFILL_SETS_PER_DAY name for prod-config
     # continuity. The CODE default is 1000, but this OUTPACES downstream Beatport
@@ -989,6 +971,26 @@ def _run_backfill_trackid_sets(task):
         limiter = RateLimiter()
         async_engine = create_async_engine(os.environ["DATABASE_URL"])
         AsyncS = async_sessionmaker(async_engine, class_=AsyncSession)
+
+        # REAPER: BEFORE selecting, return local-hydration claims older than the
+        # lease to the pool (auto-heals a crashed local trackid_hydrate run whose
+        # reserved sets would otherwise stay 'claimed' forever). Read the TTL at
+        # runtime so a `docker compose up -d` applies a change without a redeploy.
+        lease_seconds = int(
+            os.environ.get(
+                "TRACKID_CLAIM_LEASE_SECONDS", str(_DEFAULT_CLAIM_LEASE_SECONDS)
+            )
+        )
+        async with AsyncS() as db:
+            reaped = await _reap_stale_claims(db, lease_seconds)
+            await db.commit()
+        if reaped:
+            logger.info(
+                "backfill_trackid_sets: reaped %d stale claim(s) (lease %ds) "
+                "back to not_hydrated",
+                reaped,
+                lease_seconds,
+            )
 
         # SELECTION (C12 L4): the next sets to hydrate are read from
         # trackid_index ordered by score desc — NOT crawled from the TrackID
