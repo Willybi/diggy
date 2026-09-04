@@ -75,9 +75,21 @@ _REAP_STALE_CLAIMS_SQL = (
 # stamped during the previous run. Without slack, a set re-crawled last night
 # reads ~23h55 < 1.0d at the next beat and would wait a whole extra day (daily
 # tier → every other day). The margin cannot cause over-crawling: the decision
-# is only evaluated at beat passes, which are 24h apart. (>90d → 'final' is
-# untouched: it is not a cadence gate.)
+# is only evaluated at beat passes, which are 24h apart. (age > cap → 'final'
+# is untouched: it is not a cadence gate.)
 CADENCE_SLACK_DAYS = 0.25  # 6h: queue latency + crawl duration + clock skew
+
+# completion_pct is re-based on trackid_index.time_hit_rate (the authoritative
+# TrackID identification ratio from the listing) — NOT on is_id, which is
+# structurally biased to ~1.0 because the import only stores identified tracks.
+# A set whose time_hit_rate is at/above this threshold is considered complete
+# and finalized. Env-tunable for prod calibration.
+RECRAWL_FINAL_HITRATE = float(os.environ.get("RECRAWL_FINAL_HITRATE", "0.95"))
+
+# Age (days) past which a set is finalized regardless of hit rate: TrackID stops
+# identifying new tracks long after import, so beyond this cap re-crawling is
+# wasted. 730 = 24 months (replaces the previous 90-day final tier).
+RECRAWL_MAX_AGE_DAYS = float(os.environ.get("RECRAWL_MAX_AGE_DAYS", "730"))
 
 
 async def _reap_stale_claims(db, lease_seconds: int) -> int:
@@ -306,31 +318,18 @@ def _as_utc(dt):
     return dt
 
 
-def _completion_pct(total: int, unidentified: int) -> float:
-    """Share of identified tracks, based on is_id ONLY.
-
-    catalog_id is deliberately ignored: import_audiostream deletes and
-    re-inserts set_tracks, resetting catalog_id to NULL until the next
-    asynchronous resolve_set_tracks run — a catalog_id-based ratio would be
-    wrong between the two.
-    """
-    if total <= 0:
-        return 0.0
-    return (total - unidentified) / total
-
-
 def _recrawl_decision(now, created_at, reference) -> str:
     """Age-tiered re-crawl backoff: returns 'crawl', 'wait' or 'final'.
 
     Age counts from created_at (Diggy import date); reference is the last
     (re-)crawl, COALESCE(last_recrawl_at, last_crawled_at). Tiers:
-    0-7d → re-crawl after 24h, 7-30d → after 7d, 30-90d → after 30d,
-    >90d → final (no more crawls).
+    0-7d → re-crawl after 24h, 7-30d → after 7d, 30d-RECRAWL_MAX_AGE_DAYS →
+    after 30d (monthly), > RECRAWL_MAX_AGE_DAYS → final (no more crawls).
     """
     age_days = 0.0
     if created_at is not None:
         age_days = (now - _as_utc(created_at)).total_seconds() / 86400
-    if age_days > 90:
+    if age_days > RECRAWL_MAX_AGE_DAYS:
         return "final"
     if age_days > 30:
         min_days = 30.0
@@ -347,25 +346,34 @@ def _recrawl_decision(now, created_at, reference) -> str:
 def _apply_recrawl_outcome(dj_set, old_pct, new_pct, now) -> str | None:
     """Update a set's re-crawl state after a fresh import.
 
-    recrawl_count counts CONSECUTIVE re-crawls without progression and is
-    reset to 0 whenever completion_pct improves (old NULL counts as
-    progression). Returns 'complete' or 'stale' when the set is finalized,
-    None otherwise.
+    new_pct is the set's trackid_index.time_hit_rate (authoritative TrackID
+    identification ratio), or None when the set has no trackid_index row (no
+    measurable completion). recrawl_count counts CONSECUTIVE re-crawls without
+    progression and is reset to 0 whenever completion_pct improves (old NULL
+    counts as progression). A set at/above RECRAWL_FINAL_HITRATE is finalized
+    'complete'; 3 stagnant re-crawls finalize it 'stale'. When new_pct is None
+    the hit rate is unknown: treat it as a non-progression (bump the stale
+    counter, leave completion_pct untouched) — finalization stays possible by
+    stability (stale) or, in the pre-pass, by age. Returns 'complete' or
+    'stale' when the set is finalized, None otherwise.
     """
-    if old_pct is None or new_pct > old_pct:
+    if new_pct is None:
+        dj_set.recrawl_count = (dj_set.recrawl_count or 0) + 1
+    elif old_pct is None or new_pct > old_pct:
         dj_set.recrawl_count = 0
     else:
         dj_set.recrawl_count = (dj_set.recrawl_count or 0) + 1
 
     finalized = None
-    if new_pct >= 1.0:
+    if new_pct is not None and new_pct >= RECRAWL_FINAL_HITRATE:
         finalized = "complete"
     elif dj_set.recrawl_count >= 3:
         finalized = "stale"
     if finalized:
         dj_set.recrawl_status = "final"
 
-    dj_set.completion_pct = new_pct
+    if new_pct is not None:
+        dj_set.completion_pct = new_pct
     dj_set.last_recrawl_at = now
     return finalized
 
@@ -413,11 +421,11 @@ def recrawl_incomplete_sets(self):
 
 def _run_recrawl_incomplete_sets(task):
     from celery.exceptions import SoftTimeLimitExceeded
-    from sqlalchemy import case, func, select
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
-    from models import DJSet, SetTrack
+    from models import DJSet, TrackIdIndex
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
@@ -436,20 +444,15 @@ def _run_recrawl_incomplete_sets(task):
             to_crawl = []
 
             with Session(engine) as session:
-                counts = (
-                    select(
-                        SetTrack.set_id.label("set_id"),
-                        func.count(SetTrack.id).label("total"),
-                        func.sum(
-                            case((SetTrack.is_id.is_(True), 1), else_=0)
-                        ).label("unidentified"),
-                    )
-                    .group_by(SetTrack.set_id)
-                    .subquery()
-                )
+                # completion_pct is re-based on the authoritative TrackID
+                # identification ratio (trackid_index.time_hit_rate), joined by
+                # the trackid_index.set_id FK. is_id is NO LONGER counted for
+                # completeness (the import only stores identified tracks, so an
+                # is_id-based ratio is structurally ~1.0). A set with no
+                # trackid_index row has time_hit_rate = None (LEFT JOIN).
                 rows = session.execute(
-                    select(DJSet, counts.c.total, counts.c.unidentified)
-                    .outerjoin(counts, counts.c.set_id == DJSet.id)
+                    select(DJSet, TrackIdIndex.time_hit_rate)
+                    .outerjoin(TrackIdIndex, TrackIdIndex.set_id == DJSet.id)
                     .where(
                         DJSet.source == "trackid",
                         DJSet.is_virtual.is_(False),
@@ -457,14 +460,13 @@ def _run_recrawl_incomplete_sets(task):
                     )
                 ).all()
 
-                for dj_set, total, unidentified in rows:
-                    total = total or 0
-                    unidentified = unidentified or 0
-
-                    # Bulk pre-pass: already fully identified → close it
-                    # without crawling
-                    if total > 0 and unidentified == 0:
-                        dj_set.completion_pct = 1.0
+                for dj_set, hit_rate in rows:
+                    # Bulk pre-pass: hit rate already at/above the completion
+                    # threshold → close it without crawling. A set WITHOUT a
+                    # trackid_index hit rate is not finalized here — it follows
+                    # the normal age/cadence decision and keeps completion_pct.
+                    if hit_rate is not None and hit_rate >= RECRAWL_FINAL_HITRATE:
+                        dj_set.completion_pct = hit_rate
                         dj_set.recrawl_status = "final"
                         finalized_complete += 1
                         continue
@@ -485,6 +487,11 @@ def _run_recrawl_incomplete_sets(task):
                                 "slug": dj_set.external_slug,
                                 "old_pct": dj_set.completion_pct,
                                 "created_at": dj_set.created_at,
+                                # time_hit_rate is a static listing snapshot
+                                # (import_audiostream does not touch it), so
+                                # carry it to the crawl outcome instead of
+                                # re-reading trackid_index.
+                                "hit_rate": hit_rate,
                             }
                         )
                 session.commit()
@@ -556,25 +563,14 @@ def _run_recrawl_incomplete_sets(task):
                                         errors += 1
                                         continue
 
-                                    total = (
-                                        await db.execute(
-                                            select(func.count(SetTrack.id)).where(
-                                                SetTrack.set_id == result.id
-                                            )
-                                        )
-                                    ).scalar() or 0
-                                    unidentified = (
-                                        await db.execute(
-                                            select(func.count(SetTrack.id)).where(
-                                                SetTrack.set_id == result.id,
-                                                SetTrack.is_id.is_(True),
-                                            )
-                                        )
-                                    ).scalar() or 0
+                                    # completion_pct = trackid_index.time_hit_rate
+                                    # (static listing snapshot carried from the
+                                    # pre-pass). None → hit rate unknown, handled
+                                    # as a non-progression by _apply_recrawl_outcome.
                                     finalized = _apply_recrawl_outcome(
                                         result,
                                         info["old_pct"],
-                                        _completion_pct(total, unidentified),
+                                        info["hit_rate"],
                                         datetime.now(timezone.utc),
                                     )
                                     # C8 reliability (sets.unreliable) is

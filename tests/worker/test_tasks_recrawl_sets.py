@@ -83,7 +83,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from database import Base
-from models import CrawlLog, DJSet, SetTrack
+from models import CrawlLog, DJSet, SetTrack, TrackIdIndex
 
 
 @pytest.fixture
@@ -209,6 +209,7 @@ def _make_set(
     source="trackid",
     is_virtual=False,
     parent_set_id=None,
+    hit_rate=None,
 ):
     now = datetime.now(timezone.utc)
     dj = DJSet(
@@ -230,6 +231,18 @@ def _make_set(
     )
     session.add(dj)
     session.flush()
+    # completion_pct is now sourced from trackid_index.time_hit_rate: when a
+    # hit_rate is given, link a trackid_index row to the set (set_id FK). A set
+    # without one (hit_rate=None) has an unknown hit rate (LEFT JOIN → None).
+    if hit_rate is not None:
+        session.add(
+            TrackIdIndex(
+                trackid_id=dj.id,
+                set_id=dj.id,
+                time_hit_rate=hit_rate,
+            )
+        )
+        session.flush()
     pos = 0
     for _ in range(identified):
         pos += 1
@@ -261,17 +274,6 @@ def _get_crawl_log(engine):
 # ── Pure helpers ──────────────────────────────────────────────────────────────
 
 
-class TestCompletionPct:
-    def test_zero_tracks_is_incomplete(self, sets_mod):
-        assert sets_mod._completion_pct(0, 0) == 0.0
-
-    def test_partial(self, sets_mod):
-        assert sets_mod._completion_pct(4, 1) == 0.75
-
-    def test_full(self, sets_mod):
-        assert sets_mod._completion_pct(3, 0) == 1.0
-
-
 class TestRecrawlDecision:
     NOW = datetime(2026, 7, 11, 12, 0, tzinfo=timezone.utc)
 
@@ -300,8 +302,16 @@ class TestRecrawlDecision:
         assert self._decide(sets_mod, 45, 31) == "crawl"
         assert self._decide(sets_mod, 45, 29) == "wait"
 
-    def test_past_90_days_is_final(self, sets_mod):
-        assert self._decide(sets_mod, 91, 40) == "final"
+    def test_between_90_days_and_cap_stays_monthly_tier(self, sets_mod):
+        # Past 90d is no longer final: it stays on the 30d monthly cadence up
+        # to RECRAWL_MAX_AGE_DAYS.
+        assert self._decide(sets_mod, 120, 31) == "crawl"
+        assert self._decide(sets_mod, 120, 29) == "wait"
+
+    def test_past_max_age_is_final(self, sets_mod):
+        # New 24-month cap (RECRAWL_MAX_AGE_DAYS = 730): beyond it → final.
+        assert self._decide(sets_mod, 731, 40) == "final"
+        assert self._decide(sets_mod, 729, 40) != "final"
 
     def test_missing_created_at_treated_as_new(self, sets_mod):
         assert sets_mod._recrawl_decision(
@@ -394,8 +404,10 @@ class TestRecrawlPrepassAndEligibility:
     def test_prepass_finalizes_complete_set_without_crawl(
         self, tasks_env, task_engine, fake_self
     ):
+        # hit_rate >= RECRAWL_FINAL_HITRATE (0.95) → finalized in the pre-pass,
+        # completion_pct set to the hit rate, no crawl.
         with Session(task_engine) as s:
-            dj = _make_set(s, "done-1", identified=2, unidentified=0)
+            dj = _make_set(s, "done-1", unidentified=1, hit_rate=0.98)
             s.commit()
             set_id = dj.id
 
@@ -405,9 +417,51 @@ class TestRecrawlPrepassAndEligibility:
         assert result["eligible"] == 0
         assert result["crawled"] == 0
         dj = _reload_set(task_engine, set_id)
-        assert dj.completion_pct == 1.0
+        assert dj.completion_pct == pytest.approx(0.98)
         assert dj.recrawl_status == "final"
         tasks_env.sets.resolve_set_tracks.delay.assert_not_called()
+
+    def test_prepass_incomplete_hitrate_not_finalized(
+        self, tasks_env, task_engine, fake_self, monkeypatch
+    ):
+        # hit_rate below the threshold → NOT finalized in the pre-pass; the set
+        # is eligible and gets crawled (due by cadence).
+        with Session(task_engine) as s:
+            _make_set(s, "incomplete-1", unidentified=1, hit_rate=0.5)
+            s.commit()
+
+        _install_trackid_mocks(monkeypatch, _make_fake_import())
+        result = tasks_env.sets.recrawl_incomplete_sets(fake_self)
+
+        assert result["finalized_complete"] == 0
+        assert result["eligible"] == 1
+        assert result["crawled"] == 1
+
+    def test_set_without_trackid_index_row_crawled_by_age(
+        self, tasks_env, task_engine, fake_self, monkeypatch
+    ):
+        # No trackid_index row → hit_rate None → not finalized in the pre-pass,
+        # follows the age/cadence decision. Crawl outcome with new_pct None must
+        # not crash and is treated as a non-progression.
+        with Session(task_engine) as s:
+            dj = _make_set(
+                s, "no-index-1", unidentified=1,
+                created_days_ago=2.0, last_crawled_hours_ago=30.0,
+                completion_pct=0.4, recrawl_count=0,
+            )
+            s.commit()
+            set_id = dj.id
+
+        _install_trackid_mocks(monkeypatch, _make_fake_import())
+        result = tasks_env.sets.recrawl_incomplete_sets(fake_self)
+
+        assert result["eligible"] == 1
+        assert result["crawled"] == 1
+        dj = _reload_set(task_engine, set_id)
+        # completion_pct left untouched (unknown hit rate), counter bumped
+        assert dj.completion_pct == pytest.approx(0.4)
+        assert dj.recrawl_count == 1
+        assert dj.recrawl_status == "active"
 
     def test_non_trackid_virtual_and_final_sets_ignored(
         self, tasks_env, task_engine, fake_self
@@ -446,13 +500,15 @@ class TestRecrawlPrepassAndEligibility:
         assert dj.recrawl_status == "active"
         tasks_env.sets.resolve_set_tracks.delay.assert_not_called()
 
-    def test_set_older_than_90_days_finalized_without_crawl(
+    def test_set_older_than_max_age_finalized_without_crawl(
         self, tasks_env, task_engine, fake_self
     ):
+        # New 24-month cap (RECRAWL_MAX_AGE_DAYS = 730): a set older than the cap
+        # is finalized by age without crawling.
         with Session(task_engine) as s:
             dj = _make_set(
-                s, "old-1", identified=1, unidentified=1,
-                created_days_ago=100.0, last_crawled_hours_ago=24 * 40,
+                s, "old-1", unidentified=1,
+                created_days_ago=800.0, last_crawled_hours_ago=24 * 40,
             )
             s.commit()
             set_id = dj.id
@@ -468,7 +524,8 @@ class TestRecrawlPrepassAndEligibility:
     def test_zero_track_set_is_eligible(
         self, tasks_env, task_engine, fake_self, monkeypatch
     ):
-        """total=0 → completion 0.0 → incomplete, must be crawled."""
+        """No trackid_index hit rate → not finalized in the pre-pass, follows
+        the age/cadence decision and gets crawled."""
         with Session(task_engine) as s:
             _make_set(s, "empty-1", identified=0, unidentified=0)
             s.commit()
@@ -487,17 +544,17 @@ class TestRecrawlCrawlOutcomes:
     def test_progression_resets_counter(
         self, tasks_env, task_engine, fake_self, monkeypatch
     ):
+        # hit_rate (2/3) above the old completion_pct (1/3) but below the
+        # completion threshold → progression, counter reset, not finalized.
         with Session(task_engine) as s:
             dj = _make_set(
-                s, "prog-1", identified=1, unidentified=2,
-                completion_pct=1 / 3, recrawl_count=2,
+                s, "prog-1", unidentified=2,
+                completion_pct=1 / 3, recrawl_count=2, hit_rate=2 / 3,
             )
             s.commit()
             set_id = dj.id
 
-        _install_trackid_mocks(
-            monkeypatch, _make_fake_import(progress_ext_ids={"prog-1"})
-        )
+        _install_trackid_mocks(monkeypatch, _make_fake_import())
         result = tasks_env.sets.recrawl_incomplete_sets(fake_self)
 
         assert result["crawled"] == 1
@@ -512,10 +569,12 @@ class TestRecrawlCrawlOutcomes:
     def test_no_progression_increments_counter(
         self, tasks_env, task_engine, fake_self, monkeypatch
     ):
+        # hit_rate equal to the previous completion_pct (0.5) → no progression,
+        # counter incremented.
         with Session(task_engine) as s:
             dj = _make_set(
-                s, "stale-1", identified=1, unidentified=1,
-                completion_pct=0.5, recrawl_count=0,
+                s, "stale-1", unidentified=1,
+                completion_pct=0.5, recrawl_count=0, hit_rate=0.5,
             )
             s.commit()
             set_id = dj.id
@@ -534,8 +593,8 @@ class TestRecrawlCrawlOutcomes:
     ):
         with Session(task_engine) as s:
             dj = _make_set(
-                s, "stale-3", identified=1, unidentified=1,
-                completion_pct=0.5, recrawl_count=2,
+                s, "stale-3", unidentified=1,
+                completion_pct=0.5, recrawl_count=2, hit_rate=0.5,
             )
             s.commit()
             set_id = dj.id
@@ -548,28 +607,31 @@ class TestRecrawlCrawlOutcomes:
         assert dj.recrawl_count == 3
         assert dj.recrawl_status == "final"
 
-    def test_full_identification_finalizes_complete(
+    def test_crawl_below_threshold_progression_not_finalized(
         self, tasks_env, task_engine, fake_self, monkeypatch
     ):
+        # time_hit_rate is a static listing snapshot import_audiostream does not
+        # refresh, so a crawled set carries a hit rate < RECRAWL_FINAL_HITRATE
+        # (else the pre-pass would have finalized it): the crawl outcome records
+        # progression but never finalizes 'complete'. Completion finalization is
+        # a pre-pass concern (covered by test_prepass_finalizes_complete...).
         with Session(task_engine) as s:
             dj = _make_set(
-                s, "comp-1", identified=1, unidentified=1,
-                completion_pct=0.5, recrawl_count=2,
+                s, "comp-1", unidentified=1,
+                completion_pct=0.5, recrawl_count=2, hit_rate=0.9,
             )
             s.commit()
             set_id = dj.id
 
-        _install_trackid_mocks(
-            monkeypatch, _make_fake_import(progress_ext_ids={"comp-1"})
-        )
+        _install_trackid_mocks(monkeypatch, _make_fake_import())
         result = tasks_env.sets.recrawl_incomplete_sets(fake_self)
 
-        assert result["finalized_complete"] == 1
+        assert result["finalized_complete"] == 0
         assert result["finalized_stale"] == 0
         dj = _reload_set(task_engine, set_id)
-        assert dj.completion_pct == 1.0
-        assert dj.recrawl_count == 0
-        assert dj.recrawl_status == "final"
+        assert dj.completion_pct == pytest.approx(0.9)
+        assert dj.recrawl_count == 0  # progression 0.5 → 0.9 resets the counter
+        assert dj.recrawl_status == "active"
 
     def test_cap_keeps_newest_and_logs_dropped(
         self, tasks_env, task_engine, fake_self, monkeypatch
