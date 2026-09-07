@@ -2049,6 +2049,23 @@ Invariants : pas d'autoretry, locks inchanges (TTL > time_limit), la sortie dead
 
 ---
 
+## AV12 — Observabilite SIGKILL worker (triage Sentry 2026-09-07)
+
+**Priorite : BAS** (bruit Sentry, aucune corruption ; famille en grande partie eteinte par AV9/AV11)
+**Estimation : 0,5 jour**
+**Statut : A FAIRE — inscrit 2026-09-07 (triage /sentry_triage).**
+
+Source : issue Sentry prod DIGGY-APP-V (`Process 'ForkPoolWorker' exited with signal 9 (SIGKILL)`, 1800 events, dernier tir 2026-08-25 puis silencieux). Dashboard : https://diggy-music.sentry.io/issues/DIGGY-APP-V
+
+Constat : DIGGY-APP-V est un grouping GENERIQUE du SIGKILL billiard (aucun `culprit`, aucun `task_name` dans le fingerprint) — il agrege le SIGKILL qui suit un hard-limit (deja adresse cote AV9 pour les drains enrich + AV11 pour `backfill_multi_artists`) ET d'eventuels OOM. Deja resolu une fois par AV9-03 (2026-08-18), il a recidive (jusqu'au 2026-08-25) faute de pouvoir distinguer les causes → il ne peut pas etre clos proprement en l'etat (un resolve aveugle rouvrirait au prochain SIGKILL, quelle qu'en soit la source).
+
+- [ ] **AV12-01** : attribuer le SIGKILL par tache — poser un tag `task_name`/`transaction` sur l'event process-exit (`before_send` Sentry ou hook billiard `on_hard_timeout`) OU eclater le fingerprint, pour separer « hard-limit d'une tache X » (couvert AV9/AV11) d'un « OOM » (signal capacite, route ops, cf. [[hostinger-cpu-throttle]] / AV10).
+- [ ] **AV12-02** : apres instrumentation + fenetre d'observation, resolve DIGGY-APP-V si la famille reste eteinte, ou router vers ops si un OOM residuel subsiste.
+
+Invariants : lecture/observabilite uniquement, aucun changement de comportement worker.
+
+---
+
 ## D10 — Admin : Coherence & socle (fonctionnel + wiring)
 
 **Priorite : MOYEN**

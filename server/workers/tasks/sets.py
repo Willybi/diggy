@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 # expire while a legitimate run is still in progress
 RESOLVE_SET_TRACKS_LOCK_TTL = 2700
 
+# A concurrent catalog merge (enrichment dedup) can DELETE a loser catalog row
+# between our bulk get-or-create snapshot and the final commit, so the
+# executemany UPDATE set_tracks.catalog_id can hit a set_tracks_catalog_id_fkey
+# violation (DIGGY-APP-4 / 1G). We re-resolve from a clean read a bounded number
+# of times (twin of catalog._commit_with_deadlock_retry).
+RESOLVE_FK_MAX_RETRIES = 3
+RESOLVE_FK_BACKOFF = float(os.environ.get("RESOLVE_SET_TRACKS_FK_BACKOFF", "0.5"))
+
 # C12 — priority stamped on catalog rows whose source set is NOT scored in
 # trackid_index (a recent live-flux set). It sits ABOVE every backfill phase
 # (phases 60-99): freshly crawled sets are the absolute priority for the
@@ -240,14 +248,71 @@ def _build_set_priority_map(session, set_ids):
     return {sid: int(round(score)) for sid, score in rows}
 
 
-def _run_resolve_set_tracks(task):
+def _resolve_once(engine):
+    """One resolution pass: link null-catalog set_tracks to catalog rows.
+
+    Opens its OWN Session so it can be retried from a clean state after a
+    concurrent-merge FK violation (see _run_resolve_set_tracks). Returns the
+    number of set_tracks linked.
+    """
+    from models import SetTrack
     from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from utils import make_normalized_key
+    from workers.db import bulk_get_or_create_catalog
+
+    resolved = 0
+
+    with Session(engine) as session:
+        tracks = (
+            session.execute(
+                select(SetTrack).where(
+                    SetTrack.catalog_id.is_(None),
+                    SetTrack.is_id == False,  # noqa: E712
+                    SetTrack.raw_title.isnot(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        if not tracks:
+            return 0
+
+        # Bulk catalog lookup/create
+        track_dicts = [
+            {"title": st.raw_title, "artist": st.raw_artist} for st in tracks
+        ]
+        catalog_map = bulk_get_or_create_catalog(session, track_dicts)
+
+        # C12 — stamp enrich_priority so the Beatport drain (L2 gate) processes
+        # the rows of prioritary sets first. The catalog rows are created with
+        # enrich_priority NULL by bulk_get_or_create_catalog (left untouched on
+        # purpose); we stamp them HERE from the source set's priority, MAX-merged
+        # when a row is shared across sets/runs.
+        prio_map = _build_set_priority_map(session, {st.set_id for st in tracks})
+
+        for st in tracks:
+            nk = make_normalized_key(st.raw_title, st.raw_artist)
+            entry = catalog_map.get(nk)
+            if entry:
+                st.catalog_id = entry.id
+                prio = prio_map.get(st.set_id, FLUX_PRIORITY)
+                entry.enrich_priority = _merge_priority(entry.enrich_priority, prio)
+                resolved += 1
+
+        session.commit()
+
+    return resolved
+
+
+def _run_resolve_set_tracks(task):
+    from sqlalchemy.exc import IntegrityError
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
-    from models import SetTrack
     from workers.crawl_logger import CrawlLogger
-    from workers.db import bulk_get_or_create_catalog, get_engine
+    from workers.db import get_engine
 
     engine = get_engine()
 
@@ -255,55 +320,30 @@ def _run_resolve_set_tracks(task):
         with CrawlLogger(
             log_session, task_type="resolve_set_tracks", celery_task_id=task.request.id
         ) as clog:
+            # A concurrent catalog merge can DELETE a loser catalog row between
+            # our bulk get-or-create snapshot and the commit, so the executemany
+            # UPDATE set_tracks.catalog_id can violate set_tracks_catalog_id_fkey
+            # (DIGGY-APP-4 / 1G). Re-resolve from a clean read: the failed
+            # Session is discarded, set_tracks stay NULL, and the next pass
+            # resolves against the post-merge canonical. Bounded so a persistent
+            # failure still propagates (unchanged behaviour then).
             resolved = 0
-
-            with Session(engine) as session:
-                tracks = (
-                    session.execute(
-                        select(SetTrack).where(
-                            SetTrack.catalog_id.is_(None),
-                            SetTrack.is_id == False,  # noqa: E712
-                            SetTrack.raw_title.isnot(None),
-                        )
+            for attempt in range(1, RESOLVE_FK_MAX_RETRIES + 1):
+                try:
+                    resolved = _resolve_once(engine)
+                    break
+                except IntegrityError as err:
+                    if "set_tracks_catalog_id_fkey" not in str(err.orig):
+                        raise
+                    if attempt == RESOLVE_FK_MAX_RETRIES:
+                        raise
+                    logger.warning(
+                        "resolve_set_tracks FK race (concurrent catalog merge), "
+                        "retry %d/%d",
+                        attempt,
+                        RESOLVE_FK_MAX_RETRIES,
                     )
-                    .scalars()
-                    .all()
-                )
-
-                if not tracks:
-                    clog.set_stats({"resolved": 0})
-                    return {"resolved": 0}
-
-                # Bulk catalog lookup/create
-                track_dicts = [
-                    {"title": st.raw_title, "artist": st.raw_artist} for st in tracks
-                ]
-                catalog_map = bulk_get_or_create_catalog(session, track_dicts)
-
-                from utils import make_normalized_key
-
-                # C12 — stamp enrich_priority so the Beatport drain (L2 gate)
-                # processes the rows of prioritary sets first. The catalog rows
-                # are created with enrich_priority NULL by
-                # bulk_get_or_create_catalog (left untouched on purpose); we
-                # stamp them HERE from the source set's priority, MAX-merged when
-                # a row is shared across sets/runs.
-                prio_map = _build_set_priority_map(
-                    session, {st.set_id for st in tracks}
-                )
-
-                for st in tracks:
-                    nk = make_normalized_key(st.raw_title, st.raw_artist)
-                    entry = catalog_map.get(nk)
-                    if entry:
-                        st.catalog_id = entry.id
-                        prio = prio_map.get(st.set_id, FLUX_PRIORITY)
-                        entry.enrich_priority = _merge_priority(
-                            entry.enrich_priority, prio
-                        )
-                        resolved += 1
-
-                session.commit()
+                    time.sleep(RESOLVE_FK_BACKOFF * attempt)
 
             result = {"resolved": resolved}
             clog.set_stats(result)
