@@ -367,7 +367,13 @@ class TestImportDetailCapture:
             "artworkUrl": None,
             "createdOn": "2024-03-10T20:00:00Z",
             "channel": "LaR'Akaï",
-            "styles": ["Techno", "House"],
+            # Real TrackID DETAIL payload gives style OBJECTS, not bare names
+            # (the listing form is names). import_audiostream must extract names
+            # onto the sets.styles StringArray — else asyncpg rejects the dicts.
+            "styles": [
+                {"id": 12, "name": "Techno", "audioStreamCount": None},
+                {"id": 34, "name": "House", "audioStreamCount": None},
+            ],
             "timeHitRate": 0.82,
             "trackHitRate": 0.71,
             "favouriteCount": 4,
@@ -386,6 +392,21 @@ class TestImportDetailCapture:
         assert dj_set.track_hit_rate == 0.71
         assert dj_set.favourite_count == 4
         assert dj_set.like_count == 9
+
+    def test_normalize_styles_handles_both_shapes(self):
+        """The style normalizer accepts DETAIL dicts and listing name-strings, and
+        drops entries without a usable name."""
+        from trackid.importer import _normalize_styles
+
+        assert _normalize_styles(
+            [{"id": 1, "name": "Techno"}, {"id": 2, "name": "House"}]
+        ) == ["Techno", "House"]
+        assert _normalize_styles(["Techno", "House"]) == ["Techno", "House"]
+        assert _normalize_styles([{"id": 3}, {"name": ""}, None, "Ambient"]) == [
+            "Ambient"
+        ]
+        assert _normalize_styles(None) == []
+        assert _normalize_styles([]) == []
 
     async def test_missing_signals_are_null_or_empty(self, db):
         """A detail without the signals leaves channel NULL and styles []."""

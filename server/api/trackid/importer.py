@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 SET_ARTWORK_BUCKET = "set-artworks"
 
 
+def _normalize_styles(raw) -> list[str]:
+    """Normalize a TrackID ``styles`` value to the list-of-names ``sets.styles``
+    (StringArray) expects. The DETAIL payload gives style objects
+    (``[{"id": .., "name": "Deep House", ..}]``) whereas the listing form
+    (``trackid_index.styles``) is already a list of names — accept both, drop any
+    entry without a usable name."""
+    names: list[str] = []
+    for s in raw or []:
+        name = s.get("name") if isinstance(s, dict) else s
+        if name:
+            names.append(name)
+    return names
+
+
 async def get_or_create_artist(
     db: AsyncSession, name: str, trackid_id: str | None = None
 ) -> Artist:
@@ -127,7 +141,7 @@ async def import_audiostream(
     # trackHitRate, favouriteCount, likeCount). channel/styles feed the UI, the
     # rest are data-only.
     dj_set.channel = detail.get("channel")
-    dj_set.styles = detail.get("styles") or []
+    dj_set.styles = _normalize_styles(detail.get("styles"))
     dj_set.time_hit_rate = detail.get("timeHitRate")
     dj_set.track_hit_rate = detail.get("trackHitRate")
     dj_set.favourite_count = detail.get("favouriteCount")
