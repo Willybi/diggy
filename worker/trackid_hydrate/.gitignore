@@ -1,2 +1,4 @@
 # run artifacts (candidates CSV + hydration NDJSON + checkpoint) — never committed
+# data/ = default run dir; data-a/, data-b/… = parallel CLAIM/LEASE shard dirs
 data/
+data-*/
