@@ -271,6 +271,9 @@
               <span v-if="s.artists.length" class="st-artists" @click.stop>
                 <ArtistLinks :artists="s.artists" />
               </span>
+              <!-- C13.a: source channel as a provenance sub-line when no artist is
+                   linked (most TrackID sets), so the two never stack. -->
+              <span v-else-if="s.channel" class="st-channel">{{ s.channel }}</span>
               <!-- Genre chips fold under the title below 860px (S1) -->
               <div v-if="s.top_genres.length" class="st-genre-fold">
                 <RouterLink
@@ -1166,6 +1169,15 @@ onActivated(() => {
 .st-artists :deep(.art-link:hover) {
   color: var(--ink);
   text-decoration: underline;
+}
+/* Source channel sub-line (C13.a) — provenance fallback when no artist is linked */
+.st-channel {
+  font: 400 var(--fs-table-sm) / 1.25 var(--font-ui);
+  color: var(--ink-3);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Genre chips folded under the title (< 860px, S1) — hidden by default. */
 .st-genre-fold {

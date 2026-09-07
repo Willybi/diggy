@@ -229,6 +229,8 @@ async def list_sets(
             identified_tracks=identified,
             artists=set_artists_map.get(s.id, []),
             top_genres=top_genres_map.get(s.id, []),
+            channel=s.channel,
+            styles=s.styles or [],
         )
         for s, total_tracks, identified in rows
     ]

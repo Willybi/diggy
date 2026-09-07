@@ -21,6 +21,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import backref, relationship
 
+from .base import StringArray
+
 
 class DJSet(Base):
     __tablename__ = "sets"
@@ -72,6 +74,16 @@ class DJSet(Base):
     # C12 detail-capture: TrackID exposes whether the audiostream can be
     # reprocessed. Persisted at index time so we don't re-fetch 300k details.
     can_reprocess = Column(Boolean, nullable=True)
+    # C13.a set signals — mirrored from the TrackID detail payload at every
+    # (re-)import (also backfilled from trackid_index for existing sets). channel
+    # and styles surface in the UI (source channel + genre signal); the hit-rate /
+    # favourite / like counts are data-only ("it costs nothing, it'll be there").
+    channel = Column(String(255), nullable=True)
+    styles = Column(StringArray, nullable=True)
+    time_hit_rate = Column(Float, nullable=True)
+    track_hit_rate = Column(Float, nullable=True)
+    favourite_count = Column(Integer, nullable=True)
+    like_count = Column(Integer, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),

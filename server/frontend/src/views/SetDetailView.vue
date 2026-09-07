@@ -45,6 +45,13 @@
             </RouterLink>
           </div>
 
+          <!-- TrackID styles (C13.a) — raw genre signal from the source listing,
+               distinct from the deduced genres above. Absent when empty. -->
+          <div v-if="styles.length" class="hero-styles">
+            <span class="hero-styles-label">Styles TrackID</span>
+            <span v-for="st in styles" :key="st" class="hero-style-chip">{{ st }}</span>
+          </div>
+
           <!-- Identity stats (S3) — Durée · Date · Tracks · Identifiées (ring %, S4) -->
           <div class="hero-stats">
             <div v-if="djSet.duration_ms" class="stat-cell">
@@ -54,6 +61,10 @@
             <div v-if="djSet.played_date" class="stat-cell">
               <span class="stat-label">Date</span>
               <span class="stat-val">{{ fmtDate(djSet.played_date) }}</span>
+            </div>
+            <div v-if="djSet.channel" class="stat-cell stat-cell--channel">
+              <span class="stat-label">Chaîne source</span>
+              <span class="stat-val">{{ djSet.channel }}</span>
             </div>
             <div class="stat-cell">
               <span class="stat-label">Tracks</span>
@@ -191,6 +202,9 @@ const coverSrc = computed(() =>
 )
 
 const topGenres = computed(() => (djSet.value?.top_genres ?? []).slice(0, 5))
+
+// TrackID styles (C13.a) — raw source genre signal, capped for display.
+const styles = computed(() => (djSet.value?.styles ?? []).slice(0, 8))
 
 // Ring % identifiées — proportion 0..1, division guarded when total_tracks is 0.
 const identifiedRatio = computed(() => {
@@ -509,6 +523,28 @@ onMounted(() => {
   display: inline-flex;
   max-width: 100%;
   text-decoration: none;
+}
+
+/* TrackID styles (C13.a) — muted chips, distinct from the deduced StyleTags */
+.hero-styles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-15);
+}
+.hero-styles-label {
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+.hero-style-chip {
+  padding: var(--space-05) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font: 500 var(--fs-xs)/1 var(--font-ui);
+  color: var(--ink-2);
 }
 
 /* Identity stats (S3) */

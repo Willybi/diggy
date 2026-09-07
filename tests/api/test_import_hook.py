@@ -354,6 +354,64 @@ class TestImportDetailCapture:
         assert rows[1].label is None
         assert rows[1].end_time_ms is None
 
+    async def test_persists_set_signals(self, db):
+        """C13.a: channel/styles + hit-rate/favourite/like counts written from detail."""
+        from trackid.importer import import_audiostream
+
+        fake_detail = {
+            "id": 77010,
+            "title": "Signals Set",
+            "slug": "signals-set",
+            "duration": "01:00:00.0000000",
+            "url": "https://trackid.net/audiostream/signals-set",
+            "artworkUrl": None,
+            "createdOn": "2024-03-10T20:00:00Z",
+            "channel": "LaR'Akaï",
+            "styles": ["Techno", "House"],
+            "timeHitRate": 0.82,
+            "trackHitRate": 0.71,
+            "favouriteCount": 4,
+            "likeCount": 9,
+            "detectionProcesses": [],
+        }
+        mock_client = _make_mock_client(tracks=[])
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, _ = await import_audiostream(
+            db, mock_client, {"id": 77010, "slug": "signals-set"}
+        )
+        assert dj_set.channel == "LaR'Akaï"
+        assert dj_set.styles == ["Techno", "House"]
+        assert dj_set.time_hit_rate == 0.82
+        assert dj_set.track_hit_rate == 0.71
+        assert dj_set.favourite_count == 4
+        assert dj_set.like_count == 9
+
+    async def test_missing_signals_are_null_or_empty(self, db):
+        """A detail without the signals leaves channel NULL and styles []."""
+        from trackid.importer import import_audiostream
+
+        fake_detail = {
+            "id": 77011,
+            "title": "No Signals Set",
+            "slug": "no-signals-set",
+            "duration": "00:30:00.0000000",
+            "url": "https://trackid.net/audiostream/no-signals-set",
+            "artworkUrl": None,
+            "createdOn": "2024-04-01T18:00:00Z",
+            "detectionProcesses": [],
+        }
+        mock_client = _make_mock_client(tracks=[])
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, _ = await import_audiostream(
+            db, mock_client, {"id": 77011, "slug": "no-signals-set"}
+        )
+        assert dj_set.channel is None
+        assert dj_set.styles == []
+        assert dj_set.time_hit_rate is None
+        assert dj_set.favourite_count is None
+
     async def test_missing_can_reprocess_is_null(self, db):
         from trackid.importer import import_audiostream
 

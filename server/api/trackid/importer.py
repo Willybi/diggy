@@ -122,6 +122,17 @@ async def import_audiostream(
     # (re-)import — set in both the create and update branches above.
     dj_set.search_text = search_fold(dj_set.title)
 
+    # C13.a: mirror the TrackID set signals from the detail payload on every
+    # (re-)import (the detail carries all six: channel, styles[], timeHitRate,
+    # trackHitRate, favouriteCount, likeCount). channel/styles feed the UI, the
+    # rest are data-only.
+    dj_set.channel = detail.get("channel")
+    dj_set.styles = detail.get("styles") or []
+    dj_set.time_hit_rate = detail.get("timeHitRate")
+    dj_set.track_hit_rate = detail.get("trackHitRate")
+    dj_set.favourite_count = detail.get("favouriteCount")
+    dj_set.like_count = detail.get("likeCount")
+
     # Fetch artwork from TrackID if available and not yet stored
     artwork_url = detail.get("artworkUrl")
     if artwork_url and not dj_set.has_artwork:

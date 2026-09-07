@@ -20,6 +20,9 @@ class SetListItemOut(BaseModel):
     identified_tracks: int = 0
     artists: list[ArtistRef] = []
     top_genres: list[TopGenreOut] = []
+    # C13.a TrackID set signals surfaced in the UI (source channel + genre signal).
+    channel: Optional[str] = None
+    styles: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -64,6 +67,9 @@ class DJSetOut(BaseModel):
     last_crawled_at: Optional[datetime] = None
     total_tracks: int = 0
     identified_tracks: int = 0
+    # C13.a TrackID set signals surfaced in the UI (inherited by DJSetDetailOut).
+    channel: Optional[str] = None
+    styles: list[str] = []
 
     model_config = {"from_attributes": True}
 

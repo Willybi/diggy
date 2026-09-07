@@ -517,6 +517,12 @@ PK: `id`
 | `recrawl_status` | String(16) | no |  |  | server_default='active', default='active' |
 | `unreliable` | Boolean | no |  |  | server_default='false', default=False |
 | `can_reprocess` | Boolean | yes |  |  |  |
+| `channel` | String(255) | yes |  |  |  |
+| `styles` | TEXT[] | yes |  |  |  |
+| `time_hit_rate` | Float | yes |  |  |  |
+| `track_hit_rate` | Float | yes |  |  |  |
+| `favourite_count` | Integer | yes |  |  |  |
+| `like_count` | Integer | yes |  |  |  |
 
 **Indexes:**
 - `ix_sets_parent_set_id`: `parent_set_id`
@@ -557,9 +563,9 @@ PK: `id`
 | `end_time_ms` | Integer | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_tracks_catalog_id`: `catalog_id`
 - `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 - `ix_set_tracks_set_id`: `set_id`
+- `ix_set_tracks_catalog_id`: `catalog_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -584,10 +590,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `uq_set_flag_group_key`: `group_key` (unique)
-- `ix_set_flags_group_key`: `group_key`
 - `ix_set_flags_set_id_a`: `set_id_a`
 - `ix_set_flags_set_id_b`: `set_id_b`
+- `uq_set_flag_group_key`: `group_key` (unique)
+- `ix_set_flags_group_key`: `group_key`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
@@ -644,9 +650,9 @@ PK: `id`
 | `claimed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_trackid_index_added_on`: `added_on`
 - `ix_trackid_index_set_id`: `set_id`
 - `ix_trackid_index_hydration_state`: `hydration_state`
+- `ix_trackid_index_added_on`: `added_on`
 
 ## Genres
 

@@ -1,0 +1,6 @@
+# run artifacts (input exports, distributions, samples, label templates, reports)
+data/
+*.csv
+*.ndjson
+*.jsonl
+!/**/test_*.py

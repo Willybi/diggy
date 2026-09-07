@@ -373,6 +373,8 @@ async def get_set_detail(
         artists=artists,
         tracklist=tracklist,
         top_genres=top_genres,
+        channel=dj_set.channel,
+        styles=dj_set.styles or [],
     )
 
 
