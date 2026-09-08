@@ -23,6 +23,10 @@ class SetListItemOut(BaseModel):
     # C13.a TrackID set signals surfaced in the UI (source channel + genre signal).
     channel: Optional[str] = None
     styles: list[str] = []
+    # C13.e derived metadata: canonical channel (drives the ?channel= filter) +
+    # event date parsed from the title (the UI prefers it over played_date).
+    channel_canonical: Optional[str] = None
+    event_date: Optional[date] = None
 
     model_config = {"from_attributes": True}
 
@@ -70,6 +74,9 @@ class DJSetOut(BaseModel):
     # C13.a TrackID set signals surfaced in the UI (inherited by DJSetDetailOut).
     channel: Optional[str] = None
     styles: list[str] = []
+    # C13.e derived metadata (inherited by DJSetDetailOut).
+    channel_canonical: Optional[str] = None
+    event_date: Optional[date] = None
 
     model_config = {"from_attributes": True}
 

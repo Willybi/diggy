@@ -272,8 +272,16 @@
                 <ArtistLinks :artists="s.artists" />
               </span>
               <!-- C13.a: source channel as a provenance sub-line when no artist is
-                   linked (most TrackID sets), so the two never stack. -->
-              <span v-else-if="s.channel" class="st-channel">{{ s.channel }}</span>
+                   linked (most TrackID sets), so the two never stack. C13.e: the
+                   channel is clickable → filters the list by its canonical form. -->
+              <button
+                v-else-if="s.channel"
+                class="st-channel st-channel--btn"
+                type="button"
+                @click.stop="filterByChannel(s)"
+              >
+                {{ s.channel }}
+              </button>
               <!-- Genre chips fold under the title below 860px (S1) -->
               <div v-if="s.top_genres.length" class="st-genre-fold">
                 <RouterLink
@@ -304,7 +312,7 @@
           </div>
 
           <div class="st-cell col-date">
-            <span :class="s.played_date ? 'st-date' : 'st-null'">{{ fmtDate(s.played_date) }}</span>
+            <span :class="effDate(s) ? 'st-date' : 'st-null'">{{ fmtDate(effDate(s)) }}</span>
           </div>
 
           <div class="st-cell col-tracks st-cell--center">
@@ -592,6 +600,11 @@ const criteria = [
   },
   { key: 'tracks', type: 'segment', label: 'Tracks', options: TRACKS_OPTIONS },
   { key: 'avis', type: 'segment', label: 'Avis', options: AVIS_OPTIONS },
+  // Channel filter (C13.e): a single canonical channel, arrived-at by clicking a
+  // set's source channel (no picker control) — like artist_id, only a removable
+  // chip. The clicked value is the CANONICAL form so a raw variant still filters
+  // to every set of that channel.
+  { key: 'channel', type: 'text', label: 'Chaîne' },
 ]
 
 // Sort is URL state but not a filter (never a chip, never counted in the badge).
@@ -675,6 +688,7 @@ function resetFilters() {
   state.artist_id = []
   state.tracks = null
   state.avis = null
+  state.channel = ''
 }
 
 function closePanel() {
@@ -697,6 +711,8 @@ function buildExtraParams() {
   if (state.genre.length) p.genres = state.genre.join(',')
   // D8.c: CSV of artist ids → /sets router `_parse_id_csv(artist_id)`.
   if (state.artist_id.length) p.artist_id = state.artist_id.map((a) => a.id).join(',')
+  // C13.e: canonical channel → /sets router `channel=`.
+  if (state.channel) p.channel = state.channel
   return p
 }
 
@@ -783,6 +799,12 @@ function opinionOf(id) {
   return opinions.get('set', id)
 }
 
+// C13.e: show the title-derived event date when present, else TrackID's
+// played_date (often the upload date).
+function effDate(s) {
+  return s.event_date || s.played_date
+}
+
 // ── Opinion one-shot (avis facets) : shared helper ──
 // liked/disliked pass the matching ids via `ids=`, « À explorer » (none)
 // excludes every rated id via `exclude_ids=`; both carry the panel filters
@@ -820,6 +842,13 @@ function clearSearch() {
 
 function goToSet(id) {
   router.push(`/set/${id}`)
+}
+
+// Click a row's source channel → filter the list by its canonical channel
+// (falls back to the raw channel when no canonical was derived). URL-synced via
+// the `channel` criterion; the removable chip clears it.
+function filterByChannel(s) {
+  state.channel = s.channel_canonical || s.channel
 }
 
 async function setOpinion(id, val) {
@@ -1178,6 +1207,21 @@ onActivated(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* C13.e: the channel is a clickable filter — reset the button chrome, keep the
+   sub-line look, hint interactivity on hover. */
+.st-channel--btn {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.st-channel--btn:hover {
+  color: var(--ink);
+  text-decoration: underline;
 }
 /* Genre chips folded under the title (< 860px, S1) — hidden by default. */
 .st-genre-fold {

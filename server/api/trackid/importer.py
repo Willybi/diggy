@@ -7,6 +7,7 @@ from models import Artist, ArtistAlias, DJSet, SetArtist, SetTrack
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import normalize, search_fold
+from workers.set_title_meta import canonicalize_channel, extract_event_date
 
 from trackid.client import TrackIDClient
 from trackid.parsing import is_id_track, parse_timespan_to_ms, parse_trackid_date
@@ -146,6 +147,12 @@ async def import_audiostream(
     dj_set.track_hit_rate = detail.get("trackHitRate")
     dj_set.favourite_count = detail.get("favouriteCount")
     dj_set.like_count = detail.get("likeCount")
+
+    # C13.e derived set metadata — recomputed on every (re-)import from the (just
+    # refreshed) title/channel: the event date parsed out of the title when
+    # unambiguous, and the channel canonicalized through the curated gazetteer.
+    dj_set.event_date = extract_event_date(dj_set.title)
+    dj_set.channel_canonical = canonicalize_channel(dj_set.channel)
 
     # Fetch artwork from TrackID if available and not yet stored
     artwork_url = detail.get("artworkUrl")

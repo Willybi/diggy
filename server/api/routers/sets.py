@@ -119,6 +119,7 @@ async def list_sets(
     exclude_ids: str | None = None,
     genres: str | None = None,
     artist_id: str | None = None,
+    channel: str | None = None,
     duration_min: int | None = Query(None, ge=0),
     duration_max: int | None = Query(None, ge=0),
     year_min: int | None = Query(None, ge=1900, le=2100),
@@ -139,6 +140,7 @@ async def list_sets(
         exclude_ids=_parse_id_csv(exclude_ids),
         genres=_parse_str_csv(genres),
         artist_ids=_parse_id_csv(artist_id),
+        channel=(channel.strip() or None) if channel else None,
         duration_min=duration_min,
         duration_max=duration_max,
         year_min=year_min,
@@ -375,6 +377,8 @@ async def get_set_detail(
         top_genres=top_genres,
         channel=dj_set.channel,
         styles=dj_set.styles or [],
+        channel_canonical=dj_set.channel_canonical,
+        event_date=dj_set.event_date,
     )
 
 

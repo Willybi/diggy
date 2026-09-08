@@ -523,6 +523,8 @@ PK: `id`
 | `track_hit_rate` | Float | yes |  |  |  |
 | `favourite_count` | Integer | yes |  |  |  |
 | `like_count` | Integer | yes |  |  |  |
+| `event_date` | Date | yes |  |  |  |
+| `channel_canonical` | String(255) | yes |  |  |  |
 
 **Indexes:**
 - `ix_sets_parent_set_id`: `parent_set_id`

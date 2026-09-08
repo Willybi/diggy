@@ -84,6 +84,15 @@ class DJSet(Base):
     track_hit_rate = Column(Float, nullable=True)
     favourite_count = Column(Integer, nullable=True)
     like_count = Column(Integer, nullable=True)
+    # C13.e derived set metadata — computed from the title/channel at every
+    # (re-)import (also backfilled for existing sets). event_date is the EVENT
+    # date parsed out of the title when unambiguous (the app prefers it over
+    # played_date, which is TrackID's often-upload createdOn); channel_canonical
+    # normalises channel through a curated gazetteer (unifies "Boiler Room" &
+    # variants), raw cleaned passthrough otherwise. Both nullable (abstain when
+    # unsure — invariant #4).
+    event_date = Column(Date, nullable=True)
+    channel_canonical = Column(String(255), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_set_external_source"),

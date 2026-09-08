@@ -37,6 +37,7 @@ async def list_sets(
     exclude_ids: list[int] | None,
     genres: list[str] | None,
     artist_ids: list[int] | None = None,
+    channel: str | None = None,
     duration_min: int | None,
     duration_max: int | None,
     year_min: int | None,
@@ -133,6 +134,13 @@ async def list_sets(
             SetArtist.artist_id.in_(artist_ids)
         )
         stmt = stmt.where(DJSet.id.in_(artist_sub))
+
+    # Channel filter (C13.e): sets whose canonical channel matches — the value is
+    # the canonical form (from the clickable channel chip), so a raw variant like
+    # "Boiler Room: …" still filters to every "Boiler Room" set. Applied to stmt
+    # so `total` honours it.
+    if channel:
+        stmt = stmt.where(DJSet.channel_canonical == channel)
 
     # Track-count bounds — total_tracks is an aggregate, so these are HAVING
     # clauses (AND-ed with the identified>0 gate above).
@@ -231,6 +239,8 @@ async def list_sets(
             top_genres=top_genres_map.get(s.id, []),
             channel=s.channel,
             styles=s.styles or [],
+            channel_canonical=s.channel_canonical,
+            event_date=s.event_date,
         )
         for s, total_tracks, identified in rows
     ]

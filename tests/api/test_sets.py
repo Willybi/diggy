@@ -577,6 +577,61 @@ class TestListSetsArtistFilter:
         assert r.json()["total"] == 0
 
 
+class TestListSetsChannelFilter:
+    """C13.e: /sets?channel= filters to sets whose canonical channel matches, and
+    the item carries channel_canonical + event_date."""
+
+    async def test_filter_by_channel_canonical(self, client, db):
+        br = DJSet(
+            source="trackid",
+            title="Boiler Room Berlin",
+            channel="Boiler Room: Berlin",
+            channel_canonical="Boiler Room",
+        )
+        nts = DJSet(
+            source="trackid",
+            title="NTS Session",
+            channel="NTS Radio",
+            channel_canonical="NTS Radio",
+        )
+        db.add_all([br, nts])
+        await db.flush()
+        await _attach_identified_track(db, br)
+        await _attach_identified_track(db, nts)
+        await db.commit()
+
+        r = await client.get("/api/sets/?channel=Boiler Room")
+        data = r.json()
+        assert {it["title"] for it in data["items"]} == {"Boiler Room Berlin"}
+        assert data["total"] == 1
+        assert data["items"][0]["channel_canonical"] == "Boiler Room"
+
+    async def test_blank_channel_drops_the_filter(self, client, db):
+        s = DJSet(source="trackid", title="Any", channel_canonical="Cercle")
+        db.add(s)
+        await db.flush()
+        await _attach_identified_track(db, s)
+        await db.commit()
+
+        r = await client.get("/api/sets/?channel=%20%20")
+        assert r.json()["total"] == 1
+
+    async def test_item_carries_event_date(self, client, db):
+        s = DJSet(
+            source="trackid",
+            title="Dated Set",
+            played_date=date(2020, 1, 1),
+            event_date=date(2021, 12, 25),
+        )
+        db.add(s)
+        await db.flush()
+        await _attach_identified_track(db, s)
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        assert r.json()["items"][0]["event_date"] == "2021-12-25"
+
+
 class TestSetDetail:
     async def test_returns_set(self, client, db):
         s = DJSet(source="trackid", title="Test Set")

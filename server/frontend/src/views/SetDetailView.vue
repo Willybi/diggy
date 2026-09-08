@@ -58,9 +58,9 @@
               <span class="stat-label">Durée</span>
               <span class="stat-val">{{ fmtMs(djSet.duration_ms) }}</span>
             </div>
-            <div v-if="djSet.played_date" class="stat-cell">
+            <div v-if="effDate" class="stat-cell">
               <span class="stat-label">Date</span>
-              <span class="stat-val">{{ fmtDate(djSet.played_date) }}</span>
+              <span class="stat-val">{{ fmtDate(effDate) }}</span>
             </div>
             <div v-if="djSet.channel" class="stat-cell stat-cell--channel">
               <span class="stat-label">Chaîne source</span>
@@ -202,6 +202,10 @@ const coverSrc = computed(() =>
 )
 
 const topGenres = computed(() => (djSet.value?.top_genres ?? []).slice(0, 5))
+
+// C13.e: show the title-derived event date when present, else TrackID's
+// played_date (often the upload date).
+const effDate = computed(() => djSet.value?.event_date || djSet.value?.played_date)
 
 // TrackID styles (C13.a) — raw source genre signal, capped for display.
 const styles = computed(() => (djSet.value?.styles ?? []).slice(0, 8))

@@ -65,6 +65,9 @@ function makeItems() {
       has_artwork: false,
       total_tracks: 4,
       identified_tracks: 1,
+      // C13.e: no artist → the source channel renders as a clickable filter chip.
+      channel: 'Boiler Room: Berlin',
+      channel_canonical: 'Boiler Room',
     },
   ]
 }
@@ -278,6 +281,23 @@ describe('SetsView', () => {
     const second = rows[1]
     expect(second.find('.st-artists').exists()).toBe(false)
     expect(second.find('.style-tag').exists()).toBe(false)
+  })
+
+  it('renders a clickable source channel that adds the canonical channel chip', async () => {
+    const wrapper = await mountView()
+    const rows = wrapper.findAll('.st-row:not(.st-row--skel)')
+    // Second row has no artist → the channel button is shown with the raw label.
+    const chanBtn = rows[1].find('.st-channel--btn')
+    expect(chanBtn.exists()).toBe(true)
+    expect(chanBtn.text()).toBe('Boiler Room: Berlin')
+
+    // Clicking filters by the CANONICAL channel → a removable chip carries it
+    // (buildChips reflects the state synchronously, no debounce needed).
+    await chanBtn.trigger('click')
+    await nextTick()
+    const chips = wrapper.find('.fbar-chips')
+    expect(chips.exists()).toBe(true)
+    expect(chips.text()).toContain('Boiler Room')
   })
 
   it('navigates to the set on row click', async () => {

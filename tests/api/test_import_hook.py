@@ -433,6 +433,53 @@ class TestImportDetailCapture:
         assert dj_set.time_hit_rate is None
         assert dj_set.favourite_count is None
 
+    async def test_persists_derived_metadata(self, db):
+        """C13.e: event_date parsed from the title + canonical channel written."""
+        from trackid.importer import import_audiostream
+
+        fake_detail = {
+            "id": 77020,
+            "title": "Boiler Room Berlin 25/12/2021",
+            "slug": "br-berlin-251221",
+            "duration": "01:00:00.0000000",
+            "url": "https://trackid.net/audiostream/br-berlin-251221",
+            "artworkUrl": None,
+            "createdOn": "2024-03-10T20:00:00Z",
+            "channel": "Boiler Room: Berlin",
+            "detectionProcesses": [],
+        }
+        mock_client = _make_mock_client(tracks=[])
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, _ = await import_audiostream(
+            db, mock_client, {"id": 77020, "slug": "br-berlin-251221"}
+        )
+        assert dj_set.event_date == date(2021, 12, 25)
+        assert dj_set.channel_canonical == "Boiler Room"
+
+    async def test_derived_metadata_null_when_absent(self, db):
+        """No date in the title + no channel → event_date NULL, channel_canonical NULL."""
+        from trackid.importer import import_audiostream
+
+        fake_detail = {
+            "id": 77021,
+            "title": "Charlotte de Witte @ Awakenings",
+            "slug": "cdw-awakenings",
+            "duration": "01:00:00.0000000",
+            "url": "https://trackid.net/audiostream/cdw-awakenings",
+            "artworkUrl": None,
+            "createdOn": "2024-03-10T20:00:00Z",
+            "detectionProcesses": [],
+        }
+        mock_client = _make_mock_client(tracks=[])
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, _ = await import_audiostream(
+            db, mock_client, {"id": 77021, "slug": "cdw-awakenings"}
+        )
+        assert dj_set.event_date is None
+        assert dj_set.channel_canonical is None
+
     async def test_missing_can_reprocess_is_null(self, db):
         from trackid.importer import import_audiostream
 
