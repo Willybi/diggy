@@ -49,23 +49,24 @@ class TestScoreRow:
         assert missed == []
 
     def test_partial_with_false_positive(self):
-        # extractor proposes both dash segments? no — dash keeps the leading one,
-        # so "Songs of Spring" is never a candidate; expected artist is hit, and
-        # the channel adds one non-matching candidate → precision < 100%
+        # C2a: the dash now emits BOTH sides, so "Songs of Spring" is also a candidate;
+        # the expected artist is still hit, and the extra track + channel candidates
+        # drag precision below 100%
         n_exp, n_hit, n_cand, n_cand_hit, missed = benchmark.score_row(
             "Ley Moore - Songs of Spring", "Some Label", ["Ley Moore"]
         )
         assert n_exp == 1 and n_hit == 1
-        assert n_cand == 2 and n_cand_hit == 1  # Ley Moore + Some Label
+        # Ley Moore + Songs of Spring + Some Label
+        assert n_cand == 3 and n_cand_hit == 1
         assert missed == []
 
     def test_false_negative(self):
-        # a buried artist behind a place-dash the deterministic pass can't recover
+        # a freeform "at venue" glue the deterministic pass can't recover
         n_exp, n_hit, n_cand, n_cand_hit, missed = benchmark.score_row(
-            "Brooklyn - Some Artist", "chan", ["Some Artist"]
+            "Wata Igarashi at Samhain XX", "chan", ["Wata Igarashi"]
         )
         assert n_hit == 0
-        assert missed == ["Some Artist"]
+        assert missed == ["Wata Igarashi"]
 
 
 # ── benchmark aggregation ────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ def _rows():
     return [
         ("Artist One b2b Artist Two", "", ["Artist One", "Artist Two"]),
         ("Ley Moore - Songs of Spring", "Some Label", ["Ley Moore"]),
-        ("Brooklyn - Some Artist", "chan", ["Some Artist"]),
+        ("Wata Igarashi at Samhain XX", "chan", ["Wata Igarashi"]),
         ("Unlabelled Title", "chan", []),
     ]
 
@@ -97,7 +98,7 @@ class TestBenchmark:
     def test_false_negatives_captured(self):
         result = benchmark.benchmark(_rows())
         missed_titles = [t for t, _c, _m in result["false_negatives"]]
-        assert "Brooklyn - Some Artist" in missed_titles
+        assert "Wata Igarashi at Samhain XX" in missed_titles
 
     def test_per_skeleton_breakdown(self):
         result = benchmark.benchmark(_rows())

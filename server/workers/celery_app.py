@@ -103,6 +103,8 @@ celery_app.conf.update(
         "workers.tasks.auto_resolve_artist_flags": {"queue": "enrich"},
         "workers.tasks.backfill_multi_artists": {"queue": "enrich"},
         "workers.tasks.reclassify_genres_chunk": {"queue": "enrich"},
+        # Verifies set-artist candidates against Deezer (rate-limited) → enrich
+        "workers.tasks.link_set_artists": {"queue": "enrich"},
     },
     # Dead letter queue — consumed by default queue list, inspectable via Redis
     task_default_queue="celery",
@@ -212,6 +214,17 @@ celery_app.conf.update(
         "fetch-artist-artworks-daily": {
             "task": "workers.tasks.fetch_artist_artworks",
             "schedule": crontab(hour=5, minute=20),  # tous les jours à 5h20
+        },
+        # C2c-2b — bounded fil-de-l'eau linking of DJ-set artists derived from the
+        # set title/channel (extractor+resolver chain, base-first then Deezer). In
+        # the Deezer-idle window (05:30) after link-artists-deezer (05:10) /
+        # fetch-artist-artworks (05:20), before the Beatport drain (06:00). Newest
+        # unlinked roots only, capped (LINK_SET_ARTISTS_MAX_SETS_PER_RUN); the ~42k
+        # existing backlog is C3's local/OPS job. Locked single-instance + no
+        # autoretry; a no-op once the recent window is drained.
+        "link-set-artists-daily": {
+            "task": "workers.tasks.link_set_artists",
+            "schedule": crontab(hour=5, minute=30),  # tous les jours à 5h30
         },
         # Backlog time-series sample — toutes les heures à :30 (décalé des runs
         # d'enrichissement à :00 pour ne pas s'y agréger). 24/24 → courbe

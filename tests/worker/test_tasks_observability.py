@@ -60,6 +60,17 @@ _celery_mock.task.side_effect = _task_decorator
 _celery_app_mod = MagicMock(celery_app=_celery_mock)
 sys.modules["workers.celery_app"] = _celery_app_mod
 
+
+# link_set_artists (C2c-2b) does `from celery.exceptions import SoftTimeLimitExceeded`
+# and uses it in an `except` clause, which needs a real class inheriting
+# BaseException (same pattern as test_deadline_exit).
+class _FakeSoftTimeLimitExceeded(Exception):
+    pass
+
+
+_celery_exceptions = sys.modules.setdefault("celery.exceptions", MagicMock())
+_celery_exceptions.SoftTimeLimitExceeded = _FakeSoftTimeLimitExceeded
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -118,20 +129,36 @@ def _get_crawl_log(engine, task_type):
 
 
 class TestLinkSetArtistsCrawlLog:
-    def test_run_writes_success_log(self, tasks_env, task_engine, fake_self):
+    def test_run_writes_success_log(self, tasks_env, task_engine, fake_self, monkeypatch):
+        # C2c-2b — the task now runs the extractor+resolver chain (base-first,
+        # then Deezer). A spaced-dash title yields "ANNA" as its leading candidate,
+        # which resolves in the base; the trailing "Boiler Room" region misses the
+        # base and would hit Deezer, so we stub the Deezer verification to None (no
+        # network in tests). Stats keys changed from the old {linked, skipped}.
+        async def _no_deezer(pool, session, name, fan_floor):
+            return None
+
+        monkeypatch.setattr(
+            tasks_env.artists, "_verify_set_artist_via_deezer", _no_deezer
+        )
         with Session(task_engine) as s:
             s.add(Artist(name="ANNA", normalized_name="anna"))
-            s.add(DJSet(source="trackid", title="ANNA at Boiler Room"))
+            s.add(DJSet(source="trackid", title="ANNA - Boiler Room"))
             s.commit()
 
         result = tasks_env.artists.link_set_artists(fake_self)
 
-        assert result == {"linked": 1, "skipped": 0}
+        assert result["sets_processed"] == 1
+        assert result["links_created"] == 1
+        assert result["deezer_confirmed"] == 0
+        assert result["skipped_no_resolve"] == 0
+        assert result["deadline_hit"] is False
         with Session(task_engine) as s:
-            assert s.execute(select(SetArtist)).scalar_one() is not None
+            sa = s.execute(select(SetArtist)).scalar_one()
+            assert sa.role == "dj"
         log = _get_crawl_log(task_engine, "link_set_artists")
         assert log.status == "success"
-        assert log.stats == {"linked": 1, "skipped": 0}
+        assert log.stats == result
         assert log.celery_task_id == "task-obs"
 
 

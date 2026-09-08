@@ -62,30 +62,115 @@ class TestConnectors:
         assert names("A b2b B b2b C") == ["A", "B", "C"]
 
 
-# ── nominal: "Artist - Track" collapses to the leading (artist) segment ──────
+# ── "Artist - Track" emits BOTH sides (C2a), leading segment boosted ─────────
 
 
 class TestArtistTrackDash:
-    def test_dash_keeps_only_leading_artist(self):
-        assert names("Ley Moore - Songs of Spring") == ["Ley Moore"]
+    def test_dash_emits_both_sides_leading_first(self):
+        # C2a: the track side is no longer dropped (over-propose, verified later),
+        # but the DJ-first (artist) segment stays FIRST.
+        assert names("Ley Moore - Songs of Spring") == ["Ley Moore", "Songs of Spring"]
+
+    def test_dash_leading_segment_boosted_track_not(self):
+        cands = extract_artist_candidates("Ley Moore - Songs of Spring", None)
+        by_name = {c.name: c for c in cands}
+        assert by_name["Ley Moore"].is_boosted is True
+        assert by_name["Songs of Spring"].is_boosted is False
 
     def test_dash_with_collab_on_the_left(self):
-        # the track title (right of dash) is dropped; the left line-up is split
-        assert names("Amanita Phalloides & Heavenchord - When The Birds Are Calling") == [
-            "Amanita Phalloides",
-            "Heavenchord",
-        ]
+        # the left line-up is split; the track title (right of dash) is now emitted too
+        assert names(
+            "Amanita Phalloides & Heavenchord - When The Birds Are Calling"
+        ) == ["Amanita Phalloides", "Heavenchord", "When The Birds Are Calling"]
 
     def test_dash_with_lineup_and_venue_tail(self):
+        # date "09/20/15" is stripped; the venue segment "AYLI Open Air" survives as an
+        # (over-proposed) candidate after the line-up
         assert names("Max Graef B2B Glenn Astro - AYLI Open Air 09/20/15") == [
             "Max Graef",
             "Glenn Astro",
+            "AYLI Open Air",
         ]
+
+    def test_dash_recovers_artist_buried_after_dashes(self):
+        # C2a: the artist sits AFTER two dashes — previously lost (leading-only)
+        assert "Dennis Quin" in names("344 - The Boom Room - Dennis Quin")
 
     def test_intra_name_hyphen_preserved(self):
         # a hyphen WITHOUT surrounding spaces is not the artist/track boundary
         assert names("Cro-Magnon") == ["Cro-Magnon"]
         assert names("JAY-Z") == ["JAY-Z"]
+
+
+# ── C2a: verbal line-up connectors (invite/invites/meets/avec) ───────────────
+
+
+class TestVerbalConnectors:
+    def test_invites_splits_guest(self):
+        assert names("Bassiani invites Resom / Podcast #79") == ["Bassiani", "Resom"]
+
+    def test_invite_singular_splits(self):
+        assert names("Mojoe invite Nidor") == ["Mojoe", "Nidor"]
+
+    def test_meets_splits(self):
+        assert names("RBL meets Catu Diosis") == ["RBL", "Catu Diosis"]
+
+    def test_avec_splits(self):
+        assert names("BAILE avec MAIA") == ["BAILE", "MAIA"]
+
+    def test_invite_not_fired_inside_word(self):
+        # word-bounded: "invited" must not split
+        assert names("The Invited Ones") == ["The Invited Ones"]
+
+
+# ── C2a: colon ":" as a region boundary (rule 2) ─────────────────────────────
+
+
+class TestColonBoundary:
+    def test_colon_splits_show_from_guest(self):
+        assert names("The Beat Mix: Nelly") == ["The Beat Mix", "Nelly"]
+
+    def test_colon_leading_region_boosted(self):
+        cands = extract_artist_candidates("Talento: Luke Pepper", None)
+        by_name = {c.name: c for c in cands}
+        assert by_name["Talento"].is_boosted is True
+        assert by_name["Luke Pepper"].is_boosted is False
+
+    def test_time_colon_is_harmless(self):
+        # C2b: "21:00" has no space after the colon → NOT a boundary; the region
+        # carries no letter → no candidate
+        assert names("21:00", "Chan") == ["Chan"]
+
+    def test_colon_glued_inside_name_kept(self):
+        # C2b: a colon glued inside a token ("Blond:ish") is NOT a boundary → the
+        # name stays a single candidate
+        assert names("Blond:ish") == ["Blond:ish"]
+
+    def test_spaced_colon_still_splits(self):
+        # C2b: the colon is a boundary only when followed by a space
+        assert names("Show: Guest") == ["Show", "Guest"]
+
+
+# ── C2a: exotic separators — arrows + box-drawing (rule 4) ───────────────────
+
+
+class TestExoticSeparators:
+    def test_arrow_splits_region(self):
+        assert names("Neon Cleptu 31 → CP1") == ["Neon Cleptu 31", "CP1"]
+
+    def test_box_drawing_splits_region(self):
+        assert "Acidic Male" in names("Acidic Male╚═ Future Intel ═╗ 01 12 2022")
+
+
+# ── C2a: "by X" as an INTERNAL host separator (rule 5) ───────────────────────
+
+
+class TestByMidRegion:
+    def test_by_mid_region_recovers_trailing_name(self):
+        assert "Ladaeg" in names("LPR-P063 by Ladaeg")
+
+    def test_by_mid_region_before_date(self):
+        assert "Lunatico" in names("Poetry Beyond Sounds by Lunatico - 29.11.23")
 
 
 # ── noise stripping ──────────────────────────────────────────────────────────
@@ -153,6 +238,31 @@ class TestChannel:
 
     def test_channel_empty_string_only_title(self):
         assert names("Deadmau5", "") == ["Deadmau5"]
+
+
+# ── C2b: channel runs through the SAME pipeline as the title ──────────────────
+
+
+class TestChannelPipeline:
+    def test_channel_dash_region_recovers_artist(self):
+        # C2b: the channel goes through region/dash/strip-noise, so the DJ living
+        # only in the channel is recovered (title is pure noise here)
+        cands = extract_artist_candidates(
+            "HouseBound - 10th Aug 2022 #peoplescityradio",
+            "Wilson Frisk - HouseBound Radio Show (Est 2017)",
+        )
+        wf = next((c for c in cands if c.name == "Wilson Frisk"), None)
+        assert wf is not None
+        assert wf.source == "channel"
+        assert wf.is_boosted is False
+
+    def test_channel_trailing_number_stripped(self):
+        # C2b: EP noise ("586") is peeled from the channel too
+        assert "Antony Daly" in names("Antony Daly Suono July 07.mp3", "Antony Daly 586")
+
+    def test_channel_format_word_splits_off_the_name(self):
+        # C2b: a FORMAT word inside the channel is a boundary → the name survives
+        assert "frwctrl" in names("Sunlight Echoes", "frwctrl - frequency without control")
 
 
 # ── placeholder rejection ────────────────────────────────────────────────────

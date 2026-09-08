@@ -152,7 +152,17 @@ _BOUNDARY = "\x00"
 # pres/with come from artist_names (single source of truth for those). Word-bounded
 # so "vs" in "Elvis" and "x" in "Max" never fire; "&", ",", "|", … stay to the
 # punctuation split. An optional trailing dot swallows "feat."/"pres.".
-_CONNECTOR_WORDS = ["b2b", "b3b", "b4b", "f2f", "versus", "vs", "x"]
+#
+# C2a — VERBAL line-up connectors introduce a guest ("X invites Y", "X meets Y",
+# "X avec Y") the same way B2B does, plus "by" as an INTERNAL host separator
+# ("… by Ladaeg" mid-region, generalising _HOST_PREFIX which only caught it at the
+# region start). All word-bounded, so "invite" never fires inside a longer word and
+# "by" never inside "Baby". ("with"/"w" already come from artist_names._SPLIT_WORDS,
+# so "w/" is already split via the "w" token + the "/" punctuation separator.)
+_CONNECTOR_WORDS = [
+    "b2b", "b3b", "b4b", "f2f", "versus", "vs", "x",
+    "invites", "invite", "invita", "meets", "avec", "by",
+]
 
 # Word connectors sourced from artist_names._SPLIT_WORDS, reduced to bare tokens
 # (drop the surrounding spaces/dots/parens of that constant — they are match
@@ -182,7 +192,17 @@ _CONNECTOR = re.compile(
 # Structural region separators: venue/label/field boundaries where the artist could
 # be on either side (all regions are emitted, the first one boosted). The venue "@"
 # is handled separately (its tail is dropped). "//" collapses to one boundary.
-_STRUCTURAL = re.compile(r"//+|[|~·•⤀⬴／⁄\n\r\t" + _BOUNDARY + r"]")
+#
+# C2a — added: the colon ":", directional ARROWS (→ ⟶ ➤, plus the pre-existing ⤀ ⬴)
+# and BOX-DRAWING glyphs (═ ╚ ╗ ║ ┃ │) used as ornamental separators in some
+# channels' titles.
+# C2b — the colon is a boundary ONLY when followed by a space (`:(?=\s)`, zero-width
+# lookahead): "Show: Guest" / "The Beat Mix: Nelly" still split, but a colon glued
+# INSIDE a token no longer cuts it — "Blond:ish" stays one region and a bare time
+# "21:00" is inert (all corpus split targets carry ": " with a space).
+_STRUCTURAL = re.compile(
+    r"//+|:(?=\s)|[|~·•⤀⬴／⁄→⟶➤═╚╗║┃│\n\r\t" + _BOUNDARY + r"]"
+)
 
 # A spaced dash ( - / – / — with a space on BOTH sides) = the "Artist - Track"
 # boundary. Space-bounded so intra-name hyphens survive ("Cro-Magnon", "JAY-Z").
@@ -269,18 +289,19 @@ def _cut_venue(text):
     return head if head.strip() else tail
 
 
-def _first_dash_region(region):
-    """Collapse an "Artist - Track" region to its LEADING (artist) segment.
+def _dash_segments(region):
+    """Split an "Artist - Track" region on the spaced dash, returning EVERY
+    non-empty segment in order (DJ-first segment kept first).
 
-    Splits on the spaced dash and returns the first NON-EMPTY segment — the DJ-first
-    convention. "Ley Moore - Songs of Spring" → "Ley Moore"; a region with no spaced
-    dash is returned unchanged.
+    C2a — the old behaviour collapsed the region to its leading segment only
+    ("Ley Moore - Songs of Spring" → "Ley Moore"), which lost a buried artist sitting
+    AFTER the dash ("Krossfingers Podcast - Suzanne Kraft", "344 - The Boom Room -
+    Dennis Quin"). Now both/all sides are emitted; the caller boosts only the first
+    segment of the leading region, and the extra track-title candidates are filtered
+    downstream by the Deezer verification (invariant #4: over-propose, never mis-link).
+    A region with no spaced dash yields a single segment (itself).
     """
-    parts = _SPACED_DASH.split(region)
-    for part in parts:
-        if part.strip():
-            return part
-    return ""
+    return [p for p in _SPACED_DASH.split(region) if p and p.strip()]
 
 
 def split_artists(text):
@@ -322,6 +343,31 @@ def _dedup_key(name):
     return punct_fold_key(name) or fold_base(name) or name.casefold()
 
 
+def _emit_regions(text, source, emit, boost_leading):
+    """Run one text through the shared SUBTRACTIVE pipeline and emit its candidates.
+
+    strip DATE/FORMAT/EP noise (``strip_title_noise``) → split into structural
+    regions (``_STRUCTURAL``) → split each region on the spaced dash into segments
+    (``_dash_segments``, BOTH sides) → split each segment on the line-up connectors
+    (``split_artists``) → ``emit`` every surviving fragment.
+
+    C2b — factored out of the title path so the ``channel`` goes through the SAME
+    region/dash/strip-noise/connector treatment instead of the old raw connector
+    split, recovering artists that live ONLY in the channel ("Wilson Frisk -
+    HouseBound Radio Show" → "Wilson Frisk", "Antony Daly 586" → "Antony Daly").
+    ``boost_leading`` flags the first segment of the first region ``is_boosted``
+    (title only); the channel passes ``False``.
+    """
+    prepared = strip_title_noise(text or "")
+    for idx, region in enumerate(_STRUCTURAL.split(prepared)):
+        if not (region or "").strip():
+            continue
+        for seg_idx, segment in enumerate(_dash_segments(region)):
+            boosted = boost_leading and idx == 0 and seg_idx == 0
+            for part in split_artists(segment):
+                emit(part, source, boosted)
+
+
 # ── public API ───────────────────────────────────────────────────────────────
 
 
@@ -330,14 +376,17 @@ def extract_artist_candidates(title, channel):
 
     Returns a ``list[Candidate]``. The pipeline is subtractive:
 
-      1. Peel brackets by content, drop the ``@`` venue tail, replace DATE/FORMAT/EP
-         bricks with region boundaries.
-      2. Split the title into structural regions (venue/label/field boundaries);
-         collapse each "Artist - Track" region to its leading segment; split each
-         region on the line-up connectors into individual names.
-      3. Clean every name (``artist_names`` hygiene, placeholder rejection); the
-         leading region's names are flagged ``is_boosted``.
-      4. ALWAYS add ``channel`` (split the same way, source ``"channel"``).
+      1. Peel brackets by content, drop the ``@`` venue tail (title-specific
+         pre-steps).
+      2. Run the title through the shared subtractive pipeline (``_emit_regions``):
+         strip DATE/FORMAT/EP bricks, split into structural regions (venue/label/
+         field boundaries), split each "Artist - Track" region on the spaced dash
+         into segments (BOTH sides emitted, C2a), split each segment on the line-up
+         connectors into names. The FIRST segment of the leading region is boosted.
+      3. Clean every name (``artist_names`` hygiene, placeholder rejection).
+      4. ALWAYS add ``channel``, run through the SAME pipeline (C2b — region/dash/
+         strip-noise/connectors, not just a raw connector split), source ``"channel"``,
+         never boosted.
       5. De-duplicate by fold key, first occurrence wins, order preserved (title
          candidates before channel, boosted first by construction).
 
@@ -356,20 +405,13 @@ def extract_artist_candidates(title, channel):
         seen.add(key)
         out.append(Candidate(name=name, source=source, is_boosted=boosted))
 
-    # ── title ──
+    # ── title (bracket-classify + venue-cut, then the shared pipeline) ──
     prepared = _classify_brackets(title or "")
     prepared = _cut_venue(prepared)
-    prepared = strip_title_noise(prepared)
-    for idx, region in enumerate(_STRUCTURAL.split(prepared)):
-        region = _first_dash_region(region or "")
-        if not region.strip():
-            continue
-        for part in split_artists(region):
-            _emit(part, "title", idx == 0)
+    _emit_regions(prepared, "title", _emit, boost_leading=True)
 
-    # ── channel (always) ──
-    for part in split_artists(channel or ""):
-        _emit(part, "channel", False)
+    # ── channel (always) — SAME pipeline as the title (C2b), never boosted ──
+    _emit_regions(channel or "", "channel", _emit, boost_leading=False)
 
     return out
 

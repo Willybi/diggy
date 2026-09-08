@@ -337,8 +337,16 @@ ARTIST_ARTWORK_DEFAULT_BUDGET = 10000
 LINK_ARTISTS_LOCK_TTL = 1800  # > link time_limit (1500)
 FETCH_ARTIST_ARTWORKS_LOCK_TTL = 3600  # > artwork time_limit (3300)
 SYNC_ARTISTS_LOCK_TTL = 4800  # > sync_artists time_limit (4500)
-# link_set_artists has no explicit time_limit → the global CELERY_TIME_LIMIT (3600)
-LINK_SET_ARTISTS_LOCK_TTL = 4200  # > global time_limit (3600)
+# C2c-2b — link_set_artists is now a bounded fil-de-l'eau drain (beat + Deezer
+# verification), so it carries an explicit soft/hard time limit like the enrich
+# drains. The soft limit is a module constant shared by the decorator AND the
+# internal deadline guard (AV9 — never read task.soft_time_limit at runtime).
+LINK_SET_ARTISTS_SOFT_TIME_LIMIT = 3000
+LINK_SET_ARTISTS_TIME_LIMIT = 3300
+LINK_SET_ARTISTS_LOCK_TTL = 4200  # > time_limit (3300)
+# Fil-de-l'eau cap: newest unlinked roots processed per run (env-overridable, low
+# by default — the ~42k existing backlog is C3's local/OPS job, not this drain's).
+LINK_SET_ARTISTS_DEFAULT_MAX_SETS = 200
 BACKFILL_MULTI_ARTISTS_LOCK_TTL = 9300  # > backfill time_limit (9000)
 # AV9 — soft time limit extracted as a module constant so the task decorator AND
 # the internal deadline guard share ONE source of truth. Never read
@@ -628,6 +636,61 @@ def _matching_deezer_hits(hits, name):
     if space_only and len({h.get("id") for h in space_only}) == 1:
         return space_only
     return []
+
+
+def _link_set_artist_fan_floor():
+    """C2c-2b — OPTIONAL fan floor for the set-artist Deezer verification.
+
+    ``LINK_SET_ARTIST_FAN_FLOOR`` unset (default) → 0 → no floor, so an exact-name
+    match of a small but legitimate DJ still links. When set, a Deezer hit whose
+    ``nb_fan`` is below it is refused. Opt-in, mirroring ``ENRICH_PRIORITY_FLOOR``
+    (:func:`workers.tasks.catalog._priority_floor`): the ``_matching_deezer_hits``
+    gate already protects PRECISION on the weak fold signals — this only lets an
+    operator additionally raise the bar globally.
+    """
+    raw = os.environ.get("LINK_SET_ARTIST_FAN_FLOOR")
+    return int(raw) if raw else 0
+
+
+async def _verify_set_artist_via_deezer(pool, session, name, fan_floor):
+    """Confirm a set-artist candidate ``name`` against Deezer and return its id.
+
+    The prod ``deezer_verify`` callable injected into
+    :func:`workers.set_artist_resolve.resolve_link_artist_ids` — encapsulates the
+    WHOLE Deezer path so the resolve CORE stays pure/testable:
+
+      1. Search ``/search/artist`` (rate-limited via the shared ``pool``).
+      2. Gate the hits through the X4 :func:`_matching_deezer_hits` (raw exact /
+         accent fold / guarded punctuation fold, fan-ordered) — reused VERBATIM,
+         no re-implemented matcher.
+      3. Apply the OPTIONAL ``fan_floor`` (default 0 = off) on the best hit.
+      4. Get-or-create the artist via ``deezer_enrich._resolve_or_create_artist``
+         (placeholder names → ``None``); return ``artist.id`` or ``None``.
+
+    Returns ``None`` (link NOTHING) on: no qualifying hit, a below-floor hit, a
+    placeholder, OR a ``DeezerHTTPError`` — an outage is not a link and must not
+    burn anything (invariant #4).
+    """
+    from workers.async_http import DeezerHTTPError
+    from workers.deezer_enrich import _resolve_or_create_artist
+
+    try:
+        data = await pool.deezer_get(
+            "/search/artist", params={"q": name, "limit": 10}
+        )
+    except DeezerHTTPError as e:
+        logger.warning("Deezer set-artist search failed for %s: %s", name, e)
+        return None
+
+    matches = _matching_deezer_hits(data.get("data", []), name)
+    if not matches:
+        return None
+    best = matches[0]
+    if fan_floor and (best.get("nb_fan", 0) or 0) < fan_floor:
+        return None
+
+    artist = _resolve_or_create_artist(session, name, str(best["id"]))
+    return artist.id if artist is not None else None
 
 
 async def _link_artist_deezer(pool, artist, holder_map, now):
@@ -2289,11 +2352,21 @@ def _run_fetch_artist_artworks(task, budget=None):
 @celery_app.task(
     name="workers.tasks.link_set_artists",
     bind=True,
+    soft_time_limit=LINK_SET_ARTISTS_SOFT_TIME_LIMIT,
+    time_limit=LINK_SET_ARTISTS_TIME_LIMIT,
 )
 def link_set_artists(self):
     """
-    Parse set titles to extract artist names and link them to the artists table.
-    Matches against known artists (by name and aliases). Idempotent.
+    Link DJ-set artists derived from the set title/channel to the artists table.
+
+    C2c-2b — replaces the old verbatim-substring matcher (~60/42107 sets linked)
+    with the deterministic extractor+resolver chain
+    (:func:`workers.set_artist_resolve.resolve_link_artist_ids`): candidates are
+    resolved BASE-FIRST against our own artists (name + aliases, fold keys), and
+    ONLY on a base miss verified against Deezer through
+    :func:`_verify_set_artist_via_deezer`. Idempotent (skips existing SetArtist
+    rows). This is the BOUNDED fil-de-l'eau (newest unlinked roots, capped); the
+    ~42k existing backlog is C3's local/OPS job.
 
     Single-instance: a Redis lock (SET NX EX, conditional release) makes
     overlapping runs a no-op — the same pattern as link_artists_deezer /
@@ -2321,93 +2394,183 @@ def link_set_artists(self):
             r.delete(lock_key)
 
 
+def _load_artist_lookup(session):
+    """Build the ``fold_key → artist_id`` lookup from the artist base.
+
+    Corpus = every ``Artist.name`` + every ``ArtistAlias.normalized_alias`` mapped
+    to their artist id, folded by :func:`workers.set_artist_link.build_artist_lookup`
+    (placeholders / blank folds dropped, first spelling wins on a fold collision).
+    ONE pass over each table, held in memory — the resolver's base lane is free.
+    """
+    from models import Artist, ArtistAlias
+    from sqlalchemy import select
+    from workers.set_artist_link import build_artist_lookup
+
+    pairs = []
+    for name, aid in session.execute(select(Artist.name, Artist.id)).all():
+        pairs.append((name, aid))
+    for norm_alias, aid in session.execute(
+        select(ArtistAlias.normalized_alias, ArtistAlias.artist_id)
+    ).all():
+        pairs.append((norm_alias, aid))
+    return build_artist_lookup(pairs)
+
+
+def _select_unlinked_sets(session, limit):
+    """Newest TrackID root sets with NO artist link yet, capped at ``limit``.
+
+    Fil-de-l'eau selection: ``source='trackid'``, roots only
+    (``parent_set_id IS NULL``), and no existing ``set_artists`` row
+    (``NOT EXISTS``). Ordered newest-first (``created_at`` desc, ``id`` desc
+    tie-break). The ``NOT EXISTS`` guard makes a re-run over the same window a
+    no-op — the ~42k existing backlog is C3's local/OPS job, not this drain's.
+    """
+    from models import DJSet, SetArtist
+    from sqlalchemy import select
+
+    linked_exists = (
+        select(SetArtist.set_id)
+        .where(SetArtist.set_id == DJSet.id)
+        .exists()
+    )
+    stmt = (
+        select(DJSet)
+        .where(
+            DJSet.source == "trackid",
+            DJSet.parent_set_id.is_(None),
+            ~linked_exists,
+        )
+        .order_by(DJSet.created_at.desc(), DJSet.id.desc())
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
 def _run_link_set_artists(task):
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
-    from models import Artist, ArtistAlias, DJSet, SetArtist
-    from utils import normalize
+    from celery.exceptions import SoftTimeLimitExceeded
+    from models import SetArtist
+    from workers.async_http import HttpPool
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
+    from workers.rate_limiter import RateLimiter
+    from workers.set_artist_resolve import resolve_link_artist_ids
 
     engine = get_engine()
+    max_sets = int(
+        os.environ.get(
+            "LINK_SET_ARTISTS_MAX_SETS_PER_RUN",
+            str(LINK_SET_ARTISTS_DEFAULT_MAX_SETS),
+        )
+    )
+    fan_floor = _link_set_artist_fan_floor()
+
+    # AV9 — internal deadline (see DEADLINE_MARGIN): checked BEFORE each set, never
+    # mid-set, so a shortened run leaves the untouched sets fully unlinked (a clean
+    # re-run picks them up next time). billiard's SoftTimeLimitExceeded can be
+    # swallowed by the asyncio transport error handler, so the monotonic deadline
+    # exits cleanly without depending on signal delivery; the catch stays as
+    # defense in depth.
+    deadline = time.monotonic() + LINK_SET_ARTISTS_SOFT_TIME_LIMIT - DEADLINE_MARGIN
+
+    # Hoisted so a SoftTimeLimitExceeded mid-run still yields the work committed so
+    # far (each set is committed before the next).
+    stats = {
+        "sets_processed": 0,
+        "links_created": 0,
+        "deezer_confirmed": 0,
+        "skipped_no_resolve": 0,
+        "deadline_hit": False,
+    }
 
     with Session(engine) as log_session:
         with CrawlLogger(
             log_session, task_type="link_set_artists", celery_task_id=task.request.id
         ) as clog:
-            # Build lookup: normalized name/alias → artist_id
-            with Session(engine) as session:
-                norm_to_id = {}
-                for a in session.execute(select(Artist)).scalars().all():
-                    norm_to_id[normalize(a.name)] = a.id
-                for al in session.execute(select(ArtistAlias)).scalars().all():
-                    if al.normalized_alias not in norm_to_id:
-                        norm_to_id[al.normalized_alias] = al.artist_id
 
-                # Sort by name length DESC so "Fred again.." matches before "Fred"
-                sorted_names = sorted(norm_to_id.keys(), key=len, reverse=True)
+            async def _async_link():
+                limiter = RateLimiter()
+                async with HttpPool(limiter) as pool:
+                    with Session(engine) as session:
+                        lookup = _load_artist_lookup(session)
+                        sets = _select_unlinked_sets(session, max_sets)
 
-                sets = session.execute(select(DJSet)).scalars().all()
-                linked = 0
-                skipped = 0
-
-                for dj_set in sets:
-                    title = dj_set.title or ""
-                    title_lower = title.lower()
-
-                    # Detect B2B
-                    is_b2b = (
-                        "b2b" in title_lower
-                        or "b2b" in title_lower.replace("_", " ")
-                    )
-
-                    # Find all artist names present in the title
-                    matched_ids = set()
-                    title_norm = normalize(title)
-                    # Also normalize underscores (e.g. Busy_P_b2b_Erol_Alkan)
-                    title_norm_clean = title_norm.replace("_", " ")
-
-                    for norm_name in sorted_names:
-                        if len(norm_name) < 3:
-                            continue  # skip very short names to avoid false positives
-                        if norm_name in title_norm or norm_name in title_norm_clean:
-                            aid = norm_to_id[norm_name]
-                            if aid not in matched_ids:
-                                matched_ids.add(aid)
-
-                    # Insert set_artists (skip existing)
-                    existing = {
-                        r[0]
-                        for r in session.execute(
-                            select(SetArtist.artist_id).where(
-                                SetArtist.set_id == dj_set.id
+                        # deezer_verify: base-miss fallback for the resolver core.
+                        # Counts a confirmation whenever Deezer yields an id.
+                        async def deezer_verify(name):
+                            aid = await _verify_set_artist_via_deezer(
+                                pool, session, name, fan_floor
                             )
-                        ).all()
-                    }
+                            if aid is not None:
+                                stats["deezer_confirmed"] += 1
+                            return aid
 
-                    for aid in matched_ids:
-                        if aid in existing:
-                            skipped += 1
-                            continue
-                        role = "b2b" if is_b2b else "dj"
-                        session.add(
-                            SetArtist(
-                                set_id=dj_set.id,
-                                artist_id=aid,
-                                role=role,
-                                position=0,
+                        for dj_set in sets:
+                            if time.monotonic() >= deadline:
+                                stats["deadline_hit"] = True
+                                logger.warning(
+                                    "link_set_artists hit internal deadline "
+                                    "(soft limit %ds - margin %ds); stopping "
+                                    "before next set, partial stats: %s",
+                                    LINK_SET_ARTISTS_SOFT_TIME_LIMIT,
+                                    DEADLINE_MARGIN,
+                                    stats,
+                                )
+                                break
+
+                            stats["sets_processed"] += 1
+
+                            resolved = await resolve_link_artist_ids(
+                                dj_set.title, dj_set.channel, lookup, deezer_verify
                             )
-                        )
-                        linked += 1
+                            if not resolved:
+                                stats["skipped_no_resolve"] += 1
+                                continue
 
-                    session.commit()
+                            existing = {
+                                r[0]
+                                for r in session.execute(
+                                    select(SetArtist.artist_id).where(
+                                        SetArtist.set_id == dj_set.id
+                                    )
+                                ).all()
+                            }
+                            for idx, ra in enumerate(resolved):
+                                if ra.artist_id in existing:
+                                    continue
+                                session.add(
+                                    SetArtist(
+                                        set_id=dj_set.id,
+                                        artist_id=ra.artist_id,
+                                        role="dj",
+                                        position=idx,
+                                    )
+                                )
+                                existing.add(ra.artist_id)
+                                stats["links_created"] += 1
 
-            result = {"linked": linked, "skipped": skipped}
-            clog.set_stats(result)
+                            # Commit per set (outside any gather) so a kill keeps
+                            # the sets already linked.
+                            session.commit()
 
-    return result
+            try:
+                asyncio.run(_async_link())
+            except SoftTimeLimitExceeded:
+                logger.warning(
+                    "link_set_artists hit soft time limit; flushing partial "
+                    "stats: %s",
+                    stats,
+                )
+            except Exception:
+                logger.exception("link_set_artists failed")
+                raise
+
+            clog.set_stats(stats)
+
+    return stats
 
 
 @celery_app.task(
