@@ -151,3 +151,37 @@ class TestScan:
     def test_only_mono_keys_returns_empty(self):
         lookup = build_artist_lookup([("Live", 50), ("Fabric", 51)])
         assert scan_known_artists("Live at Fabric", lookup) == []
+
+    def test_junk_episode_marker_key_not_scanned(self):
+        # An OLD matcher created junk artist rows like "Part 2" (id 131031),
+        # "Vol 3", "Mix 5" (an episode marker + a number). They stay in prod but the
+        # scan must NEUTRALISE them: buried in a title's "(Part 2)" tail they must
+        # never surface as a link. Real multi-word artists stay found.
+        lookup = build_artist_lookup(
+            [
+                ("Part 2", 131031),
+                ("Vol 3", 5),
+                ("Mix 5", 6),
+                ("Deep Space Orchestra", 11),
+            ]
+        )
+        found = scan_known_artists(
+            "DJ Marcello Deep Space Orchestra (Part 2)", lookup
+        )
+        assert found == [("Deep Space Orchestra", 11)]
+        # the junk keys are individually inert too
+        assert scan_known_artists("Some Set (Vol 3)", lookup) == []
+        assert scan_known_artists("Rework (Mix 5)", lookup) == []
+
+    def test_number_without_marker_stays_scannable(self):
+        # A real artist that carries a number but NO episode marker
+        # ("aux"/"front"/"sunset" are not markers) must remain scannable.
+        lookup = build_artist_lookup(
+            [("Aux 88", 20), ("Front 242", 21), ("Sunset 102", 22)]
+        )
+        assert scan_known_artists("Detroit Techno Aux 88 live", lookup) == [
+            ("Aux 88", 20)
+        ]
+        assert scan_known_artists("Front 242 industrial", lookup) == [
+            ("Front 242", 21)
+        ]

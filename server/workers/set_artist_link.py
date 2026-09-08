@@ -24,8 +24,25 @@ name resolves under the SAME key the extractor de-duplicates candidates by — h
 lookup only matches spellings that fold identically, never a fuzzy guess).
 """
 
+import re
+
 from workers.artist_names import is_placeholder_artist, punct_fold_key
 from workers.set_artist_extract import _dedup_key
+
+# Junk artist keys inherited in the base: an OLD matcher created rows like "Part 2"
+# (real id 131031), "Vol 3", "Mix 5" — an episode/volume MARKER followed by a NUMBER
+# — as if they were artists. They are NOT cleaned from prod (no migration); instead
+# the free-text scan NEUTRALISES them here so they are never dug out of a title's
+# "… (Part 2)" tail (which produced a spurious source=base link). A folded lookup key
+# that is EXACTLY a known marker word + a number is excluded from the scan. Only the
+# marker words fire: a real artist that carries a number but NO marker ("Aux 88",
+# "Front 242", "Sunset 102" — "aux"/"front"/"sunset" are not markers) stays scannable.
+# resolve_name_to_id (an ISOLATED candidate) is deliberately NOT affected — only the
+# free-text scan unearths this junk.
+_JUNK_MARKER_KEY = re.compile(
+    r"^(?:part|pt|vol|volume|mix|set|ep|episode|chapter|ch|no|nr|"
+    r"day|week|night|edition|session|show|podcast)\s+\d+$"
+)
 
 # ── fold key (aligned with the extractor's _dedup_key) ────────────────────────
 
@@ -121,7 +138,11 @@ def scan_known_artists(title, lookup):
     """
     if not title or not lookup:
         return []
-    scannable = {k for k in lookup if len(k.split()) >= 2}
+    scannable = {
+        k
+        for k in lookup
+        if len(k.split()) >= 2 and not _JUNK_MARKER_KEY.match(k)
+    }
     if not scannable:
         return []
     max_len = max(len(k.split()) for k in scannable)

@@ -59,7 +59,7 @@ class TestConnectors:
         assert names("Elvis Presley") == ["Elvis Presley"]
 
     def test_three_way_lineup(self):
-        assert names("A b2b B b2b C") == ["A", "B", "C"]
+        assert names("Alpha b2b Beta b2b Gamma") == ["Alpha", "Beta", "Gamma"]
 
 
 # ── "Artist - Track" emits BOTH sides (C2a), leading segment boosted ─────────
@@ -107,13 +107,16 @@ class TestArtistTrackDash:
 
 class TestVerbalConnectors:
     def test_invites_splits_guest(self):
-        assert names("Bassiani invites Resom / Podcast #79") == ["Bassiani", "Resom"]
+        assert names("Marcel Dettmann invites Resom / Podcast #79") == [
+            "Marcel Dettmann",
+            "Resom",
+        ]
 
     def test_invite_singular_splits(self):
         assert names("Mojoe invite Nidor") == ["Mojoe", "Nidor"]
 
     def test_meets_splits(self):
-        assert names("RBL meets Catu Diosis") == ["RBL", "Catu Diosis"]
+        assert names("Ben UFO meets Catu Diosis") == ["Ben UFO", "Catu Diosis"]
 
     def test_avec_splits(self):
         assert names("BAILE avec MAIA") == ["BAILE", "MAIA"]
@@ -178,9 +181,9 @@ class TestByMidRegion:
 
 class TestNoiseStripping:
     def test_pure_noise_title_no_title_candidate_channel_kept(self):
-        # title is only bricks → 0 title candidates, the channel survives
-        cands = extract_artist_candidates("Live 2024 #5", "Boiler Room")
-        assert cands == [Candidate("Boiler Room", "channel", False)]
+        # title is only bricks → 0 title candidates, the (unknown) channel survives
+        cands = extract_artist_candidates("Live 2024 #5", "Real Channel")
+        assert cands == [Candidate("Real Channel", "channel", False)]
 
     def test_venue_tail_after_at_dropped(self):
         assert names("Takaya Nagase @ Joy 4/23/2016") == ["Takaya Nagase"]
@@ -197,6 +200,22 @@ class TestNoiseStripping:
         assert "\x00" in tagged
         # the residue word survives
         assert "Artist" in tagged
+
+    def test_roman_episode_marker_stripped(self):
+        # The EP brick strips a roman count after a marker, just like an arabic one:
+        # "Part II" no longer leaks as a candidate.
+        assert "Part II" not in names("Foo (Part II)")
+        assert names("Foo (Part II)") == ["Foo"]
+        assert names("Foo Vol. III") == ["Foo"]
+        assert names("Foo Pt IV") == ["Foo"]
+        assert names("Foo Chapter V") == ["Foo"]
+
+    def test_roman_only_after_marker(self):
+        # A lone roman letter (a connector "X" or a real name "V"/"Vince") is NEVER
+        # stripped — the roman count fires only right AFTER an episode marker.
+        assert names("Adam Beyer X Cirez D") == ["Adam Beyer", "Cirez D"]
+        assert names("Vince Watson") == ["Vince Watson"]
+        assert names("Civil Twilight") == ["Civil Twilight"]
 
 
 # ── buried artist (mid-phrase), structural regions ──────────────────────────
@@ -223,9 +242,29 @@ class TestBuriedArtist:
 
 
 class TestChannel:
-    def test_channel_always_added(self):
+    def test_unknown_channel_added(self):
+        # C2c-3: an out-of-gazetteer channel (an artist's own account) is emitted.
+        cands = extract_artist_candidates("Deadmau5", "Cool DJ")
+        assert Candidate("Cool DJ", "channel", False) in cands
+
+    def test_known_media_channel_not_added(self):
+        # C2c-3: a KNOWN media/label channel (Boiler Room) is the host, not the DJ,
+        # so it is NOT emitted — only the title candidate remains.
         cands = extract_artist_candidates("Deadmau5", "Boiler Room")
-        assert Candidate("Boiler Room", "channel", False) in cands
+        assert cands == [Candidate("Deadmau5", "title", True)]
+
+    def test_known_channel_with_episode_suffix_not_added(self):
+        # containment + suffix cleaning still recognises the media channel
+        cands = extract_artist_candidates(
+            "Deadmau5", "Boiler Room: Streaming from Isolation"
+        )
+        assert cands == [Candidate("Deadmau5", "title", True)]
+
+    def test_artist_channel_fred_again_emitted(self):
+        # an out-of-gazetteer channel that happens to be an artist stays a candidate
+        cands = extract_artist_candidates("", "Fred again..")
+        assert cands  # unknown channel → still emitted
+        assert cands[0].source == "channel"
 
     def test_channel_collab_split(self):
         cands = extract_artist_candidates("", "Susi&Paula")
@@ -278,6 +317,35 @@ class TestPlaceholderRejection:
 
     def test_placeholder_in_lineup_dropped_others_kept(self):
         assert names("VA & Peggy Gou") == ["Peggy Gou"]
+
+
+# ── C2c-3: NON-ARTIST token denylist (genres / cities / residual format) ─────
+
+
+class TestNotArtistDenylist:
+    def test_genre_token_rejected(self):
+        # "House" is a genre, not a DJ — dropped; the real artist survives.
+        assert names("Peggy Gou - House") == ["Peggy Gou"]
+
+    def test_multiword_genre_rejected(self):
+        assert names("DJ Boring & Tech House") == ["DJ Boring"]
+        assert "Drum And Bass" not in names("Some DJ x Drum and Bass")
+
+    def test_city_token_rejected(self):
+        # a lone city (from "Boiler Room Athens" split shapes) is not the DJ
+        assert names("Nina Kraviz | Athens") == ["Nina Kraviz"]
+        assert "Berlin" not in names("Marcel Dettmann & Berlin")
+
+    def test_genre_fold_insensitive(self):
+        # punctuation/spacing folds to the same key → still rejected
+        assert names("Artist & Tech-House") == ["Artist"]
+        assert names("Artist & DnB") == ["Artist"]
+
+    def test_real_artist_not_rejected(self):
+        # a real artist whose name merely resembles a denied word is kept
+        assert names("Housemeister") == ["Housemeister"]
+        assert names("London Elektricity") == ["London Elektricity"]
+        assert names("Paris Hilton") == ["Paris Hilton"]
 
 
 # ── dedup by fold key ────────────────────────────────────────────────────────
@@ -341,3 +409,34 @@ class TestSplitArtists:
     def test_empty(self):
         assert split_artists("") == []
         assert split_artists(None) == []
+
+
+# ── media/non-artist denylist (C2c-4) ────────────────────────────────────────
+
+
+class TestMediaTitleDenylist:
+    def test_known_media_tokens_rejected(self):
+        # Curated radios/labels/media are never the DJ → no title candidate.
+        assert names("Bloop London Radio") == []
+        assert names("BCCO") == []
+        assert names("RA") == []
+        assert names("Tronic") == []
+
+    def test_real_artist_not_rejected(self):
+        # A KEEP artist that happens to sit in the same corpus still survives.
+        assert names("John Digweed") == ["John Digweed"]
+        assert names("Nicole Moudaber") == ["Nicole Moudaber"]
+        assert names("Adam Beyer") == ["Adam Beyer"]
+
+    def test_denylist_unioned_into_not_artist(self):
+        from workers.set_artist_extract import _NOT_ARTIST
+        from workers.set_artist_media_denylist import MEDIA_TITLE_KEYS
+
+        # The generated keys are folded into the extractor's reject set…
+        assert MEDIA_TITLE_KEYS <= _NOT_ARTIST
+        # …AND never collide with a real KEEP artist (anti-regression guard).
+        from workers.artist_names import space_fold_key
+
+        for keep in ("John Digweed", "Nicole Moudaber", "Adam Beyer", "UMEK",
+                     "Chris Liebing", "David Morales", "Joris Voorn"):
+            assert space_fold_key(keep) not in MEDIA_TITLE_KEYS

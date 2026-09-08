@@ -276,11 +276,19 @@ class TestVerifySetArtistViaDeezer:
             is not None
         )
 
-    def test_fan_floor_helper_defaults_off(self, artists_mod, monkeypatch):
+    def test_fan_floor_helper_defaults_to_fan_floor(self, artists_mod, monkeypatch):
+        # C2c-3: the default is no longer 0 (off) but workers.artist_names.FAN_FLOOR
+        # (1000) — the set-title extractor over-proposes noisy tokens, so a Deezer
+        # verification of a set candidate must clear a popularity bar.
+        from workers.artist_names import FAN_FLOOR
+
         monkeypatch.delenv("LINK_SET_ARTIST_FAN_FLOOR", raising=False)
-        assert artists_mod._link_set_artist_fan_floor() == 0
+        assert artists_mod._link_set_artist_fan_floor() == FAN_FLOOR == 1000
+        # The env overrides it, and an explicit "0" disables the floor entirely.
         monkeypatch.setenv("LINK_SET_ARTIST_FAN_FLOOR", "5000")
         assert artists_mod._link_set_artist_fan_floor() == 5000
+        monkeypatch.setenv("LINK_SET_ARTIST_FAN_FLOOR", "0")
+        assert artists_mod._link_set_artist_fan_floor() == 0
 
 
 # ── _run_link_set_artists end-to-end (in-memory engine, Deezer stubbed) ───────

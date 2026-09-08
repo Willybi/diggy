@@ -23,8 +23,10 @@ Design, per the roadmap (C13.c) and invariant #4:
   * DO NOT gate on "the title starts with the name". The start of the title is
     only a CONFIDENCE BOOSTER (``is_boosted``), never a filter — an artist can sit
     anywhere in the line-up.
-  * ``channel`` is ALWAYS emitted as a candidate (source ``"channel"``): it is the
-    single best proxy for "the DJ", even though it is sometimes a label/media.
+  * ``channel`` is emitted as a candidate (source ``"channel"``) — the single best
+    proxy for "the DJ" — UNLESS it is a KNOWN media/label channel (C2c-3,
+    ``set_title_meta.is_known_channel``): Boiler Room / NTS / RA host countless DJs
+    and are never the artist, so emitting them was a systematic false positive.
 
 Convention learned on the corpus (see ``scripts/local/trackid_titles/data/
 samples.md``): a set title is overwhelmingly "Artist[ & Artist…] - Track/Context",
@@ -42,8 +44,11 @@ from workers.artist_names import (
     fold_base,
     is_placeholder_artist,
     punct_fold_key,
+    space_fold_key,
     strip_artist_noise,
 )
+from workers.set_artist_media_denylist import MEDIA_TITLE_KEYS
+from workers.set_title_meta import is_known_channel
 
 # ── Candidate ────────────────────────────────────────────────────────────────
 
@@ -117,13 +122,21 @@ _DATE = re.compile(
     re.IGNORECASE,
 )
 
-# EP — episode/volume/part markers + a bare 3+ digit run. Runs AFTER date so years
-# are already gone.
+# Roman numeral (non-empty, well-formed 1–4999), matched ONLY as the count AFTER an
+# episode marker — never on its own — so a lone "X"/"V"/"I" (a connector or a real
+# name) is never stripped. The leading lookahead forces at least one roman letter
+# (the standard bounded pattern otherwise also matches the empty string).
+_ROMAN = r"(?=[mdclxvi])m{0,4}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})"
+
+# EP — episode/volume/part markers + a count (arabic digits OR a roman numeral) + a
+# bare 3+ digit run. Runs AFTER date so years are already gone. The count after a
+# marker accepts arabic (existing behaviour, unchanged) AND roman ("Part II", "Vol.
+# III", "Pt IV", "Chapter V"); a bare "#N" and a lone 3+ digit run stay arabic-only.
 _EP = re.compile(
     r"(?<!\w)(?:"
     r"s\d{1,3}e\d{1,3}"
     r"|(?:ep|episode|vol|volume|part|pt|set|mix|chapter|ch|day|week|night|"
-    r"edition|edt|no|nr)\.?\s*#?\s*\d{1,4}"
+    r"edition|edt|no|nr)\.?\s*#?\s*(?:\d{1,4}|" + _ROMAN + r")"
     r"|#\s*\d{1,4}"
     r"|\d{3,}"
     r")(?!\w)",
@@ -223,6 +236,39 @@ _EDGE_TRIM = " \t\"'`.:;!?/\\-–—([{)]}<>*"
 # symbol residue ("123", "#", "-") while keeping non-Latin names (Japanese, …).
 _HAS_LETTER = re.compile(r"[^\W\d_]")
 
+# C2c-3 — NON-ARTIST denylist: bare tokens that match a Deezer/base artist by
+# accident but are music GENRES, residual FORMAT words, or very common CITY names —
+# a systematic false positive of the extractor (a set titled "Boiler Room Athens" or
+# "… - House" would otherwise propose "Athens" / "House" as a DJ). A candidate whose
+# key is in here is rejected. DELIBERATELY CONSERVATIVE (invariant #4): only
+# UNAMBIGUOUS non-artist tokens — a word that is ALSO a real artist/band is left OUT
+# (e.g. "Jungle", "Chicago" are famous bands; it costs precision on that lone word,
+# never recall on a real DJ). Matched on ``space_fold_key`` (punctuation AND spaces
+# dropped) so every spelling of a multi-word genre collapses to one key: "Tech House"
+# == "Tech-House" == "techhouse", "DnB" == "dnb", "Drum and Bass" == "drumandbass".
+_NOT_ARTIST_TERMS = [
+    # music genres
+    "house", "tech house", "deep house", "afro house", "melodic house",
+    "melodic techno", "progressive house", "techno", "minimal", "disco",
+    "nu disco", "trance", "psytrance", "electro", "electronica", "dnb",
+    "drum and bass", "drum n bass", "dubstep", "ambient", "downtempo",
+    "breakbeat", "uk garage", "hardgroove", "afrobeat", "amapiano",
+    "reggaeton", "dancehall",
+    # residual format words not already stripped as noise bricks
+    "radio", "fm", "records", "recordings", "soundsystem", "collective",
+    # very common city names (never the DJ when they appear alone)
+    "athens", "berlin", "london", "brooklyn", "paris", "amsterdam", "sydney",
+    "ibiza", "detroit",
+]
+# The hand-written terms above (genres/cities/format words) UNIONED with the
+# curated media/non-artist denylist (radios, magazines, labels, festivals, mix
+# series, uploader handles — see :mod:`workers.set_artist_media_denylist`), both
+# keyed on ``space_fold_key`` so a title candidate whose space-fold matches either
+# source is rejected. Frozenset dedups the overlap naturally.
+_NOT_ARTIST = frozenset(
+    k for k in (space_fold_key(t) for t in _NOT_ARTIST_TERMS) if k
+) | MEDIA_TITLE_KEYS
+
 
 # ── internal helpers ─────────────────────────────────────────────────────────
 
@@ -320,8 +366,9 @@ def _clean_candidate(raw):
 
     Trims edge punctuation, strips the leading hosting prefix, applies
     ``artist_names.strip_artist_noise``, compacts whitespace, and rejects: an empty
-    string, a compilation/unknown PLACEHOLDER (``is_placeholder_artist``), and a
-    fragment with no letter (pure number/symbol residue).
+    string, a compilation/unknown PLACEHOLDER (``is_placeholder_artist``), a fragment
+    with no letter (pure number/symbol residue), and a NON-ARTIST token (genre /
+    residual format word / common city, :data:`_NOT_ARTIST`, C2c-3).
     """
     name = (raw or "").strip()
     name = _HOST_PREFIX.sub("", name)
@@ -333,6 +380,8 @@ def _clean_candidate(raw):
     if is_placeholder_artist(name):
         return None
     if not _HAS_LETTER.search(name):
+        return None
+    if space_fold_key(name) in _NOT_ARTIST:
         return None
     return name
 
@@ -384,9 +433,9 @@ def extract_artist_candidates(title, channel):
          into segments (BOTH sides emitted, C2a), split each segment on the line-up
          connectors into names. The FIRST segment of the leading region is boosted.
       3. Clean every name (``artist_names`` hygiene, placeholder rejection).
-      4. ALWAYS add ``channel``, run through the SAME pipeline (C2b — region/dash/
-         strip-noise/connectors, not just a raw connector split), source ``"channel"``,
-         never boosted.
+      4. Add ``channel`` UNLESS it is a KNOWN media/label channel (C2c-3), run through
+         the SAME pipeline (C2b — region/dash/strip-noise/connectors, not just a raw
+         connector split), source ``"channel"``, never boosted.
       5. De-duplicate by fold key, first occurrence wins, order preserved (title
          candidates before channel, boosted first by construction).
 
@@ -410,8 +459,12 @@ def extract_artist_candidates(title, channel):
     prepared = _cut_venue(prepared)
     _emit_regions(prepared, "title", _emit, boost_leading=True)
 
-    # ── channel (always) — SAME pipeline as the title (C2b), never boosted ──
-    _emit_regions(channel or "", "channel", _emit, boost_leading=False)
+    # ── channel — SAME pipeline as the title (C2b), never boosted. C2c-3: a KNOWN
+    #    media/label channel (Boiler Room, NTS, RA, …) is the host, not the DJ, so it
+    #    is NOT emitted as a candidate; an out-of-gazetteer channel (an artist's own
+    #    account, "Fred again..") is still emitted. ──
+    if channel and not is_known_channel(channel):
+        _emit_regions(channel, "channel", _emit, boost_leading=False)
 
     return out
 

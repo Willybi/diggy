@@ -76,6 +76,39 @@ import sys
 # even when stdout is piped (block-buffered)
 print = functools.partial(print, flush=True)  # noqa: A001
 
+
+def _configure_stdout():
+    """Best-effort switch stdout/stderr to UTF-8 with a lossy fallback.
+
+    The OPS import report echoes the proposed links as "set title → artist" lines; on
+    a Windows cp1252 console the "→" raises ``UnicodeEncodeError`` mid-print and aborts
+    the whole run (nothing after the sample prints, and an ``--apply`` could die AFTER
+    the write, before the checkpoint). Reconfiguring to UTF-8 (``errors='replace'``)
+    makes every print resilient. A no-op when the stream can't be reconfigured (already
+    wrapped/redirected without the API) — :func:`safe_print` is the second line of
+    defence for the report itself.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+def safe_print(text=""):
+    """Print ``text`` without ever raising on a narrow console encoding.
+
+    Even after :func:`_configure_stdout`, a stream we could not reconfigure could still
+    choke on "→"; this catches ``UnicodeEncodeError`` and re-encodes lossily as a last
+    resort, so displaying the OPS report never crashes the run.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+        safe = str(text).encode(enc, errors="replace").decode(enc, errors="replace")
+        print(safe)
+
 SSH_HOST = "diggy-vps"
 # Read path (PULL): -q keeps the COPY stream clean (CSV only on stdout).
 REMOTE_PSQL_PULL = (
@@ -336,7 +369,7 @@ def apply_or_plan(ndjson_text, apply, checkpoint_path, runner=run_remote_import)
     if not apply:
         print("\n=== DRY-RUN — invoking the OPS import WITHOUT --apply ===")
         out = runner(ndjson_text, False)
-        print(out)
+        safe_print(out)
         print(
             "=== DRY-RUN — nothing was written (the OPS script resolved identity, "
             "printed its counters + a sample of proposed links, and rolled back). No "
@@ -348,7 +381,7 @@ def apply_or_plan(ndjson_text, apply, checkpoint_path, runner=run_remote_import)
 
     print("\n=== APPLY — piping links to the OPS import (--apply) ===")
     out = runner(ndjson_text, True)
-    print(out)
+    safe_print(out)
     append_checkpoint(checkpoint_path, processed_ids)
     print(
         f"\nCheckpointed {len(processed_ids)} attempted set id(s). Idempotent: the "
@@ -420,6 +453,7 @@ def _write_csv(path, rows, fieldnames):
 
 
 def main(args):
+    _configure_stdout()
     workdir = os.path.abspath(args.workdir)
     os.makedirs(workdir, exist_ok=True)
     checkpoint_path = os.path.join(workdir, CHECKPOINT_FILE)
@@ -538,8 +572,10 @@ if __name__ == "__main__":
         dest="fan_floor",
         type=int,
         default=0,
-        help="optional LINK_SET_ARTIST_FAN_FLOOR for the container: refuse a Deezer "
-        "hit below this nb_fan (0 = off, an exact-name match of a small DJ links)",
+        help="override LINK_SET_ARTIST_FAN_FLOOR for the container: refuse a Deezer "
+        "hit below this nb_fan. Unset (0) leaves the container's default floor "
+        "(workers.artist_names.FAN_FLOOR = 1000, C2c-3); pass a value to raise/lower "
+        "it, or set the env to 0 inside the container to disable it entirely",
     )
     parser.add_argument(
         "--workdir",

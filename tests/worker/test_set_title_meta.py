@@ -17,6 +17,7 @@ if _SERVER_PATH not in sys.path:
 from workers.set_title_meta import (  # noqa: E402
     canonicalize_channel,
     extract_event_date,
+    is_known_channel,
 )
 
 D = datetime.date
@@ -136,3 +137,57 @@ class TestCanonicalizeChannel:
         assert canonicalize_channel("") is None
         assert canonicalize_channel("   ") is None
         assert canonicalize_channel(": only a suffix") is None
+
+
+class TestIsKnownChannel:
+    def test_known_media_channels(self):
+        # Big media/label channels — hosts, never the DJ (C2c-3).
+        assert is_known_channel("Boiler Room") is True
+        assert is_known_channel("NTS Radio") is True
+        assert is_known_channel("NTS") is True
+        assert is_known_channel("Resident Advisor") is True
+        assert is_known_channel("Cercle") is True
+
+    def test_known_via_containment_and_suffix(self):
+        # Same whole-token containment / suffix cleaning as canonicalize_channel.
+        assert is_known_channel("HÖR Berlin") is True
+        assert is_known_channel("Boiler Room: Streaming from Isolation") is True
+
+    def test_short_alias_whole_token_only(self):
+        # "RA" as a whole token → known; but "Radio Rudina" is its own entry, not RA.
+        assert is_known_channel("RA") is True
+        assert is_known_channel("Radio Rudina") is True  # its own gazetteer entry
+
+    def test_unknown_channel_is_not_known(self):
+        # An artist's own account / an out-of-gazetteer channel is still emitted.
+        assert is_known_channel("Fred again..") is False
+        assert is_known_channel("Some Unknown DJ") is False
+        assert is_known_channel("Local Bedroom Radio") is False
+
+    def test_none_and_blank(self):
+        assert is_known_channel(None) is False
+        assert is_known_channel("") is False
+        assert is_known_channel("   ") is False
+
+    def test_curated_media_denylist_channels(self):
+        # Out-of-gazetteer media channels recognised via MEDIA_CHANNEL_KEYS (C2c-4).
+        assert is_known_channel("NTS Latest") is True
+        assert is_known_channel("Resident Advisor") is True
+        assert is_known_channel("Refuge Worldwide") is True
+        assert is_known_channel("Data Transmission Radio") is True
+
+    def test_curated_denylist_does_not_flag_real_artist_channels(self):
+        # A KEEP artist's own channel must stay unknown → still emitted downstream.
+        assert is_known_channel("John Digweed") is False
+        assert is_known_channel("Nicole Moudaber") is False
+        assert is_known_channel("Andrei Mor") is False
+        assert is_known_channel("BORIS") is False
+
+    def test_denylist_channel_keys_disjoint_from_keep(self):
+        # Anti-regression guard: no channel denylist key matches a real KEEP artist.
+        from workers.artist_names import punct_fold_key
+        from workers.set_artist_media_denylist import MEDIA_CHANNEL_KEYS
+
+        for keep in ("John Digweed", "Nicole Moudaber", "Andrei Mor", "BORIS",
+                     "UMEK", "Joris Voorn", "Christian Smith", "Slam"):
+            assert punct_fold_key(keep) not in MEDIA_CHANNEL_KEYS

@@ -22,6 +22,7 @@ import datetime
 import re
 
 from workers.artist_names import punct_fold_key
+from workers.set_artist_media_denylist import MEDIA_CHANNEL_KEYS
 
 # ── extract_event_date ───────────────────────────────────────────────────────
 
@@ -257,6 +258,21 @@ def _clean_channel(raw):
     return _RE_CHANNEL_DESC_SUFFIX.sub("", s).strip()
 
 
+def _match_gazetteer(cleaned):
+    """Canonical :data:`_GAZETTEER` name whose folded tokens are a contiguous run
+    inside ``cleaned``'s folded tokens, or ``None`` on no match.
+
+    The single containment routine shared by :func:`canonicalize_channel` (which
+    returns the canonical name) and :func:`is_known_channel` (which only needs the
+    yes/no), so both agree by construction.
+    """
+    tokens = _fold_tokens(cleaned)
+    for alias_tokens, canonical in _GAZETTEER_ENTRIES:
+        if _is_token_run(alias_tokens, tokens):
+            return canonical
+    return None
+
+
 def canonicalize_channel(raw):
     """Canonicalise a raw channel string, or ``None`` when it is empty.
 
@@ -271,8 +287,30 @@ def canonicalize_channel(raw):
     cleaned = _clean_channel(raw)
     if not cleaned:
         return None
-    tokens = _fold_tokens(cleaned)
-    for alias_tokens, canonical in _GAZETTEER_ENTRIES:
-        if _is_token_run(alias_tokens, tokens):
-            return canonical
-    return cleaned
+    return _match_gazetteer(cleaned) or cleaned
+
+
+def is_known_channel(raw):
+    """True when ``raw`` matches a known media/label channel in the :data:`_GAZETTEER`.
+
+    A media/label channel (Boiler Room, NTS Radio, Resident Advisor, …) is the SET's
+    host, NOT the DJ, so the set-artist extractor (C2c-3) uses this to SKIP emitting
+    the channel as an artist candidate. Uses the SAME whole-token containment as
+    :func:`canonicalize_channel` (a 2-letter alias like "RA" never fires as a raw
+    substring), THEN falls back to the curated media denylist
+    (:data:`~workers.set_artist_media_denylist.MEDIA_CHANNEL_KEYS`, matched on the
+    EXACT ``punct_fold_key`` of the whole cleaned channel — never a token substring,
+    so it can't kill a real artist's channel). An out-of-gazetteer, out-of-denylist
+    channel (e.g. an artist's own channel "Fred again..") is NOT known → ``False`` →
+    still emitted as a candidate. This gate ONLY widens the DJ filter — it does NOT
+    touch :func:`canonicalize_channel` (the C13.e canonical gazetteer). A blank /
+    whitespace-only input returns ``False``.
+    """
+    if not raw:
+        return False
+    cleaned = _clean_channel(raw)
+    if not cleaned:
+        return False
+    if _match_gazetteer(cleaned) is not None:
+        return True
+    return punct_fold_key(cleaned) in MEDIA_CHANNEL_KEYS

@@ -639,17 +639,23 @@ def _matching_deezer_hits(hits, name):
 
 
 def _link_set_artist_fan_floor():
-    """C2c-2b — OPTIONAL fan floor for the set-artist Deezer verification.
+    """C2c-3 — fan floor for the set-artist Deezer verification.
 
-    ``LINK_SET_ARTIST_FAN_FLOOR`` unset (default) → 0 → no floor, so an exact-name
-    match of a small but legitimate DJ still links. When set, a Deezer hit whose
-    ``nb_fan`` is below it is refused. Opt-in, mirroring ``ENRICH_PRIORITY_FLOOR``
-    (:func:`workers.tasks.catalog._priority_floor`): the ``_matching_deezer_hits``
-    gate already protects PRECISION on the weak fold signals — this only lets an
-    operator additionally raise the bar globally.
+    Defaults to :data:`workers.artist_names.FAN_FLOOR` (1000): the set-title extractor
+    over-proposes noisy tokens (city/genre/track-title words that match a small Deezer
+    artist by accident), so a Deezer verification of a set-title candidate requires the
+    hit to clear a popularity bar — a real DJ hosted on a set typically has ≥1000 fans.
+    Empirical, to refine on the dry-run sample; the operator overrides it with
+    ``LINK_SET_ARTIST_FAN_FLOOR`` (set it to ``0`` to disable the floor entirely and
+    accept any exact-name match). Applies to the DEEZER lane ONLY — a base resolution
+    (our curated artist base) is trusted as-is. Mirrors ``ENRICH_PRIORITY_FLOOR``
+    (:func:`workers.tasks.catalog._priority_floor`) as an operator knob layered on top
+    of the ``_matching_deezer_hits`` gate.
     """
+    from workers.artist_names import FAN_FLOOR
+
     raw = os.environ.get("LINK_SET_ARTIST_FAN_FLOOR")
-    return int(raw) if raw else 0
+    return int(raw) if raw else FAN_FLOOR
 
 
 async def _verify_set_artist_via_deezer(pool, session, name, fan_floor):
