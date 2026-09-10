@@ -208,14 +208,33 @@ def _follow(session, artist_id, user_id=1):
     session.add(FollowedArtist(user_id=user_id, artist_id=artist_id))
 
 
-def _make_set(session, ext_id, title, *, hours_ago=1.0, source_url="https://trackid/x"):
+def _make_set(
+    session,
+    ext_id,
+    title,
+    *,
+    hours_ago=1.0,
+    source_url="https://trackid/x",
+    event_date=None,
+    played_days_ago=2,
+):
+    # By default the set's OWN date (played_date) is recent so it qualifies as a
+    # nouveauté; tests override event_date / played_days_ago to exercise the age
+    # floor. played_days_ago=None leaves played_date unset.
     now = datetime.now(timezone.utc)
+    played_date = (
+        None
+        if played_days_ago is None
+        else (now - timedelta(days=played_days_ago)).date()
+    )
     dj = DJSet(
         source="trackid",
         title=title,
         external_id=ext_id,
         source_url=source_url,
         created_at=now - timedelta(hours=hours_ago),
+        event_date=event_date,
+        played_date=played_date,
     )
     session.add(dj)
     session.flush()
@@ -599,6 +618,66 @@ class TestSetsVolet:
 
         assert first["sets_found"] == 1
         assert second["sets_found"] == 0
+        assert len(_activities(task_engine, activity_type="set")) == 1
+
+    def test_recently_imported_but_old_set_ignored(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # A years-old set freshly hydrated by the C12 backfill: recent created_at
+        # but its own date (played_date) is 6-7 years ago → NOT a nouveauté.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Backfilled DJ", deezer_id="46")
+            _follow(s, a.id)
+            dj = _make_set(
+                s, "set-old-event", "Old Live 2019", hours_ago=1.0,
+                played_days_ago=365 * 6,
+            )
+            s.add(SetArtist(set_id=dj.id, artist_id=a.id, role="dj", position=0))
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 0
+        assert _activities(task_engine, activity_type="set") == []
+
+    def test_set_without_own_date_ignored(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # No event_date and no played_date → newness can't be proven → skipped.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Undated DJ", deezer_id="47")
+            _follow(s, a.id)
+            dj = _make_set(
+                s, "set-undated", "Undated Set", hours_ago=1.0,
+                played_days_ago=None,
+            )
+            s.add(SetArtist(set_id=dj.id, artist_id=a.id, role="dj", position=0))
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 0
+        assert _activities(task_engine, activity_type="set") == []
+
+    def test_event_date_preferred_over_stale_played_date(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # event_date (parsed from the title) is recent while played_date (often
+        # TrackID's upload date) is old → coalesce prefers event_date → surfaces.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Event DJ", deezer_id="48")
+            _follow(s, a.id)
+            recent = (datetime.now(timezone.utc) - timedelta(days=3)).date()
+            dj = _make_set(
+                s, "set-eventdate", "Fresh Live", hours_ago=1.0,
+                event_date=recent, played_days_ago=365 * 5,
+            )
+            s.add(SetArtist(set_id=dj.id, artist_id=a.id, role="dj", position=0))
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 1
         assert len(_activities(task_engine, activity_type="set")) == 1
 
 

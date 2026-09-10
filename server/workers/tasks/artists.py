@@ -383,6 +383,14 @@ ARTIST_ACTIVITY_RELEASE_HORIZON_DAYS = 30
 # cadence on purpose so a late/skipped run still catches the previous day's
 # imports; the unique constraint on artist_activity dedups the overlap.
 ARTIST_ACTIVITY_SET_WINDOW_HOURS = 48
+# A set only counts as a "nouveauté" when its OWN date (event_date preferred,
+# else played_date) is within this many days. The created_at (import/hydration
+# date) stays the cheap incremental trigger, but must never make a years-old set
+# look new — the C12 backfill hydrates years-old TrackID sets with a fresh
+# created_at. Env-tunable.
+ARTIST_ACTIVITY_SET_MAX_AGE_DAYS = int(
+    os.getenv("ARTIST_ACTIVITY_SET_MAX_AGE_DAYS", "90")
+)
 # C6.c v2 — a detected release is now fully crawled into the catalog (one catalog
 # track per Deezer track), so the "Nouveautés" feed renders it like any other
 # track (cover, title, preview) instead of a bare external link. A Deezer release
@@ -3139,11 +3147,18 @@ def _check_new_sets(engine, followed_ids, now):
     from datetime import timedelta
 
     from models import DJSet, SetArtist
-    from sqlalchemy import select
+    from sqlalchemy import func, select
     from sqlalchemy.orm import Session
     from trackid.reliability import set_reliable
 
     window_start = now - timedelta(hours=ARTIST_ACTIVITY_SET_WINDOW_HOURS)
+    # Newness is the SET's OWN date, NOT the import/enrichment date: prefer the
+    # title-parsed event_date, fall back to played_date. created_at stays only as
+    # the cheap incremental trigger (which sets to look at since the last run) —
+    # the C12 backfill hydrates years-old sets with a fresh created_at, so without
+    # this guard a 6-7-year-old set would flood the "Nouveautés" feed as new.
+    set_date = func.coalesce(DJSet.event_date, DJSet.played_date)
+    date_floor = (now - timedelta(days=ARTIST_ACTIVITY_SET_MAX_AGE_DAYS)).date()
     sets_found = 0
 
     with Session(engine) as session:
@@ -3154,6 +3169,10 @@ def _check_new_sets(engine, followed_ids, now):
                 SetArtist.artist_id.in_(followed_ids),
                 DJSet.created_at.isnot(None),
                 DJSet.created_at >= window_start,
+                # A set whose own date is unknown or older than the floor is not a
+                # nouveauté, whatever its import date.
+                set_date.isnot(None),
+                set_date >= date_floor,
                 # C8: don't surface an unreliable TrackID set in the follow feed.
                 set_reliable(),
             )
