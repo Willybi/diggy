@@ -22,31 +22,51 @@ For each targeted flag:
      ``FLAG`` NOR ``AUTO_ATTACH``. The date guard and the title-identical rule emit
      LEGITIMATE flags at a low composite confidence (e.g. overlap 0.85, title 0.6,
      40-day gap → confidence ~0.23 but verdict FLAG) — the new engine would create
-     them, so the script must not kill them. A recomputed ``AUTO_ATTACH`` also stays
-     KEPT: the script NEVER attaches anything — merging is a human decision on the
+     them, so the script must not kill them. By default a recomputed ``AUTO_ATTACH``
+     stays KEPT: the script attaches nothing — merging is a human decision on the
      admin page.
+
+OPT-IN ``--auto-attach``: additionally ATTACH (merge under a virtual parent, via the
+admin ``attach_flag`` action) the pairs that are certain duplicates — either the
+recomputed verdict is ``AUTO_ATTACH``, or the tracklist is byte-identical in the same
+order (overlap/order_corr >= 0.95 with >= 6 shared tracks). Two distinct gigs never
+share the exact same ordered tracklist, so this is safe; the shared-count floor keeps
+two short sets that merely coincide on a few anthems apart. Divergent RELIABLE event
+dates still take precedence and REJECT the pair before any attach. Without the flag
+the behaviour is unchanged.
 
 In ``--apply`` the script rewrites ``confidence`` (composite) and ``signals`` (full
 new dict) on EVERY re-scored flag — kept ones included, so the admin list re-sorts
 on the true confidence. Rejected flags additionally get ``status = rejected`` and a
 ``"auto_rejected": true`` marker in ``signals`` (to tell them apart from manual
-rejections). It NEVER deletes a flag: a rejected flag is memorised by its pair
-uniqueness (``uq_set_flag_pair``) and won't be recreated by future imports.
+rejections). Attached flags get ``status = attached`` (confidence/signals left as-is,
+``attach_flag`` owns the transition). It NEVER deletes a flag: a rejected flag is
+memorised by its pair uniqueness (``uq_set_flag_pair``) and won't be recreated by
+future imports.
+
+OPT-IN ``--reject-episodes``: additionally REJECT a pair whose two titles both carry
+an episode/volume/edition number that DIFFERS (« Spectrum Radio 200 » vs « … 251 »,
+« Vol. 71 » vs « 72 ») — recurring homonymous emissions, never a duplicate. It fires
+regardless of overlap, right after the event-date guard and before any attach.
+Without the flag the behaviour is unchanged.
 
 DRY-RUN by default: prints a readable table (flag id, truncated titles, old→new
-confidence, recomputed verdict, KEPT / AUTO-REJECT / NON-RESCORABLE) plus a summary
-(counters + new-confidence distribution) and writes NOTHING. Pass ``--apply`` to
-commit; a single commit at the end (~150 rows).
+confidence, recomputed verdict, KEPT / AUTO-REJECT / REJET-DATES / REJET-ÉPISODE /
+AUTO-ATTACH / NON-RESCORABLE) plus a summary (counters + new-confidence distribution)
+and writes NOTHING. Pass ``--apply`` to commit; a single commit at the end (~150 rows).
 
 Usage (from the VPS):
     docker compose exec api python scripts/rescore_set_flags.py                 # dry-run
     docker compose exec api python scripts/rescore_set_flags.py --apply          # commit
     docker compose exec api python scripts/rescore_set_flags.py --threshold 0.35 # custom cut
+    docker compose exec api python scripts/rescore_set_flags.py --auto-attach --apply
+    docker compose exec api python scripts/rescore_set_flags.py --reject-episodes --apply
 """
 
 import argparse
 import asyncio
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # server/api
@@ -58,6 +78,8 @@ from models import DJSet, SetFlag, SetFlagStatus, SetFlagType
 from services.set_dedup_service import (
     MatchSignals,
     MatchVerdict,
+    _load_set_scoring_data,
+    attach_flag,
     decide_verdict,
     score_pair,
 )
@@ -68,6 +90,15 @@ from sqlalchemy.orm.attributes import flag_modified
 # the script only purges the obvious noise.
 DEFAULT_THRESHOLD = 0.30
 
+# Identical-tracklist auto-attach (opt-in --auto-attach): a pair whose recomputed
+# verdict is NOT AUTO_ATTACH but whose tracklist is byte-identical in the same order
+# is still a re-uploaded duplicate (two distinct gigs never share the exact same
+# ordered tracklist). Attach it regardless of the upload date. The shared-count floor
+# avoids attaching two SHORT sets that happen to coincide on a few tracks.
+IDENTICAL_ATTACH_OVERLAP = 0.95
+IDENTICAL_ATTACH_ORDER = 0.95
+IDENTICAL_ATTACH_MIN_SHARED = 6
+
 # Decision labels (also the report column value).
 DECISION_KEPT = "GARDÉ"
 DECISION_REJECTED = "AUTO-REJET"
@@ -75,7 +106,56 @@ DECISION_REJECTED = "AUTO-REJET"
 # more than a day apart (distinct performances) — rejected regardless of the
 # composite confidence, and counted apart from the low-confidence noise.
 DECISION_EVENT_REJECTED = "REJET-DATES"
+# Opt-in --auto-attach: pair merged under a virtual parent (verdict AUTO_ATTACH, or
+# identical ordered tracklist). Never fires on divergent reliable event dates.
+DECISION_AUTO_ATTACHED = "AUTO-ATTACH"
+# Opt-in --reject-episodes: both titles carry an episode/volume/edition number and
+# they DIFFER → recurring homonymous emissions (same show, distinct episodes), never
+# a duplicate. Rejected regardless of overlap, after the event-date guard.
+DECISION_EPISODE_REJECTED = "REJET-ÉPISODE"
 DECISION_UNSCORABLE = "NON-RESCORABLE"
+
+# --- Episode-number extraction (--reject-episodes) --------------------------
+# A number tied to an emission keyword (radio 200, vol. 71, ep 12, #676, session 9)
+# OR a bare number at the very end of the title. Deliberately conservative: any
+# ambiguity → None (never reject a pair on a guessed number).
+_EPISODE_KEYWORDS = (
+    r"radio|podcast|show|episode|ep|volume|vol|edition|chapter|session|mix|nr|no"
+)
+_EPISODE_KEYWORD_RE = re.compile(
+    rf"\b(?:{_EPISODE_KEYWORDS})\b\s*\.?\s*#?\s*(\d+)", re.IGNORECASE
+)
+_EPISODE_HASH_RE = re.compile(r"#\s*(\d+)")
+_EPISODE_TRAILING_RE = re.compile(r"(\d+)\s*$")
+# Part markers (part 2, pt. 3, p1) are handled by the group path, NOT here → abstain.
+_PART_MARKER_RE = re.compile(r"\b(?:part|pt|p)\s*\.?\s*\d+\b", re.IGNORECASE)
+
+
+def _is_year(n: int) -> bool:
+    """A 4-digit year in a plausible range is NOT an episode number."""
+    return 1990 <= n <= 2035
+
+
+def _episode_number(title: str | None) -> int | None:
+    """Extract an unambiguous episode/volume/edition number from a set title.
+
+    Returns None when the title carries a PART marker (parts live on the group
+    path), when the only candidate is a plausible year (1990-2035), or when no
+    non-ambiguous number is found.
+    """
+    if not title:
+        return None
+    # Parts are a different relationship (handled by the group flag path).
+    if _PART_MARKER_RE.search(title):
+        return None
+    # Keyword-anchored number first (most reliable), then a bare "#N", then a
+    # trailing standalone number. Years are excluded at every step.
+    for regex in (_EPISODE_KEYWORD_RE, _EPISODE_HASH_RE, _EPISODE_TRAILING_RE):
+        for m in regex.finditer(title):
+            n = int(m.group(1))
+            if not _is_year(n):
+                return n
+    return None
 
 
 @dataclass
@@ -122,13 +202,26 @@ async def _load_pending_pair_flags(db) -> list[SetFlag]:
 
 
 async def rescore_flags(
-    db, *, threshold: float = DEFAULT_THRESHOLD, apply: bool = False
+    db,
+    *,
+    threshold: float = DEFAULT_THRESHOLD,
+    apply: bool = False,
+    auto_attach: bool = False,
+    reject_episodes: bool = False,
 ) -> list[RescoreOutcome]:
     """Re-score every pending duplicate_candidate PAIR flag. Returns per-flag outcomes.
 
     Mutates the flags in-session when ``apply`` is True (confidence + signals on all
     re-scored flags; status=rejected + ``auto_rejected`` marker on the rejected ones).
-    Does NOT commit — the caller owns the transaction boundary.
+    When ``auto_attach`` is True, a flag whose recomputed verdict is AUTO_ATTACH — or
+    whose tracklist is identical in the same order (overlap/order >= 0.95, >= 6 shared
+    tracks) — is instead ATTACHED under a virtual parent via ``attach_flag`` (the admin
+    "attacher" action); its confidence/signals are left as-is (attach_flag flips the
+    status). Divergent reliable event dates still take precedence and reject the pair.
+    When ``reject_episodes`` is True, a pair whose two titles both carry an
+    episode/volume/edition number that DIFFERS is rejected (recurring homonymous
+    emissions) regardless of overlap, right after the event-date guard and before any
+    attach. Does NOT commit — the caller owns the transaction boundary.
     """
     flags = await _load_pending_pair_flags(db)
     outcomes: list[RescoreOutcome] = []
@@ -174,9 +267,48 @@ async def rescore_flags(
             and signals.date_gap_days is not None
             and signals.date_gap_days > 1
         )
+
+        # Attach eligibility (only when opted in): recomputed AUTO_ATTACH (the import
+        # semantics) OR an identical ordered tracklist regardless of the upload date.
+        # The shared-track count reuses the existing scoring loader (score_pair already
+        # loaded both rows into the identity map → these are cache hits).
+        is_attach = False
+        if auto_attach:
+            loaded_a = await _load_set_scoring_data(db, flag.set_id_a)
+            loaded_b = await _load_set_scoring_data(db, flag.set_id_b)
+            if loaded_a is not None and loaded_b is not None:
+                mtids_a = set(loaded_a[1]["identified_mtids"])
+                mtids_b = set(loaded_b[1]["identified_mtids"])
+                shared = len(mtids_a & mtids_b)
+                is_attach = verdict == MatchVerdict.AUTO_ATTACH or (
+                    signals.overlap >= IDENTICAL_ATTACH_OVERLAP
+                    and signals.order_corr is not None
+                    and signals.order_corr >= IDENTICAL_ATTACH_ORDER
+                    and shared >= IDENTICAL_ATTACH_MIN_SHARED
+                )
+
+        # Divergent episode numbers (only when opted in): both titles carry an
+        # episode/volume/edition number and they DIFFER → recurring homonymous
+        # emissions (same resident, distinct episodes), never a duplicate — reject
+        # regardless of overlap (a differing episode number outweighs a high overlap).
+        episode_divergent = False
+        if reject_episodes:
+            ep_a = _episode_number(title_a)
+            ep_b = _episode_number(title_b)
+            episode_divergent = ep_a is not None and ep_b is not None and ep_a != ep_b
+
+        # Precedence: divergent reliable event dates reject FIRST (two performances,
+        # never attach); THEN divergent episode numbers; THEN attach when eligible;
+        # THEN the low-confidence noise cut.
+        reject = False
         if event_divergent:
             reject = True
             decision = DECISION_EVENT_REJECTED
+        elif episode_divergent:
+            reject = True
+            decision = DECISION_EPISODE_REJECTED
+        elif is_attach:
+            decision = DECISION_AUTO_ATTACHED
         else:
             reject = confidence < threshold and verdict not in (
                 MatchVerdict.FLAG,
@@ -186,17 +318,24 @@ async def rescore_flags(
         old_confidence = flag.confidence
 
         if apply:
-            new_signals = _signals_to_dict(signals)
-            if reject:
-                new_signals["auto_rejected"] = True
-                if event_divergent:
-                    new_signals["event_date_separated"] = True
-                flag.status = SetFlagStatus.rejected
-            flag.confidence = confidence
-            flag.signals = new_signals
-            # signals is a JSON column — SQLAlchemy needs the explicit mark
-            # (same pattern as apply_match_results).
-            flag_modified(flag, "signals")
+            if decision == DECISION_AUTO_ATTACHED:
+                # attach_flag creates/reuses the virtual parent + flips status to
+                # 'attached'. Do NOT also rewrite confidence/signals here.
+                await attach_flag(db, flag.id, resolved_by=None)
+            else:
+                new_signals = _signals_to_dict(signals)
+                if reject:
+                    new_signals["auto_rejected"] = True
+                    if event_divergent:
+                        new_signals["event_date_separated"] = True
+                    if episode_divergent:
+                        new_signals["episode_separated"] = True
+                    flag.status = SetFlagStatus.rejected
+                flag.confidence = confidence
+                flag.signals = new_signals
+                # signals is a JSON column — SQLAlchemy needs the explicit mark
+                # (same pattern as apply_match_results).
+                flag_modified(flag, "signals")
 
         outcomes.append(
             RescoreOutcome(
@@ -253,23 +392,34 @@ def _print_report(outcomes: list[RescoreOutcome], threshold: float, apply: bool)
     kept = sum(1 for o in outcomes if o.decision == DECISION_KEPT)
     rejected = sum(1 for o in outcomes if o.decision == DECISION_REJECTED)
     event_rejected = sum(1 for o in outcomes if o.decision == DECISION_EVENT_REJECTED)
+    episode_rejected = sum(
+        1 for o in outcomes if o.decision == DECISION_EPISODE_REJECTED
+    )
+    attached = sum(1 for o in outcomes if o.decision == DECISION_AUTO_ATTACHED)
     unscorable = sum(1 for o in outcomes if o.decision == DECISION_UNSCORABLE)
 
     print(
         f"\n[résumé] {len(outcomes)} flag(s) re-scoré(s) — "
         f"GARDÉ={kept} | AUTO-REJET={rejected} | REJET-DATES={event_rejected} | "
+        f"REJET-ÉPISODE={episode_rejected} | AUTO-ATTACH={attached} | "
         f"NON-RESCORABLE={unscorable}"
     )
 
     _print_distribution(outcomes)
 
     if apply:
-        total_rejected = rejected + event_rejected
+        total_rejected = rejected + event_rejected + episode_rejected
         print(
             f"\n[apply] {total_rejected} flag(s) passé(s) en 'rejected' "
-            f"(auto_rejected, dont {event_rejected} sur dates d'événement divergentes), "
+            f"(auto_rejected, dont {event_rejected} sur dates d'événement divergentes "
+            f"et {episode_rejected} sur numéros d'épisode divergents), "
             f"{kept + total_rejected} confidence/signals mis à jour. Commit effectué."
         )
+        if attached:
+            print(
+                f"[apply] {attached} flag(s) attaché(s) sous parent virtuel "
+                f"(statut 'attached')."
+            )
     else:
         print(
             "\n[dry-run] Aucune modification en base. "
@@ -299,9 +449,17 @@ def _print_distribution(outcomes: list[RescoreOutcome]) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def run(threshold: float, apply: bool) -> None:
+async def run(
+    threshold: float, apply: bool, auto_attach: bool, reject_episodes: bool
+) -> None:
     async with SessionLocal() as db:
-        outcomes = await rescore_flags(db, threshold=threshold, apply=apply)
+        outcomes = await rescore_flags(
+            db,
+            threshold=threshold,
+            apply=apply,
+            auto_attach=auto_attach,
+            reject_episodes=reject_episodes,
+        )
         _print_report(outcomes, threshold, apply)
         if apply:
             await db.commit()
@@ -324,8 +482,23 @@ def main() -> None:
         help=f"auto-reject cutoff on the composite confidence "
         f"(default: {DEFAULT_THRESHOLD}; conservative on purpose)",
     )
+    parser.add_argument(
+        "--auto-attach",
+        action="store_true",
+        help="attach (merge under a virtual parent) the flags whose verdict is "
+        "AUTO_ATTACH or whose tracklist is identical in the same order "
+        "(default: off — behaviour unchanged)",
+    )
+    parser.add_argument(
+        "--reject-episodes",
+        action="store_true",
+        help="reject pairs whose two titles carry a DIFFERENT episode/volume/edition "
+        "number (recurring homonymous emissions) (default: off — behaviour unchanged)",
+    )
     args = parser.parse_args()
-    asyncio.run(run(args.threshold, args.apply))
+    asyncio.run(
+        run(args.threshold, args.apply, args.auto_attach, args.reject_episodes)
+    )
 
 
 if __name__ == "__main__":

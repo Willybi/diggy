@@ -15,11 +15,14 @@ from sqlalchemy import select
 
 from models import DJSet, SetFlag, SetFlagStatus, SetFlagType, SetTrack
 from scripts.rescore_set_flags import (
+    DECISION_AUTO_ATTACHED,
+    DECISION_EPISODE_REJECTED,
     DECISION_EVENT_REJECTED,
     DECISION_KEPT,
     DECISION_REJECTED,
     DECISION_UNSCORABLE,
     RescoreOutcome,
+    _episode_number,
     rescore_flags,
 )
 from services.set_dedup_service import MatchVerdict
@@ -352,6 +355,287 @@ class TestNonRescorable:
         assert flag.confidence == pytest.approx(0.77)
         assert flag.signals == {"overlap": 0.77}
         assert flag.status == SetFlagStatus.pending
+
+
+# ---------------------------------------------------------------------------
+# Opt-in --auto-attach: identical ordered tracklist → attached under virtual parent
+# ---------------------------------------------------------------------------
+
+
+class TestAutoAttach:
+    async def test_identical_tracklist_is_attached_with_auto_attach(self, db):
+        """overlap ~1.0 / order ~1.0 / 10 shared tracks / 400-day upload gap → verdict
+        FLAG (dates far apart) but tracklist identical. With --auto-attach the pair is
+        MERGED under a virtual parent."""
+        a = await _make_set(
+            db,
+            "Marathon Mix",
+            normalized_title="marathon mix",
+            played_date=date(2023, 1, 1),
+        )
+        b = await _make_set(
+            db,
+            "Marathon Mix (reupload)",
+            normalized_title="marathon mix",
+            played_date=date(2024, 2, 5),  # ~400 days later → FLAG, not AUTO_ATTACH
+        )
+        a_id, b_id = a.id, b.id
+        tracks = list(range(1, 11))  # 10 identical tracks, same order
+        await _add_tracks(db, a_id, tracks)
+        await _add_tracks(db, b_id, tracks)
+        flag = await _make_pair_flag(
+            db, a_id, b_id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_AUTO_ATTACHED
+        assert o.verdict == MatchVerdict.FLAG  # dates far apart, yet attached on V2
+        assert flag.status == SetFlagStatus.attached
+        # Both sets now hang under a (new) virtual parent
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        b_ref = (await db.execute(select(DJSet).where(DJSet.id == b_id))).scalar_one()
+        assert a_ref.parent_set_id is not None
+        assert b_ref.parent_set_id is not None
+        assert a_ref.parent_set_id == b_ref.parent_set_id
+        parent = (
+            await db.execute(
+                select(DJSet).where(DJSet.id == a_ref.parent_set_id)
+            )
+        ).scalar_one()
+        assert parent.is_virtual is True
+
+    async def test_same_pair_without_auto_attach_stays_kept(self, db):
+        """The IDENTICAL pair, but WITHOUT --auto-attach → still just KEPT (pending),
+        nothing attached — default behaviour unchanged."""
+        a = await _make_set(
+            db,
+            "Marathon Mix",
+            normalized_title="marathon mix",
+            played_date=date(2023, 1, 1),
+        )
+        b = await _make_set(
+            db,
+            "Marathon Mix (reupload)",
+            normalized_title="marathon mix",
+            played_date=date(2024, 2, 5),
+        )
+        a_id, b_id = a.id, b.id
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a_id, tracks)
+        await _add_tracks(db, b_id, tracks)
+        flag = await _make_pair_flag(
+            db, a_id, b_id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(db, threshold=0.30, apply=True)
+
+        assert outcomes[0].decision == DECISION_KEPT
+        assert flag.status == SetFlagStatus.pending
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+        virtuals = (
+            await db.execute(select(DJSet).where(DJSet.is_virtual.is_(True)))
+        ).scalars().all()
+        assert virtuals == []
+
+    async def test_identical_but_too_few_shared_is_not_attached(self, db):
+        """Identical ordered tracklist but only 3 shared tracks (< floor of 6) and a
+        far-apart upload date → verdict FLAG, NOT attached even with --auto-attach."""
+        a = await _make_set(
+            db,
+            "Short Set",
+            normalized_title="short set",
+            played_date=date(2023, 1, 1),
+        )
+        b = await _make_set(
+            db,
+            "Short Set (mirror)",
+            normalized_title="short set",
+            played_date=date(2024, 2, 5),  # far apart → FLAG, not AUTO_ATTACH
+        )
+        a_id, b_id = a.id, b.id
+        await _add_tracks(db, a_id, [1, 2, 3])
+        await _add_tracks(db, b_id, [1, 2, 3])
+        flag = await _make_pair_flag(
+            db, a_id, b_id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = outcomes[0]
+        assert o.decision != DECISION_AUTO_ATTACHED
+        assert o.decision == DECISION_KEPT
+        assert flag.status == SetFlagStatus.pending
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_divergent_event_dates_reject_takes_precedence_over_attach(self, db):
+        """Identical ordered tracklist but two RELIABLE event_dates apart → REJET-DATES
+        even WITH --auto-attach (a bad merge costs more than an unmerged duplicate)."""
+        a = await _make_set(
+            db,
+            "Artist Live",
+            normalized_title="artist live",
+            event_date=date(2026, 6, 20),
+        )
+        b = await _make_set(
+            db,
+            "Artist Live (2)",
+            normalized_title="artist live",
+            event_date=date(2026, 6, 25),  # 5 days apart → distinct performances
+        )
+        a_id, b_id = a.id, b.id
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a_id, tracks)
+        await _add_tracks(db, b_id, tracks)
+        flag = await _make_pair_flag(
+            db, a_id, b_id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_EVENT_REJECTED
+        assert flag.status == SetFlagStatus.rejected
+        assert flag.signals["event_date_separated"] is True
+        # No attach happened
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_low_confidence_noise_still_rejected_with_auto_attach(self, db):
+        """Non-regression: the low-confidence NOTHING noise cut is unaffected by
+        --auto-attach (nothing to attach → still auto-rejected)."""
+        a = await _make_set(db, "Set A", normalized_title="alpha beta gamma")
+        b = await _make_set(db, "Set B", normalized_title="delta epsilon zeta")
+        await _add_tracks(db, a.id, [1, 2, 3, 4, 5, 6, 7, 8])
+        await _add_tracks(db, b.id, [9, 3, 10, 1, 11, 2, 12, 13])
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=0.9, signals={"overlap": 0.9}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_REJECTED
+        assert flag.status == SetFlagStatus.rejected
+        assert flag.signals["auto_rejected"] is True
+
+
+# ---------------------------------------------------------------------------
+# Opt-in --reject-episodes: episode-number extraction + divergent-episode reject
+# ---------------------------------------------------------------------------
+
+
+class TestEpisodeNumber:
+    """Pure unit tests of the _episode_number extractor (no DB)."""
+
+    @pytest.mark.parametrize(
+        "title,expected",
+        [
+            ("Spectrum Radio 200 by Joris Voorn", 200),
+            ("Global DJ Broadcast Vol. 71", 71),
+            ("Anjunadeep Edition #676", 676),
+            ("Transitions Episode 512", 512),
+            ("Group Therapy 500", 500),  # bare trailing number
+            ("Awakenings ADE 2024", None),  # 4-digit year, not an episode
+            ("Boiler Room London Part 2", None),  # part marker → group path
+            ("Live at Tomorrowland pt. 3", None),  # part marker
+            ("Sunset Session", None),  # no number
+            ("", None),
+            (None, None),
+        ],
+    )
+    def test_extraction(self, title, expected):
+        assert _episode_number(title) == expected
+
+
+class TestRejectEpisodes:
+    async def test_divergent_episodes_are_rejected(self, db):
+        """Two episodes of the same show with strong overlap → REJET-ÉPISODE (not a
+        duplicate) when --reject-episodes is on, regardless of overlap."""
+        a = await _make_set(
+            db, "Spectrum Radio 200", normalized_title="spectrum radio 200"
+        )
+        b = await _make_set(
+            db, "Spectrum Radio 251", normalized_title="spectrum radio 251"
+        )
+        # High overlap / identical order to prove the episode number wins over it.
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, reject_episodes=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_EPISODE_REJECTED
+        assert flag.status == SetFlagStatus.rejected
+        assert flag.signals["auto_rejected"] is True
+        assert flag.signals["episode_separated"] is True
+
+    async def test_same_episode_number_is_not_rejected(self, db):
+        """Same episode number on both sides → NOT an episode divergence (attached
+        with --auto-attach on an identical tracklist, or kept)."""
+        a = await _make_set(
+            db, "Spectrum Radio 200", normalized_title="spectrum radio 200"
+        )
+        b = await _make_set(
+            db,
+            "Spectrum Radio 200 (reupload)",
+            normalized_title="spectrum radio 200",
+        )
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, reject_episodes=True
+        )
+
+        assert outcomes[0].decision != DECISION_EPISODE_REJECTED
+        assert flag.status != SetFlagStatus.rejected
+
+    async def test_divergent_episodes_without_flag_is_unchanged(self, db):
+        """Without --reject-episodes the same divergent-episode pair keeps its
+        default behaviour (KEPT here — identical tracklist, verdict AUTO_ATTACH)."""
+        a = await _make_set(
+            db, "Spectrum Radio 200", normalized_title="spectrum radio 200"
+        )
+        b = await _make_set(
+            db, "Spectrum Radio 251", normalized_title="spectrum radio 251"
+        )
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(db, threshold=0.30, apply=True)
+
+        assert outcomes[0].decision != DECISION_EPISODE_REJECTED
+        assert flag.status != SetFlagStatus.rejected
 
 
 # ---------------------------------------------------------------------------
