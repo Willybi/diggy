@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from models import DJSet, SetFlag, SetFlagStatus, SetFlagType, SetTrack
 from scripts.rescore_set_flags import (
+    DECISION_EVENT_REJECTED,
     DECISION_KEPT,
     DECISION_REJECTED,
     DECISION_UNSCORABLE,
@@ -41,6 +42,7 @@ async def _make_set(
     source="trackid",
     part_number=None,
     played_date=None,
+    event_date=None,
     is_virtual=False,
 ):
     s = DJSet(
@@ -49,6 +51,7 @@ async def _make_set(
         normalized_title=normalized_title,
         part_number=part_number,
         played_date=played_date,
+        event_date=event_date,
         is_virtual=is_virtual,
     )
     db.add(s)
@@ -126,6 +129,51 @@ class TestAutoReject:
             "date_gap_days",
             "order_corr",
         }
+
+
+# ---------------------------------------------------------------------------
+# Event-date divergence (L1/L2): NOTHING verdict → rejected regardless of conf
+# ---------------------------------------------------------------------------
+
+
+class TestEventDateSeparated:
+    async def test_divergent_event_dates_are_rejected_even_at_high_confidence(
+        self, db
+    ):
+        """Identical tracklists but two RELIABLE event_dates 2 days apart →
+        decide_verdict returns NOTHING (distinct performances, L1). The composite
+        confidence is HIGH (old cut would KEEP it) yet the flag is rejected and
+        counted under the dedicated event-date decision."""
+        a = await _make_set(
+            db,
+            "Artist Live",
+            normalized_title="artist live",
+            event_date=date(2026, 6, 20),
+        )
+        b = await _make_set(
+            db,
+            "Artist Live (2)",
+            normalized_title="artist live",
+            event_date=date(2026, 6, 22),  # 2 days apart → gap > 1
+        )
+        await _add_tracks(db, a.id, [1, 2, 3, 4, 5])
+        await _add_tracks(db, b.id, [1, 2, 3, 4, 5])
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(db, threshold=0.30, apply=True)
+
+        o = outcomes[0]
+        assert o.decision == DECISION_EVENT_REJECTED
+        assert o.verdict == MatchVerdict.NOTHING
+        assert o.new_confidence >= 0.30  # high confidence, yet rejected
+        # Dedicated counter: exactly one event-date rejection
+        assert sum(1 for x in outcomes if x.decision == DECISION_EVENT_REJECTED) == 1
+        # Flag mutated: rejected + both markers
+        assert flag.status == SetFlagStatus.rejected
+        assert flag.signals["auto_rejected"] is True
+        assert flag.signals["event_date_separated"] is True
 
 
 # ---------------------------------------------------------------------------

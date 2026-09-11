@@ -71,6 +71,10 @@ DEFAULT_THRESHOLD = 0.30
 # Decision labels (also the report column value).
 DECISION_KEPT = "GARDÉ"
 DECISION_REJECTED = "AUTO-REJET"
+# L1 hard separator: decide_verdict returns NOTHING for two RELIABLE event_dates
+# more than a day apart (distinct performances) — rejected regardless of the
+# composite confidence, and counted apart from the low-confidence noise.
+DECISION_EVENT_REJECTED = "REJET-DATES"
 DECISION_UNSCORABLE = "NON-RESCORABLE"
 
 
@@ -159,17 +163,34 @@ async def rescore_flags(
         part_b = set_b.part_number if set_b is not None else None
         verdict, _ = decide_verdict(signals, confidence, part_a, part_b)
 
-        reject = confidence < threshold and verdict not in (
-            MatchVerdict.FLAG,
-            MatchVerdict.AUTO_ATTACH,
+        # L1 hard separator: two RELIABLE event_dates more than a day apart make
+        # decide_verdict return NOTHING regardless of the composite confidence —
+        # the pair is two distinct performances, not a duplicate. Reject it
+        # outright (a high-confidence divergent pair the old confidence cut would
+        # have KEPT), counted apart from the low-confidence noise auto-reject.
+        event_divergent = (
+            verdict == MatchVerdict.NOTHING
+            and signals.both_event_reliable
+            and signals.date_gap_days is not None
+            and signals.date_gap_days > 1
         )
-        decision = DECISION_REJECTED if reject else DECISION_KEPT
+        if event_divergent:
+            reject = True
+            decision = DECISION_EVENT_REJECTED
+        else:
+            reject = confidence < threshold and verdict not in (
+                MatchVerdict.FLAG,
+                MatchVerdict.AUTO_ATTACH,
+            )
+            decision = DECISION_REJECTED if reject else DECISION_KEPT
         old_confidence = flag.confidence
 
         if apply:
             new_signals = _signals_to_dict(signals)
             if reject:
                 new_signals["auto_rejected"] = True
+                if event_divergent:
+                    new_signals["event_date_separated"] = True
                 flag.status = SetFlagStatus.rejected
             flag.confidence = confidence
             flag.signals = new_signals
@@ -231,19 +252,23 @@ def _print_report(outcomes: list[RescoreOutcome], threshold: float, apply: bool)
 
     kept = sum(1 for o in outcomes if o.decision == DECISION_KEPT)
     rejected = sum(1 for o in outcomes if o.decision == DECISION_REJECTED)
+    event_rejected = sum(1 for o in outcomes if o.decision == DECISION_EVENT_REJECTED)
     unscorable = sum(1 for o in outcomes if o.decision == DECISION_UNSCORABLE)
 
     print(
         f"\n[résumé] {len(outcomes)} flag(s) re-scoré(s) — "
-        f"GARDÉ={kept} | AUTO-REJET={rejected} | NON-RESCORABLE={unscorable}"
+        f"GARDÉ={kept} | AUTO-REJET={rejected} | REJET-DATES={event_rejected} | "
+        f"NON-RESCORABLE={unscorable}"
     )
 
     _print_distribution(outcomes)
 
     if apply:
+        total_rejected = rejected + event_rejected
         print(
-            f"\n[apply] {rejected} flag(s) passé(s) en 'rejected' (auto_rejected), "
-            f"{kept + rejected} confidence/signals mis à jour. Commit effectué."
+            f"\n[apply] {total_rejected} flag(s) passé(s) en 'rejected' "
+            f"(auto_rejected, dont {event_rejected} sur dates d'événement divergentes), "
+            f"{kept + total_rejected} confidence/signals mis à jour. Commit effectué."
         )
     else:
         print(

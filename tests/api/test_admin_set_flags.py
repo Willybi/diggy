@@ -1,5 +1,5 @@
 """Tests for admin set-flag endpoints (L6)."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -147,6 +147,61 @@ class TestListSetFlags:
         data = r.json()
         assert data["total"] == 2
         assert len(data["items"]) == 1
+
+    async def test_exposes_pairwise_event_dates(self, admin_client, db):
+        """C13.e: a pairwise flag carries each set's event_date (the admin
+        disambiguator shown next to the titles)."""
+        s1 = DJSet(source="trackid", title="Set Alpha", event_date=date(2026, 6, 20))
+        s2 = DJSet(source="trackid", title="Set Beta", event_date=date(2026, 7, 5))
+        db.add(s1)
+        db.add(s2)
+        await db.flush()
+        db.add(_flag(s1, s2))
+        await db.commit()
+
+        item = (await admin_client.get("/api/admin/set-flags")).json()["items"][0]
+        assert item["event_date_a"] == "2026-06-20"
+        assert item["event_date_b"] == "2026-07-05"
+
+    async def test_event_dates_null_when_absent(self, admin_client, db):
+        """A set without an event_date reports null, not an error."""
+        s1 = _set("Set Alpha")
+        s2 = _set("Set Beta")
+        db.add(s1)
+        db.add(s2)
+        await db.flush()
+        db.add(_flag(s1, s2))
+        await db.commit()
+
+        item = (await admin_client.get("/api/admin/set-flags")).json()["items"][0]
+        assert item["event_date_a"] is None
+        assert item["event_date_b"] is None
+
+    async def test_exposes_group_member_event_dates(self, admin_client, db):
+        """A group flag carries member_event_dates aligned with member_set_ids."""
+        s1 = DJSet(source="trackid", title="Part 1", event_date=date(2026, 3, 1))
+        s2 = DJSet(source="trackid", title="Part 2", event_date=None)
+        s3 = DJSet(source="trackid", title="Part 3", event_date=date(2026, 3, 2))
+        db.add(s1)
+        db.add(s2)
+        db.add(s3)
+        await db.flush()
+        db.add(
+            SetFlag(
+                set_id_a=min(s1.id, s2.id, s3.id),
+                set_id_b=None,
+                group_key="the base title",
+                member_set_ids=[s1.id, s2.id, s3.id],
+                flag_type=SetFlagType.part_candidate,
+                confidence=0.9,
+                status=SetFlagStatus.pending,
+                created_at=_now(),
+            )
+        )
+        await db.commit()
+
+        item = (await admin_client.get("/api/admin/set-flags")).json()["items"][0]
+        assert item["member_event_dates"] == ["2026-03-01", None, "2026-03-02"]
 
     async def test_requires_admin(self, client):
         r = await client.get("/api/admin/set-flags")

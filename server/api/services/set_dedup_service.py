@@ -209,10 +209,16 @@ class MatchSignals:
     first_track_match: bool
     # IDF-weighted overlap: anthems shared across many sets weigh less
     weighted_overlap: float = 0.0
-    # Absolute gap in days between played_dates; None if either is unknown
+    # Absolute gap in days between the two sets' dates; None if either is unknown.
+    # Computed on event_date when BOTH sets carry one (see both_event_reliable),
+    # else on played_date.
     date_gap_days: int | None = None
     # Spearman rank correlation on shared-track positions; None if < 3 shared
     order_corr: float | None = None
+    # True when date_gap_days was computed on two reliable event_dates (C13.e,
+    # parsed unambiguously from the title) rather than the often-upload
+    # played_date. A reliable multi-day gap means two distinct performances.
+    both_event_reliable: bool = False
 
 
 @dataclass
@@ -365,7 +371,8 @@ async def get_part_candidates(
 ) -> list[dict]:
     """Return physical sets whose base_title is similar enough to be parts of the same set.
 
-    Returns list of {"id", "part_number", "part_total", "played_date", "normalized_title"}.
+    Returns list of {"id", "part_number", "part_total", "played_date",
+    "event_date", "normalized_title"}.
     """
     from models import DJSet
 
@@ -394,6 +401,7 @@ async def get_part_candidates(
                     "part_number": c.part_number,
                     "part_total": c.part_total,
                     "played_date": c.played_date,
+                    "event_date": c.event_date,
                     "normalized_title": c.normalized_title,
                 }
             )
@@ -406,6 +414,7 @@ async def _build_group_match_result(
     incoming_part_number: int,
     incoming_part_total: int | None,
     incoming_played_date,
+    incoming_event_date,
     incoming_normalized_title: str,
     candidate_members: list[dict],
 ) -> GroupMatchResult:
@@ -419,6 +428,7 @@ async def _build_group_match_result(
             "part_number": incoming_part_number,
             "part_total": incoming_part_total,
             "played_date": incoming_played_date,
+            "event_date": incoming_event_date,
             "normalized_title": incoming_normalized_title,
         }
     ]
@@ -465,9 +475,19 @@ async def _build_group_match_result(
             )
     title_sim_min = min(title_sims) if title_sims else 1.0
 
-    # Date span
-    dates = [m["played_date"] for m in all_members if m["played_date"] is not None]
-    date_span_days = (max(dates) - min(dates)).days if len(dates) >= 2 else 0
+    # Date span — on event_date when EVERY member carries one (reliable, C13.e),
+    # else on played_date (historical, upload-date fallback).
+    event_dates = [m.get("event_date") for m in all_members]
+    span_reliable = bool(event_dates) and all(d is not None for d in event_dates)
+    if span_reliable:
+        span_dates = event_dates
+    else:
+        span_dates = [
+            m["played_date"] for m in all_members if m["played_date"] is not None
+        ]
+    date_span_days = (
+        (max(span_dates) - min(span_dates)).days if len(span_dates) >= 2 else 0
+    )
 
     # Consistent part_total
     totals = [m["part_total"] for m in all_members if m["part_total"] is not None]
@@ -492,13 +512,18 @@ async def _build_group_match_result(
         confidence = min(1.0, confidence + 0.05)
     elif part_total and len(part_numbers) == part_total:
         confidence = min(1.0, confidence + 0.03)
-    # Malus: very long date span suggests recurring series
+    # Malus: very long date span suggests recurring series (played_date fallback)
     if date_span_days > 60:
         confidence = max(0.0, confidence - 0.10)
     # Malus: members with no identified tracks
     empty_members = sum(1 for mid in member_ids if not member_mtids[mid])
     if empty_members:
         confidence = max(0.0, confidence - 0.05 * empty_members)
+    # Hard separation rule: reliable event dates spanning more than a day are
+    # distinct performances, not the parts of one set — crush below the flag
+    # threshold so match_set does not surface the group (invariant #4).
+    if span_reliable and date_span_days > 1:
+        confidence = 0.0
 
     return GroupMatchResult(
         group_key=base_title,
@@ -562,6 +587,28 @@ def _order_correlation(mtids_a: list[int], mtids_b: list[int]) -> float | None:
     return 1.0 - 6.0 * d_squared / (n * (n * n - 1))
 
 
+def _select_date_gap(
+    event_a: date | None,
+    event_b: date | None,
+    played_a: date | None,
+    played_b: date | None,
+) -> tuple[int | None, bool]:
+    """Pick the date gap (in days) for a pair of sets and flag its reliability.
+
+    When BOTH sets carry an event_date (C13.e — parsed unambiguously from the
+    title, trustworthy by construction), the gap is computed on those: TrackID's
+    played_date is often the upload date, not the performance date. Otherwise it
+    falls back to played_date (historical behaviour). Returns
+    ``(gap_days, both_event_reliable)``; ``gap_days`` is None when the chosen
+    pair has an unknown date on either side.
+    """
+    if event_a is not None and event_b is not None:
+        return abs((event_a - event_b).days), True
+    if played_a is not None and played_b is not None:
+        return abs((played_a - played_b).days), False
+    return None, False
+
+
 def compute_signals(
     set_a_data: dict,
     set_b_data: dict,
@@ -571,8 +618,13 @@ def compute_signals(
     """Compute matching signals from injected set data (no DB access, fully testable).
 
     set_a_data / set_b_data keys: normalized_title, played_date, identified_mtids
-    (ordered by position). mtid_df maps mtid → nb of distinct sets containing it
-    (missing key → 1, i.e. unique track).
+    (ordered by position), and the optional event_date (C13.e). mtid_df maps mtid
+    → nb of distinct sets containing it (missing key → 1, i.e. unique track).
+
+    The date gap is computed on event_date when BOTH sets carry one, else on
+    played_date (see _select_date_gap); event_date is read with ``.get`` so a
+    caller injecting a dict without the key keeps the historical played_date
+    behaviour.
     """
     mtids_a = set_a_data["identified_mtids"]
     mtids_b = set_b_data["identified_mtids"]
@@ -586,12 +638,11 @@ def compute_signals(
         set_b_data["normalized_title"] or "",
     )
 
-    date_a = set_a_data["played_date"]
-    date_b = set_b_data["played_date"]
-    date_gap_days = (
-        abs((date_a - date_b).days)
-        if date_a is not None and date_b is not None
-        else None
+    date_gap_days, both_event_reliable = _select_date_gap(
+        set_a_data.get("event_date"),
+        set_b_data.get("event_date"),
+        set_a_data["played_date"],
+        set_b_data["played_date"],
     )
     date_match = date_gap_days is not None and date_gap_days <= 1
 
@@ -605,6 +656,7 @@ def compute_signals(
         weighted_overlap=weighted_overlap,
         date_gap_days=date_gap_days,
         order_corr=_order_correlation(mtids_a, mtids_b),
+        both_event_reliable=both_event_reliable,
     )
 
 
@@ -654,6 +706,17 @@ def decide_verdict(
 
     Sets with distinct part_numbers are handled by the parts path — not pairwise.
     """
+    # Hard separation rule: two RELIABLE event dates more than a day apart are
+    # two distinct performances — never attach AND never flag (a bad merge costs
+    # more than an unmerged duplicate, invariant #4). Checked before the overlap /
+    # auto-attach tests so a high-overlap re-use of the same tracklist across two
+    # real events cannot slip through.
+    if (
+        signals.both_event_reliable
+        and signals.date_gap_days is not None
+        and signals.date_gap_days > 1
+    ):
+        return MatchVerdict.NOTHING, None
     # Distinct part numbers → handled by get_part_candidates, not duplicate path
     if set_a_part is not None and set_b_part is not None and set_a_part != set_b_part:
         return MatchVerdict.NOTHING, None
@@ -706,6 +769,7 @@ async def _load_set_scoring_data(db: AsyncSession, set_id: int):
     return row, {
         "normalized_title": row.normalized_title or "",
         "played_date": row.played_date,
+        "event_date": row.event_date,
         "identified_mtids": list(mtids),
     }
 
@@ -826,10 +890,15 @@ async def match_set(
                     row.part_number,
                     getattr(row, "part_total", None),
                     row.played_date,
+                    row.event_date,
                     row.normalized_title,
                     part_cands,
                 )
-                group_results.append(group_result)
+                # A part group crushed below the flag threshold (e.g. reliable
+                # event dates more than a day apart → distinct sets) is not
+                # surfaced: separation over a bad part-merge (invariant #4).
+                if group_result.confidence >= FLAG_CONFIDENCE_THRESHOLD:
+                    group_results.append(group_result)
 
     return pair_results, group_results
 

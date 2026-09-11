@@ -1,12 +1,13 @@
 """Tests for L4: merge/materialisation + orchestration (set_dedup_service)."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy import select
 
 from models import DJSet, SetFlag, SetFlagStatus, SetFlagType, SetTrack
 from services.set_dedup_service import (
+    FLAG_CONFIDENCE_THRESHOLD,
     GroupMatchResult,
     MatchResult,
     MatchSignals,
@@ -15,6 +16,7 @@ from services.set_dedup_service import (
     apply_match_results,
     find_or_create_virtual_parent,
     get_part_candidates,
+    match_set,
     materialize_parent,
     pick_best_parent_title,
 )
@@ -869,3 +871,110 @@ class TestAttachGroupFlag:
 
         flag_ref = (await db.execute(select(SetFlag).where(SetFlag.id == flag_id))).scalar_one()
         assert flag_ref.status == SetFlagStatus.attached
+
+
+# ---------------------------------------------------------------------------
+# C13.e — event_date in the parts path (integration via match_set)
+# ---------------------------------------------------------------------------
+
+
+async def _make_event_part_set(
+    db, title, normalized_title, part_number, part_total, *, event_date, mtids
+):
+    s = DJSet(
+        title=title,
+        source="trackid",
+        part_number=part_number,
+        part_total=part_total,
+        normalized_title=normalized_title,
+        played_date=event_date,
+        event_date=event_date,
+        is_virtual=False,
+    )
+    db.add(s)
+    await db.flush()
+    for pos, mtid in enumerate(mtids, start=1):
+        db.add(
+            SetTrack(
+                set_id=s.id,
+                position=pos,
+                timecode_ms=pos * 60_000,
+                raw_title=f"Track {mtid}",
+                raw_artist="DJ",
+                is_id=False,
+                trackid_music_track_id=mtid,
+            )
+        )
+    await db.flush()
+    return s
+
+
+class TestPartEventDateHardRule:
+    async def test_same_event_date_parts_group_kept(self, db):
+        """(b) Two parts of the same set, same event_date, identical base_title →
+        the part group is surfaced with a confidence above the flag threshold."""
+        base = "dj set live"
+        ed = date(2024, 6, 1)
+        p1 = await _make_event_part_set(
+            db, "DJ Set Live Part 1", f"{base} 1/2", 1, 2,
+            event_date=ed, mtids=[1, 2, 3],
+        )
+        await _make_event_part_set(
+            db, "DJ Set Live Part 2", f"{base} 2/2", 2, 2,
+            event_date=ed, mtids=[4, 5, 6],
+        )
+
+        _, group_results = await match_set(db, p1.id)
+
+        assert len(group_results) == 1
+        assert group_results[0].confidence >= FLAG_CONFIDENCE_THRESHOLD
+        assert group_results[0].flag_type == "part_candidate"
+
+    async def test_event_dates_apart_no_part_group(self, db):
+        """(c) Same base_title, distinct part numbers, but event_dates 14 days apart
+        → confidence crushed below threshold → NO group surfaced."""
+        base = "dj set live"
+        p1 = await _make_event_part_set(
+            db, "DJ Set Live Part 1", f"{base} 1/2", 1, 2,
+            event_date=date(2024, 6, 1), mtids=[1, 2, 3],
+        )
+        await _make_event_part_set(
+            db, "DJ Set Live Part 2", f"{base} 2/2", 2, 2,
+            event_date=date(2024, 6, 15), mtids=[4, 5, 6],
+        )
+
+        _, group_results = await match_set(db, p1.id)
+
+        assert group_results == []
+
+    async def test_played_date_only_parts_group_kept(self, db):
+        """(d) Non-regression: parts with NO event_date and played_dates 14 days
+        apart are NOT crushed (played-date span only maluses beyond 60 days)."""
+        base = "dj set live"
+        p1 = DJSet(
+            title="DJ Set Live Part 1", source="trackid", part_number=1,
+            part_total=2, normalized_title=f"{base} 1/2",
+            played_date=date(2024, 6, 1), is_virtual=False,
+        )
+        p2 = DJSet(
+            title="DJ Set Live Part 2", source="trackid", part_number=2,
+            part_total=2, normalized_title=f"{base} 2/2",
+            played_date=date(2024, 6, 15), is_virtual=False,
+        )
+        db.add_all([p1, p2])
+        await db.flush()
+        for s, mtids in ((p1, [1, 2, 3]), (p2, [4, 5, 6])):
+            for pos, mtid in enumerate(mtids, start=1):
+                db.add(
+                    SetTrack(
+                        set_id=s.id, position=pos, timecode_ms=pos * 60_000,
+                        raw_title=f"Track {mtid}", raw_artist="DJ",
+                        is_id=False, trackid_music_track_id=mtid,
+                    )
+                )
+        await db.flush()
+
+        _, group_results = await match_set(db, p1.id)
+
+        assert len(group_results) == 1
+        assert group_results[0].confidence >= FLAG_CONFIDENCE_THRESHOLD

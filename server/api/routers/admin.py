@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 import httpx
@@ -351,7 +351,13 @@ async def list_set_flags(
 
     rows = (
         await db.execute(
-            select(SetFlag, SetA.title.label("title_a"), SetB.title.label("title_b"))
+            select(
+                SetFlag,
+                SetA.title.label("title_a"),
+                SetB.title.label("title_b"),
+                SetA.event_date.label("event_date_a"),
+                SetB.event_date.label("event_date_b"),
+            )
             .join(SetA, SetFlag.set_id_a == SetA.id)
             .outerjoin(SetB, SetFlag.set_id_b == SetB.id)
             .where(SetFlag.status == status)
@@ -361,39 +367,54 @@ async def list_set_flags(
         )
     ).all()
 
-    # Batch-fetch member titles for group flags
+    # Batch-fetch member titles + event dates for group flags (C13.e)
     all_member_ids: set[int] = set()
-    for flag, _, _ in rows:
-        if flag.member_set_ids:
-            all_member_ids.update(flag.member_set_ids)
+    for row in rows:
+        if row.SetFlag.member_set_ids:
+            all_member_ids.update(row.SetFlag.member_set_ids)
     member_title_map: dict[int, str] = {}
+    member_event_date_map: dict[int, date | None] = {}
     if all_member_ids:
-        title_rows = (
+        member_rows = (
             await db.execute(
-                select(DJSet.id, DJSet.title).where(DJSet.id.in_(all_member_ids))
+                select(DJSet.id, DJSet.title, DJSet.event_date).where(
+                    DJSet.id.in_(all_member_ids)
+                )
             )
         ).all()
-        member_title_map = {r[0]: r[1] for r in title_rows}
+        member_title_map = {r[0]: r[1] for r in member_rows}
+        member_event_date_map = {r[0]: r[2] for r in member_rows}
 
     items = [
         SetFlagOut(
-            id=flag.id,
-            set_id_a=flag.set_id_a,
-            set_id_b=flag.set_id_b,
-            flag_type=flag.flag_type,
-            confidence=flag.confidence,
-            signals=flag.signals,
-            status=flag.status,
-            created_at=flag.created_at,
-            title_a=title_a or "",
-            title_b=title_b,
-            group_key=flag.group_key,
-            member_set_ids=flag.member_set_ids,
+            id=row.SetFlag.id,
+            set_id_a=row.SetFlag.set_id_a,
+            set_id_b=row.SetFlag.set_id_b,
+            flag_type=row.SetFlag.flag_type,
+            confidence=row.SetFlag.confidence,
+            signals=row.SetFlag.signals,
+            status=row.SetFlag.status,
+            created_at=row.SetFlag.created_at,
+            title_a=row.title_a or "",
+            title_b=row.title_b,
+            event_date_a=row.event_date_a,
+            event_date_b=row.event_date_b,
+            group_key=row.SetFlag.group_key,
+            member_set_ids=row.SetFlag.member_set_ids,
             member_titles=(
-                [member_title_map.get(mid, "") for mid in (flag.member_set_ids or [])]
+                [
+                    member_title_map.get(mid, "")
+                    for mid in (row.SetFlag.member_set_ids or [])
+                ]
+            ),
+            member_event_dates=(
+                [
+                    member_event_date_map.get(mid)
+                    for mid in (row.SetFlag.member_set_ids or [])
+                ]
             ),
         )
-        for flag, title_a, title_b in rows
+        for row in rows
     ]
     return SetFlagListResponse(total=total, items=items)
 

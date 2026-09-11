@@ -144,9 +144,15 @@ class SetFlagOut(BaseModel):
     created_at: datetime
     title_a: str = ""
     title_b: Optional[str] = None
+    # C13.e: event dates parsed from each set's title — the disambiguator shown
+    # next to the titles in the admin (a divergent pair is not a duplicate).
+    event_date_a: Optional[date] = None
+    event_date_b: Optional[date] = None
     group_key: Optional[str] = None
     member_set_ids: Optional[list[int]] = None
     member_titles: list[str] = []
+    # Aligned with member_titles / member_set_ids for a group flag.
+    member_event_dates: list[Optional[date]] = []
 
     model_config = {"from_attributes": True}
 

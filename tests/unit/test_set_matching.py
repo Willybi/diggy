@@ -13,6 +13,7 @@ from services.set_dedup_service import (
     FLAG_CONFIDENCE_THRESHOLD,
     MatchSignals,
     MatchVerdict,
+    _select_date_gap,
     compute_confidence,
     compute_signals,
     decide_verdict,
@@ -598,5 +599,153 @@ class TestProdCalibration:
             first_track_match=True, order_corr=1.0, date_gap_days=40,
         )
         verdict, flag_type = _verdict(signals)
+        assert verdict == MatchVerdict.FLAG
+        assert flag_type == "duplicate_candidate"
+
+
+# ---------------------------------------------------------------------------
+# C13.e — event_date date selection (pure helper)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectDateGap:
+    def test_both_event_dates_are_reliable(self):
+        gap, reliable = _select_date_gap(
+            date(2024, 6, 1), date(2024, 6, 15), date(2024, 1, 1), date(2024, 1, 1)
+        )
+        # event_date wins even though the played_dates are identical
+        assert gap == 14
+        assert reliable is True
+
+    def test_missing_one_event_date_falls_back_to_played(self):
+        gap, reliable = _select_date_gap(
+            date(2024, 6, 1), None, date(2024, 1, 1), date(2024, 1, 20)
+        )
+        assert gap == 19
+        assert reliable is False
+
+    def test_no_event_dates_uses_played(self):
+        gap, reliable = _select_date_gap(
+            None, None, date(2024, 1, 1), date(2024, 1, 3)
+        )
+        assert gap == 2
+        assert reliable is False
+
+    def test_all_none_returns_none(self):
+        assert _select_date_gap(None, None, None, None) == (None, False)
+
+
+# ---------------------------------------------------------------------------
+# C13.e — event_date wiring in compute_signals + decide_verdict hard rule
+# ---------------------------------------------------------------------------
+
+
+class TestEventDateSignals:
+    def test_both_event_dates_gap_and_reliable_flag(self):
+        """Both event_dates present → gap on event_date, both_event_reliable True."""
+        a = {
+            "normalized_title": "same title",
+            "played_date": date(2024, 1, 1),
+            "event_date": date(2024, 1, 1),
+            "identified_mtids": [1, 2, 3, 4, 5],
+        }
+        b = {
+            "normalized_title": "same title",
+            "played_date": date(2024, 1, 1),  # identical upload date
+            "event_date": date(2024, 1, 15),  # but 14 days apart as events
+            "identified_mtids": [1, 2, 3, 4, 5],
+        }
+        signals = compute_signals(a, b, shared_count=5)
+        assert signals.both_event_reliable is True
+        assert signals.date_gap_days == 14
+
+    def test_absent_event_date_key_keeps_played_behaviour(self):
+        """Dicts without an event_date key behave exactly as before (played_date)."""
+        signals = compute_signals(_SET_A_P1, _SET_B_P1, shared_count=12)
+        assert signals.both_event_reliable is False
+        assert signals.date_gap_days == 0  # both played 2023-09-15
+
+    def test_single_event_date_falls_back_to_played(self):
+        a = {
+            "normalized_title": "x",
+            "played_date": date(2024, 1, 1),
+            "event_date": date(2024, 1, 1),
+            "identified_mtids": [1, 2, 3],
+        }
+        b = {
+            "normalized_title": "y",
+            "played_date": date(2024, 1, 20),
+            "identified_mtids": [1, 2, 3],
+        }
+        signals = compute_signals(a, b, shared_count=3)
+        assert signals.both_event_reliable is False
+        assert signals.date_gap_days == 19  # played gap, not event
+
+
+class TestEventDateHardRule:
+    def test_reliable_event_dates_apart_is_nothing(self):
+        """(a) Same title, full overlap, two reliable event_dates 14 days apart →
+        NOTHING (neither attach nor flag), whatever the overlap says."""
+        a = {
+            "normalized_title": "charlotte de witte @ awakenings",
+            "played_date": date(2024, 6, 1),
+            "event_date": date(2024, 6, 1),
+            "identified_mtids": list(range(1, 13)),
+        }
+        b = {
+            "normalized_title": "charlotte de witte @ awakenings",
+            "played_date": date(2024, 6, 1),
+            "event_date": date(2024, 6, 15),
+            "identified_mtids": list(range(1, 13)),
+        }
+        signals = compute_signals(a, b, shared_count=12)
+        assert signals.overlap == 1.0
+        assert signals.title_sim == 1.0
+        verdict, flag_type = decide_verdict(
+            signals, compute_confidence(signals), None, None
+        )
+        assert verdict == MatchVerdict.NOTHING
+        assert flag_type is None
+
+    def test_reliable_event_dates_one_day_apart_still_scores(self):
+        """A 1-day reliable gap does NOT trip the hard rule (still AUTO_ATTACH)."""
+        a = {
+            "normalized_title": "dj alpha @ berlin",
+            "played_date": date(2024, 6, 1),
+            "event_date": date(2024, 6, 1),
+            "identified_mtids": list(range(1, 13)),
+        }
+        b = {
+            "normalized_title": "dj alpha @ berlin",
+            "played_date": date(2024, 6, 1),
+            "event_date": date(2024, 6, 2),
+            "identified_mtids": list(range(1, 13)),
+        }
+        signals = compute_signals(a, b, shared_count=12)
+        verdict, flag_type = decide_verdict(
+            signals, compute_confidence(signals), None, None
+        )
+        assert verdict == MatchVerdict.AUTO_ATTACH
+        assert flag_type is None
+
+    def test_played_date_only_gap_is_not_hard_nothing(self):
+        """(d) Non-regression: with NO event_dates, a 14-day played gap keeps the
+        historical verdict (date guard → FLAG), not the new hard NOTHING."""
+        a = {
+            "normalized_title": "charlotte de witte @ awakenings",
+            "played_date": date(2024, 6, 1),
+            "identified_mtids": list(range(1, 13)),
+        }
+        b = {
+            "normalized_title": "charlotte de witte @ awakenings",
+            "played_date": date(2024, 6, 15),
+            "identified_mtids": list(range(1, 13)),
+        }
+        signals = compute_signals(a, b, shared_count=12)
+        assert signals.both_event_reliable is False
+        assert signals.date_gap_days == 14
+        verdict, flag_type = decide_verdict(
+            signals, compute_confidence(signals), None, None
+        )
         assert verdict == MatchVerdict.FLAG
         assert flag_type == "duplicate_candidate"

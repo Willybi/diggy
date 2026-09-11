@@ -27,6 +27,9 @@
             <div v-for="(m, i) in visibleMembers(flag)" :key="i" class="sf-member">
               <span class="sf-member-pos">p. {{ i + 1 }}</span>
               <span class="sf-member-title">{{ m.title || '—' }}</span>
+              <span v-if="m.eventDate" class="sf-member-date" title="Date de l'événement (titre)">
+                {{ fmtDate(m.eventDate) }}
+              </span>
             </div>
             <button v-if="hiddenCount(flag) > 0" class="sf-more" @click="expandFlag(flag)">
               + {{ hiddenCount(flag) }} parties
@@ -172,6 +175,7 @@
 <script setup>
 import { onMounted, ref, computed } from 'vue'
 import api from '../../utils/api.js'
+import { fmtDate } from '../../utils/format.js'
 import { useTaskPoll } from '../../composables/useTaskPoll.js'
 import AdminIcon from './AdminIcon.vue'
 
@@ -209,15 +213,21 @@ function flagTypeLabel(type) {
 }
 
 // Normalise un flag en liste de membres : groupe (member_titles) sinon paire.
+// Chaque membre porte son event_date (C13.e) = désambiguïsateur affiché à côté
+// du titre pour la revue humaine.
 function flagMembers(flag) {
   if (flag.member_set_ids && flag.member_set_ids.length) {
     const titles =
       flag.member_titles && flag.member_titles.length
         ? flag.member_titles
         : flag.member_set_ids.map(() => '')
-    return titles.map((title) => ({ title }))
+    const dates = flag.member_event_dates || []
+    return titles.map((title, i) => ({ title, eventDate: dates[i] || null }))
   }
-  return [{ title: flag.title_a }, { title: flag.title_b }]
+  return [
+    { title: flag.title_a, eventDate: flag.event_date_a || null },
+    { title: flag.title_b, eventDate: flag.event_date_b || null },
+  ]
 }
 function memberCount(flag) {
   return flagMembers(flag).length
@@ -616,6 +626,13 @@ async function runLinkSets() {
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Date d'événement (C13.e) : jeton mono discret, désambiguïse la paire. */
+.sf-member-date {
+  flex: none;
+  font: 500 var(--fs-xs)/1.3 var(--font-mono);
+  color: var(--ink-3);
   white-space: nowrap;
 }
 /* Bouton-icône détacher : révélé au survol, --neg-ink au hover (D11). */

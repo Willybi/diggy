@@ -139,3 +139,48 @@ describe('AdminSets — section « Sets attachés »', () => {
     expect(wrapper.findAll('.attached-set').length).toBe(5)
   })
 })
+
+describe('AdminSets — flags en attente : event_date (C13.e)', () => {
+  it('renders an event_date chip next to a set title when present', async () => {
+    // A pairwise pending flag: set A has an event_date, set B does not.
+    apiMock.get.mockReset()
+    apiMock.get.mockImplementation((url) => {
+      if (url.startsWith('/api/admin/set-flags?status=pending')) {
+        return Promise.resolve({
+          data: {
+            total: 1,
+            items: [
+              {
+                id: 1,
+                set_id_a: 100,
+                set_id_b: 101,
+                flag_type: 'duplicate_candidate',
+                confidence: 0.7,
+                signals: {},
+                status: 'pending',
+                created_at: '2026-09-01T00:00:00Z',
+                title_a: 'Boiler Room Berlin',
+                title_b: 'Boiler Room Berlin (reupload)',
+                event_date_a: '2026-06-20',
+                event_date_b: null,
+                member_set_ids: null,
+                member_titles: [],
+                member_event_dates: [],
+              },
+            ],
+          },
+        })
+      }
+      return Promise.resolve({ data: { total: 0, items: [] } })
+    })
+
+    const wrapper = mount(AdminSets)
+    await flushPromises()
+
+    // Exactly one member carries a date → exactly one date chip renders.
+    const dateChips = wrapper.findAll('.sf-member-date')
+    expect(dateChips.length).toBe(1)
+    // fmtDate → DD/MM/YYYY (fr-FR); assert the year survives regardless of TZ.
+    expect(dateChips[0].text()).toContain('2026')
+  })
+})
