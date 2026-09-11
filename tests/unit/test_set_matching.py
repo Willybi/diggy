@@ -13,6 +13,7 @@ from services.set_dedup_service import (
     FLAG_CONFIDENCE_THRESHOLD,
     MatchSignals,
     MatchVerdict,
+    _levenshtein_ratio,
     _select_date_gap,
     _title_date_signatures,
     compute_confidence,
@@ -52,6 +53,45 @@ class TestTokenSetRatio:
     def test_case_sensitive(self):
         # token_set_ratio is case-sensitive; caller should lowercase inputs
         assert token_set_ratio("Hello", "hello") == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _levenshtein_ratio (character-level edit distance)
+# ---------------------------------------------------------------------------
+
+
+class TestLevenshteinRatio:
+    def test_identical_strings(self):
+        assert _levenshtein_ratio("the lot radio", "the lot radio") == 1.0
+
+    def test_both_empty(self):
+        assert _levenshtein_ratio("", "") == 1.0
+
+    def test_one_empty(self):
+        assert _levenshtein_ratio("hello", "") == 0.0
+        assert _levenshtein_ratio("", "hello") == 0.0
+
+    def test_spacing_drift_short_string(self):
+        # "the lot radio" (13) vs "thelotradio": 2 deleted spaces → 2 edits / 13 chars.
+        # On a short fragment the ratio is 0.846 — the V3 gate applies it to the FULL
+        # folded title (~40+ chars), where the same 2 edits clear 0.90 (see below).
+        assert _levenshtein_ratio("the lot radio", "thelotradio") == pytest.approx(
+            1 - 2 / 13
+        )
+
+    def test_spacing_drift_full_title_clears_threshold(self):
+        # Realistic V3 input: the whole folded title differs only by the two dropped
+        # spaces inside "the lot radio" → 2 edits over ~43 chars → >= 0.90.
+        a = "jubilee and a trak the lot radio 08 16 2023"
+        b = "jubilee and a trak thelotradio 08 16 2023"
+        assert _levenshtein_ratio(a, b) >= 0.90
+
+    def test_very_different_strings_are_low(self):
+        assert _levenshtein_ratio("boiler room berlin", "abcdefg") < 0.5
+
+    def test_single_edit(self):
+        # one substitution over 4 chars → 1 - 1/4
+        assert _levenshtein_ratio("abcd", "abce") == pytest.approx(0.75)
 
 
 # ---------------------------------------------------------------------------

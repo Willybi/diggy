@@ -27,13 +27,18 @@ For each targeted flag:
      admin page.
 
 OPT-IN ``--auto-attach``: additionally ATTACH (merge under a virtual parent, via the
-admin ``attach_flag`` action) the pairs that are certain duplicates — either the
-recomputed verdict is ``AUTO_ATTACH``, or the tracklist is byte-identical in the same
-order (overlap/order_corr >= 0.95 with >= 6 shared tracks). Two distinct gigs never
-share the exact same ordered tracklist, so this is safe; the shared-count floor keeps
-two short sets that merely coincide on a few anthems apart. Divergent RELIABLE event
-dates still take precedence and REJECT the pair before any attach. Without the flag
-the behaviour is unchanged.
+admin ``attach_flag`` action) the pairs that are certain duplicates — via three
+vectors: (V1) the recomputed verdict is ``AUTO_ATTACH``; (V2) the tracklist is
+byte-identical in the same order (overlap/order_corr >= 0.95 with >= 6 shared tracks);
+(V3) the two sets carry the SAME reliable date (same full date in the title, or equal
+``event_date``) AND their FOLDED titles are within a 0.90 character-level edit ratio —
+INDEPENDENT of tracklist overlap, to catch a re-upload whose identified tracklists
+diverge on identification noise but whose titles differ only in spelling
+("… @ The Lot Radio 08-16-2023" vs "… @TheLotRadio 08-16-2023"). Two distinct gigs
+never share the exact same ordered tracklist (V2) nor the same date + near-identical
+title (V3), so this is safe; V2's shared-count floor keeps two short sets that merely
+coincide on a few anthems apart. Divergent RELIABLE event dates still take precedence
+and REJECT the pair before any attach. Without the flag the behaviour is unchanged.
 
 ``--auto-attach`` ALSO attaches pending GROUP flags of type ``part_candidate`` (a set
 split into distinct part numbers — « … PART 1 » + « … PART 2 »). These are decided
@@ -86,6 +91,7 @@ from models import DJSet, SetFlag, SetFlagStatus, SetFlagType
 from services.set_dedup_service import (
     MatchSignals,
     MatchVerdict,
+    _levenshtein_ratio,
     _load_set_scoring_data,
     _title_date_signatures,
     attach_flag,
@@ -94,6 +100,7 @@ from services.set_dedup_service import (
 )
 from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
+from utils import search_fold
 
 # Conservative default: the admin PREFERS arbitrating the mid-range cases by hand,
 # the script only purges the obvious noise.
@@ -107,6 +114,15 @@ DEFAULT_THRESHOLD = 0.30
 IDENTICAL_ATTACH_OVERLAP = 0.95
 IDENTICAL_ATTACH_ORDER = 0.95
 IDENTICAL_ATTACH_MIN_SHARED = 6
+
+# Near-duplicate title auto-attach (opt-in --auto-attach, V3): two uploads of the
+# SAME set on the SAME reliable date whose titles differ only in spelling
+# ("… @ The Lot Radio 08-16-2023" vs "… @TheLotRadio 08-16-2023") — the identified
+# tracklists diverge (TrackID identification noise), so V1/V2 miss them. A
+# character-level edit ratio on the folded titles catches the spelling drift that
+# token_set_ratio misses. Attached only when the reliable date matches AND the
+# folded titles are this close, INDEPENDENT of tracklist overlap.
+TITLE_NEAR_DUP_LEV_RATIO = 0.90
 
 # Decision labels (also the report column value).
 DECISION_KEPT = "GARDÉ"
@@ -179,6 +195,22 @@ def _episode_number(title: str | None) -> tuple[str, int] | None:
             if not _is_year(n):
                 return (kind, n)
     return None
+
+
+def _same_reliable_date(title_a, title_b, event_a, event_b) -> bool:
+    """True when both sets share the SAME reliable date (V3 gate).
+
+    Reliable = a full date in the TITLE (``_title_date_signatures`` equal and
+    non-empty on both sides) OR a parsed ``event_date`` equal on both (both
+    non-NULL). ``played_date`` is DELIBERATELY excluded — it is the upload date,
+    not the performance date. Either signal matching is enough (an upload can
+    carry the date in the title but not parse it into ``event_date`` and
+    vice-versa).
+    """
+    sig_a = _title_date_signatures(title_a)
+    if sig_a and sig_a == _title_date_signatures(title_b):
+        return True
+    return event_a is not None and event_a == event_b
 
 
 @dataclass
@@ -364,11 +396,30 @@ async def rescore_flags(
                 mtids_a = set(loaded_a[1]["identified_mtids"])
                 mtids_b = set(loaded_b[1]["identified_mtids"])
                 shared = len(mtids_a & mtids_b)
-                is_attach = verdict == MatchVerdict.AUTO_ATTACH or (
-                    signals.overlap >= IDENTICAL_ATTACH_OVERLAP
-                    and signals.order_corr is not None
-                    and signals.order_corr >= IDENTICAL_ATTACH_ORDER
-                    and shared >= IDENTICAL_ATTACH_MIN_SHARED
+                # V3: same reliable date + near-identical folded titles, INDEPENDENT
+                # of overlap — a re-upload whose tracklists diverge on identification
+                # noise ("The Lot Radio" vs "TheLotRadio", same date). event_divergent
+                # still runs FIRST (below), so a divergent-date pair is never V3-attached.
+                near_dup_title = _same_reliable_date(
+                    title_a,
+                    title_b,
+                    set_a.event_date if set_a is not None else None,
+                    set_b.event_date if set_b is not None else None,
+                ) and (
+                    _levenshtein_ratio(
+                        search_fold(title_a or ""), search_fold(title_b or "")
+                    )
+                    >= TITLE_NEAR_DUP_LEV_RATIO
+                )
+                is_attach = (
+                    verdict == MatchVerdict.AUTO_ATTACH
+                    or (
+                        signals.overlap >= IDENTICAL_ATTACH_OVERLAP
+                        and signals.order_corr is not None
+                        and signals.order_corr >= IDENTICAL_ATTACH_ORDER
+                        and shared >= IDENTICAL_ATTACH_MIN_SHARED
+                    )
+                    or near_dup_title
                 )
 
         # Divergent episode numbers (only when opted in): both titles carry an

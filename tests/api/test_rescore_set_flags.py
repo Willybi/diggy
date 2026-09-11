@@ -1005,6 +1005,202 @@ class TestTitleDateDivergence:
 
 
 # ---------------------------------------------------------------------------
+# Opt-in --auto-attach (V3): same reliable date + near-identical folded titles,
+# INDEPENDENT of tracklist overlap (identification-noise re-uploads)
+# ---------------------------------------------------------------------------
+
+
+class TestNearDuplicateTitleAttach:
+    async def test_same_date_near_dup_title_low_overlap_is_attached(self, db):
+        """Two uploads of the same set, same title date (08-16-2023), titles differing
+        only in spacing ("@ The Lot Radio" vs "@TheLotRadio"), LOW tracklist overlap
+        (identification noise) → attached via V3 with --auto-attach."""
+        a = await _make_set(
+            db,
+            "JUBILEE and A-Trak @ The Lot Radio 08-16-2023",
+            normalized_title="jubilee lot radio",
+        )
+        b = await _make_set(
+            db,
+            "JUBILEE and A-Trak @TheLotRadio 08-16-2023",
+            normalized_title="jubilee lot radio",
+        )
+        a_id, b_id = a.id, b.id
+        # shared {1,2} of 6 → overlap 0.33: fails V1 (needs 0.80) and V2 (needs 0.95)
+        await _add_tracks(db, a_id, [1, 2, 3, 4, 5, 6])
+        await _add_tracks(db, b_id, [1, 2, 50, 60, 70, 80])
+        flag = await _make_pair_flag(
+            db, a_id, b_id, confidence=0.9, signals={"overlap": 0.9}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_AUTO_ATTACHED
+        assert flag.status == SetFlagStatus.attached
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        b_ref = (await db.execute(select(DJSet).where(DJSet.id == b_id))).scalar_one()
+        assert a_ref.parent_set_id is not None
+        assert a_ref.parent_set_id == b_ref.parent_set_id
+
+    async def test_same_pair_without_auto_attach_stays_pending(self, db):
+        """The SAME near-dup pair WITHOUT --auto-attach → not attached (kept pending)."""
+        a = await _make_set(
+            db,
+            "JUBILEE and A-Trak @ The Lot Radio 08-16-2023",
+            normalized_title="jubilee lot radio",
+        )
+        b = await _make_set(
+            db,
+            "JUBILEE and A-Trak @TheLotRadio 08-16-2023",
+            normalized_title="jubilee lot radio",
+        )
+        a_id = a.id
+        await _add_tracks(db, a.id, [1, 2, 3, 4, 5, 6])
+        await _add_tracks(db, b.id, [1, 2, 50, 60, 70, 80])
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=0.9, signals={"overlap": 0.9}
+        )
+
+        outcomes = await rescore_flags(db, threshold=0.30, apply=True)
+
+        o = outcomes[0]
+        assert o.decision == DECISION_KEPT
+        assert flag.status == SetFlagStatus.pending
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_near_dup_title_divergent_dates_takes_precedence(self, db):
+        """Near-identical titles (lev >= 0.90) but DIFFERENT title dates → REJET-DATES,
+        never V3-attached (event-date guard precedence)."""
+        a = await _make_set(
+            db,
+            "JUBILEE @ The Lot Radio 08-16-2023",
+            normalized_title="jubilee lot radio",
+        )
+        b = await _make_set(
+            db,
+            "JUBILEE @TheLotRadio 08-17-2023",  # different day
+            normalized_title="jubilee lot radio",
+        )
+        a_id = a.id
+        await _add_tracks(db, a.id, [1, 2, 3, 4, 5, 6])
+        await _add_tracks(db, b.id, [1, 2, 50, 60, 70, 80])
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=0.9, signals={"overlap": 0.9}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_EVENT_REJECTED
+        assert o.verdict == MatchVerdict.NOTHING
+        assert flag.status == SetFlagStatus.rejected
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_near_dup_title_divergent_episode_takes_precedence(self, db):
+        """Near-identical titles + SAME date but divergent episode numbers → REJET-ÉPISODE
+        (episode precedence over V3 attach)."""
+        a = await _make_set(
+            db,
+            "Lot Radio Show 200 (16.08.2023)",
+            normalized_title="lot radio show 200",
+        )
+        b = await _make_set(
+            db,
+            "Lot Radio Show 201 (16.08.2023)",
+            normalized_title="lot radio show 201",
+        )
+        a_id = a.id
+        # Identical ordered tracklist to prove the episode number beats every attach.
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True, reject_episodes=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_EPISODE_REJECTED
+        assert flag.status == SetFlagStatus.rejected
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_far_apart_titles_same_date_not_attached(self, db):
+        """Same title date but titles far apart (lev < 0.90) → V3 does NOT fire."""
+        a = await _make_set(
+            db,
+            "Completely Different Artist Name Here 08-16-2023",
+            normalized_title="completely different artist name here",
+        )
+        b = await _make_set(
+            db,
+            "XYZ 08-16-2023",
+            normalized_title="xyz",
+        )
+        a_id = a.id
+        await _add_tracks(db, a.id, [1, 2, 3, 4, 5, 6])
+        await _add_tracks(db, b.id, [1, 2, 50, 60, 70, 80])
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=0.9, signals={"overlap": 0.9}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        assert outcomes[0].decision != DECISION_AUTO_ATTACHED
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_no_reliable_date_played_date_only_not_attached(self, db):
+        """Near-identical titles WITHOUT a title date, event_date NULL, only played_date
+        → no reliable date → V3 does NOT fire (played_date is the upload date)."""
+        d = date(2024, 3, 1)
+        a = await _make_set(
+            db,
+            "The Lot Radio Live",
+            normalized_title="the lot radio live",
+            played_date=d,
+        )
+        b = await _make_set(
+            db,
+            "TheLotRadio Live",
+            normalized_title="the lot radio live",
+            played_date=d,
+        )
+        a_id = a.id
+        await _add_tracks(db, a.id, [1, 2, 3, 4, 5, 6])
+        await _add_tracks(db, b.id, [1, 2, 50, 60, 70, 80])
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=0.9, signals={"overlap": 0.9}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        assert outcomes[0].decision != DECISION_AUTO_ATTACHED
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+
+# ---------------------------------------------------------------------------
 # Dry-run writes nothing
 # ---------------------------------------------------------------------------
 
