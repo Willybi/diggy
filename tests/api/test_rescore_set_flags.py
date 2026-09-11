@@ -546,11 +546,12 @@ class TestEpisodeNumber:
     @pytest.mark.parametrize(
         "title,expected",
         [
-            ("Spectrum Radio 200 by Joris Voorn", 200),
-            ("Global DJ Broadcast Vol. 71", 71),
-            ("Anjunadeep Edition #676", 676),
-            ("Transitions Episode 512", 512),
-            ("Group Therapy 500", 500),  # bare trailing number
+            ("Spectrum Radio 200 by Joris Voorn", ("marker", 200)),
+            ("Global DJ Broadcast Vol. 71", ("marker", 71)),
+            ("Anjunadeep Edition #676", ("marker", 676)),
+            ("Transitions Episode 512", ("marker", 512)),
+            ("KISS Dance 2024-08-11", ("trailing", 11)),  # bare trailing (date)
+            ("Group Therapy 500", ("trailing", 500)),  # bare trailing number
             ("Awakenings ADE 2024", None),  # 4-digit year, not an episode
             ("Boiler Room London Part 2", None),  # part marker → group path
             ("Live at Tomorrowland pt. 3", None),  # part marker
@@ -615,6 +616,77 @@ class TestRejectEpisodes:
 
         assert outcomes[0].decision != DECISION_EPISODE_REJECTED
         assert flag.status != SetFlagStatus.rejected
+
+    async def test_marker_vs_trailing_is_not_rejected(self, db):
+        """A marker number (BBC Radio 1) vs a trailing date component (…2025-03-22
+        → 22) is NOT an episode divergence — same show, must stay a duplicate
+        candidate (the two prod false positives this fixes)."""
+        a = await _make_set(
+            db,
+            "Perel - Essential Mix - BBC Radio 1",
+            normalized_title="perel essential mix bbc radio 1",
+        )
+        b = await _make_set(
+            db,
+            "Perel - Essential Mix 2025-03-22",
+            normalized_title="perel essential mix 2025 03 22",
+        )
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, reject_episodes=True
+        )
+
+        assert outcomes[0].decision != DECISION_EPISODE_REJECTED
+        assert flag.status != SetFlagStatus.rejected
+
+    async def test_two_markers_are_rejected(self, db):
+        """Two genuine episodes (Sugar Radio 544 vs 548) → marker/marker → rejected."""
+        a = await _make_set(
+            db, "Sugar Radio 544", normalized_title="sugar radio 544"
+        )
+        b = await _make_set(
+            db, "Sugar Radio 548", normalized_title="sugar radio 548"
+        )
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, reject_episodes=True
+        )
+
+        assert outcomes[0].decision == DECISION_EPISODE_REJECTED
+        assert flag.status == SetFlagStatus.rejected
+
+    async def test_marker_and_hash_are_rejected(self, db):
+        """A keyword marker (JATS Podcast 676) vs a '#' marker (Nocturna #42) →
+        both "marker" class → rejected (# counts as a marker)."""
+        a = await _make_set(
+            db, "JATS Podcast 676", normalized_title="jats podcast 676"
+        )
+        b = await _make_set(db, "Nocturna #42", normalized_title="nocturna 42")
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, reject_episodes=True
+        )
+
+        assert outcomes[0].decision == DECISION_EPISODE_REJECTED
+        assert flag.status == SetFlagStatus.rejected
 
     async def test_divergent_episodes_without_flag_is_unchanged(self, db):
         """Without --reject-episodes the same divergent-episode pair keeps its

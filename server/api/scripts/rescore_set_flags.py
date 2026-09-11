@@ -136,8 +136,17 @@ def _is_year(n: int) -> bool:
     return 1990 <= n <= 2035
 
 
-def _episode_number(title: str | None) -> int | None:
+def _episode_number(title: str | None) -> tuple[str, int] | None:
     """Extract an unambiguous episode/volume/edition number from a set title.
+
+    Returns ``(kind, number)`` where ``kind`` is:
+      - ``"marker"``   : a number anchored to an emission keyword (radio 200,
+                         vol. 71, ep 12, session 9) OR preceded by ``#`` — a
+                         RELIABLE episode number;
+      - ``"trailing"`` : a bare standalone number at the very end of the title —
+                         often a date component or an artefact, WEAK.
+    The distinction lets the caller reject a pair only when both numbers were
+    extracted the SAME way (a marker vs a trailing number is not a divergence).
 
     Returns None when the title carries a PART marker (parts live on the group
     path), when the only candidate is a plausible year (1990-2035), or when no
@@ -148,13 +157,18 @@ def _episode_number(title: str | None) -> int | None:
     # Parts are a different relationship (handled by the group flag path).
     if _PART_MARKER_RE.search(title):
         return None
-    # Keyword-anchored number first (most reliable), then a bare "#N", then a
-    # trailing standalone number. Years are excluded at every step.
-    for regex in (_EPISODE_KEYWORD_RE, _EPISODE_HASH_RE, _EPISODE_TRAILING_RE):
+    # Keyword-anchored number first (most reliable), then a bare "#N" (both
+    # "marker"), then a trailing standalone number ("trailing"). Years are
+    # excluded at every step.
+    for regex, kind in (
+        (_EPISODE_KEYWORD_RE, "marker"),
+        (_EPISODE_HASH_RE, "marker"),
+        (_EPISODE_TRAILING_RE, "trailing"),
+    ):
         for m in regex.finditer(title):
             n = int(m.group(1))
             if not _is_year(n):
-                return n
+                return (kind, n)
     return None
 
 
@@ -295,7 +309,15 @@ async def rescore_flags(
         if reject_episodes:
             ep_a = _episode_number(title_a)
             ep_b = _episode_number(title_b)
-            episode_divergent = ep_a is not None and ep_b is not None and ep_a != ep_b
+            # Only a divergence when BOTH numbers came from the same extraction
+            # class (marker vs marker, or trailing vs trailing) — a marker number
+            # (Radio 1) vs a trailing date component (…2025-03-22 → 22) is NOT.
+            episode_divergent = (
+                ep_a is not None
+                and ep_b is not None
+                and ep_a[0] == ep_b[0]
+                and ep_a[1] != ep_b[1]
+            )
 
         # Precedence: divergent reliable event dates reject FIRST (two performances,
         # never attach); THEN divergent episode numbers; THEN attach when eligible;
