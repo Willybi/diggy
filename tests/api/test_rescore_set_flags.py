@@ -293,27 +293,42 @@ class TestKeptAboveThreshold:
 
 
 # ---------------------------------------------------------------------------
-# Out of scope: group flags
+# Out of scope by default: group flags (only touched with --auto-attach)
 # ---------------------------------------------------------------------------
+
+
+async def _make_group_flag(
+    db,
+    member_ids,
+    *,
+    flag_type=SetFlagType.part_candidate,
+    group_key="some base title",
+    confidence=0.92,
+    signals=None,
+):
+    """A pending GROUP flag (set_id_b NULL, members in member_set_ids)."""
+    f = SetFlag(
+        set_id_a=min(member_ids),
+        set_id_b=None,
+        group_key=group_key,
+        member_set_ids=list(member_ids),
+        flag_type=flag_type,
+        confidence=confidence,
+        signals=dict(signals or {"member_count": len(member_ids)}),
+        status=SetFlagStatus.pending,
+        created_at=_now(),
+    )
+    db.add(f)
+    await db.flush()
+    return f
 
 
 class TestGroupFlagIntact:
     async def test_group_flag_is_never_touched(self, db):
+        """Without --auto-attach a part_candidate group flag is never re-scored."""
         a = await _make_set(db, "Part 1", part_number=1)
         b = await _make_set(db, "Part 2", part_number=2)
-        group_flag = SetFlag(
-            set_id_a=min(a.id, b.id),
-            set_id_b=None,
-            group_key="some base title",
-            member_set_ids=[a.id, b.id],
-            flag_type=SetFlagType.part_candidate,
-            confidence=0.92,
-            signals={"member_count": 2},
-            status=SetFlagStatus.pending,
-            created_at=_now(),
-        )
-        db.add(group_flag)
-        await db.flush()
+        group_flag = await _make_group_flag(db, [a.id, b.id])
         gf_id = group_flag.id
 
         outcomes = await rescore_flags(db, threshold=0.30, apply=True)
@@ -326,6 +341,155 @@ class TestGroupFlagIntact:
         assert gf.confidence == pytest.approx(0.92)
         assert gf.signals == {"member_count": 2}
         assert gf.status == SetFlagStatus.pending
+
+
+# ---------------------------------------------------------------------------
+# Opt-in --auto-attach: part_candidate GROUP flags (structural, no confidence gate)
+# ---------------------------------------------------------------------------
+
+
+class TestGroupAutoAttach:
+    async def test_coherent_dates_group_is_attached(self, db):
+        """« … PART 1 » + « … PART 2 », same event_date → coherent → attached under a
+        shared virtual parent with --auto-attach, no confidence gate."""
+        a = await _make_set(
+            db, "Boiler Room PART 1", part_number=1, event_date=date(2026, 6, 20)
+        )
+        b = await _make_set(
+            db, "Boiler Room PART 2", part_number=2, event_date=date(2026, 6, 20)
+        )
+        a_id, b_id = a.id, b.id
+        group_flag = await _make_group_flag(db, [a_id, b_id])
+        gf_id = group_flag.id
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        group_outcomes = [o for o in outcomes if o.flag_id == gf_id]
+        assert len(group_outcomes) == 1
+        o = group_outcomes[0]
+        assert o.decision == DECISION_AUTO_ATTACHED
+        assert o.member_set_ids == [a_id, b_id]
+        assert o.set_id_b is None and o.verdict is None
+        # attach_flag flipped the status in-session (the caller's commit flushes it —
+        # like the pairwise attach test, assert on the live object before expiring).
+        assert group_flag.status == SetFlagStatus.attached
+        # Members now hang under a shared (new) virtual parent (flushed by attach_flag)
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        b_ref = (await db.execute(select(DJSet).where(DJSet.id == b_id))).scalar_one()
+        assert a_ref.parent_set_id is not None
+        assert a_ref.parent_set_id == b_ref.parent_set_id
+        parent = (
+            await db.execute(select(DJSet).where(DJSet.id == a_ref.parent_set_id))
+        ).scalar_one()
+        assert parent.is_virtual is True
+
+    async def test_coherent_group_without_auto_attach_stays_pending(self, db):
+        """The SAME coherent group, but WITHOUT --auto-attach → untouched (pending)."""
+        a = await _make_set(
+            db, "Boiler Room PART 1", part_number=1, event_date=date(2026, 6, 20)
+        )
+        b = await _make_set(
+            db, "Boiler Room PART 2", part_number=2, event_date=date(2026, 6, 20)
+        )
+        a_id = a.id
+        group_flag = await _make_group_flag(db, [a.id, b.id])
+        gf_id = group_flag.id
+
+        outcomes = await rescore_flags(db, threshold=0.30, apply=True)
+
+        assert all(o.flag_id != gf_id for o in outcomes)
+        db.expire_all()
+        gf = (
+            await db.execute(select(SetFlag).where(SetFlag.id == gf_id))
+        ).scalar_one()
+        assert gf.status == SetFlagStatus.pending
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_divergent_event_dates_group_left_pending(self, db):
+        """Two « parts » with DISTINCT reliable event_dates → divergent → left pending
+        (not attached) even with --auto-attach (distinct episodes, invariant #4)."""
+        a = await _make_set(
+            db, "Show PART 1", part_number=1, event_date=date(2026, 6, 20)
+        )
+        b = await _make_set(
+            db, "Show PART 2", part_number=2, event_date=date(2026, 7, 4)
+        )
+        a_id = a.id
+        group_flag = await _make_group_flag(db, [a.id, b.id])
+        gf_id = group_flag.id
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = next(o for o in outcomes if o.flag_id == gf_id)
+        assert o.decision == DECISION_KEPT
+        assert o.member_set_ids == [a_id, b.id]
+        db.expire_all()
+        gf = (
+            await db.execute(select(SetFlag).where(SetFlag.id == gf_id))
+        ).scalar_one()
+        assert gf.status == SetFlagStatus.pending  # never attached
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_part_overlap_anomaly_group_is_never_attached(self, db):
+        """A part_overlap_anomaly group flag is out of scope → never attached even
+        with --auto-attach (only part_candidate groups are surfaced)."""
+        a = await _make_set(
+            db, "Anomaly PART 1", part_number=1, event_date=date(2026, 6, 20)
+        )
+        b = await _make_set(
+            db, "Anomaly PART 2", part_number=2, event_date=date(2026, 6, 20)
+        )
+        a_id = a.id
+        group_flag = await _make_group_flag(
+            db, [a.id, b.id], flag_type=SetFlagType.part_overlap_anomaly
+        )
+        gf_id = group_flag.id
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        assert all(o.flag_id != gf_id for o in outcomes)
+        db.expire_all()
+        gf = (
+            await db.execute(select(SetFlag).where(SetFlag.id == gf_id))
+        ).scalar_one()
+        assert gf.status == SetFlagStatus.pending
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_coherent_group_dry_run_previews_without_attaching(self, db):
+        """Dry-run: a coherent group is previewed AUTO-ATTACH but nothing is written."""
+        a = await _make_set(
+            db, "Fest PART 1", part_number=1, event_date=date(2026, 6, 20)
+        )
+        b = await _make_set(
+            db, "Fest PART 2", part_number=2, event_date=date(2026, 6, 20)
+        )
+        a_id = a.id
+        group_flag = await _make_group_flag(db, [a.id, b.id])
+        gf_id = group_flag.id
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=False, auto_attach=True
+        )
+
+        o = next(o for o in outcomes if o.flag_id == gf_id)
+        assert o.decision == DECISION_AUTO_ATTACHED
+        db.expire_all()
+        gf = (
+            await db.execute(select(SetFlag).where(SetFlag.id == gf_id))
+        ).scalar_one()
+        assert gf.status == SetFlagStatus.pending  # dry-run wrote nothing
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
 
 
 # ---------------------------------------------------------------------------

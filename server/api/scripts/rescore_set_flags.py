@@ -35,6 +35,14 @@ two short sets that merely coincide on a few anthems apart. Divergent RELIABLE e
 dates still take precedence and REJECT the pair before any attach. Without the flag
 the behaviour is unchanged.
 
+``--auto-attach`` ALSO attaches pending GROUP flags of type ``part_candidate`` (a set
+split into distinct part numbers — « … PART 1 » + « … PART 2 »). These are decided
+STRUCTURALLY, not on confidence (which is low, being title-similarity based): a
+part_candidate is a single set by construction, so it is attached under a shared
+virtual parent (via ``attach_flag``) UNLESS its members carry divergent reliable event
+dates (>= 2 distinct ``event_date`` = distinct episodes of an emission), in which case
+it is LEFT pending. ``part_overlap_anomaly`` group flags are never touched.
+
 In ``--apply`` the script rewrites ``confidence`` (composite) and ``signals`` (full
 new dict) on EVERY re-scored flag — kept ones included, so the admin list re-sorts
 on the true confidence. Rejected flags additionally get ``status = rejected`` and a
@@ -174,17 +182,27 @@ def _episode_number(title: str | None) -> tuple[str, int] | None:
 
 @dataclass
 class RescoreOutcome:
-    """Result of re-scoring one flag (what the report renders / a test asserts)."""
+    """Result of re-scoring one flag (what the report renders / a test asserts).
+
+    Two shapes share this record. A PAIR flag carries ``set_id_b`` + a
+    ``new_confidence`` / ``verdict`` (the composite re-score). A GROUP flag
+    (``part_candidate``, only surfaced under ``--auto-attach``) instead carries
+    ``member_set_ids`` / ``member_titles`` and leaves ``set_id_b`` / verdict /
+    confidence None — groups are decided structurally (coherent event dates →
+    AUTO-ATTACH, divergent → KEPT), never via the confidence gate.
+    """
 
     flag_id: int
-    set_id_a: int
-    set_id_b: int
+    set_id_a: int | None
+    set_id_b: int | None
     title_a: str | None
     title_b: str | None
     old_confidence: float | None
-    new_confidence: float | None  # None when non-rescorable
-    verdict: MatchVerdict | None  # None when non-rescorable
+    new_confidence: float | None  # None when non-rescorable or a group flag
+    verdict: MatchVerdict | None  # None when non-rescorable or a group flag
     decision: str
+    member_set_ids: list[int] | None = None  # set only for a group flag
+    member_titles: list[str] | None = None  # set only for a group flag
 
 
 def _signals_to_dict(signals: MatchSignals) -> dict:
@@ -215,6 +233,46 @@ async def _load_pending_pair_flags(db) -> list[SetFlag]:
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def _load_pending_group_flags(db) -> list[SetFlag]:
+    """Pending part_candidate GROUP flags only (never pair / overlap-anomaly flags).
+
+    Mirror of ``_load_pending_pair_flags`` for the group path: a group flag has
+    ``set_id_b IS NULL`` and its members live in ``member_set_ids``. Scope is
+    STRICT ``part_candidate`` — ``part_overlap_anomaly`` group flags are never
+    surfaced here (a genuine overlap anomaly is a human decision).
+    """
+    stmt = (
+        select(SetFlag)
+        .where(
+            SetFlag.flag_type == SetFlagType.part_candidate,
+            SetFlag.status == SetFlagStatus.pending,
+            SetFlag.set_id_b.is_(None),
+        )
+        .order_by(SetFlag.id)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _group_event_dates_coherent(db, member_set_ids) -> bool:
+    """True when at most ONE distinct non-NULL event_date across the members.
+
+    A ``part_candidate`` has, by construction, distinct part numbers on the same
+    base title → it is a single set split in parts, coherent by design. The only
+    residual risk is two "parts" carrying DIVERGENT reliable event dates (two
+    distinct episodes of an emission whose dates were stripped from the base
+    title). So: 0 or 1 distinct event_date = coherent (True); >= 2 = divergent
+    (False). ``member_set_ids`` is the JSON list of member ids.
+    """
+    member_ids = list(member_set_ids or [])
+    if not member_ids:
+        return True
+    rows = (
+        await db.execute(select(DJSet.event_date).where(DJSet.id.in_(member_ids)))
+    ).all()
+    distinct = {row[0] for row in rows if row[0] is not None}
+    return len(distinct) <= 1
+
+
 async def rescore_flags(
     db,
     *,
@@ -235,7 +293,14 @@ async def rescore_flags(
     When ``reject_episodes`` is True, a pair whose two titles both carry an
     episode/volume/edition number that DIFFERS is rejected (recurring homonymous
     emissions) regardless of overlap, right after the event-date guard and before any
-    attach. Does NOT commit — the caller owns the transaction boundary.
+    attach.
+
+    When ``auto_attach`` is True the pending ``part_candidate`` GROUP flags are ALSO
+    processed (after the pairwise loop): a group whose members' event dates are
+    coherent (<= 1 distinct reliable date) is ATTACHED under a shared virtual parent
+    via ``attach_flag`` — no confidence gate — while a group with >= 2 distinct event
+    dates is left pending (distinct episodes). ``part_overlap_anomaly`` is never
+    touched. Does NOT commit — the caller owns the transaction boundary.
     """
     flags = await _load_pending_pair_flags(db)
     outcomes: list[RescoreOutcome] = []
@@ -373,6 +438,48 @@ async def rescore_flags(
             )
         )
 
+    # Group part_candidate flags (only when opted in). A part_candidate is a single
+    # set split into distinct part numbers → structurally a duplicate, NOT gated on
+    # confidence (which is low, being title-similarity based). Attach it when the
+    # members' event dates are coherent (<= 1 distinct reliable date); leave it
+    # pending when they diverge (>= 2 distinct dates = distinct episodes — a bad
+    # merge costs more than an unmerged split, invariant #4). part_overlap_anomaly
+    # is never surfaced (loader filters on part_candidate).
+    if auto_attach:
+        group_flags = await _load_pending_group_flags(db)
+        for flag in group_flags:
+            member_ids = list(flag.member_set_ids or [])
+            members = (
+                await db.execute(select(DJSet).where(DJSet.id.in_(member_ids)))
+            ).scalars().all()
+            member_titles = [m.title for m in members]
+            coherent = await _group_event_dates_coherent(db, member_ids)
+
+            if coherent:
+                decision = DECISION_AUTO_ATTACHED
+                if apply:
+                    # attach_flag's group branch builds the shared virtual parent
+                    # and flips the flag to 'attached'.
+                    await attach_flag(db, flag.id, resolved_by=None)
+            else:
+                decision = DECISION_KEPT  # divergent dates → left pending
+
+            outcomes.append(
+                RescoreOutcome(
+                    flag_id=flag.id,
+                    set_id_a=flag.set_id_a,
+                    set_id_b=None,
+                    title_a=None,
+                    title_b=None,
+                    old_confidence=flag.confidence,
+                    new_confidence=None,
+                    verdict=None,
+                    decision=decision,
+                    member_set_ids=member_ids,
+                    member_titles=member_titles,
+                )
+            )
+
     return outcomes
 
 
@@ -403,6 +510,17 @@ def _print_report(outcomes: list[RescoreOutcome], threshold: float, apply: bool)
         return
 
     for o in outcomes:
+        if o.member_set_ids is not None:
+            # Group (part_candidate) row: no set_id_b / verdict / confidence.
+            titles = ", ".join(_trunc(t, 18) for t in (o.member_titles or [])) or "?"
+            coherent = o.decision == DECISION_AUTO_ATTACHED
+            print(
+                f"  [flag {o.flag_id:>5}] GROUPE part_candidate "
+                f"({len(o.member_set_ids)} membres: {titles}) "
+                f"| dates {'cohérentes' if coherent else 'divergentes'} "
+                f"| {o.decision}"
+            )
+            continue
         verdict_label = o.verdict.value if o.verdict is not None else "--"
         print(
             f"  [flag {o.flag_id:>5}] "
@@ -419,13 +537,35 @@ def _print_report(outcomes: list[RescoreOutcome], threshold: float, apply: bool)
     )
     attached = sum(1 for o in outcomes if o.decision == DECISION_AUTO_ATTACHED)
     unscorable = sum(1 for o in outcomes if o.decision == DECISION_UNSCORABLE)
-
-    print(
-        f"\n[résumé] {len(outcomes)} flag(s) re-scoré(s) — "
-        f"GARDÉ={kept} | AUTO-REJET={rejected} | REJET-DATES={event_rejected} | "
-        f"REJET-ÉPISODE={episode_rejected} | AUTO-ATTACH={attached} | "
-        f"NON-RESCORABLE={unscorable}"
+    # Group breakdown (part_candidate): attaches folded into AUTO-ATTACH, divergent
+    # ones into GARDÉ — the pairwise-only kept count is derived by subtracting them
+    # (groups never rewrite confidence/signals: they are attached or left pending).
+    group_attached = sum(
+        1
+        for o in outcomes
+        if o.decision == DECISION_AUTO_ATTACHED and o.member_set_ids is not None
     )
+    group_kept = sum(
+        1
+        for o in outcomes
+        if o.decision == DECISION_KEPT and o.member_set_ids is not None
+    )
+    pairwise_kept = kept - group_kept
+
+    group_attach_note = (
+        f" (dont {group_attached} groupe(s) de parts)" if group_attached else ""
+    )
+    print(
+        f"\n[résumé] {len(outcomes)} flag(s) traité(s) — "
+        f"GARDÉ={kept} | AUTO-REJET={rejected} | REJET-DATES={event_rejected} | "
+        f"REJET-ÉPISODE={episode_rejected} | AUTO-ATTACH={attached}"
+        f"{group_attach_note} | NON-RESCORABLE={unscorable}"
+    )
+    if group_kept:
+        print(
+            f"  ({group_kept} groupe(s) de parts laissé(s) pending — "
+            f"dates d'événement divergentes)"
+        )
 
     _print_distribution(outcomes)
 
@@ -435,12 +575,13 @@ def _print_report(outcomes: list[RescoreOutcome], threshold: float, apply: bool)
             f"\n[apply] {total_rejected} flag(s) passé(s) en 'rejected' "
             f"(auto_rejected, dont {event_rejected} sur dates d'événement divergentes "
             f"et {episode_rejected} sur numéros d'épisode divergents), "
-            f"{kept + total_rejected} confidence/signals mis à jour. Commit effectué."
+            f"{pairwise_kept + total_rejected} confidence/signals mis à jour. "
+            f"Commit effectué."
         )
         if attached:
             print(
                 f"[apply] {attached} flag(s) attaché(s) sous parent virtuel "
-                f"(statut 'attached')."
+                f"(statut 'attached'){group_attach_note}."
             )
     else:
         print(
