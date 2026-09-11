@@ -87,6 +87,7 @@ from services.set_dedup_service import (
     MatchSignals,
     MatchVerdict,
     _load_set_scoring_data,
+    _title_date_signatures,
     attach_flag,
     decide_verdict,
     score_pair,
@@ -335,16 +336,20 @@ async def rescore_flags(
         part_b = set_b.part_number if set_b is not None else None
         verdict, _ = decide_verdict(signals, confidence, part_a, part_b)
 
-        # L1 hard separator: two RELIABLE event_dates more than a day apart make
-        # decide_verdict return NOTHING regardless of the composite confidence —
-        # the pair is two distinct performances, not a duplicate. Reject it
+        # L1 hard separator: decide_verdict returns NOTHING for two distinct
+        # performances regardless of the composite confidence — either two RELIABLE
+        # event_dates more than a day apart, OR two RAW titles carrying different
+        # full dates (order-agnostic, robust to the C13.e parser abstaining on D/M
+        # ambiguity, so it fires even when one event_date is NULL). Reject the pair
         # outright (a high-confidence divergent pair the old confidence cut would
         # have KEPT), counted apart from the low-confidence noise auto-reject.
-        event_divergent = (
-            verdict == MatchVerdict.NOTHING
-            and signals.both_event_reliable
-            and signals.date_gap_days is not None
-            and signals.date_gap_days > 1
+        event_divergent = verdict == MatchVerdict.NOTHING and (
+            (
+                signals.both_event_reliable
+                and signals.date_gap_days is not None
+                and signals.date_gap_days > 1
+            )
+            or signals.title_dates_diverge
         )
 
         # Attach eligibility (only when opted in): recomputed AUTO_ATTACH (the import
@@ -453,7 +458,19 @@ async def rescore_flags(
                 await db.execute(select(DJSet).where(DJSet.id.in_(member_ids)))
             ).scalars().all()
             member_titles = [m.title for m in members]
-            coherent = await _group_event_dates_coherent(db, member_ids)
+            # Coherent = at most ONE distinct date across the members, on BOTH
+            # signals: the STORED event_date (C13.e, NULL on an ambiguous title)
+            # AND the RAW title date signatures (order-agnostic, catches parts
+            # whose differing dates were left unparsed → event_date NULL). Either
+            # divergence (>= 2 distinct dates) is enough to leave the group pending.
+            title_sigs: set = set()
+            for t in member_titles:
+                title_sigs |= _title_date_signatures(t)
+            title_dates_coherent = len(title_sigs) <= 1
+            coherent = (
+                await _group_event_dates_coherent(db, member_ids)
+                and title_dates_coherent
+            )
 
             if coherent:
                 decision = DECISION_AUTO_ATTACHED

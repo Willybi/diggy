@@ -875,6 +875,136 @@ class TestRejectEpisodes:
 
 
 # ---------------------------------------------------------------------------
+# L3e-b: divergent TITLE dates (order-agnostic) → reject / leave pending even when
+# the stored event_date is NULL (C13.e parser abstained on the ambiguous title)
+# ---------------------------------------------------------------------------
+
+
+class TestTitleDateDivergence:
+    async def test_pair_divergent_title_dates_is_rejected(self, db):
+        """« Helmo (24.09.2022) » vs « Helmo (08.10.2022) » — both titles carry a full
+        date and they differ, yet one event_date is NULL (parser abstained). The
+        title-date rule makes decide_verdict return NOTHING → REJET-DATES even with
+        --auto-attach on an identical ordered tracklist."""
+        a = await _make_set(
+            db,
+            "Helmo (24.09.2022)",
+            normalized_title="helmo",
+            event_date=date(2022, 9, 24),
+        )
+        b = await _make_set(
+            db,
+            "Helmo (08.10.2022)",
+            normalized_title="helmo",
+            event_date=None,  # parser abstained → stored event_date missing
+        )
+        a_id, b_id = a.id, b.id
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a_id, tracks)
+        await _add_tracks(db, b_id, tracks)
+        flag = await _make_pair_flag(
+            db, a_id, b_id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db,
+            threshold=0.30,
+            apply=True,
+            auto_attach=True,
+            reject_episodes=True,
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_EVENT_REJECTED
+        assert o.verdict == MatchVerdict.NOTHING
+        assert flag.status == SetFlagStatus.rejected
+        assert flag.signals["auto_rejected"] is True
+        assert flag.signals["event_date_separated"] is True
+        # No attach happened despite the identical tracklist
+        db.expire_all()
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_group_divergent_title_dates_left_pending(self, db):
+        """A part_candidate group whose two members carry DIFFERENT title dates while
+        the stored event_date is NULL on both → incoherent → left pending (no attach)
+        even with --auto-attach."""
+        a = await _make_set(
+            db, "Show PART 1 (24.09.2022)", part_number=1, event_date=None
+        )
+        b = await _make_set(
+            db, "Show PART 2 (08.10.2022)", part_number=2, event_date=None
+        )
+        a_id = a.id
+        group_flag = await _make_group_flag(db, [a.id, b.id])
+        gf_id = group_flag.id
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = next(o for o in outcomes if o.flag_id == gf_id)
+        assert o.decision == DECISION_KEPT  # divergent title dates → pending
+        db.expire_all()
+        gf = (
+            await db.execute(select(SetFlag).where(SetFlag.id == gf_id))
+        ).scalar_one()
+        assert gf.status == SetFlagStatus.pending  # never attached
+        a_ref = (await db.execute(select(DJSet).where(DJSet.id == a_id))).scalar_one()
+        assert a_ref.parent_set_id is None
+
+    async def test_pair_identical_title_dates_not_rejected(self, db):
+        """Non-regression: identical title dates on both sides are NOT a divergence —
+        an identical ordered tracklist is still attached with --auto-attach."""
+        a = await _make_set(
+            db,
+            "Helmo (24.09.2022)",
+            normalized_title="helmo",
+            event_date=date(2022, 9, 24),
+        )
+        b = await _make_set(
+            db,
+            "Helmo (24.09.2022) reupload",
+            normalized_title="helmo",
+            event_date=date(2022, 9, 24),
+        )
+        tracks = list(range(1, 11))
+        await _add_tracks(db, a.id, tracks)
+        await _add_tracks(db, b.id, tracks)
+        flag = await _make_pair_flag(
+            db, a.id, b.id, confidence=1.0, signals={"overlap": 1.0}
+        )
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = outcomes[0]
+        assert o.decision == DECISION_AUTO_ATTACHED
+        assert flag.status == SetFlagStatus.attached
+
+    async def test_group_identical_title_dates_is_attached(self, db):
+        """Non-regression: a part_candidate group whose members carry the SAME title
+        date (event_date NULL) stays coherent → attached with --auto-attach."""
+        a = await _make_set(
+            db, "Show PART 1 (24.09.2022)", part_number=1, event_date=None
+        )
+        b = await _make_set(
+            db, "Show PART 2 (24.09.2022)", part_number=2, event_date=None
+        )
+        group_flag = await _make_group_flag(db, [a.id, b.id])
+        gf_id = group_flag.id
+
+        outcomes = await rescore_flags(
+            db, threshold=0.30, apply=True, auto_attach=True
+        )
+
+        o = next(o for o in outcomes if o.flag_id == gf_id)
+        assert o.decision == DECISION_AUTO_ATTACHED
+        assert group_flag.status == SetFlagStatus.attached
+
+
+# ---------------------------------------------------------------------------
 # Dry-run writes nothing
 # ---------------------------------------------------------------------------
 

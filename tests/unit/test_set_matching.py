@@ -14,6 +14,7 @@ from services.set_dedup_service import (
     MatchSignals,
     MatchVerdict,
     _select_date_gap,
+    _title_date_signatures,
     compute_confidence,
     compute_signals,
     decide_verdict,
@@ -749,3 +750,158 @@ class TestEventDateHardRule:
         )
         assert verdict == MatchVerdict.FLAG
         assert flag_type == "duplicate_candidate"
+
+
+# ---------------------------------------------------------------------------
+# L3e-a — raw-title date divergence (order-agnostic, parser-independent)
+# ---------------------------------------------------------------------------
+
+
+class TestTitleDateSignatures:
+    def test_single_date_dotted(self):
+        assert _title_date_signatures("Helmo (24.09.2022)") == frozenset(
+            {(2022, frozenset({24, 9}))}
+        )
+
+    def test_single_date_other_day(self):
+        assert _title_date_signatures("(08.10.2022)") == frozenset(
+            {(2022, frozenset({8, 10}))}
+        )
+
+    def test_separator_insensitive(self):
+        """Dots and slashes produce the SAME signature."""
+        assert _title_date_signatures("(24.09.2022)") == _title_date_signatures(
+            "(24/09/2022)"
+        )
+
+    def test_order_ambiguity_tolerated(self):
+        """24.09 and 09.24 collapse to the same order-agnostic signature."""
+        assert _title_date_signatures("(24.09.2022)") == _title_date_signatures(
+            "(09.24.2022)"
+        )
+
+    def test_no_date_is_empty(self):
+        assert _title_date_signatures("Boiler Room Manchester") == frozenset()
+
+    def test_none_is_empty(self):
+        assert _title_date_signatures(None) == frozenset()
+
+    def test_iso_format(self):
+        assert _title_date_signatures("Set 2022-10-08 live") == frozenset(
+            {(2022, frozenset({10, 8}))}
+        )
+
+    def test_two_digit_year_expands(self):
+        assert _title_date_signatures("(24.09.22)") == frozenset(
+            {(2022, frozenset({24, 9}))}
+        )
+
+    def test_bare_year_not_extracted(self):
+        assert _title_date_signatures("Awakenings 2022") == frozenset()
+
+    def test_two_dates_both_captured(self):
+        sigs = _title_date_signatures("(24.09.2022) rework (08.10.2022)")
+        assert sigs == frozenset(
+            {(2022, frozenset({24, 9})), (2022, frozenset({8, 10}))}
+        )
+
+
+class TestTitleDatesDivergeSignal:
+    def _data(self, title, event_date=None):
+        return {
+            "normalized_title": "helmo",
+            "title": title,
+            "played_date": date(2022, 9, 24),
+            "event_date": event_date,
+            "identified_mtids": list(range(1, 13)),
+        }
+
+    def test_diverging_title_dates_sets_flag(self):
+        a = self._data("Helmo (24.09.2022)")
+        b = self._data("Helmo (08.10.2022)")
+        signals = compute_signals(a, b, shared_count=12)
+        assert signals.title_dates_diverge is True
+
+    def test_same_title_dates_no_divergence(self):
+        a = self._data("Helmo (24.09.2022)")
+        b = self._data("Helmo (24/09/2022)")
+        signals = compute_signals(a, b, shared_count=12)
+        assert signals.title_dates_diverge is False
+
+    def test_single_dated_title_no_divergence(self):
+        a = self._data("Helmo (24.09.2022)")
+        b = self._data("Helmo")
+        signals = compute_signals(a, b, shared_count=12)
+        assert signals.title_dates_diverge is False
+
+    def test_absent_title_key_keeps_behaviour(self):
+        """Dicts without a title key never diverge (back-compat)."""
+        signals = compute_signals(_SET_A_P1, _SET_B_P1, shared_count=12)
+        assert signals.title_dates_diverge is False
+
+
+class TestTitleDatesDivergeHardRule:
+    def test_diverging_title_dates_is_nothing_despite_full_overlap(self):
+        """Same base title, full overlap, but two different title dates (one with
+        a NULL event_date so C13.e abstained) → NOTHING, whatever the overlap."""
+        a = {
+            "normalized_title": "helmo",
+            "title": "Helmo (24.09.2022)",
+            "played_date": date(2022, 9, 24),
+            "event_date": None,
+            "identified_mtids": list(range(1, 13)),
+        }
+        b = {
+            "normalized_title": "helmo",
+            "title": "Helmo (08.10.2022)",
+            "played_date": date(2022, 9, 24),
+            "event_date": None,
+            "identified_mtids": list(range(1, 13)),
+        }
+        signals = compute_signals(a, b, shared_count=12)
+        assert signals.overlap == 1.0
+        assert signals.title_sim == 1.0
+        verdict, flag_type = decide_verdict(
+            signals, compute_confidence(signals), None, None
+        )
+        assert verdict == MatchVerdict.NOTHING
+        assert flag_type is None
+
+    def test_same_title_dates_unchanged(self):
+        """Same date both sides → hard rule does not fire → AUTO_ATTACH."""
+        a = {
+            "normalized_title": "helmo",
+            "title": "Helmo (24.09.2022)",
+            "played_date": date(2022, 9, 24),
+            "event_date": None,
+            "identified_mtids": list(range(1, 13)),
+        }
+        b = {
+            "normalized_title": "helmo",
+            "title": "Helmo (24/09/2022)",
+            "played_date": date(2022, 9, 24),
+            "event_date": None,
+            "identified_mtids": list(range(1, 13)),
+        }
+        signals = compute_signals(a, b, shared_count=12)
+        verdict, flag_type = decide_verdict(
+            signals, compute_confidence(signals), None, None
+        )
+        assert verdict == MatchVerdict.AUTO_ATTACH
+        assert flag_type is None
+
+    def test_direct_signal_forces_nothing(self):
+        """The verdict rule keys purely off the signal flag."""
+        signals = MatchSignals(
+            overlap=1.0,
+            title_sim=1.0,
+            date_match=True,
+            first_track_match=True,
+            weighted_overlap=1.0,
+            date_gap_days=0,
+            order_corr=1.0,
+            title_dates_diverge=True,
+        )
+        verdict, flag_type = decide_verdict(signals, 1.0, None, None)
+        assert verdict == MatchVerdict.NOTHING
+        assert flag_type is None

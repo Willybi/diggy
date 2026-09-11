@@ -34,6 +34,16 @@ _RE_SEPARATORS = re.compile(r" \| | \u2013 | \u2014 ")  # | / en-dash / em-dash
 _RE_DATE_BRACKETS = re.compile(r"\[(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\]")
 _RE_DATE_PARENS = re.compile(r"\((\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\)")
 _RE_DATE_BARE = re.compile(r"(\d{2})[.\-](\d{2})[.\-](\d{4})$")
+# Full-date matcher for the raw-title divergence guard: any complete date
+# anywhere in a title, either yyyy-mm-dd (ISO, tried first) or dd-mm-yyyy / dd-mm-yy,
+# with . / - separators. Digit boundaries prevent grabbing a slice of a longer run.
+_RE_TITLE_DATE = re.compile(
+    r"(?<!\d)(?:"
+    r"(?P<y4>\d{4})[./\-](?P<a1>\d{1,2})[./\-](?P<a2>\d{1,2})"  # yyyy-mm-dd
+    r"|"
+    r"(?P<b1>\d{1,2})[./\-](?P<b2>\d{1,2})[./\-](?P<y2>\d{2,4})"  # dd-mm-yyyy / dd-mm-yy
+    r")(?!\d)"
+)
 _RE_SPACES = re.compile(r"\s+")
 # Branch 1: standard digit suffix — part N / pt N / p N
 _RE_PART = re.compile(r"(?:part|pt\.?|p)\s*(\d+)\s*$", re.IGNORECASE)
@@ -83,6 +93,42 @@ def _parse_date(day: str, month: str, year: str) -> date | None:
         return date(y, m, d)
     except ValueError:
         return None
+
+
+def _expand_year(y: int) -> int:
+    """Expand a 2-digit year to 4 digits (same convention as _parse_date)."""
+    if y < 100:
+        return 2000 + y if y <= 50 else 1900 + y
+    return y
+
+
+def _title_date_signatures(title: str | None) -> frozenset:
+    """Extract full dates from a RAW title as ambiguity-tolerant signatures.
+
+    Each signature is ``(year_4digits, frozenset({comp1, comp2}))`` where comp1
+    and comp2 are the day and month WITHOUT resolving their order — so
+    "24.09.2022" and "09.24.2022" collapse to the SAME signature, and
+    "24.09.2022" equals "24/09/2022" (separator-insensitive). Only COMPLETE
+    dd/mm/yyyy, dd/mm/yy and yyyy/mm/dd forms are matched; bare years and
+    month-year pairs are deliberately ignored (full dates only, conservative).
+    Returns an empty frozenset when no full date is present.
+
+    Used to separate two sets whose titles carry visibly different dates even
+    when the C13.e parser abstained on an ambiguous D/M order: to DISSOCIATE we
+    do not need to resolve the order — different dates suffice.
+    """
+    if not title:
+        return frozenset()
+    signatures: set = set()
+    for m in _RE_TITLE_DATE.finditer(title):
+        if m.group("y4") is not None:
+            year = int(m.group("y4"))
+            comps = frozenset({int(m.group("a1")), int(m.group("a2"))})
+        else:
+            year = _expand_year(int(m.group("y2")))
+            comps = frozenset({int(m.group("b1")), int(m.group("b2"))})
+        signatures.add((year, comps))
+    return frozenset(signatures)
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +265,10 @@ class MatchSignals:
     # parsed unambiguously from the title) rather than the often-upload
     # played_date. A reliable multi-day gap means two distinct performances.
     both_event_reliable: bool = False
+    # True when BOTH raw titles carry a full date and those dates differ
+    # (order-agnostic, so robust to the C13.e parser abstaining on D/M ambiguity).
+    # A set never spans multiple days → different title dates = distinct sets.
+    title_dates_diverge: bool = False
 
 
 @dataclass
@@ -618,8 +668,9 @@ def compute_signals(
     """Compute matching signals from injected set data (no DB access, fully testable).
 
     set_a_data / set_b_data keys: normalized_title, played_date, identified_mtids
-    (ordered by position), and the optional event_date (C13.e). mtid_df maps mtid
-    → nb of distinct sets containing it (missing key → 1, i.e. unique track).
+    (ordered by position), and the optional event_date (C13.e) + raw title (for
+    the title-date divergence guard, read via .get). mtid_df maps mtid → nb of
+    distinct sets containing it (missing key → 1, i.e. unique track).
 
     The date gap is computed on event_date when BOTH sets carry one, else on
     played_date (see _select_date_gap); event_date is read with ``.get`` so a
@@ -648,6 +699,12 @@ def compute_signals(
 
     first_track_match = bool(mtids_a and mtids_b and mtids_a[0] == mtids_b[0])
 
+    # Raw-title date divergence: read via .get so a caller injecting a dict
+    # without the "title" key keeps the historical (no-divergence) behaviour.
+    sig_a = _title_date_signatures(set_a_data.get("title"))
+    sig_b = _title_date_signatures(set_b_data.get("title"))
+    title_dates_diverge = bool(sig_a) and bool(sig_b) and sig_a != sig_b
+
     return MatchSignals(
         overlap=overlap,
         title_sim=title_sim,
@@ -657,6 +714,7 @@ def compute_signals(
         date_gap_days=date_gap_days,
         order_corr=_order_correlation(mtids_a, mtids_b),
         both_event_reliable=both_event_reliable,
+        title_dates_diverge=title_dates_diverge,
     )
 
 
@@ -706,6 +764,12 @@ def decide_verdict(
 
     Sets with distinct part_numbers are handled by the parts path — not pairwise.
     """
+    # Hard separation rule: both raw titles carry a full date and those dates
+    # differ (order-agnostic — independent of the C13.e parser, which abstains on
+    # ambiguous D/M). A set never spans multiple days, so two different title
+    # dates are two distinct sets: never attach AND never flag (invariant #4).
+    if signals.title_dates_diverge:
+        return MatchVerdict.NOTHING, None
     # Hard separation rule: two RELIABLE event dates more than a day apart are
     # two distinct performances — never attach AND never flag (a bad merge costs
     # more than an unmerged duplicate, invariant #4). Checked before the overlap /
@@ -768,6 +832,7 @@ async def _load_set_scoring_data(db: AsyncSession, set_id: int):
 
     return row, {
         "normalized_title": row.normalized_title or "",
+        "title": row.title,
         "played_date": row.played_date,
         "event_date": row.event_date,
         "identified_mtids": list(mtids),
