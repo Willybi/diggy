@@ -96,6 +96,7 @@ from services.set_dedup_service import (
     _title_date_signatures,
     attach_flag,
     decide_verdict,
+    group_dates_coherent,
     score_pair,
 )
 from sqlalchemy import select
@@ -284,26 +285,6 @@ async def _load_pending_group_flags(db) -> list[SetFlag]:
         .order_by(SetFlag.id)
     )
     return list((await db.execute(stmt)).scalars().all())
-
-
-async def _group_event_dates_coherent(db, member_set_ids) -> bool:
-    """True when at most ONE distinct non-NULL event_date across the members.
-
-    A ``part_candidate`` has, by construction, distinct part numbers on the same
-    base title → it is a single set split in parts, coherent by design. The only
-    residual risk is two "parts" carrying DIVERGENT reliable event dates (two
-    distinct episodes of an emission whose dates were stripped from the base
-    title). So: 0 or 1 distinct event_date = coherent (True); >= 2 = divergent
-    (False). ``member_set_ids`` is the JSON list of member ids.
-    """
-    member_ids = list(member_set_ids or [])
-    if not member_ids:
-        return True
-    rows = (
-        await db.execute(select(DJSet.event_date).where(DJSet.id.in_(member_ids)))
-    ).all()
-    distinct = {row[0] for row in rows if row[0] is not None}
-    return len(distinct) <= 1
 
 
 async def rescore_flags(
@@ -510,18 +491,10 @@ async def rescore_flags(
             ).scalars().all()
             member_titles = [m.title for m in members]
             # Coherent = at most ONE distinct date across the members, on BOTH
-            # signals: the STORED event_date (C13.e, NULL on an ambiguous title)
-            # AND the RAW title date signatures (order-agnostic, catches parts
-            # whose differing dates were left unparsed → event_date NULL). Either
-            # divergence (>= 2 distinct dates) is enough to leave the group pending.
-            title_sigs: set = set()
-            for t in member_titles:
-                title_sigs |= _title_date_signatures(t)
-            title_dates_coherent = len(title_sigs) <= 1
-            coherent = (
-                await _group_event_dates_coherent(db, member_ids)
-                and title_dates_coherent
-            )
+            # signals (stored event_date + raw title date signatures) — shared
+            # helper, same decision as the funnel auto-attach in
+            # apply_match_results.
+            coherent = await group_dates_coherent(db, member_ids)
 
             if coherent:
                 decision = DECISION_AUTO_ATTACHED

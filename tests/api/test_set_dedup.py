@@ -31,8 +31,14 @@ def _now():
 # ---------------------------------------------------------------------------
 
 
-async def _make_set(db, title="Test Set", source="trackid", part_number=None, duration_ms=None):
-    s = DJSet(title=title, source=source, part_number=part_number, duration_ms=duration_ms)
+async def _make_set(
+    db, title="Test Set", source="trackid", part_number=None, duration_ms=None,
+    event_date=None,
+):
+    s = DJSet(
+        title=title, source=source, part_number=part_number,
+        duration_ms=duration_ms, event_date=event_date,
+    )
     db.add(s)
     await db.flush()
     return s
@@ -727,7 +733,8 @@ class TestGetPartCandidates:
 
 
 class TestApplyGroupFlags:
-    async def test_creates_group_flag(self, db):
+    async def test_coherent_group_attaches_directly(self, db):
+        """A part_candidate with coherent dates is ATTACHED at the funnel, not flagged."""
         s1 = await _make_set(db, "Set Part 1", part_number=1)
         s2 = await _make_set(db, "Set Part 2", part_number=2)
         await db.flush()
@@ -744,17 +751,94 @@ class TestApplyGroupFlags:
         )
 
         counts = await apply_match_results(db, s1_id, [], [gr])
-        assert counts["flagged"] == 1
+        assert counts["attached"] == 1
+        assert counts["flagged"] == 0
 
+        db.expire_all()
+        s1 = await db.get(DJSet, s1_id)
+        s2 = await db.get(DJSet, s2_id)
+        assert s1.parent_set_id is not None
+        assert s1.parent_set_id == s2.parent_set_id
+        parent = await db.get(DJSet, s1.parent_set_id)
+        assert parent.is_virtual is True
+
+        # No flag row is created for a direct attach (mirrors the pairwise path)
         flag = (
             await db.execute(select(SetFlag).where(SetFlag.group_key == "set"))
         ).scalar_one_or_none()
-        assert flag is not None
-        assert flag.flag_type == SetFlagType.part_candidate
-        assert flag.set_id_b is None
-        assert set(flag.member_set_ids) == {s1_id, s2_id}
+        assert flag is None
 
-    async def test_extends_pending_group_flag(self, db):
+    async def test_divergent_event_dates_group_flagged(self, db):
+        """>= 2 distinct event_dates among members → flagged pending, never attached."""
+        s1 = await _make_set(db, "Show Part 1", part_number=1,
+                             event_date=date(2014, 9, 16))
+        s2 = await _make_set(db, "Show Part 2", part_number=2,
+                             event_date=date(2015, 1, 20))
+        await db.flush()
+        s1_id, s2_id = s1.id, s2.id
+
+        gr = GroupMatchResult(
+            group_key="show",
+            member_set_ids=sorted([s1_id, s2_id]),
+            signals={"member_count": 2},
+            confidence=0.9,
+            flag_type="part_candidate",
+        )
+        counts = await apply_match_results(db, s1_id, [], [gr])
+        assert counts["flagged"] == 1
+        assert counts["attached"] == 0
+
+        db.expire_all()
+        s1 = await db.get(DJSet, s1_id)
+        assert s1.parent_set_id is None
+        flag = (
+            await db.execute(select(SetFlag).where(SetFlag.group_key == "show"))
+        ).scalar_one()
+        assert flag.status == SetFlagStatus.pending
+
+    async def test_divergent_title_dates_group_flagged(self, db):
+        """Differing full dates in the RAW titles (event_date unparsed/NULL) → flagged."""
+        s1 = await _make_set(db, "Show 08.10.2022 Part 1", part_number=1)
+        s2 = await _make_set(db, "Show 09.10.2022 Part 2", part_number=2)
+        await db.flush()
+        s1_id = s1.id
+
+        gr = GroupMatchResult(
+            group_key="show 2022",
+            member_set_ids=sorted([s1_id, s2.id]),
+            signals={"member_count": 2},
+            confidence=0.9,
+            flag_type="part_candidate",
+        )
+        counts = await apply_match_results(db, s1_id, [], [gr])
+        assert counts["flagged"] == 1
+        assert counts["attached"] == 0
+
+    async def test_overlap_anomaly_group_flagged(self, db):
+        """part_overlap_anomaly is never auto-attached — human review."""
+        s1 = await _make_set(db, "Set Part 1", part_number=1)
+        s2 = await _make_set(db, "Set Part 2", part_number=2)
+        await db.flush()
+        s1_id = s1.id
+
+        gr = GroupMatchResult(
+            group_key="anomaly",
+            member_set_ids=sorted([s1_id, s2.id]),
+            signals={"member_count": 2, "pairwise_overlaps_max": 0.5},
+            confidence=0.9,
+            flag_type="part_overlap_anomaly",
+        )
+        counts = await apply_match_results(db, s1_id, [], [gr])
+        assert counts["flagged"] == 1
+        assert counts["attached"] == 0
+
+        flag = (
+            await db.execute(select(SetFlag).where(SetFlag.group_key == "anomaly"))
+        ).scalar_one()
+        assert flag.flag_type == SetFlagType.part_overlap_anomaly
+
+    async def test_coherent_group_resolves_pending_flag(self, db):
+        """A new part extends a pending group flag → attach + flag flipped 'attached'."""
         s1 = await _make_set(db, "Set Part 1", part_number=1)
         s2 = await _make_set(db, "Set Part 2", part_number=2)
         s3 = await _make_set(db, "Set Part 3", part_number=3)
@@ -774,17 +858,18 @@ class TestApplyGroupFlags:
         )
         db.add(existing)
         await db.flush()
+        ids = [s1.id, s2.id, s3.id]
 
         # Now s3 arrives and extends to 3 members
         gr = GroupMatchResult(
             group_key="folamour",
-            member_set_ids=sorted([s1.id, s2.id, s3.id]),
+            member_set_ids=sorted(ids),
             signals={"member_count": 3, "part_numbers": [1, 2, 3]},
             confidence=0.94,
             flag_type="part_candidate",
         )
-        counts = await apply_match_results(db, s3.id, [], [gr])
-        assert counts["flagged"] == 1
+        counts = await apply_match_results(db, ids[2], [], [gr])
+        assert counts["attached"] == 1
 
         db.expire_all()
         flag = (
@@ -792,6 +877,57 @@ class TestApplyGroupFlags:
         ).scalar_one()
         assert len(flag.member_set_ids) == 3
         assert flag.confidence == 0.94
+        assert flag.status == SetFlagStatus.attached
+        assert flag.resolved_at is not None
+
+        parents = set()
+        for sid in ids:
+            s = await db.get(DJSet, sid)
+            parents.add(s.parent_set_id)
+        assert len(parents) == 1 and None not in parents
+
+    async def test_divergent_dates_group_extends_pending_flag(self, db):
+        """Divergent dates keep the historical behaviour: extend the pending flag."""
+        s1 = await _make_set(db, "Show Part 1", part_number=1,
+                             event_date=date(2014, 9, 16))
+        s2 = await _make_set(db, "Show Part 2", part_number=2,
+                             event_date=date(2015, 1, 20))
+        s3 = await _make_set(db, "Show Part 3", part_number=3)
+        await db.flush()
+
+        existing = SetFlag(
+            set_id_a=min(s1.id, s2.id),
+            set_id_b=None,
+            group_key="show divergent",
+            member_set_ids=[s1.id, s2.id],
+            flag_type=SetFlagType.part_candidate,
+            confidence=0.92,
+            signals={"member_count": 2},
+            status=SetFlagStatus.pending,
+            created_at=_now(),
+        )
+        db.add(existing)
+        await db.flush()
+
+        gr = GroupMatchResult(
+            group_key="show divergent",
+            member_set_ids=sorted([s1.id, s2.id, s3.id]),
+            signals={"member_count": 3},
+            confidence=0.94,
+            flag_type="part_candidate",
+        )
+        counts = await apply_match_results(db, s3.id, [], [gr])
+        assert counts["flagged"] == 1
+        assert counts["attached"] == 0
+
+        db.expire_all()
+        flag = (
+            await db.execute(
+                select(SetFlag).where(SetFlag.group_key == "show divergent")
+            )
+        ).scalar_one()
+        assert flag.status == SetFlagStatus.pending
+        assert len(flag.member_set_ids) == 3
 
     async def test_rejected_flag_not_recreated(self, db):
         s1 = await _make_set(db, "Set Part 1", part_number=1)

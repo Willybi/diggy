@@ -436,6 +436,38 @@ def _compute_pairwise_overlap(mtids_a: list[int], mtids_b: list[int]) -> float:
     return shared / min(len(mtids_a), len(mtids_b))
 
 
+async def group_dates_coherent(db: AsyncSession, member_set_ids) -> bool:
+    """True when the group's members carry at most ONE distinct date.
+
+    A ``part_candidate`` has, by construction, distinct part numbers on the same
+    base title → it is a single set split in parts, coherent by design. The only
+    residual risk is two "parts" carrying DIVERGENT dates (two distinct episodes
+    of an emission whose dates were stripped from the base title). Checked on
+    BOTH signals: the STORED ``event_date`` (C13.e, NULL on an ambiguous title)
+    AND the RAW title date signatures (``_title_date_signatures``, order-agnostic,
+    catches parts whose differing dates were left unparsed → event_date NULL).
+    Either divergence (>= 2 distinct dates) is enough to return False.
+    ``member_set_ids`` is the JSON list of member ids.
+    """
+    from models import DJSet
+
+    member_ids = list(member_set_ids or [])
+    if not member_ids:
+        return True
+    rows = (
+        await db.execute(
+            select(DJSet.event_date, DJSet.title).where(DJSet.id.in_(member_ids))
+        )
+    ).all()
+    distinct_event = {row[0] for row in rows if row[0] is not None}
+    if len(distinct_event) > 1:
+        return False
+    title_sigs: set = set()
+    for row in rows:
+        title_sigs |= _title_date_signatures(row[1])
+    return len(title_sigs) <= 1
+
+
 async def get_part_candidates(
     db: AsyncSession,
     set_id: int,
@@ -1300,6 +1332,41 @@ async def materialize_parent(db: AsyncSession, parent_id: int) -> int:
 # ---------------------------------------------------------------------------
 
 
+async def _attach_group_members(
+    db: AsyncSession, member_ids: list[int], base_title: str | None
+) -> int | None:
+    """Attach every member set under one shared virtual parent, re-materialize it.
+
+    Reuses an existing parent when any member already has one (via
+    ``find_or_create_virtual_parent``). Returns the parent id, or None when
+    fewer than 2 member sets exist in DB. Does not commit.
+    """
+    from models import DJSet
+
+    members = (
+        await db.execute(select(DJSet).where(DJSet.id.in_(member_ids)))
+    ).scalars().all()
+    if len(members) < 2:
+        return None
+
+    dates = [m.played_date for m in members if m.played_date is not None]
+    played_date = min(dates) if dates else None
+    title = base_title or members[0].title
+
+    parent_id, _ = await find_or_create_virtual_parent(
+        db, member_ids[0], member_ids[1], played_date, title
+    )
+    # Attach remaining members (beyond the first pair)
+    for mid in member_ids[2:]:
+        member = await db.get(DJSet, mid)
+        if member and member.parent_set_id is None:
+            member.parent_set_id = parent_id
+    await db.flush()
+
+    await materialize_parent(db, parent_id)
+    return parent_id
+
+
 async def attach_flag(
     db: AsyncSession, flag_id: int, resolved_by: int
 ) -> tuple[int, dict]:
@@ -1325,27 +1392,9 @@ async def attach_flag(
     if flag.member_set_ids:
         # Group flag: attach all members to a shared virtual parent
         member_ids: list[int] = flag.member_set_ids
-        members = (
-            await db.execute(select(DJSet).where(DJSet.id.in_(member_ids)))
-        ).scalars().all()
-        if len(members) < 2:
+        parent_id = await _attach_group_members(db, member_ids, flag.group_key)
+        if parent_id is None:
             raise LookupError("Not enough member sets found")
-
-        dates = [m.played_date for m in members if m.played_date is not None]
-        played_date = min(dates) if dates else None
-        base_title = flag.group_key or members[0].title
-
-        parent_id, _ = await find_or_create_virtual_parent(
-            db, member_ids[0], member_ids[1], played_date, base_title
-        )
-        # Attach remaining members (beyond the first pair)
-        for mid in member_ids[2:]:
-            member = await db.get(DJSet, mid)
-            if member and member.parent_set_id is None:
-                member.parent_set_id = parent_id
-        await db.flush()
-
-        await materialize_parent(db, parent_id)
 
         audit_details = {
             "member_set_ids": member_ids,
@@ -1523,11 +1572,39 @@ async def apply_match_results(
             )
         ).scalar_one_or_none()
 
-        if existing is not None:
-            if existing.status == SetFlagStatus.rejected:
-                # Rejection is memorised per group_key — do not recreate
-                counts["nothing"] += 1
+        if existing is not None and existing.status == SetFlagStatus.rejected:
+            # Rejection is memorised per group_key — do not recreate
+            counts["nothing"] += 1
+            continue
+
+        # Structural auto-attach at the funnel: a part_candidate whose members
+        # carry at most ONE distinct reliable event_date is a single set split
+        # in parts — attach directly instead of flagging (same decision, no
+        # confidence gate, as rescore_set_flags --auto-attach). Divergent
+        # event dates and part_overlap_anomaly stay flagged for human review.
+        if gr.flag_type == "part_candidate" and await group_dates_coherent(
+            db, gr.member_set_ids
+        ):
+            parent_id = await _attach_group_members(
+                db, list(gr.member_set_ids), gr.group_key
+            )
+            if parent_id is not None:
+                if existing is not None:
+                    from sqlalchemy.orm.attributes import flag_modified
+
+                    existing.member_set_ids = list(gr.member_set_ids)
+                    existing.signals = dict(gr.signals)
+                    flag_modified(existing, "member_set_ids")
+                    flag_modified(existing, "signals")
+                    existing.confidence = gr.confidence
+                    if existing.status == SetFlagStatus.pending:
+                        existing.status = SetFlagStatus.attached
+                        existing.resolved_at = now
+                    await db.flush()
+                counts["attached"] += 1
                 continue
+
+        if existing is not None:
             # Extend pending flag with new member data
             # Use flag_modified for JSON columns (SQLAlchemy doesn't track in-place mutation)
             from sqlalchemy.orm.attributes import flag_modified
