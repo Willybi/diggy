@@ -131,6 +131,7 @@
         :total="total"
         :query="query"
         :loading="loading"
+        :error="error"
       />
     </div>
   </div>
@@ -166,6 +167,11 @@ const HubSearchResults = defineAsyncComponent(
 
 const auth = useAuthStore()
 
+// Below this length no search fires (mirrors the backend MIN_QUERY_CHARS guard):
+// a 1-char query matches most of the catalog for nothing and used to 500 the
+// set scope in prod.
+const MIN_QUERY_CHARS = 2
+
 // ── state ──
 const query = ref('')
 const scope = ref('all')
@@ -173,6 +179,7 @@ const scopeOpen = ref(false)
 const inputFocused = ref(false)
 const inputEl = ref(null)
 const loading = ref(false)
+const error = ref(false)
 
 const items = ref([])
 const total = ref(0)
@@ -182,7 +189,7 @@ const totals = ref({})
 const suggestions = ['house', 'disclosure', 'boiler room', 'techno', 'trance', 'deep house']
 
 // ── computed ──
-const isEmpty = computed(() => !query.value.trim())
+const isEmpty = computed(() => query.value.trim().length < MIN_QUERY_CHARS)
 const currentScopeLabel = computed(
   () => scopes.find((s) => s.value === scope.value)?.label || 'Tout',
 )
@@ -197,34 +204,47 @@ const userInitial = computed(() => (auth.user?.username || '?')[0].toUpperCase()
 
 // ── search ──
 let debounceTimer = null
+// Monotonic sequence guarding against out-of-order responses: with multi-second
+// backend latencies, an OLD in-flight response could land after (and overwrite)
+// the results of the CURRENT query. Only the latest sequence writes state.
+let searchSeq = 0
 
 watch([query, scope], () => {
   clearTimeout(debounceTimer)
-  if (!query.value.trim()) {
+  if (query.value.trim().length < MIN_QUERY_CHARS) {
+    searchSeq++ // invalidate any in-flight response
     items.value = []
     total.value = 0
     totals.value = {}
+    error.value = false
+    loading.value = false
     return
   }
-  debounceTimer = setTimeout(doSearch, 150)
+  debounceTimer = setTimeout(doSearch, 300)
 })
 
 async function doSearch() {
   const q = query.value.trim()
-  if (!q) return
+  if (q.length < MIN_QUERY_CHARS) return
+  const seq = ++searchSeq
   loading.value = true
+  error.value = false
   try {
     const { data } = await api.get('/api/search', {
       params: { q, scope: scope.value, limit: 50 },
     })
+    if (seq !== searchSeq) return // stale response — a newer search is in flight
     items.value = data.items || []
     total.value = data.total || 0
     totals.value = data.totals || {}
   } catch {
+    if (seq !== searchSeq) return
     items.value = []
     total.value = 0
+    totals.value = {}
+    error.value = true
   } finally {
-    loading.value = false
+    if (seq === searchSeq) loading.value = false
   }
 }
 

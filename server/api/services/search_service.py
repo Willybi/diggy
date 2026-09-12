@@ -20,7 +20,7 @@ from models import (
     WatchedEntity,
 )
 from schemas import SearchItem, SearchResponse, SearchTotals
-from sqlalchemy import String, func, or_, select, text
+from sqlalchemy import String, func, literal, or_, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from trackid.reliability import set_reliable
 from utils import like_escape, search_fold, space_insensitive_ilike
@@ -29,6 +29,12 @@ from services.catalog_service import catalog_visible
 from services.genre_service import ensure_pillar_cache, genre_pillar
 
 GUEST_CAP = 6
+
+# Queries shorter than this return an empty response instead of searching: a
+# 1-char pattern matches most of every table (seq-scan storms while typing) and
+# used to blow asyncpg's 32767 bind-param limit in the set scope (500, Sentry
+# DIGGY-APP-1J). The frontend mirrors the same threshold and never fires below it.
+MIN_QUERY_CHARS = 2
 
 
 # ── Relevance scoring ────────────────────────────────────────────
@@ -205,13 +211,16 @@ async def _search_sets(
     id desc) is done in Python over a capped candidate set; offset/limit are
     applied AFTER the sort.
 
-    SET-BASED implementation (perf hotfix): instead of scanning every root with a
-    per-row OR of correlated ``EXISTS`` subqueries, each signal is collected once
-    as an index-friendly SET of matching ROOT ids (a child match bubbles to its
-    parent via ``COALESCE(parent_set_id, id)``). The Python union is then fed to
-    a single roots-only + reliable filter (exact ``total``) and a capped detail
-    fetch. Every collector is ONE scan/indexed join — no correlated subquery —
-    and the DB awaits are sequential (never gathered on a shared session).
+    SET-BASED implementation, fully in SQL: each signal is ONE index-friendly
+    collector select of ``(root_id, weight)`` (a child match bubbles to its
+    parent via ``COALESCE(parent_set_id, id)``); the four collectors are glued
+    with ``UNION ALL`` and aggregated to ``MAX(weight)`` per root — the union
+    NEVER round-trips through Python. The old implementation materialised the
+    matching ids into a Python set and re-bound them via ``IN (…)``: a broad
+    (short) query matched >32767 roots and blew asyncpg's bind-parameter limit
+    (500 in prod, Sentry DIGGY-APP-1J). No collector uses a correlated
+    subquery, and the DB awaits stay sequential (never gathered on a shared
+    session).
     """
     fq = search_fold(q)
     if not fq:
@@ -246,64 +255,49 @@ async def _search_sets(
     root_of = func.coalesce(DJSet.parent_set_id, DJSet.id)
 
     # (1) TITLE — a matching root OR a matching child (bubbled to its parent).
-    #     One seq scan on `sets`, no correlated child EXISTS.
-    title_rows = (
-        await db.execute(
-            select(DJSet.id, DJSet.parent_set_id).where(_title_pred(DJSet.search_text))
-        )
-    ).all()
-    title_ids = {r.parent_set_id if r.parent_set_id is not None else r.id for r in title_rows}
+    w_title = select(root_of.label("rid"), literal(3).label("w")).where(
+        _title_pred(DJSet.search_text)
+    )
 
     # (2) ARTIST — linked artist name (rare), bubbled to the root.
-    artist_rows = (
-        await db.execute(
-            select(root_of)
-            .join(SetArtist, SetArtist.set_id == DJSet.id)
-            .join(Artist, Artist.id == SetArtist.artist_id)
-            .where(func.lower(Artist.name).like(raw_plain, escape="\\"))
-        )
-    ).all()
-    artist_ids = {r[0] for r in artist_rows}
+    w_artist = (
+        select(root_of.label("rid"), literal(3).label("w"))
+        .join(SetArtist, SetArtist.set_id == DJSet.id)
+        .join(Artist, Artist.id == SetArtist.artist_id)
+        .where(func.lower(Artist.name).like(raw_plain, escape="\\"))
+    )
 
     # (3) CHANNEL — via `trackid_index` of the set (or a child), bubbled to root.
-    #     The join keys on trackid_index.set_id (index ix_trackid_index_set_id);
-    #     no OR inside the join condition, no correlated EXISTS.
-    channel_rows = (
-        await db.execute(
-            select(root_of)
-            .join(TrackIdIndex, TrackIdIndex.set_id == DJSet.id)
-            .where(_channel_pred(TrackIdIndex.channel))
-        )
-    ).all()
-    channel_ids = {r[0] for r in channel_rows}
+    #     The join keys on trackid_index.set_id (index ix_trackid_index_set_id).
+    w_channel = (
+        select(root_of.label("rid"), literal(2).label("w"))
+        .join(TrackIdIndex, TrackIdIndex.set_id == DJSet.id)
+        .where(_channel_pred(TrackIdIndex.channel))
+    )
 
     # (4) DATE — a root's own played_date typed as text (roots only, as before).
-    date_rows = (
-        await db.execute(
-            select(DJSet.id).where(
-                DJSet.parent_set_id.is_(None),
-                DJSet.played_date.cast(String).like(raw_plain, escape="\\"),
-            )
-        )
-    ).all()
-    date_ids = {r.id for r in date_rows}
+    w_date = select(DJSet.id.label("rid"), literal(1).label("w")).where(
+        DJSet.parent_set_id.is_(None),
+        DJSet.played_date.cast(String).like(raw_plain, escape="\\"),
+    )
 
-    weight3 = title_ids | artist_ids
-    weight2 = channel_ids
-    weight1 = date_ids
-    union = weight3 | weight2 | weight1
-    if not union:
-        return [], 0
-
-    union_list = list(union)
+    matches = union_all(w_title, w_artist, w_channel, w_date).subquery()
+    weights = (
+        select(matches.c.rid, func.max(matches.c.w).label("weight"))
+        .group_by(matches.c.rid)
+        .subquery()
+    )
 
     # Exact, uncapped total: roots-only + reliable applied to the full union.
     count_q = select(func.count()).select_from(
         select(DJSet.id)
-        .where(DJSet.id.in_(union_list), DJSet.parent_set_id.is_(None), set_reliable())
+        .join(weights, weights.c.rid == DJSet.id)
+        .where(DJSet.parent_set_id.is_(None), set_reliable())
         .subquery()
     )
     total = (await db.execute(count_q)).scalar() or 0
+    if not total:
+        return [], 0
 
     # Capped detail fetch of the valid roots, with their track counts. The LEFT
     # JOIN + GROUP BY yields 0 for a track-less root (matches the old scalar sq).
@@ -314,26 +308,23 @@ async def _search_sets(
             DJSet.played_date,
             DJSet.has_artwork,
             func.count(SetTrack.id).label("track_count"),
+            weights.c.weight,
         )
+        .join(weights, weights.c.rid == DJSet.id)
         .outerjoin(SetTrack, SetTrack.set_id == DJSet.id)
-        .where(DJSet.id.in_(union_list), DJSet.parent_set_id.is_(None), set_reliable())
-        .group_by(DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork)
+        .where(DJSet.parent_set_id.is_(None), set_reliable())
+        .group_by(
+            DJSet.id, DJSet.title, DJSet.played_date, DJSet.has_artwork, weights.c.weight
+        )
         .order_by(DJSet.played_date.desc().nulls_last(), DJSet.id.desc())
         .limit(_SET_CANDIDATE_CAP)
     )
     rows = (await db.execute(detail_q)).all()
 
-    def _weight(sid: int) -> int:
-        if sid in weight3:
-            return 3
-        if sid in weight2:
-            return 2
-        return 1
-
     ranked = sorted(
         rows,
         key=lambda r: (
-            -_weight(r.id),
+            -r.weight,
             -_relevance(search_fold(r.title or ""), fq),
             -(r.track_count or 0),
             -r.id,
@@ -516,7 +507,10 @@ async def search(
     await ensure_pillar_cache(db)
     q_lower = q.strip().lower()
 
-    if not q_lower:
+    # Sub-threshold queries (0 or 1 char) return empty instead of searching —
+    # see MIN_QUERY_CHARS. The frontend mirrors the threshold; this guard is the
+    # backstop for direct API callers.
+    if len(q_lower) < MIN_QUERY_CHARS:
         return SearchResponse(items=[], total=0, totals=SearchTotals())
 
     # For a single scope, offset+limit are pushed straight into the DB query

@@ -23,6 +23,21 @@ class TestSearch:
         assert data["items"] == []
         assert data["total"] == 0
 
+    async def test_single_char_query_returns_empty(self, client, db):
+        # MIN_QUERY_CHARS guard: a 1-char query used to fire 6 seq-scan scopes
+        # and blow asyncpg's 32767 bind-param limit in the set scope (500 in
+        # prod, DIGGY-APP-1J). It now short-circuits to an empty 200.
+        db.add(CatalogEntry(title="House", artist="DJ", normalized_key="house - dj"))
+        db.add(DJSet(title="House Set", source="trackid", search_text="house set"))
+        await db.commit()
+
+        for scope in ("all", "track", "set"):
+            r = await client.get(f"/api/search?q=h&scope={scope}")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["items"] == []
+            assert data["total"] == 0
+
     async def test_search_tracks_by_title(self, client, db):
         db.add(CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat"))
         db.add(CatalogEntry(title="Strobe", artist="Deadmau5", normalized_key="strobe - deadmau5"))

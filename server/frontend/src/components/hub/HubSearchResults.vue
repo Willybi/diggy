@@ -67,19 +67,10 @@
           </div>
           <!-- source badge (playlist) -->
           <SourceBadge v-if="item.type === 'playlist' && item.source" :source="item.source" />
-          <!-- lib zone (logged in only) -->
+          <!-- lib zone (logged in only). No "add" affordance: the library is the
+               Rekordbox mirror (user_tracks), fed ONLY by the XML import. -->
           <div v-if="auth.isAuthenticated && item.type === 'track'" class="rlib">
             <span v-if="item.in_lib" class="enbib"><span class="d"></span>EN BIB</span>
-            <button
-              v-else
-              class="r-add"
-              title="Ajouter à la bib"
-              aria-label="Ajouter à la bibliothèque"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 5v14M5 12h14" stroke-linecap="round" />
-              </svg>
-            </button>
           </div>
         </div>
       </template>
@@ -99,8 +90,13 @@
         <button class="btn-login" @click="$router.push('/login')">Se connecter</button>
       </div>
 
+      <!-- error state: a failed fetch must never masquerade as "no results" -->
+      <div v-if="error" class="r-empty r-error">
+        La recherche a échoué. Réessaie dans un instant.
+      </div>
+
       <!-- no results -->
-      <div v-if="!sortedItems.length && !loading" class="r-empty">
+      <div v-else-if="!sortedItems.length && !loading" class="r-empty">
         Aucun résultat. Essaie un autre mot-clé.
       </div>
     </div>
@@ -127,6 +123,7 @@ const props = defineProps({
   total: { type: Number, default: 0 },
   query: { type: String, default: '' },
   loading: { type: Boolean, default: false },
+  error: { type: Boolean, default: false },
 })
 
 const router = useRouter()
@@ -151,7 +148,9 @@ const sortedItems = computed(() => {
   if (sort.value === 'rel') return props.items
   const clone = [...props.items]
   if (sort.value === 'bpm') {
-    clone.sort((a, b) => (a.bpm || 0) - (b.bpm || 0))
+    // Items without a BPM (artists, sets, genres…) sink to the END — sorting
+    // them as 0 used to float every non-track above the tracks.
+    clone.sort((a, b) => (a.bpm ?? Infinity) - (b.bpm ?? Infinity))
   } else if (sort.value === 'az') {
     clone.sort((a, b) => {
       const na = (a.name || a.title || '').toLowerCase()
@@ -194,10 +193,23 @@ function itemSub(item) {
   return ''
 }
 
+// Titles/artists go through v-html (to inject <mark>), so the DB text MUST be
+// HTML-escaped first: set/track titles are arbitrary external data (TrackID,
+// Rekordbox imports) and could otherwise inject markup into every viewer's DOM.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 function highlight(text) {
-  if (!props.query.trim() || !text) return text
-  const q = props.query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return text.replace(new RegExp(`(${q})`, 'gi'), '<mark>$1</mark>')
+  if (!text) return text
+  const safe = escapeHtml(text)
+  if (!props.query.trim()) return safe
+  const q = escapeHtml(props.query.trim()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return safe.replace(new RegExp(`(${q})`, 'gi'), '<mark>$1</mark>')
 }
 
 // French labels for the (nullable) album record_type enum, reused in itemSub.
@@ -563,33 +575,6 @@ function onRowClick(item) {
   background: var(--pos);
   flex: none;
 }
-.r-add {
-  opacity: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px dashed var(--ink-3);
-  background: transparent;
-  color: var(--ink-3);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.r-add svg {
-  width: 14px;
-  height: 14px;
-}
-.rrow:hover .r-add {
-  opacity: 0.8;
-}
-.r-add:hover {
-  opacity: 1;
-  border-style: solid;
-  border-color: var(--pos);
-  color: var(--pos-ink);
-}
-
 /* lock row */
 .lockrow {
   display: flex;
@@ -640,6 +625,9 @@ function onRowClick(item) {
   color: var(--ink-3);
   font: 500 var(--fs-base) var(--font-mono);
 }
+.r-error {
+  color: var(--ink-2);
+}
 
 /* ── login button (guest lock row) ── */
 .btn-login {
@@ -676,9 +664,6 @@ function onRowClick(item) {
   }
   .rart .play {
     opacity: 1;
-  }
-  .r-add {
-    opacity: 0.8;
   }
 }
 </style>

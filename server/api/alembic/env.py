@@ -22,8 +22,21 @@ target_metadata = models.Base.metadata
 # Indexes created via raw SQL in a migration (not declared on any model) — they
 # must be excluded from autogenerate comparison or it would emit a spurious
 # drop_index. The pgvector HNSW index (0049) lives here because SQLite, which
-# backs the test schema via create_all, cannot build it.
-_AUTOGEN_SKIP_INDEXES = {"ix_track_embeddings_hnsw"}
+# backs the test schema via create_all, cannot build it; the pg_trgm search
+# indexes (0058) for the same reason (expression indexes + extension opclass).
+_AUTOGEN_SKIP_INDEXES = {
+    "ix_track_embeddings_hnsw",
+    "ix_catalog_title_trgm",
+    "ix_catalog_title_compact_trgm",
+    "ix_catalog_artist_trgm",
+    "ix_catalog_artist_compact_trgm",
+    "ix_artists_name_trgm",
+    "ix_artists_name_compact_trgm",
+    "ix_sets_search_text_trgm",
+    "ix_sets_search_text_compact_trgm",
+    "ix_trackid_index_channel_lower_trgm",
+    "ix_trackid_index_channel_compact_trgm",
+}
 
 
 def include_object(obj, name, type_, reflected, compare_to):

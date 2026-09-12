@@ -53,6 +53,17 @@ is auto-generated — do not edit it directly.
   (`CREATE UNIQUE INDEX IF NOT EXISTS`, a no-op against the identical prod index).
   The auto-generated index list above reflects this declaration.
 
+### pg_trgm search indexes (migration-only, not in models)
+- Migration `0058_search_trgm_indexes` ships `CREATE EXTENSION pg_trgm` + 10 GIN
+  trigram indexes serving `/api/search`'s `ILIKE '%…%'` scopes: plain + compacted
+  `replace(col, ' ', '')` expression pairs on `catalog.title`, `catalog.artist`,
+  `artists.name`, `sets.search_text`, and `lower(channel)` /
+  `replace(lower(channel), ' ', '')` on `trackid_index.channel`. BOTH arms of the
+  `space_insensitive_ilike` OR must be indexable or Postgres seq-scans the whole OR.
+- PG-only (SQLite/create_all never sees them); excluded from autogenerate via
+  `_AUTOGEN_SKIP_INDEXES` in `alembic/env.py`, so they never appear in the
+  auto-generated index lists below.
+
 ### Merge asymmetry
 - Duplicate rows (false negatives) are cheap storage debt.
 - Bad merges (false positives) are expensive data corruption.

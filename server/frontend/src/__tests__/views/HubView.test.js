@@ -169,10 +169,11 @@ describe('HubView search scope counters', () => {
     // Empty state → no counters in the dropdown.
     expect(wrapper.find('.scope-menu .cnt').exists()).toBe(false)
 
-    // Type a query → debounced search → counters appear (one per scope). The scope
-    // dropdown lives in HubView itself (search state stays here after the split).
+    // Type a query → debounced search (300ms) → counters appear (one per scope).
+    // The scope dropdown lives in HubView itself (search state stays here after
+    // the split).
     await wrapper.find('.search-field input').setValue('house')
-    await new Promise((r) => setTimeout(r, 200))
+    await new Promise((r) => setTimeout(r, 400))
     await flushPromises()
 
     const counts = wrapper.findAll('.scope-menu .cnt')
@@ -182,6 +183,40 @@ describe('HubView search scope counters', () => {
     expect(texts[0]).toBe('1552') // « Tout » = sum
     expect(texts[1]).toBe('1290') // Tracks
     expect(texts[2]).toBe('96') // Artistes
+  })
+
+  it('never fires a search below 2 characters', async () => {
+    mockApiGet()
+    const wrapper = await mountHub()
+
+    await wrapper.find('.search-field input').setValue('h')
+    await new Promise((r) => setTimeout(r, 400))
+    await flushPromises()
+
+    const searches = apiMock.get.mock.calls.filter(([u]) => u === '/api/search')
+    expect(searches).toHaveLength(0)
+    // The hero/discover (empty) state stays: no results panel for 1 char.
+    expect(wrapper.find('.results').exists()).toBe(false)
+  })
+
+  it('surfaces a failed search as an error state, not « Aucun résultat »', async () => {
+    apiMock.get.mockImplementation((url) => {
+      if (url === '/api/search') return Promise.reject(new Error('boom'))
+      if (url === '/api/radar/trends') {
+        return Promise.resolve({ data: { items: [], family_counts: {} } })
+      }
+      return Promise.resolve({ data: { items: [], count: 0 } })
+    })
+    const wrapper = await mountHub()
+
+    await wrapper.find('.search-field input').setValue('house')
+    await new Promise((r) => setTimeout(r, 400))
+    await flushPromises()
+    await vi.dynamicImportSettled()
+    await flushPromises()
+
+    expect(wrapper.find('.r-error').exists()).toBe(true)
+    expect(wrapper.text()).toContain('La recherche a échoué')
   })
 
   it('keeps the Hub shell alive when a section fetch fails', async () => {
