@@ -254,7 +254,10 @@ services:
       retries: 3
 
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # quay.io, not Docker Hub: MinIO removed its public docker.io/minio/minio
+    # repo (observed 2026-09-12 — pull "access denied", repo gone), which
+    # aborted the whole deploy `up -d`. Same pinned release, same image.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: diggy_minio
     restart: unless-stopped
     deploy:
