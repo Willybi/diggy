@@ -240,6 +240,23 @@ FLAG_CONFIDENCE_THRESHOLD = 0.45
 # Two known played_dates further apart than this block AUTO_ATTACH
 AUTO_ATTACH_MAX_DATE_GAP_DAYS = 2
 
+# Certain-duplicate attach vectors, shared by decide_verdict (funnel) and the
+# OPS rescore script.
+# Byte-identical ordered tracklist: two distinct gigs never share the exact
+# same ordered tracklist, regardless of titles or upload dates. The
+# shared-count floor avoids attaching two SHORT sets that happen to coincide
+# on a few tracks.
+IDENTICAL_ATTACH_OVERLAP = 0.95
+IDENTICAL_ATTACH_ORDER = 0.95
+IDENTICAL_ATTACH_MIN_SHARED = 6
+# Same token-set title + same day + near-perfect shared order: two uploads of
+# the SAME set where TrackID identified DIFFERENT subsets — the raw overlap
+# dips under the 0.80 attach floor on identification noise alone. The floor
+# stays HIGH (0.70): below it, the divergent share of tracks reads as two
+# distinct performances under one recurring title (e.g. a festival set played
+# twice) — a human decision (invariant #4).
+SAME_TITLE_ATTACH_MIN_OVERLAP = 0.70
+
 
 class MatchVerdict(str, Enum):
     AUTO_ATTACH = "auto_attach"
@@ -269,6 +286,10 @@ class MatchSignals:
     # (order-agnostic, so robust to the C13.e parser abstaining on D/M ambiguity).
     # A set never spans multiple days → different title dates = distinct sets.
     title_dates_diverge: bool = False
+    # Absolute number of shared identified tracks (overlap = shared / min_len).
+    # Floors the certain-duplicate attach vectors so two SHORT sets coinciding
+    # on a few tracks never qualify.
+    shared_count: int = 0
 
 
 @dataclass
@@ -770,6 +791,7 @@ def compute_signals(
         order_corr=_order_correlation(mtids_a, mtids_b),
         both_event_reliable=both_event_reliable,
         title_dates_diverge=title_dates_diverge,
+        shared_count=shared_count,
     )
 
 
@@ -839,6 +861,34 @@ def decide_verdict(
     # Distinct part numbers → handled by get_part_candidates, not duplicate path
     if set_a_part is not None and set_b_part is not None and set_a_part != set_b_part:
         return MatchVerdict.NOTHING, None
+    # Certain-duplicate vectors — checked BEFORE the generic overlap branch so
+    # its date-gap demotion cannot shadow them (same semantics as the proven
+    # rescore --auto-attach vectors; the hard separation guards above still
+    # run first, invariant #4).
+    # Byte-identical ordered tracklist: two distinct gigs never share the
+    # exact same ordered tracklist — attach regardless of titles/upload dates
+    # (different uploaders title the same recording differently).
+    if (
+        signals.overlap >= IDENTICAL_ATTACH_OVERLAP
+        and signals.shared_count >= IDENTICAL_ATTACH_MIN_SHARED
+        and signals.order_corr is not None
+        and signals.order_corr >= IDENTICAL_ATTACH_ORDER
+    ):
+        return MatchVerdict.AUTO_ATTACH, None
+    # Same token-set title + same day + near-perfect shared order: two uploads
+    # of the SAME set where TrackID identified different subsets (overlap dips
+    # under 0.80 on identification noise). An identical token set cannot carry
+    # a divergent episode/part number, so the episode guard is structurally
+    # satisfied.
+    if (
+        signals.title_sim >= 1.0
+        and signals.date_match
+        and signals.overlap >= SAME_TITLE_ATTACH_MIN_OVERLAP
+        and signals.shared_count >= IDENTICAL_ATTACH_MIN_SHARED
+        and signals.order_corr is not None
+        and signals.order_corr >= IDENTICAL_ATTACH_ORDER
+    ):
+        return MatchVerdict.AUTO_ATTACH, None
     if signals.overlap >= 0.80 and (signals.title_sim >= 0.50 or signals.date_match):
         if (
             signals.date_gap_days is not None

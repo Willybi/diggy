@@ -557,7 +557,10 @@ class TestAutoAttach:
 
         o = outcomes[0]
         assert o.decision == DECISION_AUTO_ATTACHED
-        assert o.verdict == MatchVerdict.FLAG  # dates far apart, yet attached on V2
+        # Since C13.h the identical-tracklist vector lives in decide_verdict
+        # itself (date-agnostic), so the recomputed verdict is already
+        # AUTO_ATTACH — the script's explicit V2 check remains as a backstop.
+        assert o.verdict == MatchVerdict.AUTO_ATTACH
         assert flag.status == SetFlagStatus.attached
         # Both sets now hang under a (new) virtual parent
         db.expire_all()

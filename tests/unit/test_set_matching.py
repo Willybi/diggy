@@ -363,6 +363,9 @@ def _signals(
     weighted_overlap=0.0,
     date_gap_days=None,
     order_corr=None,
+    both_event_reliable=False,
+    title_dates_diverge=False,
+    shared_count=0,
 ):
     return MatchSignals(
         overlap=overlap,
@@ -372,6 +375,9 @@ def _signals(
         weighted_overlap=weighted_overlap,
         date_gap_days=date_gap_days,
         order_corr=order_corr,
+        both_event_reliable=both_event_reliable,
+        title_dates_diverge=title_dates_diverge,
+        shared_count=shared_count,
     )
 
 
@@ -445,6 +451,94 @@ class TestDecideVerdict:
         signals = compute_signals(_SET_A_P3, _SET_B_P3, shared_count=16)
         verdict, flag_type = _verdict(signals)
         assert verdict == MatchVerdict.AUTO_ATTACH
+        assert flag_type is None
+
+    # --- Certain-duplicate vectors (C13.h) — real prod signal profiles ---
+
+    def test_same_title_same_day_ordered_attaches(self):
+        """MOTW profile: identical title + same day + perfect order but
+        overlap 0.78 < 0.80 (TrackID identified different subsets) → attach."""
+        signals = _signals(
+            overlap=0.778, title_sim=1.0, date_match=True, date_gap_days=1,
+            first_track_match=True, weighted_overlap=0.82, order_corr=1.0,
+            shared_count=7,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_same_title_near_perfect_order_attaches(self):
+        """Podcast 113 profile: overlap 0.73, order 0.976 → attach."""
+        signals = _signals(
+            overlap=0.727, title_sim=1.0, date_match=True, date_gap_days=0,
+            weighted_overlap=0.73, order_corr=0.976, shared_count=8,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_same_title_low_shared_count_does_not_attach(self):
+        """Two SHORT sets coinciding on a few tracks stay a human decision."""
+        signals = _signals(
+            overlap=0.75, title_sim=1.0, date_match=True, date_gap_days=0,
+            weighted_overlap=0.75, order_corr=1.0, shared_count=4,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_same_title_weak_order_does_not_attach(self):
+        signals = _signals(
+            overlap=0.75, title_sim=1.0, date_match=True, date_gap_days=0,
+            weighted_overlap=0.75, order_corr=0.70, shared_count=8,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_same_title_without_date_match_does_not_attach(self):
+        """Identical title alone (recurring show) is not enough without the date."""
+        signals = _signals(
+            overlap=0.75, title_sim=1.0, date_match=False, date_gap_days=None,
+            weighted_overlap=0.75, order_corr=1.0, shared_count=8,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_identical_tracklist_different_titles_attaches(self):
+        """FLOW 542 profile: overlap 1.0 + order 1.0 across different uploaders
+        (title_sim 0.4, upload dates 2 days apart) → attach, date-agnostic."""
+        signals = _signals(
+            overlap=1.0, title_sim=0.4, date_match=False, date_gap_days=2,
+            first_track_match=True, weighted_overlap=1.0, order_corr=1.0,
+            shared_count=10,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_identical_tracklist_low_shared_does_not_attach(self):
+        signals = _signals(
+            overlap=1.0, title_sim=0.4, date_gap_days=2,
+            weighted_overlap=1.0, order_corr=1.0, shared_count=5,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_identical_tracklist_divergent_title_dates_is_nothing(self):
+        """The hard separation guards still win over the certain vectors."""
+        signals = _signals(
+            overlap=1.0, title_sim=0.9, date_gap_days=2,
+            weighted_overlap=1.0, order_corr=1.0, shared_count=10,
+            title_dates_diverge=True,
+        )
+        verdict, flag_type = _verdict(signals)
+        assert verdict == MatchVerdict.NOTHING
+        assert flag_type is None
+
+    def test_identical_tracklist_divergent_event_dates_is_nothing(self):
+        signals = _signals(
+            overlap=1.0, title_sim=0.9, date_gap_days=5,
+            weighted_overlap=1.0, order_corr=1.0, shared_count=10,
+            both_event_reliable=True,
+        )
+        verdict, flag_type = _verdict(signals)
+        assert verdict == MatchVerdict.NOTHING
         assert flag_type is None
 
     def test_grey_zone_uncorroborated_is_nothing(self):
@@ -771,7 +865,35 @@ class TestEventDateHardRule:
 
     def test_played_date_only_gap_is_not_hard_nothing(self):
         """(d) Non-regression: with NO event_dates, a 14-day played gap keeps the
-        historical verdict (date guard → FLAG), not the new hard NOTHING."""
+        historical verdict (date guard → FLAG), not the new hard NOTHING.
+
+        The tracklists deliberately share only 10/12 tracks: a byte-identical
+        pair (overlap/order 1.0) is now attached date-agnostically by the
+        certain-duplicate vector (C13.h), which would bypass the demotion
+        under test here.
+        """
+        a = {
+            "normalized_title": "charlotte de witte @ awakenings",
+            "played_date": date(2024, 6, 1),
+            "identified_mtids": list(range(1, 13)),
+        }
+        b = {
+            "normalized_title": "charlotte de witte @ awakenings",
+            "played_date": date(2024, 6, 15),
+            "identified_mtids": list(range(1, 11)) + [100, 101],
+        }
+        signals = compute_signals(a, b, shared_count=10)
+        assert signals.both_event_reliable is False
+        assert signals.date_gap_days == 14
+        verdict, flag_type = decide_verdict(
+            signals, compute_confidence(signals), None, None
+        )
+        assert verdict == MatchVerdict.FLAG
+        assert flag_type == "duplicate_candidate"
+
+    def test_identical_tracklist_played_gap_attaches(self):
+        """A byte-identical ordered tracklist attaches DESPITE the played-date
+        gap (C13.h — upload dates are arbitrary, the recording is the same)."""
         a = {
             "normalized_title": "charlotte de witte @ awakenings",
             "played_date": date(2024, 6, 1),
@@ -783,13 +905,11 @@ class TestEventDateHardRule:
             "identified_mtids": list(range(1, 13)),
         }
         signals = compute_signals(a, b, shared_count=12)
-        assert signals.both_event_reliable is False
-        assert signals.date_gap_days == 14
         verdict, flag_type = decide_verdict(
             signals, compute_confidence(signals), None, None
         )
-        assert verdict == MatchVerdict.FLAG
-        assert flag_type == "duplicate_candidate"
+        assert verdict == MatchVerdict.AUTO_ATTACH
+        assert flag_type is None
 
 
 # ---------------------------------------------------------------------------

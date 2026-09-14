@@ -89,6 +89,9 @@ from dataclasses import dataclass
 from database import SessionLocal
 from models import DJSet, SetFlag, SetFlagStatus, SetFlagType
 from services.set_dedup_service import (
+    IDENTICAL_ATTACH_MIN_SHARED,
+    IDENTICAL_ATTACH_ORDER,
+    IDENTICAL_ATTACH_OVERLAP,
     MatchSignals,
     MatchVerdict,
     _levenshtein_ratio,
@@ -107,14 +110,10 @@ from utils import search_fold
 # the script only purges the obvious noise.
 DEFAULT_THRESHOLD = 0.30
 
-# Identical-tracklist auto-attach (opt-in --auto-attach): a pair whose recomputed
-# verdict is NOT AUTO_ATTACH but whose tracklist is byte-identical in the same order
-# is still a re-uploaded duplicate (two distinct gigs never share the exact same
-# ordered tracklist). Attach it regardless of the upload date. The shared-count floor
-# avoids attaching two SHORT sets that happen to coincide on a few tracks.
-IDENTICAL_ATTACH_OVERLAP = 0.95
-IDENTICAL_ATTACH_ORDER = 0.95
-IDENTICAL_ATTACH_MIN_SHARED = 6
+# Identical-tracklist auto-attach: thresholds now live in the service
+# (IDENTICAL_ATTACH_*, imported above) — decide_verdict applies the same vector
+# at the funnel since C13.h, so this script's explicit check is a backstop for
+# flags scored before that.
 
 # Near-duplicate title auto-attach (opt-in --auto-attach, V3): two uploads of the
 # SAME set on the SAME reliable date whose titles differ only in spelling
