@@ -823,10 +823,20 @@ async def enrich_beatport_batch(
 
     async def _enrich_one(entry):
         nonlocal enriched, not_found, errors, merged
+        # A row deleted mid-batch by a concurrent merge → any lazy attribute
+        # access on it raises ObjectDeletedError. Resolve the PK ONCE, up front,
+        # under guard: a benign per-entry race must never bubble out of the
+        # gather and fail the whole task (the logging handlers below reuse
+        # entry_id, so they never re-trigger the load on a dead row).
+        try:
+            entry_id = entry.id
+        except ObjectDeletedError:
+            errors += 1
+            return
         try:
             # M2M names when present (the displayed truth), else the flat column —
             # correct for inline-crawled rows whose M2M is empty.
-            match_artist = m2m_names.get(entry.id) or entry.artist
+            match_artist = m2m_names.get(entry_id) or entry.artist
             bp_track = await _search_beatport_async(
                 pool, entry.title, match_artist, entry.isrc, rcache=rcache
             )
@@ -855,10 +865,19 @@ async def enrich_beatport_batch(
             # beatport_searched_at unset so the entry is retried next drain — an
             # outage must not burn one of the 3 re-scan attempts (twin of the
             # Deezer guard above).
-            logger.warning("Beatport HTTP error for catalog %s: %s", entry.id, e)
+            logger.warning("Beatport HTTP error for catalog %s: %s", entry_id, e)
+            errors += 1
+        except ObjectDeletedError:
+            # The row was deleted mid-enrich by a concurrent merge (an attribute
+            # access raised after the PK was resolved). Nothing left to re-scan —
+            # count it and move on, but NEVER _mark_searched a row that no longer
+            # exists (marking an attempt on a deleted line is meaningless).
+            logger.warning(
+                "catalog %s deleted mid-enrich (concurrent merge), skipping", entry_id
+            )
             errors += 1
         except Exception as e:
-            logger.warning("Beatport enrich failed for catalog %s: %s", entry.id, e)
+            logger.warning("Beatport enrich failed for catalog %s: %s", entry_id, e)
             errors += 1
 
     # Process concurrently (rate limiter handles concurrency cap at 2)

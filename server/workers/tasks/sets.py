@@ -307,7 +307,7 @@ def _resolve_once(engine):
 
 
 def _run_resolve_set_tracks(task):
-    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.exc import IntegrityError, OperationalError
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
@@ -320,13 +320,22 @@ def _run_resolve_set_tracks(task):
         with CrawlLogger(
             log_session, task_type="resolve_set_tracks", celery_task_id=task.request.id
         ) as clog:
-            # A concurrent catalog merge can DELETE a loser catalog row between
-            # our bulk get-or-create snapshot and the commit, so the executemany
-            # UPDATE set_tracks.catalog_id can violate set_tracks_catalog_id_fkey
-            # (DIGGY-APP-4 / 1G). Re-resolve from a clean read: the failed
-            # Session is discarded, set_tracks stay NULL, and the next pass
-            # resolves against the post-merge canonical. Bounded so a persistent
-            # failure still propagates (unchanged behaviour then).
+            # Two transient failure modes from concurrent set_tracks/catalog
+            # writers (DIGGY-APP-4 / 1G / 1K), both healed by re-resolving from
+            # a clean read (the failed Session is discarded, set_tracks stay
+            # NULL, and the next pass resolves against the post-merge state):
+            # (1) a concurrent catalog merge can DELETE a loser catalog row
+            #     between our bulk get-or-create snapshot and the commit, so the
+            #     executemany UPDATE set_tracks.catalog_id violates
+            #     set_tracks_catalog_id_fkey (IntegrityError);
+            # (2) the same executemany can DEADLOCK (SQLSTATE 40P01,
+            #     OperationalError) against a concurrent set_tracks writer
+            #     (local hydration push / catalog-merge repoint) locking the
+            #     same rows in a crossed order — Postgres already rolled back
+            #     our transaction, so a fresh pass simply re-issues the work.
+            # Detection mirrors catalog._commit_with_deadlock_retry (driver-
+            # agnostic `err.orig.pgcode`, never a psycopg2 import). Bounded so a
+            # persistent failure still propagates (unchanged behaviour then).
             resolved = 0
             for attempt in range(1, RESOLVE_FK_MAX_RETRIES + 1):
                 try:
@@ -340,6 +349,20 @@ def _run_resolve_set_tracks(task):
                     logger.warning(
                         "resolve_set_tracks FK race (concurrent catalog merge), "
                         "retry %d/%d",
+                        attempt,
+                        RESOLVE_FK_MAX_RETRIES,
+                    )
+                    time.sleep(RESOLVE_FK_BACKOFF * attempt)
+                except OperationalError as err:
+                    # SQLSTATE 40P01 = deadlock_detected; anything else is not
+                    # retryable.
+                    if getattr(err.orig, "pgcode", None) != "40P01":
+                        raise
+                    if attempt == RESOLVE_FK_MAX_RETRIES:
+                        raise
+                    logger.warning(
+                        "resolve_set_tracks deadlock (40P01, concurrent "
+                        "set_tracks writer), retry %d/%d",
                         attempt,
                         RESOLVE_FK_MAX_RETRIES,
                     )

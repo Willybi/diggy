@@ -285,6 +285,97 @@ class TestBeatportBatchM2m:
         assert search.call_args.args[2] == "Solo Artist"
 
 
+# ── enrich_beatport_batch: a row deleted mid-batch (concurrent merge race) ────
+
+
+def _spy_mark_searched(monkeypatch):
+    """Record every entry passed to _mark_searched (then run the real one)."""
+    marked = []
+    real_mark = enrichment_mod._mark_searched
+
+    def _spy(entry, source, now):
+        marked.append(entry)
+        return real_mark(entry, source, now)
+
+    monkeypatch.setattr(enrichment_mod, "_mark_searched", _spy)
+    return marked
+
+
+class TestBeatportBatchObjectDeletedRace:
+    """Twin of TestDeezerBatchObjectDeletedRace for the Beatport batch (Sentry
+    DIGGY-APP-1H): a row deleted mid-batch by a concurrent merge must be a
+    contained per-entry error — the old handler read ``entry.id``, which
+    re-triggered the lazy load on the dead row and re-raised OUT of the gather,
+    failing the whole task."""
+
+    async def test_deleted_before_pk_resolved_is_guarded(
+        self, sync_session, monkeypatch
+    ):
+        """Even the PK access raises (row gone before _enrich_one resolves it):
+        the up-front guard contains it (errors += 1, no raise), the healthy
+        sibling is still processed, and _mark_searched never runs on the dead
+        row (invariant E1)."""
+        search = AsyncMock(return_value=None)
+        monkeypatch.setattr(enrichment_mod, "_search_beatport_async", search)
+        monkeypatch.setattr(enrichment_mod, "_get_redis", lambda: None)
+        marked = _spy_mark_searched(monkeypatch)
+
+        healthy = _make_row(sync_session, "Healthy", "Solo Artist")
+        doomed = _make_row(sync_session, "Doomed", "Gone")
+        # Full expire → even .id reloads → ObjectDeletedError on the guard line.
+        _delete_row_keep_persistent(sync_session, doomed, None)
+
+        with pytest.raises(ObjectDeletedError):
+            _ = doomed.id
+
+        stats = await enrich_beatport_batch(
+            sync_session, [doomed, healthy], MagicMock(), None
+        )
+
+        # The batch did NOT raise; the doomed row is a single contained error.
+        assert stats == {"enriched": 0, "not_found": 1, "errors": 1, "merged": 0}
+        # The healthy sibling was still processed (searched → marked)...
+        assert search.call_count == 1
+        assert isinstance(healthy.beatport_searched_at, datetime)
+        # ...and the dead row was never marked as searched.
+        assert marked == [healthy]
+
+    async def test_deleted_after_pk_resolved_hits_dedicated_branch(
+        self, sync_session, monkeypatch
+    ):
+        """The row dies AFTER the PK guard (.artist raises mid-enrich): the
+        dedicated ObjectDeletedError branch counts one error without re-raising,
+        and the dead row is never _mark_searched."""
+        search = AsyncMock(return_value=None)
+        monkeypatch.setattr(enrichment_mod, "_search_beatport_async", search)
+        monkeypatch.setattr(enrichment_mod, "_get_redis", lambda: None)
+        marked = _spy_mark_searched(monkeypatch)
+
+        healthy = _make_row(sync_session, "Healthy", "Solo Artist")
+        doomed = _make_row(sync_session, "Doomed", "Gone")
+        doomed_id = doomed.id
+        # PK stays readable; title/artist/isrc now raise on access.
+        _delete_row_keep_persistent(sync_session, doomed, ["title", "artist", "isrc"])
+
+        # Precondition: .id readable, .artist raises — the PK guard passes, the
+        # match_artist line then raises into the dedicated branch.
+        assert doomed.id == doomed_id
+        with pytest.raises(ObjectDeletedError):
+            _ = doomed.artist
+
+        stats = await enrich_beatport_batch(
+            sync_session, [doomed, healthy], MagicMock(), None
+        )
+
+        assert stats == {"enriched": 0, "not_found": 1, "errors": 1, "merged": 0}
+        # The searcher was reached ONLY for the healthy entry (doomed raised
+        # before its search call), with its real artist.
+        assert search.call_count == 1
+        assert search.call_args.args[2] == "Solo Artist"
+        assert isinstance(healthy.beatport_searched_at, datetime)
+        assert marked == [healthy]
+
+
 # ── _load_m2m_artist_names: a row deleted mid-batch (concurrent merge race) ────
 
 

@@ -274,6 +274,99 @@ class TestListArtists:
         assert by_name["Fol"]["following"] is True
         assert by_name["Plain"]["following"] is False
 
+    async def test_family_filter_keeps_only_matching_pillar(self, db, auth_user, monkeypatch):
+        from models import Artist, CatalogArtist, CatalogEntry
+        from services import genre_service
+
+        # Seed the module-global pillar cache directly (the genre graph tables
+        # are empty in the harness, so every genre would fall back to "autres");
+        # monkeypatch.setitem auto-undoes after the test.
+        monkeypatch.setitem(genre_service._PILLAR_CACHE, "house", ("house", 1))
+        monkeypatch.setitem(genre_service._PILLAR_CACHE, "techno", ("techno", 1))
+
+        housey = Artist(name="Housey", normalized_name="housey")
+        technoid = Artist(name="Technoid", normalized_name="technoid")
+        db.add_all([housey, technoid])
+        await db.flush()
+        for artist, genre in ((housey, "house"), (technoid, "techno")):
+            cat = CatalogEntry(
+                title=f"T{artist.id}", artist=artist.name,
+                normalized_key=f"nk-{artist.id}", genres=[genre],
+            )
+            db.add(cat)
+            await db.flush()
+            db.add(
+                CatalogArtist(catalog_id=cat.id, artist_id=artist.id, role="primary", position=0)
+            )
+        await db.commit()
+
+        result = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family="house", q=None,
+            no_deezer=False, ids=None, limit=20, offset=0
+        )
+        assert result["total"] == 1
+        assert [i["name"] for i in result["items"]] == ["Housey"]
+
+    async def test_family_with_no_artist_returns_empty(self, db, auth_user):
+        # Empty pillar cache → every artist lands in "autres"; asking for a
+        # pillar nobody holds exercises the empty filtered_ids path of
+        # _big_id_filter (empty IN on SQLite / ANY('{}') on PG — both empty).
+        from models import Artist, CatalogArtist, CatalogEntry
+
+        a = Artist(name="Lone", normalized_name="lone")
+        db.add(a)
+        await db.flush()
+        cat = CatalogEntry(title="T", artist="Lone", normalized_key="t - lone", genres=["house"])
+        db.add(cat)
+        await db.flush()
+        db.add(CatalogArtist(catalog_id=cat.id, artist_id=a.id, role="primary", position=0))
+        await db.commit()
+
+        result = await artist_service.list_artists(
+            db, auth_user.id, sort="name", family="trance", q=None,
+            no_deezer=False, ids=None, limit=20, offset=0
+        )
+        assert result["total"] == 0
+        assert result["items"] == []
+
+
+class TestBigIdFilter:
+    """_big_id_filter: the family filter's guard against asyncpg's 32767
+    bind-param cap (DIGGY-APP-Q) — one ANY(array) param on PG, plain IN on
+    SQLite."""
+
+    def test_postgresql_binds_single_array_param(self):
+        from models import Artist
+        from sqlalchemy.dialects import postgresql
+
+        cond = artist_service._big_id_filter(Artist.id, {3, 1, 2}, "postgresql")
+        compiled = cond.compile(dialect=postgresql.dialect())
+        assert "ANY" in str(compiled)
+        # ONE bind param carrying the whole (sorted) set as an array — never
+        # one param per id.
+        assert len(compiled.params) == 1
+        (value,) = compiled.params.values()
+        assert value == [1, 2, 3]
+
+    def test_postgresql_empty_set_binds_empty_array(self):
+        from models import Artist
+        from sqlalchemy.dialects import postgresql
+
+        cond = artist_service._big_id_filter(Artist.id, set(), "postgresql")
+        compiled = cond.compile(dialect=postgresql.dialect())
+        assert "ANY" in str(compiled)
+        (value,) = compiled.params.values()
+        assert value == []
+
+    def test_sqlite_falls_back_to_plain_in(self):
+        from models import Artist
+        from sqlalchemy.dialects import sqlite
+
+        cond = artist_service._big_id_filter(Artist.id, {1, 2, 3}, "sqlite")
+        compiled = cond.compile(dialect=sqlite.dialect())
+        assert "IN" in str(compiled)
+        assert "ANY" not in str(compiled)
+
 
 class TestGetDetail:
     async def test_raises_lookup_error_for_missing_artist(self, db):

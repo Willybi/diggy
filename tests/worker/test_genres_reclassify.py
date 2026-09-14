@@ -342,6 +342,91 @@ class TestReclassifyItemTimeout:
         assert sync_session.get(CatalogEntry, fast.id).genres == ["Techno"]
 
 
+class TestReclassifyExpiredEntryHandlerLog:
+    """DIGGY-APP-1A: the per-source handlers must log the PRE-RESOLVED entry_id,
+    never ``entry.id`` — the per-50 commits expire every ORM attribute, so an
+    ``entry.id`` inside an ``except`` block triggers a DB reload that can
+    re-raise FROM THE HANDLER (e.g. over a dropped PG connection) and kill the
+    whole task (a one-off PG cut on 2026-08-19 escalated exactly this way)."""
+
+    def test_expired_entry_in_handler_uses_preresolved_id_and_continues(
+        self, monkeypatch, sync_engine
+    ):
+        import httpx
+
+        class _ExpiringEntry:
+            """ORM-row stand-in whose reload path is broken: ``.id`` reads fine
+            while fresh, then raises once ``expired`` flips — the shape of an
+            expired instance over a dead DB connection."""
+
+            def __init__(self, id_, title):
+                self._id = id_
+                self.title = title
+                self.artist = "Artist"
+                self.isrc = None
+                self.deezer_id = None
+                self.genres = ["Old Genre"]
+                self.expired = False
+
+            @property
+            def id(self):
+                if self.expired:
+                    raise RuntimeError("reload failed: DB connection is down")
+                return self._id
+
+        doomed = _ExpiringEntry(1, "Doomed")
+        healthy = _ExpiringEntry(2, "Healthy")
+        entries = [doomed, healthy]
+
+        class _FakeSession:
+            """Minimal Session stand-in serving the stub entries. The instance
+            is its own factory so it can be patched over the Session class."""
+
+            def __call__(self, *args, **kwargs):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def execute(self, stmt):
+                result = MagicMock()
+                result.scalars.return_value.all.return_value = entries
+                return result
+
+            def commit(self):
+                pass
+
+        monkeypatch.setattr(workers_db, "get_engine", lambda: sync_engine)
+        # The task does `from sqlalchemy.orm import Session` at call time, so
+        # patching the sqlalchemy.orm attribute swaps the class it constructs.
+        monkeypatch.setattr("sqlalchemy.orm.Session", _FakeSession())
+
+        async def _beatport(pool, title, artist, isrc, rcache=None):
+            if title == "Doomed":
+                # The source call dies AND takes the DB connection with it:
+                # any later `.id` access on the entry now re-raises.
+                doomed.expired = True
+                raise RuntimeError("beatport down, connection lost")
+            return {"genre": {"name": "Techno"}}
+
+        monkeypatch.setattr(workers.enrichment, "_search_beatport_async", _beatport)
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient())
+
+        stats = genres_tasks.reclassify_genres_chunk(MagicMock(), [1, 2], 0)
+
+        # The handler logged the pre-resolved id → the loop survived and moved
+        # on to the healthy entry instead of failing the whole task.
+        assert stats["errors"] == 1
+        assert stats["beatport"] == 1
+        assert stats["cleared"] == 0
+        # source-error semantics preserved: the doomed entry's genres are kept
+        assert doomed.genres == ["Old Genre"]
+        assert healthy.genres == ["Techno"]
+
+
 class TestReclassifySoftLimit:
     """AV8-02: SoftTimeLimitExceeded ends the chunk cleanly with partial stats
     (does not propagate → acks_late would otherwise crash-loop the chunk)."""

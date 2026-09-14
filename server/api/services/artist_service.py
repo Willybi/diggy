@@ -9,7 +9,19 @@ import logging
 from collections import defaultdict
 
 import httpx
-from sqlalchemy import func, insert, literal, or_, select, text, update
+from sqlalchemy import (
+    Integer,
+    any_,
+    bindparam,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    text,
+    update,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -65,6 +77,25 @@ def _name_is_splittable(col):
         lower.like("%(w %"),
         lower.like("%(w.%"),
     )
+
+
+def _big_id_filter(col, ids, dialect_name: str):
+    """``col IN ids`` without hitting asyncpg's 32767 bind-parameter cap.
+
+    On PostgreSQL the whole id set binds as ONE array parameter
+    (``col = ANY($1::int[])``); on SQLite (test harness) a plain ``IN`` — that
+    DBAPI has no such cap and no ``ANY(array)``. Only for id sets materialized
+    in Python by construction (e.g. the family filter, whose pillar is computed
+    Python-side); a filter derivable in SQL should stay a SELECT subquery
+    instead (see the "bind-param cap" comments above). ``sorted`` for a
+    deterministic parameter value; an empty set stays empty on both paths
+    (``ANY('{}')`` / empty ``IN``).
+    """
+    if dialect_name == "postgresql":
+        return col == any_(
+            bindparam(None, value=sorted(ids), type_=ARRAY(Integer), unique=True)
+        )
+    return col.in_(ids)
 
 
 def _name_is_remix_noise(col):
@@ -398,7 +429,14 @@ async def list_artists(
 
     if family and family in ALL_PILLARS:
         filtered_ids = {aid for aid, pil in pillar_by_id.items() if pil == family}
-        base_query = base_query.where(Artist.id.in_(filtered_ids))
+        # This id set is materialized by construction (the pillar is computed
+        # in Python from the dominant genre), so unlike the filters above it
+        # cannot become a SQL subquery. A plain IN of the full set blew
+        # asyncpg's 32767 bind-param cap (~30k+ ids → InterfaceError,
+        # DIGGY-APP-Q); bind it as one array param on PG instead.
+        base_query = base_query.where(
+            _big_id_filter(Artist.id, filtered_ids, db.get_bind().dialect.name)
+        )
 
     # Artist.id is the final tiebreaker on EVERY branch: without a total order,
     # ex-aequo rows (very common — many artists share a track count) can be

@@ -1,12 +1,15 @@
-"""DIGGY-APP-4 / 1G — resolve_set_tracks must survive a concurrent catalog merge.
+"""DIGGY-APP-4 / 1G / 1K — resolve_set_tracks must survive concurrent writers.
 
 A parallel merge_catalog_entries (enrichment dedup) can DELETE a loser catalog
 row between resolve_set_tracks' bulk get-or-create snapshot and the final commit,
 so the executemany `UPDATE set_tracks SET catalog_id=...` violates the
-`set_tracks_catalog_id_fkey` constraint and the whole batch is DLQ'd. The task
-now re-resolves from a clean read a bounded number of times ON THAT FK VIOLATION
-ONLY (twin of catalog._commit_with_deadlock_retry); any other IntegrityError is
-re-raised at once, and a persistent FK race eventually propagates.
+`set_tracks_catalog_id_fkey` constraint and the whole batch is DLQ'd. The same
+executemany can also DEADLOCK (SQLSTATE 40P01, OperationalError) against a
+concurrent set_tracks writer (local hydration push / catalog-merge repoint). The
+task re-resolves from a clean read a bounded number of times ON THOSE TWO
+FAILURES ONLY (twin of catalog._commit_with_deadlock_retry); any other
+IntegrityError/OperationalError is re-raised at once, and a persistent race
+eventually propagates.
 
 _resolve_once is mocked so the retry loop is tested in isolation (no Docker/DB).
 """
@@ -15,7 +18,7 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 # Path so the workers package is importable in tests
 _SERVER_PATH = os.path.join(os.path.dirname(__file__), "../../server")
@@ -49,6 +52,21 @@ def _other_integrity_error():
     """A different IntegrityError (e.g. a unique violation) — not retryable."""
     orig = Exception('duplicate key value violates unique constraint "uq_foo"')
     return IntegrityError("INSERT INTO foo ...", {}, orig)
+
+
+def _deadlock_error():
+    """An OperationalError whose driver `orig` carries SQLSTATE 40P01."""
+    orig = Exception("deadlock detected")
+    orig.pgcode = "40P01"
+    return OperationalError("UPDATE set_tracks SET catalog_id=...", {}, orig)
+
+
+def _other_operational_error(pgcode=None):
+    """A non-deadlock OperationalError (different or absent pgcode) — not retryable."""
+    orig = Exception("could not connect to server")
+    if pgcode is not None:
+        orig.pgcode = pgcode
+    return OperationalError("UPDATE set_tracks SET catalog_id=...", {}, orig)
 
 
 class _FakeSession:
@@ -127,6 +145,43 @@ def test_persistent_fk_race_propagates_after_bound(monkeypatch):
     monkeypatch.setattr(sets_task, "_resolve_once", resolve)
 
     with pytest.raises(IntegrityError):
+        sets_task._run_resolve_set_tracks(_task())
+
+    assert resolve.call_count == sets_task.RESOLVE_FK_MAX_RETRIES
+
+
+def test_retries_then_succeeds_after_deadlock(monkeypatch):
+    """(d) a 40P01 deadlock once, then a clean pass → retried, correct count returned."""
+    resolve = MagicMock(side_effect=[_deadlock_error(), 5])
+    monkeypatch.setattr(sets_task, "_resolve_once", resolve)
+
+    result = sets_task._run_resolve_set_tracks(_task())
+
+    assert result == {"resolved": 5}
+    assert resolve.call_count == 2
+
+
+@pytest.mark.parametrize("error", [_other_operational_error("57014"),
+                                   _other_operational_error()])
+def test_non_deadlock_operational_error_reraised_immediately(monkeypatch, error):
+    """(e) an OperationalError with a different/absent pgcode propagates at once."""
+    resolve = MagicMock(side_effect=error)
+    monkeypatch.setattr(sets_task, "_resolve_once", resolve)
+
+    with pytest.raises(OperationalError):
+        sets_task._run_resolve_set_tracks(_task())
+
+    assert resolve.call_count == 1  # no retry on a non-deadlock OperationalError
+
+
+def test_persistent_deadlock_propagates_after_bound(monkeypatch):
+    """(f) a deadlock on every attempt eventually propagates (bound respected)."""
+    resolve = MagicMock(
+        side_effect=[_deadlock_error() for _ in range(sets_task.RESOLVE_FK_MAX_RETRIES)]
+    )
+    monkeypatch.setattr(sets_task, "_resolve_once", resolve)
+
+    with pytest.raises(OperationalError):
         sets_task._run_resolve_set_tracks(_task())
 
     assert resolve.call_count == sets_task.RESOLVE_FK_MAX_RETRIES

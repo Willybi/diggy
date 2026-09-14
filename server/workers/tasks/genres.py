@@ -137,10 +137,16 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
                     .scalars()
                     .all()
                 )
+                # Resolve PKs ONCE while the objects are fresh (straight off the
+                # SELECT, nothing expired yet): the per-50 commits below expire
+                # every attribute, so a later ``entry.id`` inside an exception
+                # handler would lazy-load from the DB and re-raise from the
+                # handler (e.g. a dropped PG connection), killing the whole task.
+                entry_ids = [e.id for e in entries]
 
                 async with httpx.AsyncClient(timeout=10) as dz_client:
 
-                    async def _process_one(entry):
+                    async def _process_one(entry, entry_id):
                         """Classify one entry (Beatport → Deezer fallback).
 
                         Mutates ``entry.genres`` + ``stats`` in place and returns
@@ -175,8 +181,11 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
                                         stats["beatport"] += 1
                                         found = True
                         except Exception as e:
+                            # entry_id (pre-resolved) — never entry.id from a
+                            # handler: on an expired object it reloads from the
+                            # DB and can re-raise from here.
                             logger.warning(
-                                "Beatport genre failed for catalog %s: %s", entry.id, e
+                                "Beatport genre failed for catalog %s: %s", entry_id, e
                             )
                             stats["errors"] += 1
                             source_error = True
@@ -207,7 +216,7 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
                             except Exception as e:
                                 logger.warning(
                                     "Deezer genre failed for catalog %s: %s",
-                                    entry.id,
+                                    entry_id,
                                     e,
                                 )
                                 stats["errors"] += 1
@@ -215,10 +224,10 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
 
                         return found, source_error
 
-                    for i, entry in enumerate(entries):
+                    for i, (entry, entry_id) in enumerate(zip(entries, entry_ids)):
                         try:
                             found, source_error = await asyncio.wait_for(
-                                _process_one(entry),
+                                _process_one(entry, entry_id),
                                 timeout=RECLASSIFY_ITEM_TIMEOUT,
                             )
                         except asyncio.TimeoutError:
@@ -229,7 +238,7 @@ def reclassify_genres_chunk(self, catalog_ids: list[int], chunk_index: int = 0):
                             logger.warning(
                                 "Reclassify item timed out (>%ss) for catalog %s",
                                 RECLASSIFY_ITEM_TIMEOUT,
-                                entry.id,
+                                entry_id,
                             )
                             stats["errors"] += 1
                             found, source_error = False, True
