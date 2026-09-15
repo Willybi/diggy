@@ -89,6 +89,7 @@ from dataclasses import dataclass
 from database import SessionLocal
 from models import DJSet, SetFlag, SetFlagStatus, SetFlagType
 from services.set_dedup_service import (
+    _RE_TITLE_DATE,
     IDENTICAL_ATTACH_MIN_SHARED,
     IDENTICAL_ATTACH_ORDER,
     IDENTICAL_ATTACH_OVERLAP,
@@ -151,7 +152,10 @@ _EPISODE_KEYWORD_RE = re.compile(
     rf"\b(?:{_EPISODE_KEYWORDS})\b\s*\.?\s*#?\s*(\d+)", re.IGNORECASE
 )
 _EPISODE_HASH_RE = re.compile(r"#\s*(\d+)")
-_EPISODE_TRAILING_RE = re.compile(r"(\d+)\s*$")
+# A trailing number GLUED to a letter is not an episode number: "….mp3" read
+# "3", "LL257" read "257" (bit prod flag 612 — 257 vs 3 → false divergence on a
+# true Loveland duplicate). Abstention over guess.
+_EPISODE_TRAILING_RE = re.compile(r"(?<![A-Za-z0-9])(\d+)\s*$")
 # Part markers (part 2, pt. 3, p1) are handled by the group path, NOT here → abstain.
 _PART_MARKER_RE = re.compile(r"\b(?:part|pt|p)\s*\.?\s*\d+\b", re.IGNORECASE)
 
@@ -182,6 +186,11 @@ def _episode_number(title: str | None) -> tuple[str, int] | None:
     # Parts are a different relationship (handled by the group flag path).
     if _PART_MARKER_RE.search(title):
         return None
+    # Mask FULL dates before any extraction: a title ending in a date
+    # ("… FLOW 542 2024-02-25") would otherwise read its DAY component as a
+    # trailing episode number (bit prod flag 940: 542 vs 25 → false episode
+    # divergence → a true duplicate auto-rejected).
+    cleaned = _RE_TITLE_DATE.sub(" ", title)
     # Keyword-anchored number first (most reliable), then a bare "#N" (both
     # "marker"), then a trailing standalone number ("trailing"). Years are
     # excluded at every step.
@@ -190,7 +199,7 @@ def _episode_number(title: str | None) -> tuple[str, int] | None:
         (_EPISODE_HASH_RE, "marker"),
         (_EPISODE_TRAILING_RE, "trailing"),
     ):
-        for m in regex.finditer(title):
+        for m in regex.finditer(cleaned):
             n = int(m.group(1))
             if not _is_year(n):
                 return (kind, n)

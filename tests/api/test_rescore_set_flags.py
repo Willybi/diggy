@@ -717,8 +717,18 @@ class TestEpisodeNumber:
             ("Global DJ Broadcast Vol. 71", ("marker", 71)),
             ("Anjunadeep Edition #676", ("marker", 676)),
             ("Transitions Episode 512", ("marker", 512)),
-            ("KISS Dance 2024-08-11", ("trailing", 11)),  # bare trailing (date)
+            # Full dates are MASKED before extraction: a trailing date is not
+            # an episode number (its day component read as one falsely
+            # episode-rejected a true duplicate — prod flag 940, FLOW 542).
+            ("KISS Dance 2024-08-11", None),
+            ("Andrei Mor - Franky Rizardo - FLOW 542 2024-02-25", ("trailing", 542)),
+            ("Franky Rizardo presents FLOW Radioshow 542", ("trailing", 542)),
             ("Group Therapy 500", ("trailing", 500)),  # bare trailing number
+            # A trailing number glued to a letter is NOT an episode number
+            # (".mp3" read as 3 falsely episode-rejected a true duplicate —
+            # prod flag 612, Loveland 2024).
+            ("Dave Clarke - Loveland 2024 (Amsterdam) (1).mp3", None),
+            ("DAVE CLARKE | Loveland Festival 2024 | LL257", None),
             ("Awakenings ADE 2024", None),  # 4-digit year, not an episode
             ("Boiler Room London Part 2", None),  # part marker → group path
             ("Live at Tomorrowland pt. 3", None),  # part marker
