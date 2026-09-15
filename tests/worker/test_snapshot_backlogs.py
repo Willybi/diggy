@@ -62,6 +62,8 @@ from models import (  # noqa: E402
     MODEL_VERSION,
     Album,
     Artist,
+    CatalogAlbum,
+    CatalogArtist,
     CatalogEntry,
     CrawlLog,
     DJSet,
@@ -185,6 +187,8 @@ class TestSnapshotBacklogs:
             "catalog",
             "albums",
             "embeddings",
+            "integrity",
+            "coverage",
         }
         assert set(payload["enrich"]) == {"deezer", "beatport"}
         assert set(payload["enrich"]["deezer"]) == {
@@ -216,6 +220,34 @@ class TestSnapshotBacklogs:
         assert payload["albums"]["missing_meta"] == 1
         assert payload["albums"]["total"] == 2
         assert all(isinstance(payload["albums"][k], int) for k in payload["albums"])
+        # Observabilité L1: integrity + coverage additive blocks. The enriched
+        # rows (Preview/Preview2) carry no M2M link at all → no name to diverge
+        # from; all three rows have a flat artist but no catalog_artists row.
+        assert payload["integrity"] == {
+            "artist_divergence": 0,
+            "missing_m2m_link": 3,
+        }
+        cov = payload["coverage"]
+        assert cov["total"] == 3
+        assert cov["deezer"] == {"linked": 2, "abandoned": 0}
+        assert cov["beatport"] == {"linked": 0, "abandoned": 0}
+        assert cov["bpm"] == {"unknown": 1}  # Preview2 has a bpm, no bpm_source
+        assert cov["key"] == {}
+        assert cov["preview"] == {"covered": 2}
+        assert cov["artwork"] == {"covered": 0}
+        assert cov["genres"] == {"covered": 0}
+        assert cov["embedding"] == {"covered": 1}
+        assert cov["artist_link"] == {"covered": 0}
+        assert cov["album"] == {"covered": 0}
+        # 8-dim histogram: Track = 0 dims, Preview = deezer+embedding,
+        # Preview2 = deezer+bpm → one row at 0, two rows at 2.
+        assert cov["completeness"]["0"] == 1
+        assert cov["completeness"]["2"] == 2
+        assert sum(cov["completeness"].values()) == 3
+        # Every seeded row is incomplete → one combo per distinct flag pattern.
+        assert len(cov["top_combos"]) == 3
+        assert all(set(c) == {"dims", "count"} for c in cov["top_combos"])
+        assert sum(c["count"] for c in cov["top_combos"]) == 3
 
     def test_runs_on_empty_db(self, monitoring_task, fake_self):
         result = monitoring_task.mod.snapshot_backlogs(fake_self)
@@ -226,10 +258,193 @@ class TestSnapshotBacklogs:
         assert result["catalog"]["bpm_missing"] == 0
         assert result["enrich"]["deezer"]["total_missing"] == 0
         assert result["embeddings"] == {"covered": 0, "eligible": 0, "missing": 0}
+        # Observabilité L1: empty DB → zeros, empty maps/lists, no exception.
+        assert result["integrity"] == {
+            "artist_divergence": 0,
+            "missing_m2m_link": 0,
+        }
+        cov = result["coverage"]
+        assert cov["total"] == 0
+        assert cov["deezer"] == {"linked": 0, "abandoned": 0}
+        assert cov["bpm"] == {}
+        assert cov["key"] == {}
+        assert cov["top_combos"] == []
+        assert set(cov["completeness"]) == {str(i) for i in range(9)}
+        assert sum(cov["completeness"].values()) == 0
 
     def test_task_has_no_autoretry(self, monitoring_task):
         # Loop-safe: a transient DB blip is retried next hour, never re-looped.
         assert monitoring_task.mod.snapshot_backlogs.autoretry_for == ()
+
+
+class TestIntegrityBlock:
+    """Observabilité L1: X4 integrity counters, snapshotted hourly (the sync
+    twin of the late monitoring_service.get_integrity_counters, removed in L3 —
+    the API now reads these from the snapshot payload).
+
+    A frank divergence = enriched row whose folded flat artist and folded first
+    M2M name (min position) do not contain each other; an accent-only or
+    containment difference is NOT a divergence.
+    """
+
+    def test_divergence_fold_and_first_position(self, monitoring_task):
+        engine = monitoring_task.engine
+        with Session(engine) as s:
+            radiohead = Artist(name="Radiohead", normalized_name="radiohead")
+            beyonce = Artist(name="Beyonce", normalized_name="beyonce")
+            first_act = Artist(name="First Act", normalized_name="first act")
+            zed = Artist(name="Zed", normalized_name="zed")
+            diverge = CatalogEntry(
+                title="T1",
+                artist="Björk",
+                normalized_key="t1 - bjork",
+                deezer_id="dz1",
+            )
+            accent_twin = CatalogEntry(
+                title="T2",
+                artist="Beyoncé",
+                normalized_key="t2 - beyonce",
+                deezer_id="dz2",
+            )
+            multi = CatalogEntry(
+                title="T3",
+                artist="First Act",
+                normalized_key="t3 - first act",
+                beatport_id="bp3",
+            )
+            unlinked = CatalogEntry(
+                title="T4", artist="Solo", normalized_key="t4 - solo"
+            )
+            s.add_all(
+                [radiohead, beyonce, first_act, zed, diverge, accent_twin,
+                 multi, unlinked]
+            )
+            s.flush()
+            # diverge: folded "bjork" vs "radiohead" → mutual non-containment.
+            s.add(CatalogArtist(catalog_id=diverge.id, artist_id=radiohead.id))
+            # accent_twin: differs under lower() but folds equal → no divergence.
+            s.add(CatalogArtist(catalog_id=accent_twin.id, artist_id=beyonce.id))
+            # multi: the MIN-position name ("First Act") matches the flat one; a
+            # wrong ordering would pick "Zed" and wrongly count a divergence.
+            s.add(
+                CatalogArtist(catalog_id=multi.id, artist_id=zed.id, position=1)
+            )
+            s.add(
+                CatalogArtist(
+                    catalog_id=multi.id, artist_id=first_act.id, position=0
+                )
+            )
+            s.commit()
+
+        payload = monitoring_task.mod._run_snapshot_backlogs()
+
+        # Only `diverge` counts; `unlinked` is the only row with a flat artist
+        # and no catalog_artists link at all.
+        assert payload["integrity"] == {
+            "artist_divergence": 1,
+            "missing_m2m_link": 1,
+        }
+
+
+class TestCoverageBlock:
+    """Observabilité L1: per-dimension coverage + 8-dim completeness matrix."""
+
+    def test_dimensions_histogram_and_combos(self, monitoring_task):
+        engine = monitoring_task.engine
+        with Session(engine) as s:
+            linker = Artist(name="Linker", normalized_name="linker")
+            album = Album(title="Full album", deezer_album_id="alb-1")
+            full = CatalogEntry(
+                title="Full",
+                artist="Linker",
+                normalized_key="full - linker",
+                deezer_id="dz-full",
+                beatport_id="bp-full",
+                bpm=128,
+                bpm_source="beatport",
+                key="8A",
+                key_source="beatport",
+                genres=["Techno"],
+                has_artwork=True,
+                has_preview=True,
+            )
+            partial = CatalogEntry(
+                title="Partial",
+                artist="P",
+                normalized_key="partial - p",
+                deezer_id="dz-part",
+                bpm=120,  # bpm present, bpm_source NULL → "unknown" bucket
+            )
+            empty = CatalogEntry(
+                title="Empty", artist="E", normalized_key="empty - e"
+            )
+            sentinel = CatalogEntry(
+                title="Sentinel",
+                artist="S",
+                normalized_key="sentinel - s",
+                deezer_id="NOT_FOUND",  # sentinel ≠ linked for coverage
+            )
+            s.add_all([linker, album, full, partial, empty, sentinel])
+            s.flush()
+            s.add(CatalogArtist(catalog_id=full.id, artist_id=linker.id))
+            s.add(CatalogAlbum(catalog_id=full.id, album_id=album.id))
+            s.add(
+                TrackEmbedding(
+                    catalog_id=full.id,
+                    model_name=MODEL_NAME,
+                    model_version=MODEL_VERSION,
+                    embedding=[0.0] * EMBEDDING_DIM,
+                )
+            )
+            # Wrong model version → must NOT count as embedding coverage.
+            s.add(
+                TrackEmbedding(
+                    catalog_id=empty.id,
+                    model_name=MODEL_NAME,
+                    model_version="other-version",
+                    embedding=[0.0] * EMBEDDING_DIM,
+                )
+            )
+            s.commit()
+
+        payload = monitoring_task.mod._run_snapshot_backlogs()
+
+        cov = payload["coverage"]
+        assert cov["total"] == 4
+        assert cov["deezer"]["linked"] == 2  # full + partial, sentinel excluded
+        assert cov["beatport"]["linked"] == 1
+        assert cov["bpm"] == {"beatport": 1, "unknown": 1}
+        assert cov["key"] == {"beatport": 1}
+        assert cov["preview"] == {"covered": 1}
+        assert cov["artwork"] == {"covered": 1}
+        assert cov["genres"] == {"covered": 1}
+        assert cov["embedding"] == {"covered": 1}  # frozen model only
+        assert cov["artist_link"] == {"covered": 1}
+        assert cov["album"] == {"covered": 1}
+        # full = 8/8, partial = deezer+bpm = 2, empty + sentinel = 0.
+        assert cov["completeness"]["8"] == 1
+        assert cov["completeness"]["2"] == 1
+        assert cov["completeness"]["0"] == 2
+        assert sum(cov["completeness"].values()) == 4
+        # top_combos: INCOMPLETE rows only, count desc — the two 0-dim rows
+        # group together and rank first; the complete row never appears.
+        assert len(cov["top_combos"]) == 2
+        first, second = cov["top_combos"]
+        assert first["count"] == 2
+        assert not any(first["dims"].values())
+        assert second["count"] == 1
+        assert second["dims"]["deezer"] is True
+        assert second["dims"]["bpm"] is True
+        assert set(first["dims"]) == {
+            "deezer", "beatport", "bpm", "key", "genres", "artwork",
+            "embedding", "artist_link",
+        }
+        # JSON-serialisable payload: str keys, int/bool leaves.
+        assert all(isinstance(k, str) for k in cov["bpm"])
+        assert all(
+            isinstance(v, bool) for c in cov["top_combos"]
+            for v in c["dims"].values()
+        )
 
 
 class TestFluxBudgetAlert:

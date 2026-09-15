@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Literal
 
 import httpx
@@ -29,6 +29,7 @@ from schemas import (
     FlagManualIn,
     LinkDeezerResponse,
     MonitoringResponse,
+    MonitoringSeriesResponse,
     NoDeezerResponse,
     OkResponse,
     ResetBeatportResponse,
@@ -615,19 +616,37 @@ async def get_crawl_logs(
 
 @router.get("/monitoring", response_model=MonitoringResponse)
 async def get_monitoring(
-    days: int = Query(14, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
     _admin=Depends(require_admin),
 ):
-    """Backlog time-series (metric_snapshots) + throughput/error/duration history
-    (crawl_logs) + current status. Thin router — all work in monitoring_service."""
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    """Instant monitoring status: latest run per task + latest backlog snapshot.
+
+    The time-series moved to GET /admin/monitoring/series (L3 split — the status
+    is cheap and always fresh, the series are heavy and cacheable). ``integrity``
+    is read from the latest snapshot payload (computed hourly by
+    snapshot_backlogs since L1, no longer recomputed per display) — None until a
+    post-deploy snapshot carries the key. Thin router — work in monitoring_service.
+    """
+    status = await monitoring_service.get_current_status(db)
+    snapshot = status.get("latest_snapshot") or {}
     return {
-        "backlog_series": await monitoring_service.get_backlog_series(db, since),
-        "throughput_series": await monitoring_service.get_throughput_series(db, since),
-        "status": await monitoring_service.get_current_status(db),
-        "integrity": await monitoring_service.get_integrity_counters(db),
+        "status": status,
+        "integrity": (snapshot.get("payload") or {}).get("integrity"),
     }
+
+
+@router.get("/monitoring/series", response_model=MonitoringSeriesResponse)
+async def get_monitoring_series(
+    days: int = Query(14, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    _admin=Depends(require_admin),
+):
+    """Backlog + throughput time-series (Redis-cached, fail-open, TTL 10 min).
+
+    Thin router — the cache + aggregation live in monitoring_service.
+    """
+    return await monitoring_service.get_monitoring_series(db, redis, days)
 
 
 # ---------- Backlog dashboard ----------

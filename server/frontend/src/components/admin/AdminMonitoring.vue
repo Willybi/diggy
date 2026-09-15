@@ -24,12 +24,12 @@
           </span>
         </div>
         <div class="mon-toolbar-right">
-          <select v-model.number="days" class="mon-select" @change="load">
+          <select v-model.number="days" class="mon-select" @change="loadSeries">
             <option :value="7">7 jours</option>
             <option :value="14">14 jours</option>
             <option :value="30">30 jours</option>
           </select>
-          <button class="btn btn--sm mon-refresh" @click="load">
+          <button class="btn btn--sm mon-refresh" @click="refresh">
             <AdminIcon name="refresh" :size="15" /> Rafraîchir
           </button>
         </div>
@@ -118,8 +118,24 @@
         </div>
       </section>
 
-      <!-- ── Intégrité artiste (X4) ── -->
-      <section class="admin-section">
+      <!-- ── Couverture des données (L4) : lue du dernier snapshot (clé
+           coverage, L1) — masquée tant qu'aucun snapshot post-deploy ne la
+           porte. ── -->
+      <section v-if="coverage" class="admin-section">
+        <div class="section-header">
+          <h2 class="section-title">Couverture des données</h2>
+        </div>
+        <p class="mon-caption">
+          Part du catalogue couverte par chaque dimension d'enrichissement (BPM et Key ventilés par
+          source, abandonnés E1 distingués pour Deezer/Beatport), complétude globale sur les 8
+          dimensions cœur, et combinaisons incomplètes les plus fréquentes.
+        </p>
+        <CoverageBars :coverage="coverage" />
+      </section>
+
+      <!-- ── Intégrité artiste (X4) : lue de la réponse statut (racine) —
+           masquée tant que le snapshot ne porte pas la clé. ── -->
+      <section v-if="integrity" class="admin-section">
         <div class="section-header">
           <h2 class="section-title">Intégrité artiste</h2>
         </div>
@@ -154,7 +170,12 @@
           (jamais cherché + à relancer) ; teinte claire = total restant, dont les morceaux en
           attente de re-scan (30/90 j) ou abandonnés.
         </p>
+        <div v-if="seriesLoading" class="state state--chart">Chargement des courbes…</div>
+        <div v-else-if="seriesError" class="state state--chart">
+          Impossible de charger les courbes.
+        </div>
         <TimeSeriesChart
+          v-else
           :series="platformBurn"
           :height="260"
           show-area
@@ -172,7 +193,12 @@
           tuyauterie (preview Deezer → analyse). Chaque courbe descend vers 0 à mesure du
           rattrapage.
         </p>
+        <div v-if="seriesLoading" class="state state--chart">Chargement des courbes…</div>
+        <div v-else-if="seriesError" class="state state--chart">
+          Impossible de charger les courbes.
+        </div>
         <TimeSeriesChart
+          v-else
           :series="contentBurn"
           :height="260"
           :y-format="fmtInt"
@@ -188,7 +214,12 @@
           Résidus de faible volume : pochettes d'albums rattrapées par le cron, et sets TrackID
           flaggés peu fiables (recalculés à chaque ré-import).
         </p>
+        <div v-if="seriesLoading" class="state state--chart">Chargement des courbes…</div>
+        <div v-else-if="seriesError" class="state state--chart">
+          Impossible de charger les courbes.
+        </div>
         <TimeSeriesChart
+          v-else
           :series="residualBurn"
           :height="260"
           :y-format="fmtInt"
@@ -201,7 +232,11 @@
         <div class="section-header">
           <h2 class="section-title">Débit & taux de réussite</h2>
         </div>
-        <div class="chart-duo">
+        <div v-if="seriesLoading" class="state state--chart">Chargement des courbes…</div>
+        <div v-else-if="seriesError" class="state state--chart">
+          Impossible de charger les courbes.
+        </div>
+        <div v-else class="chart-duo">
           <div class="chart-cell">
             <h3 class="chart-h3">Enrichissements / jour</h3>
             <TimeSeriesChart
@@ -231,9 +266,9 @@
         <div class="tiles">
           <StatTile
             label="Erreurs (période)"
-            :value="fmtInt(totalErrors)"
-            :sublabel="`sur ${fmtInt(totalRuns)} runs`"
-            :tone="totalErrors > 0 ? 'neg' : 'neutral'"
+            :value="seriesReady ? fmtInt(totalErrors) : '—'"
+            :sublabel="seriesReady ? `sur ${fmtInt(totalRuns)} runs` : 'chargement…'"
+            :tone="seriesReady && totalErrors > 0 ? 'neg' : 'neutral'"
           >
             <SparkLine
               v-if="errorsByDay.length > 1"
@@ -246,7 +281,7 @@
           <StatTile
             label="Durée max observée"
             :value="maxDuration != null ? fmtDuration(maxDuration) : '—'"
-            sublabel="run le plus long"
+            :sublabel="seriesReady ? 'run le plus long' : 'chargement…'"
             tone="warn"
           />
           <StatTile
@@ -319,6 +354,7 @@ import api from '../../utils/api.js'
 import TimeSeriesChart from '../charts/TimeSeriesChart.vue'
 import SparkLine from '../charts/SparkLine.vue'
 import StatTile from '../charts/StatTile.vue'
+import CoverageBars from '../charts/CoverageBars.vue'
 import AdminIcon from './AdminIcon.vue'
 
 const SOURCES = [
@@ -350,30 +386,59 @@ const TASK_LABELS = {
 }
 const STATUS_FR = { success: 'Succès', error: 'Erreur', running: 'En cours' }
 
-const data = ref(null)
+// L4 split fetch: the instant status (fast) renders the whole zone, the
+// heavier time-series load independently — the chart sections carry their own
+// loading/error state instead of blocking everything.
+const statusData = ref(null)
+const seriesData = ref(null)
 const loading = ref(true)
 const error = ref(false)
+const seriesLoading = ref(true)
+const seriesError = ref(false)
 const days = ref(30)
 
-async function load() {
+async function loadStatus() {
   loading.value = true
   error.value = false
   try {
-    const { data: d } = await api.get('/api/admin/monitoring', { params: { days: days.value } })
-    data.value = d
+    const { data: d } = await api.get('/api/admin/monitoring')
+    statusData.value = d
   } catch {
     error.value = true
   } finally {
     loading.value = false
   }
 }
-onMounted(load)
+
+async function loadSeries() {
+  seriesLoading.value = true
+  seriesError.value = false
+  try {
+    const { data: d } = await api.get('/api/admin/monitoring/series', {
+      params: { days: days.value },
+    })
+    seriesData.value = d
+  } catch {
+    seriesError.value = true
+  } finally {
+    seriesLoading.value = false
+  }
+}
+
+// « Rafraîchir » recharge les deux ; le sélecteur de fenêtre ne recharge que
+// les séries (le statut ne dépend pas de days).
+function refresh() {
+  loadStatus()
+  loadSeries()
+}
+onMounted(refresh)
 
 // ── raw slices ──
-const backlogSeries = computed(() => data.value?.backlog_series || [])
-const throughputSeries = computed(() => data.value?.throughput_series || [])
-const lastRuns = computed(() => data.value?.status?.last_runs || [])
-const latest = computed(() => data.value?.status?.latest_snapshot?.payload || {})
+const backlogSeries = computed(() => seriesData.value?.backlog_series || [])
+const throughputSeries = computed(() => seriesData.value?.throughput_series || [])
+const seriesReady = computed(() => !seriesLoading.value && !seriesError.value)
+const lastRuns = computed(() => statusData.value?.status?.last_runs || [])
+const latest = computed(() => statusData.value?.status?.latest_snapshot?.payload || {})
 
 const artists = computed(() => latest.value.artists || {})
 const sets = computed(() => latest.value.sets || {})
@@ -399,11 +464,17 @@ const embCoverageSeries = computed(() =>
     .filter(Boolean),
 )
 
-// ── artist-integrity instant counters (X4) ──
-const integrity = computed(() => data.value?.integrity || {})
+// ── artist-integrity instant counters (X4) — root of the status response
+// since L3 (read from the snapshot payload); null until a post-deploy
+// snapshot carries the key → section hidden. ──
+const integrity = computed(() => statusData.value?.integrity || null)
 function integrityTone(n) {
   return Number(n) > 0 ? 'neg' : 'pos'
 }
+
+// ── data-coverage matrix (L1) — read from the latest snapshot payload; null
+// on pre-deploy snapshots → section hidden. ──
+const coverage = computed(() => latest.value.coverage || null)
 
 // ── backlog tiles ──
 function enrichBucket(src) {
@@ -590,12 +661,12 @@ const lockActive = computed(() =>
   ),
 )
 const snapshotAge = computed(() => {
-  const iso = data.value?.status?.latest_snapshot?.captured_at
+  const iso = statusData.value?.status?.latest_snapshot?.captured_at
   return iso ? fmtAge(iso) : 'aucun'
 })
 // Backend-computed: latest snapshot missing or older than 2 h ⇒ the hourly
 // sampler stopped (silent worker death). Surfaced as a banner above the tools.
-const snapshotStale = computed(() => !!data.value?.status?.snapshot_stale)
+const snapshotStale = computed(() => !!statusData.value?.status?.snapshot_stale)
 
 // ── formatters ──
 function fmtInt(n) {
@@ -792,6 +863,14 @@ function pillClass(s) {
 .state {
   font-size: var(--fs-sm);
   padding: var(--space-3) 0;
+}
+/* Placeholder discret des sections courbes pendant le fetch séries (L4) :
+   réserve ~la hauteur d'un graphe pour limiter le saut de layout. */
+.state--chart {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  color: var(--ink-3);
 }
 
 /* ── Palier unique 859px, container queries uniquement ── */

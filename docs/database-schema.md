@@ -122,20 +122,20 @@ PK: `id`
 | `enrich_priority` | SmallInteger | yes |  |  |  |
 
 **Indexes:**
-- `ix_catalog_bpm`: `bpm`
-- `ix_catalog_release_date`: `release_date`
-- `ix_catalog_owner`: `owner_id`
-- `ix_catalog_deezer_id`: `deezer_id`
-- `ix_catalog_scope`: `scope`
 - `ix_catalog_beatport_searched_at`: `beatport_searched_at`
 - `ix_catalog_key`: `key`
 - `ix_catalog_created_at_id`: 
 - `ix_catalog_bpm_analysis_backlog`: `id`
 - `ix_catalog_genres`: `genres`
 - `ix_catalog_beatport_id`: `beatport_id`
+- `ix_catalog_owner`: `owner_id`
 - `ix_catalog_enrich_priority`: `enrich_priority`
 - `ix_catalog_duration_ms`: `duration_ms`
+- `ix_catalog_deezer_id`: `deezer_id`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
+- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_release_date`: `release_date`
+- `ix_catalog_scope`: `scope`
 
 ### `catalog_artists`
 
@@ -386,8 +386,8 @@ PK: `catalog_id`
 | `computed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_radar_trends_rank_global`: `rank_global`
 - `ix_radar_trends_family_rank`: `family`, `rank_in_family`
+- `ix_radar_trends_rank_global`: `rank_global`
 
 ### `user_radar_state`
 
@@ -423,8 +423,8 @@ PK: `id`
 | `created_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `uq_artists_deezer_id`: `deezer_id` (unique)
 - `ix_artists_deezer_searched_at`: `deezer_searched_at`
+- `uq_artists_deezer_id`: `deezer_id` (unique)
 
 ### `artist_aliases`
 
@@ -488,8 +488,8 @@ PK: `id`
 | `payload` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_artist_activity_detected_at`: `detected_at`
 - `ix_artist_activity_artist_id`: `artist_id`
+- `ix_artist_activity_detected_at`: `detected_at`
 
 **Unique constraints:**
 - `artist_id`, `activity_type`, `source`, `external_id` (`uq_artist_activity_ext`)
@@ -576,9 +576,9 @@ PK: `id`
 | `end_time_ms` | Integer | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 - `ix_set_tracks_set_id`: `set_id`
 - `ix_set_tracks_catalog_id`: `catalog_id`
+- `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 
 **Unique constraints:**
 - `set_id`, `position` (`uq_set_track_position`)
@@ -603,10 +603,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_set_id_a`: `set_id_a`
 - `ix_set_flags_set_id_b`: `set_id_b`
 - `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_group_key`: `group_key`
+- `ix_set_flags_set_id_a`: `set_id_a`
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
@@ -756,6 +756,8 @@ PK: `id`
 
 **Indexes:**
 - `ix_crawl_logs_task_type`: `task_type`
+- `ix_crawl_logs_task_type_started_at`: `task_type`, `started_at`
+- `ix_crawl_logs_started_at`: `started_at`
 
 ### `metric_snapshots`
 

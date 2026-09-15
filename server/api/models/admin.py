@@ -1,5 +1,5 @@
 from database import Base
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 
@@ -30,9 +30,14 @@ class CrawlLog(Base):
     status = Column(
         String(20), nullable=False, server_default="running", default="running"
     )
-    started_at = Column(DateTime(timezone=True), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False, index=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     duration_ms = Column(Integer, nullable=True)
     stats = Column(JSON, nullable=True)
     error_message = Column(Text, nullable=True)
     celery_task_id = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        # monitoring_service: last run per task_type over a started_at window
+        Index("ix_crawl_logs_task_type_started_at", "task_type", "started_at"),
+    )

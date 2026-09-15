@@ -1,71 +1,44 @@
-"""Tests for GET /api/admin/monitoring — backlog time-series + throughput
-history + current status. Seeds a metric_snapshots row + a crawl_logs row and
-asserts the three sections. Also confirms the MetricSnapshot model is picked up
-by the conftest create_all (writing a row through the ORM would fail otherwise).
+"""Tests for the split admin monitoring API (Observabilité L3):
+
+- GET /api/admin/monitoring — instant status only (latest run per task via ONE
+  window query + latest snapshot) + `integrity` read from the snapshot payload
+  (computed hourly by snapshot_backlogs since L1, no longer recomputed live).
+- GET /api/admin/monitoring/series?days=N — backlog + throughput time-series,
+  Redis-cached (monitoring:series:{days}, TTL 600 s, fail-open).
+
+Seeds metric_snapshots / crawl_logs rows through the ORM (which also confirms
+the models are picked up by the conftest create_all).
 """
 from datetime import datetime, timedelta, timezone
 
-from models import Artist, CatalogArtist, CatalogEntry, CrawlLog, MetricSnapshot
-from sqlalchemy import select
+import pytest_asyncio
+from dependencies import get_redis
+from main import app
+from models import CrawlLog, MetricSnapshot
 
 
 def _now():
     return datetime.now(timezone.utc)
 
 
-async def _seed_catalog(
-    db,
-    *,
-    title,
-    artist,
-    key,
-    deezer_id=None,
-    beatport_id=None,
-    deezer_searched_at=None,
-    beatport_searched_at=None,
-    m2m_names=None,
-):
-    """Seed a catalog row + optional catalog_artists links (get-or-create the
-    artists by a lower() normalized_name so repeated names reuse one row)."""
-    entry = CatalogEntry(
-        title=title,
-        artist=artist,
-        normalized_key=key,
-        deezer_id=deezer_id,
-        beatport_id=beatport_id,
-        deezer_searched_at=deezer_searched_at,
-        beatport_searched_at=beatport_searched_at,
-        created_at=_now(),
-    )
-    db.add(entry)
-    await db.flush()
-    for pos, name in enumerate(m2m_names or []):
-        norm = name.lower()
-        art = (
-            await db.execute(select(Artist).where(Artist.normalized_name == norm))
-        ).scalar_one_or_none()
-        if art is None:
-            art = Artist(name=name, normalized_name=norm)
-            db.add(art)
-            await db.flush()
-        db.add(CatalogArtist(catalog_id=entry.id, artist_id=art.id, position=pos))
-    await db.commit()
-    return entry
+# Payload shaped like snapshot_backlogs writes it since L1 (integrity key on
+# board); older snapshots lack the key — covered by dedicated tests below.
+_PAYLOAD = {
+    "enrich": {
+        "deezer": {"total_missing": 5, "total_linked": 100},
+        "beatport": {"total_missing": 50, "total_linked": 60},
+    },
+    "artists": {"backlog_link": 3, "backlog_artwork": 7},
+    "sets": {"recrawl_backlog": 2},
+    "catalog": {"total": 105},
+    "integrity": {"artist_divergence": 4, "missing_m2m_link": 9},
+}
 
 
 async def _seed_snapshot(db, *, captured_at=None, payload=None):
     snap = MetricSnapshot(
         captured_at=captured_at or _now(),
-        payload=payload
-        or {
-            "enrich": {
-                "deezer": {"total_missing": 5, "total_linked": 100},
-                "beatport": {"total_missing": 50, "total_linked": 60},
-            },
-            "artists": {"backlog_link": 3, "backlog_artwork": 7},
-            "sets": {"recrawl_backlog": 2},
-            "catalog": {"total": 105},
-        },
+        payload=payload if payload is not None else _PAYLOAD,
     )
     db.add(snap)
     await db.commit()
@@ -89,6 +62,32 @@ async def _seed_crawl_log(db, **overrides):
     return log
 
 
+class _BrokenRedis:
+    """A Redis whose every op raises — exercises the fail-open cache path."""
+
+    def __getattr__(self, name):
+        async def _raise(*args, **kwargs):
+            raise ConnectionError("redis down")
+
+        return _raise
+
+
+@pytest_asyncio.fixture
+async def broken_redis():
+    """Swap the conftest FakeRedis for a raising one (pattern: test_import_rb)."""
+    old = app.dependency_overrides.get(get_redis)
+
+    async def _override():
+        yield _BrokenRedis()
+
+    app.dependency_overrides[get_redis] = _override
+    yield
+    if old is not None:
+        app.dependency_overrides[get_redis] = old
+    else:
+        app.dependency_overrides.pop(get_redis, None)
+
+
 class TestMonitoringAuth:
     async def test_requires_auth(self, client):
         r = await client.get("/api/admin/monitoring")
@@ -98,42 +97,125 @@ class TestMonitoringAuth:
         r = await auth_client.get("/api/admin/monitoring")
         assert r.status_code == 403
 
+    async def test_series_requires_auth(self, client):
+        r = await client.get("/api/admin/monitoring/series")
+        assert r.status_code == 401
 
-class TestMonitoringResponse:
-    async def test_returns_sections(self, admin_client, db):
+    async def test_series_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.get("/api/admin/monitoring/series")
+        assert r.status_code == 403
+
+
+class TestMonitoringStatus:
+    """GET /admin/monitoring — L3 contract: {status, integrity}, no series."""
+
+    async def test_returns_status_and_integrity_only(self, admin_client, db):
         await _seed_snapshot(db)
         await _seed_crawl_log(db)
 
         r = await admin_client.get("/api/admin/monitoring")
         assert r.status_code == 200
         data = r.json()
-        # X4.d (L6) added the additive "integrity" block alongside the original 3.
-        assert set(data) == {
-            "backlog_series",
-            "throughput_series",
-            "status",
-            "integrity",
-        }
+        # The series moved to /monitoring/series (L3 split).
+        assert set(data) == {"status", "integrity"}
         assert "last_runs" in data["status"]
         assert "latest_snapshot" in data["status"]
-        assert set(data["integrity"]) == {
-            "artist_divergence",
-            "missing_m2m_link",
-        }
+        assert "snapshot_stale" in data["status"]
+        assert "snapshot_age_seconds" in data["status"]
 
     async def test_empty_db_ok(self, admin_client):
         r = await admin_client.get("/api/admin/monitoring")
         assert r.status_code == 200
         data = r.json()
-        assert data["backlog_series"] == []
-        assert data["throughput_series"] == []
         assert data["status"]["last_runs"] == []
         assert data["status"]["latest_snapshot"] is None
+        assert data["status"]["snapshot_stale"] is True
+        assert data["integrity"] is None
+
+    async def test_integrity_read_from_snapshot_payload(self, admin_client, db):
+        await _seed_snapshot(db)
+
+        r = await admin_client.get("/api/admin/monitoring")
+        assert r.json()["integrity"] == {
+            "artist_divergence": 4,
+            "missing_m2m_link": 9,
+        }
+
+    async def test_integrity_none_when_snapshot_lacks_key(self, admin_client, db):
+        # Snapshots written before the L1 deploy don't carry "integrity".
+        await _seed_snapshot(db, payload={"catalog": {"total": 105}})
+
+        r = await admin_client.get("/api/admin/monitoring")
+        assert r.status_code == 200
+        assert r.json()["integrity"] is None
+
+    async def test_latest_run_per_task_with_multiple_runs(self, admin_client, db):
+        # Window query correctness: several runs per task → the newest one wins.
+        now = _now()
+        await _seed_crawl_log(db, started_at=now - timedelta(hours=3), status="error")
+        await _seed_crawl_log(
+            db, started_at=now - timedelta(hours=1), status="success"
+        )
+        await _seed_crawl_log(
+            db,
+            task_type="compute_trends",
+            source=None,
+            started_at=now - timedelta(hours=2),
+            status="error",
+        )
+        await _seed_crawl_log(
+            db, task_type="compute_trends", source=None, started_at=now
+        )
+
+        r = await admin_client.get("/api/admin/monitoring")
+        runs = {row["task_type"]: row for row in r.json()["status"]["last_runs"]}
+        assert set(runs) == {"enrich_catalog", "compute_trends"}
+        assert runs["enrich_catalog"]["status"] == "success"
+        assert runs["compute_trends"]["status"] == "success"
+
+    async def test_key_task_types_ordered_first(self, admin_client, db):
+        # An unknown task_type sorts after the _KEY_TASK_TYPES block, and the
+        # key ones keep their fixed order regardless of insertion order.
+        await _seed_crawl_log(db, task_type="aaa_custom_task", source=None)
+        await _seed_crawl_log(db, task_type="compute_trends", source=None)
+        await _seed_crawl_log(db, task_type="enrich_catalog")
+
+        r = await admin_client.get("/api/admin/monitoring")
+        order = [row["task_type"] for row in r.json()["status"]["last_runs"]]
+        assert order == ["enrich_catalog", "compute_trends", "aaa_custom_task"]
+
+    async def test_status_reports_latest_snapshot(self, admin_client, db):
+        await _seed_snapshot(db)
+
+        r = await admin_client.get("/api/admin/monitoring")
+        status = r.json()["status"]
+        assert status["latest_snapshot"]["payload"]["catalog"]["total"] == 105
+        assert status["snapshot_stale"] is False
+
+
+class TestMonitoringSeries:
+    """GET /admin/monitoring/series — backlog + throughput, Redis-cached."""
+
+    async def test_returns_sections(self, admin_client, db):
+        await _seed_snapshot(db)
+        await _seed_crawl_log(db)
+
+        r = await admin_client.get("/api/admin/monitoring/series")
+        assert r.status_code == 200
+        data = r.json()
+        assert set(data) == {"backlog_series", "throughput_series"}
+
+    async def test_empty_db_ok(self, admin_client):
+        r = await admin_client.get("/api/admin/monitoring/series")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["backlog_series"] == []
+        assert data["throughput_series"] == []
 
     async def test_backlog_snapshot_returned(self, admin_client, db):
         await _seed_snapshot(db)
 
-        r = await admin_client.get("/api/admin/monitoring")
+        r = await admin_client.get("/api/admin/monitoring/series")
         series = r.json()["backlog_series"]
         assert len(series) == 1
         item = series[0]
@@ -152,7 +234,7 @@ class TestMonitoringResponse:
             duration_ms=3000,
         )
 
-        r = await admin_client.get("/api/admin/monitoring")
+        r = await admin_client.get("/api/admin/monitoring/series")
         series = r.json()["throughput_series"]
         assert len(series) == 1
         row = series[0]
@@ -166,118 +248,62 @@ class TestMonitoringResponse:
         assert row["duration_ms_avg"] == 4000
 
     async def test_error_run_counted(self, admin_client, db):
-        await _seed_crawl_log(
-            db, status="error", stats=None, error_message="boom"
-        )
+        await _seed_crawl_log(db, status="error", stats=None, error_message="boom")
 
-        r = await admin_client.get("/api/admin/monitoring")
+        r = await admin_client.get("/api/admin/monitoring/series")
         row = r.json()["throughput_series"][0]
         assert row["runs"] == 1
         assert row["errors"] == 1
         # No enriched/not_found → hit_rate undefined
         assert row["hit_rate"] is None
 
-    async def test_status_reports_latest_run_and_snapshot(self, admin_client, db):
-        old = _now() - timedelta(hours=2)
-        recent = _now()
-        await _seed_crawl_log(db, started_at=old, status="error")
-        await _seed_crawl_log(db, started_at=recent, status="success")
-        await _seed_snapshot(db)
-
-        r = await admin_client.get("/api/admin/monitoring")
-        status = r.json()["status"]
-        runs = {row["task_type"]: row for row in status["last_runs"]}
-        assert "enrich_catalog" in runs
-        # Latest run wins (the recent success, not the older error)
-        assert runs["enrich_catalog"]["status"] == "success"
-        assert status["latest_snapshot"]["payload"]["catalog"]["total"] == 105
-
     async def test_days_window_excludes_old_snapshots(self, admin_client, db):
         await _seed_snapshot(db, captured_at=_now() - timedelta(days=40))
 
-        r = await admin_client.get("/api/admin/monitoring?days=14")
+        r = await admin_client.get("/api/admin/monitoring/series?days=14")
         assert r.json()["backlog_series"] == []
 
-        r2 = await admin_client.get("/api/admin/monitoring?days=60")
+        r2 = await admin_client.get("/api/admin/monitoring/series?days=60")
         assert len(r2.json()["backlog_series"]) == 1
 
+    async def test_days_bounds_validated(self, admin_client):
+        assert (
+            await admin_client.get("/api/admin/monitoring/series?days=0")
+        ).status_code == 422
+        assert (
+            await admin_client.get("/api/admin/monitoring/series?days=366")
+        ).status_code == 422
 
-class TestIntegrityCounters:
-    """X4.d (L6) — instant artist-integrity counters exposed under `integrity`."""
 
-    async def test_empty_db_all_zero(self, admin_client):
-        r = await admin_client.get("/api/admin/monitoring")
-        assert r.json()["integrity"] == {
-            "artist_divergence": 0,
-            "missing_m2m_link": 0,
-        }
+class TestMonitoringSeriesCache:
+    """Redis result cache (monitoring:series:{days}, TTL 600 s, fail-open)."""
 
-    async def test_artist_divergence(self, admin_client, db):
-        # (1) Divergent: enriched, flat "Ejeca" vs first M2M "Carl Cox" → counted.
-        await _seed_catalog(
-            db,
-            title="Rhythm Of The House",
-            artist="Ejeca",
-            key="rhythm - ejeca",
-            deezer_id="111",
-            m2m_names=["Carl Cox"],
-        )
-        # (2) Coherent: flat == first M2M → not counted (dropped by SQL pre-filter).
-        await _seed_catalog(
-            db,
-            title="Coherent",
-            artist="Carl Cox",
-            key="coherent - carl cox",
-            deezer_id="222",
-            m2m_names=["Carl Cox"],
-        )
-        # (3) Accent-only difference: folds equal → contained → not counted.
-        await _seed_catalog(
-            db,
-            title="Accented",
-            artist="Zoë",
-            key="accented - zoe",
-            deezer_id="333",
-            m2m_names=["Zoe"],
-        )
-        # (4) Divergent BUT not enriched (no platform id) → excluded by the gate.
-        await _seed_catalog(
-            db,
-            title="Not Enriched",
-            artist="Someone",
-            key="not enriched - someone",
-            m2m_names=["Different Person"],
-        )
-        # (5) Containment (multi-artist flat contains the M2M name) → not counted.
-        await _seed_catalog(
-            db,
-            title="Multi",
-            artist="Carl Cox, Green Velvet",
-            key="multi - carl cox",
-            beatport_id="444",
-            m2m_names=["Carl Cox"],
-        )
+    async def test_second_call_served_from_cache(self, admin_client, db):
+        await _seed_crawl_log(db, stats={"enriched": 8, "not_found": 2})
 
-        r = await admin_client.get("/api/admin/monitoring")
-        assert r.json()["integrity"]["artist_divergence"] == 1
+        first = (await admin_client.get("/api/admin/monitoring/series")).json()
+        assert first["throughput_series"][0]["runs"] == 1
 
-    async def test_missing_m2m_link(self, admin_client, db):
-        # Flat artist, no M2M link → counted (un-clickable artist).
-        await _seed_catalog(
-            db, title="Solo", artist="Solo Artist", key="solo - solo artist"
-        )
-        # Flat artist WITH a link → not counted.
-        await _seed_catalog(
-            db,
-            title="Linked",
-            artist="Linked Artist",
-            key="linked - linked artist",
-            m2m_names=["Linked Artist"],
-        )
-        # Blank flat artist, no link → not counted (trimmed empty).
-        await _seed_catalog(db, title="Blank", artist="   ", key="blank - x")
-        # NULL flat artist → not counted.
-        await _seed_catalog(db, title="NullArtist", artist=None, key="nullartist - x")
+        # A row added AFTER the first call must NOT show up: the second call is
+        # served from the cache written by the first (TTL 600 s ≫ test time).
+        await _seed_crawl_log(db, stats={"enriched": 1, "not_found": 0})
+        second = (await admin_client.get("/api/admin/monitoring/series")).json()
+        assert second == first
+        assert second["throughput_series"][0]["runs"] == 1
 
-        r = await admin_client.get("/api/admin/monitoring")
-        assert r.json()["integrity"]["missing_m2m_link"] == 1
+    async def test_cache_keyed_by_days(self, admin_client, db):
+        # A different days window is a different cache entry — no cross-serving.
+        await _seed_snapshot(db, captured_at=_now() - timedelta(days=40))
+
+        r14 = await admin_client.get("/api/admin/monitoring/series?days=14")
+        assert r14.json()["backlog_series"] == []
+        r60 = await admin_client.get("/api/admin/monitoring/series?days=60")
+        assert len(r60.json()["backlog_series"]) == 1
+
+    async def test_fail_open_when_redis_raises(self, admin_client, db, broken_redis):
+        # get AND setex both raise → direct compute, still a correct 200.
+        await _seed_crawl_log(db, stats={"enriched": 8, "not_found": 2})
+
+        r = await admin_client.get("/api/admin/monitoring/series")
+        assert r.status_code == 200
+        assert r.json()["throughput_series"][0]["enriched"] == 8

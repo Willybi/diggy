@@ -19,6 +19,7 @@ from .admin import (
     LastRunItem,
     LinkDeezerResponse,
     MonitoringResponse,
+    MonitoringSeriesResponse,
     MonitoringStatus,
     NoDeezerResponse,
     ResetBeatportResponse,
@@ -308,6 +309,7 @@ __all__ = [
     "LastRunItem",
     "MonitoringStatus",
     "MonitoringResponse",
+    "MonitoringSeriesResponse",
     "IntegrityCounters",
     # auth
     "UserOut",

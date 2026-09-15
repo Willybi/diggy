@@ -198,16 +198,24 @@ class MonitoringStatus(BaseModel):
 
 
 class IntegrityCounters(BaseModel):
-    # Instant artist-integrity counters (X4 non-regression tracking).
+    # Artist-integrity counters (X4 non-regression tracking). Since L3 they are
+    # read from the latest snapshot payload (computed hourly by
+    # snapshot_backlogs), not recomputed per display.
     artist_divergence: int
     missing_m2m_link: int
 
 
 class MonitoringResponse(BaseModel):
+    # L3 split: the instant status only — the time-series moved to
+    # GET /admin/monitoring/series (MonitoringSeriesResponse). integrity is None
+    # until a post-L1-deploy snapshot carries the key.
+    status: MonitoringStatus
+    integrity: IntegrityCounters | None = None
+
+
+class MonitoringSeriesResponse(BaseModel):
     backlog_series: list[BacklogSnapshotItem]
     throughput_series: list[ThroughputItem]
-    status: MonitoringStatus
-    integrity: IntegrityCounters
 
 
 # ── Backlog dashboard (GET /admin/backlog) ──
