@@ -59,6 +59,9 @@ _ROMAN_MAP = {
 _RE_DATE_FRACTION = re.compile(r"\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4}\s*$")
 # Branch 3: fraction N/M
 _RE_PART_FRACTION = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*$")
+# Digit runs (>= 2 digits) of a normalized title — episode/series-number
+# fingerprint feeding MatchSignals.title_number_match.
+_RE_TITLE_NUMBER = re.compile(r"\d{2,}")
 
 _DECO_PATTERNS = [
     re.compile(p, re.IGNORECASE)
@@ -129,6 +132,22 @@ def _title_date_signatures(title: str | None) -> frozenset:
             comps = frozenset({int(m.group("b1")), int(m.group("b2"))})
         signatures.add((year, comps))
     return frozenset(signatures)
+
+
+def _title_number_set(normalized_title: str | None) -> frozenset:
+    """Digit runs (>= 2 digits) of a normalized title, minus plausible years.
+
+    The episode/series-number fingerprint of a title ("phonica mix series 124"
+    → {"124"}, "dcr159 - drumcode radio live" → {"159"}, "tomorrowland 2024"
+    → empty). Feeds ``MatchSignals.title_number_match``.
+    """
+    if not normalized_title:
+        return frozenset()
+    return frozenset(
+        n
+        for n in _RE_TITLE_NUMBER.findall(normalized_title)
+        if not (len(n) == 4 and 1990 <= int(n) <= 2035)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +275,13 @@ IDENTICAL_ATTACH_MIN_SHARED = 6
 # distinct performances under one recurring title (e.g. a festival set played
 # twice) — a human decision (invariant #4).
 SAME_TITLE_ATTACH_MIN_OVERLAP = 0.70
+# …UNLESS the identical titles carry the SAME episode/series number ("Series
+# 124", "DCR159"): a numbered episode pins a UNIQUE recording — the
+# played-twice false positive has no number — so the floors relax to catch
+# short identified tracklists (5 shared of an 8-track identification is
+# common on old radio rips).
+SAME_EPISODE_ATTACH_MIN_OVERLAP = 0.50
+SAME_EPISODE_ATTACH_MIN_SHARED = 4
 
 
 class MatchVerdict(str, Enum):
@@ -290,6 +316,11 @@ class MatchSignals:
     # Floors the certain-duplicate attach vectors so two SHORT sets coinciding
     # on a few tracks never qualify.
     shared_count: int = 0
+    # True when BOTH normalized titles carry the same non-empty set of digit
+    # runs (>= 2 digits, plausible years excluded) — the episode/series-number
+    # fingerprint ("series 124", "dcr159"). A numbered episode pins a unique
+    # recording, so it relaxes the same-title attach floors.
+    title_number_match: bool = False
 
 
 @dataclass
@@ -781,6 +812,10 @@ def compute_signals(
     sig_b = _title_date_signatures(set_b_data.get("title"))
     title_dates_diverge = bool(sig_a) and bool(sig_b) and sig_a != sig_b
 
+    nums_a = _title_number_set(set_a_data["normalized_title"])
+    nums_b = _title_number_set(set_b_data["normalized_title"])
+    title_number_match = bool(nums_a) and nums_a == nums_b
+
     return MatchSignals(
         overlap=overlap,
         title_sim=title_sim,
@@ -792,6 +827,7 @@ def compute_signals(
         both_event_reliable=both_event_reliable,
         title_dates_diverge=title_dates_diverge,
         shared_count=shared_count,
+        title_number_match=title_number_match,
     )
 
 
@@ -885,6 +921,20 @@ def decide_verdict(
         and signals.date_match
         and signals.overlap >= SAME_TITLE_ATTACH_MIN_OVERLAP
         and signals.shared_count >= IDENTICAL_ATTACH_MIN_SHARED
+        and signals.order_corr is not None
+        and signals.order_corr >= IDENTICAL_ATTACH_ORDER
+    ):
+        return MatchVerdict.AUTO_ATTACH, None
+    # Same NUMBERED episode: identical token-set titles carrying the same
+    # episode/series number ("Series 124", "DCR159") pin a UNIQUE recording —
+    # the played-twice false positive has no number — so the floors relax for
+    # short identified tracklists (old radio rips identify 7-10 tracks).
+    if (
+        signals.title_sim >= 1.0
+        and signals.title_number_match
+        and signals.date_match
+        and signals.overlap >= SAME_EPISODE_ATTACH_MIN_OVERLAP
+        and signals.shared_count >= SAME_EPISODE_ATTACH_MIN_SHARED
         and signals.order_corr is not None
         and signals.order_corr >= IDENTICAL_ATTACH_ORDER
     ):

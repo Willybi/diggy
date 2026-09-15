@@ -16,6 +16,7 @@ from services.set_dedup_service import (
     _levenshtein_ratio,
     _select_date_gap,
     _title_date_signatures,
+    _title_number_set,
     compute_confidence,
     compute_signals,
     decide_verdict,
@@ -366,6 +367,7 @@ def _signals(
     both_event_reliable=False,
     title_dates_diverge=False,
     shared_count=0,
+    title_number_match=False,
 ):
     return MatchSignals(
         overlap=overlap,
@@ -378,6 +380,7 @@ def _signals(
         both_event_reliable=both_event_reliable,
         title_dates_diverge=title_dates_diverge,
         shared_count=shared_count,
+        title_number_match=title_number_match,
     )
 
 
@@ -497,6 +500,38 @@ class TestDecideVerdict:
         signals = _signals(
             overlap=0.75, title_sim=1.0, date_match=False, date_gap_days=None,
             weighted_overlap=0.75, order_corr=1.0, shared_count=8,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_same_numbered_episode_short_tracklist_attaches(self):
+        """Phonica 124 / DCR159 profile: identical title WITH an episode number
+        + same day + order 1.0, but only 5 shared of a short identification —
+        a numbered episode pins a unique recording → attach."""
+        signals = _signals(
+            overlap=0.625, title_sim=1.0, date_match=True, date_gap_days=0,
+            first_track_match=True, weighted_overlap=0.57, order_corr=1.0,
+            shared_count=5, title_number_match=True,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_same_title_no_number_keeps_high_floor(self):
+        """Same profile WITHOUT a number in the title (recurring/festival case)
+        stays a human decision below the 0.70 overlap floor."""
+        signals = _signals(
+            overlap=0.625, title_sim=1.0, date_match=True, date_gap_days=0,
+            first_track_match=True, weighted_overlap=0.57, order_corr=1.0,
+            shared_count=5, title_number_match=False,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_same_numbered_episode_too_few_shared_does_not_attach(self):
+        signals = _signals(
+            overlap=0.6, title_sim=1.0, date_match=True, date_gap_days=0,
+            weighted_overlap=0.55, order_corr=1.0,
+            shared_count=3, title_number_match=True,
         )
         verdict, _ = _verdict(signals)
         assert verdict != MatchVerdict.AUTO_ATTACH
@@ -998,6 +1033,53 @@ class TestTitleDatesDivergeSignal:
         """Dicts without a title key never diverge (back-compat)."""
         signals = compute_signals(_SET_A_P1, _SET_B_P1, shared_count=12)
         assert signals.title_dates_diverge is False
+
+
+class TestTitleNumberSet:
+    """Episode/series-number fingerprint of a normalized title."""
+
+    @pytest.mark.parametrize(
+        "title,expected",
+        [
+            ("phonica mix series 124: nick the record", {"124"}),
+            ("dcr159 - drumcode radio live - adam beyer", {"159"}),  # glued run
+            ("tomorrowland 2024", set()),  # plausible year excluded
+            ("motw: maayan nidam", set()),  # no number
+            ("", set()),
+            (None, set()),
+        ],
+    )
+    def test_extraction(self, title, expected):
+        assert _title_number_set(title) == frozenset(expected)
+
+    def test_compute_signals_sets_title_number_match(self):
+        a = {
+            "normalized_title": "phonica mix series 124: nick the record",
+            "played_date": date(2024, 10, 1),
+            "identified_mtids": [1, 2, 3, 4, 5, 6, 7, 8],
+        }
+        b = {
+            "normalized_title": "phonica mix series 124: nick the record",
+            "played_date": date(2024, 10, 1),
+            "identified_mtids": [1, 2, 3, 4, 5, 9, 10, 11, 12, 13],
+        }
+        signals = compute_signals(a, b, shared_count=5)
+        assert signals.title_number_match is True
+        assert signals.shared_count == 5
+
+    def test_no_match_on_different_numbers(self):
+        a = {
+            "normalized_title": "sugar radio 544",
+            "played_date": None,
+            "identified_mtids": [1, 2, 3],
+        }
+        b = {
+            "normalized_title": "sugar radio 548",
+            "played_date": None,
+            "identified_mtids": [1, 2, 3],
+        }
+        signals = compute_signals(a, b, shared_count=3)
+        assert signals.title_number_match is False
 
 
 class TestTitleDatesDivergeHardRule:
