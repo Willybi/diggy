@@ -368,6 +368,9 @@ def _signals(
     title_dates_diverge=False,
     shared_count=0,
     title_number_match=False,
+    title_fold_equal=False,
+    title_fold_ratio=0.0,
+    same_reliable_date=False,
 ):
     return MatchSignals(
         overlap=overlap,
@@ -381,6 +384,9 @@ def _signals(
         title_dates_diverge=title_dates_diverge,
         shared_count=shared_count,
         title_number_match=title_number_match,
+        title_fold_equal=title_fold_equal,
+        title_fold_ratio=title_fold_ratio,
+        same_reliable_date=same_reliable_date,
     )
 
 
@@ -532,6 +538,73 @@ class TestDecideVerdict:
             overlap=0.6, title_sim=1.0, date_match=True, date_gap_days=0,
             weighted_overlap=0.55, order_corr=1.0,
             shared_count=3, title_number_match=True,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_same_title_strong_content_ignores_upload_gap(self):
+        """Miley Serious profile: identical title + overlap 0.93 + order 1.0 +
+        same opener, uploads 6 days apart → attach (played_date is an upload
+        date, it cannot veto overwhelming content evidence)."""
+        signals = _signals(
+            overlap=0.93, title_sim=1.0, date_match=False, date_gap_days=6,
+            first_track_match=True, weighted_overlap=0.9, order_corr=1.0,
+            shared_count=13,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_same_title_different_opener_keeps_date_demotion(self):
+        """100 gecs profile (prod flag 450, adversarially refuted): overlap
+        0.88 + order 1.0 but DIFFERENT opening tracks and a 31-day upload gap —
+        a touring artist replaying a near-fixed set → human review."""
+        signals = _signals(
+            overlap=0.88, title_sim=1.0, date_match=False, date_gap_days=31,
+            first_track_match=False, weighted_overlap=0.85, order_corr=1.0,
+            shared_count=29,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_full_inclusion_tiny_tracklist_attaches(self):
+        """Alex Friday profile: identical title, the 4 identified tracks of
+        the smaller rip ALL present in the larger in the same order, same
+        opener — attach despite a 21-day upload gap."""
+        signals = _signals(
+            overlap=1.0, title_sim=1.0, date_match=False, date_gap_days=21,
+            first_track_match=True, weighted_overlap=1.0, order_corr=1.0,
+            shared_count=4,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_full_inclusion_different_opener_does_not_attach(self):
+        """An excerpt starting mid-set (opener differs) stays a human call."""
+        signals = _signals(
+            overlap=1.0, title_sim=1.0, date_gap_days=21,
+            first_track_match=False, weighted_overlap=1.0, order_corr=1.0,
+            shared_count=4,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict != MatchVerdict.AUTO_ATTACH
+
+    def test_same_reliable_date_near_identical_fold_attaches(self):
+        """Carry Nation profile (V3 at the funnel): same title date, folds
+        within 0.90 ("@ The Lot Radio" vs "@TheLotRadio"), tracklist overlap
+        irrelevant."""
+        signals = _signals(
+            overlap=0.78, title_sim=0.36, date_match=True, date_gap_days=0,
+            first_track_match=True, weighted_overlap=0.77, order_corr=1.0,
+            shared_count=18, same_reliable_date=True, title_fold_ratio=0.95,
+        )
+        verdict, _ = _verdict(signals)
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_near_identical_fold_without_reliable_date_does_not_attach(self):
+        signals = _signals(
+            overlap=0.5, title_sim=0.36, date_gap_days=40,
+            weighted_overlap=0.5, order_corr=0.8,
+            shared_count=5, same_reliable_date=False, title_fold_ratio=0.95,
         )
         verdict, _ = _verdict(signals)
         assert verdict != MatchVerdict.AUTO_ATTACH
@@ -902,10 +975,11 @@ class TestEventDateHardRule:
         """(d) Non-regression: with NO event_dates, a 14-day played gap keeps the
         historical verdict (date guard → FLAG), not the new hard NOTHING.
 
-        The tracklists deliberately share only 10/12 tracks: a byte-identical
-        pair (overlap/order 1.0) is now attached date-agnostically by the
-        certain-duplicate vector (C13.h), which would bypass the demotion
-        under test here.
+        The tracklists deliberately share only 10/12 tracks AND open on
+        DIFFERENT tracks: a byte-identical pair (overlap/order 1.0) or a
+        same-title + same-opener strong pair is now attached date-agnostically
+        by the certain-duplicate vectors (C13.h), which would bypass the
+        demotion under test here.
         """
         a = {
             "normalized_title": "charlotte de witte @ awakenings",
@@ -915,7 +989,7 @@ class TestEventDateHardRule:
         b = {
             "normalized_title": "charlotte de witte @ awakenings",
             "played_date": date(2024, 6, 15),
-            "identified_mtids": list(range(1, 11)) + [100, 101],
+            "identified_mtids": [100] + list(range(2, 12)) + [101],
         }
         signals = compute_signals(a, b, shared_count=10)
         assert signals.both_event_reliable is False
@@ -1033,6 +1107,73 @@ class TestTitleDatesDivergeSignal:
         """Dicts without a title key never diverge (back-compat)."""
         signals = compute_signals(_SET_A_P1, _SET_B_P1, shared_count=12)
         assert signals.title_dates_diverge is False
+
+
+class TestSpacedTitleDates:
+    """Spaced separators + plausibility guard on title date signatures (C13.h)."""
+
+    def test_spaced_equals_glued(self):
+        assert _title_date_signatures(
+            "Physical Therapy @ The Lot Radio 03 - 28 - 2020"
+        ) == _title_date_signatures("Physical Therapy @ The Lot Radio 03-28-2020")
+        assert _title_date_signatures("The Lot Radio 03 - 28 - 2020") == frozenset(
+            {(2020, frozenset({3, 28}))}
+        )
+
+    def test_fm_frequency_is_not_a_date(self):
+        """"89.3 - 1995" (radio frequency + year) must NOT mint a signature —
+        a garbage signature would wrongly DISSOCIATE two uploads of one show."""
+        assert _title_date_signatures(
+            "Walter One - Manic Monday - Power Station 89.3 - 1995"
+        ) == frozenset()
+
+    def test_implausible_year_rejected(self):
+        assert _title_date_signatures("Set 12.10.3050") == frozenset()
+
+    def test_fold_signals_on_lot_radio_variants(self):
+        a = {
+            "normalized_title": "the carry nation @ the lot radio 01 - 12 - 2023",
+            "title": "The Carry Nation @ The Lot Radio 01 - 12 - 2023",
+            "played_date": date(2023, 1, 14),
+            "event_date": None,
+            "identified_mtids": list(range(1, 24)),
+        }
+        b = {
+            "normalized_title": "the carry nation @thelotradio 01-12-2023",
+            "title": "The Carry Nation @TheLotRadio 01-12-2023",
+            "played_date": date(2023, 1, 14),
+            "event_date": None,
+            "identified_mtids": list(range(1, 19)),
+        }
+        signals = compute_signals(a, b, shared_count=14)
+        # Same title date (spaced vs glued) → reliable date match
+        assert signals.same_reliable_date is True
+        # Folds differ only by the glued channel → high ratio, not equality
+        assert signals.title_fold_equal is False
+        assert signals.title_fold_ratio >= 0.90
+        verdict, _ = decide_verdict(
+            signals, compute_confidence(signals), None, None
+        )
+        assert verdict == MatchVerdict.AUTO_ATTACH
+
+    def test_fold_equal_on_spacing_variants(self):
+        a = {
+            "normalized_title": "joey beltram- live in germany",
+            "title": "Joey Beltram- Live In Germany",
+            "played_date": None,
+            "event_date": None,
+            "identified_mtids": list(range(1, 18)),
+        }
+        b = {
+            "normalized_title": "joey beltram - live in germany",
+            "title": "Joey Beltram - Live in Germany",
+            "played_date": None,
+            "event_date": None,
+            "identified_mtids": list(range(1, 16)),
+        }
+        signals = compute_signals(a, b, shared_count=15)
+        assert signals.title_fold_equal is True
+        assert signals.same_reliable_date is False
 
 
 class TestTitleNumberSet:

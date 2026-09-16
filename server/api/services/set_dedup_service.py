@@ -36,12 +36,14 @@ _RE_DATE_PARENS = re.compile(r"\((\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\)")
 _RE_DATE_BARE = re.compile(r"(\d{2})[.\-](\d{2})[.\-](\d{4})$")
 # Full-date matcher for the raw-title divergence guard: any complete date
 # anywhere in a title, either yyyy-mm-dd (ISO, tried first) or dd-mm-yyyy / dd-mm-yy,
-# with . / - separators. Digit boundaries prevent grabbing a slice of a longer run.
+# with . / - separators — SPACES tolerated around them ("03 - 28 - 2020" is a
+# real Lot Radio pattern). Digit boundaries prevent grabbing a slice of a
+# longer run; implausible components are filtered by _title_date_signatures.
 _RE_TITLE_DATE = re.compile(
     r"(?<!\d)(?:"
-    r"(?P<y4>\d{4})[./\-](?P<a1>\d{1,2})[./\-](?P<a2>\d{1,2})"  # yyyy-mm-dd
+    r"(?P<y4>\d{4})\s*[./\-]\s*(?P<a1>\d{1,2})\s*[./\-]\s*(?P<a2>\d{1,2})"  # yyyy-mm-dd
     r"|"
-    r"(?P<b1>\d{1,2})[./\-](?P<b2>\d{1,2})[./\-](?P<y2>\d{2,4})"  # dd-mm-yyyy / dd-mm-yy
+    r"(?P<b1>\d{1,2})\s*[./\-]\s*(?P<b2>\d{1,2})\s*[./\-]\s*(?P<y2>\d{2,4})"  # dd-mm-yyyy / dd-mm-yy
     r")(?!\d)"
 )
 _RE_SPACES = re.compile(r"\s+")
@@ -130,6 +132,15 @@ def _title_date_signatures(title: str | None) -> frozenset:
         else:
             year = _expand_year(int(m.group("y2")))
             comps = frozenset({int(m.group("b1")), int(m.group("b2"))})
+        # Plausibility guard: the pair must be readable as day+month in SOME
+        # order and the year must be a real year — otherwise "89.3 - 1995" (an
+        # FM frequency + year) would mint a garbage signature and wrongly
+        # DISSOCIATE two uploads of the same show ("89.3" vs "90.2").
+        lo, hi = min(comps), max(comps)
+        if not (1 <= lo <= 12 and 1 <= hi <= 31):
+            continue
+        if not (1970 <= year <= 2035):
+            continue
         signatures.add((year, comps))
     return frozenset(signatures)
 
@@ -282,6 +293,23 @@ SAME_TITLE_ATTACH_MIN_OVERLAP = 0.70
 # common on old radio rips).
 SAME_EPISODE_ATTACH_MIN_OVERLAP = 0.50
 SAME_EPISODE_ATTACH_MIN_SHARED = 4
+# Same title + strong ordered overlap + SAME OPENING track: enough content
+# evidence to attach REGARDLESS of the upload-date gap (played_date is an
+# upload date — two rips of one show land months apart). The first-track
+# requirement is what separates a re-upload from a touring artist replaying a
+# near-fixed set under a recurring title (adversarial review of prod flag 450:
+# high overlap + perfect order on the intersection, but different openers).
+SAME_TITLE_STRONG_MIN_OVERLAP = 0.80
+# Identical title + the smaller identification FULLY CONTAINED in the larger,
+# same order: certain even on tiny identified tracklists (old rips identify
+# 4-6 tracks). Floor at 4 — three tracks fully contained is still too thin to
+# merge without a human (pinned by the rescore test suite).
+FULL_INCLUSION_MIN_SHARED = 4
+# Same reliable date + near-identical FOLDED titles (character-level edit
+# ratio): catches spelling/spacing drift token_set_ratio misses
+# ("@ The Lot Radio" vs "@TheLotRadio") — independent of tracklist overlap
+# (identification noise). Mirrors the rescore script's V3 vector.
+TITLE_NEAR_DUP_LEV_RATIO = 0.90
 
 
 class MatchVerdict(str, Enum):
@@ -321,6 +349,19 @@ class MatchSignals:
     # fingerprint ("series 124", "dcr159"). A numbered episode pins a unique
     # recording, so it relaxes the same-title attach floors.
     title_number_match: bool = False
+    # True when the search_fold of both RAW titles is identical (non-empty) —
+    # punctuation/spacing-insensitive title identity, robust where
+    # token_set_ratio dips on tokenization artefacts ("03 - 28 - 2020" vs
+    # "03-28-2020").
+    title_fold_equal: bool = False
+    # Character-level edit ratio of the two FOLDED raw titles (0.0 when either
+    # is empty) — catches glued-word drift ("@TheLotRadio") that fold equality
+    # misses.
+    title_fold_ratio: float = 0.0
+    # True when both sets share the SAME reliable date: equal non-empty title
+    # date signatures, or equal non-NULL event_dates. played_date is
+    # DELIBERATELY excluded (upload date).
+    same_reliable_date: bool = False
 
 
 @dataclass
@@ -816,6 +857,18 @@ def compute_signals(
     nums_b = _title_number_set(set_b_data["normalized_title"])
     title_number_match = bool(nums_a) and nums_a == nums_b
 
+    fold_a = search_fold(set_a_data.get("title") or "")
+    fold_b = search_fold(set_b_data.get("title") or "")
+    title_fold_equal = bool(fold_a) and fold_a == fold_b
+    title_fold_ratio = (
+        _levenshtein_ratio(fold_a, fold_b) if fold_a and fold_b else 0.0
+    )
+
+    event_a = set_a_data.get("event_date")
+    same_reliable_date = (bool(sig_a) and sig_a == sig_b) or (
+        event_a is not None and event_a == set_b_data.get("event_date")
+    )
+
     return MatchSignals(
         overlap=overlap,
         title_sim=title_sim,
@@ -828,6 +881,9 @@ def compute_signals(
         title_dates_diverge=title_dates_diverge,
         shared_count=shared_count,
         title_number_match=title_number_match,
+        title_fold_equal=title_fold_equal,
+        title_fold_ratio=round(title_fold_ratio, 4),
+        same_reliable_date=same_reliable_date,
     )
 
 
@@ -911,13 +967,17 @@ def decide_verdict(
         and signals.order_corr >= IDENTICAL_ATTACH_ORDER
     ):
         return MatchVerdict.AUTO_ATTACH, None
-    # Same token-set title + same day + near-perfect shared order: two uploads
-    # of the SAME set where TrackID identified different subsets (overlap dips
-    # under 0.80 on identification noise). An identical token set cannot carry
-    # a divergent episode/part number, so the episode guard is structurally
+    # "Identical title" for the same-title vectors = same token set OR same
+    # punctuation/spacing-insensitive fold (tokenization artefacts like
+    # "03 - 28 - 2020" vs "03-28-2020" sink token_set_ratio on equal titles).
+    title_identical = signals.title_sim >= 1.0 or signals.title_fold_equal
+    # Same title + same day + near-perfect shared order: two uploads of the
+    # SAME set where TrackID identified different subsets (overlap dips under
+    # 0.80 on identification noise). An identical token set cannot carry a
+    # divergent episode/part number, so the episode guard is structurally
     # satisfied.
     if (
-        signals.title_sim >= 1.0
+        title_identical
         and signals.date_match
         and signals.overlap >= SAME_TITLE_ATTACH_MIN_OVERLAP
         and signals.shared_count >= IDENTICAL_ATTACH_MIN_SHARED
@@ -930,13 +990,48 @@ def decide_verdict(
     # the played-twice false positive has no number — so the floors relax for
     # short identified tracklists (old radio rips identify 7-10 tracks).
     if (
-        signals.title_sim >= 1.0
+        title_identical
         and signals.title_number_match
         and signals.date_match
         and signals.overlap >= SAME_EPISODE_ATTACH_MIN_OVERLAP
         and signals.shared_count >= SAME_EPISODE_ATTACH_MIN_SHARED
         and signals.order_corr is not None
         and signals.order_corr >= IDENTICAL_ATTACH_ORDER
+    ):
+        return MatchVerdict.AUTO_ATTACH, None
+    # Same title + strong ordered overlap + SAME OPENING track — enough
+    # content evidence to ignore the upload-date gap entirely (played_date is
+    # an upload date; two rips of one show land weeks or years apart). The
+    # first-track requirement separates a re-upload from a touring artist
+    # replaying a near-fixed set under a recurring title.
+    if (
+        title_identical
+        and signals.first_track_match
+        and signals.overlap >= SAME_TITLE_STRONG_MIN_OVERLAP
+        and signals.shared_count >= IDENTICAL_ATTACH_MIN_SHARED
+        and signals.order_corr is not None
+        and signals.order_corr >= IDENTICAL_ATTACH_ORDER
+    ):
+        return MatchVerdict.AUTO_ATTACH, None
+    # Identical title + the smaller identification FULLY contained in the
+    # larger, same order, same opener: certain even on tiny identified
+    # tracklists (old rips identify 3-6 tracks), date-agnostic.
+    if (
+        title_identical
+        and signals.first_track_match
+        and signals.overlap >= 1.0
+        and signals.shared_count >= FULL_INCLUSION_MIN_SHARED
+        and (signals.order_corr is None or signals.order_corr >= IDENTICAL_ATTACH_ORDER)
+    ):
+        return MatchVerdict.AUTO_ATTACH, None
+    # Same RELIABLE date (title date signatures or event_date — never the
+    # upload played_date) + near-identical folded titles: a re-upload whose
+    # identified tracklists diverge on identification noise but whose titles
+    # differ only in spelling/spacing ("@ The Lot Radio" vs "@TheLotRadio").
+    # Mirrors the rescore V3 vector, now live at the funnel.
+    if (
+        signals.same_reliable_date
+        and signals.title_fold_ratio >= TITLE_NEAR_DUP_LEV_RATIO
     ):
         return MatchVerdict.AUTO_ATTACH, None
     if signals.overlap >= 0.80 and (signals.title_sim >= 0.50 or signals.date_match):

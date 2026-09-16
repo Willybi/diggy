@@ -93,6 +93,7 @@ from services.set_dedup_service import (
     IDENTICAL_ATTACH_MIN_SHARED,
     IDENTICAL_ATTACH_ORDER,
     IDENTICAL_ATTACH_OVERLAP,
+    TITLE_NEAR_DUP_LEV_RATIO,
     MatchSignals,
     MatchVerdict,
     _levenshtein_ratio,
@@ -116,14 +117,9 @@ DEFAULT_THRESHOLD = 0.30
 # at the funnel since C13.h, so this script's explicit check is a backstop for
 # flags scored before that.
 
-# Near-duplicate title auto-attach (opt-in --auto-attach, V3): two uploads of the
-# SAME set on the SAME reliable date whose titles differ only in spelling
-# ("… @ The Lot Radio 08-16-2023" vs "… @TheLotRadio 08-16-2023") — the identified
-# tracklists diverge (TrackID identification noise), so V1/V2 miss them. A
-# character-level edit ratio on the folded titles catches the spelling drift that
-# token_set_ratio misses. Attached only when the reliable date matches AND the
-# folded titles are this close, INDEPENDENT of tracklist overlap.
-TITLE_NEAR_DUP_LEV_RATIO = 0.90
+# Near-duplicate title auto-attach (V3): threshold now lives in the service
+# (TITLE_NEAR_DUP_LEV_RATIO, imported above) — decide_verdict applies the same
+# vector at the funnel since C13.h.
 
 # Decision labels (also the report column value).
 DECISION_KEPT = "GARDÉ"

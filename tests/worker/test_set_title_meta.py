@@ -61,6 +61,19 @@ class TestExtractEventDateForms:
         # so it produces no candidate (abstain rather than mis-parse).
         assert extract_event_date("mix 20211225 x") is None
 
+    def test_spaced_separators(self):
+        # Real Lot Radio pattern: spaces around the separators (C13.h).
+        assert extract_event_date(
+            "Physical Therapy @ The Lot Radio 03 - 28 - 2020"
+        ) == D(2020, 3, 28)
+        assert extract_event_date("live 2021 - 12 - 25") == D(2021, 12, 25)
+
+    def test_spaced_ambiguous_still_abstains(self):
+        # 01 and 12 both ≤ 12 → D/M order unknown → abstain, spaced or not.
+        assert extract_event_date(
+            "The Carry Nation @ The Lot Radio 01 - 12 - 2023"
+        ) is None
+
 
 class TestExtractEventDateGuards:
     def test_ambiguous_both_le_12_returns_none(self):

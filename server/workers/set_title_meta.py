@@ -51,10 +51,11 @@ _MONTHS = {
 _MONTH_ALT = "|".join(sorted(_MONTHS, key=len, reverse=True))
 
 # ISO-ish, year first (unambiguous ordering): "2021-12-25", "2021/12/25", "2021.12.25".
-_RE_ISO = re.compile(r"\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b")
+# Spaces tolerated around the separators ("2020 - 03 - 28" — real Lot Radio pattern).
+_RE_ISO = re.compile(r"\b(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b")
 # Separated day/month/year with a 2- or 4-digit trailing year — order of the first
 # two components resolved by the >12 rule below (see _parse_dmy).
-_RE_DMY = re.compile(r"\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b")
+_RE_DMY = re.compile(r"\b(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{2,4})\b")
 # Named month, day first ("20th Feb 2032", "2 January 2020") — 4-digit year only.
 _RE_DAY_MONTH_YEAR = re.compile(
     r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(" + _MONTH_ALT + r")\.?\s+(\d{4})\b",

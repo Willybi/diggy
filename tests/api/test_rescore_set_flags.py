@@ -251,7 +251,11 @@ class TestKeptAboveThreshold:
 
         o = outcomes[0]
         assert o.decision == DECISION_KEPT
-        assert o.verdict == MatchVerdict.FLAG
+        # Since C13.h the full-inclusion vector recomputes this profile
+        # (identical normalized title, 5/5 tracks contained in order, same
+        # opener) to AUTO_ATTACH despite the upload gap — but without
+        # --auto-attach the script still only KEEPS and re-stamps it.
+        assert o.verdict == MatchVerdict.AUTO_ATTACH
         assert o.new_confidence >= 0.30
         assert flag.status == SetFlagStatus.pending
         assert flag.confidence == pytest.approx(o.new_confidence)
