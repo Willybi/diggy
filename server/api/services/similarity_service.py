@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import heapq
 import logging
 import math
@@ -432,6 +433,30 @@ class PooledCandidate(NamedTuple):
     album_id: int | None
 
 
+def _build_pool_candidates(rows, ctx: SimilarityContext) -> dict[int, PooledCandidate]:
+    """Materialise the pool dict from the projected rows (pure CPU, no DB)."""
+    pool: dict[int, PooledCandidate] = {}
+    for cid, bpm, label, release_date, genres in rows:
+        label_lower = (label or "").strip().lower()
+        label_valid = bool(label_lower) and (
+            ctx.label_counts.get(label_lower, 0) >= CFG.LABEL_MIN_TRACKS
+        )
+        pool[cid] = PooledCandidate(
+            id=cid,
+            bpm=bpm,
+            label=label,
+            label_valid=label_valid,
+            release_date=release_date,
+            expanded_genres=_expand_genre_nodes(
+                genres or [], ctx.name_to_node, ctx.parent_map
+            ),
+            playlists=ctx.playlist_map.get(cid, frozenset()),
+            sets=ctx.set_map.get(cid, frozenset()),
+            album_id=ctx.album_map.get(cid),
+        )
+    return pool
+
+
 async def load_candidate_pool(
     db: AsyncSession, user_id: int | None, ctx: SimilarityContext
 ) -> dict[int, PooledCandidate]:
@@ -463,25 +488,11 @@ async def load_candidate_pool(
         )
     ).all()
 
-    pool: dict[int, PooledCandidate] = {}
-    for cid, bpm, label, release_date, genres in rows:
-        label_lower = (label or "").strip().lower()
-        label_valid = bool(label_lower) and (
-            ctx.label_counts.get(label_lower, 0) >= CFG.LABEL_MIN_TRACKS
-        )
-        pool[cid] = PooledCandidate(
-            id=cid,
-            bpm=bpm,
-            label=label,
-            label_valid=label_valid,
-            release_date=release_date,
-            expanded_genres=_expand_genre_nodes(
-                genres or [], ctx.name_to_node, ctx.parent_map
-            ),
-            playlists=ctx.playlist_map.get(cid, frozenset()),
-            sets=ctx.set_map.get(cid, frozenset()),
-            album_id=ctx.album_map.get(cid),
-        )
+    # Pure-CPU build (one PooledCandidate + genre expansion per row) runs off the
+    # event loop: at pool scale (>600k rows) it blocks the loop long enough for
+    # the uvicorn supervisor ping (~5s) to declare the worker dead and SIGKILL it
+    # (prod 502s, 2026-09-18). Rows and ctx maps are read-only here, no DB access.
+    pool = await asyncio.to_thread(_build_pool_candidates, rows, ctx)
     if len(pool) > POOL_SIZE_WARN:
         logger.warning(
             "similarity pool exceeds %d candidates (%d, user=%s) — a cold reco "
@@ -834,7 +845,10 @@ async def _similar_core(
     # 3. Score every candidate in memory, sort. Over-provision the winners so the
     #    album de-dup can still return ``top_n`` distinct-album tracks (L4).
     overprovision = max(top_n * ALBUM_DEDUP_OVERPROVISION, top_n)
-    scored = _score_seed_against_pool(
+    # Off-loop: pure-CPU scoring of the whole pool would block the event loop
+    # past the uvicorn supervisor ping window (worker SIGKILL → 502).
+    scored = await asyncio.to_thread(
+        _score_seed_against_pool,
         pool, seed, score_floor=score_floor, restrict_ids=restrict_ids,
         limit=overprovision,
     )
@@ -1176,8 +1190,13 @@ async def _compute_similar_sets(
     for cid in seeds:
         for sid in ctx.set_map.get(cid, ()):  # exact tracklist overlap
             set_scores[sid] = set_scores.get(sid, 0.0) + 1.0
-        scored = _score_seed_against_pool(
-            pool, pool[cid], score_floor=0.0, limit=SIMILAR_SETS_CAND_TRUNC
+        # Off-loop per seed (up to SIMILAR_SETS_SEED_CAP full-pool scorings per
+        # call): keeps the event loop answering the uvicorn supervisor pings.
+        scored = (
+            await asyncio.to_thread(
+                _score_seed_against_pool,
+                pool, pool[cid], score_floor=0.0, limit=SIMILAR_SETS_CAND_TRUNC,
+            )
         )[:SIMILAR_SETS_CAND_TRUNC]
         for cand_id, score_pct, _components, _available in scored:
             weight = score_pct * SIMILAR_SETS_PROXIMITY_W

@@ -218,8 +218,13 @@ async def _compute(db: AsyncSession, user_id: int):
         seed = pool.get(seed_id)
         if seed is None:  # deleted/invisible seed → skip (was LookupError→[])
             continue
-        scored = _score_seed_against_pool(
-            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED
+        # Off-loop per seed: a full-pool scoring is pure CPU and would block the
+        # event loop past the uvicorn supervisor ping window (worker SIGKILL).
+        scored = (
+            await asyncio.to_thread(
+                _score_seed_against_pool,
+                pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED,
+            )
         )[: CFG.CAND_PER_SEED]
         for cid, score_pct, components, available in scored:
             if cid in excluded:
@@ -237,8 +242,11 @@ async def _compute(db: AsyncSession, user_id: int):
         seed = pool.get(seed_id)
         if seed is None:
             continue
-        scored = _score_seed_against_pool(
-            pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED
+        scored = (
+            await asyncio.to_thread(
+                _score_seed_against_pool,
+                pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED,
+            )
         )[: CFG.CAND_PER_SEED]
         for cid, score_pct, components, available in scored:
             if cid in excluded or cid not in reco_score:
