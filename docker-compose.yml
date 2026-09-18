@@ -10,12 +10,19 @@ services:
       resources:
         limits:
           cpus: '2'
-          memory: 1G
+          # 1G → 2G (2026-09-18): the DB outgrew its sizing with the C12/C13
+          # hydration (catalog ~683k rows, set_tracks ~1.4M) — under 1G the page
+          # cache was starved (~200GB/day re-read from disk, cap used at 93%).
+          memory: 2G
     # Docker's default /dev/shm is 64 MB — saturated by the parallel HashAgg of
     # GET /api/artists/ (unnest(genres) + group by), which failed to resize a
     # shared memory segment ("No space left on device" → DiskFull). 256 MB gives
-    # the margin (memory cap stays 1G — /dev/shm draws on host RAM, not the cap).
+    # the margin (/dev/shm draws on host RAM, not the memory cap).
     shm_size: 256mb
+    # Stock postgres defaults (shared_buffers 128MB / work_mem 4MB) forced
+    # materialize+join-filter plans and disk spills on hot queries at the current
+    # volume. Sized for the 2G cap: buffers ~25%, planner hint ~75%.
+    command: postgres -c shared_buffers=512MB -c effective_cache_size=1536MB -c work_mem=32MB -c maintenance_work_mem=128MB
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

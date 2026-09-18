@@ -180,28 +180,6 @@ async def list_catalog(
     from trackid.reliability import set_reliable
     from utils import like_escape
 
-    radar_count = (
-        select(
-            RadarTrack.catalog_id,
-            func.count(func.distinct(RadarTrack.watched_entity_id)).label("nb_playlists"),
-        )
-        .where(RadarTrack.catalog_id.isnot(None))
-        .group_by(RadarTrack.catalog_id)
-        .subquery()
-    )
-    set_count = (
-        select(
-            SetTrack.catalog_id,
-            func.count(func.distinct(SetTrack.set_id)).label("nb_sets"),
-        )
-        # C8: join `sets` to drop unreliable TrackID sets from the count. This
-        # subquery has no roots-only filter today (it counts every set holding the
-        # track); left iso on purpose — only reliability is added, not roots-only.
-        .join(DJSet, DJSet.id == SetTrack.set_id)
-        .where(SetTrack.catalog_id.isnot(None), set_reliable())
-        .group_by(SetTrack.catalog_id)
-        .subquery()
-    )
     ut_sub = (
         select(
             UserTrack.catalog_id,
@@ -229,40 +207,26 @@ async def list_catalog(
     bpm_col = func.coalesce(ut_sub.c.rb_bpm, CatalogEntry.bpm)
     key_col = func.coalesce(ut_sub.c.rb_key, CatalogEntry.key)
 
-    trend_sub = (
-        select(
-            RadarTrend.catalog_id,
-            RadarTrend.rank_global,
-            (
-                RadarTrend.trend_score
-                / func.nullif(func.max(RadarTrend.trend_score).over(), 0)
-                * 10
-            ).label("trend_score_10"),
-        )
-        .subquery()
-    )
-
+    # nb_radar_playlists / nb_radar_sets / trend_* are NOT joined here anymore:
+    # they were whole-table GROUP BY subqueries LEFT-JOINed to the paginated
+    # query (aggregating ALL of radar_tracks / set_tracks / radar_trends on
+    # every request) — ~8.5s/page once the catalog reached ~683k rows and
+    # set_tracks ~1.4M. They are batch-fetched AFTER pagination for the page
+    # ids only (same pattern as the artists batch below), identical values.
     select_cols = [
         CatalogEntry,
-        func.coalesce(radar_count.c.nb_playlists, 0).label("nb_radar_playlists"),
-        func.coalesce(set_count.c.nb_sets, 0).label("nb_radar_sets"),
         ut_sub.c.catalog_id.label("ut_catalog_id"),
         ut_sub.c.rb_bpm.label("ut_bpm"),
         ut_sub.c.rb_key.label("ut_key"),
         ut_sub.c.rb_mytags.label("ut_tags"),
         ut_sub.c.ut_has_artwork.label("ut_has_artwork"),
         avis_col.label("avis"),
-        trend_sub.c.rank_global.label("trend_rank"),
-        trend_sub.c.trend_score_10.label("trend_score_10"),
     ]
 
     query = (
         select(*select_cols)
-        .outerjoin(radar_count, CatalogEntry.id == radar_count.c.catalog_id)
-        .outerjoin(set_count, CatalogEntry.id == set_count.c.catalog_id)
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
         .outerjoin(uo_sub, uo_sub.c.entity_key == cast(CatalogEntry.id, String))
-        .outerjoin(trend_sub, CatalogEntry.id == trend_sub.c.catalog_id)
         .where(catalog_visible(user_id))
     )
 
@@ -374,6 +338,9 @@ async def list_catalog(
 
     page_ids = [row[0].id for row in rows]
     artists_by_catalog: dict[int, list] = defaultdict(list)
+    nb_playlists_by_id: dict[int, int] = {}
+    nb_sets_by_id: dict[int, int] = {}
+    trend_by_id: dict[int, tuple[int | None, float | None]] = {}
     if page_ids:
         ca_result = await db.execute(
             select(
@@ -392,19 +359,54 @@ async def list_catalog(
                 ArtistRef(id=a_id, name=a_name, role=a_role, has_artwork=a_art)
             )
 
+        rc_rows = await db.execute(
+            select(
+                RadarTrack.catalog_id,
+                func.count(func.distinct(RadarTrack.watched_entity_id)),
+            )
+            .where(RadarTrack.catalog_id.in_(page_ids))
+            .group_by(RadarTrack.catalog_id)
+        )
+        nb_playlists_by_id = dict(rc_rows.all())
+
+        sc_rows = await db.execute(
+            select(SetTrack.catalog_id, func.count(func.distinct(SetTrack.set_id)))
+            # C8: join `sets` to drop unreliable TrackID sets from the count. No
+            # roots-only filter on purpose — it counts every set holding the track.
+            .join(DJSet, DJSet.id == SetTrack.set_id)
+            .where(SetTrack.catalog_id.in_(page_ids), set_reliable())
+            .group_by(SetTrack.catalog_id)
+        )
+        nb_sets_by_id = dict(sc_rows.all())
+
+        # trend_score_10 normalizes against the GLOBAL radar_trends max — same
+        # semantics as the old max() OVER () window over the whole table.
+        max_trend = (
+            await db.execute(select(func.max(RadarTrend.trend_score)))
+        ).scalar()
+        tr_rows = await db.execute(
+            select(
+                RadarTrend.catalog_id, RadarTrend.rank_global, RadarTrend.trend_score
+            ).where(RadarTrend.catalog_id.in_(page_ids))
+        )
+        for t_cid, t_rank, t_score in tr_rows.all():
+            score_10 = None
+            if t_score is not None and max_trend:
+                score_10 = t_score / max_trend * 10
+            trend_by_id[t_cid] = (t_rank, score_10)
+
     entries = []
     for row in rows:
         entry = row[0]
-        nb_playlists = row[1]
-        nb_sets = row[2]
-        is_in_lib = row[3] is not None
-        ut_bpm = row[4]
-        ut_key = row[5]
-        ut_tags = row[6]
-        ut_has_artwork = row[7]
-        row_avis = row[8]
-        t_rank = row[9]
-        t_score_10 = row[10]
+        is_in_lib = row[1] is not None
+        ut_bpm = row[2]
+        ut_key = row[3]
+        ut_tags = row[4]
+        ut_has_artwork = row[5]
+        row_avis = row[6]
+        nb_playlists = nb_playlists_by_id.get(entry.id, 0)
+        nb_sets = nb_sets_by_id.get(entry.id, 0)
+        t_rank, t_score_10 = trend_by_id.get(entry.id, (None, None))
         entry_artists = artists_by_catalog.get(entry.id, [])
         art_id = entry_artists[0].id if entry_artists else None
 
