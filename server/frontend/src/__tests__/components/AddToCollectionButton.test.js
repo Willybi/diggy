@@ -11,7 +11,9 @@ async function mountButton(props, collections = []) {
   apiGet.mockResolvedValue({ data: collections })
   const { default: AddToCollectionButton } =
     await import('../../components/AddToCollectionButton.vue')
-  return mount(AddToCollectionButton, { props })
+  // The dropdown is <Teleport>ed to <body>; stub Teleport so it renders in place
+  // and the existing `.coll-dropdown` selectors keep resolving inside the wrapper.
+  return mount(AddToCollectionButton, { props, global: { stubs: { teleport: true } } })
 }
 
 describe('AddToCollectionButton', () => {
@@ -31,6 +33,16 @@ describe('AddToCollectionButton', () => {
   it('accepts a custom label', async () => {
     const wrapper = await mountButton({ itemType: 'set', itemId: 3, label: 'Ajouter' })
     expect(wrapper.find('.btn-coll').text()).toContain('Ajouter')
+  })
+
+  it('renders the compact icon trigger (no label) in the icon variant', async () => {
+    const wrapper = await mountButton({ itemType: 'track', itemId: 1, variant: 'icon' })
+    expect(wrapper.find('.btn-coll-icon').exists()).toBe(true)
+    expect(wrapper.find('.btn-coll').exists()).toBe(false)
+    // Same lazy-fetch + payload behavior as the labeled variant.
+    await wrapper.find('.btn-coll-icon').trigger('click')
+    await flushPromises()
+    expect(apiGet).toHaveBeenCalledTimes(1)
   })
 
   it('fetches the collections on the first open only', async () => {

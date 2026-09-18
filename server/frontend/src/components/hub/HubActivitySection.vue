@@ -29,6 +29,8 @@
           :has-preview="entry.item.has_preview"
           badge="Nouveauté"
           :meta-parts="trackMeta(entry.item)"
+          item-type="track"
+          :item-id="entry.item.catalog_id"
           :playing="catalogPlaying(entry.item.catalog_id)"
           @open="openActivityTrack(entry.item)"
           @play="playActivityTrack(entry.item)"
@@ -51,6 +53,8 @@
           badge="Set"
           badge-icon="set"
           :meta-parts="setMeta(entry.item)"
+          item-type="set"
+          :item-id="entry.item.set_id"
           @open="openSet(entry.item)"
         />
       </template>

@@ -121,6 +121,7 @@
             :state="row.state"
             show-artist
             show-duration
+            :collectible="auth.isAuthenticated"
             :playing="rowPlaying(row.track.id)"
             @play="playTrack(row)"
             @click="onRowClick(row)"
@@ -137,7 +138,12 @@
           >
         </header>
         <div class="similar-grid">
-          <SetCard v-for="s in similarSets" :key="s.id" :set="s" />
+          <SetCard
+            v-for="s in similarSets"
+            :key="s.id"
+            :set="s"
+            :collectible="auth.isAuthenticated"
+          />
         </div>
       </section>
 

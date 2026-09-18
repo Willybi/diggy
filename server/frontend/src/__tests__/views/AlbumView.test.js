@@ -21,6 +21,8 @@ const { apiMock, routerPush, playerMock } = vi.hoisted(() => ({
 
 vi.mock('../../utils/api.js', () => ({ default: apiMock }))
 
+vi.mock('../../stores/auth.js', () => ({ useAuthStore: () => ({ isAuthenticated: false }) }))
+
 vi.mock('../../stores/audioPlayer', () => ({
   useAudioPlayer: () => playerMock,
 }))

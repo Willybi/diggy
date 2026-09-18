@@ -7,6 +7,7 @@
       'has-duration': showDuration,
       'has-position': position != null,
       'has-timecode': !!timecode,
+      'has-coll': showColl,
       'state-id': isId,
       'state-unresolved': isUnresolved,
     }"
@@ -76,6 +77,15 @@
       <span v-else class="tk-tc">{{ fmtCue(timecode.ms) }}</span>
     </template>
 
+    <span v-if="showColl" class="tk-coll" @click.stop>
+      <AddToCollectionButton
+        variant="icon"
+        item-type="track"
+        :item-id="track.id"
+        title="Ajouter le morceau à une collection"
+      />
+    </span>
+
     <span v-if="$slots.end" class="tk-end"><slot name="end"></slot></span>
   </div>
 </template>
@@ -83,6 +93,7 @@
 <script setup>
 import { computed } from 'vue'
 import Artwork from './Artwork.vue'
+import AddToCollectionButton from './AddToCollectionButton.vue'
 import { fmtBpm, fmtMs, fmtCue } from '../utils/format'
 
 const props = defineProps({
@@ -92,6 +103,10 @@ const props = defineProps({
   // Opt-in duration column (m:ss / h:mm:ss) inserted between Key and the end slot.
   showDuration: { type: Boolean, default: false },
   playing: { type: Boolean, default: false },
+  // Opt-in "add to a collection" icon (hover-revealed), inserted before the end
+  // slot. The parent view sets this to auth.isAuthenticated — a guest never sees
+  // it. Never shown on a special (id/unresolved) row, which has no catalog id.
+  collectible: { type: Boolean, default: false },
   // --- Set-row extension (all optional; absent = current behavior, bit-for-bit) ---
   // Order index (# column at the head of the grid). Pure ordering, never a link.
   position: { type: Number, default: undefined },
@@ -110,6 +125,9 @@ const emit = defineEmits(['play'])
 
 const isId = computed(() => props.state === 'id')
 const isUnresolved = computed(() => props.state === 'unresolved')
+// Collection affordance: only a real catalog row (no id/unresolved state) can be
+// collected, and only when the host opts in (auth-gated at the call site).
+const showColl = computed(() => props.collectible && !props.state && props.track.id != null)
 
 // Same cover convention as the existing views. No artwork (or a special state,
 // which is always a placeholder) → Artwork placeholder.
@@ -167,11 +185,12 @@ function emitPlay() {
   --col-bpm: 42px;
   --col-dur: ;
   --col-tc: ;
+  --col-coll: ;
   --col-end: ;
   display: grid;
   grid-template-columns:
     var(--col-pos) 36px minmax(0, 1fr) var(--col-bpm) 30px var(--col-dur) var(--col-tc)
-    var(--col-end);
+    var(--col-coll) var(--col-end);
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) var(--space-3);
@@ -193,6 +212,10 @@ function emitPlay() {
 /* Timecode column (58px, fits 1:57:32) between duration and the end slot. */
 .track-card.has-timecode {
   --col-tc: 58px;
+}
+/* Collection column (hover-revealed icon) between timecode and the end slot. */
+.track-card.has-coll {
+  --col-coll: 32px;
 }
 .track-card.has-end {
   --col-end: auto;
@@ -355,6 +378,20 @@ function emitPlay() {
   text-decoration: underline;
 }
 
+/* Collection icon — hover-revealed on desktop (like the play affordance), kept
+   visible on the current row via focus-within so an open dropdown doesn't vanish. */
+.tk-coll {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.track-card:hover .tk-coll,
+.tk-coll:focus-within {
+  opacity: 1;
+}
+
 .tk-end {
   display: inline-flex;
   align-items: center;
@@ -363,6 +400,10 @@ function emitPlay() {
 /* No hover on touch → play stays visible on narrow containers (page container query). */
 @container (max-width: 640px) {
   .tk-play {
+    opacity: 1;
+  }
+  /* Touch: no hover → keep the collection icon visible. */
+  .tk-coll {
     opacity: 1;
   }
   /* Duration is secondary — drop it (and its column); BPM/Key stay by default.

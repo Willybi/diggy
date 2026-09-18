@@ -1,6 +1,17 @@
 <template>
-  <div class="coll-add-wrap">
-    <button class="btn-coll" @click="toggleDropdown">
+  <div class="coll-add-wrap" :class="{ 'coll-add-wrap--icon': variant === 'icon' }">
+    <!-- Icon variant (compact — cards/rows/player): disc button, glyph only. -->
+    <button
+      v-if="variant === 'icon'"
+      ref="triggerRef"
+      class="btn-coll-icon"
+      :class="{ 'is-open': showDropdown }"
+      type="button"
+      :aria-label="title"
+      :title="title"
+      :aria-expanded="showDropdown ? 'true' : 'false'"
+      @click.stop.prevent="toggleDropdown"
+    >
       <svg
         viewBox="0 0 24 24"
         fill="none"
@@ -8,57 +19,101 @@
         stroke-width="1.7"
         stroke-linecap="round"
         stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M12 10v6M9 13h6" />
+      </svg>
+    </button>
+
+    <!-- Button variant (default — detail-view hero action bars): labeled. -->
+    <button
+      v-else
+      ref="triggerRef"
+      class="btn-coll"
+      :class="{ 'is-open': showDropdown }"
+      type="button"
+      :aria-expanded="showDropdown ? 'true' : 'false'"
+      @click.stop.prevent="toggleDropdown"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.7"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
       >
         <rect x="3" y="5" width="18" height="16" rx="2" />
         <path d="M12 10v6M9 13h6" />
       </svg>
       <span>{{ label }}</span>
     </button>
-    <div v-if="showDropdown" class="coll-dropdown">
-      <div v-if="collLoading" class="coll-dd-state">Chargement…</div>
-      <template v-else>
-        <div v-if="!collections.length" class="coll-dd-state">Aucune collection</div>
-        <button
-          v-for="c in collections"
-          :key="c.id"
-          class="coll-dd-item"
-          :disabled="c._added"
-          @click="addToCollection(c)"
-        >
-          {{ c.name }}
-          <span v-if="c._added" class="coll-dd-check">✓</span>
-        </button>
-        <div class="coll-dd-new">
-          <input
-            v-if="creatingNew"
-            ref="newCollInput"
-            v-model="newCollName"
-            class="coll-dd-input"
-            type="text"
-            placeholder="Nom de la collection"
-            @keydown.enter="createCollection"
-            @keydown.esc="cancelNewColl"
-            @blur="cancelNewColl"
-          />
-          <button v-else class="coll-dd-add" @click="startNewColl">+ Nouvelle collection</button>
-        </div>
-      </template>
-    </div>
+
+    <!-- Dropdown teleported to <body>: cards use overflow:hidden / container-type
+         (which establish a containing block clipping an in-flow menu), and the
+         PlayerBar is position:fixed at the bottom — a body-level fixed menu,
+         positioned from the trigger rect, escapes all of that and can open up. -->
+    <Teleport to="body">
+      <div v-if="showDropdown" ref="menuRef" class="coll-dropdown" :style="menuStyle" role="menu">
+        <div v-if="collLoading" class="coll-dd-state">Chargement…</div>
+        <template v-else>
+          <div v-if="!collections.length" class="coll-dd-state">Aucune collection</div>
+          <button
+            v-for="c in collections"
+            :key="c.id"
+            class="coll-dd-item"
+            type="button"
+            :disabled="c._added"
+            @click="addToCollection(c)"
+          >
+            {{ c.name }}
+            <span v-if="c._added" class="coll-dd-check">✓</span>
+          </button>
+          <div class="coll-dd-new">
+            <input
+              v-if="creatingNew"
+              ref="newCollInput"
+              v-model="newCollName"
+              class="coll-dd-input"
+              type="text"
+              placeholder="Nom de la collection"
+              @keydown.enter="createCollection"
+              @keydown.esc="cancelNewColl"
+              @blur="cancelNewColl"
+            />
+            <button v-else class="coll-dd-add" type="button" @click="startNewColl">
+              + Nouvelle collection
+            </button>
+          </div>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onBeforeUnmount } from 'vue'
 import api from '../utils/api.js'
 
-// Polymorphic "add to a collection" button (C5 v2). Every detail view reuses it:
-// an id-bearing entity (track/set/artist/playlist) passes `item-id`; a genre has
+// Polymorphic "add to a collection" button (C5 v2). Two form factors:
+//   variant="button" (default) — labeled, used by the 5 detail-view heroes ;
+//   variant="icon"            — compact disc, used inside cards / table rows /
+//                               the PlayerBar (hover-revealed by the host).
+// An id-bearing entity (track/set/artist/playlist) passes `item-id`; a genre has
 // no table row, so it passes `item-name` instead (item-id stays null).
 const props = defineProps({
   itemType: { type: String, required: true },
   itemId: { type: Number, default: null },
   itemName: { type: String, default: null },
+  variant: {
+    type: String,
+    default: 'button',
+    validator: (v) => v === 'button' || v === 'icon',
+  },
   label: { type: String, default: 'Collection' },
+  title: { type: String, default: 'Ajouter à une collection' },
 })
 
 const showDropdown = ref(false)
@@ -68,6 +123,16 @@ const creatingNew = ref(false)
 const newCollName = ref('')
 const newCollInput = ref(null)
 const savingColl = ref(false)
+
+const triggerRef = ref(null)
+const menuRef = ref(null)
+const menuStyle = ref({})
+
+// Menu box: a definite width lets us clamp against the viewport edge; the height
+// is a soft estimate used only to decide the up/down flip.
+const MENU_WIDTH = 220
+const MENU_MAX_HEIGHT = 264
+const MARGIN = 8
 
 // The polymorphic payload expected by POST /collections/{id}/items — carries the
 // entity kind + its identifier (id for every type, name for a genre).
@@ -79,18 +144,88 @@ function itemPayload() {
   }
 }
 
+// Position the (body-level, fixed) menu from the trigger's viewport rect: flip
+// above when there isn't room below, and clamp so it never spills off the right.
+function computePosition() {
+  const el = triggerRef.value
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - r.bottom
+  const openUp = spaceBelow < MENU_MAX_HEIGHT && r.top > spaceBelow
+  const left = Math.min(Math.max(MARGIN, r.left), window.innerWidth - MENU_WIDTH - MARGIN)
+  const style = {
+    position: 'fixed',
+    left: `${Math.round(left)}px`,
+    width: `${MENU_WIDTH}px`,
+    zIndex: 1200,
+  }
+  if (openUp) {
+    style.bottom = `${Math.round(window.innerHeight - r.top + 6)}px`
+    style.maxHeight = `${Math.min(MENU_MAX_HEIGHT, r.top - MARGIN)}px`
+  } else {
+    style.top = `${Math.round(r.bottom + 6)}px`
+    style.maxHeight = `${Math.min(MENU_MAX_HEIGHT, spaceBelow - MARGIN)}px`
+  }
+  menuStyle.value = style
+}
+
+// Any scroll/resize detaches the fixed menu from its trigger → just close it
+// (a cheap, predictable behavior; the user re-opens where they are).
+function onViewportChange() {
+  closeDropdown()
+}
+function onDocPointerDown(e) {
+  if (triggerRef.value?.contains(e.target)) return
+  if (menuRef.value?.contains(e.target)) return
+  closeDropdown()
+}
+function onKeydown(e) {
+  if (e.key === 'Escape') closeDropdown()
+}
+
+function bindGlobal() {
+  document.addEventListener('pointerdown', onDocPointerDown, true)
+  document.addEventListener('keydown', onKeydown)
+  window.addEventListener('scroll', onViewportChange, { capture: true, passive: true })
+  window.addEventListener('resize', onViewportChange)
+}
+function unbindGlobal() {
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
+  document.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('scroll', onViewportChange, { capture: true })
+  window.removeEventListener('resize', onViewportChange)
+}
+
 async function toggleDropdown() {
-  showDropdown.value = !showDropdown.value
-  if (showDropdown.value && !collections.value.length) {
+  if (showDropdown.value) {
+    closeDropdown()
+    return
+  }
+  showDropdown.value = true
+  bindGlobal()
+  await nextTick()
+  computePosition()
+  if (!collections.value.length) {
     collLoading.value = true
     try {
       const { data } = await api.get('/api/collections/')
       collections.value = data.map((c) => ({ ...c, _added: false }))
     } finally {
       collLoading.value = false
+      await nextTick()
+      computePosition()
     }
   }
 }
+
+function closeDropdown() {
+  showDropdown.value = false
+  creatingNew.value = false
+  newCollName.value = ''
+  unbindGlobal()
+}
+
+onBeforeUnmount(unbindGlobal)
 
 async function addToCollection(coll) {
   if (coll._added) return
@@ -123,6 +258,8 @@ async function createCollection() {
     await api.post(`/api/collections/${data.id}/items`, itemPayload())
     collections.value.push({ ...data, _added: true })
     cancelNewColl()
+    await nextTick()
+    computePosition()
   } catch {
     // silent — leave the input open, like the rest of the dropdown
   } finally {
@@ -135,7 +272,10 @@ async function createCollection() {
 /* Collection add button + dropdown */
 .coll-add-wrap {
   position: relative;
+  display: inline-flex;
 }
+
+/* ── Button variant (labeled, detail heroes) ── */
 .btn-coll {
   display: inline-flex;
   align-items: center;
@@ -153,7 +293,8 @@ async function createCollection() {
     color 0.12s,
     border-color 0.12s;
 }
-.btn-coll:hover {
+.btn-coll:hover,
+.btn-coll.is-open {
   color: var(--ink);
   border-color: var(--ink-3);
 }
@@ -161,18 +302,51 @@ async function createCollection() {
   width: 16px;
   height: 16px;
 }
+
+/* ── Icon variant (compact disc, cards/rows/player) ── */
+.btn-coll-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    border-color 0.12s,
+    background 0.12s;
+}
+.btn-coll-icon:hover,
+.btn-coll-icon.is-open {
+  color: var(--ink);
+  border-color: var(--ink-3);
+  background: var(--surface-2);
+}
+.btn-coll-icon.is-open {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn-coll-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.btn-coll-icon:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Dropdown (teleported to <body>, positioned inline via :style) ── */
 .coll-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 200px;
-  max-height: 240px;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--line-2);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-md);
-  z-index: 50;
   padding: var(--space-1);
 }
 .coll-dd-state {

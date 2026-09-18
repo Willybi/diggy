@@ -24,6 +24,8 @@
         :has-preview="track.has_preview"
         :rank="track.rank"
         :meta-parts="trackMeta(track)"
+        :item-type="auth.isAuthenticated ? 'track' : null"
+        :item-id="track.catalog_id"
         :playing="catalogPlaying(track.catalog_id)"
         @open="openTrend(track)"
         @play="playTrend(track)"

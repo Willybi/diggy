@@ -125,6 +125,9 @@ async function mountView(track, similar = [], content = []) {
         HeroPlayer: true,
         LikeDislike: true,
         AdminCard: true,
+        // The collection dropdown is <Teleport>ed to <body>; stub Teleport so it
+        // renders in place and the `.coll-dd-*` selectors resolve in the wrapper.
+        teleport: true,
       },
     },
   })

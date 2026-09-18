@@ -99,7 +99,12 @@
 
     <!-- Card grid -->
     <div v-else class="artist-grid">
-      <ArtistCard v-for="a in displayItems" :key="a.id" :artist="a" />
+      <ArtistCard
+        v-for="a in displayItems"
+        :key="a.id"
+        :artist="a"
+        :collectible="auth.isAuthenticated"
+      />
     </div>
 
     <!-- Sentinel (infinite scroll) -->

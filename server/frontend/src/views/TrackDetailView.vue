@@ -131,6 +131,7 @@
               v-for="t in sameArtistShown"
               :key="t.id"
               :track="t"
+              :collectible="auth.isAuthenticated"
               :playing="rowPlaying(t.id)"
               @play="playTrack(t)"
               @click="goTrack(t.id)"
@@ -164,6 +165,7 @@
               :key="t.id"
               :track="t"
               show-artist
+              :collectible="auth.isAuthenticated"
               :playing="rowPlaying(t.id)"
               @play="playTrack(t)"
               @click="goTrack(t.id)"
@@ -203,6 +205,7 @@
               :key="t.id"
               :track="t"
               show-artist
+              :collectible="auth.isAuthenticated"
               :playing="rowPlaying(t.id)"
               @play="playTrack(t)"
               @click="goTrack(t.id)"

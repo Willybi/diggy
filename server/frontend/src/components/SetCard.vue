@@ -1,6 +1,16 @@
 <template>
   <RouterLink :to="`/set/${set.id}`" class="set-card">
-    <Artwork size="card" :src="coverSrc" :alt="set.title" />
+    <div class="sc-cover">
+      <Artwork size="card" :src="coverSrc" :alt="set.title" />
+      <div v-if="collectible" class="sc-coll">
+        <AddToCollectionButton
+          variant="icon"
+          item-type="set"
+          :item-id="set.id"
+          title="Ajouter le set à une collection"
+        />
+      </div>
+    </div>
     <span class="sc-title">{{ set.title }}</span>
     <span v-if="artistsText" class="sc-artists">{{ artistsText }}</span>
     <span v-if="metaParts.length" class="sc-meta">{{ metaParts.join(' · ') }}</span>
@@ -11,12 +21,16 @@
 <script setup>
 import { computed } from 'vue'
 import Artwork from './Artwork.vue'
+import AddToCollectionButton from './AddToCollectionButton.vue'
 import { fmtDate, fmtMs, pl } from '../utils/format'
 
 const props = defineProps({
   // Contract GET /api/sets/{id}/similar — artists[] are plain names, not links.
   // { id, title, source, played_date, duration_ms, has_artwork, total_tracks, identified_tracks, artists[] }
   set: { type: Object, required: true },
+  // Opt-in "add to a collection" icon overlaid on the cover (hover-revealed).
+  // The parent view sets it to auth.isAuthenticated — a guest never sees it.
+  collectible: { type: Boolean, default: false },
 })
 
 // Set covers live under a distinct bucket. No artwork → Artwork placeholder.
@@ -63,6 +77,40 @@ const metaParts = computed(() => {
 .set-card:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Cover wrapper — anchors the hover-revealed collection icon (top-right). */
+.sc-cover {
+  position: relative;
+}
+.sc-coll {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.set-card:hover .sc-coll,
+.sc-coll:focus-within {
+  opacity: 1;
+}
+/* Overlay disc on the cover image (legible on any artwork). */
+.sc-coll :deep(.btn-coll-icon) {
+  border: 0;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
+  box-shadow: var(--shadow-sm);
+}
+.sc-coll :deep(.btn-coll-icon:hover),
+.sc-coll :deep(.btn-coll-icon.is-open) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+/* Touch (no hover): keep the icon visible. Named `app` container = page width. */
+@container app (max-width: 640px) {
+  .sc-coll {
+    opacity: 1;
+  }
 }
 
 /* Titles of sets are long → clamp to two lines, break anywhere. */

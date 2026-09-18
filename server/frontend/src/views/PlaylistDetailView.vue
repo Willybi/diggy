@@ -133,6 +133,7 @@
             :track="t"
             show-artist
             show-duration
+            :collectible="auth.isAuthenticated"
             :playing="rowPlaying(t.id)"
             @play="playTrack(t)"
             @click="goTrack(t.id)"

@@ -261,6 +261,7 @@
             :class="{ liked: t.avis === 'liked', disliked: t.avis === 'disliked' }"
             show-artist
             show-duration
+            :collectible="auth.isAuthenticated"
             :playing="rowPlaying(t.id)"
             @play="playTrack(t)"
             @click="goToTrack(t.id)"

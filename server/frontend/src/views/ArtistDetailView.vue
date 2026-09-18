@@ -119,6 +119,7 @@
             :track="t"
             show-artist
             show-duration
+            :collectible="auth.isAuthenticated"
             :playing="rowPlaying(t.id)"
             @play="playTrack(t)"
             @click="goToTrack(t.id)"
@@ -152,7 +153,12 @@
           </span>
         </header>
         <div class="sets-grid">
-          <SetCard v-for="s in artist.sets" :key="s.set_id" :set="mapSet(s)">
+          <SetCard
+            v-for="s in artist.sets"
+            :key="s.set_id"
+            :set="mapSet(s)"
+            :collectible="auth.isAuthenticated"
+          >
             <template v-if="setIdentifiedPct(s) != null" #footer>
               <span class="set-ident-val">{{ setIdentifiedPct(s) }}&#8239;%</span>
               <span class="set-ident-lbl">identifiées</span>

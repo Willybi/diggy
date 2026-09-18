@@ -9,6 +9,11 @@ const { routerPush, playerMock, opinionsMock, opinionState } = vi.hoisted(() => 
   opinionState: { value: null },
 }))
 
+// GenreCard now embeds <AddToCollectionButton>, which imports utils/api.js →
+// router.js (createRouter). This vue-router mock is partial, so mock api.js to
+// break that import chain (the collection button is inert unless opened anyway).
+vi.mock('../../utils/api.js', () => ({ default: { get: vi.fn(), post: vi.fn() } }))
+
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: routerPush }),
 }))

@@ -73,6 +73,16 @@
           </svg>
         </span>
       </button>
+
+      <!-- Collection (top-right, hover reveal) -->
+      <div v-if="collectible" class="ac-coll">
+        <AddToCollectionButton
+          variant="icon"
+          item-type="artist"
+          :item-id="artist.id"
+          title="Ajouter l'artiste à une collection"
+        />
+      </div>
     </div>
 
     <div class="ac-body">
@@ -120,9 +130,13 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
 import StyleTag from './StyleTag.vue'
 import LikeDislike from './LikeDislike.vue'
+import AddToCollectionButton from './AddToCollectionButton.vue'
 
 const props = defineProps({
   artist: { type: Object, required: true },
+  // Opt-in "add to a collection" icon (top-right, hover-revealed). The parent view
+  // sets it to auth.isAuthenticated — a guest never sees it.
+  collectible: { type: Boolean, default: false },
 })
 
 const router = useRouter()
@@ -498,6 +512,40 @@ function onCoverError(e) {
 .ac-play:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -6px;
+}
+
+/* ---- collection (top-right, hover reveal) ---- */
+.ac-coll {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.artist-card:hover .ac-coll,
+.ac-coll:focus-within {
+  opacity: 1;
+}
+/* Match the sibling overlay discs (follow/play) on the image art zone. */
+.ac-coll :deep(.btn-coll-icon) {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
+  box-shadow: var(--shadow-sm);
+}
+.ac-coll :deep(.btn-coll-icon:hover),
+.ac-coll :deep(.btn-coll-icon.is-open) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+/* Touch (no hover): keep visible. Named `app` container = page width. */
+@container app (max-width: 640px) {
+  .ac-coll {
+    opacity: 1;
+  }
 }
 
 /* ---- body (tinted) ---- */

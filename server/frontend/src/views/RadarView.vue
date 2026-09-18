@@ -140,6 +140,7 @@
       :sort="effectiveSort"
       :arrow="arrow"
       :extra-skeleton="['disc', 'disc']"
+      :collectible="auth.isAuthenticated"
       :is-current="player.isCurrent"
       :playing="player.playing"
       @header-sort="onHeaderSort"
@@ -270,6 +271,7 @@ import { ref, computed, watch, onMounted, onActivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { useAuthStore } from '../stores/auth.js'
 import { useFilterState } from '../composables/useFilterState.js'
 import { useVirtualWindow } from '../composables/useVirtualWindow.js'
 import { useWindowedList } from '../composables/useWindowedList.js'
@@ -306,6 +308,7 @@ const VELOCITY_HIGH = 1.5
 const route = useRoute()
 const router = useRouter()
 const player = useAudioPlayer()
+const auth = useAuthStore()
 
 // ── Criteria (contract components/filters/criteria.js) — same set as Explorer ─
 

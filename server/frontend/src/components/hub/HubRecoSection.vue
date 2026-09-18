@@ -29,6 +29,8 @@
         :has-preview="track.has_preview"
         :in-lib="track.in_lib"
         :meta-parts="trackMeta(track)"
+        item-type="track"
+        :item-id="track.id"
         :playing="catalogPlaying(track.id)"
         @open="openReco(track)"
         @play="playReco(track)"

@@ -17,7 +17,15 @@
       </div>
       <div class="gc-scrim"></div>
 
-      <!-- Top-left corner: intentionally empty (G2) -->
+      <!-- Collection (top-left, hover reveal) — the G2 corner, used only when opted-in -->
+      <div v-if="collectible" class="gc-coll" @click.stop>
+        <AddToCollectionButton
+          variant="icon"
+          item-type="genre"
+          :item-name="genre.name"
+          title="Ajouter le genre à une collection"
+        />
+      </div>
 
       <!-- Artist avatars (bottom-left) -->
       <div v-if="topArtists.length" class="gc-avatars">
@@ -105,9 +113,13 @@ import { styleTone, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from './LikeDislike.vue'
+import AddToCollectionButton from './AddToCollectionButton.vue'
 
 const props = defineProps({
   genre: { type: Object, required: true },
+  // Opt-in "add to a collection" icon (top-left, hover-revealed). The parent view
+  // sets it to auth.isAuthenticated — a guest never sees it.
+  collectible: { type: Boolean, default: false },
 })
 
 const router = useRouter()
@@ -402,6 +414,39 @@ function onAvatarError(a) {
 .gc-play:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -6px;
+}
+
+/* ── Collection (top-left) — overlay disc, hover reveal ── */
+.gc-coll {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  left: 8px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.genre-card:hover .gc-coll,
+.gc-coll:focus-within {
+  opacity: 1;
+}
+.gc-coll :deep(.btn-coll-icon) {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: var(--overlay-soft);
+  color: var(--overlay-text);
+  box-shadow: var(--shadow-sm);
+}
+.gc-coll :deep(.btn-coll-icon:hover),
+.gc-coll :deep(.btn-coll-icon.is-open) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+/* Touch (no hover): keep visible. Named `app` container = page width. */
+@container app (max-width: 640px) {
+  .gc-coll {
+    opacity: 1;
+  }
 }
 
 /* ── Avis (top-right) — LikeDislike restyled as overlay discs via :deep() ──

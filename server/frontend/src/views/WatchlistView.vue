@@ -44,7 +44,11 @@
     </div>
 
     <!-- ── Table : shared grid header/rows, infinite scroll ── -->
-    <section class="pl-table" aria-label="Liste des playlists surveillées">
+    <section
+      class="pl-table"
+      :class="{ 'is-collectible': auth.isAuthenticated }"
+      aria-label="Liste des playlists surveillées"
+    >
       <div v-if="showSkeleton || items.length" class="pl-thead lt-thead">
         <button
           class="pl-th pl-th--btn col-pl lt-th lt-th--btn"
@@ -80,6 +84,7 @@
           Dernier crawl<span v-if="sortKey === 'crawl'" class="pl-arr">{{ arrow }}</span>
         </button>
         <span class="pl-th pl-th--center col-avis lt-th lt-th--center">Avis</span>
+        <span v-if="auth.isAuthenticated" class="pl-th col-coll lt-th"></span>
       </div>
 
       <!-- Loading skeleton : 8 ghost rows in the exact grid -->
@@ -104,6 +109,7 @@
           <div class="pl-cell col-avis pl-cell--center">
             <span class="sk sk-round"></span><span class="sk sk-round"></span>
           </div>
+          <div v-if="auth.isAuthenticated" class="pl-cell col-coll" aria-hidden="true"></div>
         </div>
       </div>
 
@@ -248,6 +254,15 @@
               @update:model-value="(v) => setOpinion(p.id, v)"
             />
           </div>
+
+          <div v-if="auth.isAuthenticated" class="pl-cell col-coll" @click.stop>
+            <AddToCollectionButton
+              variant="icon"
+              item-type="playlist"
+              :item-id="p.id"
+              title="Ajouter la playlist à une collection"
+            />
+          </div>
         </div>
       </div>
 
@@ -319,6 +334,8 @@ import LikeDislike from '../components/LikeDislike.vue'
 import SegFilter from '../components/SegFilter.vue'
 import AddModal from '../components/AddModal.vue'
 import FilterChip from '../components/filters/FilterChip.vue'
+import AddToCollectionButton from '../components/AddToCollectionButton.vue'
+import { useAuthStore } from '../stores/auth.js'
 
 // Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
 defineOptions({ name: 'WatchlistView' })
@@ -326,6 +343,7 @@ defineOptions({ name: 'WatchlistView' })
 const route = useRoute()
 const router = useRouter()
 const opinions = useOpinionsStore()
+const auth = useAuthStore()
 
 const COOLDOWN_MS = 12 * 3600 * 1000
 const DAY_MS = 86400000
@@ -698,8 +716,14 @@ onActivated(() => {
 /* ============ TABLE — shared grid header/rows ============ */
 .pl-table {
   --pl-grid: minmax(0, 1fr) 190px 128px 64px 196px 80px;
+  /* Trailing collection column: empty by default, 32px when authenticated.
+     Appended after --pl-grid so the per-palier grids stay untouched. */
+  --pl-coll: ;
   --pl-gap: var(--space-3);
   padding-bottom: var(--space-8);
+}
+.pl-table.is-collectible {
+  --pl-coll: 32px;
 }
 /* Column track + gap are view-specific and stay here; the grid frame, sticky
    header and header-cell styling come from the shared .lt-* socle
@@ -707,13 +731,32 @@ onActivated(() => {
    elements alongside the lt-* ones (grid var here, base there). */
 .pl-thead,
 .pl-row {
-  grid-template-columns: var(--pl-grid);
+  grid-template-columns: var(--pl-grid) var(--pl-coll);
   gap: var(--pl-gap);
 }
 .pl-arr {
   margin-left: var(--space-1);
   letter-spacing: normal;
   color: var(--accent-ink);
+}
+
+/* Collection column (trailing, hover-revealed icon) */
+.pl-cell.col-coll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pl-row .col-coll {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pl-row:hover .col-coll,
+.pl-row .col-coll:focus-within {
+  opacity: 1;
+}
+.col-coll :deep(.btn-coll-icon) {
+  width: 28px;
+  height: 28px;
 }
 
 /* ============ ROWS ============ */
@@ -1198,6 +1241,13 @@ onActivated(() => {
   .pl-table {
     --pl-grid: minmax(0, 1fr) 44px 72px;
     --pl-gap: var(--space-2);
+  }
+  /* Drop the trailing collection column on mobile. */
+  .pl-table.is-collectible {
+    --pl-coll: ;
+  }
+  .col-coll {
+    display: none;
   }
   .pl-thead,
   .pl-row {

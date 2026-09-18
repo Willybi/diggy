@@ -13,7 +13,11 @@
            because a shared column drops at a DIFFERENT container width per view
            (e.g. BPM never drops in Explorer but drops at 699px in Radar), which
            is not expressible as a single parametric set of breakpoints. -->
-  <section class="tt-table" :class="`tt-table--${variant}`" aria-label="Résultats">
+  <section
+    class="tt-table"
+    :class="[`tt-table--${variant}`, { 'is-collectible': collectible }]"
+    aria-label="Résultats"
+  >
     <div v-if="!isEmpty && !isError" class="tt-thead">
       <span class="tt-th"></span>
       <button
@@ -56,6 +60,7 @@
       </button>
       <slot name="head-extra" />
       <span class="tt-th tt-th--avis">Avis</span>
+      <span v-if="collectible" class="tt-th col-coll"></span>
     </div>
 
     <!-- Loading skeleton : 8 ghost rows in the exact grid -->
@@ -87,6 +92,7 @@
         <span class="tt-cell tt-cell--avis"
           ><span class="sk sk-round"></span><span class="sk sk-round"></span
         ></span>
+        <span v-if="collectible" class="tt-cell col-coll" aria-hidden="true"></span>
       </div>
     </div>
 
@@ -235,6 +241,14 @@
           <span class="tt-cell tt-cell--avis" @click.stop>
             <LikeDislike :model-value="e.avis" @update:model-value="(v) => emit('avis', e, v)" />
           </span>
+          <span v-if="collectible" class="tt-cell col-coll" @click.stop>
+            <AddToCollectionButton
+              variant="icon"
+              item-type="track"
+              :item-id="e.id"
+              title="Ajouter le morceau à une collection"
+            />
+          </span>
         </div>
         <div :style="{ height: padBottom + 'px' }" aria-hidden="true"></div>
       </div>
@@ -251,6 +265,7 @@ import Artwork from './Artwork.vue'
 import StyleTag from './StyleTag.vue'
 import ArtistLinks from './ArtistLinks.vue'
 import LikeDislike from './LikeDislike.vue'
+import AddToCollectionButton from './AddToCollectionButton.vue'
 
 defineProps({
   // Layout family: 'explorer' | 'radar'. Selects the variant-scoped responsive
@@ -282,6 +297,9 @@ defineProps({
   // and whether it is actively playing (drives the row highlight + play icon).
   isCurrent: { type: Function, default: () => false },
   playing: { type: Boolean, default: false },
+  // Opt-in trailing "add to a collection" column (hover-revealed icon). The view
+  // sets it to auth.isAuthenticated — a guest never sees it. Dropped on mobile.
+  collectible: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
@@ -309,12 +327,18 @@ function artSrc(e) {
 /* ============ TABLE — shared grid header/rows ============ */
 .tt-table {
   --tt-gap: var(--space-2);
+  /* Trailing collection column: empty by default, a 32px track when collectible.
+     Appended after --tt-grid so the per-palier grids stay untouched. */
+  --tt-coll: ;
   padding-bottom: var(--space-8);
+}
+.tt-table.is-collectible {
+  --tt-coll: 32px;
 }
 .tt-thead,
 .tt-row {
   display: grid;
-  grid-template-columns: var(--tt-grid);
+  grid-template-columns: var(--tt-grid) var(--tt-coll);
   gap: var(--tt-gap);
   align-items: center;
   padding-inline: var(--page-px);
@@ -551,6 +575,26 @@ function artSrc(e) {
   background: var(--neg-soft);
 }
 
+/* ============ COLLECTION (trailing, hover-revealed icon) ============ */
+.col-coll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tt-row .col-coll {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.tt-row:hover .col-coll,
+.col-coll:focus-within {
+  opacity: 1;
+}
+/* Local sizing: a touch smaller than the 30px default to sit in the 32px track. */
+.col-coll :deep(.btn-coll-icon) {
+  width: 28px;
+  height: 28px;
+}
+
 /* ============ END SENTINEL ============ */
 .tt-end {
   font: 500 var(--fs-xs) / 1 var(--font-mono);
@@ -749,6 +793,14 @@ function artSrc(e) {
   /* Touch: play always visible (avis is already visible at rest). */
   .tt-pbtn {
     opacity: 1;
+  }
+  /* Drop the trailing collection column on mobile (kept in the detail-row cards
+     via TrackCard; the browse table stays compact on touch). */
+  .tt-table.is-collectible {
+    --tt-coll: ;
+  }
+  .col-coll {
+    display: none;
   }
 }
 </style>

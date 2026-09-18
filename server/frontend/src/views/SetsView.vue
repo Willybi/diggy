@@ -82,7 +82,11 @@
     </div>
 
     <!-- ── Table : shared grid header/rows, infinite scroll ── -->
-    <section class="st-table" aria-label="Liste des sets">
+    <section
+      class="st-table"
+      :class="{ 'is-collectible': auth.isAuthenticated }"
+      aria-label="Liste des sets"
+    >
       <div v-if="showSkeleton || items.length" class="st-thead lt-thead">
         <span class="st-th col-play lt-th"></span>
         <button
@@ -119,6 +123,7 @@
           Durée<span v-if="effSort === 'duration'" class="st-arr">{{ arrow }}</span>
         </button>
         <span class="st-th st-th--center col-avis lt-th lt-th--center">Avis</span>
+        <span v-if="auth.isAuthenticated" class="st-th col-coll lt-th"></span>
       </div>
 
       <!-- Loading skeleton : 8 ghost rows in the exact grid -->
@@ -141,6 +146,7 @@
           <div class="st-cell col-avis st-cell--center">
             <span class="sk sk-round"></span><span class="sk sk-round"></span>
           </div>
+          <div v-if="auth.isAuthenticated" class="st-cell col-coll" aria-hidden="true"></div>
         </div>
       </div>
 
@@ -334,6 +340,15 @@
               @update:model-value="(v) => setOpinion(s.id, v)"
             />
           </div>
+
+          <div v-if="auth.isAuthenticated" class="st-cell col-coll" @click.stop>
+            <AddToCollectionButton
+              variant="icon"
+              item-type="set"
+              :item-id="s.id"
+              title="Ajouter le set à une collection"
+            />
+          </div>
         </div>
       </div>
 
@@ -523,6 +538,8 @@ import StyleTag from '../components/StyleTag.vue'
 import ScoreRing from '../components/ScoreRing.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import AddModal from '../components/AddModal.vue'
+import AddToCollectionButton from '../components/AddToCollectionButton.vue'
+import { useAuthStore } from '../stores/auth.js'
 
 // Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
 defineOptions({ name: 'SetsView' })
@@ -535,6 +552,7 @@ const route = useRoute()
 const router = useRouter()
 const opinions = useOpinionsStore()
 const player = useAudioPlayer()
+const auth = useAuthStore()
 
 // ── Criteria (contract components/filters/criteria.js) ──────────────────────
 
@@ -1063,8 +1081,14 @@ onActivated(() => {
 /* ============ TABLE — shared grid header/rows ============ */
 .st-table {
   --st-grid: 44px minmax(0, 1fr) 190px 104px 72px 92px 80px;
+  /* Trailing collection column: empty by default, 32px when authenticated.
+     Appended after --st-grid so the per-palier grids stay untouched. */
+  --st-coll: ;
   --st-gap: var(--space-3);
   padding-bottom: var(--space-8);
+}
+.st-table.is-collectible {
+  --st-coll: 32px;
 }
 /* Column track + gap are view-specific and stay here; the grid frame, sticky
    header and header-cell styling come from the shared .lt-* socle
@@ -1072,12 +1096,31 @@ onActivated(() => {
    elements alongside the lt-* ones (grid var here, base there). */
 .st-thead,
 .st-row {
-  grid-template-columns: var(--st-grid);
+  grid-template-columns: var(--st-grid) var(--st-coll);
   gap: var(--st-gap);
 }
 .st-arr {
   margin-left: var(--space-05);
   color: var(--accent-ink);
+}
+
+/* Collection column (trailing, hover-revealed icon) */
+.st-cell.col-coll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.st-row .col-coll {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.st-row:hover .col-coll,
+.st-row .col-coll:focus-within {
+  opacity: 1;
+}
+.col-coll :deep(.btn-coll-icon) {
+  width: 28px;
+  height: 28px;
 }
 
 /* ============ ROWS ============ */
@@ -1612,6 +1655,13 @@ onActivated(() => {
   .st-table {
     --st-grid: 40px minmax(0, 1fr) 46px 84px;
     --st-gap: var(--space-2);
+  }
+  /* Drop the trailing collection column on mobile (kept in SetCard elsewhere). */
+  .st-table.is-collectible {
+    --st-coll: ;
+  }
+  .col-coll {
+    display: none;
   }
   .st-thead,
   .st-row {

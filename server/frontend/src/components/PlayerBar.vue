@@ -56,6 +56,16 @@
         />
       </div>
 
+      <!-- Collection (add the current track without leaving the page) -->
+      <div v-if="auth.isAuthenticated && player.track?.catalog_id" class="pl-coll">
+        <AddToCollectionButton
+          variant="icon"
+          item-type="track"
+          :item-id="player.track.catalog_id"
+          title="Ajouter le morceau à une collection"
+        />
+      </div>
+
       <!-- BPM · Key -->
       <div class="pl-stats">
         <div class="pl-stat">
@@ -140,10 +150,13 @@
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import LikeDislike from './LikeDislike.vue'
+import AddToCollectionButton from './AddToCollectionButton.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { useAuthStore } from '../stores/auth.js'
 import { fmtSec } from '../utils/format'
 
 const player = useAudioPlayer()
+const auth = useAuthStore()
 const scrubbing = ref(false)
 
 function onRailKey(e) {
@@ -261,6 +274,13 @@ function onScrubStart(e) {
 
 /* ── Avis ── */
 .pl-avis {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Collection ── */
+.pl-coll {
   flex: none;
   display: flex;
   align-items: center;
@@ -545,6 +565,9 @@ function onScrubStart(e) {
     padding: var(--space-3) var(--space-3);
   }
   .pl-vol {
+    display: none;
+  }
+  .pl-coll {
     display: none;
   }
   .pl-rail {

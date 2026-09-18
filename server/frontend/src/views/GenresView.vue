@@ -121,7 +121,12 @@
 
     <!-- Genre grid -->
     <div v-else class="genre-grid" aria-live="polite">
-      <GenreCard v-for="g in displayItems" :key="g.name" :genre="g" />
+      <GenreCard
+        v-for="g in displayItems"
+        :key="g.name"
+        :genre="g"
+        :collectible="auth.isAuthenticated"
+      />
     </div>
 
     <!-- Sentinel (infinite scroll) -->

@@ -89,6 +89,15 @@
         <span v-if="artistsText" class="dc-artist">{{ artistsText }}</span>
         <span v-if="metaText" class="dc-meta">{{ metaText }}</span>
       </span>
+
+      <div v-if="showColl" class="dc-coll" @click.stop>
+        <AddToCollectionButton
+          variant="icon"
+          :item-type="itemType"
+          :item-id="itemId"
+          :title="collTitle"
+        />
+      </div>
     </template>
   </component>
 </template>
@@ -100,6 +109,7 @@
 // loading ghost so shelves reuse this component instead of duplicating placeholders.
 import { computed } from 'vue'
 import Artwork from './Artwork.vue'
+import AddToCollectionButton from './AddToCollectionButton.vue'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -125,6 +135,11 @@ const props = defineProps({
   href: { type: String, default: undefined },
   playing: { type: Boolean, default: false },
   skeleton: { type: Boolean, default: false },
+  // Opt-in "add to a collection" icon (top-right, hover-revealed). The host passes
+  // itemType ('track' | 'set') + itemId only for an authenticated user and an
+  // internal (non-external) card — a guest / an external-link card never gets it.
+  itemType: { type: String, default: null },
+  itemId: { type: Number, default: null },
 })
 const emit = defineEmits(['play', 'open'])
 
@@ -143,6 +158,15 @@ const artistsText = computed(() =>
 
 // Join the parent-built cells; a falsy cell drops out (never a dash).
 const metaText = computed(() => (props.metaParts || []).filter(Boolean).join(' · '))
+
+// Collection affordance: only an internal, non-skeleton card the host tagged with
+// an itemType (track/set). External-link cards are never tagged.
+const showColl = computed(() => !props.skeleton && !!props.itemType)
+const collTitle = computed(() =>
+  props.itemType === 'set'
+    ? 'Ajouter le set à une collection'
+    : 'Ajouter le morceau à une collection',
+)
 
 // Rank wins over badge (mutually exclusive by design); rank & "Nouveauté" are
 // accent, only "Set" gets the neutral treatment.
@@ -323,6 +347,24 @@ function emitPlay() {
   text-overflow: ellipsis;
 }
 
+/* ---- collection (top-right, hover reveal) ---- */
+.dc-coll {
+  position: absolute;
+  top: var(--space-15);
+  right: var(--space-15);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.dc-card:hover .dc-coll,
+.dc-coll:focus-within {
+  opacity: 1;
+}
+.dc-coll :deep(.btn-coll-icon) {
+  width: 28px;
+  height: 28px;
+  box-shadow: var(--shadow-sm);
+}
+
 /* ---- skeleton ---- */
 .dc-card--skeleton {
   cursor: default;
@@ -372,9 +414,10 @@ function emitPlay() {
   }
 }
 
-/* No hover on touch → play stays visible on narrow containers (page container query). */
+/* No hover on touch → play + collection stay visible on narrow containers. */
 @container (max-width: 640px) {
-  .dc-play {
+  .dc-play,
+  .dc-coll {
     opacity: 1;
   }
 }

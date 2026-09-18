@@ -68,6 +68,7 @@
             :position="row.position"
             show-artist
             show-duration
+            :collectible="auth.isAuthenticated"
             :playing="rowPlaying(row.track.id)"
             @play="playTrack(row)"
             @click="onRowClick(row)"
@@ -86,11 +87,13 @@ import Artwork from '../components/Artwork.vue'
 import BackButton from '../components/BackButton.vue'
 import TrackCard from '../components/TrackCard.vue'
 import { useAudioPlayer } from '../stores/audioPlayer'
+import { useAuthStore } from '../stores/auth.js'
 import { fmtDate, pl } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
 const player = useAudioPlayer()
+const auth = useAuthStore()
 const album = ref(null)
 const loading = ref(true)
 
