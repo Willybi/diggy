@@ -6,9 +6,11 @@ scoring) is ~30s per user. Computed lazily on the /radar feed it blocked the two
 uvicorn workers past the nginx 60s proxy timeout → 504 on every /radar tab
 (mesuré 2026-08-13, catalog ~270k rows). This task pre-warms the Redis reco
 cache for every active user (a like OR a library track) so the interactive feed
-always hits the warm ~1.7s path. Paired with the per-user single-flight lock in
-``recommendation_service``, the cold path is only ever hit by a brand-new active
-user or right after an opinion change (both single-flighted → never a 504).
+always hits the warm ~1.7s path. Since the a+b lot (2026-09-18) the api NEVER
+computes inline: a cache miss (brand-new user, or right after an opinion
+change) dispatches the per-user sibling task
+``precompute_user_recommendations`` below and serves an empty "Pour toi"
+meanwhile — never a 504.
 
 No external API → routed to the default ``celery`` queue (diggy_worker), placed
 at 05:45 when that worker is idle (crawls done at 04:00, trends at 07:00). A
@@ -140,3 +142,48 @@ async def _run() -> dict:
 
     logger.info("precompute_recommendations done: %s", stats)
     return stats
+
+
+@celery_app.task(
+    name="workers.tasks.precompute_user_recommendations",
+    bind=True,
+    soft_time_limit=300,
+    time_limit=360,
+)
+def precompute_user_recommendations(self, user_id: int):
+    """Recompute + cache ONE user's reco list.
+
+    Dispatched by ``recommendation_service.schedule_precompute`` on a feed cache
+    miss or right after an opinion change — the api never runs the full-pool
+    compute inline. Deduped api-side by the short ``reco:dispatch:{uid}`` Redis
+    guard; no per-task lock (a concurrent nightly-sweep write is a benign
+    last-write-wins on the same cache key). No ``autoretry_for`` (project
+    invariant): a failed compute just leaves the cache cold until the nightly
+    run. No external API → default ``celery`` queue.
+    """
+    return asyncio.run(_run_one(int(user_id)))
+
+
+async def _run_one(user_id: int) -> dict:
+    """Compute + cache one user's reco (fresh NullPool engine, own loop)."""
+    import redis.asyncio as aioredis
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    sys.path.insert(0, "/app")
+    from services import recommendation_service as rs
+    from workers.celery_app import REDIS_URL
+
+    engine = create_async_engine(os.environ["DATABASE_URL"], poolclass=NullPool)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    r = aioredis.from_url(REDIS_URL)
+    try:
+        async with Session() as db:
+            full = await rs._compute(db, user_id)
+        await rs._cache_set(r, user_id, full)
+        result = {"user_id": user_id, "items": len(full.items)}
+        logger.info("precompute_user_recommendations done: %s", result)
+        return result
+    finally:
+        await r.aclose()
+        await engine.dispose()

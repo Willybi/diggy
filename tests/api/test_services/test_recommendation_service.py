@@ -222,21 +222,41 @@ class _BrokenRedis:
         raise RuntimeError("redis down")
 
 
+def _spy_dispatch(monkeypatch):
+    """Capture schedule_precompute's send_task calls (celery is conftest-mocked)."""
+    import celery_client
+
+    sent = []
+
+    def _send(name, args=None, **kwargs):
+        sent.append((name, tuple(args or ())))
+
+    monkeypatch.setattr(celery_client.celery, "send_task", _send)
+    return sent
+
+
 class TestRecommendationCache:
-    async def test_cache_hit_and_invalidation(self, db, auth_user):
+    async def test_warm_cache_served_and_masks_new_data(
+        self, db, auth_user, monkeypatch
+    ):
         redis = _FakeRedis()
+        sent = _spy_dispatch(monkeypatch)
         seed = await _mk_track(db, "Seed", "a|seed")
         b = await _mk_track(db, "B", "a|b")
         await _put_in_set(db, [seed.id, b.id])
         await _opine(db, auth_user.id, seed.id, "liked")
 
+        # Warm the cache exactly the way the worker task does.
+        full = await recommendation_service._compute(db, auth_user.id)
+        await recommendation_service._cache_set(redis, auth_user.id, full)
+
         r1 = await recommendation_service.get_recommendations(
             db, auth_user.id, redis=redis
         )
         assert {i.id for i in r1.items} == {b.id}
-        assert redis.store  # something was cached
+        assert sent == []  # warm hit → no dispatch
 
-        # Add a new co-occurring candidate; the cache should still mask it.
+        # A new co-occurring candidate stays masked by the cache until invalidation.
         c = await _mk_track(db, "C", "a|c")
         await _put_in_set(db, [seed.id, c.id])
         r2 = await recommendation_service.get_recommendations(
@@ -244,100 +264,99 @@ class TestRecommendationCache:
         )
         assert {i.id for i in r2.items} == {b.id}  # served from cache
 
-        # Invalidate the reco cache AND drop the in-process similarity context:
-        # C's set co-occurrence is *context* data (cached ~6h in prod, refreshed
-        # nightly), so a recompute only surfaces C once the context is rebuilt —
-        # invalidating the per-user reco cache alone is not enough anymore.
+        # Invalidation → cold miss: empty list this once + ONE worker dispatch
+        # (the api never recomputes inline).
         await recommendation_service.invalidate_user(redis, auth_user.id)
-        from services.similarity_service import reset_similarity_context_cache
-        reset_similarity_context_cache()
         r3 = await recommendation_service.get_recommendations(
             db, auth_user.id, redis=redis
         )
-        assert c.id in {i.id for i in r3.items}
+        assert r3.items == []
+        assert sent == [
+            ("workers.tasks.precompute_user_recommendations", (auth_user.id,))
+        ]
 
-    async def test_cache_fail_open(self, db, auth_user):
+    async def test_broken_redis_degrades_to_empty(self, db, auth_user):
         seed = await _mk_track(db, "Seed", "a|seed")
         b = await _mk_track(db, "B", "a|b")
         await _put_in_set(db, [seed.id, b.id])
         await _opine(db, auth_user.id, seed.id, "liked")
 
-        # Every Redis call raises → the service must still compute live.
+        # Redis down → no cache AND no broker (same instance): degrade to an
+        # empty list; never raise, never fall back to the ~60s inline compute.
         result = await recommendation_service.get_recommendations(
             db, auth_user.id, redis=_BrokenRedis()
         )
-        assert {i.id for i in result.items} == {b.id}
+        assert result.items == []
 
 
-class TestSingleFlight:
-    """The holder computes once + releases the lock; a concurrent caller reuses
-    the holder's cached result instead of launching its own ~30s compute."""
+class TestSchedulePrecompute:
+    """Cold path = dispatch-and-degrade: the api never computes inline."""
 
-    async def test_holder_computes_caches_and_releases_lock(self, db, auth_user):
+    async def test_cold_miss_dispatches_once_and_returns_empty(
+        self, db, auth_user, monkeypatch
+    ):
         redis = _FakeRedis()
+        sent = _spy_dispatch(monkeypatch)
         seed = await _mk_track(db, "Seed", "a|seed")
         b = await _mk_track(db, "B", "a|b")
         await _put_in_set(db, [seed.id, b.id])
         await _opine(db, auth_user.id, seed.id, "liked")
 
-        result = await recommendation_service.get_recommendations(
+        async def _boom(*a, **k):
+            raise AssertionError("the api must never compute inline on a cold cache")
+
+        monkeypatch.setattr(recommendation_service, "_compute", _boom)
+
+        r1 = await recommendation_service.get_recommendations(
             db, auth_user.id, redis=redis
         )
-        assert {i.id for i in result.items} == {b.id}
-        # Cache populated, lock released (not left behind).
-        assert recommendation_service._cache_key(auth_user.id) in redis.store
-        assert recommendation_service._lock_key(auth_user.id) not in redis.store
+        assert r1.items == []
+        assert sent == [
+            ("workers.tasks.precompute_user_recommendations", (auth_user.id,))
+        ]
+        assert recommendation_service._dispatch_guard_key(auth_user.id) in redis.store
 
-    async def test_waiter_reuses_cached_result_from_holder(
+        # Second miss while the guard holds → deduped, no second dispatch.
+        r2 = await recommendation_service.get_recommendations(
+            db, auth_user.id, redis=redis
+        )
+        assert r2.items == []
+        assert len(sent) == 1
+
+    async def test_dispatch_failure_frees_guard(self, db, auth_user, monkeypatch):
+        import celery_client
+
+        redis = _FakeRedis()
+
+        def _send(*a, **k):
+            raise RuntimeError("broker down")
+
+        monkeypatch.setattr(celery_client.celery, "send_task", _send)
+
+        ok = await recommendation_service.schedule_precompute(redis, auth_user.id)
+        assert ok is False
+        # Guard freed so a later request can retry the dispatch.
+        assert (
+            recommendation_service._dispatch_guard_key(auth_user.id)
+            not in redis.store
+        )
+
+    async def test_avis_route_invalidates_then_redispatches(
         self, db, auth_user, monkeypatch
     ):
-        # Lock already held by another request AND that holder has published its
-        # result to the cache. Calling _single_flight_compute directly (the
-        # top-level get_recommendations would short-circuit on the cache hit
-        # before ever reaching the lock) must return the holder's cached list and
-        # never launch its own compute.
+        # The b-lot contract: an opinion change drops the cache AND schedules the
+        # async re-warm (catalog_service avis path — same wiring as the opinions
+        # router).
+        from services import catalog_service
+
         redis = _FakeRedis()
-        seed = await _mk_track(db, "Seed", "a|seed")
-        b = await _mk_track(db, "B", "a|b")
-        await _put_in_set(db, [seed.id, b.id])
-        await _opine(db, auth_user.id, seed.id, "liked")
+        sent = _spy_dispatch(monkeypatch)
+        track = await _mk_track(db, "T", "a|t")
+        redis.store[recommendation_service._cache_key(auth_user.id)] = "stale"
 
-        # Publish a genuine computed result to the cache (the "holder"'s output),
-        # then hold the lock and forbid any further compute.
-        holder_result = await recommendation_service._compute(db, auth_user.id)
-        assert {i.id for i in holder_result.items} == {b.id}
-        redis.store[recommendation_service._cache_key(auth_user.id)] = (
-            holder_result.model_dump_json()
-        )
-        redis.store[recommendation_service._lock_key(auth_user.id)] = "held"
-        monkeypatch.setattr(recommendation_service, "_POLL_INTERVAL_S", 0.001)
+        await catalog_service.update_avis(db, track.id, auth_user.id, "liked", redis=redis)
 
-        async def _boom(*a, **k):
-            raise AssertionError("waiter must not compute while the lock is held")
-
-        monkeypatch.setattr(recommendation_service, "_compute", _boom)
-
-        result = await recommendation_service._single_flight_compute(
-            db, auth_user.id, redis
-        )
-        assert {i.id for i in result.items} == {b.id}
-
-    async def test_waiter_degrades_to_empty_when_compute_overruns(
-        self, db, auth_user, monkeypatch
-    ):
-        # Lock held, cache never appears within the poll budget → the waiter
-        # returns an empty list (never a 504) rather than computing.
-        redis = _FakeRedis()
-        redis.store[recommendation_service._lock_key(auth_user.id)] = "held"
-        monkeypatch.setattr(recommendation_service, "_POLL_INTERVAL_S", 0.001)
-        monkeypatch.setattr(recommendation_service, "_POLL_MAX_S", 0.005)
-
-        async def _boom(*a, **k):
-            raise AssertionError("waiter must not compute while the lock is held")
-
-        monkeypatch.setattr(recommendation_service, "_compute", _boom)
-
-        result = await recommendation_service._single_flight_compute(
-            db, auth_user.id, redis
-        )
-        assert result.items == []
+        assert recommendation_service._cache_key(auth_user.id) not in redis.store
+        assert sent == [
+            ("workers.tasks.precompute_user_recommendations", (auth_user.id,))
+        ]

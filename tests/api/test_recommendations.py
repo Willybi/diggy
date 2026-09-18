@@ -54,11 +54,23 @@ class TestRecommendationsEndpoint:
         assert r.status_code == 200
         assert r.json() == {"items": []}
 
-    async def test_shape_and_reco_score(self, auth_client, auth_user, db):
+    async def test_shape_and_reco_score(self, auth_client, auth_user, db, fake_redis):
         seed = await _mk_track(db, "Seed", "a|seed")
         b = await _mk_track(db, "B", "a|b")
         await _put_in_set(db, [seed.id, b.id])
         await _like(db, auth_user.id, seed.id)
+
+        # Cold cache: the api never computes inline — it schedules a worker
+        # recompute (celery is conftest-mocked) and degrades to empty this once.
+        r0 = await auth_client.get("/api/recommendations/")
+        assert r0.status_code == 200
+        assert r0.json() == {"items": []}
+
+        # Warm the cache the way the worker task does, then re-request.
+        from services import recommendation_service
+
+        full = await recommendation_service._compute(db, auth_user.id)
+        await recommendation_service._cache_set(fake_redis, auth_user.id, full)
 
         r = await auth_client.get("/api/recommendations/")
         assert r.status_code == 200

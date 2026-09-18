@@ -100,6 +100,10 @@ async def set_opinion(
     # Best-effort / fail-open.
     if body.entity_type == "track":
         await recommendation_service.invalidate_user(redis, uid)
+        # Re-warm asynchronously right away (deduped, fail-open): the api never
+        # computes inline, so without this the next /radar visit would find a
+        # cold cache and an empty "Pour toi" until the nightly precompute.
+        await recommendation_service.schedule_precompute(redis, uid)
 
     return {
         "entity_type": body.entity_type,

@@ -59,19 +59,20 @@ CFG = RecommendationConfig()
 
 _CACHE_PREFIX = "reco"
 
-# Single-flight: the cold compute is ~30s (candidate pool over the ~270k-row
-# visible catalog + multi-seed scoring). Without a per-user lock, N concurrent
-# cache-miss requests each recompute and saturate the two uvicorn workers past
-# the 60s nginx proxy timeout → 504 on every /radar tab (mesuré 2026-08-13). One
-# holder computes and caches; concurrent callers poll for its result and reuse
-# it, degrading to an empty list only if the compute overruns the poll budget
-# (Tendance still renders; Pour toi fills on the next request). The nightly
-# precompute keeps the cache warm so this cold path is hit only by a brand-new
-# active user or right after an opinion change.
-_LOCK_PREFIX = "lock:reco"
-_LOCK_TTL_S = 120          # > the ~30-35s compute; auto-heals a dead holder
-_POLL_INTERVAL_S = 1.5
-_POLL_MAX_S = 48.0         # stays under the 60s nginx proxy_read_timeout
+# Cold-path policy (2026-09-18): the api NEVER computes inline. A cold compute
+# is a full-pool scan (~683k-row visible catalog + multi-seed scoring, ~60-114s
+# measured) — computed inline it exceeded the 60s nginx proxy timeout, so the
+# request that found the cache cold got a 504. On a miss the api dispatches the
+# per-user worker task (workers.tasks.precompute_user_recommendations) and
+# degrades to an empty "Pour toi" (Tendance still renders; the feed fills once
+# the worker has cached). The dispatch is deduped by a short Redis guard so a
+# rating burst schedules ONE recompute, not one per avis — an avis landing while
+# a compute is in flight leaves the cache stale for at most guard TTL + one
+# compute, and the nightly precompute trues everything up. With ``redis`` None
+# (tests/direct calls) the plain inline compute is kept: no cache to warm, and
+# the broker is that same Redis anyway.
+_DISPATCH_GUARD_PREFIX = "reco:dispatch"
+_DISPATCH_GUARD_TTL_S = 180  # ≈ one worker compute; bounds dispatch storms
 
 
 # ---------------------------------------------------------------------------
@@ -84,8 +85,8 @@ def _cache_key(user_id: int) -> str:
     return f"{_CACHE_PREFIX}:{user_id}"
 
 
-def _lock_key(user_id: int) -> str:
-    return f"{_LOCK_PREFIX}:{user_id}"
+def _dispatch_guard_key(user_id: int) -> str:
+    return f"{_DISPATCH_GUARD_PREFIX}:{user_id}"
 
 
 async def _cache_get(redis, user_id: int):
@@ -122,6 +123,42 @@ async def invalidate_user(redis, user_id: int) -> None:
         await redis.delete(_cache_key(user_id))
     except Exception as exc:
         logger.warning("reco cache invalidation skipped (Redis unavailable): %s", exc)
+
+
+async def schedule_precompute(redis, user_id: int) -> bool:
+    """Fire-and-forget worker recompute of one user's reco cache.
+
+    Called on a feed cache miss and right after an opinion change (the api never
+    computes inline — see the cold-path policy above). Deduped by a short Redis
+    guard so a rating burst dispatches once. Fail-open on both Redis and the
+    broker (the same Redis instance): a missed dispatch just leaves the cache
+    cold until the nightly precompute. Returns True when a task was dispatched.
+    """
+    if redis is None:
+        return False
+    try:
+        got = await redis.set(
+            _dispatch_guard_key(user_id), "1", nx=True, ex=_DISPATCH_GUARD_TTL_S
+        )
+    except Exception as exc:  # Redis down → the broker is down too; nothing to do
+        logger.warning("reco dispatch guard skipped (Redis unavailable): %s", exc)
+        return False
+    if not got:
+        return False
+    try:
+        from celery_client import celery
+
+        celery.send_task(
+            "workers.tasks.precompute_user_recommendations", args=[user_id]
+        )
+        return True
+    except Exception as exc:
+        logger.warning("reco precompute dispatch failed: %s", exc)
+        try:  # free the guard so a later request can retry the dispatch
+            await redis.delete(_dispatch_guard_key(user_id))
+        except Exception:
+            pass
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -279,57 +316,6 @@ async def _compute(db: AsyncSession, user_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Single-flight compute (per-user Redis lock, fail-open)
-# ---------------------------------------------------------------------------
-
-async def _compute_and_cache(db: AsyncSession, user_id: int, redis):
-    full = await _compute(db, user_id)
-    if redis is not None:
-        await _cache_set(redis, user_id, full)
-    return full
-
-
-async def _single_flight_compute(db: AsyncSession, user_id: int, redis):
-    """Compute the reco list under a per-user Redis lock (fail-open).
-
-    The lock holder computes and caches; a concurrent caller polls the cache for
-    the holder's result instead of launching its own ~30s compute. No Redis
-    (tests/direct calls) or an unavailable Redis → plain compute.
-    """
-    from schemas import RecommendationList
-
-    if redis is None:
-        return await _compute(db, user_id)
-
-    try:
-        got = await redis.set(_lock_key(user_id), "1", nx=True, ex=_LOCK_TTL_S)
-    except Exception as exc:  # Redis down → fail-open, compute directly
-        logger.warning("reco lock skipped (Redis unavailable): %s", exc)
-        return await _compute_and_cache(db, user_id, redis)
-
-    if got:
-        try:
-            return await _compute_and_cache(db, user_id, redis)
-        finally:
-            try:
-                await redis.delete(_lock_key(user_id))
-            except Exception:  # TTL will expire it
-                pass
-
-    # Another request holds the lock: poll for its cached result.
-    waited = 0.0
-    while waited < _POLL_MAX_S:
-        await asyncio.sleep(_POLL_INTERVAL_S)
-        waited += _POLL_INTERVAL_S
-        full = await _cache_get(redis, user_id)
-        if full is not None:
-            return full
-    # Overran the poll budget → degrade gracefully (empty Pour toi this once;
-    # the holder fills the cache for the next request). Never a 504.
-    return RecommendationList(items=[])
-
-
-# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -342,8 +328,9 @@ async def get_recommendations(
 ):
     """Personalised recommendations for a user.
 
-    Returns a ``RecommendationList`` (empty on cold start). ``redis`` is the
-    optional cache backend; when omitted the list is always computed live.
+    Returns a ``RecommendationList`` (empty on cold start AND on a cold cache —
+    the api never computes inline, see the cold-path policy above). ``redis`` is
+    the optional cache backend; when omitted the list is computed live.
     """
     from schemas import RecommendationList
 
@@ -351,6 +338,14 @@ async def get_recommendations(
     if redis is not None:
         full = await _cache_get(redis, user_id)
     if full is None:
-        full = await _single_flight_compute(db, user_id, redis)
+        if redis is None:
+            # Tests/direct calls: no cache to warm, no broker — compute live.
+            full = await _compute(db, user_id)
+        else:
+            # Cold cache: schedule a worker recompute and degrade to an empty
+            # "Pour toi" this once (also on an unavailable Redis — an outage
+            # must not trigger a ~60s inline compute per request).
+            await schedule_precompute(redis, user_id)
+            full = RecommendationList(items=[])
 
     return RecommendationList(items=full.items[:limit])

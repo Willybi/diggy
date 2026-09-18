@@ -185,6 +185,14 @@ class FakeRedis:
     async def get(self, key):
         return self._store.get(key)
 
+    async def set(self, key, value, nx=False, ex=None):
+        # Emulate SET NX: refuse when the key already holds a value (the reco
+        # dispatch guard relies on it).
+        if nx and key in self._store:
+            return None
+        self._store[key] = value
+        return True
+
     async def setex(self, key, ttl, value):
         self._store[key] = value
 
@@ -209,6 +217,12 @@ async def override_get_redis():
 
 
 app.dependency_overrides[get_redis] = override_get_redis
+
+
+@pytest.fixture
+def fake_redis():
+    """The shared FakeRedis instance the app's get_redis override serves."""
+    return _fake_redis
 
 
 class _AllowAllRateLimitRedis:

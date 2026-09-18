@@ -876,6 +876,10 @@ async def update_avis(
     # the whole TTL. Track opinions only (they are the reco seeds).
     # Best-effort / fail-open (redis None tolerated).
     await recommendation_service.invalidate_user(redis, user_id)
+    # Re-warm asynchronously right away (deduped, fail-open): the api never
+    # computes inline, so the cache would otherwise stay cold until the next
+    # nightly precompute.
+    await recommendation_service.schedule_precompute(redis, user_id)
 
     return {"catalog_id": catalog_id, "avis": avis}
 
