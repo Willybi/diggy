@@ -34,6 +34,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import essentia
 import numpy as np
 import requests
 
@@ -43,6 +44,9 @@ EMB_DECIMALS = 6
 FIELDNAMES = ["id", "status", "dim", "emb"]
 
 EFFNET_GRAPH = "/models/discogs-effnet-bs64-1.pb"
+
+essentia.log.warningActive = False  # silence per-inference TF session warnings
+
 
 # Deezer API throttle (~5 rps), shared across worker threads — mirrors the C9.0-bis
 # benchmark harness. Only the /track/{id} lookup is throttled; the preview MP3

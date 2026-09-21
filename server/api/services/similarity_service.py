@@ -337,6 +337,11 @@ class SimilarityContext:
     Carries the 5 full-table loads (genre resolution, label counts, playlist and
     set co-occurrence maps, and the catalog→album map) so scoring a batch of
     seeds pays the loading cost once.
+
+    ``set_inverted`` / ``playlist_inverted`` are the INVERSE of ``set_map`` /
+    ``playlist_map`` (set_id → catalog_ids, playlist_id → catalog_ids), built from
+    the forward maps with no extra DB round-trip. They back the C9.c co-occurrence
+    retrieval (:func:`cooc_candidate_ids`).
     """
     name_to_node: dict[str, int]
     parent_map: dict[int, set[int]]
@@ -344,6 +349,8 @@ class SimilarityContext:
     playlist_map: dict[int, frozenset[int]]
     set_map: dict[int, frozenset[int]]
     album_map: dict[int, int]
+    set_inverted: dict[int, frozenset[int]]
+    playlist_inverted: dict[int, frozenset[int]]
 
 
 # In-process cache for the seed-agnostic context. The 4 maps are user- AND
@@ -363,6 +370,22 @@ def reset_similarity_context_cache() -> None:
     global _context_cache, _context_built_at
     _context_cache = None
     _context_built_at = 0.0
+
+
+def _invert_cooc_map(
+    forward: dict[int, frozenset[int]],
+) -> dict[int, frozenset[int]]:
+    """Invert a catalog_id → group_ids map into group_id → catalog_ids.
+
+    Pure CPU pass over an already-loaded co-occurrence map (``set_map`` /
+    ``playlist_map``), no DB access. Used by the C9.c retrieval to fetch, for a
+    seed's sets/playlists, every catalog row sharing at least one of them.
+    """
+    result: dict[int, set[int]] = {}
+    for catalog_id, group_ids in forward.items():
+        for group_id in group_ids:
+            result.setdefault(group_id, set()).add(catalog_id)
+    return {k: frozenset(v) for k, v in result.items()}
 
 
 async def load_similarity_context(
@@ -399,6 +422,8 @@ async def load_similarity_context(
         playlist_map=playlist_map,
         set_map=set_map,
         album_map=album_map,
+        set_inverted=_invert_cooc_map(set_map),
+        playlist_inverted=_invert_cooc_map(playlist_map),
     )
     if use_cache:
         _context_cache = ctx
@@ -502,6 +527,160 @@ async def load_candidate_pool(
             user_id,
         )
     return pool
+
+
+# ---------------------------------------------------------------------------
+# Retrieval core (C9.c) — bounded per-seed candidate retrieval
+#
+# The pooled path above scores the WHOLE visible catalog per compute; at ~700k
+# rows that is the reco cold-path cost. These ADDITIVE helpers retrieve a bounded
+# candidate set per seed — top-K pgvector audio neighbours ∪ inverted-index
+# co-occurrence — which later lots re-rank with the existing scoring core. Nothing
+# here re-wires an existing caller; the entry points and caches are untouched.
+# ---------------------------------------------------------------------------
+
+# Default retrieval widths, consumed by later lots (calibrated then). Kept as
+# module constants so the wiring lots share one source of truth.
+RETRIEVAL_KNN_K_DEFAULT = 200  # top-K audio neighbours fetched per embedded seed
+RETRIEVAL_COOC_CAP_DEFAULT = 500  # max co-occurrence candidates kept per seed
+
+
+async def content_neighbor_ids(
+    db: AsyncSession,
+    seed_ids,
+    user_id: int | None = None,
+    *,
+    per_seed_k: int = RETRIEVAL_KNN_K_DEFAULT,
+) -> dict[int, list[tuple[int, float]]]:
+    """Top-``per_seed_k`` pgvector audio neighbours of each embedded seed.
+
+    Returns ``{seed_id: [(catalog_id, cosine_distance), ...]}`` — for every seed
+    that HAS an embedding, its nearest visible neighbours (cosine ``<=>``, seed
+    excluded, ``catalog_visible(user_id)``, filtered to ``MODEL_NAME`` /
+    ``MODEL_VERSION``), ranked by ascending distance. A seed with no embedding is
+    simply absent from the dict. Mirrors :func:`get_content_neighbors`'s KNN,
+    id-only (no result-item build, no cache) so the wiring lots can pool the ids.
+
+    **PostgreSQL only.** The KNN relies on the pgvector ``<=>`` operator; on any
+    other dialect (the SQLite test path) this returns ``{}`` WITHOUT touching the
+    DB — the content channel is PG-only by construction.
+
+    Sequential awaits on the one session (an ``AsyncSession`` is not safe for
+    concurrent access — no ``asyncio.gather`` of several ``db.execute``).
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return {}
+
+    from models import MODEL_NAME, MODEL_VERSION, CatalogEntry, TrackEmbedding
+
+    from services.catalog_service import catalog_visible
+
+    out: dict[int, list[tuple[int, float]]] = {}
+    for seed_id in seed_ids:
+        seed = (
+            await db.execute(
+                select(TrackEmbedding.embedding).where(
+                    TrackEmbedding.catalog_id == seed_id,
+                    TrackEmbedding.model_name == MODEL_NAME,
+                    TrackEmbedding.model_version == MODEL_VERSION,
+                )
+            )
+        ).scalar_one_or_none()
+        if seed is None:
+            continue
+        dist = TrackEmbedding.embedding.cosine_distance(seed).label("dist")
+        rows = (
+            await db.execute(
+                select(TrackEmbedding.catalog_id, dist)
+                .join(CatalogEntry, CatalogEntry.id == TrackEmbedding.catalog_id)
+                .where(
+                    TrackEmbedding.model_name == MODEL_NAME,
+                    TrackEmbedding.model_version == MODEL_VERSION,
+                    TrackEmbedding.catalog_id != seed_id,
+                    catalog_visible(user_id),
+                )
+                .order_by(dist)
+                .limit(per_seed_k)
+            )
+        ).all()
+        out[seed_id] = [(cid, float(d)) for cid, d in rows]
+    return out
+
+
+def cooc_candidate_ids(
+    ctx: SimilarityContext,
+    seed_sets,
+    seed_playlists,
+    *,
+    cap: int = RETRIEVAL_COOC_CAP_DEFAULT,
+) -> set[int]:
+    """Catalog ids co-occurring with a seed via a shared set or playlist.
+
+    Reads the inverted indexes on ``ctx`` (built once in
+    :func:`load_similarity_context`): every catalog row that shares at least one
+    of ``seed_sets`` or ``seed_playlists`` with the seed, capped at ``cap``. In
+    memory only — no DB access.
+
+    The cap truncates in a STABLE order (ascending id) so the retrieved set is
+    reproducible across runs.
+    """
+    candidates: set[int] = set()
+    for set_id in seed_sets:
+        candidates |= ctx.set_inverted.get(set_id, frozenset())
+    for playlist_id in seed_playlists:
+        candidates |= ctx.playlist_inverted.get(playlist_id, frozenset())
+    if len(candidates) <= cap:
+        return candidates
+    return set(sorted(candidates)[:cap])
+
+
+# asyncpg binds at most 32767 parameters per statement; chunk the IN well under
+# it so a large id set never blows the cap (cf. the same bound in search/artist).
+_CANDIDATES_BY_IDS_CHUNK = 30_000
+
+
+async def load_candidates_by_ids(
+    db: AsyncSession, user_id: int | None, ctx: SimilarityContext, ids
+) -> dict[int, PooledCandidate]:
+    """Build the id-keyed :class:`PooledCandidate` pool for a bounded id set.
+
+    The same projected query as :func:`load_candidate_pool` (id, bpm, label,
+    release_date, genres) but restricted to ``ids`` (still under
+    ``catalog_visible(user_id)`` — a retrieved id the viewer cannot see is
+    dropped), reusing :func:`_build_pool_candidates` verbatim (off the event loop,
+    for symmetry with the full pool). An empty ``ids`` returns ``{}`` with no
+    query. The ``IN`` is chunked so a large id set never trips asyncpg's
+    bind-parameter cap.
+    """
+    id_list = list(ids)
+    if not id_list:
+        return {}
+
+    from models import CatalogEntry
+
+    from services.catalog_service import catalog_visible
+
+    rows: list = []
+    for start in range(0, len(id_list), _CANDIDATES_BY_IDS_CHUNK):
+        chunk = id_list[start : start + _CANDIDATES_BY_IDS_CHUNK]
+        rows.extend(
+            (
+                await db.execute(
+                    select(
+                        CatalogEntry.id,
+                        CatalogEntry.bpm,
+                        CatalogEntry.label,
+                        CatalogEntry.release_date,
+                        CatalogEntry.genres,
+                    ).where(
+                        CatalogEntry.id.in_(chunk),
+                        catalog_visible(user_id),
+                    )
+                )
+            ).all()
+        )
+
+    return await asyncio.to_thread(_build_pool_candidates, rows, ctx)
 
 
 # ---------------------------------------------------------------------------
