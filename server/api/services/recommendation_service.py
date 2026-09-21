@@ -65,18 +65,21 @@ CFG = RecommendationConfig()
 
 _CACHE_PREFIX = "reco"
 
-# Cold-path policy (2026-09-18): the api NEVER computes inline. A cold compute
-# is a full-pool scan (~683k-row visible catalog + multi-seed scoring, ~60-114s
-# measured) — computed inline it exceeded the 60s nginx proxy timeout, so the
-# request that found the cache cold got a 504. On a miss the api dispatches the
-# per-user worker task (workers.tasks.precompute_user_recommendations) and
-# degrades to an empty "Pour toi" (Tendance still renders; the feed fills once
-# the worker has cached). The dispatch is deduped by a short Redis guard so a
-# rating burst schedules ONE recompute, not one per avis — an avis landing while
-# a compute is in flight leaves the cache stale for at most guard TTL + one
-# compute, and the nightly precompute trues everything up. With ``redis`` None
-# (tests/direct calls) the plain inline compute is kept: no cache to warm, and
-# the broker is that same Redis anyway.
+# Cold-path policy (2026-09-18; compute re-based retrieval-first C9.c/L2): the api
+# still NEVER computes inline. Since L2 a cold compute is a BOUNDED retrieval-first
+# pass (per-seed KNN ∪ co-occ, a few seconds) — not the old full-pool scan
+# (~683k-row visible catalog × multi-seed, ~60-114s measured) that blew the 60s
+# nginx proxy timeout into a 504. The dispatch-and-degrade policy is KEPT anyway
+# (it stays the right posture — cheap, cache-warming, storm-safe): on a miss the
+# api dispatches the per-user worker task
+# (workers.tasks.precompute_user_recommendations) and degrades to an empty "Pour
+# toi" (Tendance still renders; the feed fills once the worker has cached). The
+# dispatch is deduped by a short Redis guard so a rating burst schedules ONE
+# recompute, not one per avis — an avis landing while a compute is in flight
+# leaves the cache stale for at most guard TTL + one compute, and the nightly
+# precompute trues everything up. With ``redis`` None (tests/direct calls) the
+# plain inline compute is kept: no cache to warm, and the broker is that same
+# Redis anyway.
 _DISPATCH_GUARD_PREFIX = "reco:dispatch"
 _DISPATCH_GUARD_TTL_S = 180  # ≈ one worker compute; bounds dispatch storms
 
