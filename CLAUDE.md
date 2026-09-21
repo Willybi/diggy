@@ -48,9 +48,15 @@ server/
 │   │                        # GET /api/recommendations, JWT-only, personalized reco, C4)
 │   └── services/            # Business logic lives HERE, not in routers:
 │                            # genre, artist, catalog, radar, image, search, watchlist,
-│                            # following, similarity (C4 reco: recommendation_service consumes
-│                            # load_similarity_context + load_candidate_pool + the PRIVATE
-│                            # _score_seed_against_pool / _build_result_items — pool-then-score-in-memory;
+│                            # following, similarity (C4 reco, retrieval-first since C9.c 2026-09-21:
+│                            # recommendation_service consumes load_similarity_context + the retrieval
+│                            # core (content_neighbor_ids / cooc_candidate_ids / load_candidates_by_ids)
+│                            # + the PRIVATE _score_seed_against_pool / _build_result_items —
+│                            # retrieve-then-score-in-memory with an additive audio CONTENT_BONUS;
+│                            # load_candidate_pool is REMOVED: every surface (reco, /similar,
+│                            # similar_sets) retrieves a bounded per-seed universe, audio KNN ∪
+│                            # inverted co-occurrence — a metadata-only candidate with neither is
+│                            # no longer reachable (assumed C9.c boundary);
 │                            # NOT similar_from_context, which is no longer the reco primitive (currently
 │                            # caller-less in server/). Public similarity entry points: get_similar_tracks
 │                            # (/catalog/{id}/similar), similar_sets (/sets/{id}/similar). NB: NOT

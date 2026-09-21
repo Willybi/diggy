@@ -73,9 +73,18 @@ async def _descending_dataset(db):
 
     All Tech House / same valid label / same era, so only BPM proximity varies:
     c1 (128) > c2 (127) > c3 (126) > c4 (125) > c5 (124). All fall inside the BPM
-    window so they are all candidates, and the label "Drumcode" occurs 6× (>=
-    LABEL_MIN_TRACKS) so context contributes too.
+    window and the label "Drumcode" occurs 6× (>= LABEL_MIN_TRACKS) so context
+    contributes too.
+
+    Retrieval-first (C9.c/L3): /similar no longer scans the full BPM-window
+    catalog — it retrieves per-seed via audio KNN ∪ co-occurrence. So ref + c1..c5
+    are co-located in ONE DJ set (the dialect-agnostic retrieval channel; audio
+    KNN is PG-only) to make the candidates retrievable. Every candidate then
+    carries the SAME single shared set, so the strictly-decreasing order (driven
+    by BPM proximity) — and the album-dedup behaviour under test — is unchanged.
     """
+    from models import DJSet, SetTrack
+
     await _seed_genre_graph(db)
     ref = await _mk(db, title="Ref", nk="a|ref", bpm=128.0, key="8A",
                     label="Drumcode", release_date=date(2025, 1, 1),
@@ -87,6 +96,12 @@ async def _descending_dataset(db):
             label="Drumcode", release_date=date(2025, 1, 1),
             genres=["Tech House"],
         )
+    s = DJSet(source="trackid", title="cooc")
+    db.add(s)
+    await db.flush()
+    for pos, e in enumerate([ref, *cands.values()], start=1):
+        db.add(SetTrack(set_id=s.id, catalog_id=e.id, position=pos, is_id=False))
+    await db.commit()
     return ref, cands
 
 

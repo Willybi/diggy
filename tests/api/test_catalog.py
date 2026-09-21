@@ -1,7 +1,18 @@
 """Tests for /api/catalog endpoints."""
 from datetime import date, datetime, timezone
 
-from models import CatalogEntry, CatalogArtist, UserTrack, Artist, RadarTrack, WatchedEntity, SetTrack, DJSet, User, UserOpinion
+from models import (
+    Artist,
+    CatalogArtist,
+    CatalogEntry,
+    DJSet,
+    RadarTrack,
+    SetTrack,
+    User,
+    UserOpinion,
+    UserTrack,
+    WatchedEntity,
+)
 
 
 class TestListCatalog:
@@ -408,6 +419,15 @@ class TestCatalogAvisReadPaths:
 
 
 class TestCatalogSimilar:
+    async def _colocate_in_set(self, db, entries):
+        """Put every entry in one DJ set so they co-occur (retrieval-first, L3)."""
+        s = DJSet(source="trackid", title="cooc")
+        db.add(s)
+        await db.flush()
+        for pos, e in enumerate(entries, start=1):
+            db.add(SetTrack(set_id=s.id, catalog_id=e.id, position=pos, is_id=False))
+        await db.commit()
+
     async def test_404_for_missing_id(self, client):
         r = await client.get("/api/catalog/999999/similar")
         assert r.status_code == 404
@@ -418,6 +438,10 @@ class TestCatalogSimilar:
         db.add_all([ref, close])
         await db.commit()
         await db.refresh(ref)
+        # Retrieval-first (C9.c/L3): a candidate must co-occur with the seed (or
+        # share an audio embedding, PG-only) to enter the bounded candidate
+        # universe. Co-locate ref+close in one DJ set so `close` is retrieved.
+        await self._colocate_in_set(db, [ref, close])
 
         r = await client.get(f"/api/catalog/{ref.id}/similar?score_floor=0")
         assert r.status_code == 200
@@ -432,6 +456,7 @@ class TestCatalogSimilar:
         db.add_all([ref, other])
         await db.commit()
         await db.refresh(ref)
+        await self._colocate_in_set(db, [ref, other])
 
         r = await client.get(f"/api/catalog/{ref.id}/similar?score_floor=0")
         data = r.json()
@@ -448,10 +473,14 @@ class TestCatalogSimilar:
     async def test_limit_param(self, client, db):
         ref = CatalogEntry(title="Ref", artist="A", normalized_key="a|ref-lp", bpm=128.0, key="8A")
         db.add(ref)
+        others = []
         for i in range(5):
-            db.add(CatalogEntry(title=f"T{i}", artist="A", normalized_key=f"a|t{i}-lp", bpm=128.0 + i, key="8A"))
+            e = CatalogEntry(title=f"T{i}", artist="A", normalized_key=f"a|t{i}-lp", bpm=128.0 + i, key="8A")
+            others.append(e)
+            db.add(e)
         await db.commit()
         await db.refresh(ref)
+        await self._colocate_in_set(db, [ref, *others])
 
         r = await client.get(f"/api/catalog/{ref.id}/similar?limit=2&score_floor=0")
         assert r.status_code == 200

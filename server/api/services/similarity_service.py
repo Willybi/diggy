@@ -51,14 +51,6 @@ class SimilarityConfig:
 
 CFG = SimilarityConfig()
 
-# Similarity-pool observability canary. ``load_candidate_pool`` materialises the
-# ENTIRE visible catalog per compute; past ~this many candidates a cold reco
-# compute risks the uvicorn-worker RSS spike that OOM'd prod on 2026-08-10. We
-# LOG rather than truncate on purpose: a hard ``.limit()`` on the pool query
-# could silently drop the SEED row itself → LookupError, a worse failure than a
-# large-but-correct pool. The real memory bound is the heapq in the scorer.
-POOL_SIZE_WARN = 300_000
-
 # Album de-dup (L4): the similarity result keeps at most one track per album, so
 # the scorer must over-provision its winners — otherwise a run where several of
 # the top ``top_n`` tracks share an album would return fewer than ``top_n`` rows.
@@ -432,7 +424,13 @@ async def load_similarity_context(
 
 
 # ---------------------------------------------------------------------------
-# Candidate pool (built once per compute, scored in memory across many seeds)
+# Pooled candidate — the scored-row projection, built from a BOUNDED id set
+#
+# Since C9.c (retrieval-first) no path materialises the ENTIRE visible catalog:
+# every consumer retrieves a bounded candidate id set (audio KNN ∪ co-occurrence)
+# and hydrates ONLY those rows via :func:`load_candidates_by_ids`. ``PooledCandidate``
+# is the per-row projection the scorer consumes; ``_build_pool_candidates`` builds
+# it (pure CPU) for whatever id set was retrieved.
 # ---------------------------------------------------------------------------
 
 class PooledCandidate(NamedTuple):
@@ -482,61 +480,15 @@ def _build_pool_candidates(rows, ctx: SimilarityContext) -> dict[int, PooledCand
     return pool
 
 
-async def load_candidate_pool(
-    db: AsyncSession, user_id: int | None, ctx: SimilarityContext
-) -> dict[int, PooledCandidate]:
-    """Build the id-keyed candidate pool for one viewer, ONCE per compute.
-
-    ONE projected query (id, bpm, label, release_date, genres) under
-    ``catalog_visible(user_id)`` — NOT full ORM entities — enriched with the
-    context's seed-agnostic maps. The pool IS the viewer's visible catalog, so a
-    seed lookup and every candidate-membership test is O(1) against it.
-
-    User-scoped (visibility is per-user), so it is built per compute and NEVER
-    globally cached — unlike :class:`SimilarityContext`. Insertion order follows
-    the DB's natural (unordered) scan, the same row order the pre-pool per-seed
-    queries returned, so score-tie ordering is preserved.
-    """
-    from models import CatalogEntry
-
-    from services.catalog_service import catalog_visible
-
-    rows = (
-        await db.execute(
-            select(
-                CatalogEntry.id,
-                CatalogEntry.bpm,
-                CatalogEntry.label,
-                CatalogEntry.release_date,
-                CatalogEntry.genres,
-            ).where(catalog_visible(user_id))
-        )
-    ).all()
-
-    # Pure-CPU build (one PooledCandidate + genre expansion per row) runs off the
-    # event loop: at pool scale (>600k rows) it blocks the loop long enough for
-    # the uvicorn supervisor ping (~5s) to declare the worker dead and SIGKILL it
-    # (prod 502s, 2026-09-18). Rows and ctx maps are read-only here, no DB access.
-    pool = await asyncio.to_thread(_build_pool_candidates, rows, ctx)
-    if len(pool) > POOL_SIZE_WARN:
-        logger.warning(
-            "similarity pool exceeds %d candidates (%d, user=%s) — a cold reco "
-            "compute may pressure uvicorn-worker memory",
-            POOL_SIZE_WARN,
-            len(pool),
-            user_id,
-        )
-    return pool
-
-
 # ---------------------------------------------------------------------------
 # Retrieval core (C9.c) — bounded per-seed candidate retrieval
 #
-# The pooled path above scores the WHOLE visible catalog per compute; at ~700k
-# rows that is the reco cold-path cost. These ADDITIVE helpers retrieve a bounded
-# candidate set per seed — top-K pgvector audio neighbours ∪ inverted-index
-# co-occurrence — which later lots re-rank with the existing scoring core. Nothing
-# here re-wires an existing caller; the entry points and caches are untouched.
+# Every similarity/reco surface retrieves a bounded candidate set per seed —
+# top-K pgvector audio neighbours ∪ inverted-index co-occurrence — instead of
+# scanning the whole visible catalog (~700k rows). The retrieved ids are then
+# hydrated by :func:`load_candidates_by_ids` and re-ranked by the existing C2
+# scoring core, so the displayed score is unchanged in nature: only the candidate
+# UNIVERSE is bounded (an assumed, documented retrieval approximation).
 # ---------------------------------------------------------------------------
 
 # Default retrieval widths, consumed by later lots (calibrated then). Kept as
@@ -644,13 +596,11 @@ async def load_candidates_by_ids(
 ) -> dict[int, PooledCandidate]:
     """Build the id-keyed :class:`PooledCandidate` pool for a bounded id set.
 
-    The same projected query as :func:`load_candidate_pool` (id, bpm, label,
-    release_date, genres) but restricted to ``ids`` (still under
-    ``catalog_visible(user_id)`` — a retrieved id the viewer cannot see is
-    dropped), reusing :func:`_build_pool_candidates` verbatim (off the event loop,
-    for symmetry with the full pool). An empty ``ids`` returns ``{}`` with no
-    query. The ``IN`` is chunked so a large id set never trips asyncpg's
-    bind-parameter cap.
+    A projected query (id, bpm, label, release_date, genres) restricted to
+    ``ids`` and to ``catalog_visible(user_id)`` — a retrieved id the viewer cannot
+    see is dropped — reusing :func:`_build_pool_candidates` verbatim (off the
+    event loop). An empty ``ids`` returns ``{}`` with no query. The ``IN`` is
+    chunked so a large id set never trips asyncpg's bind-parameter cap.
     """
     id_list = list(ids)
     if not id_list:
@@ -982,6 +932,15 @@ async def _build_result_items(
 
     return results
 
+# Retrieval widths for the /similar QUALITY surfaces (track + set). Deliberately
+# MORE generous than the reco defaults (RETRIEVAL_KNN_K_DEFAULT=200 /
+# RETRIEVAL_COOC_CAP_DEFAULT=500): /similar is a focused single-seed surface (one
+# track, or each track of a set), so a wider candidate net is affordable and lifts
+# recall. Bounded retrieval (vs the removed full-pool scan) keeps it payable.
+SIMILAR_RETRIEVAL_KNN_K = 300  # top-K audio neighbours fetched per embedded seed
+SIMILAR_RETRIEVAL_COOC_CAP = 1000  # max co-occurrence candidates kept per seed
+
+
 async def _similar_core(
     db: AsyncSession,
     ctx: SimilarityContext,
@@ -992,26 +951,40 @@ async def _similar_core(
     score_floor: float,
     in_lib: bool | None,
 ) -> list[dict]:
-    """Score candidates for one seed against ``ctx`` (no ``limit`` applied).
+    """Score the BOUNDED retrieval candidates of one seed (no ``limit`` applied).
 
-    Builds the candidate pool ONCE (one projected, visibility-scoped query),
-    looks the seed up in it, scores in memory, then fetches full ORM data for
-    the ``top_n`` winners only. Shared body behind :func:`similar_from_context`
-    (in_lib=None) and :func:`get_similar_tracks`. Applies
-    ``catalog_visible(user_id)`` (via the pool) and raises ``LookupError`` if the
-    seed is absent/invisible.
+    Retrieval-first (C9.c/L3): loads the seed, retrieves a bounded candidate set
+    (audio KNN ∪ co-occurrence), hydrates ONLY those rows, scores in memory with
+    the UNCHANGED C2 barème, then fetches full ORM data for the ``top_n`` winners.
+    Shared body behind :func:`similar_from_context` (in_lib=None) and
+    :func:`get_similar_tracks`. Applies ``catalog_visible(user_id)`` (a retrieved
+    id the viewer cannot see is dropped) and raises ``LookupError`` if the seed is
+    absent/invisible. The displayed score keeps the C2 nature — only the candidate
+    UNIVERSE is bounded (assumed, documented retrieval approximation): the audio
+    KNN is not a scoring term here, it only widens which candidates are scored.
     """
     from models import UserTrack
 
-    # 1. Build the visible candidate pool and locate the seed within it. The
-    #    pool is catalog_visible-scoped, so a missing seed == invisible/deleted.
-    pool = await load_candidate_pool(db, user_id, ctx)
-    seed = pool.get(seed_catalog_id)
+    # 1. Load the seed as a PooledCandidate (visibility-scoped). An absent id ==
+    #    invisible/deleted seed → LookupError (unchanged 404 semantics).
+    seed_pool = await load_candidates_by_ids(db, user_id, ctx, [seed_catalog_id])
+    seed = seed_pool.get(seed_catalog_id)
     if seed is None:
         raise LookupError(f"Catalog entry {seed_catalog_id} not found")
 
-    # 2. in_lib pre-filter: restrict candidates to the user's library (the same
-    #    filter the pre-pool path applied to the union before scoring).
+    # 2. Bounded candidate retrieval: audio KNN (PG-only; {} on SQLite) ∪
+    #    co-occurrence. The seed itself is excluded (KNN excludes it; discard from
+    #    the cooc side so it never re-enters the pool — the scorer drops it anyway).
+    knn = await content_neighbor_ids(
+        db, [seed_catalog_id], user_id, per_seed_k=SIMILAR_RETRIEVAL_KNN_K
+    )
+    candidate_ids: set[int] = {cid for cid, _dist in knn.get(seed_catalog_id, ())}
+    candidate_ids |= cooc_candidate_ids(
+        ctx, seed.sets, seed.playlists, cap=SIMILAR_RETRIEVAL_COOC_CAP
+    )
+    candidate_ids.discard(seed_catalog_id)
+
+    # 3. in_lib pre-filter: restrict the SCORED candidates to the user's library.
     restrict_ids: set[int] | None = None
     if in_lib is True and user_id is not None:
         lib_ids_rows = (
@@ -1021,11 +994,13 @@ async def _similar_core(
         ).all()
         restrict_ids = {r[0] for r in lib_ids_rows}
 
-    # 3. Score every candidate in memory, sort. Over-provision the winners so the
-    #    album de-dup can still return ``top_n`` distinct-album tracks (L4).
+    # 4. Hydrate the retrieved candidates in ONE bounded pass, score, sort. Over-
+    #    provision the winners so the album de-dup can still return ``top_n``
+    #    distinct-album tracks (L4).
+    pool = await load_candidates_by_ids(db, user_id, ctx, candidate_ids)
     overprovision = max(top_n * ALBUM_DEDUP_OVERPROVISION, top_n)
-    # Off-loop: pure-CPU scoring of the whole pool would block the event loop
-    # past the uvicorn supervisor ping window (worker SIGKILL → 502).
+    # Off-loop: pure-CPU scoring would block the event loop past the uvicorn
+    # supervisor ping window (worker SIGKILL → 502).
     scored = await asyncio.to_thread(
         _score_seed_against_pool,
         pool, seed, score_floor=score_floor, restrict_ids=restrict_ids,
@@ -1034,7 +1009,7 @@ async def _similar_core(
     # ≤1 track per album (keeps the best-scored of each), then truncate to top_n.
     top = _dedup_by_album(scored, pool, top_n)
 
-    # 4. Heavy fetch (artists, in_lib, full fields) for the winners only. The
+    # 5. Heavy fetch (artists, in_lib, full fields) for the winners only. The
     #    album_id comes straight from the pool — no extra query.
     album_by_id = {cid: pool[cid].album_id for cid, *_ in top}
     return await _build_result_items(db, top, user_id, album_by_id=album_by_id)
@@ -1191,12 +1166,14 @@ async def get_similar_tracks(
 # ---------------------------------------------------------------------------
 
 # A set is scored from at most this many of its identified tracks (bounds the
-# per-request cost: each seed is scored against the whole visible pool). Halved
-# 24→12 after prod measured ~21 s per uncached call, then 12→6 on 2026-09-21
-# when the pool hit ~700k (C12 inflow) and a cold call blew the 60s nginx
-# timeout — the cost is linear in the seed count. Interim lever until C10
-# (precomputed pool) lands; 6 seeds still characterise a set.
-SIMILAR_SETS_SEED_CAP = 6
+# per-request cost: each seed drives one bounded retrieval + one scoring pass).
+# Halved 24→12 after prod measured ~21 s per uncached call, then 12→6 on
+# 2026-09-21 when the FULL-POOL scan hit ~700k rows (C12 inflow) and a cold call
+# blew the 60s nginx timeout (cfab3db). RESTORED 6→12 with L3 (C9.c): the seed is
+# no longer scored against the whole visible catalog but against a BOUNDED
+# retrieval set (audio KNN ∪ co-occurrence), so the per-seed cost collapsed and
+# 12 seeds are again payable — and characterise a set more faithfully than 6.
+SIMILAR_SETS_SEED_CAP = 12
 # Per-seed proximity: keep the top-N most similar tracks; each contributes to the
 # sets that contain it.
 SIMILAR_SETS_CAND_TRUNC = 40
@@ -1304,13 +1281,16 @@ async def _compute_similar_sets(
     1. Load the set (id + ``parent_set_id``); raise ``LookupError`` if absent.
     2. Seeds = the ``catalog_id`` of its identified tracks (``catalog_id`` set,
        ``is_id`` false), ordered by position.
-    3. Load the shared context once and the viewer-scoped candidate pool once.
-       Restrict the seeds to the pool (= C3 visibility) and cap at
-       ``SIMILAR_SETS_SEED_CAP``.
+    3. Load the shared context once. Hydrate the seeds' :class:`PooledCandidate`
+       rows (= C3 visibility), restrict the seeds to the visible ones and cap at
+       ``SIMILAR_SETS_SEED_CAP``. Retrieve a BOUNDED candidate universe (audio KNN
+       ∪ co-occurrence over the retained seeds) and hydrate only those rows once
+       (retrieval-first, C9.c/L3 — no full-pool scan).
     4. Accumulate a per-set score:
-         * OVERLAP (dominant): each root set in ``ctx.set_map[seed]`` gets +1.0;
-         * PROXIMITY: score the seed against the pool, keep the top
-           ``SIMILAR_SETS_CAND_TRUNC`` candidates, and give every set containing a
+         * OVERLAP (dominant): each root set in ``ctx.set_map[seed]`` gets +1.0
+           (uses ``ctx`` directly — INDEPENDENT of the bounded candidate pool);
+         * PROXIMITY: score the seed against the retrieved candidate pool, keep the
+           top ``SIMILAR_SETS_CAND_TRUNC``, and give every set containing a
            candidate ``+candidate_score * SIMILAR_SETS_PROXIMITY_W``.
     5. Exclude the current set and its ``parent_set_id`` (children are absent from
        ``set_map`` by construction — roots only — so the parent root is the only
@@ -1348,18 +1328,33 @@ async def _compute_similar_sets(
         )
     ).all()
 
-    # 3. Shared context + viewer-scoped pool; restrict seeds to the visible pool.
+    # 3. Shared context; hydrate the seed rows to apply C3 visibility, cap seeds.
     ctx = await load_similarity_context(db)
-    pool = await load_candidate_pool(db, user_id, ctx)
+    seed_ids = [cid for (cid,) in seed_rows]
+    seed_pool = await load_candidates_by_ids(db, user_id, ctx, seed_ids)
 
     seeds: list[int] = []
     seen: set[int] = set()
-    for (cid,) in seed_rows:
-        if cid in pool and cid not in seen:
+    for cid in seed_ids:
+        if cid in seed_pool and cid not in seen:
             seen.add(cid)
             seeds.append(cid)
             if len(seeds) >= SIMILAR_SETS_SEED_CAP:
                 break
+
+    # Bounded candidate universe over the retained seeds: audio KNN (PG-only) ∪
+    # co-occurrence. Hydrated ONCE, then reused across the per-seed scoring passes.
+    knn = await content_neighbor_ids(
+        db, seeds, user_id, per_seed_k=SIMILAR_RETRIEVAL_KNN_K
+    )
+    candidate_ids: set[int] = set()
+    for cid in seeds:
+        seed = seed_pool[cid]
+        candidate_ids.update(c for c, _dist in knn.get(cid, ()))
+        candidate_ids |= cooc_candidate_ids(
+            ctx, seed.sets, seed.playlists, cap=SIMILAR_RETRIEVAL_COOC_CAP
+        )
+    cand_pool = await load_candidates_by_ids(db, user_id, ctx, candidate_ids)
 
     excluded = {set_id}
     if parent_set_id is not None:
@@ -1370,12 +1365,13 @@ async def _compute_similar_sets(
     for cid in seeds:
         for sid in ctx.set_map.get(cid, ()):  # exact tracklist overlap
             set_scores[sid] = set_scores.get(sid, 0.0) + 1.0
-        # Off-loop per seed (up to SIMILAR_SETS_SEED_CAP full-pool scorings per
+        # Off-loop per seed (up to SIMILAR_SETS_SEED_CAP bounded-pool scorings per
         # call): keeps the event loop answering the uvicorn supervisor pings.
         scored = (
             await asyncio.to_thread(
                 _score_seed_against_pool,
-                pool, pool[cid], score_floor=0.0, limit=SIMILAR_SETS_CAND_TRUNC,
+                cand_pool, seed_pool[cid], score_floor=0.0,
+                limit=SIMILAR_SETS_CAND_TRUNC,
             )
         )[:SIMILAR_SETS_CAND_TRUNC]
         for cand_id, score_pct, _components, _available in scored:

@@ -1,9 +1,10 @@
 """Tests for services/similarity_service.py."""
 
+import os
 from datetime import date
 
 import pytest
-
+from services import similarity_service
 from services.similarity_service import (
     CFG,
     _expand_genre_nodes,
@@ -17,7 +18,6 @@ from services.similarity_service import (
     sim_key,
     sim_label,
 )
-
 
 # ---------------------------------------------------------------------------
 # parse_camelot
@@ -328,7 +328,7 @@ class TestScoreCooc:
 
 class TestGetSimilarTracks:
     async def _create_tracks(self, db, tracks):
-        from models import CatalogEntry
+        from models import CatalogEntry, DJSet, SetTrack
 
         entries = []
         for i, data in enumerate(tracks):
@@ -347,6 +347,19 @@ class TestGetSimilarTracks:
         await db.commit()
         for e in entries:
             await db.refresh(e)
+        # Retrieval-first (C9.c/L3): a candidate must share a co-occurrence (or an
+        # audio embedding, PG-only) with the seed to enter the BOUNDED candidate
+        # universe — the full-catalog scan is gone. Co-locate every created track
+        # in one DJ set so these metadata candidates are reachable via set
+        # co-occurrence. These tests assert ranking / limit / in_lib / structure,
+        # NOT the candidate universe, so the added set does not change their intent.
+        if len(entries) > 1:
+            s = DJSet(source="trackid", title="cooc")
+            db.add(s)
+            await db.flush()
+            for pos, e in enumerate(entries, start=1):
+                db.add(SetTrack(set_id=s.id, catalog_id=e.id, position=pos, is_id=False))
+            await db.commit()
         return entries
 
     async def test_raises_for_missing_catalog_id(self, db):
@@ -479,7 +492,7 @@ class TestGetSimilarTracksCache:
     """Redis result cache on get_similar_tracks (per seed+viewer+top_n+score_floor+in_lib, TTL 6h, fail-open)."""
 
     async def _create_tracks(self, db, tracks):
-        from models import CatalogEntry
+        from models import CatalogEntry, DJSet, SetTrack
 
         entries = []
         for i, data in enumerate(tracks):
@@ -496,6 +509,17 @@ class TestGetSimilarTracksCache:
         await db.commit()
         for e in entries:
             await db.refresh(e)
+        # Retrieval-first (C9.c/L3): co-locate every created track in one DJ set so
+        # the metadata candidates are reachable via set co-occurrence (the bounded
+        # candidate universe replaced the full-catalog scan). The cache tests
+        # assert miss/hit/slice behaviour on a NON-empty result, not the universe.
+        if len(entries) > 1:
+            s = DJSet(source="trackid", title="cooc")
+            db.add(s)
+            await db.flush()
+            for pos, e in enumerate(entries, start=1):
+                db.add(SetTrack(set_id=s.id, catalog_id=e.id, position=pos, is_id=False))
+            await db.commit()
         return entries
 
     async def test_miss_then_hit_skips_recompute(self, db, monkeypatch):
@@ -840,3 +864,137 @@ class TestSetMapRootsOnly:
 
         set_map = await _load_set_map(db)
         assert set_map == {entry_id: frozenset({good_id})}  # flagged set excluded
+
+
+# ---------------------------------------------------------------------------
+# L3: retrieval-first /similar — bounded candidate universe
+# ---------------------------------------------------------------------------
+
+_IS_PG = os.environ.get("DATABASE_URL", "").startswith("postgresql")
+
+
+class TestSimilarRetrievalFirst:
+    """Retrieval-first /similar (C9.c/L3) on the default SQLite harness, where the
+    audio-KNN channel is PG-only so the co-occurrence channel governs."""
+
+    async def _mk(self, db, title, **kw):
+        from models import CatalogEntry
+
+        e = CatalogEntry(
+            title=title, artist="A", normalized_key=f"{title}|a",
+            bpm=kw.get("bpm"), key=kw.get("key"), label=kw.get("label"),
+            release_date=kw.get("release_date"), genres=kw.get("genres", []),
+            scope=kw.get("scope", "shared"), owner_id=kw.get("owner_id"),
+        )
+        db.add(e)
+        await db.flush()
+        return e
+
+    async def test_cooc_channel_only_without_embedding(self, db):
+        # (b) A non-embedded seed retrieves ONLY its co-occurrence candidates; a
+        # metadata-only (near-BPM) candidate with no shared set is NOT retrieved.
+        from models import DJSet, SetTrack
+
+        seed = await self._mk(db, "seed", bpm=128.0, release_date=date(2025, 1, 1))
+        cooc = await self._mk(db, "cooc", bpm=200.0)  # far bpm, shares a set
+        meta = await self._mk(db, "meta", bpm=129.0, release_date=date(2025, 2, 1))
+        s = DJSet(source="trackid", title="S")
+        db.add(s)
+        await db.flush()
+        db.add(SetTrack(set_id=s.id, catalog_id=seed.id, position=1, is_id=False))
+        db.add(SetTrack(set_id=s.id, catalog_id=cooc.id, position=2, is_id=False))
+        await db.commit()
+
+        res = await similarity_service.get_similar_tracks(
+            db, seed.id, limit=50, top_n=50, score_floor=0.0,
+        )
+        ids = {r["id"] for r in res}
+        assert cooc.id in ids  # reached via set co-occurrence
+        assert meta.id not in ids  # metadata-only, no cooc/embedding → not retrieved
+
+    async def test_missing_seed_raises(self, db):
+        # (c) unknown seed → LookupError (404), unchanged.
+        with pytest.raises(LookupError):
+            await similarity_service.get_similar_tracks(db, 999999)
+
+    async def test_foreign_private_seed_invisible_raises(self, db, auth_user, admin_user):
+        # (c) a private row owned by another user is invisible to the viewer, so the
+        # seed is absent from the retrieval pool → LookupError (404), not an empty
+        # result — the 404 semantics are preserved by load_candidates_by_ids.
+        secret = await self._mk(
+            db, "secret", scope="private", owner_id=admin_user.id
+        )
+        await db.commit()
+        with pytest.raises(LookupError):
+            await similarity_service.get_similar_tracks(db, secret.id, auth_user.id)
+
+
+@pytest.mark.skipif(
+    not _IS_PG,
+    reason="the audio-KNN retrieval channel uses the PostgreSQL-only pgvector <=>",
+)
+class TestSimilarRetrievalFirstPG:
+    async def test_audio_channel_widens_universe(self, db, auth_user):
+        # (a) The audio KNN channel retrieves candidates the co-occurrence channel
+        # would miss. A co-occurring candidate AND an audio+metadata candidate (near
+        # embedding + matching era, no shared set) are BOTH reached. A pure-audio
+        # neighbour with no metadata overlap scores ~0 under the C2 barème, so it is
+        # retrieved into the universe but does not survive a positive floor.
+        from datetime import date as _date
+
+        from models import (
+            EMBEDDING_DIM,
+            MODEL_NAME,
+            MODEL_VERSION,
+            CatalogEntry,
+            DJSet,
+            SetTrack,
+            TrackEmbedding,
+        )
+
+        def _vec(*prefix):
+            return list(prefix) + [0.0] * (EMBEDDING_DIM - len(prefix))
+
+        async def _mk(title, *, emb=None, **kw):
+            e = CatalogEntry(
+                title=title, artist="A", normalized_key=f"{title}|a",
+                bpm=kw.get("bpm"), release_date=kw.get("release_date"),
+                scope="shared",
+            )
+            db.add(e)
+            await db.flush()
+            if emb is not None:
+                db.add(TrackEmbedding(
+                    catalog_id=e.id, model_name=MODEL_NAME,
+                    model_version=MODEL_VERSION, embedding=emb,
+                ))
+            await db.flush()
+            return e
+
+        seed = await _mk("seed", emb=_vec(1.0, 0.0), release_date=_date(2025, 1, 1))
+        # ONLY via audio KNN (no shared set); scores via matching era.
+        audio = await _mk("audio", emb=_vec(1.0, 0.02), release_date=_date(2025, 1, 1))
+        # ONLY via co-occurrence (no embedding); scores via the shared set.
+        cooc = await _mk("cooc", bpm=200.0)
+        # Via audio KNN but NO metadata overlap → C2 score ~0.
+        audio_nometa = await _mk("audio_nometa", emb=_vec(1.0, 0.03))
+
+        s = DJSet(source="trackid", title="S")
+        db.add(s)
+        await db.flush()
+        db.add(SetTrack(set_id=s.id, catalog_id=seed.id, position=1, is_id=False))
+        db.add(SetTrack(set_id=s.id, catalog_id=cooc.id, position=2, is_id=False))
+        await db.commit()
+
+        res = await similarity_service.get_similar_tracks(
+            db, seed.id, auth_user.id, limit=50, top_n=50, score_floor=0.0,
+        )
+        ids = {r["id"] for r in res}
+        assert cooc.id in ids  # co-occurrence channel
+        assert audio.id in ids  # audio channel widened the universe (era-scored)
+
+        floored = await similarity_service.get_similar_tracks(
+            db, seed.id, auth_user.id, limit=50, top_n=50, score_floor=0.01,
+        )
+        # Retrieved via audio KNN, but its C2 score is ~0 → filtered by the floor.
+        assert audio_nometa.id not in {r["id"] for r in floored}

@@ -1,10 +1,13 @@
-"""Equivalence anchors for the candidate-pool refactor of the similarity engine.
+"""Equivalence anchors for the similarity engine's scoring core.
 
-The pooling optimisation (build the visible catalog ONCE, precompute the
-seed-independent candidate terms, score every seed in memory) must be a PURE
-optimisation: same ids, same scores, same components as the pre-pool per-seed
-path. The concrete expected values below were captured from the pre-refactor
-implementation on the same dataset, so they anchor byte-for-byte equivalence.
+The concrete expected values below were captured from the pre-pool per-seed
+implementation, so they anchor byte-for-byte SCORE equivalence: a retrieved
+candidate keeps the exact same score/components/available_features it always had.
+
+Since C9.c (retrieval-first, lot L2 for reco, L3 for /similar) the candidate
+UNIVERSE is bounded (audio KNN ∪ co-occurrence) instead of the full visible
+catalog, so the metadata-only, non-co-occurring candidates in the fixtures are no
+longer retrieved. The scores of the candidates that ARE retrieved are unchanged.
 """
 
 from datetime import date, datetime, timezone
@@ -135,10 +138,20 @@ _EXPECTED_SIMILAR = [
 ]
 
 
+# Under retrieval-first (C9.c / lot L3) only the CO-OCCURRING candidates enter the
+# bounded universe on SQLite (the audio-KNN channel is PG-only): "coocset" (shares
+# a DJ set with ref) and "coocpl" (shares a radar playlist). Their SCORES are
+# unchanged from the pre-pool engine — only the metadata-only, non-co-occurring
+# candidates (close/deep/half/nobpm/far) are no longer retrieved. This mirrors the
+# retrieval-first reco update in TestRecoPoolEquivalence below.
+_RETRIEVED_NAMES = {"coocset", "coocpl"}
+
+
 class TestPoolEquivalence:
-    async def test_scoring_matches_pre_pool_reference(self, db):
-        # (a) The pooled path reproduces the exact ordered ids, scores,
-        # components and available_features of the pre-refactor engine.
+    async def test_scoring_matches_retrieval_first_reference(self, db):
+        # (a) Retrieval-first /similar: the retrieved candidates ("coocset",
+        # "coocpl") keep their EXACT pre-pool scores/components/available_features;
+        # the metadata-only candidates with no co-occurrence are not retrieved.
         ds = await _rich_dataset(db)
         res = await similarity_service.get_similar_tracks(
             db, ds["ref"].id, limit=50, top_n=50, score_floor=0.0,
@@ -152,35 +165,45 @@ class TestPoolEquivalence:
         expected = [
             (ds[name].id, score, comps, avail)
             for name, score, comps, avail in _EXPECTED_SIMILAR
+            if name in _RETRIEVED_NAMES
         ]
         assert got == expected
-        # "far" (out of every BPM window, no co-occurrence) is NOT a candidate:
-        # anchors the union(BPM-window-or-null, co-occurrence) candidate set.
-        assert ds["far"].id not in {r["id"] for r in res}
+        # The metadata-only candidates (near BPM / same genre / same label but no
+        # shared set/playlist, no embedding) are NOT retrieved under retrieval-first.
+        for name in ("close", "deep", "half", "nobpm", "far"):
+            assert ds[name].id not in {r["id"] for r in res}
 
-    async def test_null_bpm_candidate_included(self, db):
-        # (c) A candidate with bpm IS NULL stays in the candidate union and is
-        # scored (context-only here), never dropped by the BPM window.
+    async def test_null_bpm_no_cooc_not_retrieved(self, db):
+        # (c) A null-bpm candidate used to stay in the full-pool BPM-or-null union.
+        # Under retrieval-first it only surfaces via a co-occurrence/embedding link;
+        # "nobpm" (no shared set/playlist) is therefore NOT retrieved. Null-bpm
+        # SCORING itself stays covered by the pure-function scoring tests.
         ds = await _rich_dataset(db)
         res = await similarity_service.get_similar_tracks(
             db, ds["ref"].id, limit=50, top_n=50, score_floor=0.0,
         )
-        row = next(r for r in res if r["id"] == ds["nobpm"].id)
-        assert row["similarity"]["score"] == 0.0167
-        assert row["bpm"] is None
+        assert ds["nobpm"].id not in {r["id"] for r in res}
 
-    async def test_low_level_pool_matches_get_similar_tracks(self, db):
-        # load_candidate_pool + _score_seed_against_pool + _build_result_items
-        # reproduces get_similar_tracks exactly (the pooled primitives are the
-        # single source of truth).
+    async def test_low_level_primitives_match_get_similar_tracks(self, db):
+        # load_candidates_by_ids + _score_seed_against_pool + _build_result_items
+        # reproduces get_similar_tracks exactly (the retrieval-first primitives are
+        # the single source of truth). Rewritten off the removed load_candidate_pool.
         ds = await _rich_dataset(db)
         expected = await similarity_service.get_similar_tracks(
             db, ds["ref"].id, limit=50, top_n=50, score_floor=0.0,
         )
 
         ctx = await similarity_service.load_similarity_context(db)
-        pool = await similarity_service.load_candidate_pool(db, None, ctx)
-        seed = pool[ds["ref"].id]
+        seed = (
+            await similarity_service.load_candidates_by_ids(
+                db, None, ctx, [ds["ref"].id]
+            )
+        )[ds["ref"].id]
+        candidate_ids = similarity_service.cooc_candidate_ids(ctx, seed.sets, seed.playlists)
+        candidate_ids.discard(ds["ref"].id)
+        pool = await similarity_service.load_candidates_by_ids(
+            db, None, ctx, candidate_ids
+        )
         scored = similarity_service._score_seed_against_pool(pool, seed, score_floor=0.0)
         items = await similarity_service._build_result_items(db, scored[:50], None)
         assert items == expected
