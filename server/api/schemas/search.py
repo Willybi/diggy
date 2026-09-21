@@ -15,6 +15,8 @@ class SearchItem(BaseModel):
     has_artwork: bool = False
     has_preview: bool = False
     in_lib: bool = False
+    # D12: Beatport embed fallback when the row has no Deezer preview (track only).
+    beatport_id: str | None = None
     # artist
     name: str | None = None
     track_count: int | None = None

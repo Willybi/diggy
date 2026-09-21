@@ -51,6 +51,11 @@
             <div v-if="isPlayable(item)" class="play" @click.stop="playTrack(item)">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
             </div>
+            <!-- Track without a Deezer preview → Beatport overlay fallback (D12),
+                 same artwork spot; Deezer always wins when has_preview. -->
+            <span v-else-if="showBeatport(item)" class="bp-play">
+              <BeatportPlayButton :track="toBeatportTrack(item)" />
+            </span>
           </div>
 
           <!-- text -->
@@ -104,6 +109,7 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs, fmtBpm, pl } from '../utils/format'
 import { scopeIcons } from '../components/hub/scopeIcons.js'
 import NavCover from '../components/NavCover.vue'
+import BeatportPlayButton from '../components/BeatportPlayButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -201,6 +207,14 @@ const playSource = {
 
 function playTrack(item) {
   player.play(toPlayerTrack(item), playSource)
+}
+
+// Beatport fallback (D12): a live track item only, when Deezer has no preview.
+function showBeatport(item) {
+  return item.item_type === 'track' && !item.missing && !item.has_preview && item.beatport_id
+}
+function toBeatportTrack(item) {
+  return { ...toPlayerTrack(item), beatport_id: item.beatport_id }
 }
 
 // ── navigation ──
@@ -407,6 +421,24 @@ onMounted(fetchCollection)
 .rrow.playing .rart .play {
   opacity: 1;
 }
+/* Beatport fallback: same artwork spot + scrim reveal as .play (the wrapper
+   carries placement/reveal so the shared button keeps its own style). */
+.rart .bp-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-soft);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.rart .bp-play :deep(.bpp-btn) {
+  pointer-events: auto;
+}
+.rrow:hover .rart .bp-play {
+  opacity: 1;
+}
 .rrow.missing .rart {
   opacity: 0.5;
 }
@@ -522,7 +554,8 @@ onMounted(fetchCollection)
   .rmeta .m-dur {
     display: none;
   }
-  .rart .play {
+  .rart .play,
+  .rart .bp-play {
     opacity: 1;
   }
   .rm-btn {

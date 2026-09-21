@@ -131,6 +131,7 @@ const trackRows = computed(() => {
       duration_ms: t.duration_ms,
       has_artwork: t.has_artwork,
       has_preview: t.has_preview,
+      beatport_id: t.beatport_id,
       in_lib: t.in_lib,
     },
   }))

@@ -138,7 +138,9 @@ class TestCollectionDetail:
         r = await client.get("/api/collections/9999")
         assert r.status_code == 404
 
-    async def test_detail_with_track(self, client, catalog_entry):
+    async def test_detail_with_track(self, client, catalog_entry, db):
+        catalog_entry.beatport_id = "9016814"
+        await db.commit()
         cr = await client.post("/api/collections/", json={"name": "Test"})
         coll_id = cr.json()["id"]
 
@@ -156,6 +158,7 @@ class TestCollectionDetail:
         assert item["title"] == "Body Funk"
         assert item["subtitle"] == "Purple Disco Machine"
         assert item["missing"] is False
+        assert item["beatport_id"] == "9016814"
 
     async def test_detail_mixed_types_ordered(
         self, client, catalog_entry, dj_set, artist, playlist

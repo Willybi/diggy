@@ -68,6 +68,7 @@ function makeTracks(n) {
     has_artwork: false,
     has_preview: true,
     in_lib: i % 2 === 0,
+    beatport_id: 700 + i,
     // Ascending detected_at → the view must re-order newest first.
     detected_at: `2026-07-${String(10 + i).padStart(2, '0')}T00:00:00Z`,
   }))
@@ -268,6 +269,11 @@ describe('PlaylistDetailView', () => {
     // Counter = number of detected tracks (3), never track_count (120).
     expect(wrapper.find('.sec-count').text()).toContain('3 tracks')
     expect(wrapper.find('.sec-count').text()).not.toContain('120')
+  })
+
+  it('relays beatport_id onto the TrackCard track prop (Beatport play button, D12)', async () => {
+    const wrapper = await mountView(makePlaylist({ tracks: makeTracks(1) }))
+    expect(wrapper.findComponent(TrackCard).props('track').beatport_id).toBe(700)
   })
 
   it('renders the never-crawled empty state when there are no detected tracks', async () => {

@@ -49,6 +49,8 @@ class ArtistActivityOut(BaseModel):
     duration_ms: Optional[int] = None
     artist: Optional[str] = None
     release_date: Optional[date] = None
+    # D12: Beatport embed fallback when the row has no Deezer preview.
+    beatport_id: Optional[str] = None
 
 
 class ActivityListResponse(BaseModel):

@@ -18,3 +18,6 @@ docs/prompts/
 
 # TIDAL OAuth tokens (dev fallback — never commit)
 .tidal_tokens.json
+
+# Local tool data artifacts (C9 hybrid eval: .npz > GitHub's 100 MB limit — never commit)
+worker/embedding_backfill/data_hybrid/

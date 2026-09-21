@@ -39,7 +39,10 @@ class TestSearch:
             assert data["total"] == 0
 
     async def test_search_tracks_by_title(self, client, db):
-        db.add(CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat"))
+        db.add(CatalogEntry(
+            title="Cola", artist="CamelPhat", normalized_key="cola - camelphat",
+            beatport_id="9016814",
+        ))
         db.add(CatalogEntry(title="Strobe", artist="Deadmau5", normalized_key="strobe - deadmau5"))
         await db.commit()
 
@@ -49,6 +52,7 @@ class TestSearch:
         track_items = [i for i in data["items"] if i["type"] == "track"]
         assert len(track_items) == 1
         assert track_items[0]["title"] == "Cola"
+        assert track_items[0]["beatport_id"] == "9016814"
 
     async def test_search_tracks_by_artist(self, client, db):
         db.add(CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat"))

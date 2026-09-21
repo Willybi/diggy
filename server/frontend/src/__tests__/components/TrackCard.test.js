@@ -100,6 +100,38 @@ describe('TrackCard', () => {
     expect(wrapper.emitted('play')).toBeFalsy()
   })
 
+  // --- D12: Beatport overlay fallback (no Deezer preview) ---
+  // The real button reads the Pinia overlay store at setup → stub it.
+  const bpGlobal = { stubs: { BeatportPlayButton: true } }
+
+  it('renders the Beatport fallback without a preview but with a beatport_id', () => {
+    const wrapper = mount(TrackCard, {
+      props: { track: makeTrack({ has_preview: false, beatport_id: 321 }) },
+      global: bpGlobal,
+    })
+    expect(wrapper.find('.tk-play').exists()).toBe(false)
+    expect(wrapper.find('.tk-bp beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', () => {
+    const wrapper = mount(TrackCard, {
+      props: { track: makeTrack({ beatport_id: 321 }) },
+      global: bpGlobal,
+    })
+    expect(wrapper.find('.tk-play').exists()).toBe(true)
+    expect(wrapper.find('beatport-play-button-stub').exists()).toBe(false)
+  })
+
+  it('never renders the Beatport fallback on an id/unresolved row', () => {
+    for (const state of ['id', 'unresolved']) {
+      const wrapper = mount(TrackCard, {
+        props: { track: makeTrack({ has_preview: false, beatport_id: 321 }), state },
+        global: bpGlobal,
+      })
+      expect(wrapper.find('beatport-play-button-stub').exists()).toBe(false)
+    }
+  })
+
   it('applies the playing state class', () => {
     const wrapper = mount(TrackCard, { props: { track: makeTrack(), playing: true } })
     expect(wrapper.find('.track-card').classes()).toContain('playing')

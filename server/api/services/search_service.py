@@ -72,6 +72,7 @@ async def _search_tracks(
             CatalogEntry.duration_ms,
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
+            CatalogEntry.beatport_id,
             ut_sub.c.catalog_id.label("ut_cid"),
         )
         .outerjoin(ut_sub, CatalogEntry.id == ut_sub.c.catalog_id)
@@ -100,6 +101,7 @@ async def _search_tracks(
                 has_artwork=r.has_artwork,
                 has_preview=r.has_preview,
                 in_lib=False if is_guest else (r.ut_cid is not None),
+                beatport_id=r.beatport_id,
             )
         )
     return items, total

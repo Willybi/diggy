@@ -54,6 +54,11 @@
             <div v-if="isPlayable(item)" class="play" @click.stop="onPlay(item)">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
             </div>
+            <!-- Track without a Deezer preview → Beatport overlay fallback (D12),
+                 same artwork spot; Deezer always wins when has_preview. -->
+            <span v-else-if="showBeatport(item)" class="bp-play">
+              <BeatportPlayButton :track="item" />
+            </span>
           </div>
           <!-- text -->
           <div class="rtx">
@@ -117,6 +122,7 @@ import { scopeIcons } from './scopeIcons.js'
 import SegFilter from '../SegFilter.vue'
 import SourceBadge from '../SourceBadge.vue'
 import NavCover from '../NavCover.vue'
+import BeatportPlayButton from '../BeatportPlayButton.vue'
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -279,6 +285,11 @@ function artFam(item) {
 
 function isPlayable(item) {
   return (item.type === 'track' && item.has_preview) || item.type === 'artist'
+}
+
+// Beatport fallback (D12): a track row only, when Deezer has no preview.
+function showBeatport(item) {
+  return item.type === 'track' && !item.has_preview && item.beatport_id
 }
 
 function isPlaying(item) {
@@ -456,6 +467,25 @@ function routeFor(item) {
 }
 .rrow:hover .rart .play,
 .rrow.playing .rart .play {
+  opacity: 1;
+}
+/* Beatport fallback: same artwork spot + scrim reveal as .play (the wrapper
+   carries placement/reveal so the shared button keeps its own style). */
+.rart .bp-play {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-soft);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.rart .bp-play :deep(.bpp-btn) {
+  pointer-events: auto;
+}
+.rrow:hover .rart .bp-play {
   opacity: 1;
 }
 
@@ -661,7 +691,8 @@ function routeFor(item) {
   .tbadge .lbl {
     display: none;
   }
-  .rart .play {
+  .rart .play,
+  .rart .bp-play {
     opacity: 1;
   }
 }

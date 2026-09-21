@@ -70,6 +70,8 @@ class TrendItem(BaseModel):
     bpm: Optional[float] = None
     key: Optional[str] = None
     release_date: Optional[date] = None
+    # D12: Beatport embed fallback when the row has no Deezer preview.
+    beatport_id: Optional[str] = None
     trend_score: float = 0
     rank: int = 1
     family: Optional[str] = None

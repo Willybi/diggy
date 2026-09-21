@@ -636,6 +636,7 @@ async def get_detail(
                 release_date=entry.release_date,
                 has_artwork=entry.has_artwork,
                 has_preview=entry.has_preview,
+                beatport_id=entry.beatport_id,
                 created_at=entry.created_at,
                 in_lib=is_in_lib,
                 style=lib_style,

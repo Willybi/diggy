@@ -337,6 +337,7 @@ async def get_set_detail(
                 has_artwork=cat.has_artwork if cat else False,
                 in_lib=t.catalog_id in lib_set if t.catalog_id else False,
                 has_preview=cat.has_preview if cat else False,
+                beatport_id=cat.beatport_id if cat else None,
             )
         )
 

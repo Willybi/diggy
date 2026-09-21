@@ -477,6 +477,7 @@ async def _resolve_items(
                         key=entity.key,
                         duration_ms=entity.duration_ms,
                         has_preview=bool(entity.has_preview),
+                        beatport_id=entity.beatport_id,
                     )
                 )
         elif it.item_type == "set":

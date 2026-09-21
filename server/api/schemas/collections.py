@@ -94,6 +94,8 @@ class CollectionItemOut(BaseModel):
     key: Optional[str] = None
     duration_ms: Optional[int] = None
     has_preview: Optional[bool] = None
+    # D12: Beatport embed fallback when the track has no Deezer preview.
+    beatport_id: Optional[str] = None
 
 
 class CollectionDetailOut(CollectionOut):

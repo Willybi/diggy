@@ -58,6 +58,7 @@ function makeTracklist() {
       has_artwork: true,
       in_lib: true,
       has_preview: true,
+      beatport_id: 777,
     },
     // ID (unidentified marker)
     {
@@ -316,6 +317,11 @@ describe('SetDetailView', () => {
     expect(t.key).toBe('5A')
     expect(t.duration_ms).toBe(300000)
     expect(t.in_lib).toBe(true)
+  })
+
+  it('relays beatport_id on an identified row (Beatport play button, D12)', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.findAllComponents(TrackCard)[0].props('track').beatport_id).toBe(777)
   })
 
   it('maps an is_id row to state="id"', async () => {

@@ -95,7 +95,10 @@ function makeCollection() {
 }
 
 async function mountView() {
-  const wrapper = mount(CollectionDetailView)
+  const wrapper = mount(CollectionDetailView, {
+    // BeatportPlayButton reads the Pinia overlay store at setup → stub it.
+    global: { stubs: { BeatportPlayButton: true } },
+  })
   await flushPromises()
   return wrapper
 }
@@ -152,6 +155,32 @@ describe('CollectionDetailView', () => {
     const rows = wrapper.findAll('.rrow')
     await rows[3].find('.rm-btn').trigger('click')
     expect(apiMock.delete).toHaveBeenCalledWith('/api/collections/3/items/genre/0?item_name=Techno')
+  })
+
+  // D12: a preview-less track item with a beatport_id gets the shared Beatport
+  // overlay button in the artwork spot; a Deezer preview ALWAYS wins over it.
+  it('renders the Beatport fallback on a preview-less track item with a beatport_id', async () => {
+    const collection = makeCollection()
+    collection.items[0] = {
+      ...collection.items[0],
+      has_preview: false,
+      beatport_id: 321,
+    }
+    apiMock.get.mockResolvedValue({ data: collection })
+    const wrapper = await mountView()
+    const row = wrapper.findAll('.rrow')[0]
+    expect(row.find('.rart .play').exists()).toBe(false)
+    expect(row.find('.rart .bp-play beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', async () => {
+    const collection = makeCollection()
+    collection.items[0] = { ...collection.items[0], beatport_id: 321 }
+    apiMock.get.mockResolvedValue({ data: collection })
+    const wrapper = await mountView()
+    const row = wrapper.findAll('.rrow')[0]
+    expect(row.find('.rart .play').exists()).toBe(true)
+    expect(row.find('beatport-play-button-stub').exists()).toBe(false)
   })
 
   it('plays a track and queues ONLY track items', async () => {

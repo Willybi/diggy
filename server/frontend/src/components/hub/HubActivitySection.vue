@@ -27,6 +27,7 @@
           :cover-id="entry.item.catalog_id"
           :has-artwork="entry.item.has_artwork"
           :has-preview="entry.item.has_preview"
+          :beatport-id="entry.item.beatport_id"
           badge="Nouveauté"
           :meta-parts="trackMeta(entry.item)"
           :to="`/catalog/${entry.item.catalog_id}`"

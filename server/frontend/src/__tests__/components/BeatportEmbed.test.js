@@ -82,4 +82,13 @@ describe('BeatportEmbed', () => {
     wrapper.unmount()
     expect(observers[0].disconnected).toBe(true)
   })
+
+  it('eager renders the iframe immediately without any observer (modal usage, D12)', async () => {
+    const wrapper = mount(BeatportEmbed, { props: { beatportId: 12345, eager: true } })
+    await nextTick()
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect(wrapper.find('.bp-frame--placeholder').exists()).toBe(false)
+    // The IntersectionObserver API exists (stubbed) but is deliberately skipped.
+    expect(observers).toHaveLength(0)
+  })
 })

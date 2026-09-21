@@ -92,6 +92,9 @@
               :bpm="track.bpm"
               :track-key="track.key"
             />
+            <!-- No Deezer preview → the play affordance is the shared Beatport
+                 overlay button, same as every other surface (D12). -->
+            <BeatportPlayButton v-else-if="track.beatport_id" :track="track" />
             <LikeDislike v-model="opinion" />
             <AddToCollectionButton
               v-if="auth.isAuthenticated"
@@ -99,12 +102,6 @@
               :item-id="track.id"
             />
           </div>
-
-          <!-- Preview fallback — official Beatport embed when no Deezer preview exists -->
-          <BeatportEmbed
-            v-if="!track.has_preview && track.beatport_id"
-            :beatport-id="track.beatport_id"
-          />
 
           <!-- External links + label -->
           <div v-if="track.beatport_id || track.deezer_id || track.label" class="hero-links">
@@ -345,7 +342,7 @@ import ScoreRing from '../components/ScoreRing.vue'
 import PlatformLink from '../components/PlatformLink.vue'
 import StyleTag from '../components/StyleTag.vue'
 import HeroPlayer from '../components/HeroPlayer.vue'
-import BeatportEmbed from '../components/BeatportEmbed.vue'
+import BeatportPlayButton from '../components/BeatportPlayButton.vue'
 import AdminCard from '../components/AdminCard.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import AddToCollectionButton from '../components/AddToCollectionButton.vue'
@@ -735,6 +732,10 @@ onMounted(() => loadTrack(route.params.id))
   padding-top: 0;
   padding-bottom: 0;
   align-items: center;
+}
+.hero-actions :deep(.bpp-btn) {
+  width: 38px;
+  height: 38px;
 }
 
 /* External links + label */

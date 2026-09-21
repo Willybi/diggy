@@ -167,7 +167,10 @@ class TestArtistDetail:
 
     async def test_includes_catalog_tracks(self, client, db):
         a = Artist(name="CamelPhat", normalized_name="camelphat")
-        cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")
+        cat = CatalogEntry(
+            title="Cola", artist="CamelPhat", normalized_key="cola - camelphat",
+            beatport_id="9016814",
+        )
         db.add_all([a, cat])
         await db.commit()
         await db.refresh(a)
@@ -178,6 +181,7 @@ class TestArtistDetail:
         data = r.json()
         assert len(data["catalog_tracks"]) == 1
         assert data["catalog_tracks"][0]["title"] == "Cola"
+        assert data["catalog_tracks"][0]["beatport_id"] == "9016814"
 
     async def test_catalog_tracks_bpm_source_analysis(self, client, db):
         """An estimated ('analysis') BPM keeps its provenance on the artist detail

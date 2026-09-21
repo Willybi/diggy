@@ -18,6 +18,10 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   beatportId: { type: [Number, String], required: true },
+  // Opt-in eager mount (BeatportOverlay, D12): inside an opened modal the
+  // block is visible by construction, so the lazy IntersectionObserver only
+  // adds a placeholder flash — render the iframe at once instead.
+  eager: { type: Boolean, default: false },
 })
 
 const root = ref(null)
@@ -33,7 +37,7 @@ const trackUrl = computed(() => `https://www.beatport.com/track/-/${props.beatpo
 onMounted(() => {
   // One-shot lazy mount: the iframe only loads once the block nears the
   // viewport. Without IntersectionObserver (old browsers, jsdom) render eager.
-  if (typeof IntersectionObserver === 'undefined') {
+  if (props.eager || typeof IntersectionObserver === 'undefined') {
     visible.value = true
     return
   }

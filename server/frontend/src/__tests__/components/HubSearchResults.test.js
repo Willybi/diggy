@@ -30,7 +30,11 @@ const ITEMS = [
 function mountResults(items = ITEMS) {
   return mount(HubSearchResults, {
     props: { items, total: items.length, query: 'x' },
-    global: { components: { RouterLink: RouterLinkStub } },
+    global: {
+      components: { RouterLink: RouterLinkStub },
+      // BeatportPlayButton reads the Pinia overlay store at setup → stub it.
+      stubs: { BeatportPlayButton: true },
+    },
   })
 }
 
@@ -57,6 +61,31 @@ describe('HubSearchResults', () => {
     expect(play.exists()).toBe(true)
     await play.trigger('click')
     // No throw = the @click.stop play handler fired without navigating.
+  })
+
+  // D12: a preview-less track result with a beatport_id gets the shared Beatport
+  // overlay button in the artwork spot; a Deezer preview ALWAYS wins over it.
+  it('renders the Beatport fallback on a preview-less track with a beatport_id', () => {
+    const wrapper = mountResults([
+      { type: 'track', id: 5, title: 'Strobe', artist: 'Deadmau5', beatport_id: 321 },
+    ])
+    expect(wrapper.find('.rart .play').exists()).toBe(false)
+    expect(wrapper.find('.rart .bp-play beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', () => {
+    const wrapper = mountResults([
+      { type: 'track', id: 5, title: 'Strobe', has_preview: true, beatport_id: 321 },
+    ])
+    expect(wrapper.find('.rart .play').exists()).toBe(true)
+    expect(wrapper.find('beatport-play-button-stub').exists()).toBe(false)
+  })
+
+  it('never renders the Beatport fallback on a non-track row', () => {
+    const wrapper = mountResults([{ type: 'artist', id: 6, name: 'Deadmau5', beatport_id: 321 }])
+    // The artist row keeps its own play affordance and never the Beatport one.
+    expect(wrapper.find('.rart .play').exists()).toBe(true)
+    expect(wrapper.find('beatport-play-button-stub').exists()).toBe(false)
   })
 
   it('renders no link for an unknown type', () => {

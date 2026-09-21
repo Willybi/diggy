@@ -23,6 +23,8 @@ class AlbumTrackOut(BaseModel):
     has_artwork: bool = False
     has_preview: bool = False
     in_lib: bool = False
+    # D12: Beatport embed fallback when the row has no Deezer preview.
+    beatport_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

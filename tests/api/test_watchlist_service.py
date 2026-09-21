@@ -168,6 +168,7 @@ class TestGetDetailContract:
         pl = await _make_playlist(db, "pl-lib")
         a = await _make_catalog(db, "A", "x")
         b = await _make_catalog(db, "B", "y")
+        a.beatport_id = "9016814"
         await _detect(db, pl.id, a.id)
         await _detect(db, pl.id, b.id)
         await _add_to_lib(db, auth_user.id, a.id)
@@ -177,6 +178,8 @@ class TestGetDetailContract:
         by_id = {t.catalog_id: t for t in detail.tracks}
         assert by_id[a.id].in_lib is True
         assert by_id[b.id].in_lib is False
+        assert by_id[a.id].beatport_id == "9016814"
+        assert by_id[b.id].beatport_id is None
 
     async def test_in_lib_all_false_for_guest(self, db, auth_user):
         pl = await _make_playlist(db, "pl-guest")

@@ -467,6 +467,7 @@ function toCard(t) {
     duration_ms: t.durationMs,
     has_artwork: t.hasArtwork,
     has_preview: t.hasPreview,
+    beatport_id: t.beatport_id,
     in_lib: t.inLib,
   }
 }

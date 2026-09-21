@@ -40,7 +40,8 @@ async function mountSection() {
   const wrapper = mount(HubTrendsSection, {
     global: {
       components: { RouterLink: RouterLinkStub },
-      stubs: { FamilyChips: true },
+      // BeatportPlayButton reads the Pinia overlay store at setup → stub it.
+      stubs: { FamilyChips: true, BeatportPlayButton: true },
     },
   })
   await flushPromises()
@@ -88,6 +89,24 @@ describe('HubTrendsSection', () => {
     mockTrends({ items: [TREND_ITEM] })
     const wrapper = await mountSection()
     expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/radar')
+  })
+
+  // D12: no Deezer preview + a beatport_id → the shared Beatport overlay button
+  // takes the cover play spot; a Deezer preview ALWAYS wins over it.
+  it('renders the Beatport fallback on a preview-less trend with a beatport_id', async () => {
+    mockTrends({ items: [{ ...TREND_ITEM, has_preview: false, beatport_id: 321 }] })
+    const wrapper = await mountSection()
+    const card = wrapper.find('.dc-card')
+    expect(card.find('.dc-play').exists()).toBe(false)
+    expect(card.find('.dc-bp beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', async () => {
+    mockTrends({ items: [{ ...TREND_ITEM, beatport_id: 321 }] })
+    const wrapper = await mountSection()
+    const card = wrapper.find('.dc-card')
+    expect(card.find('.dc-play').exists()).toBe(true)
+    expect(card.find('beatport-play-button-stub').exists()).toBe(false)
   })
 
   it('renders each trend card as a real internal link (guests included, no toast)', async () => {

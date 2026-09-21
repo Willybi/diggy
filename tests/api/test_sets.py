@@ -741,10 +741,11 @@ class TestSetDetailEnriched:
         s = DJSet(source="trackid", title="Enriched Set")
         db.add(s)
         await db.flush()
-        await self._add_identified(
+        cat = await self._add_identified(
             db, s, 1, title="Cola", artist="CamelPhat",
             bpm=124.0, key="8A", duration_ms=210000,
         )
+        cat.beatport_id = "9016814"
         await db.commit()
         await db.refresh(s)
 
@@ -754,6 +755,7 @@ class TestSetDetailEnriched:
         assert tr["bpm"] == 124.0
         assert tr["key"] == "8A"
         assert tr["duration_ms"] == 210000
+        assert tr["beatport_id"] == "9016814"
 
     async def test_tracklist_fields_none_without_catalog(self, client, db):
         s = DJSet(source="trackid", title="Raw Set")
@@ -768,6 +770,7 @@ class TestSetDetailEnriched:
         assert tr["bpm"] is None
         assert tr["key"] is None
         assert tr["duration_ms"] is None
+        assert tr["beatport_id"] is None
 
     async def test_top_genres_count_pct_and_order(self, client, db):
         s = DJSet(source="trackid", title="Genre Set")

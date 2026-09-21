@@ -49,6 +49,8 @@ class PlaylistTrackOut(BaseModel):
     has_preview: bool = False
     in_lib: bool = False
     detected_at: Optional[datetime] = None
+    # D12: Beatport embed fallback when the row has no Deezer preview.
+    beatport_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

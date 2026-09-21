@@ -97,6 +97,8 @@ class SetTrackDetailOut(SetTrackOut):
     has_artwork: bool = False
     in_lib: bool = False
     has_preview: bool = False
+    # D12: Beatport embed fallback when the row has no Deezer preview.
+    beatport_id: Optional[str] = None
 
 
 class SetArtistDetailOut(BaseModel):

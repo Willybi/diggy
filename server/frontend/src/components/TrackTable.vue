@@ -185,6 +185,12 @@
                 <rect x="13.6" y="5" width="3.4" height="14" rx="1" />
               </svg>
             </button>
+            <!-- No Deezer preview → Beatport overlay fallback (D12). Deezer always
+                 wins when has_preview; neither → no play affordance. Kept INSIDE
+                 TrackTable (not a slot) so this scoped hover-reveal applies. -->
+            <span v-else-if="e.beatport_id" class="tt-bp">
+              <BeatportPlayButton :track="e" />
+            </span>
           </span>
           <span class="tt-cell tt-cell--track">
             <Artwork size="row" :src="artSrc(e)" :alt="e.title" :in-lib="e.in_lib" />
@@ -267,6 +273,7 @@ import StyleTag from './StyleTag.vue'
 import ArtistLinks from './ArtistLinks.vue'
 import LikeDislike from './LikeDislike.vue'
 import AddToCollectionButton from './AddToCollectionButton.vue'
+import BeatportPlayButton from './BeatportPlayButton.vue'
 
 defineProps({
   // Layout family: 'explorer' | 'radar'. Selects the variant-scoped responsive
@@ -460,6 +467,16 @@ function artSrc(e) {
   background: var(--accent);
   border-color: transparent;
   color: var(--on-accent);
+}
+/* Beatport fallback: same cell, same hover-reveal as the Deezer play button
+   (the wrapper carries the reveal so the shared button keeps its own style). */
+.tt-bp {
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.tt-row:hover .tt-bp {
+  opacity: 1;
 }
 
 /* ============ TRACK CELL ============ */
@@ -796,7 +813,8 @@ function artSrc(e) {
     padding-inline: var(--page-px-mobile);
   }
   /* Touch: play always visible (avis is already visible at rest). */
-  .tt-pbtn {
+  .tt-pbtn,
+  .tt-bp {
     opacity: 1;
   }
   /* Drop the trailing collection column on mobile (kept in the detail-row cards

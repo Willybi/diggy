@@ -89,6 +89,28 @@ describe('DiscoveryCard', () => {
     expect(wrapper.find('.dc-play').exists()).toBe(false)
   })
 
+  // --- D12: Beatport overlay fallback (no Deezer preview) ---
+  // The real button reads the Pinia overlay store at setup → stub it.
+  const bpGlobal = { stubs: { BeatportPlayButton: true } }
+
+  it('renders the Beatport fallback without a preview but with a beatportId', () => {
+    const wrapper = mount(DiscoveryCard, {
+      props: baseProps({ hasPreview: false, beatportId: 321 }),
+      global: bpGlobal,
+    })
+    expect(wrapper.find('.dc-play').exists()).toBe(false)
+    expect(wrapper.find('.dc-bp beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', () => {
+    const wrapper = mount(DiscoveryCard, {
+      props: baseProps({ beatportId: 321 }),
+      global: bpGlobal,
+    })
+    expect(wrapper.find('.dc-play').exists()).toBe(true)
+    expect(wrapper.find('beatport-play-button-stub').exists()).toBe(false)
+  })
+
   it('emits `play` (and not `open`) when the play button is clicked', async () => {
     const wrapper = mount(DiscoveryCard, { props: baseProps() })
     await wrapper.find('.dc-play').trigger('click')

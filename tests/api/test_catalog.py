@@ -24,12 +24,16 @@ class TestListCatalog:
         assert data["items"] == []
 
     async def test_returns_entries(self, client, db):
-        db.add(CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat"))
+        db.add(CatalogEntry(
+            title="Cola", artist="CamelPhat", normalized_key="cola - camelphat",
+            beatport_id="9016814",
+        ))
         await db.commit()
         r = await client.get("/api/catalog/")
         data = r.json()
         assert data["total"] == 1
         assert data["items"][0]["title"] == "Cola"
+        assert data["items"][0]["beatport_id"] == "9016814"
 
     async def test_search_filter(self, client, db):
         db.add(CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat"))
@@ -154,7 +158,10 @@ class TestCatalogDetailEnriched:
     async def test_detail_includes_same_artist_tracks(self, client, db):
         a = Artist(name="CamelPhat", normalized_name="camelphat")
         cat1 = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")
-        cat2 = CatalogEntry(title="Breathe", artist="CamelPhat", normalized_key="breathe - camelphat")
+        cat2 = CatalogEntry(
+            title="Breathe", artist="CamelPhat",
+            normalized_key="breathe - camelphat", beatport_id="9016814",
+        )
         db.add_all([a, cat1, cat2])
         await db.commit()
         await db.refresh(a)
@@ -171,6 +178,7 @@ class TestCatalogDetailEnriched:
         same = data["same_artist_tracks"]
         assert len(same) == 1
         assert same[0]["title"] == "Breathe"
+        assert same[0]["beatport_id"] == "9016814"
 
     async def test_detail_with_radar_appearances(self, client, db):
         cat = CatalogEntry(title="Cola", artist="CamelPhat", normalized_key="cola - camelphat")

@@ -50,6 +50,11 @@
             </svg>
           </span>
         </button>
+        <!-- No Deezer preview → Beatport overlay fallback (D12), same cover
+             spot; Deezer always wins when hasPreview. -->
+        <span v-else-if="beatportId" class="dc-bp">
+          <BeatportPlayButton :track="beatportTrack" />
+        </span>
       </span>
 
       <span class="dc-body">
@@ -114,6 +119,7 @@ import { computed } from 'vue'
 import Artwork from './Artwork.vue'
 import AddToCollectionButton from './AddToCollectionButton.vue'
 import NavCover from './NavCover.vue'
+import BeatportPlayButton from './BeatportPlayButton.vue'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -124,6 +130,9 @@ const props = defineProps({
   coverId: { type: Number, default: undefined },
   hasArtwork: { type: Boolean, default: false },
   hasPreview: { type: Boolean, default: false },
+  // Beatport fallback (D12): shown only when hasPreview is false. Absent from
+  // the host's payload → undefined → no button (clean degradation).
+  beatportId: { type: [Number, String], default: null },
   // Trend variant → `#rank` accent badge.
   rank: { type: Number, default: undefined },
   // Type pill: 'Nouveauté' (accent) or 'Set' (neutral). Optional glyph via badgeIcon.
@@ -164,6 +173,15 @@ const artistsText = computed(() =>
 
 // Join the parent-built cells; a falsy cell drops out (never a dash).
 const metaText = computed(() => (props.metaParts || []).filter(Boolean).join(' · '))
+
+// Row-shaped track for the Beatport overlay (the card receives flat props).
+const beatportTrack = computed(() => ({
+  id: props.coverId,
+  catalog_id: props.coverId,
+  title: props.title,
+  artist: artistsText.value,
+  beatport_id: props.beatportId,
+}))
 
 // Collection affordance: only an internal, non-skeleton card the host tagged with
 // an itemType (track/set). External-link cards are never tagged.
@@ -275,6 +293,30 @@ function emitPlay() {
 .dc-play-icon {
   width: 15px;
   height: 15px;
+}
+/* Beatport fallback: same cover spot + scrim reveal as .dc-play (the wrapper
+   carries placement/reveal so the shared button keeps its own style). */
+.dc-bp {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-md);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.12s,
+    background 0.12s;
+}
+.dc-bp :deep(.bpp-btn) {
+  pointer-events: auto;
+}
+.dc-card:hover .dc-bp {
+  opacity: 1;
+  background: var(--overlay-soft);
 }
 
 /* ---- body ---- */
@@ -409,6 +451,7 @@ function emitPlay() {
 /* No hover on touch → play + collection stay visible on narrow containers. */
 @container (max-width: 640px) {
   .dc-play,
+  .dc-bp,
   .dc-coll {
     opacity: 1;
   }

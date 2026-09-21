@@ -169,6 +169,7 @@ async def get_activity(
             duration_ms=cat.duration_ms if cat is not None else None,
             artist=cat.artist if cat is not None else None,
             release_date=cat.release_date if cat is not None else None,
+            beatport_id=cat.beatport_id if cat is not None else None,
         )
         for activity, artist_name, cat in result.all()
     ]

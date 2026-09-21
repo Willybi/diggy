@@ -442,6 +442,7 @@ async def list_catalog(
                 has_artwork=ut_has_artwork if ut_has_artwork else entry.has_artwork,
                 lib_track_id=None,
                 has_preview=entry.has_preview,
+                beatport_id=entry.beatport_id,
                 created_at=entry.created_at,
                 in_lib=is_in_lib,
                 nb_radar_playlists=nb_playlists or 0,
@@ -604,6 +605,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 CatalogEntry.has_preview,
                 CatalogEntry.bpm_source,
                 sa_ut_sub.c.catalog_id.label("sa_ut_cid"),
+                CatalogEntry.beatport_id,
             )
             .outerjoin(sa_ut_sub, CatalogEntry.id == sa_ut_sub.c.catalog_id)
             .where(CatalogEntry.id.in_(select(shared_catalog_ids.c.catalog_id)))
@@ -645,6 +647,7 @@ async def get_detail(db: AsyncSession, catalog_id: int, user_id: int | None):
                 # catalog provenance carries straight through.
                 bpm_source=r[8],
                 in_lib=r[9] is not None,
+                beatport_id=r[10],
                 artists=sa_artists_map.get(r[0], []),
             )
             for r in sa_rows

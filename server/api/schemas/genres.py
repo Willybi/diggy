@@ -101,6 +101,8 @@ class GenreTrackItem(BaseModel):
     hasPreview: bool = False
     inLib: bool = False
     avis: str | None = None
+    # D12: Beatport embed fallback when the row has no Deezer preview.
+    beatport_id: str | None = None
 
 
 class GenreTrackListResponse(BaseModel):

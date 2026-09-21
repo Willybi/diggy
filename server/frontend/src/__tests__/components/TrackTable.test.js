@@ -42,9 +42,13 @@ function mountTable(props = {}, slots = {}) {
       ...props,
     },
     slots,
-    // vue-router isn't mocked here: register the stub so the style-link
-    // RouterLink + ArtistLinks resolve (repo pitfall: string stubs are no-ops).
-    global: { components: { RouterLink: RouterLinkStub } },
+    global: {
+      // vue-router isn't mocked here: register the stub so the style-link
+      // RouterLink + ArtistLinks resolve (repo pitfall: string stubs are no-ops).
+      components: { RouterLink: RouterLinkStub },
+      // The real Beatport button reads the Pinia overlay store at setup.
+      stubs: { BeatportPlayButton: true },
+    },
   })
 }
 
@@ -103,6 +107,24 @@ describe('TrackTable', () => {
     const row = w.find('.tt-row:not(.tt-row--skel)')
     expect(row.findAll('.tt-null').length).toBeGreaterThanOrEqual(3)
     expect(row.find('.tt-pbtn').exists()).toBe(false)
+  })
+
+  // D12: no Deezer preview + a beatport_id → the shared Beatport overlay button
+  // takes the play cell; a Deezer preview ALWAYS wins over it.
+  it('renders the Beatport fallback button without a preview but with a beatport_id', () => {
+    const w = mountTable({
+      windowItems: [makeRow({ has_preview: false, beatport_id: 321 })],
+    })
+    const row = w.find('.tt-row:not(.tt-row--skel)')
+    expect(row.find('.tt-pbtn').exists()).toBe(false)
+    expect(row.find('.tt-bp beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', () => {
+    const w = mountTable({ windowItems: [makeRow({ beatport_id: 321 })] })
+    const row = w.find('.tt-row:not(.tt-row--skel)')
+    expect(row.find('.tt-pbtn').exists()).toBe(true)
+    expect(row.find('beatport-play-button-stub').exists()).toBe(false)
   })
 
   it('prefixes an estimated bpm (bpm_source=analysis) with a ~', () => {

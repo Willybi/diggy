@@ -208,6 +208,8 @@ class TestListGenreTracksArtistsAvis:
             )
             db.add(entry)
             entries[slug] = entry
+        # D12: one row carries a beatport_id so the builder is proven to surface it.
+        entries["t0_two_artists"].beatport_id = "9016814"
         a1 = Artist(name="ZTest Artist One", normalized_name="ztest artist one")
         a2 = Artist(name="ZTest Artist Two", normalized_name="ztest artist two")
         db.add_all([a1, a2])
@@ -298,6 +300,15 @@ class TestListGenreTracksArtistsAvis:
         items = r.json()["items"]
         assert len(items) == 4
         assert all(it["avis"] is None for it in items)
+
+    async def test_beatport_id_surfaced_on_tracks(self, db, auth_user, client):
+        """D12: beatport_id reaches the endpoint payload (raw-SQL builder guard)."""
+        await self._seed(db, auth_user)
+        r = await client.get(f"/api/genres/tracks/{self.GENRE}")
+        assert r.status_code == 200
+        by_title = {it["title"]: it for it in r.json()["items"]}
+        assert by_title["t0_two_artists"]["beatport_id"] == "9016814"
+        assert by_title["t1_opinion_only"]["beatport_id"] is None
 
 
 _PG_ONLY = pytest.mark.skipif(

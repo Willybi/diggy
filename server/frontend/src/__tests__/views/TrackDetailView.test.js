@@ -123,6 +123,8 @@ async function mountView(track, similar = [], content = []) {
       stubs: {
         StyleTag: true,
         HeroPlayer: true,
+        // Stubbed: the real button reads the Pinia overlay store at setup.
+        BeatportPlayButton: true,
         LikeDislike: true,
         AdminCard: true,
         // The collection dropdown is <Teleport>ed to <body>; stub Teleport so it
@@ -311,19 +313,27 @@ describe('TrackDetailView', () => {
     expect(wrapper.find('.hero-label-name').text()).toBe('mau5trap')
   })
 
-  it('renders the Beatport embed fallback only without Deezer preview AND with a beatport_id', async () => {
-    // Deezer preview present → native player untouched, no iframe (even with a beatport_id)
-    let wrapper = await mountView(makeTrack({ beatport_id: 111 }))
+  // D12 L4: the inline BeatportEmbed block is gone — the play affordance for a
+  // preview-less track is the shared overlay button, like every other surface.
+  it('renders the Beatport overlay button only without Deezer preview AND with a beatport_id', async () => {
+    const wrapper = await mountView(makeTrack({ has_preview: false, beatport_id: 111 }))
+    expect(wrapper.find('beatport-play-button-stub').exists()).toBe(true)
+    expect(wrapper.find('hero-player-stub').exists()).toBe(false)
+    // The old inline embed must be gone.
     expect(wrapper.find('.bp-embed').exists()).toBe(false)
+  })
 
-    // No preview + beatport_id → embed block with its Beatport link
-    wrapper = await mountView(makeTrack({ has_preview: false, beatport_id: 111 }))
-    const embed = wrapper.find('.bp-embed')
-    expect(embed.exists()).toBe(true)
-    expect(embed.find('.bp-link').attributes('href')).toBe('https://www.beatport.com/track/-/111')
+  it('renders the Deezer player and no Beatport button when a preview exists', async () => {
+    const wrapper = await mountView(makeTrack({ beatport_id: 111 }))
+    expect(wrapper.find('hero-player-stub').exists()).toBe(true)
+    expect(wrapper.find('beatport-play-button-stub').exists()).toBe(false)
+    expect(wrapper.find('.bp-embed').exists()).toBe(false)
+  })
 
-    // No preview, no beatport_id → no audio block at all
-    wrapper = await mountView(makeTrack({ has_preview: false }))
+  it('renders neither play affordance without preview nor beatport_id', async () => {
+    const wrapper = await mountView(makeTrack({ has_preview: false }))
+    expect(wrapper.find('hero-player-stub').exists()).toBe(false)
+    expect(wrapper.find('beatport-play-button-stub').exists()).toBe(false)
     expect(wrapper.find('.bp-embed').exists()).toBe(false)
   })
 

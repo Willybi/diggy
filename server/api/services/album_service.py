@@ -49,6 +49,7 @@ async def get_detail(
             CatalogEntry.duration_ms,
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
+            CatalogEntry.beatport_id,
         )
         .join(CatalogAlbum, CatalogAlbum.catalog_id == CatalogEntry.id)
         .where(CatalogAlbum.album_id == album_id, catalog_visible(user_id))
@@ -100,6 +101,7 @@ async def get_detail(
             has_artwork=r.has_artwork,
             has_preview=r.has_preview,
             in_lib=r.id in lib_set,
+            beatport_id=r.beatport_id,
         )
         for r in rows
     ]

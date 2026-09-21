@@ -27,6 +27,7 @@
         :cover-id="track.id"
         :has-artwork="track.has_artwork"
         :has-preview="track.has_preview"
+        :beatport-id="track.beatport_id"
         :in-lib="track.in_lib"
         :meta-parts="trackMeta(track)"
         :to="`/catalog/${track.id}`"

@@ -259,6 +259,7 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
             CatalogEntry.has_artwork,
             CatalogEntry.has_preview,
             CatalogEntry.bpm_source,
+            CatalogEntry.beatport_id,
             func.max(RadarTrack.detected_at).label("detected_at"),
         )
         .select_from(RadarTrack)
@@ -321,6 +322,7 @@ async def get_detail(db: AsyncSession, user_id: int | None, entry_id: int):
             has_preview=row.has_preview,
             in_lib=row.catalog_id in in_lib_ids,
             detected_at=row.detected_at,
+            beatport_id=row.beatport_id,
         )
         for row in track_rows
     ]

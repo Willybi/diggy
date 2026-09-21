@@ -577,7 +577,7 @@ async def list_genre_tracks(
     result = await db.execute(
         text(f"""
         SELECT c.id, c.title, c.artist, c.bpm, c.key, c.bpm_source, c.duration_ms,
-               c.has_artwork, c.has_preview,
+               c.has_artwork, c.has_preview, c.beatport_id,
                CASE WHEN ut.catalog_id IS NOT NULL THEN true ELSE false END AS in_lib,
                COALESCE(uo.opinion, ut.avis) AS avis,
                COUNT(*) OVER()::int AS total
@@ -645,6 +645,7 @@ async def list_genre_tracks(
                 "hasPreview": r.has_preview,
                 "inLib": r.in_lib,
                 "avis": r.avis,
+                "beatport_id": r.beatport_id,
             }
             for r in rows
         ],

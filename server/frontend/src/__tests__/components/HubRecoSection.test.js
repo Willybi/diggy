@@ -37,7 +37,11 @@ const RECO_ITEM = {
 async function mountSection() {
   const { default: HubRecoSection } = await import('../../components/hub/HubRecoSection.vue')
   const wrapper = mount(HubRecoSection, {
-    global: { components: { RouterLink: RouterLinkStub } },
+    global: {
+      components: { RouterLink: RouterLinkStub },
+      // BeatportPlayButton reads the Pinia overlay store at setup → stub it.
+      stubs: { BeatportPlayButton: true },
+    },
   })
   await flushPromises()
   return wrapper
@@ -68,6 +72,26 @@ describe('HubRecoSection', () => {
     expect(cards[0].text()).toContain('Deadmau5')
     // Cover keyed on `id` (not catalog_id).
     expect(shelf.find('img.aw-img').attributes('src')).toBe('/storage/catalog-artworks/42.jpg')
+  })
+
+  // D12: no Deezer preview + a beatport_id → the shared Beatport overlay button
+  // takes the cover play spot; a Deezer preview ALWAYS wins over it.
+  it('renders the Beatport fallback on a preview-less reco with a beatport_id', async () => {
+    apiMock.get.mockResolvedValue({
+      data: { items: [{ ...RECO_ITEM, has_preview: false, beatport_id: 321 }] },
+    })
+    const wrapper = await mountSection()
+    const card = wrapper.find('.dc-card')
+    expect(card.find('.dc-play').exists()).toBe(false)
+    expect(card.find('.dc-bp beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', async () => {
+    apiMock.get.mockResolvedValue({ data: { items: [{ ...RECO_ITEM, beatport_id: 321 }] } })
+    const wrapper = await mountSection()
+    const card = wrapper.find('.dc-card')
+    expect(card.find('.dc-play').exists()).toBe(true)
+    expect(card.find('beatport-play-button-stub').exists()).toBe(false)
   })
 
   it('hits /api/recommendations/ with the canonical trailing slash', async () => {

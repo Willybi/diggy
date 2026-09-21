@@ -167,7 +167,7 @@ class TestTrends:
         from models import RadarTrend
         cat = CatalogEntry(
             title="Trend", artist="Art", normalized_key="trend - art",
-            release_date=date(2026, 5, 1),
+            release_date=date(2026, 5, 1), beatport_id="9016814",
         )
         db.add(cat)
         await db.commit()
@@ -183,6 +183,7 @@ class TestTrends:
         items = r.json()["items"]
         assert len(items) == 1
         assert items[0]["release_date"] == "2026-05-01"
+        assert items[0]["beatport_id"] == "9016814"
 
     async def test_trends_null_release_date(self, client, db, auth_user):
         from models import RadarTrend

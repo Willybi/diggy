@@ -51,7 +51,7 @@ class TestAlbumDetail:
         album = await _add_album(db, title="Random Access Memories", artist_id=a.id)
         await _link_track(
             db, album, title="Get Lucky", artist="Daft Punk",
-            bpm=116.0, key="6A", duration_ms=369000,
+            bpm=116.0, key="6A", duration_ms=369000, beatport_id="9016814",
         )
         await _link_track(db, album, title="Instant Crush", artist="Daft Punk")
         await db.commit()
@@ -74,6 +74,7 @@ class TestAlbumDetail:
         assert gl["bpm"] == 116.0
         assert gl["key"] == "6A"
         assert gl["duration_ms"] == 369000
+        assert gl["beatport_id"] == "9016814"
 
     async def test_tracklist_carries_linked_artists(self, client, db):
         a = Artist(name="Pharrell", normalized_name="pharrell")

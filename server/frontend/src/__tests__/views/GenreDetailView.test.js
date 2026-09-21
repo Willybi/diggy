@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
+import TrackCard from '../../components/TrackCard.vue'
 
 // Mutable holders shared with the hoisted mocks below.
 const { apiMock, routerPush, routerReplace, opinionsStore } = vi.hoisted(() => ({
@@ -255,6 +256,12 @@ describe('GenreDetailView tracks', () => {
     const wrapper = await mountView()
     // durationMs: 372000 → 6:12 through TrackCard's duration column.
     expect(wrapper.find('.tk-dur').text()).toBe('6:12')
+  })
+
+  it('relays beatport_id (snake_case in the camelCase payload, L1) onto TrackCard (D12)', async () => {
+    responses.tracks = { items: [makeTrack({ beatport_id: 777 })], total: 1 }
+    const wrapper = await mountView()
+    expect(wrapper.findComponent(TrackCard).props('track').beatport_id).toBe(777)
   })
 
   it('shows the full total in the header counter', async () => {

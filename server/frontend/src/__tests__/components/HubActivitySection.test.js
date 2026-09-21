@@ -91,7 +91,11 @@ async function mountSection() {
     await import('../../components/hub/HubActivitySection.vue')
   // Internal cards use NavCover's <RouterLink>; register the stub (vue-router is mocked).
   const wrapper = mount(HubActivitySection, {
-    global: { components: { RouterLink: RouterLinkStub } },
+    global: {
+      components: { RouterLink: RouterLinkStub },
+      // BeatportPlayButton reads the Pinia overlay store at setup → stub it.
+      stubs: { BeatportPlayButton: true },
+    },
   })
   await flushPromises()
   return wrapper
@@ -109,6 +113,26 @@ describe('HubActivitySection', () => {
     const wrapper = await mountSection()
     expect(wrapper.find('.discover--activity').exists()).toBe(false)
     expect(apiMock.post).not.toHaveBeenCalled()
+  })
+
+  // D12: no Deezer preview + a beatport_id on a crawled release → the shared
+  // Beatport overlay button takes the cover play spot; a preview ALWAYS wins.
+  it('renders the Beatport fallback on a preview-less crawled release with a beatport_id', async () => {
+    mockApiGet({
+      activityItems: [{ ...RELEASE_ITEM, has_preview: false, beatport_id: 321 }],
+    })
+    const wrapper = await mountSection()
+    const card = wrapper.find('.dc-card')
+    expect(card.find('.dc-play').exists()).toBe(false)
+    expect(card.find('.dc-bp beatport-play-button-stub').exists()).toBe(true)
+  })
+
+  it('keeps the Deezer play button (no Beatport) when the preview exists', async () => {
+    mockApiGet({ activityItems: [{ ...RELEASE_ITEM, beatport_id: 321 }] })
+    const wrapper = await mountSection()
+    const card = wrapper.find('.dc-card')
+    expect(card.find('.dc-play').exists()).toBe(true)
+    expect(card.find('beatport-play-button-stub').exists()).toBe(false)
   })
 
   it('renders a crawled release as a DiscoveryCard and a set as a « Set » card', async () => {

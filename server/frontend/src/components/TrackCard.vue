@@ -34,6 +34,11 @@
           <path d="M8 5v14l11-7z" />
         </svg>
       </button>
+      <!-- No Deezer preview → Beatport overlay fallback (D12), same spot over
+           the artwork; never on an id/unresolved row. Deezer always wins. -->
+      <span v-else-if="showBeatport" class="tk-bp">
+        <BeatportPlayButton :track="track" />
+      </span>
     </div>
 
     <div class="tk-tx">
@@ -98,6 +103,7 @@ import { computed } from 'vue'
 import Artwork from './Artwork.vue'
 import NavCover from './NavCover.vue'
 import AddToCollectionButton from './AddToCollectionButton.vue'
+import BeatportPlayButton from './BeatportPlayButton.vue'
 import { fmtBpm, fmtMs, fmtCue } from '../utils/format'
 
 const props = defineProps({
@@ -148,6 +154,10 @@ const coverSrc = computed(() =>
 const artInLib = computed(() => (props.state ? undefined : !!props.track.in_lib))
 // Never a play affordance on id/unresolved rows.
 const showPlay = computed(() => props.track.has_preview && !props.state)
+// Beatport fallback (D12): only when Deezer has no preview, never on a special row.
+const showBeatport = computed(
+  () => !props.track.has_preview && props.track.beatport_id && !props.state,
+)
 
 const titleText = computed(() => (isId.value ? 'ID' : props.track.title))
 // id → empty cells (the track itself is unknown, no dashes);
@@ -311,6 +321,23 @@ function emitPlay() {
   width: 16px;
   height: 16px;
 }
+/* Beatport fallback: same overlay spot as .tk-play, same hover-reveal (the
+   wrapper carries reveal/placement so the shared button keeps its own style). */
+.tk-bp {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.tk-bp :deep(.bpp-btn) {
+  pointer-events: auto;
+}
+.track-card:hover .tk-bp {
+  opacity: 1;
+}
 
 .tk-tx {
   min-width: 0;
@@ -421,7 +448,8 @@ function emitPlay() {
 
 /* No hover on touch → play stays visible on narrow containers (page container query). */
 @container (max-width: 640px) {
-  .tk-play {
+  .tk-play,
+  .tk-bp {
     opacity: 1;
   }
   /* Touch: no hover → keep the collection icon visible. */

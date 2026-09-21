@@ -29,6 +29,7 @@ async def _make_catalog(db, *, title, artist, normalized_key, **kw):
         key=kw.get("key", "8A"),
         duration_ms=kw.get("duration_ms", 210000),
         release_date=kw.get("release_date", date(2026, 7, 10)),
+        beatport_id=kw.get("beatport_id"),
     )
     db.add(entry)
     await db.commit()
@@ -230,6 +231,7 @@ class TestActivityFeed:
             artist="Crawler",
             normalized_key="crawler|fresh cut",
             release_date=date(2026, 7, 10),
+            beatport_id="9016814",
         )
         db.add(
             FollowedArtist(
@@ -266,6 +268,7 @@ class TestActivityFeed:
         assert it["duration_ms"] == 210000
         assert it["artist"] == "Crawler"
         assert it["release_date"] == "2026-07-10"
+        assert it["beatport_id"] == "9016814"
 
     async def test_feed_pagination(self, auth_client, auth_user, db):
         await _seed_activity(db, auth_user)

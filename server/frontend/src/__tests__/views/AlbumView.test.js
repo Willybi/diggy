@@ -146,6 +146,12 @@ describe('AlbumView', () => {
     expect(wrapper.find('.sec-count').text()).toContain('3 tracks')
   })
 
+  it('relays beatport_id onto the TrackCard track prop (Beatport play button, D12)', async () => {
+    const tracklist = [{ ...makeTracks(1)[0], beatport_id: 777 }]
+    const wrapper = await mountView(makeAlbum({ tracklist, total_tracks: 1 }))
+    expect(wrapper.findComponent(TrackCard).props('track').beatport_id).toBe(777)
+  })
+
   it('links each row to the track detail (/catalog/:id)', async () => {
     // Nav is now a real <a> via TrackCard's `to` prop (ctrl/middle-click), not a
     // programmatic router.push on click.
