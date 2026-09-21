@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useBeatportOverlay } from '../../stores/beatportOverlay.js'
+import { useBeatportBar } from '../../stores/beatportBar.js'
 
 // The store only consumes the audioPlayer PUBLIC api (playing + toggle):
 // a plain mock keeps the test at that boundary.
@@ -13,7 +13,7 @@ vi.mock('../../stores/audioPlayer.js', () => ({
 
 const TRACK = { catalog_id: 42, title: 'Higher State', artist: 'Josh Wink', beatport_id: 987 }
 
-describe('beatportOverlay store', () => {
+describe('beatportBar store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     playerMock.playing = false
@@ -21,16 +21,16 @@ describe('beatportOverlay store', () => {
   })
 
   it('starts closed (track null, visible false)', () => {
-    const overlay = useBeatportOverlay()
-    expect(overlay.track).toBeNull()
-    expect(overlay.visible).toBe(false)
+    const bar = useBeatportBar()
+    expect(bar.track).toBeNull()
+    expect(bar.visible).toBe(false)
   })
 
-  it('open() stores the track and shows the overlay', () => {
-    const overlay = useBeatportOverlay()
-    overlay.open(TRACK)
-    expect(overlay.visible).toBe(true)
-    expect(overlay.track).toEqual({
+  it('open() stores the track and shows the bar', () => {
+    const bar = useBeatportBar()
+    bar.open(TRACK)
+    expect(bar.visible).toBe(true)
+    expect(bar.track).toEqual({
       id: 42,
       title: 'Higher State',
       artist: 'Josh Wink',
@@ -39,29 +39,41 @@ describe('beatportOverlay store', () => {
   })
 
   it('open() falls back to `id` when the row has no catalog_id', () => {
-    const overlay = useBeatportOverlay()
-    overlay.open({ id: 7, title: 'T', artist: 'A', beatport_id: 1 })
-    expect(overlay.track.id).toBe(7)
+    const bar = useBeatportBar()
+    bar.open({ id: 7, title: 'T', artist: 'A', beatport_id: 1 })
+    expect(bar.track.id).toBe(7)
   })
 
   it('open() pauses the Deezer player when it is playing', () => {
     playerMock.playing = true
-    const overlay = useBeatportOverlay()
-    overlay.open(TRACK)
+    const bar = useBeatportBar()
+    bar.open(TRACK)
     expect(playerMock.toggle).toHaveBeenCalledTimes(1)
   })
 
   it('open() leaves the player untouched when it is not playing', () => {
-    const overlay = useBeatportOverlay()
-    overlay.open(TRACK)
+    const bar = useBeatportBar()
+    bar.open(TRACK)
     expect(playerMock.toggle).not.toHaveBeenCalled()
   })
 
-  it('close() resets the track and hides the overlay', () => {
-    const overlay = useBeatportOverlay()
-    overlay.open(TRACK)
-    overlay.close()
-    expect(overlay.track).toBeNull()
-    expect(overlay.visible).toBe(false)
+  it('open() on another track replaces the current one', () => {
+    const bar = useBeatportBar()
+    bar.open(TRACK)
+    bar.open({ catalog_id: 43, title: 'Flash', artist: 'Green Velvet', beatport_id: 654 })
+    expect(bar.track).toEqual({
+      id: 43,
+      title: 'Flash',
+      artist: 'Green Velvet',
+      beatport_id: 654,
+    })
+  })
+
+  it('close() resets the track and hides the bar', () => {
+    const bar = useBeatportBar()
+    bar.open(TRACK)
+    bar.close()
+    expect(bar.track).toBeNull()
+    expect(bar.visible).toBe(false)
   })
 })

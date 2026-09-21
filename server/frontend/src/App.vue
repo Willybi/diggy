@@ -3,7 +3,11 @@
     <a href="#main-content" class="skip-link">Aller au contenu</a>
     <div class="app-shell" :class="{ 'no-sidebar': !auth.isAuthenticated }">
       <SidebarNav v-if="auth.isAuthenticated" class="app-sidebar" />
-      <main id="main-content" class="app-main" :class="{ 'has-player': player.visible }">
+      <main
+        id="main-content"
+        class="app-main"
+        :class="{ 'has-player': player.visible, 'has-beatport': beatportBar.visible }"
+      >
         <RouterView v-slot="{ Component }">
           <KeepAlive :include="CACHED_VIEWS" :max="6">
             <component :is="Component" />
@@ -16,7 +20,7 @@
     </Transition>
     <BottomNav v-if="auth.isAuthenticated" />
     <ToastNotification />
-    <BeatportOverlay />
+    <BeatportBar />
   </div>
 </template>
 
@@ -26,14 +30,16 @@ import SidebarNav from './components/SidebarNav.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import BottomNav from './components/BottomNav.vue'
 import ToastNotification from './components/ToastNotification.vue'
-import BeatportOverlay from './components/BeatportOverlay.vue'
+import BeatportBar from './components/BeatportBar.vue'
 import { useAudioPlayer } from './stores/audioPlayer'
 import { useAuthStore } from './stores/auth'
 import { useOpinionsStore } from './stores/opinions.js'
+import { useBeatportBar } from './stores/beatportBar.js'
 
 const player = useAudioPlayer()
 const auth = useAuthStore()
 const opinions = useOpinionsStore()
+const beatportBar = useBeatportBar()
 
 // The six listing views are cached across navigation (D9.a): returning to one is
 // instant — no re-mount, no refetch, filters/scroll/virtual window preserved in
@@ -165,6 +171,15 @@ body {
 .app-main.has-player {
   padding-bottom: 100px;
 }
+/* BeatportBar docked at bottom:0 (~232px tall: header + 162px embed + link);
+   same reservation idea as has-player, values stacked when both bars show
+   (the Beatport bar then sits above the PlayerBar card). */
+.app-main.has-beatport {
+  padding-bottom: 240px;
+}
+.app-main.has-player.has-beatport {
+  padding-bottom: 340px;
+}
 
 @container (max-width: 900px) {
   .app-container {
@@ -187,6 +202,12 @@ body {
   }
   .app-main.has-player {
     padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 90px);
+  }
+  .app-main.has-beatport {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 240px);
+  }
+  .app-main.has-player.has-beatport {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 330px);
   }
 }
 </style>

@@ -1,8 +1,8 @@
 <template>
   <!-- Same footprint as the Deezer play button (30px round, ▶ glyph) but a
        DISTINCT Beatport identity (green ring + tooltip): clicking opens the
-       embed overlay, it never starts audio directly. @click.stop because the
-       button lives above stretched NavCover links in the listing rows. -->
+       docked embed bar, it never starts audio directly. @click.stop because
+       the button lives above stretched NavCover links in the listing rows. -->
   <button
     class="bpp-btn"
     type="button"
@@ -17,17 +17,17 @@
 </template>
 
 <script setup>
-import { useBeatportOverlay } from '../stores/beatportOverlay.js'
+import { useBeatportBar } from '../stores/beatportBar.js'
 
 const props = defineProps({
   // Row-shaped track; needs beatport_id (+ id/catalog_id, title, artist).
   track: { type: Object, required: true },
 })
 
-const overlay = useBeatportOverlay()
+const bar = useBeatportBar()
 
 function onClick() {
-  overlay.open(props.track)
+  bar.open(props.track)
 }
 </script>
 

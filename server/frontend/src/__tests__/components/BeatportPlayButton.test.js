@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import BeatportPlayButton from '../../components/BeatportPlayButton.vue'
-import { useBeatportOverlay } from '../../stores/beatportOverlay.js'
+import { useBeatportBar } from '../../stores/beatportBar.js'
 
-// The overlay store pauses the player on open — mock the audioPlayer boundary
+// The bar store pauses the player on open — mock the audioPlayer boundary
 // so the click path runs without the real audio machinery.
 const { playerMock } = vi.hoisted(() => ({
   playerMock: { playing: false, toggle: vi.fn() },
@@ -29,10 +29,10 @@ describe('BeatportPlayButton', () => {
     expect(btn.attributes('title')).toBe('Extrait Beatport')
   })
 
-  it('click opens the overlay store with the track', async () => {
+  it('click opens the bar store with the track', async () => {
     const wrapper = mount(BeatportPlayButton, { props: { track: TRACK } })
     await wrapper.find('button').trigger('click')
-    const store = useBeatportOverlay()
+    const store = useBeatportBar()
     expect(store.visible).toBe(true)
     expect(store.track).toEqual({
       id: 42,
@@ -53,6 +53,6 @@ describe('BeatportPlayButton', () => {
     })
     await wrapper.find('button').trigger('click')
     expect(outer).not.toHaveBeenCalled()
-    expect(useBeatportOverlay().visible).toBe(true)
+    expect(useBeatportBar().visible).toBe(true)
   })
 })
