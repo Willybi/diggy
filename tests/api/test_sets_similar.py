@@ -162,11 +162,12 @@ class TestSimilarSets:
         assert r.json() == []  # the only seed is invisible -> no C2 signal
 
     async def test_seed_cap_limits_scored_seeds(self, db, monkeypatch):
-        """A set with 13 identified tracks is scored from at most
-        SIMILAR_SETS_SEED_CAP (12) seeds — one proximity pass per retained seed."""
+        """A set with SIMILAR_SETS_SEED_CAP+1 identified tracks is scored from at
+        most SIMILAR_SETS_SEED_CAP seeds — one proximity pass per retained seed."""
         import services.similarity_service as sim
 
-        cats = [await _make_catalog(db, f"cap{i}") for i in range(13)]
+        cap = sim.SIMILAR_SETS_SEED_CAP
+        cats = [await _make_catalog(db, f"cap{i}") for i in range(cap + 1)]
         seed = await _make_set(db, "Seed", [c.id for c in cats])
         await db.commit()
 
@@ -180,8 +181,7 @@ class TestSimilarSets:
         monkeypatch.setattr(sim, "_score_seed_against_pool", counting)
 
         await sim.similar_sets(db, seed.id, None)  # redis=None → no cache interference
-        assert sim.SIMILAR_SETS_SEED_CAP == 12
-        assert calls["n"] == 12  # capped at 12 even though 13 tracks are identified
+        assert calls["n"] == cap  # capped even though cap+1 tracks are identified
 
 
 class TestSimilarSetsCache:

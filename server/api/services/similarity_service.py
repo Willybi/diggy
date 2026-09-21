@@ -1013,10 +1013,11 @@ async def get_similar_tracks(
 
 # A set is scored from at most this many of its identified tracks (bounds the
 # per-request cost: each seed is scored against the whole visible pool). Halved
-# 24→12 after prod measured ~21 s per uncached call — the cost is linear in the
-# seed count, so this ≈ halves the first (cache-miss) computation while leaving
-# ample seeds to characterise a set.
-SIMILAR_SETS_SEED_CAP = 12
+# 24→12 after prod measured ~21 s per uncached call, then 12→6 on 2026-09-21
+# when the pool hit ~700k (C12 inflow) and a cold call blew the 60s nginx
+# timeout — the cost is linear in the seed count. Interim lever until C10
+# (precomputed pool) lands; 6 seeds still characterise a set.
+SIMILAR_SETS_SEED_CAP = 6
 # Per-seed proximity: keep the top-N most similar tracks; each contributes to the
 # sets that contain it.
 SIMILAR_SETS_CAND_TRUNC = 40
