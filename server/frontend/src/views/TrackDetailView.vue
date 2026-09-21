@@ -181,11 +181,8 @@
           </div>
         </section>
 
-        <!-- Sonne comme — voisins par contenu audio, gaté admin, sans score (C9.b) -->
-        <section
-          v-if="auth.user?.is_admin && (contentLoading || contentTracks.length)"
-          class="disc-block"
-        >
+        <!-- Sonne comme — voisins par contenu audio, public, sans score (C9.b) -->
+        <section v-if="contentLoading || contentTracks.length" class="disc-block">
           <header class="disc-head">
             <h2 class="disc-title">Sonne comme</h2>
             <span v-if="contentTracks.length" class="disc-count">{{ contentTracks.length }}</span>
@@ -532,10 +529,10 @@ async function loadSimilar(catalogId) {
   }
 }
 
-// « Sonne comme » — voisins par contenu audio (C9.b). Gaté admin le temps que
-// la couverture des embeddings monte : un non-admin ne déclenche AUCUN appel.
+// « Sonne comme » — voisins par contenu audio (C9.b). Public : la shelf se rend
+// pour tout visiteur (invité inclus) dès qu'un voisin remonte ; l'endpoint est
+// JWT-optionnel et scopé catalog_visible côté back.
 async function loadContentNeighbors(catalogId) {
-  if (!auth.user?.is_admin) return
   contentLoading.value = true
   try {
     const { data } = await api.get(`/api/catalog/${catalogId}/content-similar?limit=10`)

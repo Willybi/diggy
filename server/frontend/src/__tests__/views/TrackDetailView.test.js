@@ -144,8 +144,9 @@ describe('TrackDetailView', () => {
     apiMock.patch.mockResolvedValue({ data: {} })
     routerPush.mockReset()
     playerMock.playing = false
-    // Reset the admin flag so the « Sonne comme » gate never leaks across tests.
+    // Reset the auth state so no case (guest / non-admin) leaks across tests.
     authMock.user = null
+    authMock.isAuthenticated = true
   })
 
   it('renders the hero with the 4 musical stats and no rating', async () => {
@@ -236,12 +237,23 @@ describe('TrackDetailView', () => {
     expect(discTitles(wrapper)).not.toContain('Sonne comme')
   })
 
-  it('never renders « Sonne comme » nor calls content-similar for a non-admin', async () => {
+  it('renders the « Sonne comme » shelf for a non-admin user (now public)', async () => {
     authMock.user = { is_admin: false }
     const wrapper = await mountView(makeTrack(), [], makeContent(3))
-    expect(discTitles(wrapper)).not.toContain('Sonne comme')
+    expect(discTitles(wrapper)).toContain('Sonne comme')
+    expect(wrapper.findAll('.mini-grid .track-card')).toHaveLength(3)
     const hitContent = apiMock.get.mock.calls.some(([url]) => url.includes('/content-similar'))
-    expect(hitContent).toBe(false)
+    expect(hitContent).toBe(true)
+  })
+
+  it('renders the « Sonne comme » shelf for a guest (unauthenticated)', async () => {
+    authMock.isAuthenticated = false
+    authMock.user = null
+    const wrapper = await mountView(makeTrack(), [], makeContent(3))
+    expect(discTitles(wrapper)).toContain('Sonne comme')
+    expect(wrapper.findAll('.mini-grid .track-card')).toHaveLength(3)
+    const hitContent = apiMock.get.mock.calls.some(([url]) => url.includes('/content-similar'))
+    expect(hitContent).toBe(true)
   })
 
   it('truncates set appearances to 5 with a per-block footer', async () => {
