@@ -5,6 +5,7 @@ a strong, deterministic similarity score regardless of the (empty in tests)
 genre graph.
 """
 
+import dataclasses
 from datetime import datetime, timezone
 
 from models import CatalogEntry, DJSet, SetTrack, UserOpinion, UserTrack
@@ -181,6 +182,33 @@ class TestGetRecommendations:
         ids = {i.id for i in result.items}
         assert seed.id not in ids
         assert b.id in ids
+
+    async def test_empty_content_channel_leaves_results_unchanged(
+        self, db, auth_user, monkeypatch
+    ):
+        # No embeddings anywhere → the audio content channel is empty (on SQLite
+        # content_neighbor_ids returns {} by construction; here also on PG since
+        # no track is embedded), so CONTENT_BONUS must not change a single score:
+        # the retrieval-first compute reduces to pure co-occurrence scoring.
+        seed = await _mk_track(db, "Seed", "a|seed")
+        b = await _mk_track(db, "B", "a|b")
+        c = await _mk_track(db, "C", "a|c")
+        await _put_in_set(db, [seed.id, b.id, c.id])
+        await _opine(db, auth_user.id, seed.id, "liked")
+
+        r1 = await recommendation_service._compute(db, auth_user.id)
+        s1 = {i.id: i.reco_score for i in r1.items}
+
+        monkeypatch.setattr(
+            recommendation_service,
+            "CFG",
+            dataclasses.replace(recommendation_service.CFG, CONTENT_BONUS=0.0),
+        )
+        r0 = await recommendation_service._compute(db, auth_user.id)
+        s0 = {i.id: i.reco_score for i in r0.items}
+
+        assert s1 == s0  # content channel empty → byte-identical scores
+        assert set(s1) == {b.id, c.id}
 
 
 # ---------------------------------------------------------------------------

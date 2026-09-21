@@ -196,9 +196,13 @@ class TestRecoPoolEquivalence:
         await db.commit()
 
     async def test_reco_matches_pre_pool_reference(self, db, auth_user):
-        # (b) The reco built off the shared pool (once) yields the same ordered
-        # items and reco_scores as the pre-pool per-seed path: a like seed, a
-        # library (moderate) seed and a dislike seed all cross the same pool.
+        # (b) Retrieval-first reco (C9.c / lot L2): candidates are now BOUNDED per
+        # seed to the audio KNN ∪ co-occurrence retrieval, NOT the full BPM-window
+        # catalog scan. So the metadata-only candidates "close"/"deep" (near BPM +
+        # same genre/label but NO shared set/playlist, no embedding) are no longer
+        # retrieved — only the liked seed's co-occurring candidates (coocset via a
+        # shared DJ set, coocpl via a shared radar playlist) surface. The scores of
+        # the retrieved candidates are unchanged from the pre-pool engine.
         from models import UserTrack
 
         ds = await _rich_dataset(db)
@@ -210,13 +214,15 @@ class TestRecoPoolEquivalence:
         res = await recommendation_service.get_recommendations(db, auth_user.id, limit=50)
         got = [(i.id, i.reco_score) for i in res.items]
         expected = [
-            (ds["close"].id, 0.3793),
             (ds["coocset"].id, 0.3242),
             (ds["coocpl"].id, 0.1377),
         ]
         assert got == expected
         # A co-occurring liked seed surfaces the co-occurring candidate.
         assert ds["coocset"].id in {i.id for i in res.items}
+        # A metadata-only (BPM/style) candidate with no co-occurrence is NOT
+        # retrieved under retrieval-first.
+        assert ds["close"].id not in {i.id for i in res.items}
         # Owned (deep, lib) and rated (half, dislike) tracks are excluded.
         assert ds["deep"].id not in {i.id for i in res.items}
         assert ds["half"].id not in {i.id for i in res.items}

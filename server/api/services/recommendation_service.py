@@ -40,10 +40,16 @@ class RecommendationConfig:
     # précalcul nightly).
     SEED_CAP: int = 12
     DISLIKE_CAP: int = 12
-    # Per-seed candidate retrieval: broad pool, low floor — the aggregation
-    # (and the final ranking) is where relevance is decided.
+    # Per-seed candidate retrieval: bounded per-seed candidate set (audio KNN ∪
+    # co-occurrence, see similarity_service retrieval core), low floor — the
+    # aggregation (and the final ranking) is where relevance is decided.
     CAND_PER_SEED: int = 40
     SEED_SCORE_FLOOR: float = 0.02
+    # Content (audio embeddings, EffNet) channel: an ADDITIVE, surpondered bonus
+    # on top of the metadata score, never a convex blend (décision C9.0-bis : la
+    # fusion 50/50 sous-performe l'audio surpondéré). À calibrer par l'éval
+    # offline (lot L5).
+    CONTENT_BONUS: float = 1.0
     # How many ranked candidates to keep cached (>= the endpoint's max limit,
     # so a single cache entry serves every limit).
     MAX_ITEMS: int = 100
@@ -200,7 +206,21 @@ async def _lib_ids(db: AsyncSession, user_id: int) -> list[int]:
 # ---------------------------------------------------------------------------
 
 async def _compute(db: AsyncSession, user_id: int):
-    """Compute the full ranked recommendation list (uncached)."""
+    """Compute the full ranked recommendation list (uncached).
+
+    Retrieval-first (C9.c). Instead of scoring the WHOLE visible catalog
+    (~700k rows, ~85s measured) against every seed, each positive seed retrieves
+    a BOUNDED candidate set — its top-K pgvector audio neighbours ∪ its
+    inverted-index co-occurrence rows (the L1 retrieval core) — and only that
+    union is scored by the existing in-memory metadata core. On top of the
+    metadata score the audio-content channel adds a surpondered ADDITIVE bonus
+    per (seed, neighbour): a candidate reached only through the KNN (no
+    metadata/co-occ link) surfaces on its content bonus alone (the C9
+    cold-start), and a candidate with no embedding keeps EXACTLY its metadata
+    score. On SQLite (tests) ``content_neighbor_ids`` returns ``{}``, so the
+    computation reduces to co-occurrence scoring — identical to the pre-C9.c
+    behaviour on the co-occ-only test datasets.
+    """
     from schemas import RecommendationList
 
     likes = await _opinion_ids(db, user_id, "liked")
@@ -215,16 +235,15 @@ async def _compute(db: AsyncSession, user_id: int):
         _build_result_items,
         _dedup_by_album,
         _score_seed_against_pool,
-        load_candidate_pool,
+        content_neighbor_ids,
+        cooc_candidate_ids,
+        load_candidates_by_ids,
         load_similarity_context,
     )
 
-    # Load the 4 similarity maps ONCE, then build the candidate pool ONCE and
-    # score every seed against it IN MEMORY — no per-seed DB fetch, no per-seed
-    # genre re-expansion (both were re-run ~24× on the cold path). Full ORM data
-    # is fetched only for the final ranked winners, via _build_result_items.
+    # Seed-agnostic maps loaded ONCE (cached in-process, 6h TTL). Carries the
+    # inverted co-occurrence indexes the retrieval reads.
     ctx = await load_similarity_context(db)
-    pool = await load_candidate_pool(db, user_id, ctx)
 
     # Never recommend what the user already owns or has rated.
     excluded = set(likes) | set(dislikes) | set(lib)
@@ -245,6 +264,35 @@ async def _compute(db: AsyncSession, user_id: int):
             if remaining <= 0:
                 break
 
+    dislike_seeds = dislikes[: CFG.DISLIKE_CAP]
+
+    # Seed FEATURES in ONE bounded pass (no more full-catalog pool). A seed the
+    # viewer cannot see (deleted/foreign-private) is absent from the pool and is
+    # skipped below (was ``pool.get(seed_id) is None → continue``).
+    seed_ids = {sid for sid, _ in positive_seeds} | set(dislike_seeds)
+    seed_pool = await load_candidates_by_ids(db, user_id, ctx, seed_ids)
+
+    visible_positive = [sid for sid, _ in positive_seeds if sid in seed_pool]
+
+    # Per-seed audio neighbours (PostgreSQL only; ``{}`` on SQLite). One call
+    # loops the embedded seeds internally. ``{seed_id: [(cid, cosine_dist), ...]}``.
+    knn = await content_neighbor_ids(db, visible_positive, user_id)
+
+    # Candidate set = union over positive seeds of (audio KNN ∪ co-occurrence),
+    # minus everything the user already owns/rated.
+    candidate_ids: set[int] = set()
+    for seed_id, _weight in positive_seeds:
+        seed = seed_pool.get(seed_id)
+        if seed is None:
+            continue
+        candidate_ids.update(cid for cid, _dist in knn.get(seed_id, ()))
+        candidate_ids |= cooc_candidate_ids(ctx, seed.sets, seed.playlists)
+    candidate_ids -= excluded
+
+    # Candidate features in ONE bounded pass. Full ORM data is still fetched only
+    # for the final ranked winners, via _build_result_items.
+    cand_pool = await load_candidates_by_ids(db, user_id, ctx, candidate_ids)
+
     reco_score: dict[int, float] = {}
     # Similarity (score_pct, components, available) from the FIRST positive seed
     # that surfaced each candidate — mirrors the old ``track_by_id.setdefault``,
@@ -252,15 +300,18 @@ async def _compute(db: AsyncSession, user_id: int):
     first_sim: dict[int, tuple[float, dict, list]] = {}
 
     for seed_id, weight in positive_seeds:
-        seed = pool.get(seed_id)
+        seed = seed_pool.get(seed_id)
         if seed is None:  # deleted/invisible seed → skip (was LookupError→[])
             continue
-        # Off-loop per seed: a full-pool scoring is pure CPU and would block the
-        # event loop past the uvicorn supervisor ping window (worker SIGKILL).
+        # Off-loop per seed: scoring the candidate pool is pure CPU and would
+        # block the event loop past the uvicorn supervisor ping window.
         scored = (
             await asyncio.to_thread(
                 _score_seed_against_pool,
-                pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED,
+                cand_pool,
+                seed,
+                score_floor=CFG.SEED_SCORE_FLOOR,
+                limit=CFG.CAND_PER_SEED,
             )
         )[: CFG.CAND_PER_SEED]
         for cid, score_pct, components, available in scored:
@@ -272,17 +323,44 @@ async def _compute(db: AsyncSession, user_id: int):
             if cid not in first_sim:
                 first_sim[cid] = (score_pct, components, available)
 
+        # Content channel (C9.c): ADDITIVE, surpondered bonus for each audio
+        # neighbour of this seed. Never a convex blend — a candidate with no
+        # embedding (reached via co-occ) keeps its metadata score untouched, and
+        # a KNN-only candidate (no metadata/co-occ link to any seed) still
+        # surfaces on this bonus alone (cold-start). ``1 - dist`` ∈ [0, 1] since
+        # the EffNet vectors are L2-normalised.
+        for cid, dist in knn.get(seed_id, ()):
+            if cid in excluded:
+                continue
+            reco_score[cid] = reco_score.get(cid, 0.0) + (
+                weight * CFG.CONTENT_BONUS * (1.0 - dist)
+            )
+            # A content-only candidate has no metadata result — give it a zeroed
+            # metadata block tagged "content" so the winner build finds it.
+            first_sim.setdefault(
+                cid,
+                (
+                    max(0.0, 1.0 - dist),
+                    {"sets": 0.0, "playlists": 0.0, "style": 0.0, "context": 0.0},
+                    ["content"],
+                ),
+            )
+
     # Dislikes penalise candidates that a positive seed already surfaced. A
     # candidate reachable only through a dislike would be purely negative and is
-    # dropped by the ``> 0`` filter below anyway, so we don't materialise it.
-    for seed_id in dislikes[: CFG.DISLIKE_CAP]:
-        seed = pool.get(seed_id)
+    # dropped by the ``> 0`` filter below anyway, so we don't materialise it. The
+    # penalty is metadata-only (dislikes are not part of the content retrieval).
+    for seed_id in dislike_seeds:
+        seed = seed_pool.get(seed_id)
         if seed is None:
             continue
         scored = (
             await asyncio.to_thread(
                 _score_seed_against_pool,
-                pool, seed, score_floor=CFG.SEED_SCORE_FLOOR, limit=CFG.CAND_PER_SEED,
+                cand_pool,
+                seed,
+                score_floor=CFG.SEED_SCORE_FLOOR,
+                limit=CFG.CAND_PER_SEED,
             )
         )[: CFG.CAND_PER_SEED]
         for cid, score_pct, components, available in scored:
@@ -299,7 +377,7 @@ async def _compute(db: AsyncSession, user_id: int):
             key=lambda x: x[1],
             reverse=True,
         ),
-        pool,
+        cand_pool,
         CFG.MAX_ITEMS,
     )
 
@@ -307,7 +385,7 @@ async def _compute(db: AsyncSession, user_id: int):
     # positional zip — robust to any missing entry). The album_id comes straight
     # from the pool — no extra query.
     winners = [(cid, *first_sim[cid]) for cid, _ in ranked]
-    album_by_id = {cid: pool[cid].album_id for cid, _ in ranked}
+    album_by_id = {cid: cand_pool[cid].album_id for cid, _ in ranked}
     items = await _build_result_items(db, winners, user_id, album_by_id=album_by_id)
     for item in items:
         item["reco_score"] = round(reco_score[item["id"]], 4)

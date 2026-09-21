@@ -180,10 +180,29 @@ class TestRecoAlbumDedup:
     async def test_reco_dedups_by_album(self, db, auth_user):
         # Liking ref surfaces c1..c5; c1 & c2 share an album → the reco list keeps
         # c1 (higher) and drops c2, while exposing album_id.
+        #
+        # Retrieval-first (C9.c / lot L2): the reco no longer scans the full
+        # BPM-window catalog, it retrieves per-seed via audio KNN ∪ co-occurrence.
+        # So the candidates must actually be retrievable — a shared DJ set makes
+        # ref + c1..c5 co-occur (the dialect-agnostic retrieval channel; the audio
+        # KNN is PG-only). The album-dedup behaviour under test is unchanged.
+        from models import DJSet, SetTrack
+
         ref, c = await _descending_dataset(db)
         album = await _mk_album(db, title="Shared", deezer_album_id="d-shared")
         await _link_album(db, c["c1"].id, album.id)
         await _link_album(db, c["c2"].id, album.id)
+
+        s = DJSet(source="trackid", title="Co", external_id="dedup-set")
+        db.add(s)
+        await db.commit()
+        await db.refresh(s)
+        for pos, cid in enumerate(
+            [ref.id, c["c1"].id, c["c2"].id, c["c3"].id, c["c4"].id, c["c5"].id]
+        ):
+            db.add(SetTrack(set_id=s.id, catalog_id=cid, position=pos))
+        await db.commit()
+
         await self._like(db, auth_user.id, ref.id)
 
         res = await recommendation_service.get_recommendations(
