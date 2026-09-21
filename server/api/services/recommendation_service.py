@@ -45,11 +45,17 @@ class RecommendationConfig:
     # aggregation (and the final ranking) is where relevance is decided.
     CAND_PER_SEED: int = 40
     SEED_SCORE_FLOOR: float = 0.02
-    # Content (audio embeddings, EffNet) channel: an ADDITIVE, surpondered bonus
-    # on top of the metadata score, never a convex blend (décision C9.0-bis : la
-    # fusion 50/50 sous-performe l'audio surpondéré). À calibrer par l'éval
-    # offline (lot L5).
-    CONTENT_BONUS: float = 1.0
+    # Content (audio embeddings, EffNet) channel: an ADDITIVE bonus on top of the
+    # metadata score, never a convex blend. CALIBRATED 0.5 on 2026-09-21 via the
+    # offline eval (worker/embedding_backfill/eval_hybrid.py, 2000-set co-occ
+    # hold-out — read docs/c9-benchmark/EVAL_HYBRIDE.md §7 before touching this):
+    # the hold-out can only reward re-finding PAST co-occurrence (it is blind to
+    # the cold-start value of audio) and degrades monotonically as the bonus
+    # grows, so the weight is set LOW — big enough that a KNN-only candidate
+    # still surfaces (the C9 cold-start channel), small enough not to reorder
+    # the proven co-occ/metadata ranking. Re-run the eval AND review "Pour toi"
+    # qualitatively before changing it.
+    CONTENT_BONUS: float = 0.5
     # How many ranked candidates to keep cached (>= the endpoint's max limit,
     # so a single cache entry serves every limit).
     MAX_ITEMS: int = 100

@@ -126,6 +126,50 @@ gower-lite**, pas transposable tel quel à la constante serveur. Concrètement :
 ## 6. Où poser la valeur
 
 Quand l'opérateur a tranché : `CONTENT_BONUS` vit dans
-`server/api/services/recommendation_service.py` (`RecommendationConfig.CONTENT_BONUS`,
-défaut `1.0`). Ce lot **ne commite pas** de valeur calibrée — la constante reste à
-`1.0` tant que l'opérateur n'a pas posé le nombre après un run réel.
+`server/api/services/recommendation_service.py` (`RecommendationConfig.CONTENT_BONUS`).
+**Valeur figée : `0.5` depuis le 2026-09-21** — voir le résultat et la lecture §7.
+
+## 7. Résultat du run 2026-09-21 — décision : `CONTENT_BONUS = 0.5`
+
+Run par défaut (2 000 sets, univers scorable 29 911 tracks à 96 % embeddés,
+retrieval/seed méd. 215 candidats), lift@10 **cross-artist** :
+
+| variante | bonus | lift_xart@10 | IC95 | hit@10 | hit@50 |
+|---|---|---|---|---|---|
+| meta | 0 | **173,80×** | [171,05-176,77] | 55,5 % | **92,3 %** |
+| hybrid@0.5 | 0.5 | 104,65× | [102,48-106,85] | 38,7 % | 82,8 % |
+| hybrid@1 | 1 | 80,56× | [78,68-82,43] | 31,6 % | 75,1 % |
+| hybrid@2 | 2 | 58,95× | | 24,3 % | 62,6 % |
+| hybrid@4 | 4 | 48,15× | | 19,7 % | 50,4 % |
+| audio | — | 41,43× | | 17,2 % | 39,0 % |
+
+**Lecture (importante — la conclusion naïve serait fausse).** La dégradation
+monotone avec le bonus ne dit PAS « l'audio nuit à la reco » : elle dit que **ce
+hold-out ne peut récompenser que la re-découverte de la co-occurrence PASSÉE**.
+L'univers de retrieval contient déjà les set-mates (via le canal co-occ) et le
+score métadonnées les re-classe très bien en tête ; le bonus audio, lui, promeut
+des sosies sonores venus d'AILLEURS — précisément les candidats que la métrique
+ne peut jamais compter comme hits (un track jamais joué en set n'est jamais un
+partenaire de hold-out). La valeur cold-start de l'audio — la raison d'être de
+C9 — est structurellement INVISIBLE ici ; son « coût » (déplacer des candidats
+co-occ du top-10) est, lui, compté plein pot.
+
+Ce que le run établit tout de même de solide :
+
+1. **L'univers de retrieval L1-L3 est validé** : `meta` atteint 92,3 % de hit@50
+   cross-artist sur ~215 candidats/seed — le retrieval borné CONTIENT les bonnes
+   réponses, on n'a rien perdu en supprimant le full-scan.
+2. **L'audio seul prédit la co-occurrence bien au-dessus du hasard** (41×) — le
+   signal C9.0-bis/eval_at_scale se reproduit — mais il ne doit pas RÉORDONNER
+   les candidats à contexte connu : à affinité métadonnées égale, le passé DJ
+   prime.
+
+**Décision** : `0.5` — la recommandation de l'outil (meilleur hybride ET choix
+parcimonieux) ET le « garder bas » de la règle §5 : assez grand pour qu'un
+candidat KNN-only surface encore (cold-start vivant), assez petit pour ne pas
+bousculer le classement co-occ/méta prouvé. Descendre sous la grille testée
+sur-optimiserait une métrique aveugle au bénéfice réel de l'audio.
+
+**Le vrai juge reste qualitatif** (§5, mise en garde d'échelle) : suivre la
+tenue du « Pour toi » à l'usage ; re-passer l'éval après tout changement de
+retrieval (K/cap), de modèle d'embedding ou de barème métadonnées.
