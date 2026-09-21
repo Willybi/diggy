@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mount, RouterLinkStub } from '@vue/test-utils'
 import { h } from 'vue'
 import TrackTable from '../../components/TrackTable.vue'
+import NavCover from '../../components/NavCover.vue'
 
 // TrackTable is the shared, presentational virtualised table extracted from
 // Explorer & Radar (A4-01). It renders the thead, the visible row slice, the
@@ -111,15 +112,28 @@ describe('TrackTable', () => {
     expect(bpm.text()).toBe('~124')
   })
 
-  it('emits row-click on the row and play on the play button (stopped)', async () => {
+  it('renders each data row as a stretched link to /catalog/{id} with the track label', () => {
+    const w = mountTable()
+    const link = w.find('.tt-row:not(.tt-row--skel)').findComponent(NavCover)
+    expect(link.props('to')).toBe('/catalog/1')
+    expect(link.props('label')).toBe('Alpha')
+  })
+
+  it('renders no navigation link in the loading skeleton', () => {
+    const w = mount(TrackTable, {
+      props: { variant: 'explorer', initialLoading: true },
+      global: { components: { RouterLink: RouterLinkStub } },
+    })
+    expect(w.findAllComponents(NavCover)).toHaveLength(0)
+  })
+
+  it('emits play on the play button without navigating (click stopped)', async () => {
     const w = mountTable()
     const row = w.find('.tt-row:not(.tt-row--skel)')
-    await row.trigger('click')
-    expect(w.emitted('row-click')[0][0].id).toBe(1)
     await row.find('.tt-pbtn').trigger('click')
     expect(w.emitted('play')[0][0].id).toBe(1)
-    // The play click is stopped: it does not also fire a second row-click.
-    expect(w.emitted('row-click')).toHaveLength(1)
+    // The row no longer emits a JS navigation intent — nav is the NavCover link.
+    expect(w.emitted('row-click')).toBeUndefined()
   })
 
   it('emits avis (row, value) from the LikeDislike control', async () => {

@@ -164,7 +164,6 @@
       :is-current="player.isCurrent"
       :playing="player.playing"
       @header-sort="onHeaderSort"
-      @row-click="openTrack"
       @play="playTrack"
       @avis="setAvis"
       @retry="fetchPage(true)"
@@ -656,10 +655,6 @@ const scrollRestore = useScrollRestore({
 })
 
 // ── Rows ─────────────────────────────────────────────────────────────────────
-
-function openTrack(e) {
-  router.push(`/catalog/${e.id}`)
-}
 
 function toPlayerTrack(e) {
   return {

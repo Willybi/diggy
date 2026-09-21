@@ -300,10 +300,20 @@ describe('SetsView', () => {
     expect(chips.text()).toContain('Boiler Room')
   })
 
-  it('navigates to the set on row click', async () => {
+  it('renders a row-wide NavCover link to the set on every row', async () => {
+    // L3: rows are real navigation links now (NavCover, not a JS row click) so
+    // ctrl/middle-click open the set in a new tab. Each row's cover link targets
+    // its own /set/:id; assert the target per row rather than a routerPush call.
     const wrapper = await mountView()
-    await wrapper.find('.st-row:not(.st-row--skel)').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/set/1')
+    const rows = wrapper.findAll('.st-row:not(.st-row--skel)')
+    const targets = rows.map((row) => {
+      const cover = row
+        .findAllComponents(RouterLinkStub)
+        .find((l) => String(l.props('to')).startsWith('/set/'))
+      return cover?.props('to')
+    })
+    expect(targets).toEqual(['/set/1', '/set/2'])
+    expect(routerPush).not.toHaveBeenCalled()
   })
 
   it('plays a set in order: fetches its tracklist and queues the playable tracks', async () => {

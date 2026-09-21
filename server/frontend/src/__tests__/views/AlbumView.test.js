@@ -146,10 +146,11 @@ describe('AlbumView', () => {
     expect(wrapper.find('.sec-count').text()).toContain('3 tracks')
   })
 
-  it('navigates to the track detail on a row click', async () => {
+  it('links each row to the track detail (/catalog/:id)', async () => {
+    // Nav is now a real <a> via TrackCard's `to` prop (ctrl/middle-click), not a
+    // programmatic router.push on click.
     const wrapper = await mountView(makeAlbum({ tracklist: makeTracks(1), total_tracks: 1 }))
-    await wrapper.findComponent(TrackCard).trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/catalog/100')
+    expect(wrapper.findComponent(TrackCard).props('to')).toBe('/catalog/100')
   })
 
   // ---- States ----

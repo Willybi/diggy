@@ -123,8 +123,8 @@
             show-duration
             :collectible="auth.isAuthenticated"
             :playing="rowPlaying(row.track.id)"
+            :to="!row.state && row.catalogId ? `/catalog/${row.catalogId}` : null"
             @play="playTrack(row)"
-            @click="onRowClick(row)"
           />
         </div>
       </section>
@@ -179,7 +179,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
 import { useToast } from '../stores/toast.js'
 import Artwork from '../components/Artwork.vue'
@@ -196,7 +196,6 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs, fmtDate, pl } from '../utils/format'
 
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
 const djSet = ref(null)
@@ -346,11 +345,6 @@ const playSource = {
 
 function playTrack(row) {
   player.play(toPlayerTrack(row.track), playSource)
-}
-
-// Only identified rows navigate; id/unresolved rows are inert.
-function onRowClick(row) {
-  if (!row.state && row.catalogId) router.push(`/catalog/${row.catalogId}`)
 }
 
 // ---- Admin: set artists (unchanged) ----

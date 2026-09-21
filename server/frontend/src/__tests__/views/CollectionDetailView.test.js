@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, config, RouterLinkStub } from '@vue/test-utils'
 import CollectionDetailView from '../../views/CollectionDetailView.vue'
+
+// Rows are now stretched by <NavCover> (a <RouterLink>); vue-router is mocked, so
+// register the stub file-wide (VTU `stubs` are a no-op for unresolved components).
+config.global.components = { ...config.global.components, RouterLink: RouterLinkStub }
 
 // Mutable holders shared with the hoisted mocks below.
 const { apiMock, routerPush, playerMock } = vi.hoisted(() => ({
@@ -116,26 +120,22 @@ describe('CollectionDetailView', () => {
     expect(metas[0].text()).toContain('9A')
   })
 
-  it('navigates to the right route per item type', async () => {
+  it('links each row to the right route per item type', async () => {
     const wrapper = await mountView()
     const rows = wrapper.findAll('.rrow')
-    await rows[0].trigger('click') // track
-    expect(routerPush).toHaveBeenLastCalledWith('/catalog/11')
-    await rows[1].trigger('click') // artist
-    expect(routerPush).toHaveBeenLastCalledWith('/artist/22')
-    await rows[2].trigger('click') // set
-    expect(routerPush).toHaveBeenLastCalledWith('/set/33')
-    await rows[3].trigger('click') // genre → by name
-    expect(routerPush).toHaveBeenLastCalledWith('/style/Techno')
-    await rows[4].trigger('click') // playlist
-    expect(routerPush).toHaveBeenLastCalledWith('/playlists/44')
+    const linkTo = (row) => row.findComponent(RouterLinkStub).props('to')
+    expect(linkTo(rows[0])).toBe('/catalog/11') // track
+    expect(linkTo(rows[1])).toBe('/artist/22') // artist
+    expect(linkTo(rows[2])).toBe('/set/33') // set
+    expect(linkTo(rows[3])).toBe('/style/Techno') // genre → by name
+    expect(linkTo(rows[4])).toBe('/playlists/44') // playlist
   })
 
-  it('does not navigate when a missing item row is clicked', async () => {
+  it('renders no link for a missing item row', async () => {
     const wrapper = await mountView()
     const rows = wrapper.findAll('.rrow')
-    await rows[5].trigger('click') // missing track
-    expect(routerPush).not.toHaveBeenCalled()
+    // NavCover with a null target renders nothing → the missing row is inert.
+    expect(rows[5].findComponent(RouterLinkStub).exists()).toBe(false)
   })
 
   it('removes a non-track item via the polymorphic route (artist)', async () => {

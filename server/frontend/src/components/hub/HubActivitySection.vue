@@ -29,10 +29,10 @@
           :has-preview="entry.item.has_preview"
           badge="Nouveauté"
           :meta-parts="trackMeta(entry.item)"
+          :to="`/catalog/${entry.item.catalog_id}`"
           item-type="track"
           :item-id="entry.item.catalog_id"
           :playing="catalogPlaying(entry.item.catalog_id)"
-          @open="openActivityTrack(entry.item)"
           @play="playActivityTrack(entry.item)"
         />
         <!-- release we could not crawl → external Deezer link fallback -->
@@ -53,9 +53,9 @@
           badge="Set"
           badge-icon="set"
           :meta-parts="setMeta(entry.item)"
+          :to="`/set/${entry.item.set_id}`"
           item-type="set"
           :item-id="entry.item.set_id"
-          @open="openSet(entry.item)"
         />
       </template>
     </div>
@@ -166,6 +166,7 @@ const activityShelf = computed(() => {
   )
 })
 
+// Still used by <ActivityAlbumCard>'s @open (its per-track rows aren't NavCover-backed).
 function openActivityTrack(item) {
   router.push(`/catalog/${item.catalog_id}`)
 }
@@ -196,10 +197,6 @@ const activitySource = {
 
 function playActivityTrack(item) {
   player.play(activityToPlayerTrack(item), activitySource)
-}
-
-function openSet(item) {
-  router.push(`/set/${item.set_id}`)
 }
 
 // ── DiscoveryCard meta builders (component drops empty cells, never a dash) ──

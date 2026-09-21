@@ -207,10 +207,20 @@ describe('WatchlistView', () => {
     expect(second.find('.pl-creator').exists()).toBe(false)
   })
 
-  it('navigates to the playlist on row click', async () => {
+  it('renders a row-wide NavCover link to the playlist on every row', async () => {
+    // L3: rows are real navigation links now (NavCover, not a JS row click) so
+    // ctrl/middle-click open the playlist in a new tab. Each row's cover link
+    // targets its own /playlists/:id; assert the target per row.
     const wrapper = await mountView()
-    await wrapper.find('.pl-row:not(.pl-row--skel)').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/playlists/1')
+    const rows = wrapper.findAll('.pl-row:not(.pl-row--skel)')
+    const targets = rows.map((row) => {
+      const cover = row
+        .findAllComponents(RouterLinkStub)
+        .find((l) => String(l.props('to')).startsWith('/playlists/'))
+      return cover?.props('to')
+    })
+    expect(targets).toEqual(['/playlists/1', '/playlists/2'])
+    expect(routerPush).not.toHaveBeenCalled()
   })
 
   it('sends the composite sort when a header is clicked (Tracks → -tracks, Créateur → creator)', async () => {

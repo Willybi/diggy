@@ -45,7 +45,7 @@ describe('nav chunk prefetch on hover/focus (D9.c)', () => {
     expect(prefetchSpy).not.toHaveBeenCalled()
 
     // Order: Hub, Explorer, Radar, … → index 1 is Explorer (/explorer).
-    const explorer = wrapper.findAll('button.bottom-nav-item')[1]
+    const explorer = wrapper.findAll('a.bottom-nav-item')[1]
     await explorer.trigger('mouseenter')
     expect(prefetchSpy).toHaveBeenCalledTimes(1)
     expect(prefetchSpy).toHaveBeenLastCalledWith('/explorer')
@@ -63,8 +63,8 @@ describe('nav chunk prefetch on hover/focus (D9.c)', () => {
     expect(prefetchSpy).not.toHaveBeenCalled()
 
     // First library item is Explorer (/explorer). The footer theme toggle is a
-    // <button.nav-item>, so scope the query to the item <span>s.
-    const explorer = wrapper.findAll('span.nav-item')[0]
+    // <button.nav-item>, so scope the query to the item <a> links.
+    const explorer = wrapper.findAll('a.nav-item')[0]
     await explorer.trigger('mouseenter')
     expect(prefetchSpy).toHaveBeenCalledTimes(1)
     expect(prefetchSpy).toHaveBeenLastCalledWith('/explorer')

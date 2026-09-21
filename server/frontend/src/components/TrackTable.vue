@@ -161,8 +161,8 @@
             liked: e.avis === 'liked',
             disliked: e.avis === 'disliked',
           }"
-          @click="emit('row-click', e)"
         >
+          <NavCover :to="`/catalog/${e.id}`" :label="e.title" />
           <span class="tt-cell tt-cell--play">
             <button
               v-if="e.has_preview"
@@ -261,6 +261,7 @@
 import { ref } from 'vue'
 import { fmtMs } from '../utils/format'
 import FilterChip from './filters/FilterChip.vue'
+import NavCover from './NavCover.vue'
 import Artwork from './Artwork.vue'
 import StyleTag from './StyleTag.vue'
 import ArtistLinks from './ArtistLinks.vue'
@@ -302,15 +303,7 @@ defineProps({
   collectible: { type: Boolean, default: false },
 })
 
-const emit = defineEmits([
-  'header-sort',
-  'row-click',
-  'play',
-  'avis',
-  'retry',
-  'reset',
-  'remove-chip',
-])
+const emit = defineEmits(['header-sort', 'play', 'avis', 'retry', 'reset', 'remove-chip'])
 
 // The windowed body element, exposed so the view can wire useVirtualWindow to it
 // (the view owns the windowing composables; it needs this element as `listRef`).
@@ -390,10 +383,22 @@ function artSrc(e) {
 
 /* ============ ROWS ============ */
 .tt-row {
+  position: relative; /* anchors the stretched <NavCover> link (its first child) */
   height: var(--row-h);
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   transition: background 0.12s;
+}
+/* Interactive cells sit ABOVE the NavCover (placed before them in the DOM) so
+   their own clicks/links keep working over the row-wide navigation link. The
+   non-interactive slotted score cells (Radar) stay under it — clicking them
+   navigates, which is the wanted behaviour. */
+.tt-cell--play,
+.tt-artists,
+.tt-style-link,
+.tt-cell--avis,
+.col-coll {
+  position: relative;
 }
 .tt-row:hover {
   background: var(--surface-2);

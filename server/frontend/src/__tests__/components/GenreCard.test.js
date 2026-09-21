@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, config, RouterLinkStub } from '@vue/test-utils'
 
 // Mutable holders shared with the hoisted mocks below.
 const { routerPush, playerMock, opinionsMock, opinionState } = vi.hoisted(() => ({
@@ -27,6 +27,11 @@ vi.mock('../../stores/opinions.js', () => ({
 }))
 
 import GenreCard from '../../components/GenreCard.vue'
+
+// GenreCard now embeds <NavCover>, which renders a <RouterLink>; vue-router is
+// mocked, so register the stub file-wide (VTU `stubs` are a no-op for an
+// unresolved component — see CLAUDE.md pitfall / ArtistCard.test.js).
+config.global.components = { ...config.global.components, RouterLink: RouterLinkStub }
 
 function makeGenre(overrides = {}) {
   return {
@@ -97,19 +102,20 @@ describe('GenreCard', () => {
     expect(labels).toEqual(['Tracks', 'Artistes', 'En bib'])
   })
 
-  it('navigates to /style/:name on a card click', async () => {
+  it('renders a whole-card link to /style/:name (name URL-encoded)', () => {
     const wrapper = mount(GenreCard, { props: { genre: makeGenre({ name: 'Tech House' }) } })
-    await wrapper.find('.genre-card').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/style/Tech%20House')
+    const cover = wrapper.findComponent(RouterLinkStub)
+    expect(cover.classes()).toContain('nav-cover')
+    expect(cover.props('to')).toBe('/style/Tech%20House')
   })
 
-  it('is a keyboard-reachable link (role + tabindex + Enter)', async () => {
+  it('is a native link, not a role="link"/tabindex div', () => {
     const wrapper = mount(GenreCard, { props: { genre: makeGenre() } })
     const card = wrapper.find('.genre-card')
-    expect(card.attributes('role')).toBe('link')
-    expect(card.attributes('tabindex')).toBe('0')
-    await card.trigger('keydown.enter')
-    expect(routerPush).toHaveBeenCalledWith('/style/House')
+    expect(card.attributes('role')).toBeUndefined()
+    expect(card.attributes('tabindex')).toBeUndefined()
+    // Keyboard reachability now comes from the native <a> rendered by NavCover.
+    expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/style/House')
   })
 
   it('plays a random extract on the play button without navigating (stopPropagation)', async () => {

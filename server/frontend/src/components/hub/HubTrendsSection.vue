@@ -24,10 +24,10 @@
         :has-preview="track.has_preview"
         :rank="track.rank"
         :meta-parts="trackMeta(track)"
+        :to="`/catalog/${track.catalog_id}`"
         :item-type="auth.isAuthenticated ? 'track' : null"
         :item-id="track.catalog_id"
         :playing="catalogPlaying(track.catalog_id)"
-        @open="openTrend(track)"
         @play="playTrend(track)"
       />
     </div>
@@ -41,19 +41,15 @@
 // chunk. Shown to guests and members alike; the « Voir plus » destination and the
 // open-track guard adapt to the auth state.
 import { ref, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import api from '../../utils/api.js'
 import { useAuthStore } from '../../stores/auth'
-import { useToast } from '../../stores/toast.js'
 import { useAudioPlayer } from '../../stores/audioPlayer'
 import { fmtBpm, relativeAgeShort } from '../../utils/format.js'
 import FamilyChips from '../FamilyChips.vue'
 import DiscoveryCard from '../DiscoveryCard.vue'
 
-const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
-const toast = useToast()
 
 const trendFamily = ref('all')
 const trendTracks = ref([])
@@ -73,17 +69,6 @@ async function loadTrends() {
 
 watch(trendFamily, loadTrends)
 onMounted(loadTrends)
-
-function openTrend(track) {
-  if (!auth.isAuthenticated) {
-    toast.show('Connecte-toi pour ouvrir cette fiche.', 'info', 3000, {
-      label: 'Se connecter',
-      route: '/login',
-    })
-    return
-  }
-  router.push(`/catalog/${track.catalog_id}`)
-}
 
 function trendToPlayerTrack(track) {
   return {

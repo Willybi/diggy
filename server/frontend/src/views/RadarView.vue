@@ -144,7 +144,6 @@
       :is-current="player.isCurrent"
       :playing="player.playing"
       @header-sort="onHeaderSort"
-      @row-click="openTrack"
       @play="playTrack"
       @avis="setAvis"
       @retry="fetchPage(true)"
@@ -690,10 +689,6 @@ const scrollRestore = useScrollRestore({
 
 function isRising(e) {
   return e.velocity != null && e.velocity >= VELOCITY_HIGH
-}
-
-function openTrack(e) {
-  router.push(`/catalog/${e.id}`)
 }
 
 function toPlayerTrack(e) {

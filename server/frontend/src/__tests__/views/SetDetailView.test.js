@@ -357,15 +357,14 @@ describe('SetDetailView', () => {
 
   // ---- Tracklist navigation ----
 
-  it('navigates to /catalog/:id on an identified row, and never on an id/unresolved row', async () => {
+  it('links an identified row to /catalog/:id, and never an id/unresolved row', async () => {
+    // Nav is now a real <a> via TrackCard's `to` prop; id/unresolved rows carry
+    // no target (null) so they stay inert.
     const wrapper = await mountView()
     const cards = wrapper.findAllComponents(TrackCard)
-    await cards[0].trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/catalog/500')
-    routerPush.mockReset()
-    await cards[1].trigger('click') // id
-    await cards[2].trigger('click') // unresolved
-    expect(routerPush).not.toHaveBeenCalled()
+    expect(cards[0].props('to')).toBe('/catalog/500')
+    expect(cards[1].props('to')).toBe(null) // id
+    expect(cards[2].props('to')).toBe(null) // unresolved
   })
 
   it('plays an identified row through the audioPlayer store', async () => {

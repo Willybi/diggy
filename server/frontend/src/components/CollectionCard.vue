@@ -1,5 +1,9 @@
 <template>
-  <div class="coll-card" @click="$emit('open', coll)">
+  <div class="coll-card">
+    <!-- Whole-card stretched link (real <a>: ctrl/middle-click, open in new tab).
+         The folder-assign select and the delete button paint above it. -->
+    <NavCover :to="`/collections/${coll.id}`" :label="coll.name" />
+
     <div class="coll-name">{{ coll.name }}</div>
     <div class="coll-meta">
       <span class="coll-count"
@@ -46,12 +50,13 @@
 
 <script setup>
 import { fmtDate } from '../utils/format'
+import NavCover from './NavCover.vue'
 
 defineProps({
   coll: { type: Object, required: true },
   folders: { type: Array, default: () => [] },
 })
-defineEmits(['open', 'assign', 'delete'])
+defineEmits(['assign', 'delete'])
 </script>
 
 <style scoped>
@@ -86,6 +91,8 @@ defineEmits(['open', 'assign', 'delete'])
 
 /* ---- Folder assignment ---- */
 .coll-assign {
+  /* Lifted above the stretched NavCover so the select stays clickable. */
+  position: relative;
   margin-top: var(--space-4);
   display: flex;
   align-items: center;

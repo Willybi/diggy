@@ -263,8 +263,8 @@
             show-duration
             :collectible="auth.isAuthenticated"
             :playing="rowPlaying(t.id)"
+            :to="`/catalog/${t.id}`"
             @play="playTrack(t)"
-            @click="goToTrack(t.id)"
           >
             <template #end>
               <LikeDislike :model-value="t.avis" @update:model-value="(v) => setTrackAvis(t, v)" />
@@ -540,10 +540,6 @@ const playSource = {
 
 function playTrack(t) {
   player.play(toPlayerTrack(t), playSource)
-}
-
-function goToTrack(id) {
-  router.push(`/catalog/${id}`)
 }
 
 // -- Helpers --

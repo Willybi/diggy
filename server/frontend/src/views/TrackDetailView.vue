@@ -133,8 +133,8 @@
               :track="t"
               :collectible="auth.isAuthenticated"
               :playing="rowPlaying(t.id)"
+              :to="`/catalog/${t.id}`"
               @play="playTrack(t)"
-              @click="goTrack(t.id)"
             />
           </div>
           <div v-if="track.same_artist_tracks.length > SAME_ARTIST_LIMIT" class="disc-more">
@@ -167,8 +167,8 @@
               show-artist
               :collectible="auth.isAuthenticated"
               :playing="rowPlaying(t.id)"
+              :to="`/catalog/${t.id}`"
               @play="playTrack(t)"
-              @click="goTrack(t.id)"
             >
               <template #end>
                 <ScoreRing
@@ -207,8 +207,8 @@
               show-artist
               :collectible="auth.isAuthenticated"
               :playing="rowPlaying(t.id)"
+              :to="`/catalog/${t.id}`"
               @play="playTrack(t)"
-              @click="goTrack(t.id)"
             />
           </div>
         </section>
@@ -339,7 +339,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
 import Artwork from '../components/Artwork.vue'
 import BackButton from '../components/BackButton.vue'
@@ -360,7 +360,6 @@ const SAME_ARTIST_LIMIT = 6
 const REL_LIMIT = 5
 
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
 const track = ref(null)
@@ -387,10 +386,6 @@ function playTrack(t) {
     bpm: t.bpm,
     key: t.key,
   })
-}
-
-function goTrack(id) {
-  router.push(`/catalog/${id}`)
 }
 
 // A row is "playing" only while the audio is actually running (drives both the

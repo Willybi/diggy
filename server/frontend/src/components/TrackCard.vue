@@ -3,6 +3,7 @@
     class="track-card"
     :class="{
       playing,
+      'has-nav': to != null,
       'has-end': !!$slots.end,
       'has-duration': showDuration,
       'has-position': position != null,
@@ -12,6 +13,8 @@
       'state-unresolved': isUnresolved,
     }"
   >
+    <NavCover v-if="to" :to="to" :label="track.title" />
+
     <span v-if="position != null" class="tk-pos">{{ position }}</span>
 
     <div class="tk-art">
@@ -93,12 +96,17 @@
 <script setup>
 import { computed } from 'vue'
 import Artwork from './Artwork.vue'
+import NavCover from './NavCover.vue'
 import AddToCollectionButton from './AddToCollectionButton.vue'
 import { fmtBpm, fmtMs, fmtCue } from '../utils/format'
 
 const props = defineProps({
   // { id, title, artist?, artists?: [{ id, name }], bpm, key, duration_ms?, has_artwork, has_preview, in_lib }
   track: { type: Object, required: true },
+  // Optional row-level navigation target (RouterLink location). When set, a
+  // stretched <NavCover> turns the whole row into a real <a> (ctrl/middle-click,
+  // "open in new tab"); null → no link, render identical to before.
+  to: { type: [String, Object], default: null },
   showArtist: { type: Boolean, default: false },
   // Opt-in duration column (m:ss / h:mm:ss) inserted between Key and the end slot.
   showDuration: { type: Boolean, default: false },
@@ -201,6 +209,20 @@ function emitPlay() {
   transition:
     background 0.12s,
     border-color 0.12s;
+}
+/* Nav-native mode (`to` set): a stretched <NavCover> <a> covers the whole row so
+   ctrl/middle-click and "open in new tab" work. The row becomes the positioning
+   context and each interactive control is lifted above the cover to stay
+   clickable (the play button already is — it lives in the positioned .tk-art).
+   No `to` → no cover, no positioning change (bit-for-bit as before). */
+.track-card.has-nav {
+  position: relative;
+}
+.track-card.has-nav .tk-artist-link,
+.track-card.has-nav .tk-tc--link,
+.track-card.has-nav .tk-coll,
+.track-card.has-nav .tk-end {
+  position: relative;
 }
 .track-card.has-position {
   --col-pos: 28px;

@@ -135,8 +135,8 @@
             show-duration
             :collectible="auth.isAuthenticated"
             :playing="rowPlaying(t.id)"
+            :to="`/catalog/${t.id}`"
             @play="playTrack(t)"
-            @click="goTrack(t.id)"
           />
         </div>
 
@@ -164,7 +164,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
 import { useTaskPoll } from '../composables/useTaskPoll.js'
 import Artwork from '../components/Artwork.vue'
@@ -179,7 +179,6 @@ import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtDate, pl } from '../utils/format'
 
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
 const playlist = ref(null)
@@ -339,10 +338,6 @@ const playSource = {
 
 function playTrack(t) {
   player.play(toPlayerTrack(t), playSource)
-}
-
-function goTrack(id) {
-  router.push(`/catalog/${id}`)
 }
 
 onMounted(fetchDetail)

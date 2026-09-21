@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, config, RouterLinkStub } from '@vue/test-utils'
 import CollectionsView from '../../views/CollectionsView.vue'
+
+// CollectionCard now embeds <NavCover> (a <RouterLink>); vue-router is mocked, so
+// register the stub file-wide (VTU `stubs` are a no-op for unresolved components).
+config.global.components = { ...config.global.components, RouterLink: RouterLinkStub }
 
 // Mutable holders shared with the hoisted mocks below.
 const { apiMock, routerPush } = vi.hoisted(() => ({
@@ -156,9 +160,14 @@ describe('CollectionsView', () => {
     expect(apiMock.post).toHaveBeenCalledWith('/api/collections/', { name: 'Nouvelle' })
   })
 
-  it('navigates to a collection when its card body is clicked', async () => {
+  it('renders each card as a whole-card link to its collection', async () => {
     const wrapper = await mountView()
-    await wrapper.find('.coll-card').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/collections/10')
+    // First card (folder 1 → collection 10) is a real <a>, no JS click handler.
+    const firstCard = wrapper.find('.coll-card')
+    expect(firstCard.findComponent(RouterLinkStub).props('to')).toBe('/collections/10')
+    // The orphan card links to its own collection (id 12).
+    const orphanCard = wrapper.find('.orphans .coll-card')
+    expect(orphanCard.findComponent(RouterLinkStub).props('to')).toBe('/collections/12')
+    expect(routerPush).not.toHaveBeenCalled()
   })
 })

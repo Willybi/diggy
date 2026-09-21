@@ -12,11 +12,12 @@
         :key="item.to"
         :to="item.to"
         custom
-        v-slot="{ isActive, navigate }"
+        v-slot="{ href, isActive, navigate }"
       >
-        <span
+        <a
           class="nav-item"
           :class="{ 'is-active': isActive }"
+          :href="href"
           @click="navigate"
           @mouseenter="prefetch(item.to)"
           @focus="prefetch(item.to)"
@@ -24,17 +25,18 @@
           <span class="nav-icon" v-html="item.icon" />
           <span class="nav-text">{{ item.label }}</span>
           <span v-if="item.count != null" class="nav-count">{{ item.count }}</span>
-        </span>
+        </a>
       </RouterLink>
     </nav>
 
     <!-- ADMIN : surface utility, se detache (decision D2) -->
     <nav v-if="auth.user?.is_admin" class="nav-section nav-admin">
       <p class="nav-label"><span>Admin</span></p>
-      <RouterLink to="/admin" custom v-slot="{ isActive, navigate }">
-        <span
+      <RouterLink to="/admin" custom v-slot="{ href, isActive, navigate }">
+        <a
           class="nav-item"
           :class="{ 'is-active': isActive }"
+          :href="href"
           @click="navigate"
           @mouseenter="prefetch('/admin')"
           @focus="prefetch('/admin')"
@@ -42,7 +44,7 @@
           <span class="nav-icon" v-html="iconAdmin" />
           <span class="nav-text">Admin</span>
           <span class="util-key">ADM</span>
-        </span>
+        </a>
       </RouterLink>
     </nav>
 
@@ -54,11 +56,11 @@
           <span v-html="iconLogout" />
         </button>
       </div>
-      <RouterLink v-else to="/login" custom v-slot="{ navigate }">
-        <span class="nav-item" @click="navigate">
+      <RouterLink v-else to="/login" custom v-slot="{ href, navigate }">
+        <a class="nav-item" :href="href" @click="navigate">
           <span class="nav-icon" v-html="iconUser" />
           <span class="nav-text">Connexion</span>
-        </span>
+        </a>
       </RouterLink>
 
       <button class="nav-item theme-toggle" @click="toggle">

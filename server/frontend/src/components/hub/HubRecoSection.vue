@@ -29,10 +29,10 @@
         :has-preview="track.has_preview"
         :in-lib="track.in_lib"
         :meta-parts="trackMeta(track)"
+        :to="`/catalog/${track.id}`"
         item-type="track"
         :item-id="track.id"
         :playing="catalogPlaying(track.id)"
-        @open="openReco(track)"
         @play="playReco(track)"
       />
     </div>
@@ -44,13 +44,11 @@
 // users (the Hub gates it), so it carries no guest branches. Self-contained (owns
 // its fetch + queue source) to stay lazy-loadable out of the Hub's main chunk.
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import api from '../../utils/api.js'
 import { useAudioPlayer } from '../../stores/audioPlayer'
 import { fmtBpm, relativeAgeShort } from '../../utils/format.js'
 import DiscoveryCard from '../DiscoveryCard.vue'
 
-const router = useRouter()
 const player = useAudioPlayer()
 
 const recoItems = ref([])
@@ -74,10 +72,6 @@ async function loadReco() {
 }
 
 onMounted(loadReco)
-
-function openReco(track) {
-  router.push(`/catalog/${track.id}`)
-}
 
 function recoToPlayerTrack(track) {
   return {

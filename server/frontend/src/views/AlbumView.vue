@@ -70,8 +70,8 @@
             show-duration
             :collectible="auth.isAuthenticated"
             :playing="rowPlaying(row.track.id)"
+            :to="`/catalog/${row.track.id}`"
             @play="playTrack(row)"
-            @click="onRowClick(row)"
           />
         </div>
       </section>
@@ -81,7 +81,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import api from '../utils/api.js'
 import Artwork from '../components/Artwork.vue'
 import BackButton from '../components/BackButton.vue'
@@ -91,7 +91,6 @@ import { useAuthStore } from '../stores/auth.js'
 import { fmtDate, pl } from '../utils/format'
 
 const route = useRoute()
-const router = useRouter()
 const player = useAudioPlayer()
 const auth = useAuthStore()
 const album = ref(null)
@@ -163,10 +162,6 @@ const playSource = {
 
 function playTrack(row) {
   player.play(toPlayerTrack(row.track), playSource)
-}
-
-function onRowClick(row) {
-  router.push(`/catalog/${row.track.id}`)
 }
 
 async function fetchDetail() {

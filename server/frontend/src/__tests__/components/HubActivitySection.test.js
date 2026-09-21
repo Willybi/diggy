@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 
 // Ported from HubView.test.js: the followed-artists activity shelf became a
 // self-contained, lazy-loaded section that owns its own fetch + seen-marking.
@@ -89,7 +89,10 @@ function mockApiGet({ activityItems = [], newCount = 0 } = {}) {
 async function mountSection() {
   const { default: HubActivitySection } =
     await import('../../components/hub/HubActivitySection.vue')
-  const wrapper = mount(HubActivitySection)
+  // Internal cards use NavCover's <RouterLink>; register the stub (vue-router is mocked).
+  const wrapper = mount(HubActivitySection, {
+    global: { components: { RouterLink: RouterLinkStub } },
+  })
   await flushPromises()
   return wrapper
 }
@@ -124,25 +127,32 @@ describe('HubActivitySection', () => {
     expect(release.find('img.aw-img').attributes('src')).toBe('/storage/catalog-artworks/909.jpg')
     expect(release.find('.dc-play').exists()).toBe(true)
     expect(release.text()).toContain('Amelie Lens')
+    // Internal link → the track's catalog fiche.
+    expect(release.findComponent(RouterLinkStub).props('to')).toBe('/catalog/909')
 
     const setCard = cards.find((c) => c.text().includes('Awakenings 2026'))
     expect(setCard).toBeTruthy()
     expect(setCard.element.tagName).toBe('DIV')
     expect(setCard.find('.dc-badge').text()).toBe('Set')
     expect(setCard.find('.dc-play').exists()).toBe(false)
+    // Internal link → the set page.
+    expect(setCard.findComponent(RouterLinkStub).props('to')).toBe('/set/77')
   })
 
   it('renders an uncrawled release as an external Deezer link', async () => {
     mockApiGet({ activityItems: [RELEASE_LINK_ITEM] })
     const wrapper = await mountSection()
 
-    const link = wrapper.find('a.dc-card')
+    // Card root is a div; the external link is the NavCover anchor.
+    const card = wrapper.find('.dc-card')
+    expect(card.element.tagName).toBe('DIV')
+    const link = card.find('a.nav-cover')
     expect(link.exists()).toBe(true)
     expect(link.attributes('href')).toBe(RELEASE_LINK_ITEM.external_url)
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toBe('noopener')
-    expect(link.find('.dc-badge').text()).toBe('Nouveauté')
-    expect(link.text()).toContain('Uncrawled EP')
+    expect(card.find('.dc-badge').text()).toBe('Nouveauté')
+    expect(card.text()).toContain('Uncrawled EP')
   })
 
   it('renders the « Voir plus » as an inert « Bientôt » (no dead link)', async () => {

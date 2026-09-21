@@ -117,23 +117,15 @@ describe('ArtistCard follow pastille', () => {
     expect(wrapper.find('.ac-follow').attributes('aria-pressed')).toBe('false')
   })
 
-  it('does not navigate when Enter is pressed on the follow button, but still follows', async () => {
+  it('follows on the follow button without touching the card link', async () => {
+    // The card is now a real <a> stretched by NavCover (no JS click/keydown on the
+    // card). The follow button is a separate control that .stops its click — it
+    // follows and never triggers navigation.
     const wrapper = mount(ArtistCard, { props: { artist: makeArtist({ following: false }) } })
-    const btn = wrapper.find('.ac-follow')
-    // Pressing Enter on a focused <button> fires keydown (which bubbles up to the
-    // card's @keydown.enter) then the browser's default click. The bubbled keydown
-    // must NOT navigate — the guard blocks it because its target is the button, not
-    // the card — while the click still runs the follow action.
-    await btn.trigger('keydown.enter')
-    await btn.trigger('click')
+    await wrapper.find('.ac-follow').trigger('click')
     await flushPromises()
     expect(apiMock.post).toHaveBeenCalledWith('/api/artists/42/follow')
     expect(routerPush).not.toHaveBeenCalled()
-
-    // Sanity: Enter on the card root itself DOES navigate — the guard only blocks
-    // keydown that bubbled up from an inner control.
-    await wrapper.find('.artist-card').trigger('keydown.enter')
-    expect(routerPush).toHaveBeenCalledWith('/artist/42')
   })
 })
 
@@ -143,19 +135,26 @@ describe('ArtistCard body', () => {
     opinionState.value = null
   })
 
-  it('navigates to the artist page on a card click', async () => {
+  // The card is now a real stretched <a> (NavCover), not a role="link" div.
+  function coverOf(wrapper) {
+    return wrapper.findAllComponents(RouterLinkStub).find((l) => l.classes().includes('nav-cover'))
+  }
+
+  it('renders a whole-card link to the artist page', () => {
     const wrapper = mount(ArtistCard, { props: { artist: makeArtist() } })
-    await wrapper.find('.artist-card').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/artist/42')
+    const cover = coverOf(wrapper)
+    expect(cover).toBeTruthy()
+    expect(cover.props('to')).toBe('/artist/42')
+    expect(cover.attributes('aria-label')).toBe('Amelie Lens')
   })
 
-  it('is a keyboard-reachable link (role + tabindex + Enter)', async () => {
+  it('is a native link, not a role="link"/tabindex div', () => {
     const wrapper = mount(ArtistCard, { props: { artist: makeArtist() } })
     const card = wrapper.find('.artist-card')
-    expect(card.attributes('role')).toBe('link')
-    expect(card.attributes('tabindex')).toBe('0')
-    await card.trigger('keydown.enter')
-    expect(routerPush).toHaveBeenCalledWith('/artist/42')
+    expect(card.attributes('role')).toBeUndefined()
+    expect(card.attributes('tabindex')).toBeUndefined()
+    // Keyboard reachability now comes from the native <a> rendered by NavCover.
+    expect(coverOf(wrapper)).toBeTruthy()
   })
 
   it('no longer renders the rating or in-lib overlay badges', () => {
@@ -187,6 +186,7 @@ describe('ArtistCard body', () => {
   it('always reserves the tags row so the grid does not dance when genres is empty', () => {
     const wrapper = mount(ArtistCard, { props: { artist: makeArtist({ genres: [] }) } })
     expect(wrapper.find('.ac-genres').exists()).toBe(true)
-    expect(wrapper.findAllComponents(RouterLinkStub)).toHaveLength(0)
+    // No genre links when genres is empty (the whole-card NavCover link is separate).
+    expect(wrapper.findAll('.ac-genre-link')).toHaveLength(0)
   })
 })

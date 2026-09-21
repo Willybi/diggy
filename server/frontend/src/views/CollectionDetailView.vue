@@ -25,8 +25,12 @@
           :key="itemKey(item)"
           class="rrow"
           :class="{ playing: isPlaying(item), missing: item.missing }"
-          @click="onRowClick(item)"
         >
+          <!-- Whole-row stretched link (real <a>). A missing item resolves to a
+               null target → NavCover renders nothing → the row is not navigable.
+               The play overlay and the remove button paint above it. -->
+          <NavCover :to="targetFor(item)" :label="itemTitle(item)" />
+
           <!-- type badge -->
           <span class="tbadge">
             <span v-html="typeIcon(item.item_type)"></span>
@@ -99,6 +103,7 @@ import api from '../utils/api.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { fmtMs, fmtBpm, pl } from '../utils/format'
 import { scopeIcons } from '../components/hub/scopeIcons.js'
+import NavCover from '../components/NavCover.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -199,8 +204,11 @@ function playTrack(item) {
 }
 
 // ── navigation ──
-function onRowClick(item) {
-  if (item.missing) return
+// Row navigation target (RouterLink location) or null. A missing item — or an
+// unknown type — has no target, so its NavCover renders nothing and the row is
+// inert. Genre is addressed by name (its item_id is NULL).
+function targetFor(item) {
+  if (item.missing) return null
   const routes = {
     track: `/catalog/${item.item_id}`,
     artist: `/artist/${item.item_id}`,
@@ -208,8 +216,7 @@ function onRowClick(item) {
     playlist: `/playlists/${item.item_id}`,
     genre: `/style/${encodeURIComponent(item.item_name || item.title || '')}`,
   }
-  const target = routes[item.item_type]
-  if (target) router.push(target)
+  return routes[item.item_type] || null
 }
 
 // ── removal (polymorphic) ──
@@ -303,6 +310,8 @@ onMounted(fetchCollection)
   padding: var(--space-1) var(--page-px) var(--space-8);
 }
 .rrow {
+  /* Positioning context for the stretched <NavCover> link. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -456,6 +465,8 @@ onMounted(fetchCollection)
 
 /* remove */
 .rm-btn {
+  /* Lifted above the stretched NavCover so the remove button stays clickable. */
+  position: relative;
   flex: none;
   width: 28px;
   height: 28px;

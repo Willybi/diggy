@@ -5,11 +5,12 @@
       :key="item.to"
       :to="item.to"
       custom
-      v-slot="{ isActive, navigate }"
+      v-slot="{ href, isActive, navigate }"
     >
-      <button
+      <a
         class="bottom-nav-item"
         :class="{ 'is-active': isActive }"
+        :href="href"
         @click="navigate"
         @mouseenter="prefetch(item.to)"
         @focus="prefetch(item.to)"
@@ -17,7 +18,7 @@
         <span class="bottom-nav-icon" v-html="item.icon" />
         <span v-if="item.badge && newCount > 0" class="bottom-nav-badge">{{ newCount }}</span>
         <span class="bottom-nav-label">{{ item.label }}</span>
-      </button>
+      </a>
     </RouterLink>
   </nav>
 </template>
@@ -115,6 +116,7 @@ watch(() => route.path, fetchNewCount)
   border: none;
   cursor: pointer;
   color: var(--ink-3);
+  text-decoration: none;
   padding: 0;
   height: 100%;
 }

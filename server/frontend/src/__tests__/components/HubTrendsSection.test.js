@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 
 // « Ça sort en ce moment » became a self-contained, lazy-loaded section owning its
-// own trend fetch + queue source. Shown to guests and members; the « Voir plus »
-// destination and open-track guard adapt to the auth state.
+// own trend fetch + queue source. Shown to guests and members; each card is a real
+// NavCover link to the catalog fiche (nav-native chantier — no login-toast guard
+// anymore, discovery stays open), only the « Voir plus » destination adapts to auth.
 const { authState, apiMock, toastMock } = vi.hoisted(() => ({
   authState: { value: { isAuthenticated: false } },
   apiMock: { get: vi.fn() },
@@ -89,11 +90,15 @@ describe('HubTrendsSection', () => {
     expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/radar')
   })
 
-  it('intercepts an open for a guest with a login toast (no navigation)', async () => {
+  it('renders each trend card as a real internal link (guests included, no toast)', async () => {
     mockTrends({ items: [TREND_ITEM] })
     const wrapper = await mountSection()
-    await wrapper.find('.dc-card').trigger('click')
-    expect(toastMock.show).toHaveBeenCalledTimes(1)
-    expect(toastMock.show.mock.calls[0][0]).toContain('Connecte-toi')
+    // The card carries a NavCover RouterLink straight to the catalog fiche — even
+    // for a guest. The old login-toast interception was dropped when the card became
+    // a real link (ctrl/middle-click must reach the destination).
+    const link = wrapper.find('.dc-card').findComponent(RouterLinkStub)
+    expect(link.exists()).toBe(true)
+    expect(link.props('to')).toBe('/catalog/300')
+    expect(toastMock.show).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, RouterLinkStub } from '@vue/test-utils'
 import DiscoveryCard from '../../components/DiscoveryCard.vue'
+
+// NavCover renders a <RouterLink> for an internal `to`; register the stub so it
+// resolves without a real router (the pitfall: a string/boolean stub is a no-op).
+const global = { components: { RouterLink: RouterLinkStub } }
 
 // Minimal internal (trend) card props.
 function baseProps(overrides = {}) {
@@ -93,14 +97,20 @@ describe('DiscoveryCard', () => {
     expect(wrapper.emitted('open')).toBeFalsy()
   })
 
-  it('emits `open` when the card is clicked (internal variant)', async () => {
-    const wrapper = mount(DiscoveryCard, { props: baseProps() })
+  it('renders an internal RouterLink to `to` (card root stays a div)', () => {
+    const wrapper = mount(DiscoveryCard, {
+      props: baseProps({ to: '/catalog/42' }),
+      global,
+    })
     expect(wrapper.element.tagName).toBe('DIV')
-    await wrapper.trigger('click')
-    expect(wrapper.emitted('open')).toBeTruthy()
+    const link = wrapper.findComponent(RouterLinkStub)
+    expect(link.exists()).toBe(true)
+    expect(link.props('to')).toBe('/catalog/42')
+    // Internal → no external anchor (RouterLinkStub renders an <a>, but never target=_blank).
+    expect(wrapper.find('a[target="_blank"]').exists()).toBe(false)
   })
 
-  it('renders an external <a> and does not emit `open` when href is given', async () => {
+  it('renders an external <a target=_blank rel=noopener> when href is given', () => {
     const wrapper = mount(DiscoveryCard, {
       props: baseProps({
         href: 'https://deezer.com/track/1',
@@ -108,13 +118,32 @@ describe('DiscoveryCard', () => {
         badge: 'Nouveauté',
         badgeIcon: 'ext',
       }),
+      global,
     })
-    expect(wrapper.element.tagName).toBe('A')
-    expect(wrapper.attributes('href')).toBe('https://deezer.com/track/1')
-    expect(wrapper.attributes('target')).toBe('_blank')
-    expect(wrapper.attributes('rel')).toBe('noopener')
-    await wrapper.trigger('click')
-    expect(wrapper.emitted('open')).toBeFalsy()
+    // The card root is a div; the stretched link is the NavCover anchor.
+    expect(wrapper.element.tagName).toBe('DIV')
+    const link = wrapper.find('a.nav-cover')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('href')).toBe('https://deezer.com/track/1')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener')
+    // href wins over an internal RouterLink.
+    expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(false)
+  })
+
+  it('renders no link when neither `to` nor `href` is set', () => {
+    const wrapper = mount(DiscoveryCard, { props: baseProps(), global })
+    expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(false)
+    expect(wrapper.find('a.nav-cover').exists()).toBe(false)
+  })
+
+  it('renders no link on a skeleton card', () => {
+    const wrapper = mount(DiscoveryCard, {
+      props: { skeleton: true, to: '/catalog/1' },
+      global,
+    })
+    expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(false)
+    expect(wrapper.find('a.nav-cover').exists()).toBe(false)
   })
 
   it('passes no in-lib indicator to Artwork when inLib is undefined', () => {

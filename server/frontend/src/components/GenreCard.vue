@@ -3,13 +3,12 @@
     class="genre-card"
     :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked', playing: isPlaying }"
     :data-fam="tone.pillar"
-    role="link"
-    tabindex="0"
-    :aria-label="genre.name"
     :title="genre.name"
-    @click="goToGenre"
-    @keydown.enter="goToGenre"
   >
+    <!-- Whole-card stretched link (real <a>: ctrl/middle-click, open in new tab).
+         The positioned controls in .gc-art (coll/avis/play) paint above it. -->
+    <NavCover :to="`/style/${encodeURIComponent(genre.name)}`" :label="genre.name" />
+
     <!-- Artwork zone: 2×2 mosaic — cover or pillar-tinted placeholder tile -->
     <div class="gc-art">
       <div v-for="(slot, i) in fourSlots" :key="i" class="gc-tile">
@@ -107,13 +106,13 @@
 
 <script setup>
 import { computed, reactive } from 'vue'
-import { useRouter } from 'vue-router'
 import { fmtNum } from '../utils/format'
 import { styleTone, PILLAR_LABELS } from '../composables/useStyleMap.js'
 import { useAudioPlayer } from '../stores/audioPlayer'
 import { useOpinionsStore } from '../stores/opinions.js'
 import LikeDislike from './LikeDislike.vue'
 import AddToCollectionButton from './AddToCollectionButton.vue'
+import NavCover from './NavCover.vue'
 
 const props = defineProps({
   genre: { type: Object, required: true },
@@ -122,20 +121,11 @@ const props = defineProps({
   collectible: { type: Boolean, default: false },
 })
 
-const router = useRouter()
 const player = useAudioPlayer()
 const opinions = useOpinionsStore()
 
 const isPlaying = computed(() => player.genrePlaying === props.genre.name)
 const opinion = computed(() => opinions.get('genre', props.genre.name))
-
-function goToGenre(e) {
-  // Keyboard: only navigate when the card itself is focused — an Enter pressed on
-  // an inner control (play/avis) bubbles up here, but its target is the control,
-  // not the card, so the guard blocks the stray navigation (pattern: ArtistCard).
-  if (e.type === 'keydown' && e.target !== e.currentTarget) return
-  router.push(`/style/${encodeURIComponent(props.genre.name)}`)
-}
 
 function onPlay() {
   if (isPlaying.value) {
@@ -229,6 +219,8 @@ function onAvatarError(a) {
 
 .genre-card {
   container-type: inline-size;
+  /* Positioning context for the stretched <NavCover> link. */
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--ct-line);
   border-radius: var(--r-md);
@@ -246,9 +238,17 @@ function onAvatarError(a) {
 .genre-card:hover {
   box-shadow: var(--shadow-md);
 }
-.genre-card:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* Focus affordance is carried by NavCover's own :focus-visible ring — the card is
+   no longer a focusable role="link", so its former :focus-visible rule is dropped. */
+
+/* Stretched link stacking (nav-native). The whole card is a real <a>: the cover
+   sits ABOVE the decorative layers (mosaic tiles auto · scrim z-2 · avatars z-2)
+   so the artwork navigates, and BELOW the interactive overlays (coll/avis/play
+   z-4) so they stay clickable. `.gc-art` has no z-index → not a stacking context,
+   so all these z live flat in the card's context. A parent scoped rule targets
+   the child root (.nav-cover carries this card's data-v); NavCover is untouched. */
+.genre-card > .nav-cover {
+  z-index: 3;
 }
 
 /* ── Artwork zone — 2×2 mosaic, hue from [data-fam] via --th ── */
@@ -314,7 +314,9 @@ function onAvatarError(a) {
 /* ── Avatars (bottom-left) ── */
 .gc-avatars {
   position: absolute;
-  z-index: 3;
+  /* z-2: above the scrim (also z-2, but earlier in the DOM) yet BELOW the nav
+     cover (z-3) so the artwork area still navigates. Decorative (no handler). */
+  z-index: 2;
   left: 12px;
   bottom: 11px;
   display: flex;

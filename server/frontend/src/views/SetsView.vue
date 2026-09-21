@@ -239,8 +239,11 @@
             liked: opinionOf(s.id) === 'liked',
             disliked: opinionOf(s.id) === 'disliked',
           }"
-          @click="goToSet(s.id)"
         >
+          <!-- Row-wide navigation link (real <a>, so ctrl/middle-click work). Its
+               first-child placement + the row's position:relative are the NavCover
+               contract; interactive cells are lifted above it in the scoped CSS. -->
+          <NavCover :to="`/set/${s.id}`" :label="s.title" />
           <div class="st-cell col-play st-cell--play">
             <button
               class="pbtn"
@@ -539,6 +542,7 @@ import ScoreRing from '../components/ScoreRing.vue'
 import LikeDislike from '../components/LikeDislike.vue'
 import AddModal from '../components/AddModal.vue'
 import AddToCollectionButton from '../components/AddToCollectionButton.vue'
+import NavCover from '../components/NavCover.vue'
 import { useAuthStore } from '../stores/auth.js'
 
 // Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
@@ -858,10 +862,6 @@ function clearSearch() {
   state.q = ''
 }
 
-function goToSet(id) {
-  router.push(`/set/${id}`)
-}
-
 // Click a row's source channel → filter the list by its canonical channel
 // (falls back to the raw channel when no canonical was derived). URL-synced via
 // the `channel` criterion; the removable chip clears it.
@@ -1140,6 +1140,17 @@ onActivated(() => {
 }
 .st-cell {
   min-width: 0;
+}
+/* Interactive cells sit ABOVE the row-wide NavCover (its first child in the DOM)
+   so their own clicks/links keep working over the navigation link; the rest of
+   the row (cover art, title, dates…) navigates to the set. */
+.st-cell--play,
+.st-artists,
+.st-channel--btn,
+.st-style-link,
+.st-cell--avis,
+.col-coll {
+  position: relative;
 }
 .st-cell--center {
   display: flex;

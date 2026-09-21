@@ -104,7 +104,6 @@
               :key="coll.id"
               :coll="coll"
               :folders="folders"
-              @open="goTo"
               @assign="assignFolder"
               @delete="confirmDelete"
             />
@@ -133,7 +132,6 @@
               :key="coll.id"
               :coll="coll"
               :folders="folders"
-              @open="goTo"
               @assign="assignFolder"
               @delete="confirmDelete"
             />
@@ -167,11 +165,8 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
 import api from '../utils/api.js'
 import CollectionCard from '../components/CollectionCard.vue'
-
-const router = useRouter()
 
 const collections = ref([])
 const folders = ref([])
@@ -197,10 +192,6 @@ function isExpanded(id) {
 
 function toggleFolder(id) {
   expanded.value[id] = !isExpanded(id)
-}
-
-function goTo(coll) {
-  router.push(`/collections/${coll.id}`)
 }
 
 async function fetchAll() {

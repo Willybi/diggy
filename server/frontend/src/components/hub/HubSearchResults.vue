@@ -32,8 +32,9 @@
           :key="itemKey(item)"
           class="rrow"
           :class="{ playing: isPlaying(item) }"
-          @click="onRowClick(item)"
         >
+          <!-- Whole-row navigable link; the play control is raised above it. -->
+          <NavCover :to="routeFor(item)" :label="itemTitle(item)" />
           <!-- type badge -->
           <span class="tbadge">
             <span v-html="typeIcon(item.type)"></span>
@@ -109,14 +110,13 @@
 // and every rendering helper, plus navigation/playback of a row. Lazy-loaded so
 // SegFilter/SourceBadge and this render code stay out of the Hub's main chunk.
 import { ref, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
-import { useToast } from '../../stores/toast.js'
 import { useAudioPlayer } from '../../stores/audioPlayer'
 import { fmtMs, fmtBpm } from '../../utils/format.js'
 import { scopeIcons } from './scopeIcons.js'
 import SegFilter from '../SegFilter.vue'
 import SourceBadge from '../SourceBadge.vue'
+import NavCover from '../NavCover.vue'
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -126,10 +126,8 @@ const props = defineProps({
   error: { type: Boolean, default: false },
 })
 
-const router = useRouter()
 const auth = useAuthStore()
 const player = useAudioPlayer()
-const toast = useToast()
 
 // Display-only sort. Reset to relevance whenever a fresh result set lands (any
 // new query OR scope produces a new `items` reference), matching the pre-split
@@ -305,14 +303,8 @@ function onPlay(item) {
   }
 }
 
-function onRowClick(item) {
-  if (!auth.isAuthenticated) {
-    toast.show('Connecte-toi pour ouvrir cette fiche.', 'info', 3000, {
-      label: 'Se connecter',
-      route: '/login',
-    })
-    return
-  }
+// Row → internal route target (null for an unknown type → NavCover renders nothing).
+function routeFor(item) {
   const routes = {
     track: `/catalog/${item.id}`,
     artist: `/artist/${item.id}`,
@@ -321,7 +313,7 @@ function onRowClick(item) {
     playlist: `/playlists/${item.id}`,
     genre: `/style/${encodeURIComponent(item.name)}`,
   }
-  if (routes[item.type]) router.push(routes[item.type])
+  return routes[item.type] || null
 }
 </script>
 
@@ -373,6 +365,7 @@ function onRowClick(item) {
   flex-direction: column;
 }
 .rrow {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -384,6 +377,11 @@ function onRowClick(item) {
 }
 .rrow:hover {
   background: var(--surface-2);
+}
+/* Stretched link above the (positioned) artwork so the whole row navigates; the
+   play overlay is lifted above it in turn (z-index below). */
+.nav-cover {
+  z-index: 1;
 }
 .rrow.playing {
   background: var(--accent-wash);
@@ -443,6 +441,7 @@ function onRowClick(item) {
 .rart .play {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: grid;
   place-items: center;
   background: var(--overlay-soft);

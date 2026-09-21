@@ -158,8 +158,11 @@
             liked: opinionOf(p.id) === 'liked',
             disliked: opinionOf(p.id) === 'disliked',
           }"
-          @click="goToPlaylist(p.id)"
         >
+          <!-- Row-wide navigation link (real <a>, so ctrl/middle-click work). Its
+               first-child placement + the row's position:relative are the NavCover
+               contract; interactive cells are lifted above it in the scoped CSS. -->
+          <NavCover :to="`/playlists/${p.id}`" :label="p.title || p.external_id" />
           <!-- Playlist : cover + title + source glyph (+ folded genre/crawl below xs) -->
           <div class="pl-cell col-pl pl-cell--pl">
             <Artwork
@@ -335,6 +338,7 @@ import SegFilter from '../components/SegFilter.vue'
 import AddModal from '../components/AddModal.vue'
 import FilterChip from '../components/filters/FilterChip.vue'
 import AddToCollectionButton from '../components/AddToCollectionButton.vue'
+import NavCover from '../components/NavCover.vue'
 import { useAuthStore } from '../stores/auth.js'
 
 // Explicit name so <KeepAlive :include> in App.vue matches this cached listing.
@@ -462,10 +466,6 @@ function toggleSort(key) {
     // Alphabetical dimensions open ascending; magnitudes/dates open descending.
     sortDir.value = key === 'title' || key === 'creator' ? 'asc' : 'desc'
   }
-}
-
-function goToPlaylist(id) {
-  router.push(`/playlists/${id}`)
 }
 
 function clearGenre() {
@@ -771,6 +771,15 @@ onActivated(() => {
 }
 .pl-cell {
   min-width: 0;
+}
+/* Interactive cells sit ABOVE the row-wide NavCover (its first child in the DOM)
+   so their own links/controls keep working over the navigation link; the rest of
+   the row (cover art, title, creator…) navigates to the playlist. */
+.pl-style-link,
+.pl-crawl,
+.pl-cell--avis,
+.col-coll {
+  position: relative;
 }
 .pl-cell--center {
   display: flex;

@@ -292,6 +292,24 @@ describe('TrackCard', () => {
     expect(wrapper.find('.tk-tc').text()).toBe('1:40')
   })
 
+  // --- Extension: row-level navigation (`to`) ---
+
+  it('renders no nav cover and no has-nav class when `to` is omitted', () => {
+    const wrapper = mount(TrackCard, { props: { track: makeTrack() } })
+    expect(wrapper.find('.nav-cover').exists()).toBe(false)
+    expect(wrapper.find('.track-card').classes()).not.toContain('has-nav')
+  })
+
+  it('renders a stretched nav link to the target (title as aria-label) when `to` is set', () => {
+    const wrapper = mount(TrackCard, { props: { track: makeTrack(), to: '/catalog/42' } })
+    const cover = wrapper.find('.nav-cover')
+    expect(cover.exists()).toBe(true)
+    expect(cover.attributes('aria-label')).toBe('Strobe')
+    // NavCover renders it as a RouterLink pointing at the target.
+    expect(wrapper.getComponent(RouterLinkStub).props('to')).toBe('/catalog/42')
+    expect(wrapper.find('.track-card').classes()).toContain('has-nav')
+  })
+
   it('renders the "unresolved" state: raw title/artist as plain text, dashes, no play', () => {
     const wrapper = mount(TrackCard, {
       props: {

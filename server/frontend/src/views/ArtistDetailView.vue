@@ -121,8 +121,8 @@
             show-duration
             :collectible="auth.isAuthenticated"
             :playing="rowPlaying(t.id)"
+            :to="`/catalog/${t.id}`"
             @play="playTrack(t)"
-            @click="goToTrack(t.id)"
           />
         </div>
         <div v-if="!showAllTracks && artist.catalog_tracks.length > 10" class="tracks-more">
@@ -398,10 +398,6 @@ const playSource = {
 
 function playTrack(t) {
   player.play(toPlayerTrack(t), playSource)
-}
-
-function goToTrack(id) {
-  router.push(`/catalog/${id}`)
 }
 
 async function toggleFollow() {

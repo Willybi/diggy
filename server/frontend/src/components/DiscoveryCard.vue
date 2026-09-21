@@ -1,12 +1,14 @@
 <template>
-  <component
-    :is="rootTag"
+  <div
     class="dc-card"
     :class="{ playing, 'dc-card--skeleton': skeleton }"
-    v-bind="rootAttrs"
-    @click="onRootClick"
-    @keydown="onRootKey"
+    :aria-hidden="skeleton ? 'true' : undefined"
   >
+    <!-- Stretched navigable link covering the whole card (real <a>/RouterLink so
+         ctrl/middle-click "open in new tab" work). The play + collection controls
+         are raised above it (z-index) so they stay clickable. -->
+    <NavCover v-if="!skeleton" :to="to" :href="href" :label="title" />
+
     <template v-if="skeleton">
       <span class="dc-sk-cover"></span>
       <span class="dc-sk-body">
@@ -99,17 +101,19 @@
         />
       </div>
     </template>
-  </component>
+  </div>
 </template>
 
 <script setup>
-// Reusable discovery card (Hub shelves + future destinations). Single root:
-// external link → <a>; otherwise a clickable element that emits `open` (the parent
-// owns internal navigation + guest→login interception). `skeleton` renders an inert
-// loading ghost so shelves reuse this component instead of duplicating placeholders.
+// Reusable discovery card (Hub shelves + future destinations). A <NavCover> stretched
+// link turns the whole card into a real <a>/RouterLink — internal target via `to`,
+// external (Deezer, …) via `href` — so ctrl/middle-click work; the parent picks the
+// target. `skeleton` renders an inert loading ghost so shelves reuse this component
+// instead of duplicating placeholders.
 import { computed } from 'vue'
 import Artwork from './Artwork.vue'
 import AddToCollectionButton from './AddToCollectionButton.vue'
+import NavCover from './NavCover.vue'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -131,8 +135,10 @@ const props = defineProps({
   // undefined = no in-lib indicator (data absent from the endpoint); passed as-is
   // to Artwork, which draws the dot only when the value is a real boolean.
   inLib: { type: Boolean, default: undefined },
-  // External link (Deezer, …) → root becomes <a target="_blank" rel="noopener">.
-  href: { type: String, default: undefined },
+  // Internal navigation target (passed to NavCover's RouterLink).
+  to: { type: [String, Object], default: null },
+  // External link (Deezer, …) → NavCover renders <a target="_blank" rel="noopener">.
+  href: { type: String, default: null },
   playing: { type: Boolean, default: false },
   skeleton: { type: Boolean, default: false },
   // Opt-in "add to a collection" icon (top-right, hover-revealed). The host passes
@@ -141,7 +147,7 @@ const props = defineProps({
   itemType: { type: String, default: null },
   itemId: { type: Number, default: null },
 })
-const emit = defineEmits(['play', 'open'])
+const emit = defineEmits(['play'])
 
 // Same cover convention as the other views; no artwork → Artwork placeholder.
 const coverSrc = computed(() =>
@@ -175,27 +181,6 @@ const badgeClass = computed(() =>
   props.rank == null && props.badge === 'Set' ? 'dc-badge--set' : 'dc-badge--accent',
 )
 
-const isExternal = computed(() => !!props.href && !props.skeleton)
-const rootTag = computed(() => (isExternal.value ? 'a' : 'div'))
-const rootAttrs = computed(() => {
-  if (props.skeleton) return { 'aria-hidden': 'true' }
-  return isExternal.value
-    ? { href: props.href, target: '_blank', rel: 'noopener' }
-    : { role: 'button', tabindex: 0 }
-})
-
-// Internal, non-skeleton root only: external navigation is native, a skeleton is inert.
-const clickable = computed(() => !props.skeleton && !isExternal.value)
-function onRootClick() {
-  if (clickable.value) emit('open')
-}
-function onRootKey(e) {
-  if (!clickable.value) return
-  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-    e.preventDefault()
-    emit('open')
-  }
-}
 function emitPlay() {
   emit('play')
 }
@@ -230,6 +215,11 @@ function emitPlay() {
 .dc-card.playing:hover {
   background: var(--accent-wash);
 }
+/* Stretched link sits above the (positioned) cover so the whole card navigates;
+   the play + collection controls are lifted above it in turn (z-index below). */
+.nav-cover {
+  z-index: 1;
+}
 
 /* ---- cover + play ---- */
 .dc-cover {
@@ -243,6 +233,7 @@ function emitPlay() {
 .dc-play {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -352,6 +343,7 @@ function emitPlay() {
   position: absolute;
   top: var(--space-15);
   right: var(--space-15);
+  z-index: 2;
   opacity: 0;
   transition: opacity 0.12s;
 }

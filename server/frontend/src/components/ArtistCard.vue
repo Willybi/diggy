@@ -3,12 +3,12 @@
     class="artist-card"
     :class="{ liked: opinion === 'liked', disliked: opinion === 'disliked', playing: isPlaying }"
     :data-fam="tone.pillar"
-    role="link"
-    tabindex="0"
-    :aria-label="artist.name"
-    @click="goToArtist"
-    @keydown.enter="goToArtist"
   >
+    <!-- Whole-card stretched link (real <a>: ctrl/middle-click, open in new tab).
+         The positioned controls below (follow/play/coll, genre links, avis) paint
+         above it and stay clickable. -->
+    <NavCover :to="`/artist/${artist.id}`" :label="artist.name" />
+
     <div class="ac-art" :class="{ fallback: !hasMosaic }">
       <!-- Mosaic covers (like GenreCard) -->
       <template v-if="hasMosaic">
@@ -121,7 +121,6 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { styleTone } from '../composables/useStyleMap.js'
 
 import api from '../utils/api.js'
@@ -131,6 +130,7 @@ import { useOpinionsStore } from '../stores/opinions.js'
 import StyleTag from './StyleTag.vue'
 import LikeDislike from './LikeDislike.vue'
 import AddToCollectionButton from './AddToCollectionButton.vue'
+import NavCover from './NavCover.vue'
 
 const props = defineProps({
   artist: { type: Object, required: true },
@@ -139,20 +139,10 @@ const props = defineProps({
   collectible: { type: Boolean, default: false },
 })
 
-const router = useRouter()
 const player = useAudioPlayer()
 const opinions = useOpinionsStore()
 const isPlaying = computed(() => player.artistPlaying === props.artist.id)
 const opinion = computed(() => opinions.get('artist', props.artist.id))
-
-function goToArtist(e) {
-  // Keyboard: only navigate when the card itself is focused. Without this guard,
-  // an Enter pressed on an inner control (follow/play/genre link) bubbles
-  // its keydown up to the card and navigates on top of the control's own action
-  // (the controls .stop their click, but not their keydown).
-  if (e.type === 'keydown' && e.target !== e.currentTarget) return
-  router.push(`/artist/${props.artist.id}`)
-}
 
 function onPlay() {
   if (isPlaying.value) {
@@ -249,6 +239,8 @@ function onCoverError(e) {
 
 .artist-card {
   container-type: inline-size;
+  /* Positioning context for the stretched <NavCover> link. */
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--ct-line);
   border-radius: var(--r-md);
@@ -265,9 +257,18 @@ function onCoverError(e) {
 .artist-card:hover {
   box-shadow: var(--shadow-md);
 }
-.artist-card:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* Focus affordance is carried by NavCover's own :focus-visible ring — the card is
+   no longer a focusable role="link", so its former :focus-visible rule is dropped. */
+
+/* Stretched link stacking (nav-native). The whole card is a real <a>: the cover
+   must sit ABOVE the decorative layers (mosaic auto · scrim/avatar z-2) so the
+   artwork navigates, and BELOW the interactive controls (follow/play/coll z-4,
+   genre-links/avis z-4) so they stay clickable. `.ac-art` has no z-index → it is
+   not a stacking context, so all these z live in the card's context, flat.
+   A parent scoped rule can target the child root (.nav-cover carries this card's
+   data-v) without touching the generic NavCover component. */
+.artist-card > .nav-cover {
+  z-index: 3;
 }
 
 /* ---- art zone ---- */
@@ -359,7 +360,9 @@ function onCoverError(e) {
 /* ---- avatar (centered in art zone) ---- */
 .ac-avatar {
   position: absolute;
-  z-index: 3;
+  /* z-2: above the scrim (also z-2, but earlier in the DOM) yet BELOW the nav
+     cover (z-3) so the avatar area still navigates. Decorative (no handler). */
+  z-index: 2;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -56%);
@@ -575,6 +578,9 @@ function onCoverError(e) {
   overflow: hidden;
 }
 .ac-genre-link {
+  /* Lifted above the stretched NavCover (z-3) so the genre tag stays clickable. */
+  position: relative;
+  z-index: 4;
   min-width: 0;
   max-width: 50%;
   flex: 0 1 auto;
@@ -624,6 +630,9 @@ function onCoverError(e) {
 
 /* ---- avis separator + buttons ---- */
 .ac-avis {
+  /* Lifted above the stretched NavCover (z-3) so the avis buttons stay clickable. */
+  position: relative;
+  z-index: 4;
   border-left: 1px solid var(--ct-line);
   display: flex;
   align-items: center;
