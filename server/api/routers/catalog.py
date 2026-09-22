@@ -143,7 +143,8 @@ async def get_content_similar(
     """Content-based neighbours ("Sonne comme", C9.b) — pgvector cosine on the
     EffNet audio embeddings, scoped to catalog_visible. Empty list when the seed
     has no embedding yet (backfill in progress). JWT-optional; the shelf is
-    admin-gated on the FRONT while embeddings coverage ramps up."""
+    PUBLIC on the front (Track Detail) since 2026-09-21 — the admin gate was
+    removed (2bdb27f) once embeddings coverage reached ~92%."""
     return await similarity_service.get_content_neighbors(
         db, catalog_id, _uid(user), limit=limit, redis=redis
     )
