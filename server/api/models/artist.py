@@ -158,6 +158,56 @@ class ArtistActivity(Base):
     )
 
 
+class ArtistCohort(Base):
+    """Derived watch cohort of artists (C14.a).
+
+    One row per member artist. ``computed_tier`` is the tier the periodic
+    recompute derives from signals already in the DB (library membership, likes,
+    reliable DJ-set appearances over 12 months, catalog depth, manual follows);
+    ``forced_tier`` / ``pinned`` / ``excluded`` are admin overrides the recompute
+    NEVER overwrites. ``tier`` is the EFFECTIVE tier actually used (``forced_tier``
+    if set, else ``computed_tier``) — always non-NULL. ``signals`` snapshots the
+    last recompute's raw counts for auditability; ``last_checked_at`` (stamped by
+    the later release-watch lot, not the recompute) drives the per-tier cadence.
+    """
+
+    __tablename__ = "artist_cohort"
+
+    artist_id = Column(
+        Integer,
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    # Effective tier (1/2/3): forced_tier if set, else computed_tier. NOT NULL.
+    tier = Column(SmallInteger, nullable=False)
+    # Tier derived from the thresholds, before any admin override. NULL when the
+    # artist no longer qualifies on signals but is kept alive by an override.
+    computed_tier = Column(SmallInteger, nullable=True)
+    forced_tier = Column(SmallInteger, nullable=True)
+    pinned = Column(Boolean, nullable=False, default=False, server_default="false")
+    excluded = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Snapshot of the last recompute: {nb_lib, nb_likes, nb_sets_12m, nb_catalog,
+    # followed}.
+    signals = Column(JSON, nullable=True)
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    last_recomputed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        # Backs the per-tier "due" selection (tier + last_checked_at ordering) of
+        # the release-watch lot; excluded rows are never watched, so drop them
+        # from the index. sqlite_where is mandatory so the test harness
+        # (create_all on SQLite) reproduces the partial condition.
+        Index(
+            "ix_artist_cohort_tier_checked",
+            "tier",
+            "last_checked_at",
+            postgresql_where=text("excluded IS NOT TRUE"),
+            sqlite_where=text("excluded IS NOT TRUE"),
+        ),
+    )
+
+
 class ArtistFlag(Base):
     __tablename__ = "artist_flags"
 

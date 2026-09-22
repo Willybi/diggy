@@ -46,6 +46,7 @@ _KEY_TASK_TYPES = [
     "compute_trends",
     "link_set_artists",
     "check_followed_artists",
+    "recompute_artist_cohort",
 ]
 
 

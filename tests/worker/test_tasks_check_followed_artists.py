@@ -7,13 +7,19 @@ side is exercised through a FakePool that stands in for HttpPool (no network):
 the task's own release-filtering / idempotence logic runs for real.
 
 Two volets are covered:
-  - releases: Deezer albums within the 30-day horizon become artist_activity
-    rows; old ones are ignored; a second run creates no duplicate; artists with
-    a NULL / NOT_FOUND deezer_id are skipped without any Deezer call; an HTTP
-    error on one artist is counted and the run continues.
-  - sets: a recently imported set featuring a followed artist becomes an
-    activity; sets outside the 48h window or featuring an unfollowed artist do
-    not; plus the Redis single-instance lock (SET NX EX, conditional release).
+  - releases: since C14.a L2 the releases volet draws from the DERIVED cohort
+    (``artist_cohort``, budget-capped + tier/staleness-ordered), NOT the raw
+    follows — so these tests seed a cohort row per artist (``_cohort``, standing
+    in for the L1 recompute). Deezer albums within the 30-day horizon become
+    artist_activity rows; old ones are ignored; a second run creates no
+    duplicate; artists with a NULL / NOT_FOUND deezer_id are skipped without any
+    Deezer call; an HTTP error on one artist is counted and the run continues.
+    L2 also adds a budget-cap, an AV9 internal deadline and a per-member
+    ``last_checked_at`` stamp — covered by TestCohortWatch below.
+  - sets: UNCHANGED — a recently imported set featuring a FOLLOWED artist
+    becomes an activity; sets outside the 48h window or featuring an unfollowed
+    artist do not; plus the Redis single-instance lock (SET NX EX, conditional
+    release).
 """
 import os
 import sys
@@ -73,6 +79,7 @@ from database import Base
 from models import (
     Artist,
     ArtistActivity,
+    ArtistCohort,
     CrawlLog,
     DJSet,
     FollowedArtist,
@@ -208,6 +215,43 @@ def _follow(session, artist_id, user_id=1):
     session.add(FollowedArtist(user_id=user_id, artist_id=artist_id))
 
 
+def _cohort(session, artist_id, *, tier=1, last_checked_at=None):
+    """Seed an artist_cohort row so the releases volet (C14.a L2) draws the
+    artist. The volet reads the DERIVED cohort, not the raw follows — the L1
+    recompute is what puts artists there; these unit tests stand in for it by
+    seeding the row directly. ``last_checked_at=None`` → always due."""
+    session.add(
+        ArtistCohort(
+            artist_id=artist_id, tier=tier, last_checked_at=last_checked_at
+        )
+    )
+    session.flush()
+
+
+class _FakeClock:
+    """Deterministic time.monotonic stand-in (same technique as
+    test_deadline_exit.py). The runner reads the task module's ``time`` attribute
+    for the AV9 deadline; the fake is injected there, never on the global time
+    module (asyncio's event loop reads time.monotonic internally and would
+    consume the sequence). 1st value = deadline computation; the rest = the
+    per-artist checks. Once one value remains it is returned forever."""
+
+    def __init__(self, values):
+        self._values = list(values)
+
+    def monotonic(self):
+        if len(self._values) > 1:
+            return self._values.pop(0)
+        return self._values[0]
+
+
+# 1st = deadline base, following = per-artist loop checks. NEVER keeps the clock
+# at 0 so the deadline is never reached; the *_AFTER_* sequences trip it.
+_NEVER = [0.0]
+_HIT_BEFORE_FIRST = [0.0, 10**9]
+_HIT_AFTER_FIRST = [0.0, 0.0, 10**9]
+
+
 def _make_set(
     session,
     ext_id,
@@ -313,7 +357,7 @@ class TestReleasesVolet:
         crawled into the catalog and gets its own activity linked by catalog_id."""
         with Session(task_engine) as s:
             a = _make_artist(s, "Boris Brejcha", deezer_id="10")
-            _follow(s, a.id)
+            _cohort(s, a.id)  # releases volet draws from the cohort (L2)
             s.commit()
             artist_id = a.id
         fake_pool.albums["10"] = [_album(555, days_ago=5)]
@@ -367,7 +411,7 @@ class TestReleasesVolet:
     ):
         with Session(task_engine) as s:
             a = _make_artist(s, "Old Timer", deezer_id="11")
-            _follow(s, a.id)
+            _cohort(s, a.id)
             s.commit()
         fake_pool.albums["11"] = [_album(999, days_ago=60)]
 
@@ -384,13 +428,22 @@ class TestReleasesVolet:
     ):
         with Session(task_engine) as s:
             a = _make_artist(s, "Repeat", deezer_id="12")
-            _follow(s, a.id)
+            _cohort(s, a.id)
             s.commit()
+            artist_id = a.id
         fake_pool.albums["12"] = [_album(777, days_ago=3)]
         fake_pool.album_tracks["777"] = [_track_summary(7771, "Only Track")]
         fake_pool.tracks["7771"] = _track_hit(7771, "Only Track", "Repeat", "12")
 
         first = tasks_env.artists.check_followed_artists(fake_self)
+        # The daily cadence would skip this artist on an immediate re-run (its
+        # last_checked_at was just stamped); simulate the next night by clearing
+        # it so the member is drawn again and the crawl's OWN idempotence (track
+        # already recorded → no dup) is what's exercised here.
+        with Session(task_engine) as s:
+            row = s.get(ArtistCohort, artist_id)
+            row.last_checked_at = None
+            s.commit()
         second = tasks_env.artists.check_followed_artists(fake_self)
 
         assert first["releases_found"] == 1
@@ -406,18 +459,24 @@ class TestReleasesVolet:
         with Session(task_engine) as s:
             a1 = _make_artist(s, "No Deezer", deezer_id=None)
             a2 = _make_artist(s, "Confirmed Absent", deezer_id="NOT_FOUND")
-            _follow(s, a1.id)
-            _follow(s, a2.id)
+            _cohort(s, a1.id)
+            _cohort(s, a2.id)
             s.commit()
+            a1_id, a2_id = a1.id, a2.id
 
         result = tasks_env.artists.check_followed_artists(fake_self)
 
         assert result["artists_checked"] == 0
         assert result["artists_skipped_no_deezer"] == 2
+        assert result["cohort_checked"] == 2  # both drawn from the cohort
         assert result["releases_found"] == 0
         # No Deezer call whatsoever for skipped artists
         assert fake_pool.calls == []
         assert _activities(task_engine, activity_type="release") == []
+        # A no-Deezer skip is still a check → last_checked_at is stamped.
+        with Session(task_engine) as s:
+            assert s.get(ArtistCohort, a1_id).last_checked_at is not None
+            assert s.get(ArtistCohort, a2_id).last_checked_at is not None
 
     def test_http_error_on_one_artist_continues(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, caplog
@@ -427,9 +486,10 @@ class TestReleasesVolet:
         with Session(task_engine) as s:
             failing = _make_artist(s, "Flaky", deezer_id="20")
             ok = _make_artist(s, "Fine", deezer_id="21")
-            _follow(s, failing.id)
-            _follow(s, ok.id)
+            _cohort(s, failing.id)
+            _cohort(s, ok.id)
             s.commit()
+            failing_id, ok_id = failing.id, ok.id
         fake_pool.errors.add("20")
         fake_pool.albums["21"] = [_album(321, days_ago=2)]
         fake_pool.album_tracks["321"] = [_track_summary(3211, "Healthy Track")]
@@ -439,6 +499,7 @@ class TestReleasesVolet:
             result = tasks_env.artists.check_followed_artists(fake_self)
 
         assert result["artists_checked"] == 2
+        assert result["cohort_checked"] == 2
         assert result["errors"] == 1
         assert result["releases_found"] == 1  # the healthy artist still recorded
         acts = _activities(task_engine, activity_type="release")
@@ -446,6 +507,11 @@ class TestReleasesVolet:
         assert any("albums fetch failed" in r.getMessage() for r in caplog.records)
         # A per-artist failure never aborts the run
         assert _crawl_log(task_engine).status == "success"
+        # Outage on the albums fetch → NOT stamped (still due, retry next run);
+        # the healthy artist IS stamped (an outage is not a check, E1).
+        with Session(task_engine) as s:
+            assert s.get(ArtistCohort, failing_id).last_checked_at is None
+            assert s.get(ArtistCohort, ok_id).last_checked_at is not None
 
     def test_track_fetch_failure_records_link_only_card(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
@@ -454,7 +520,7 @@ class TestReleasesVolet:
         (external Deezer URL, no catalog_id) so the release is never lost."""
         with Session(task_engine) as s:
             a = _make_artist(s, "Half Down", deezer_id="50")
-            _follow(s, a.id)
+            _cohort(s, a.id)
             s.commit()
         fake_pool.albums["50"] = [_album(5000, days_ago=2)]
         fake_pool.album_tracks["5000"] = [_track_summary(50001, "Ghost Track")]
@@ -476,11 +542,14 @@ class TestReleasesVolet:
     def test_shared_follow_is_processed_once(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
     ):
-        """Two users following the same artist → one Deezer check (DISTINCT)."""
+        """One artist → one Deezer check. The cohort is one row per artist (PK
+        artist_id), so the releases volet inherently checks it once regardless of
+        how many users follow it — the follows here just mirror a real member."""
         with Session(task_engine) as s:
             a = _make_artist(s, "Popular", deezer_id="30")
             _follow(s, a.id, user_id=1)
             _follow(s, a.id, user_id=2)
+            _cohort(s, a.id)
             s.commit()
         fake_pool.albums["30"] = [_album(30001, days_ago=1)]
         fake_pool.album_tracks["30001"] = [_track_summary(300011, "Hit")]
@@ -501,7 +570,7 @@ class TestReleasesVolet:
 
         with Session(task_engine) as s:
             a = _make_artist(s, "Legacy", deezer_id="60")
-            _follow(s, a.id)
+            _cohort(s, a.id)
             # simulate the old behaviour: one activity keyed on the ALBUM id
             s.add(
                 ArtistActivity(
@@ -524,6 +593,171 @@ class TestReleasesVolet:
         assert result["releases_found"] == 1
         # the album-level card is gone, replaced by the per-track card
         assert {a.external_id for a in acts} == {"60001"}
+
+
+# ── Cohort watch: budget-cap, AV9 deadline, last_checked_at stamp (L2) ─────────
+
+
+class TestCohortWatch:
+    """C14.a L2 — the releases volet draws from the cohort, budget-capped, with an
+    AV9 internal deadline and a per-member last_checked_at stamp."""
+
+    def test_last_checked_at_stamped_after_successful_check(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Stamped", deezer_id="70")
+            _cohort(s, a.id)  # last_checked_at NULL → due
+            s.commit()
+            artist_id = a.id
+        fake_pool.albums["70"] = [_album(7000, days_ago=2)]
+        fake_pool.album_tracks["7000"] = [_track_summary(70001, "T")]
+        fake_pool.tracks["70001"] = _track_hit(70001, "T", "Stamped", "70")
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["cohort_checked"] == 1
+        assert result["deadline_hit"] is False
+        with Session(task_engine) as s:
+            assert s.get(ArtistCohort, artist_id).last_checked_at is not None
+
+    def test_non_due_member_not_drawn(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """A T1 member checked earlier today is below its 1-day cadence → not
+        drawn, no Deezer traffic."""
+        recent = datetime.now(timezone.utc) - timedelta(hours=2)
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Fresh", deezer_id="71")
+            _cohort(s, a.id, tier=1, last_checked_at=recent)
+            s.commit()
+        fake_pool.albums["71"] = [_album(7100, days_ago=1)]
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["cohort_checked"] == 0
+        assert result["releases_found"] == 0
+        assert fake_pool.calls == []
+
+    def test_excluded_member_never_drawn(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Banned", deezer_id="72")
+            _cohort(s, a.id)
+            s.get(ArtistCohort, a.id).excluded = True
+            s.commit()
+        fake_pool.albums["72"] = [_album(7200, days_ago=1)]
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["cohort_checked"] == 0
+        assert fake_pool.calls == []
+
+    def test_budget_reports_configured_cap(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Budgeted", deezer_id="73")
+            _cohort(s, a.id)
+            s.commit()
+        fake_pool.albums["73"] = []
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["budget"] == tasks_env.artists.COHORT_WATCH_NIGHTLY_BUDGET
+
+    def test_deadline_stops_before_first_artist(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, monkeypatch
+    ):
+        """The internal AV9 deadline, crossed before the first artist, exits the
+        loop cleanly: no member checked, none stamped, no Deezer traffic, and the
+        crawl_log is still a success (not a crash)."""
+        with Session(task_engine) as s:
+            a1 = _make_artist(s, "A1", deezer_id="80")
+            a2 = _make_artist(s, "A2", deezer_id="81")
+            _cohort(s, a1.id)
+            _cohort(s, a2.id)
+            s.commit()
+            a1_id, a2_id = a1.id, a2.id
+        fake_pool.albums["80"] = [_album(8000, days_ago=1)]
+        fake_pool.albums["81"] = [_album(8100, days_ago=1)]
+        # Fake clock (module `time` attr, never global — asyncio reads monotonic).
+        monkeypatch.setattr(
+            tasks_env.artists, "time", _FakeClock(_HIT_BEFORE_FIRST)
+        )
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["deadline_hit"] is True
+        assert result["cohort_checked"] == 0
+        assert result["releases_found"] == 0
+        assert fake_pool.calls == []  # loop broke before any fetch
+        # Neither member was stamped → both stay due for the next run.
+        with Session(task_engine) as s:
+            assert s.get(ArtistCohort, a1_id).last_checked_at is None
+            assert s.get(ArtistCohort, a2_id).last_checked_at is None
+        assert _crawl_log(task_engine).status == "success"
+
+    def test_deadline_stops_after_first_artist(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, monkeypatch
+    ):
+        """The deadline fires between artists: the first (higher priority, older
+        check) is processed and stamped, the second is not — proving the worklist
+        order is preserved (Artist.id.in_ would lose it)."""
+        older = datetime.now(timezone.utc) - timedelta(days=10)
+        newer = datetime.now(timezone.utc) - timedelta(days=3)
+        with Session(task_engine) as s:
+            first = _make_artist(s, "Older", deezer_id="90")
+            second = _make_artist(s, "Newer", deezer_id="91")
+            # Both due (T1, >1 day), but `first` was checked longer ago → drawn
+            # first by the tier/staleness order.
+            _cohort(s, first.id, tier=1, last_checked_at=older)
+            _cohort(s, second.id, tier=1, last_checked_at=newer)
+            s.commit()
+            first_id, second_id = first.id, second.id
+        fake_pool.albums["90"] = []  # no release, but a real check
+        fake_pool.albums["91"] = [_album(9100, days_ago=1)]
+        monkeypatch.setattr(
+            tasks_env.artists, "time", _FakeClock(_HIT_AFTER_FIRST)
+        )
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["deadline_hit"] is True
+        assert result["cohort_checked"] == 1  # only the first artist
+        assert fake_pool.calls == ["/artist/90/albums"]
+        with Session(task_engine) as s:
+            # First checked → stamped fresh (≈now); second never reached → still
+            # its old seeded value. (Compare the two DB rows: SQLite returns
+            # naive datetimes, so don't compare against the tz-aware locals.)
+            first_checked = s.get(ArtistCohort, first_id).last_checked_at
+            second_checked = s.get(ArtistCohort, second_id).last_checked_at
+            assert first_checked > second_checked
+
+    def test_sets_volet_still_uses_follows_not_cohort(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """Non-regression: an artist that is FOLLOWED but NOT in the cohort gets
+        NO release check (cohort empty) yet its recent set still surfaces — the
+        two volets are decoupled (releases → cohort, sets → follows)."""
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Follow Only", deezer_id="95")
+            _follow(s, a.id)  # followed but NOT added to the cohort
+            dj = _make_set(s, "set-decouple", "Live Decoupled", hours_ago=1.0)
+            s.add(SetArtist(set_id=dj.id, artist_id=a.id, role="dj", position=0))
+            s.commit()
+        fake_pool.albums["95"] = [_album(9500, days_ago=1)]
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        # Releases volet did nothing (artist not in cohort) …
+        assert result["cohort_checked"] == 0
+        assert result["releases_found"] == 0
+        assert fake_pool.calls == []
+        # … but the sets volet, fed by the follows, still recorded the set.
+        assert result["sets_found"] == 1
+        assert len(_activities(task_engine, activity_type="set")) == 1
 
 
 # ── Sets volet ───────────────────────────────────────────────────────────────
@@ -698,6 +932,9 @@ class TestEmptyRun:
             "crawl_errors": 0,
             "sets_found": 0,
             "errors": 0,
+            "cohort_checked": 0,
+            "deadline_hit": False,
+            "budget": tasks_env.artists.COHORT_WATCH_NIGHTLY_BUDGET,
         }
         assert fake_pool.calls == []  # nothing to check → no Deezer traffic
         log = _crawl_log(task_engine)

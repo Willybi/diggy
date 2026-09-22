@@ -181,6 +181,15 @@ celery_app.conf.update(
             "task": "workers.tasks.backfill_trackid_sets",
             "schedule": crontab(hour=2, minute=0),  # tous les jours à 2h
         },
+        # C14.a — recompute the derived artist watch cohort (auto-promotion /
+        # rétrogradation from in-DB signals). Read-mostly sweep, no external API
+        # → queue "celery" par défaut (aucune task_route). Placé à 04h15, AVANT
+        # check-followed-artists (04h45) qui consommera la cohorte dans un lot
+        # ultérieur. No-op-safe : n'UPSERTe/prune que la table artist_cohort.
+        "recompute-artist-cohort-daily": {
+            "task": "workers.tasks.recompute_artist_cohort",
+            "schedule": crontab(hour=4, minute=15),  # tous les jours à 4h15
+        },
         "check-followed-artists-daily": {
             "task": "workers.tasks.check_followed_artists",
             "schedule": crontab(hour=4, minute=45),  # tous les jours à 4h45

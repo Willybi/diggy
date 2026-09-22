@@ -8,6 +8,7 @@ from .artist import (  # noqa: F401
     Artist,
     ArtistActivity,
     ArtistAlias,
+    ArtistCohort,
     ArtistFlag,
     FollowedArtist,
 )

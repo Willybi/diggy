@@ -61,6 +61,7 @@ from .catalog import (
     SimilarityComponents,
     SimilarTrackOut,
 )
+from .cohort import CohortItemOut, CohortListOut, CohortOverrideIn
 from .collections import (
     CollectionCreateIn,
     CollectionDetailOut,
@@ -303,6 +304,10 @@ __all__ = [
     "FetchPlaylistArtworksResponse",
     "CrawlLogItem",
     "CrawlLogsResponse",
+    # cohort
+    "CohortItemOut",
+    "CohortListOut",
+    "CohortOverrideIn",
     "BacklogResponse",
     "BacklogSnapshotItem",
     "ThroughputItem",

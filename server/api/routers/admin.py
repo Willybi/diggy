@@ -21,6 +21,9 @@ from schemas import (
     ArtistFlagOut,
     AuditLogResponse,
     BacklogResponse,
+    CohortItemOut,
+    CohortListOut,
+    CohortOverrideIn,
     CrawlLogsResponse,
     DeezerArtistHit,
     DeezerGenreLookupResponse,
@@ -46,6 +49,7 @@ from schemas import (
 from services import (
     artist_service,
     catalog_service,
+    cohort_service,
     genre_service,
     monitoring_service,
     set_dedup_service,
@@ -681,3 +685,60 @@ async def get_audit_log(
     Thin router — the paginated read lives in monitoring_service.
     """
     return await monitoring_service.get_audit_log(db, page, per_page)
+
+
+# ---------- Artist cohort (C14.a) ----------
+
+
+@router.get("/cohort", response_model=CohortListOut)
+async def list_cohort(
+    tier: int | None = Query(None, ge=1, le=3),
+    override: Literal["pinned", "excluded"] | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Paginated view of the derived artist cohort (filter by tier / override).
+
+    Thin router — the joined listing lives in cohort_service.
+    """
+    return await cohort_service.list_cohort(
+        db, tier=tier, override=override, page=page, page_size=page_size
+    )
+
+
+@router.patch("/cohort/{artist_id}", response_model=CohortItemOut)
+async def update_cohort_override(
+    artist_id: int,
+    body: CohortOverrideIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Pin / exclude / force-tier an artist. The row is created if absent (an
+    artist outside the cohort can be pinned in). 404 on an unknown artist.
+
+    PATCH semantics: only the fields explicitly present in the body are applied —
+    so ``{"forced_tier": null}`` UN-forces (back to the auto/computed tier) while
+    an absent ``forced_tier`` leaves the existing force untouched."""
+    changes = body.model_dump(exclude_unset=True)
+    try:
+        item = await cohort_service.set_override(db, artist_id, changes=changes)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+    await _audit(db, admin, "cohort_override", "artist", artist_id, changes)
+    await db.commit()
+    return item
+
+
+@router.post("/cohort/recompute", response_model=SyncQueued)
+async def recompute_cohort(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Fire-and-forget: recompute the derived cohort. Poll via /tasks/{id}."""
+    result = celery.send_task("workers.tasks.recompute_artist_cohort")
+    await _audit(db, admin, "cohort_recompute", "cohort", None, {"task_id": result.id})
+    await db.commit()
+    return SyncQueued(status="queued", task_id=result.id)

@@ -65,6 +65,7 @@ DOMAIN_ORDER: list[tuple[str, list[str]]] = [
             "artist_flags",
             "followed_artists",
             "artist_activity",
+            "artist_cohort",
         ],
     ),
     (
@@ -239,8 +240,9 @@ def _render_table(table) -> list[str]:
             f"| {nullable} | {unique} | {fk} | {default} |"
         )
 
-    # Indexes
-    indexes = [idx for idx in table.indexes]
+    # Indexes — sorted by name for a deterministic diff (table.indexes is a set,
+    # so raw iteration order churns the doc on every regeneration).
+    indexes = sorted(table.indexes, key=lambda idx: idx.name or "")
     if indexes:
         lines.append("")
         lines.append("**Indexes:**")

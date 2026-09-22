@@ -383,6 +383,7 @@ const TASK_LABELS = {
   compute_trends: 'Tendances',
   check_followed_artists: 'Artistes suivis',
   link_set_artists: 'Artistes sets',
+  recompute_artist_cohort: 'Cohorte artistes',
 }
 const STATUS_FR = { success: 'Succès', error: 'Erreur', running: 'En cours' }
 

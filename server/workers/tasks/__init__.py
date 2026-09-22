@@ -9,6 +9,7 @@ from workers.tasks.artists import (
 )
 from workers.tasks.bpm import analyze_bpm_previews
 from workers.tasks.catalog import enrich_catalog, enrich_catalog_beatport
+from workers.tasks.cohort import recompute_artist_cohort
 from workers.tasks.genres import (
     finalize_reclassify,
     reclassify_all_genres,
@@ -49,6 +50,7 @@ __all__ = [
     "import_rekordbox_xml",
     "backfill_multi_artists",
     "check_followed_artists",
+    "recompute_artist_cohort",
     "snapshot_backlogs",
     "precompute_recommendations",
 ]

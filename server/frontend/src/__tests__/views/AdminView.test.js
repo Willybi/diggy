@@ -45,6 +45,7 @@ const STUBS = {
   AdminOverview: { template: '<div class="stub-overview"></div>' },
   AdminArtists: { template: '<div class="stub-artists"></div>' },
   AdminFlags: { template: '<div class="stub-flags"></div>' },
+  AdminCohort: { template: '<div class="stub-cohort"></div>' },
   AdminSets: { template: '<div class="stub-sets"></div>' },
   AdminGenres: { template: '<div class="stub-genres"></div>' },
   AdminBeatport: { template: '<div class="stub-beatport"></div>' },
@@ -80,16 +81,17 @@ describe('AdminView', () => {
     expect(apiMock.get).toHaveBeenCalledTimes(1)
   })
 
-  it('renders the 6 tabs of the new IA in order', async () => {
+  it('renders the 7 tabs of the new IA in order', async () => {
     const wrapper = await mountView()
     const texts = wrapper.findAll('.tab-btn').map((b) => b.text())
-    expect(texts).toHaveLength(6)
+    expect(texts).toHaveLength(7)
     expect(texts[0]).toContain('Aperçu')
     expect(texts[1]).toContain('Artistes')
-    expect(texts[2]).toContain('Sets')
-    expect(texts[3]).toContain('Genres')
-    expect(texts[4]).toContain('Enrichissement')
-    expect(texts[5]).toContain('Observabilité')
+    expect(texts[2]).toContain('Cohorte')
+    expect(texts[3]).toContain('Sets')
+    expect(texts[4]).toContain('Genres')
+    expect(texts[5]).toContain('Enrichissement')
+    expect(texts[6]).toContain('Observabilité')
   })
 
   it('lands on the Aperçu tab by default (no tab param)', async () => {
@@ -118,6 +120,13 @@ describe('AdminView', () => {
     const wrapper = await mountView('artists')
     expect(wrapper.find('.stub-artists').exists()).toBe(true)
     expect(wrapper.find('.stub-flags').exists()).toBe(true)
+  })
+
+  it('mounts AdminCohort on the cohorte tab', async () => {
+    const wrapper = await mountView('cohorte')
+    expect(wrapper.find('.stub-cohort').exists()).toBe(true)
+    expect(wrapper.find('.stub-artists').exists()).toBe(false)
+    expect(tabByLabel(wrapper, 'Cohorte').classes()).toContain('active')
   })
 
   it('stacks Beatport + EnrichmentActions on the enrichment tab', async () => {

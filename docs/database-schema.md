@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 33 tables across 7 domains.
+> 34 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -80,7 +80,7 @@ is auto-generated — do not edit it directly.
 **Catalog hub:** `catalog` · `catalog_artists` · `albums` · `catalog_albums` · `track_embeddings` · `user_tracks`
 **Users:** `users` · `user_opinions` · `user_collections` · `collection_items` · `collection_folders`
 **Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
-**Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity`
+**Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity` · `artist_cohort`
 **Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows` · `trackid_index`
 **Genres:** `genre_nodes` · `genre_edges` · `genre_mappings`
 **System:** `admin_audit_log` · `crawl_logs` · `metric_snapshots`
@@ -122,18 +122,18 @@ PK: `id`
 | `enrich_priority` | SmallInteger | yes |  |  |  |
 
 **Indexes:**
-- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
-- `ix_catalog_key`: `key`
-- `ix_catalog_created_at_id`: 
-- `ix_catalog_bpm_analysis_backlog`: `id`
-- `ix_catalog_genres`: `genres`
 - `ix_catalog_beatport_id`: `beatport_id`
-- `ix_catalog_owner`: `owner_id`
-- `ix_catalog_enrich_priority`: `enrich_priority`
-- `ix_catalog_duration_ms`: `duration_ms`
+- `ix_catalog_beatport_searched_at`: `beatport_searched_at`
+- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_bpm_analysis_backlog`: `id`
+- `ix_catalog_created_at_id`: 
 - `ix_catalog_deezer_id`: `deezer_id`
 - `ix_catalog_deezer_searched_at`: `deezer_searched_at`
-- `ix_catalog_bpm`: `bpm`
+- `ix_catalog_duration_ms`: `duration_ms`
+- `ix_catalog_enrich_priority`: `enrich_priority`
+- `ix_catalog_genres`: `genres`
+- `ix_catalog_key`: `key`
+- `ix_catalog_owner`: `owner_id`
 - `ix_catalog_release_date`: `release_date`
 - `ix_catalog_scope`: `scope`
 
@@ -169,8 +169,8 @@ PK: `id`
 | `created_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `uq_albums_deezer_id`: `deezer_album_id` (unique)
 - `ix_albums_artist_id`: `artist_id`
+- `uq_albums_deezer_id`: `deezer_album_id` (unique)
 
 ### `catalog_albums`
 
@@ -494,6 +494,26 @@ PK: `id`
 **Unique constraints:**
 - `artist_id`, `activity_type`, `source`, `external_id` (`uq_artist_activity_ext`)
 
+### `artist_cohort`
+
+PK: `artist_id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `artist_id` **PK** | Integer | no |  | FK → artists.id ON DELETE CASCADE |  |
+| `tier` | SmallInteger | no |  |  |  |
+| `computed_tier` | SmallInteger | yes |  |  |  |
+| `forced_tier` | SmallInteger | yes |  |  |  |
+| `pinned` | Boolean | no |  |  | server_default='false', default=False |
+| `excluded` | Boolean | no |  |  | server_default='false', default=False |
+| `signals` | JSON | yes |  |  |  |
+| `last_checked_at` | DateTime(tz) | yes |  |  |  |
+| `last_recomputed_at` | DateTime(tz) | yes |  |  |  |
+| `created_at` | DateTime(tz) | yes |  |  | server_default=now() |
+
+**Indexes:**
+- `ix_artist_cohort_tier_checked`: `tier`, `last_checked_at`
+
 ## Sets
 
 ### `sets`
@@ -576,8 +596,8 @@ PK: `id`
 | `end_time_ms` | Integer | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_tracks_set_id`: `set_id`
 - `ix_set_tracks_catalog_id`: `catalog_id`
+- `ix_set_tracks_set_id`: `set_id`
 - `ix_set_tracks_trackid_music_track_id`: `trackid_music_track_id`
 
 **Unique constraints:**
@@ -603,10 +623,10 @@ PK: `id`
 | `member_set_ids` | JSON | yes |  |  |  |
 
 **Indexes:**
-- `ix_set_flags_set_id_b`: `set_id_b`
-- `uq_set_flag_group_key`: `group_key` (unique)
 - `ix_set_flags_group_key`: `group_key`
 - `ix_set_flags_set_id_a`: `set_id_a`
+- `ix_set_flags_set_id_b`: `set_id_b`
+- `uq_set_flag_group_key`: `group_key` (unique)
 
 **Unique constraints:**
 - `set_id_a`, `set_id_b` (`uq_set_flag_pair`)
@@ -663,9 +683,9 @@ PK: `id`
 | `claimed_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
-- `ix_trackid_index_set_id`: `set_id`
-- `ix_trackid_index_hydration_state`: `hydration_state`
 - `ix_trackid_index_added_on`: `added_on`
+- `ix_trackid_index_hydration_state`: `hydration_state`
+- `ix_trackid_index_set_id`: `set_id`
 
 ## Genres
 
@@ -732,8 +752,8 @@ PK: `id`
 | `created_at` | DateTime(tz) | no |  |  |  |
 
 **Indexes:**
-- `ix_admin_audit_log_user_id`: `user_id`
 - `ix_admin_audit_log_action`: `action`
+- `ix_admin_audit_log_user_id`: `user_id`
 
 ### `crawl_logs`
 
@@ -755,9 +775,9 @@ PK: `id`
 | `celery_task_id` | String(255) | yes |  |  |  |
 
 **Indexes:**
+- `ix_crawl_logs_started_at`: `started_at`
 - `ix_crawl_logs_task_type`: `task_type`
 - `ix_crawl_logs_task_type_started_at`: `task_type`, `started_at`
-- `ix_crawl_logs_started_at`: `started_at`
 
 ### `metric_snapshots`
 

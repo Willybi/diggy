@@ -402,6 +402,26 @@ ARTIST_ACTIVITY_MAX_TRACKS_PER_RELEASE = 40
 # so the lock cannot expire while a legitimate run is still in progress (same
 # rule as resolve_set_tracks / recrawl_incomplete_sets).
 CHECK_FOLLOWED_ARTISTS_LOCK_TTL = 4200
+# AV9 — soft/hard time limits as module constants so the task decorator AND the
+# internal deadline guard in _check_releases share ONE source of truth (never
+# read task.soft_time_limit at runtime — fragile under the MagicMock test
+# harness). The lock TTL above stays strictly > the hard limit.
+CHECK_FOLLOWED_SOFT_TIME_LIMIT = 3600
+CHECK_FOLLOWED_TIME_LIMIT = 3900
+# C14.a — the release-watch draws from the DERIVED artist cohort, not the ~13 raw
+# follows, so it now needs a budget cap (primary loop guard, env-tunable), sized
+# for the nightly T1 (daily) + T2 (weekly) draw (~6.5k/day). select_due_cohort_ids
+# LIMITs the worklist to this many members per run.
+COHORT_WATCH_NIGHTLY_BUDGET = int(
+    os.environ.get("COHORT_WATCH_NIGHTLY_BUDGET", "8000")
+)
+# AV9 — margin (seconds) subtracted from the soft limit to build the internal
+# monotonic deadline checked BEFORE each artist. Same rationale as
+# DEADLINE_MARGIN (billiard's SoftTimeLimitExceeded can be swallowed mid-asyncio
+# write and never reach the task's except clause).
+CHECK_FOLLOWED_DEADLINE_MARGIN = int(
+    os.environ.get("CHECK_FOLLOWED_DEADLINE_MARGIN", "120")
+)
 
 
 def _norm_artist_name(s):
@@ -2915,17 +2935,28 @@ def _crawl_track(session, hit):
     return entry, created
 
 
-async def _check_releases(engine, followed_ids, now):
-    """Releases volet: for each followed artist with a valid Deezer id, fetch its
-    recent albums, expand every in-horizon album into its tracklist, and CRAWL
-    each new track into the catalog (cover, preview, artists) — recording one
-    artist_activity per track, linked to its catalog entry. A Deezer HTTP error
-    on one artist / album / track is logged and counted, never fatal; a track
-    that fails to crawl still gets a link-only activity card (external Deezer
-    URL, catalog_id NULL) so the release is never lost."""
-    from models import Artist, ArtistActivity
+async def _check_releases(engine, artist_ids, now):
+    """Releases volet: for each COHORT artist (C14.a) with a valid Deezer id,
+    fetch its recent albums, expand every in-horizon album into its tracklist,
+    and CRAWL each new track into the catalog (cover, preview, artists) —
+    recording one artist_activity per track, linked to its catalog entry. A
+    Deezer HTTP error on one artist / album / track is logged and counted, never
+    fatal; a track that fails to crawl still gets a link-only activity card
+    (external Deezer URL, catalog_id NULL) so the release is never lost.
+
+    ``artist_ids`` is the budget-capped, tier/staleness-ordered cohort worklist
+    (``select_due_cohort_ids``) — no longer the raw follows. Each member that is
+    actually checked (success or a no-Deezer skip) has its
+    ``artist_cohort.last_checked_at`` stamped so its per-tier cadence advances; a
+    member whose albums fetch hits a Deezer outage is left un-stamped (still due,
+    retried next run — an outage is not a check, E1). An internal AV9 deadline
+    (soft limit − margin), checked BEFORE each artist, exits the loop cleanly on
+    a long run; the signal-based SoftTimeLimitExceeded catch stays as defence in
+    depth."""
+    from models import Artist, ArtistActivity, ArtistCohort
     from sqlalchemy import delete as sa_delete
     from sqlalchemy import select
+    from sqlalchemy import update as sa_update
     from sqlalchemy.exc import IntegrityError
     from sqlalchemy.orm import Session
     from workers.async_http import DeezerHTTPError, HttpPool
@@ -2938,24 +2969,82 @@ async def _check_releases(engine, followed_ids, now):
         "catalog_created": 0,
         "crawl_errors": 0,
         "errors": 0,
+        "cohort_checked": 0,
+        "deadline_hit": False,
     }
     threshold = (now - timedelta(days=ARTIST_ACTIVITY_RELEASE_HORIZON_DAYS)).date()
+    # AV9 — internal monotonic deadline (see CHECK_FOLLOWED_DEADLINE_MARGIN):
+    # checked BEFORE each artist so a shortened run leaves the members it never
+    # reached un-stamped (still due next run). The extracted soft-limit constant
+    # is the single source of truth (never task.soft_time_limit at runtime).
+    deadline = (
+        time.monotonic()
+        + CHECK_FOLLOWED_SOFT_TIME_LIMIT
+        - CHECK_FOLLOWED_DEADLINE_MARGIN
+    )
 
     limiter = RateLimiter()
     async with HttpPool(limiter) as pool:
         with Session(engine) as session:
-            artists = (
-                session.execute(
-                    select(Artist).where(Artist.id.in_(followed_ids))
+
+            def _stamp_checked(artist_id):
+                # Advance the per-tier cadence: a small committed UPDATE, in line
+                # with the loop's per-track commit model. Guarded so a stamp
+                # failure never aborts the whole run.
+                try:
+                    session.execute(
+                        sa_update(ArtistCohort)
+                        .where(ArtistCohort.artist_id == artist_id)
+                        .values(last_checked_at=now)
+                    )
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    logger.warning(
+                        "check_followed_artists: failed to stamp last_checked_at "
+                        "for artist %s",
+                        artist_id,
+                        exc_info=True,
+                    )
+
+            # Load the cohort members in one query but iterate in the worklist's
+            # tier/staleness ORDER (Artist.id.in_ loses it) so a deadline cut
+            # keeps the highest-priority members done first.
+            artists_by_id = {
+                a.id: a
+                for a in session.execute(
+                    select(Artist).where(Artist.id.in_(artist_ids))
                 )
                 .scalars()
                 .all()
-            )
+            }
 
-            for artist in artists:
+            for artist_id in artist_ids:
+                # AV9 — bail cleanly BEFORE the next artist once the internal
+                # deadline is crossed (all prior progress already committed).
+                if time.monotonic() >= deadline:
+                    stats["deadline_hit"] = True
+                    logger.warning(
+                        "check_followed_artists hit internal deadline (soft "
+                        "limit %ds - margin %ds); stopping before next artist, "
+                        "partial: cohort_checked=%d releases_found=%d",
+                        CHECK_FOLLOWED_SOFT_TIME_LIMIT,
+                        CHECK_FOLLOWED_DEADLINE_MARGIN,
+                        stats["cohort_checked"],
+                        stats["releases_found"],
+                    )
+                    break
+
+                artist = artists_by_id.get(artist_id)
+                if artist is None:
+                    # Cohort row for a since-deleted artist — nothing to check.
+                    continue
+                stats["cohort_checked"] += 1
+
                 dz_id = artist.deezer_id
                 if not dz_id or dz_id == "NOT_FOUND":
                     stats["artists_skipped_no_deezer"] += 1
+                    _stamp_checked(artist.id)  # definitively checked
                     continue
                 stats["artists_checked"] += 1
 
@@ -2970,6 +3059,7 @@ async def _check_releases(engine, followed_ids, now):
                         dz_id,
                         e,
                     )
+                    # Outage → leave the member due (un-stamped), retry next run.
                     continue
 
                 for album in albums:
@@ -3137,6 +3227,10 @@ async def _check_releases(engine, followed_ids, now):
                             session.rollback()
                             stats["crawl_errors"] += 1
 
+                # The member was checked (albums fetched, all tracks processed)
+                # → advance its per-tier cadence.
+                _stamp_checked(artist.id)
+
     return stats
 
 
@@ -3206,18 +3300,19 @@ def _check_new_sets(engine, followed_ids, now):
 @celery_app.task(
     name="workers.tasks.check_followed_artists",
     bind=True,
-    soft_time_limit=3600,
-    time_limit=3900,
+    soft_time_limit=CHECK_FOLLOWED_SOFT_TIME_LIMIT,
+    time_limit=CHECK_FOLLOWED_TIME_LIMIT,
 )
 def check_followed_artists(self):
     """
-    Daily: detect new activity for every artist followed by ≥1 user.
-    Two volets — new Deezer releases and newly imported sets that feature the
-    artist. Single-instance: a Redis lock (SET NX EX, conditional release) keeps
-    overlapping runs from doubling external traffic, same pattern as
-    resolve_set_tracks. NO autoretry_for=(Exception,): SoftTimeLimitExceeded IS
-    an Exception, so that decorator would turn a soft timeout into an infinite
-    retry loop.
+    Daily: detect new activity for the watched artist set. Two decoupled volets —
+    new Deezer releases for the DERIVED cohort (C14.a: budget-capped,
+    tier/staleness-ordered, with an AV9 internal deadline) and newly imported
+    sets featuring a manually FOLLOWED artist. Single-instance: a Redis lock
+    (SET NX EX, conditional release) keeps overlapping runs from doubling
+    external traffic, same pattern as resolve_set_tracks. NO
+    autoretry_for=(Exception,): SoftTimeLimitExceeded IS an Exception, so that
+    decorator would turn a soft timeout into an infinite retry loop.
     """
     import redis as redis_lib
 
@@ -3250,6 +3345,7 @@ def _run_check_followed_artists(task):
     sys.path.insert(0, "/app")
     from models import FollowedArtist
     from services.image_service import BUCKET_ALBUM, ImageService
+    from workers.cohort import select_due_cohort_ids
     from workers.crawl_logger import CrawlLogger
     from workers.db import get_engine
 
@@ -3267,6 +3363,12 @@ def _run_check_followed_artists(task):
             celery_task_id=task.request.id,
         ) as clog:
             with Session(engine) as session:
+                # C14.a — the releases volet now draws from the DERIVED cohort
+                # (budget-capped, tier/staleness-ordered), NOT the raw follows.
+                cohort_ids = select_due_cohort_ids(
+                    session, now, COHORT_WATCH_NIGHTLY_BUDGET
+                )
+                # The sets volet is UNCHANGED: still the distinct manual follows.
                 followed_ids = [
                     r[0]
                     for r in session.execute(
@@ -3282,24 +3384,31 @@ def _run_check_followed_artists(task):
                 "crawl_errors": 0,
                 "sets_found": 0,
                 "errors": 0,
+                "cohort_checked": 0,
+                "deadline_hit": False,
+                "budget": COHORT_WATCH_NIGHTLY_BUDGET,
             }
 
-            if not followed_ids:
+            if not cohort_ids and not followed_ids:
                 clog.set_stats(stats)
                 return stats
 
-            release_stats = asyncio.run(
-                _check_releases(engine, followed_ids, now)
-            )
-            stats["artists_checked"] = release_stats["artists_checked"]
-            stats["artists_skipped_no_deezer"] = release_stats[
-                "artists_skipped_no_deezer"
-            ]
-            stats["releases_found"] = release_stats["releases_found"]
-            stats["catalog_created"] = release_stats["catalog_created"]
-            stats["crawl_errors"] = release_stats["crawl_errors"]
-            stats["errors"] = release_stats["errors"]
+            if cohort_ids:
+                release_stats = asyncio.run(
+                    _check_releases(engine, cohort_ids, now)
+                )
+                stats["artists_checked"] = release_stats["artists_checked"]
+                stats["artists_skipped_no_deezer"] = release_stats[
+                    "artists_skipped_no_deezer"
+                ]
+                stats["releases_found"] = release_stats["releases_found"]
+                stats["catalog_created"] = release_stats["catalog_created"]
+                stats["crawl_errors"] = release_stats["crawl_errors"]
+                stats["errors"] = release_stats["errors"]
+                stats["cohort_checked"] = release_stats["cohort_checked"]
+                stats["deadline_hit"] = release_stats["deadline_hit"]
 
+            # Sets volet always runs on the follows (handles an empty list).
             stats["sets_found"] = _check_new_sets(engine, followed_ids, now)
 
             clog.set_stats(stats)
