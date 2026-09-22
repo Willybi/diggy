@@ -69,6 +69,11 @@ describe('BeatportEmbed', () => {
     expect(link.attributes('rel')).toBe('noopener')
   })
 
+  it('hide-link opts the Beatport link out (BeatportBar card usage, D12 v2)', () => {
+    const wrapper = mount(BeatportEmbed, { props: { beatportId: 12345, hideLink: true } })
+    expect(wrapper.find('a.bp-link').exists()).toBe(false)
+  })
+
   it('falls back to an eager iframe when IntersectionObserver is unavailable', async () => {
     vi.unstubAllGlobals()
     const wrapper = mount(BeatportEmbed, { props: { beatportId: 12345 } })

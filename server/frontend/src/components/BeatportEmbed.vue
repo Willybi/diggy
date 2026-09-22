@@ -9,7 +9,9 @@
       title="Extrait Beatport"
     ></iframe>
     <div v-else class="bp-frame bp-frame--placeholder" aria-hidden="true"></div>
-    <a class="bp-link" :href="trackUrl" target="_blank" rel="noopener">Voir sur Beatport ↗</a>
+    <a v-if="!hideLink" class="bp-link" :href="trackUrl" target="_blank" rel="noopener"
+      >Voir sur Beatport ↗</a
+    >
   </div>
 </template>
 
@@ -22,6 +24,9 @@ const props = defineProps({
   // block is visible by construction, so the lazy IntersectionObserver only
   // adds a placeholder flash — render the iframe at once instead.
   eager: { type: Boolean, default: false },
+  // Opt-out of the "Voir sur Beatport" link (BeatportBar card, D12 v2): the
+  // card's ↗ ghost already leads to the track page which carries the link.
+  hideLink: { type: Boolean, default: false },
 })
 
 const root = ref(null)

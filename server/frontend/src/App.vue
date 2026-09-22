@@ -15,8 +15,12 @@
         </RouterView>
       </main>
     </div>
+    <!-- The Beatport card visually REPLACES the Deezer card (D12 v2 "replace +
+         resume chip" pattern): PlayerBar is hidden — not closed — while the
+         Beatport card shows; its state (track, position) lives in the store,
+         so closing the card brings it back paused, untouched. -->
     <Transition name="player">
-      <PlayerBar v-if="player.visible" />
+      <PlayerBar v-if="player.visible && !beatportBar.visible" />
     </Transition>
     <BottomNav v-if="auth.isAuthenticated" />
     <ToastNotification />
@@ -171,14 +175,12 @@ body {
 .app-main.has-player {
   padding-bottom: 100px;
 }
-/* BeatportBar docked at bottom:0 (~232px tall: header + 162px embed + link);
-   same reservation idea as has-player, values stacked when both bars show
-   (the Beatport bar then sits above the PlayerBar card). */
-.app-main.has-beatport {
-  padding-bottom: 240px;
-}
+/* Beatport floating card (~188px: control row + 162px embed + margins). The
+   Deezer card is hidden while it shows, so the reservation replaces
+   has-player's instead of stacking on it. */
+.app-main.has-beatport,
 .app-main.has-player.has-beatport {
-  padding-bottom: 340px;
+  padding-bottom: 188px;
 }
 
 @container (max-width: 900px) {
@@ -203,11 +205,9 @@ body {
   .app-main.has-player {
     padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 90px);
   }
-  .app-main.has-beatport {
-    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 240px);
-  }
+  .app-main.has-beatport,
   .app-main.has-player.has-beatport {
-    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 330px);
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 188px);
   }
 }
 </style>
