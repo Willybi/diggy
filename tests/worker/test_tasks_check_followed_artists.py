@@ -258,13 +258,15 @@ def _make_set(
     title,
     *,
     hours_ago=1.0,
+    source="trackid",
     source_url="https://trackid/x",
     event_date=None,
     played_days_ago=2,
 ):
     # By default the set's OWN date (played_date) is recent so it qualifies as a
     # nouveauté; tests override event_date / played_days_ago to exercise the age
-    # floor. played_days_ago=None leaves played_date unset.
+    # floor. played_days_ago=None leaves played_date unset. source defaults to
+    # 'trackid'; C14.b sets pass 'youtube' to exercise source-aware activity.
     now = datetime.now(timezone.utc)
     played_date = (
         None
@@ -272,7 +274,7 @@ def _make_set(
         else (now - timedelta(days=played_days_ago)).date()
     )
     dj = DJSet(
-        source="trackid",
+        source=source,
         title=title,
         external_id=ext_id,
         source_url=source_url,
@@ -787,6 +789,38 @@ class TestSetsVolet:
         assert act.set_id == set_id
         assert act.title == "Awesome B2B"
         assert act.external_url == "https://trackid/x"
+
+    def test_youtube_set_activity_carries_real_source(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        """C14.b (L6): a followed DJ's recent YouTube set surfaces with the SET's
+        real source ('youtube'), not the hardcoded 'trackid' — so it is not
+        mislabelled as a TrackID provenance (and its dedup key matches)."""
+        with Session(task_engine) as s:
+            a = _make_artist(s, "YT DJ", deezer_id="44")
+            _follow(s, a.id)
+            dj = _make_set(
+                s,
+                "yt-vid-1",
+                "Live on YouTube",
+                hours_ago=2.0,
+                source="youtube",
+                source_url="https://youtube.com/watch?v=yt-vid-1",
+            )
+            s.add(SetArtist(set_id=dj.id, artist_id=a.id, role="dj", position=0))
+            s.commit()
+            artist_id, set_id = a.id, dj.id
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 1
+        acts = _activities(task_engine, activity_type="set")
+        assert len(acts) == 1
+        act = acts[0]
+        assert act.artist_id == artist_id
+        assert act.source == "youtube"
+        assert act.external_id == str(set_id)
+        assert act.set_id == set_id
 
     def test_set_outside_window_ignored(
         self, tasks_env, task_engine, fake_pool, fake_redis, fake_self

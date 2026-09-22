@@ -370,6 +370,52 @@ class TestListSetsEnriched:
         ]
 
 
+class TestListSetsSourceAware:
+    """C14.b (L6): the `identified > 0` gate is TrackID-only. A non-trackid
+    source (YouTube) may legitimately be a metadata-only set (0 tracks) and must
+    stay visible, while a trackid set with no identified track stays excluded
+    (non-regression of the TrackID behaviour)."""
+
+    async def test_youtube_zero_track_set_visible_trackid_still_excluded(
+        self, client, db
+    ):
+        # YouTube metadata-only set: no SetTrack rows at all → visible.
+        yt = DJSet(source="youtube", title="YouTube Live Set")
+        # TrackID set whose only track is an unidentified ID placeholder → hidden.
+        tid = DJSet(source="trackid", title="Trackid No ID")
+        db.add_all([yt, tid])
+        await db.flush()
+        db.add(SetTrack(set_id=tid.id, position=1, raw_title="ID", is_id=True))
+        await db.commit()
+
+        r = await client.get("/api/sets/")
+        assert r.status_code == 200
+        data = r.json()
+        titles = {it["title"] for it in data["items"]}
+        assert "YouTube Live Set" in titles
+        assert "Trackid No ID" not in titles
+        assert data["total"] == 1
+
+    async def test_sort_by_tracks_handles_zero_track_youtube_set(self, client, db):
+        # The "tracks" sort must not choke on a 0-track youtube set (count 0, not
+        # NULL — nulls_last keeps it ordered next to a track-carrying trackid set).
+        yt = DJSet(source="youtube", title="YT Zero")
+        tid = DJSet(source="trackid", title="TID Two")
+        db.add_all([yt, tid])
+        await db.flush()
+        await _attach_identified_track(db, tid, position=1)
+        db.add(SetTrack(set_id=tid.id, position=2, raw_title="ID", is_id=True))
+        await db.commit()
+
+        # -tracks desc → TID (2 tracks) before YT (0); no crash on the empty set.
+        r = await client.get("/api/sets/?sort=-tracks")
+        assert r.status_code == 200
+        assert [it["title"] for it in r.json()["items"]] == ["TID Two", "YT Zero"]
+        # tracks asc → YT (0) first.
+        r = await client.get("/api/sets/?sort=tracks")
+        assert [it["title"] for it in r.json()["items"]] == ["YT Zero", "TID Two"]
+
+
 class TestListSetsFilters:
     """Panel filters (D-play chantier): duration/year/genres/tracks bounds. Each
     filter narrows the same list query and is honoured by the total count."""

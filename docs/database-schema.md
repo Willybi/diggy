@@ -1,7 +1,7 @@
 # Diggy - Database Schema
 
 > **Auto-generated** from `server/api/models/`. Do not edit below the MANUAL block — regenerate via `/schema_doc`.
-> 34 tables across 7 domains.
+> 35 tables across 7 domains.
 
 <!-- MANUAL:BEGIN -->
 ## Conventions & domain rules
@@ -81,7 +81,7 @@ is auto-generated — do not edit it directly.
 **Users:** `users` · `user_opinions` · `user_collections` · `collection_items` · `collection_folders`
 **Radar:** `watched_entities` · `user_follows` · `radar_tracks` · `radar_trends` · `user_radar_state`
 **Artists:** `artists` · `artist_aliases` · `artist_flags` · `followed_artists` · `artist_activity` · `artist_cohort`
-**Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows` · `trackid_index`
+**Sets:** `sets` · `set_artists` · `set_tracks` · `set_flags` · `user_set_follows` · `trackid_index` · `channels`
 **Genres:** `genre_nodes` · `genre_edges` · `genre_mappings`
 **System:** `admin_audit_log` · `crawl_logs` · `metric_snapshots`
 
@@ -686,6 +686,30 @@ PK: `id`
 - `ix_trackid_index_added_on`: `added_on`
 - `ix_trackid_index_hydration_state`: `hydration_state`
 - `ix_trackid_index_set_id`: `set_id`
+
+### `channels`
+
+PK: `id`
+
+| Column | Type | Nullable | Unique | FK | Default |
+|--------|------|----------|--------|----|---------|
+| `id` **PK** | Integer | no |  |  |  |
+| `platform` | String(20) | no |  |  |  |
+| `external_id` | String(64) | yes |  |  |  |
+| `name` | String(255) | no |  |  |  |
+| `channel_type` | String(20) | yes |  |  |  |
+| `artist_id` | Integer | yes |  | FK → artists.id ON DELETE SET NULL |  |
+| `watched` | Boolean | no |  |  | server_default='false', default=False |
+| `excluded` | Boolean | no |  |  | server_default='false', default=False |
+| `signals` | JSON | yes |  |  |  |
+| `last_checked_at` | DateTime(tz) | yes |  |  |  |
+| `created_at` | DateTime(tz) | yes |  |  | server_default=now() |
+
+**Indexes:**
+- `ix_channels_due`: `platform`, `last_checked_at`
+
+**Unique constraints:**
+- `platform`, `external_id` (`uq_channel_platform_external`)
 
 ## Genres
 

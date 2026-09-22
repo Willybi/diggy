@@ -445,3 +445,64 @@ class TestRunLinkSetArtists:
         assert result["skipped_no_resolve"] == 1
         with Session(task_engine) as s:
             assert s.execute(select(SetArtist)).first() is None
+
+
+# ── _select_unlinked_sets source-aware worklist (C14.b L6) ────────────────────
+
+
+class TestSelectUnlinkedSets:
+    """C14.b L6: the fil-de-l'eau worklist now takes BOTH trackid and youtube
+    roots (the artist extraction is source-agnostic), still excludes an
+    already-linked set (NOT EXISTS guard) and ignores other sources."""
+
+    def test_takes_trackid_and_youtube_skips_linked_and_other_sources(
+        self, artists_mod, unit_session
+    ):
+        s = unit_session
+        trackid = DJSet(
+            source="trackid",
+            title="Trackid Root",
+            created_at=_datetime(2026, 9, 3, tzinfo=_timezone.utc),
+        )
+        youtube = DJSet(
+            source="youtube",
+            title="YouTube Root",
+            created_at=_datetime(2026, 9, 2, tzinfo=_timezone.utc),
+        )
+        linked = DJSet(
+            source="youtube",
+            title="Already Linked",
+            created_at=_datetime(2026, 9, 1, tzinfo=_timezone.utc),
+        )
+        other = DJSet(
+            source="deezer",
+            title="Other Source",
+            created_at=_datetime(2026, 9, 4, tzinfo=_timezone.utc),
+        )
+        s.add_all([trackid, youtube, linked, other])
+        s.flush()
+        art = Artist(name="Linked DJ", normalized_name="linked dj")
+        s.add(art)
+        s.flush()
+        s.add(SetArtist(set_id=linked.id, artist_id=art.id, role="dj", position=0))
+        s.commit()
+
+        ids = {r.id for r in artists_mod._select_unlinked_sets(s, 100)}
+
+        assert trackid.id in ids  # trackid root, unlinked
+        assert youtube.id in ids  # youtube root, unlinked (C14.b widening)
+        assert linked.id not in ids  # excluded by NOT EXISTS SetArtist
+        assert other.id not in ids  # non-eligible source stays out
+
+    def test_respects_limit(self, artists_mod, unit_session):
+        s = unit_session
+        for i in range(3):
+            s.add(
+                DJSet(
+                    source="youtube",
+                    title=f"YT {i}",
+                    created_at=_datetime(2026, 9, i + 1, tzinfo=_timezone.utc),
+                )
+            )
+        s.commit()
+        assert len(artists_mod._select_unlinked_sets(s, 2)) == 2

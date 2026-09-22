@@ -61,6 +61,14 @@ from .catalog import (
     SimilarityComponents,
     SimilarTrackOut,
 )
+from .channel import (
+    ChannelCandidateListOut,
+    ChannelCandidateOut,
+    ChannelCreateIn,
+    ChannelListOut,
+    ChannelOut,
+    ChannelUpdateIn,
+)
 from .cohort import CohortItemOut, CohortListOut, CohortOverrideIn
 from .collections import (
     CollectionCreateIn,
@@ -304,6 +312,13 @@ __all__ = [
     "FetchPlaylistArtworksResponse",
     "CrawlLogItem",
     "CrawlLogsResponse",
+    # channel
+    "ChannelOut",
+    "ChannelListOut",
+    "ChannelCandidateOut",
+    "ChannelCandidateListOut",
+    "ChannelCreateIn",
+    "ChannelUpdateIn",
     # cohort
     "CohortItemOut",
     "CohortListOut",

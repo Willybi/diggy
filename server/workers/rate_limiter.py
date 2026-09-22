@@ -57,6 +57,10 @@ _SOURCE_CONFIG = {
     "tidal": (2, 2.0),
     "minio": (10, 0.0),  # local bucket, no rate limit
     "trackid": (1, 0.66),  # ~1 per 1.5s (sequential crawl)
+    # YouTube RSS feed + Data API (C14.b). HTTP politeness only — the nightly
+    # watch is single-instance (lock:crawl_youtube_channels) so a local bucket
+    # suffices, no shared Redis window needed. ~1 req/s, 2 concurrent.
+    "youtube": (2, 1.0),
 }
 
 # Sources rate-limited globally across worker processes via Redis:

@@ -2451,9 +2451,10 @@ def _load_artist_lookup(session):
 
 
 def _select_unlinked_sets(session, limit):
-    """Newest TrackID root sets with NO artist link yet, capped at ``limit``.
+    """Newest TrackID/YouTube root sets with NO artist link yet, capped at ``limit``.
 
-    Fil-de-l'eau selection: ``source='trackid'``, roots only
+    Fil-de-l'eau selection: ``source in ('trackid', 'youtube')`` (C14.b: the
+    source-agnostic artist extraction runs on YouTube DJ sets too), roots only
     (``parent_set_id IS NULL``), and no existing ``set_artists`` row
     (``NOT EXISTS``). Ordered newest-first (``created_at`` desc, ``id`` desc
     tie-break). The ``NOT EXISTS`` guard makes a re-run over the same window a
@@ -2470,7 +2471,7 @@ def _select_unlinked_sets(session, limit):
     stmt = (
         select(DJSet)
         .where(
-            DJSet.source == "trackid",
+            DJSet.source.in_(("trackid", "youtube")),
             DJSet.parent_set_id.is_(None),
             ~linked_exists,
         )
@@ -3274,7 +3275,7 @@ def _check_new_sets(engine, followed_ids, now):
 
         for artist_id, dj_set in rows:
             if _activity_exists(
-                session, artist_id, "set", "trackid", str(dj_set.id)
+                session, artist_id, "set", dj_set.source, str(dj_set.id)
             ):
                 continue
             from models import ArtistActivity
@@ -3283,7 +3284,7 @@ def _check_new_sets(engine, followed_ids, now):
                 ArtistActivity(
                     artist_id=artist_id,
                     activity_type="set",
-                    source="trackid",
+                    source=dj_set.source,
                     external_id=str(dj_set.id),
                     title=dj_set.title,
                     external_url=dj_set.source_url,

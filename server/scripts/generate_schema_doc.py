@@ -77,6 +77,7 @@ DOMAIN_ORDER: list[tuple[str, list[str]]] = [
             "set_flags",
             "user_set_follows",
             "trackid_index",
+            "channels",
         ],
     ),
     (

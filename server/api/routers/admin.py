@@ -21,6 +21,11 @@ from schemas import (
     ArtistFlagOut,
     AuditLogResponse,
     BacklogResponse,
+    ChannelCandidateListOut,
+    ChannelCreateIn,
+    ChannelListOut,
+    ChannelOut,
+    ChannelUpdateIn,
     CohortItemOut,
     CohortListOut,
     CohortOverrideIn,
@@ -49,6 +54,7 @@ from schemas import (
 from services import (
     artist_service,
     catalog_service,
+    channel_service,
     cohort_service,
     genre_service,
     monitoring_service,
@@ -742,3 +748,91 @@ async def recompute_cohort(
     await _audit(db, admin, "cohort_recompute", "cohort", None, {"task_id": result.id})
     await db.commit()
     return SyncQueued(status="queued", task_id=result.id)
+
+
+# ---------- Watched channels (C14.b) ----------
+
+
+@router.get("/channels", response_model=ChannelListOut)
+async def list_channels(
+    watched: bool | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Paginated view of the curated YouTube channels (filter by watched).
+
+    Thin router — the listing lives in channel_service.
+    """
+    return await channel_service.list_channels(
+        db, watched=watched, page=page, page_size=page_size
+    )
+
+
+@router.get("/channels/candidates", response_model=ChannelCandidateListOut)
+async def list_channel_candidates(
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Seed of channels known to the base (trackid_index) but not yet curated,
+    ranked by discovery value (least-covered first). Thin router."""
+    return await channel_service.list_candidates(db, limit=limit)
+
+
+@router.post("/channels", response_model=ChannelOut)
+async def add_channel(
+    body: ChannelCreateIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Add (or re-watch) a YouTube channel by URL/handle. 400 if unresolvable."""
+    try:
+        item = await channel_service.add_channel(db, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    await _audit(db, admin, "channel_add", "channel", item["id"], {"url": body.url})
+    await db.commit()
+
+    # Fire-and-forget one-shot historical backfill (C14.b, L7): page the channel's
+    # « uploads » playlist to catch its back-catalogue. Dispatched AFTER the commit
+    # so the worker can load the row in its own session. Best-effort — a dispatch
+    # failure must NOT fail the add (the nightly crawl still covers the channel).
+    # No re-dispatch on the PATCH re-watch path (see update_channel_override).
+    try:
+        celery.send_task(
+            "workers.tasks.backfill_youtube_channel", args=[item["id"]]
+        )
+    except Exception:
+        logger.warning(
+            "add_channel: backfill dispatch failed for channel %s (best-effort)",
+            item["id"],
+            exc_info=True,
+        )
+    return item
+
+
+@router.patch("/channels/{channel_id}", response_model=ChannelOut)
+async def update_channel_override(
+    channel_id: int,
+    body: ChannelUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Toggle watched/excluded/type/artist on a channel. 404 on unknown id.
+
+    PATCH semantics: only the fields explicitly present in the body are applied.
+    Deliberately does NOT dispatch the historical backfill even when this re-sets
+    ``watched=True`` — the one-shot backfill belongs to the add path (POST
+    /channels); the nightly crawl keeps a re-watched channel current on its own."""
+    changes = body.model_dump(exclude_unset=True)
+    try:
+        item = await channel_service.set_override(db, channel_id, changes=changes)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+    await _audit(db, admin, "channel_override", "channel", channel_id, changes)
+    await db.commit()
+    return item

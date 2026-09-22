@@ -19,6 +19,7 @@ from .catalog import (  # noqa: F401
     UserTrack,
     bpm_analysis_candidate_filter,
 )
+from .channel import Channel  # noqa: F401
 from .collection import (  # noqa: F401
     CollectionFolder,
     CollectionItem,

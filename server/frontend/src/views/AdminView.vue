@@ -36,6 +36,8 @@
 
     <AdminCohort v-else-if="activeTab === 'cohorte'" />
 
+    <AdminChannels v-else-if="activeTab === 'channels'" />
+
     <AdminSets v-else-if="activeTab === 'sets'" />
     <AdminGenres v-else-if="activeTab === 'genres'" />
 
@@ -60,6 +62,7 @@ import AdminOverview from '../components/admin/AdminOverview.vue'
 import AdminArtists from '../components/admin/AdminArtists.vue'
 import AdminFlags from '../components/admin/AdminFlags.vue'
 import AdminCohort from '../components/admin/AdminCohort.vue'
+import AdminChannels from '../components/admin/AdminChannels.vue'
 import AdminSets from '../components/admin/AdminSets.vue'
 import AdminGenres from '../components/admin/AdminGenres.vue'
 import AdminBeatport from '../components/admin/AdminBeatport.vue'
@@ -68,10 +71,11 @@ import AdminMonitoring from '../components/admin/AdminMonitoring.vue'
 import AdminCrawl from '../components/admin/AdminCrawl.vue'
 import AdminAuditLog from '../components/admin/AdminAuditLog.vue'
 
-// IA à 7 onglets (D10 + C14.a). Chaque onglet monte un ou plusieurs composants (cf. template) :
+// IA à 8 onglets (D10 + C14.a + C14.b). Chaque onglet monte un ou plusieurs composants (cf. template) :
 //   overview       → AdminOverview
 //   artists        → AdminArtists + AdminFlags (l'ancien onglet Flags est absorbé ici)
 //   cohorte        → AdminCohort (C14.a : cohorte d'artistes dérivée — veille Deezer)
+//   channels       → AdminChannels (C14.b : chaînes YouTube surveillées — veille de sets)
 //   sets           → AdminSets
 //   genres         → AdminGenres
 //   enrichment     → AdminBeatport + AdminEnrichmentActions (ancien onglet Beatport absorbé)
@@ -80,6 +84,7 @@ const tabs = [
   { id: 'overview', label: 'Aperçu' },
   { id: 'artists', label: 'Artistes' },
   { id: 'cohorte', label: 'Cohorte' },
+  { id: 'channels', label: 'Chaînes' },
   { id: 'sets', label: 'Sets' },
   { id: 'genres', label: 'Genres' },
   { id: 'enrichment', label: 'Enrichissement' },

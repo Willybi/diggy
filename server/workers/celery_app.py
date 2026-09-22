@@ -243,6 +243,18 @@ celery_app.conf.update(
             "task": "workers.tasks.snapshot_backlogs",
             "schedule": crontab(minute=30),
         },
+        # C14.b — veille nocturne des sets DJ YouTube. Itère les chaînes
+        # surveillées (channels, platform='youtube'), tire le flux RSS de chacune,
+        # garde les vidéos « longues » (= des sets) et crée des sets metadata-only.
+        # Ne tape pas les fenêtres rate-limitées Deezer/Beatport du worker enrich
+        # (bucket 'youtube' dédié) → queue par défaut "celery", pas de task_route.
+        # 01h30 : créneau nocturne LIBRE (avant backfill 02h / radar 03h / trackid
+        # 03h30). Single-instance via lock:crawl_youtube_channels ; no-op sûr quand
+        # aucune chaîne n'est surveillée.
+        "crawl-youtube-channels-daily": {
+            "task": "workers.tasks.crawl_youtube_channels",
+            "schedule": crontab(hour=1, minute=30),  # tous les jours à 1h30
+        },
     },
 )
 

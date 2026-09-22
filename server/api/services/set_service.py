@@ -75,9 +75,11 @@ async def list_sets(
         # C8: hide unreliable TrackID sets (adds to the roots-only filter).
         .where(DJSet.parent_set_id.is_(None), set_reliable())
         .group_by(DJSet.id)
-        # A set with no identified track is noise in a discovery list: exclude it.
+        # A TrackID set with no identified track is noise in a discovery list:
+        # exclude it. But a non-trackid source (C14.b: YouTube) can be a
+        # legitimate metadata-only set (0 tracks) and must stay visible.
         # The count subquery below is built on this stmt, so total honours it.
-        .having(identified_expr > 0)
+        .having(or_(identified_expr > 0, DJSet.source != "trackid"))
     )
 
     if q:

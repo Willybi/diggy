@@ -27,6 +27,7 @@ from workers.tasks.sets import (
     resolve_set_tracks,
 )
 from workers.tasks.trends import compute_trends
+from workers.tasks.youtube import backfill_youtube_channel, crawl_youtube_channels
 
 __all__ = [
     "crawl_radar",
@@ -53,4 +54,6 @@ __all__ = [
     "recompute_artist_cohort",
     "snapshot_backlogs",
     "precompute_recommendations",
+    "crawl_youtube_channels",
+    "backfill_youtube_channel",
 ]
