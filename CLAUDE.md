@@ -85,7 +85,7 @@ server/
 │                            # cohort_service (C14.a: async list_cohort + set_override for the derived
 │                            # artist_cohort watch cohort; recompute lives worker-side in workers/cohort.py).
 │                            # channel_service (C14.b: async list_channels + list_candidates (live seed from
-│                            # trackid_index) + add_channel (resolve URL→channel_id) + set_override; no commit).
+│                            # trackid_index) + add_channel (resolve URL→channel_id + fetch real channel title) + set_override; no commit).
 │                            # C7: similarity/recommendation gained album de-dup (≤1 track per album,
 │                            # album_map in SimilarityContext, album_id on PooledCandidate + CatalogEntryOut)
 ├── workers/

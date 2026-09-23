@@ -28,6 +28,7 @@ if _SERVER_PATH not in sys.path:
 import pytest  # noqa: E402
 from workers.youtube import (  # noqa: E402
     YouTubeHTTPError,
+    fetch_channel_title,
     fetch_video_durations,
     find_duplicate_set,
     is_set_duration,
@@ -259,6 +260,33 @@ class TestResolveChannelIdHandle:
             resolve_channel_id(client, "https://youtube.com/c/BoilerRoom", "k")
         )
         assert got == _UC
+
+
+class TestFetchChannelTitle:
+    def test_no_api_key_returns_none(self):
+        # Falsy key → graceful None and NO client call (mirrors durations).
+        client = _FakeClient(lambda url, params: _FakeResp(500))
+        assert asyncio.run(fetch_channel_title(client, _UC, api_key="")) is None
+        assert client.calls == []
+
+    def test_returns_snippet_title(self):
+        def handler(url, params):
+            assert url.endswith("/channels")
+            assert params.get("part") == "snippet"
+            assert params.get("id") == _UC
+            return _FakeResp(200, {"items": [{"snippet": {"title": "Boiler Room"}}]})
+
+        client = _FakeClient(handler)
+        assert asyncio.run(fetch_channel_title(client, _UC, "k")) == "Boiler Room"
+
+    def test_empty_items_returns_none(self):
+        client = _FakeClient(lambda url, params: _FakeResp(200, {"items": []}))
+        assert asyncio.run(fetch_channel_title(client, _UC, "k")) is None
+
+    def test_http_error_raises(self):
+        client = _FakeClient(lambda url, params: _FakeResp(403))
+        with pytest.raises(YouTubeHTTPError):
+            asyncio.run(fetch_channel_title(client, _UC, "k"))
 
 
 # ── upsert_youtube_set over an own aiosqlite engine ───────────────────────────

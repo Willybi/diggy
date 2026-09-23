@@ -16,6 +16,7 @@ Network cores + pure helpers:
 - :func:`fetch_channel_uploads` — page the uploads playlist (``playlistItems.list``)
   for the one-shot historical backfill (L7), video dicts shaped like the feed.
 - :func:`resolve_channel_id` — a URL/handle → the « UC… » channel id.
+- :func:`fetch_channel_title` — a « UC… » channel id → its display title.
 - :func:`find_duplicate_set` — ultra-conservative cross-source set dedup.
 - :func:`upsert_youtube_set` — dedup-then-upsert a metadata-only YouTube ``DJSet``.
 
@@ -458,6 +459,35 @@ async def resolve_channel_id(
             return cid
     # 3. Last resort: free-text search.
     return await _resolve_by_search(client, handle or text, api_key)
+
+
+async def fetch_channel_title(
+    client: httpx.AsyncClient, channel_id: str, api_key: str
+) -> str | None:
+    """Return a channel's display title via the Data API ``channels.list``, or ``None``.
+
+    Backs the L8 auto-name: when a channel is added by URL without an explicit
+    name, we fetch its real title (``snippet.title``) rather than fall back to the
+    raw « UC… » id. A falsy ``api_key`` degrades gracefully to ``None`` (logs a
+    warning, never raises) so a missing key never crashes the caller. A non-200
+    raises :class:`YouTubeHTTPError`; an empty ``items`` (unknown/removed channel)
+    returns ``None``.
+    """
+    if not api_key:
+        logger.warning(
+            "fetch_channel_title: no YouTube Data API key — cannot fetch title"
+        )
+        return None
+    resp = await client.get(
+        f"{YOUTUBE_DATA_API}/channels",
+        params={"part": "snippet", "id": channel_id, "key": api_key},
+    )
+    if resp.status_code != 200:
+        raise YouTubeHTTPError(resp.status_code, "channels.list")
+    items = resp.json().get("items", [])
+    if not items:
+        return None
+    return (items[0].get("snippet") or {}).get("title")
 
 
 # ── Cross-source dedup + upsert ──────────────────────────────────────────────

@@ -190,11 +190,100 @@ class TestChannelAdd:
         assert data["total"] == 1
         assert data["items"][0]["external_id"] == "UCsame1234567890abcdef1"
 
+    async def test_auto_fetches_title_when_no_name(self, admin_client, mocker):
+        # (a) Added by URL without a name → the fetched channel title is stored.
+        mocker.patch(
+            "services.channel_service.resolve_channel_id",
+            new_callable=AsyncMock,
+            return_value="UCtitle1234567890abcdef",
+        )
+        mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value="Boiler Room",
+        )
+        r = await admin_client.post("/api/admin/channels", json={"url": "u-title"})
+        assert r.status_code == 200
+        assert r.json()["name"] == "Boiler Room"
+
+    async def test_refreshes_placeholder_name_on_readd(
+        self, admin_client, db, mocker
+    ):
+        # (b) A row whose name is still the channel id (placeholder) is refreshed
+        #     to the fetched title on a re-add without an explicit name.
+        cid = "UCplace1234567890abcdef"
+        await _channel(db, cid, external_id=cid, watched=False)
+        await db.commit()
+
+        mocker.patch(
+            "services.channel_service.resolve_channel_id",
+            new_callable=AsyncMock,
+            return_value=cid,
+        )
+        mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value="Real Title",
+        )
+        r = await admin_client.post("/api/admin/channels", json={"url": "u-re"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["name"] == "Real Title"
+        assert data["watched"] is True  # re-watch preserved
+
+    async def test_curated_name_not_overwritten_on_readd(
+        self, admin_client, db, mocker
+    ):
+        # A real (non-placeholder) name is never clobbered by a nameless re-add.
+        cid = "UCcur1234567890abcdef12"
+        await _channel(db, "Curated Name", external_id=cid, watched=False)
+        await db.commit()
+
+        mocker.patch(
+            "services.channel_service.resolve_channel_id",
+            new_callable=AsyncMock,
+            return_value=cid,
+        )
+        mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value="Different Title",
+        )
+        r = await admin_client.post("/api/admin/channels", json={"url": "u-cur"})
+        assert r.status_code == 200
+        assert r.json()["name"] == "Curated Name"
+
+    async def test_explicit_name_wins_over_fetch(self, admin_client, mocker):
+        # (c) An explicit body.name always wins — fetch_channel_title not consulted.
+        mocker.patch(
+            "services.channel_service.resolve_channel_id",
+            new_callable=AsyncMock,
+            return_value="UCexpl1234567890abcdef1",
+        )
+        fetch = mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value="Fetched Title",
+        )
+        r = await admin_client.post(
+            "/api/admin/channels",
+            json={"url": "u-expl", "name": "Chosen Name"},
+        )
+        assert r.status_code == 200
+        assert r.json()["name"] == "Chosen Name"
+        fetch.assert_not_called()
+
     async def test_falls_back_to_channel_id_when_no_name(self, admin_client, mocker):
+        # (d) No body.name AND no title fetched (e.g. no API key) → channel_id.
         mocker.patch(
             "services.channel_service.resolve_channel_id",
             new_callable=AsyncMock,
             return_value="UCnoname1234567890abcde",
+        )
+        mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value=None,
         )
         r = await admin_client.post("/api/admin/channels", json={"url": "u"})
         assert r.status_code == 200
@@ -217,6 +306,11 @@ class TestChannelAdd:
             new_callable=AsyncMock,
             return_value="UCaudit1234567890abcdef",
         )
+        mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
         r = await admin_client.post(
             "/api/admin/channels", json={"url": "https://y/@a"}
         )
@@ -234,6 +328,11 @@ class TestChannelAdd:
             new_callable=AsyncMock,
             return_value="UCback1234567890abcdef1",
         )
+        mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
         send = mocker.patch("routers.admin.celery.send_task")
         r = await admin_client.post("/api/admin/channels", json={"url": "u-bk"})
         assert r.status_code == 200
@@ -248,6 +347,11 @@ class TestChannelAdd:
             "services.channel_service.resolve_channel_id",
             new_callable=AsyncMock,
             return_value="UCboom1234567890abcdef1",
+        )
+        mocker.patch(
+            "services.channel_service.fetch_channel_title",
+            new_callable=AsyncMock,
+            return_value=None,
         )
         mocker.patch(
             "routers.admin.celery.send_task",

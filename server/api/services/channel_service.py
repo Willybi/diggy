@@ -14,7 +14,12 @@ value » (see below).
 from models import Channel, TrackIdIndex
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from workers.youtube import YOUTUBE_API_KEY, default_client, resolve_channel_id
+from workers.youtube import (
+    YOUTUBE_API_KEY,
+    default_client,
+    fetch_channel_title,
+    resolve_channel_id,
+)
 
 
 def _item(row: Channel) -> dict:
@@ -113,15 +118,27 @@ async def add_channel(db: AsyncSession, body) -> dict:
 
     ``body.url`` is resolved to a « UC… » channel id via
     :func:`workers.youtube.resolve_channel_id` (creating a default httpx client).
-    An unresolvable URL raises ValueError. The ``channels`` row is upserted
-    idempotently on ``(platform='youtube', external_id)`` — created if absent,
-    else re-flagged ``watched=True`` (name/type refreshed only when provided).
-    Flushes but does NOT commit (the router audits + commits). Returns the item.
+    An unresolvable URL raises ValueError. The display name is ``body.name`` when
+    given, else the channel's real title fetched via
+    :func:`workers.youtube.fetch_channel_title` (in the same client block), else a
+    fallback to the channel id. The ``channels`` row is upserted idempotently on
+    ``(platform='youtube', external_id)`` — created if absent, else re-flagged
+    ``watched=True``; on that update path an explicit ``body.name`` is applied, and
+    otherwise a placeholder name still equal to the channel id is refreshed to the
+    resolved title (a name already curated is never overwritten). Flushes but does
+    NOT commit (the router audits + commits). Returns the item.
     """
     async with default_client() as client:
         channel_id = await resolve_channel_id(client, body.url, YOUTUBE_API_KEY)
-    if not channel_id:
-        raise ValueError(f"channel_id introuvable pour {body.url!r}")
+        if not channel_id:
+            raise ValueError(f"channel_id introuvable pour {body.url!r}")
+        if body.name:
+            display_name = body.name
+        else:
+            display_name = (
+                await fetch_channel_title(client, channel_id, YOUTUBE_API_KEY)
+                or channel_id
+            )
 
     row = (
         await db.execute(
@@ -136,7 +153,7 @@ async def add_channel(db: AsyncSession, body) -> dict:
         row = Channel(
             platform="youtube",
             external_id=channel_id,
-            name=body.name or channel_id,
+            name=display_name,
             channel_type=body.channel_type,
             watched=True,
         )
@@ -145,6 +162,9 @@ async def add_channel(db: AsyncSession, body) -> dict:
         row.watched = True
         if body.name:
             row.name = body.name
+        elif row.name == row.external_id:
+            # A placeholder name left on the channel id — refresh to the title.
+            row.name = display_name
         if body.channel_type is not None:
             row.channel_type = body.channel_type
 
