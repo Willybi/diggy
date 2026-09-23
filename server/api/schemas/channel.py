@@ -27,23 +27,6 @@ class ChannelListOut(BaseModel):
     items: list[ChannelOut]
 
 
-class ChannelCandidateOut(BaseModel):
-    """A channel KNOWN to the base (from ``trackid_index``) but not yet curated.
-
-    ``trackid_count`` = number of indexed TrackID sets carrying this channel;
-    ``set_count`` = how many of those are already linked to a Diggy set (the
-    covered share). The gap between them is the discovery value the seed ranks on.
-    """
-
-    name: str
-    set_count: int
-    trackid_count: int
-
-
-class ChannelCandidateListOut(BaseModel):
-    items: list[ChannelCandidateOut]
-
-
 class ChannelSearchResultOut(BaseModel):
     """A YouTube channel search hit (from the Data API ``search.list``).
 
@@ -59,6 +42,28 @@ class ChannelSearchResultOut(BaseModel):
 
 class ChannelSearchListOut(BaseModel):
     items: list[ChannelSearchResultOut]
+
+
+class ChannelCandidateOut(BaseModel):
+    """A channel KNOWN to the base (from ``trackid_index``) but not yet curated.
+
+    ``trackid_count`` = number of indexed TrackID sets carrying this channel;
+    ``set_count`` = how many of those are already linked to a Diggy set (the
+    covered share). The gap between them is the discovery value the seed ranks on.
+    """
+
+    name: str
+    set_count: int
+    trackid_count: int
+    # LC1: the cached YouTube resolution for this name (the 1st hit is the
+    # suggested pick), read READ-ONLY from Redis by ``list_candidates`` — None
+    # until the name is resolved. A resolution spends 100 quota units, so it only
+    # happens on an explicit /candidates/resolve call, never on listing render.
+    preselect: list[ChannelSearchResultOut] | None = None
+
+
+class ChannelCandidateListOut(BaseModel):
+    items: list[ChannelCandidateOut]
 
 
 class ChannelCreateIn(BaseModel):

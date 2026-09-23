@@ -11,6 +11,10 @@ a session is not safe for concurrent access).
 value » (see below).
 """
 
+import json
+import logging
+import os
+
 from models import Channel, TrackIdIndex
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +25,21 @@ from workers.youtube import (
     resolve_channel_id,
     search_channels,
 )
+
+logger = logging.getLogger(__name__)
+
+# A candidate name is resolved to YouTube hits AT MOST ONCE, then served from
+# Redis: each search.list costs 100 quota units, so the cache TTL is long (60
+# days by default) — a candidate's channel rarely changes identity.
+CANDIDATE_RESOLVE_TTL_SECONDS = int(
+    os.environ.get("CANDIDATE_RESOLVE_TTL_SECONDS", str(60 * 24 * 3600))
+)
+
+
+def _candidate_cache_key(name: str) -> str:
+    """Cache key for a candidate name's resolution. ``list_candidates`` (read) and
+    ``/resolve`` (read/write) MUST produce the identical key for the exact name."""
+    return f"yt:cand:v1:{name}"
 
 
 def _item(row: Channel) -> dict:
@@ -71,7 +90,7 @@ async def list_channels(
     return {"total": total or 0, "items": [_item(r) for r in rows]}
 
 
-async def list_candidates(db: AsyncSession, *, limit: int = 50) -> dict:
+async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> dict:
     """Propose seed channels known to the base but not yet curated.
 
     Aggregates ``trackid_index`` by ``channel`` (a channel name known from the
@@ -82,6 +101,13 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50) -> dict:
     ``trackid_count - set_count`` (``set_count`` = rows with a non-NULL
     ``set_id``). Higher gap = more untapped sets → surfaced first; ties broken by
     the raw trackid volume then the name for determinism. Read-only, no commit.
+
+    When ``redis`` is provided, each candidate is annotated with its cached
+    YouTube pre-selection (``preselect``) READ FROM the cache only — this function
+    NEVER runs a YouTube search (a search would burn 100 quota units per name on
+    every listing render). A resolution happens exclusively on the explicit
+    ``resolve_candidate`` path. Fail-open: any Redis error leaves ``preselect``
+    at None, never an exception. ``redis=None`` keeps the legacy behaviour.
     """
     trackid_count = func.count()
     set_count = func.count(TrackIdIndex.set_id)
@@ -106,12 +132,33 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50) -> dict:
     )
 
     rows = (await db.execute(stmt)).all()
-    return {
-        "items": [
-            {"name": name, "trackid_count": tc, "set_count": sc}
-            for name, tc, sc in rows
-        ]
-    }
+    items = [
+        {
+            "name": name,
+            "trackid_count": tc,
+            "set_count": sc,
+            "preselect": None,
+        }
+        for name, tc, sc in rows
+    ]
+
+    if redis is not None:
+        for it in items:
+            try:
+                cached = await redis.get(_candidate_cache_key(it["name"]))
+            except Exception as exc:  # fail-open: Redis down → no preselect at all
+                logger.warning(
+                    "candidate preselect cache read skipped (Redis unavailable): %s",
+                    exc,
+                )
+                break
+            if cached:
+                try:
+                    it["preselect"] = json.loads(cached)
+                except Exception:  # corrupt/legacy payload → leave preselect None
+                    pass
+
+    return {"items": items}
 
 
 async def search_youtube(query: str, *, limit: int = 6) -> dict:
@@ -130,6 +177,51 @@ async def search_youtube(query: str, *, limit: int = 6) -> dict:
     async with default_client() as client:
         items = await search_channels(client, cleaned, YOUTUBE_API_KEY, limit=limit)
     return {"items": items}
+
+
+async def resolve_candidate(name: str, redis, *, limit: int = 6) -> dict:
+    """Resolve a candidate channel ``name`` to YouTube hits, CACHE-FIRST.
+
+    A ``search.list`` call costs 100 quota units, so a name is resolved at most
+    once then served from Redis (TTL :data:`CANDIDATE_RESOLVE_TTL_SECONDS`) — a
+    cache HIT spends ZERO quota. No DB access.
+
+    * HIT  → ``{"items": <cached hits>, "cached": True}`` (no search).
+    * MISS → runs :func:`search_youtube` (which itself gates names < 2 chars),
+      best-effort writes the hits back, returns ``{"items": ..., "cached": False}``.
+
+    Fail-open: any Redis error (read OR write) degrades to a live search / a
+    skipped write, never an exception — availability wins over a warm cache.
+    """
+    key = _candidate_cache_key(name)
+
+    if redis is not None:
+        try:
+            cached = await redis.get(key)
+        except Exception as exc:  # fail-open: Redis down → live search
+            logger.warning(
+                "candidate resolve cache read skipped (Redis unavailable): %s", exc
+            )
+            cached = None
+        if cached:
+            try:
+                return {"items": json.loads(cached), "cached": True}
+            except Exception:  # corrupt/legacy payload → recompute
+                pass
+
+    res = await search_youtube(name, limit=limit)
+
+    if redis is not None:
+        try:
+            await redis.set(
+                key, json.dumps(res["items"]), ex=CANDIDATE_RESOLVE_TTL_SECONDS
+            )
+        except Exception as exc:  # fail-open: cache write must never fail the call
+            logger.warning(
+                "candidate resolve cache write skipped (Redis unavailable): %s", exc
+            )
+
+    return {**res, "cached": False}
 
 
 async def add_channel(db: AsyncSession, body) -> dict:

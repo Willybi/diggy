@@ -252,7 +252,11 @@
 
     <!-- Candidats : chaînes connues de la base (trackid_index) pas encore curées,
          triées par valeur de découverte (l'API les renvoie déjà ordonnées). Le nom
-         est connu mais pas l'URL YouTube → l'admin la saisit pour la surveiller. -->
+         est connu mais pas l'URL YouTube. On propose une chaîne YouTube PRÉ-SÉLECTIONNÉE
+         (vignette) pour que l'admin la reconnaisse d'un coup d'œil : soit gratuitement
+         via le cache (c.preselect renvoyé par /candidates), soit sur clic explicite
+         « Pré-sélectionner » (1 appel /resolve = quota — JAMAIS à l'affichage). Une
+         porte de sortie « URL directe » reste dispo si la recherche ne trouve rien. -->
     <div class="at-region chn-region">
       <div class="at-head">
         <h2 class="at-title">
@@ -287,26 +291,127 @@
                 <span class="at-tech">{{ fmtInt(c.set_count) }}</span>
               </td>
               <td data-label="Ajouter" data-stack>
-                <div class="chn-cand-add">
-                  <input
-                    v-model="candidateUrls[c.name]"
-                    class="chn-input chn-input--grow"
-                    type="text"
-                    placeholder="URL YouTube"
-                    aria-label="URL YouTube de la chaîne candidate"
-                    @keyup.enter="addCandidate(c)"
-                  />
-                  <button
-                    class="btn btn--sm btn--accent"
-                    :disabled="candAdding[c.name] || !candidateUrlFilled(c)"
-                    @click="addCandidate(c)"
-                  >
-                    {{ candAdding[c.name] ? 'Ajout…' : 'Ajouter' }}
-                  </button>
+                <div class="chn-cand-pre">
+                  <!-- Pré-sélection : venue du cache (c.preselect, GRATUITE) OU d'une
+                       résolution locale. Suggéré = 1er résultat ; « choisir une autre »
+                       déplie le reste, DÉJÀ en mémoire → aucun nouvel appel. -->
+                  <template v-if="preselectFor(c)">
+                    <span class="chn-cand-pre-label">Chaîne suggérée</span>
+                    <ul class="chn-results">
+                      <li
+                        v-for="(r, i) in visiblePreselect(c)"
+                        :key="r.channel_id"
+                        class="chn-result"
+                        :class="{ 'chn-result--suggested': i === 0 }"
+                      >
+                        <img
+                          v-if="r.thumbnail_url"
+                          class="chn-result-thumb"
+                          :src="r.thumbnail_url"
+                          :alt="`Vignette de ${r.title}`"
+                          width="40"
+                          height="40"
+                          loading="lazy"
+                        />
+                        <span
+                          v-else
+                          class="chn-result-thumb chn-result-thumb--empty"
+                          aria-hidden="true"
+                        ></span>
+                        <div class="chn-result-body">
+                          <span class="chn-result-title">{{ r.title }}</span>
+                          <span v-if="r.description" class="chn-result-desc">{{
+                            r.description
+                          }}</span>
+                        </div>
+                        <a
+                          class="chn-result-open"
+                          :href="ytChannelUrl(r.channel_id)"
+                          target="_blank"
+                          rel="noopener"
+                          :aria-label="`Ouvrir ${r.title} sur YouTube`"
+                        >
+                          <AdminIcon name="external" :size="14" />
+                        </a>
+                        <button
+                          class="btn btn--sm btn--accent"
+                          :disabled="isAddingCandResult(c, r)"
+                          @click="addCandidateResult(c, r)"
+                        >
+                          {{ isAddingCandResult(c, r) ? 'Ajout…' : 'Ajouter' }}
+                        </button>
+                        <p v-if="candResultError(c, r)" class="chn-add-error chn-result-err">
+                          <AdminIcon name="alert-triangle" :size="13" /> {{ candResultError(c, r) }}
+                        </p>
+                      </li>
+                    </ul>
+                    <button
+                      v-if="othersFor(c).length"
+                      class="btn btn--sm chn-cand-more"
+                      @click="toggleExpand(c)"
+                    >
+                      <AdminIcon
+                        name="chevron"
+                        :size="13"
+                        class="chn-cand-more-chev"
+                        :class="{ open: candExpanded[c.name] }"
+                      />
+                      {{
+                        candExpanded[c.name]
+                          ? 'Masquer les autres'
+                          : `Choisir une autre chaîne (${othersFor(c).length})`
+                      }}
+                    </button>
+                  </template>
+
+                  <!-- Résolution tentée mais sans résultat exploitable. -->
+                  <p v-else-if="preselectAttempted(c)" class="chn-search-msg">
+                    Aucune chaîne trouvée.
+                  </p>
+
+                  <!-- Pas encore résolu : bouton explicite (1 recherche = quota). -->
+                  <template v-else>
+                    <button
+                      class="btn btn--sm btn--accent chn-cand-preselect"
+                      :disabled="candResolving[c.name]"
+                      @click="resolveCandidate(c)"
+                    >
+                      <AdminIcon name="search" :size="13" />
+                      {{ candResolving[c.name] ? 'Pré-sélection…' : 'Pré-sélectionner' }}
+                    </button>
+                    <p v-if="candResolveError[c.name]" class="chn-add-error">
+                      <AdminIcon name="alert-triangle" :size="13" /> {{ candResolveError[c.name] }}
+                    </p>
+                  </template>
+
+                  <!-- Porte de sortie : ajout par URL directe (si rien de trouvé). -->
+                  <details class="chn-cand-direct at-details">
+                    <summary class="chn-cand-direct-sum">
+                      <AdminIcon name="chevron" :size="13" class="at-details-chev" />
+                      URL directe
+                    </summary>
+                    <div class="chn-cand-add">
+                      <input
+                        v-model="candidateUrls[c.name]"
+                        class="chn-input chn-input--grow"
+                        type="text"
+                        placeholder="URL YouTube"
+                        aria-label="URL YouTube de la chaîne candidate"
+                        @keyup.enter="addCandidate(c)"
+                      />
+                      <button
+                        class="btn btn--sm"
+                        :disabled="candAdding[c.name] || !candidateUrlFilled(c)"
+                        @click="addCandidate(c)"
+                      >
+                        {{ candAdding[c.name] ? 'Ajout…' : 'Ajouter' }}
+                      </button>
+                    </div>
+                    <p v-if="candErrors[c.name]" class="chn-add-error">
+                      <AdminIcon name="alert-triangle" :size="13" /> {{ candErrors[c.name] }}
+                    </p>
+                  </details>
                 </div>
-                <p v-if="candErrors[c.name]" class="chn-add-error">
-                  <AdminIcon name="alert-triangle" :size="13" /> {{ candErrors[c.name] }}
-                </p>
               </td>
             </tr>
           </tbody>
@@ -358,6 +463,18 @@ const errorCand = ref(false)
 const candidateUrls = reactive({})
 const candErrors = reactive({})
 const candAdding = reactive({})
+
+// ── Pré-sélection d'un candidat (LC2) ──
+// Résolutions locales par candidat (name → liste de résultats), issues d'un clic
+// « Pré-sélectionner » (appel /resolve, quota). Complètent le c.preselect du cache.
+const candResolved = reactive({})
+// name → résolution en vol / message d'erreur / liste « autres chaînes » dépliée.
+const candResolving = reactive({})
+const candResolveError = reactive({})
+const candExpanded = reactive({})
+// clé `${name}::${channel_id}` → ajout d'un résultat en vol / erreur inline.
+const candAddingResult = reactive({})
+const candResultErrors = reactive({})
 
 // ── Ajout d'une chaîne par URL (voie avancée) ──
 const addUrl = ref('')
@@ -560,6 +677,91 @@ async function addCandidate(c) {
   }
 }
 
+// Liste de pré-sélection EXPLOITABLE (non vide) : résolution locale prioritaire,
+// sinon le cache (c.preselect) — null si rien à afficher.
+function preselectFor(c) {
+  const list = candResolved[c.name] || c.preselect
+  return list && list.length ? list : null
+}
+
+// Une résolution a été tentée (localement OU présente dans le cache), même sans
+// résultat → distingue « pas encore cherché » de « cherché, 0 résultat ».
+function preselectAttempted(c) {
+  return c.name in candResolved || Array.isArray(c.preselect)
+}
+
+// Les résultats hors suggéré (= à partir du 2e).
+function othersFor(c) {
+  const list = preselectFor(c)
+  return list && list.length > 1 ? list.slice(1) : []
+}
+
+// Suggéré seul (replié) ou toute la liste (déplié « choisir une autre »).
+function visiblePreselect(c) {
+  const list = preselectFor(c)
+  if (!list) return []
+  return candExpanded[c.name] ? list : [list[0]]
+}
+
+function toggleExpand(c) {
+  candExpanded[c.name] = !candExpanded[c.name]
+}
+
+function candAddResultKey(c, r) {
+  return `${c.name}::${r.channel_id}`
+}
+function isAddingCandResult(c, r) {
+  return !!candAddingResult[candAddResultKey(c, r)]
+}
+function candResultError(c, r) {
+  return candResultErrors[candAddResultKey(c, r)] || ''
+}
+
+// Résout UN candidat en chaînes YouTube (add-by-search). 1 appel /resolve, mis en
+// cache côté back → gratuit ensuite. UNIQUEMENT au clic (jamais à l'affichage — le
+// coût quota est le même que la recherche : 100 unités par résolution).
+async function resolveCandidate(c) {
+  if (candResolving[c.name]) return
+  candResolving[c.name] = true
+  candResolveError[c.name] = ''
+  try {
+    const { data } = await api.get('/api/admin/channels/candidates/resolve', {
+      params: { name: c.name },
+    })
+    candResolved[c.name] = data.items
+    candExpanded[c.name] = false
+  } catch (e) {
+    // Un 4xx (ex. quota) s'affiche inline ; l'intercepteur api ne toaste que 5xx.
+    candResolveError[c.name] = e.response?.data?.detail || 'Pré-sélection impossible'
+  } finally {
+    candResolving[c.name] = false
+  }
+}
+
+// Ajoute un résultat de pré-sélection : son channel_id alimente le chemin d'ajout
+// par URL (résolu côté serveur). En succès on retire le candidat du seed et on
+// rafraîchit la liste surveillée (comme addCandidate).
+async function addCandidateResult(c, r) {
+  const key = candAddResultKey(c, r)
+  if (candAddingResult[key]) return
+  candAddingResult[key] = true
+  candResultErrors[key] = ''
+  try {
+    await api.post('/api/admin/channels', { url: r.channel_id, name: r.title })
+    candidates.value = candidates.value.filter((x) => x.name !== c.name)
+    delete candResolved[c.name]
+    delete candExpanded[c.name]
+    delete candResolveError[c.name]
+    delete candidateUrls[c.name]
+    page.value = 1
+    await fetchChannels()
+  } catch (e) {
+    candResultErrors[key] = e.response?.data?.detail || 'Ajout impossible'
+  } finally {
+    candAddingResult[key] = false
+  }
+}
+
 onMounted(() => {
   fetchChannels()
   fetchCandidates()
@@ -681,6 +883,36 @@ onMounted(() => {
   align-items: center;
   gap: var(--space-2);
   width: 100%;
+}
+
+/* ── Pré-sélection d'un candidat (LC2) : suggéré + autres + porte de sortie. ── */
+.chn-cand-pre {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+.chn-cand-pre-label {
+  font: 600 var(--fs-xs)/1.2 var(--font-ui);
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* La carte de la chaîne suggérée se distingue par une bordure accentuée. */
+.chn-result--suggested {
+  border-color: var(--accent);
+}
+.chn-cand-more {
+  align-self: flex-start;
+}
+.chn-cand-more-chev {
+  transition: transform 0.15s;
+}
+.chn-cand-more-chev.open {
+  transform: rotate(180deg);
+}
+.chn-cand-direct {
+  margin-top: var(--space-1);
 }
 
 /* ── Recherche YouTube (add-by-search) ── */

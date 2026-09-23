@@ -775,11 +775,29 @@ async def list_channels(
 async def list_channel_candidates(
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
     _admin: User = Depends(require_admin),
 ):
     """Seed of channels known to the base (trackid_index) but not yet curated,
-    ranked by discovery value (least-covered first). Thin router."""
-    return await channel_service.list_candidates(db, limit=limit)
+    ranked by discovery value (least-covered first). Each candidate carries its
+    cached YouTube pre-selection READ-ONLY from Redis — this endpoint NEVER runs a
+    search (quota-safe on render); a resolution goes through /candidates/resolve.
+    Thin router."""
+    return await channel_service.list_candidates(db, limit=limit, redis=redis)
+
+
+@router.get("/channels/candidates/resolve", response_model=ChannelSearchListOut)
+async def resolve_channel_candidate(
+    name: str,
+    redis=Depends(get_redis),
+    _admin: User = Depends(require_admin),
+):
+    """Resolve ONE candidate name to YouTube channel hits (add-by-search pick).
+
+    NB quota: a resolution spends 100 YouTube Data API units — the result is
+    cached (TTL CANDIDATE_RESOLVE_TTL_SECONDS), so an already-resolved name costs
+    0. Called on an explicit operator click, never on listing render. Thin router."""
+    return await channel_service.resolve_candidate(name, redis)
 
 
 @router.get("/channels/search", response_model=ChannelSearchListOut)

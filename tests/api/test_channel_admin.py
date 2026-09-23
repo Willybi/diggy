@@ -1,7 +1,19 @@
 """Tests for /api/admin/channels endpoints (C14.b, L3 — admin back)."""
+import json
 from unittest.mock import AsyncMock
 
 from models import Channel, DJSet, TrackIdIndex
+from services import channel_service
+
+
+class _RaisingRedis:
+    """A Redis stand-in whose every op raises — exercises the fail-open branches."""
+
+    async def get(self, *a, **k):
+        raise RuntimeError("redis down")
+
+    async def set(self, *a, **k):
+        raise RuntimeError("redis down")
 
 
 async def _channel(db, name, *, external_id=None, watched=True, excluded=False):
@@ -155,6 +167,176 @@ class TestChannelCandidates:
 
         r = await admin_client.get("/api/admin/channels/candidates?limit=2")
         assert len(r.json()["items"]) == 2
+
+
+# A YouTube channel search hit shared by the resolve/preselect tests.
+_RESOLVE_HITS = [
+    {
+        "channel_id": "UCabc1234567890abcdef12",
+        "title": "Boiler Room",
+        "description": "Music broadcaster",
+        "thumbnail_url": "https://i.ytimg.com/def.jpg",
+    },
+]
+
+
+class TestChannelCandidatePreselect:
+    """list_candidates annotates each candidate with its cached YouTube
+    pre-selection, READ-ONLY — it NEVER runs a search on listing render."""
+
+    async def test_preselect_read_from_cache_no_search(
+        self, admin_client, db, fake_redis, mocker
+    ):
+        await _tid(db, "Boiler Room", 501)
+        await db.commit()
+        fake_redis._store[
+            channel_service._candidate_cache_key("Boiler Room")
+        ] = json.dumps(_RESOLVE_HITS)
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+
+        r = await admin_client.get("/api/admin/channels/candidates")
+        assert r.status_code == 200
+        item = r.json()["items"][0]
+        assert item["name"] == "Boiler Room"
+        assert item["preselect"][0]["channel_id"] == "UCabc1234567890abcdef12"
+        assert item["preselect"][0]["title"] == "Boiler Room"
+        # INVARIANT: annotating the listing never triggers a YouTube search.
+        search.assert_not_called()
+
+    async def test_preselect_none_when_cache_empty_no_search(
+        self, admin_client, db, mocker
+    ):
+        await _tid(db, "Uncached", 502)
+        await db.commit()
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+
+        r = await admin_client.get("/api/admin/channels/candidates")
+        item = r.json()["items"][0]
+        assert item["name"] == "Uncached"
+        assert item["preselect"] is None
+        search.assert_not_called()
+
+    async def test_redis_none_leaves_preselect_none(self, db, mocker):
+        # Legacy signature (redis=None) → no preselect, no error, no search.
+        await _tid(db, "NoRedis", 503)
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+        out = await channel_service.list_candidates(db, redis=None)
+        assert out["items"][0]["name"] == "NoRedis"
+        assert out["items"][0]["preselect"] is None
+        search.assert_not_called()
+
+    async def test_failopen_on_raising_redis(self, db, mocker):
+        # A Redis that raises on read → fail-open: no exception, preselect None.
+        await _tid(db, "Boom", 504)
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+        out = await channel_service.list_candidates(db, redis=_RaisingRedis())
+        assert out["items"][0]["name"] == "Boom"
+        assert out["items"][0]["preselect"] is None
+        search.assert_not_called()
+
+
+class TestChannelCandidateResolve:
+    async def test_requires_auth(self, client):
+        r = await client.get("/api/admin/channels/candidates/resolve?name=boiler")
+        assert r.status_code == 401
+
+    async def test_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.get(
+            "/api/admin/channels/candidates/resolve?name=boiler"
+        )
+        assert r.status_code == 403
+
+    async def test_miss_searches_and_caches(self, admin_client, fake_redis, mocker):
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+        r = await admin_client.get(
+            "/api/admin/channels/candidates/resolve?name=Boiler Room"
+        )
+        assert r.status_code == 200
+        assert r.json()["items"][0]["channel_id"] == "UCabc1234567890abcdef12"
+        search.assert_called_once()
+        # The hits are cached under the EXACT-name key for later cache hits.
+        key = channel_service._candidate_cache_key("Boiler Room")
+        assert key in fake_redis._store
+        assert (
+            json.loads(fake_redis._store[key])[0]["channel_id"]
+            == "UCabc1234567890abcdef12"
+        )
+
+    async def test_hit_returns_cache_without_searching(
+        self, admin_client, fake_redis, mocker
+    ):
+        fake_redis._store[
+            channel_service._candidate_cache_key("Cached One")
+        ] = json.dumps(_RESOLVE_HITS)
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=[],
+        )
+        r = await admin_client.get(
+            "/api/admin/channels/candidates/resolve?name=Cached One"
+        )
+        assert r.status_code == 200
+        assert r.json()["items"][0]["channel_id"] == "UCabc1234567890abcdef12"
+        # INVARIANT: a cache hit spends ZERO quota — no search.
+        search.assert_not_called()
+
+    async def test_short_name_no_search(self, admin_client, mocker):
+        # search_youtube gates names < 2 chars → resolve returns empty, no call.
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+        r = await admin_client.get(
+            "/api/admin/channels/candidates/resolve?name=%20a%20"
+        )
+        assert r.status_code == 200
+        assert r.json() == {"items": []}
+        search.assert_not_called()
+
+    async def test_redis_none_failopen(self, mocker):
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+        out = await channel_service.resolve_candidate("Somebody", None)
+        assert out["cached"] is False
+        assert out["items"][0]["channel_id"] == "UCabc1234567890abcdef12"
+        search.assert_called_once()
+
+    async def test_failopen_on_raising_redis(self, mocker):
+        # get() raises → live search; set() raises → swallowed. No exception.
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=_RESOLVE_HITS,
+        )
+        out = await channel_service.resolve_candidate("Somebody", _RaisingRedis())
+        assert out["cached"] is False
+        assert out["items"][0]["channel_id"] == "UCabc1234567890abcdef12"
+        search.assert_called_once()
 
 
 class TestChannelAdd:

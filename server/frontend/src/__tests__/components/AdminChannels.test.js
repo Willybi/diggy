@@ -30,17 +30,20 @@ function candidateItem(over = {}) {
   return { name: 'Boiler Room', set_count: 3, trackid_count: 42, ...over }
 }
 
-// Default: channels list has one row, candidates has one entry, search returns none.
+// Default: channels list has one row, candidates has one entry, search + resolve none.
 function primeGet({
   channels = [channelItem()],
   total = 1,
   candidates = [candidateItem()],
   searchResults = [],
+  resolveResults = [],
 } = {}) {
   apiMock.get.mockImplementation((url) => {
     if (url === '/api/admin/channels') return Promise.resolve({ data: { total, items: channels } })
     if (url === '/api/admin/channels/candidates')
       return Promise.resolve({ data: { items: candidates } })
+    if (url === '/api/admin/channels/candidates/resolve')
+      return Promise.resolve({ data: { items: resolveResults } })
     if (url === '/api/admin/channels/search')
       return Promise.resolve({ data: { items: searchResults } })
     return Promise.resolve({ data: {} })
@@ -280,5 +283,102 @@ describe('AdminChannels', () => {
     expect(wrapper.find('.chn-result-err').text()).toContain('Chaîne introuvable')
     // The result stays listed so the operator can retry.
     expect(wrapper.find('.chn-result').exists()).toBe(true)
+  })
+
+  // ── LC2: candidate pre-selection ──
+
+  it('renders a candidate pre-selection from the cache without any /resolve call', async () => {
+    primeGet({
+      candidates: [
+        candidateItem({
+          preselect: [
+            searchResult(),
+            searchResult({ channel_id: 'UCdef', title: 'Boiler Room Berlin' }),
+          ],
+        }),
+      ],
+    })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    // The suggested (first) channel renders inline from the cached pre-selection…
+    expect(wrapper.find('.chn-result--suggested').exists()).toBe(true)
+    expect(wrapper.find('.chn-result--suggested .chn-result-title').text()).toBe('Cercle')
+    // …and NOTHING was resolved (the cache is free, a search spends 100 quota units).
+    expect(apiMock.get).not.toHaveBeenCalledWith(
+      '/api/admin/channels/candidates/resolve',
+      expect.anything(),
+    )
+  })
+
+  it('resolves a candidate only on an explicit click, then shows the suggested result', async () => {
+    primeGet({
+      candidates: [candidateItem()], // no preselect
+      resolveResults: [
+        searchResult(),
+        searchResult({ channel_id: 'UCdef', title: 'Boiler Room Berlin' }),
+      ],
+    })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    // Nothing is pre-selected yet → no suggested card, a "Pré-sélectionner" button shows.
+    expect(wrapper.find('.chn-result--suggested').exists()).toBe(false)
+
+    apiMock.get.mockClear()
+    await btnByText(wrapper, 'Pré-sélectionner').trigger('click')
+    await flushPromises()
+
+    // Exactly one resolve call, and only on the click.
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels/candidates/resolve', {
+      params: { name: 'Boiler Room' },
+    })
+    expect(apiMock.get).toHaveBeenCalledTimes(1)
+    // The first result becomes the suggested pick.
+    expect(wrapper.find('.chn-result--suggested .chn-result-title').text()).toBe('Cercle')
+  })
+
+  it('adds a pre-selected result — POST {url, name}, refetches, drops the candidate', async () => {
+    primeGet({ candidates: [candidateItem({ preselect: [searchResult()] })] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.post.mockResolvedValue({ data: channelItem() })
+    apiMock.get.mockClear()
+    await btnByText(wrapper, 'Ajouter', '.chn-result--suggested').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels', {
+      url: 'UCabc',
+      name: 'Cercle',
+    })
+    // The watched list is refreshed and the candidate leaves the seed.
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels', {
+      params: { page: 1, page_size: 50 },
+    })
+    expect(wrapper.text()).not.toContain('Boiler Room')
+  })
+
+  it('choosing another pre-selected channel triggers no new network call', async () => {
+    primeGet({
+      candidates: [
+        candidateItem({
+          preselect: [
+            searchResult(),
+            searchResult({ channel_id: 'UCdef', title: 'Boiler Room Berlin' }),
+          ],
+        }),
+      ],
+    })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.get.mockClear()
+    // Expanding the "others" list is free — the results are already in memory.
+    await btnByText(wrapper, 'Choisir une autre chaîne (1)').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.get).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Boiler Room Berlin')
   })
 })
