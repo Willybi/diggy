@@ -25,6 +25,7 @@ from schemas import (
     ChannelCreateIn,
     ChannelListOut,
     ChannelOut,
+    ChannelSearchListOut,
     ChannelUpdateIn,
     CohortItemOut,
     CohortListOut,
@@ -779,6 +780,21 @@ async def list_channel_candidates(
     """Seed of channels known to the base (trackid_index) but not yet curated,
     ranked by discovery value (least-covered first). Thin router."""
     return await channel_service.list_candidates(db, limit=limit)
+
+
+@router.get("/channels/search", response_model=ChannelSearchListOut)
+async def search_channels(
+    q: str,
+    limit: int = Query(6, ge=1, le=10),
+    _admin: User = Depends(require_admin),
+):
+    """Search YouTube for channels matching ``q`` (add-by-search picker). Thin router.
+
+    NB quota: each search spends 100 YouTube Data API units, so the service gates
+    the query length (>= 2 chars after stripping) to avoid burning the quota on
+    stray keystrokes — a too-short ``q`` returns an empty list without any call.
+    """
+    return await channel_service.search_youtube(q, limit=limit)
 
 
 @router.post("/channels", response_model=ChannelOut)

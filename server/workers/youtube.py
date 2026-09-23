@@ -17,6 +17,7 @@ Network cores + pure helpers:
   for the one-shot historical backfill (L7), video dicts shaped like the feed.
 - :func:`resolve_channel_id` — a URL/handle → the « UC… » channel id.
 - :func:`fetch_channel_title` — a « UC… » channel id → its display title.
+- :func:`search_channels` — a free-text query → N channel hits (add-by-search).
 - :func:`find_duplicate_set` — ultra-conservative cross-source set dedup.
 - :func:`upsert_youtube_set` — dedup-then-upsert a metadata-only YouTube ``DJSet``.
 
@@ -488,6 +489,58 @@ async def fetch_channel_title(
     if not items:
         return None
     return (items[0].get("snippet") or {}).get("title")
+
+
+async def search_channels(
+    client: httpx.AsyncClient, query: str, api_key: str, *, limit: int = 6
+) -> list[dict]:
+    """Search YouTube for channels matching ``query`` → up to ``limit`` hit dicts.
+
+    The GENERALISATION of :func:`_resolve_by_search` (which keeps only the first
+    ``channelId``): backs the admin add-by-search UX where the operator types a
+    name and picks the right channel from a list. Each item is
+    ``{channel_id, title, description, thumbnail_url}`` (the ``default`` thumbnail).
+    A falsy ``api_key`` degrades gracefully to ``[]`` (logs a warning, never raises,
+    zero network) so a missing key never crashes the caller. A non-200 raises
+    :class:`YouTubeHTTPError`; malformed items (no ``channelId``) are skipped
+    defensively.
+
+    NB quota: each ``search.list`` call costs 100 YouTube Data API units — callers
+    gate the query length so a stray keystroke never spends the quota.
+    """
+    if not api_key:
+        logger.warning(
+            "search_channels: no YouTube Data API key — skipping channel search"
+        )
+        return []
+    resp = await client.get(
+        f"{YOUTUBE_DATA_API}/search",
+        params={
+            "part": "snippet",
+            "type": "channel",
+            "q": query,
+            "maxResults": limit,
+            "key": api_key,
+        },
+    )
+    if resp.status_code != 200:
+        raise YouTubeHTTPError(resp.status_code, "search.list")
+    out: list[dict] = []
+    for item in resp.json().get("items", []):
+        channel_id = (item.get("id") or {}).get("channelId")
+        if not channel_id:
+            continue
+        snippet = item.get("snippet") or {}
+        thumbnails = snippet.get("thumbnails") or {}
+        out.append(
+            {
+                "channel_id": channel_id,
+                "title": snippet.get("title"),
+                "description": snippet.get("description"),
+                "thumbnail_url": (thumbnails.get("default") or {}).get("url"),
+            }
+        )
+    return out
 
 
 # ── Cross-source dedup + upsert ──────────────────────────────────────────────

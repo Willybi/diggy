@@ -44,6 +44,14 @@ class TestChannelAuth:
         r = await auth_client.get("/api/admin/channels/candidates")
         assert r.status_code == 403
 
+    async def test_search_requires_auth(self, client):
+        r = await client.get("/api/admin/channels/search?q=boiler")
+        assert r.status_code == 401
+
+    async def test_search_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.get("/api/admin/channels/search?q=boiler")
+        assert r.status_code == 403
+
     async def test_add_rejected_for_non_admin(self, auth_client):
         r = await auth_client.post("/api/admin/channels", json={"url": "x"})
         assert r.status_code == 403
@@ -362,6 +370,85 @@ class TestChannelAdd:
 
         listing = await admin_client.get("/api/admin/channels")
         assert listing.json()["total"] == 1
+
+
+class TestChannelSearch:
+    _HITS = [
+        {
+            "channel_id": "UCabc1234567890abcdef12",
+            "title": "Boiler Room",
+            "description": "Music broadcaster",
+            "thumbnail_url": "https://i.ytimg.com/def.jpg",
+        },
+        {
+            "channel_id": "UCxyz1234567890abcdef98",
+            "title": "Boiler Room Berlin",
+            "description": None,
+            "thumbnail_url": None,
+        },
+    ]
+
+    async def test_returns_items(self, admin_client, mocker):
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=self._HITS,
+        )
+        r = await admin_client.get("/api/admin/channels/search?q=boiler")
+        assert r.status_code == 200
+        data = r.json()
+        assert [i["channel_id"] for i in data["items"]] == [
+            "UCabc1234567890abcdef12",
+            "UCxyz1234567890abcdef98",
+        ]
+        assert data["items"][0]["title"] == "Boiler Room"
+        assert data["items"][0]["thumbnail_url"] == "https://i.ytimg.com/def.jpg"
+        # The query is stripped before it reaches the worker core.
+        search.assert_called_once()
+        assert search.call_args.args[1] == "boiler"
+
+    async def test_empty_query_no_network(self, admin_client, mocker):
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=self._HITS,
+        )
+        r = await admin_client.get("/api/admin/channels/search?q=")
+        assert r.status_code == 200
+        assert r.json() == {"items": []}
+        search.assert_not_called()
+
+    async def test_single_char_query_no_network(self, admin_client, mocker):
+        # A 1-char query (even padded with spaces) short-circuits — quota guard.
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=self._HITS,
+        )
+        r = await admin_client.get("/api/admin/channels/search?q=%20a%20")
+        assert r.status_code == 200
+        assert r.json() == {"items": []}
+        search.assert_not_called()
+
+    async def test_limit_bounded(self, admin_client, mocker):
+        mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=[],
+        )
+        # limit above the cap (le=10) is rejected by FastAPI validation.
+        r = await admin_client.get("/api/admin/channels/search?q=boiler&limit=11")
+        assert r.status_code == 422
+
+    async def test_limit_forwarded(self, admin_client, mocker):
+        search = mocker.patch(
+            "services.channel_service.search_channels",
+            new_callable=AsyncMock,
+            return_value=[],
+        )
+        r = await admin_client.get("/api/admin/channels/search?q=boiler&limit=3")
+        assert r.status_code == 200
+        assert search.call_args.kwargs["limit"] == 3
 
 
 class TestChannelOverride:

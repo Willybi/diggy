@@ -35,6 +35,7 @@ from workers.youtube import (  # noqa: E402
     parse_channel_feed,
     parse_iso8601_duration,
     resolve_channel_id,
+    search_channels,
     upsert_youtube_set,
     watch_url,
 )
@@ -287,6 +288,81 @@ class TestFetchChannelTitle:
         client = _FakeClient(lambda url, params: _FakeResp(403))
         with pytest.raises(YouTubeHTTPError):
             asyncio.run(fetch_channel_title(client, _UC, "k"))
+
+
+class TestSearchChannels:
+    _SEARCH_PAYLOAD = {
+        "items": [
+            {
+                "id": {"kind": "youtube#channel", "channelId": _UC},
+                "snippet": {
+                    "title": "Boiler Room",
+                    "description": "The world's leading music broadcaster",
+                    "thumbnails": {
+                        "default": {"url": "https://i.ytimg.com/def.jpg"},
+                        "high": {"url": "https://i.ytimg.com/high.jpg"},
+                    },
+                },
+            },
+            # A malformed item without a channelId is skipped defensively.
+            {"id": {"kind": "youtube#channel"}, "snippet": {"title": "No id"}},
+        ]
+    }
+
+    def test_no_api_key_returns_empty(self):
+        # Falsy key → graceful [] and NO client call (mirrors durations/title).
+        client = _FakeClient(lambda url, params: _FakeResp(500))
+        assert asyncio.run(search_channels(client, "boiler", api_key="")) == []
+        assert client.calls == []
+
+    def test_parses_hits(self):
+        def handler(url, params):
+            assert url.endswith("/search")
+            assert params.get("type") == "channel"
+            assert params.get("q") == "boiler room"
+            return _FakeResp(200, self._SEARCH_PAYLOAD)
+
+        client = _FakeClient(handler)
+        got = asyncio.run(search_channels(client, "boiler room", "k"))
+        # The malformed (no channelId) item is dropped.
+        assert got == [
+            {
+                "channel_id": _UC,
+                "title": "Boiler Room",
+                "description": "The world's leading music broadcaster",
+                # The DEFAULT thumbnail is used.
+                "thumbnail_url": "https://i.ytimg.com/def.jpg",
+            }
+        ]
+
+    def test_missing_thumbnails_and_description(self):
+        payload = {"items": [{"id": {"channelId": _UC}, "snippet": {"title": "T"}}]}
+        client = _FakeClient(lambda url, params: _FakeResp(200, payload))
+        got = asyncio.run(search_channels(client, "t", "k"))
+        assert got == [
+            {
+                "channel_id": _UC,
+                "title": "T",
+                "description": None,
+                "thumbnail_url": None,
+            }
+        ]
+
+    def test_limit_passed_as_max_results(self):
+        captured = {}
+
+        def handler(url, params):
+            captured.update(params)
+            return _FakeResp(200, {"items": []})
+
+        client = _FakeClient(handler)
+        asyncio.run(search_channels(client, "q", "k", limit=3))
+        assert captured.get("maxResults") == 3
+
+    def test_http_error_raises(self):
+        client = _FakeClient(lambda url, params: _FakeResp(403))
+        with pytest.raises(YouTubeHTTPError):
+            asyncio.run(search_channels(client, "q", "k"))
 
 
 # ── upsert_youtube_set over an own aiosqlite engine ───────────────────────────

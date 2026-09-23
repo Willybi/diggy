@@ -30,14 +30,31 @@ function candidateItem(over = {}) {
   return { name: 'Boiler Room', set_count: 3, trackid_count: 42, ...over }
 }
 
-// Default: channels list has one row, candidates has one entry.
-function primeGet({ channels = [channelItem()], total = 1, candidates = [candidateItem()] } = {}) {
+// Default: channels list has one row, candidates has one entry, search returns none.
+function primeGet({
+  channels = [channelItem()],
+  total = 1,
+  candidates = [candidateItem()],
+  searchResults = [],
+} = {}) {
   apiMock.get.mockImplementation((url) => {
     if (url === '/api/admin/channels') return Promise.resolve({ data: { total, items: channels } })
     if (url === '/api/admin/channels/candidates')
       return Promise.resolve({ data: { items: candidates } })
+    if (url === '/api/admin/channels/search')
+      return Promise.resolve({ data: { items: searchResults } })
     return Promise.resolve({ data: {} })
   })
+}
+
+function searchResult(over = {}) {
+  return {
+    channel_id: 'UCabc',
+    title: 'Cercle',
+    description: 'Live electronic sets from iconic places',
+    thumbnail_url: 'https://yt3.ggpht.com/avatar',
+    ...over,
+  }
 }
 
 const mountChannels = () => mount(AdminChannels)
@@ -126,11 +143,11 @@ describe('AdminChannels', () => {
     await flushPromises()
 
     apiMock.post.mockResolvedValue({ data: channelItem() })
-    await wrapper
-      .find('.chn-toolbar .chn-input--grow')
-      .setValue('https://youtube.com/@ritterbutzke')
+    // The direct-URL form is the advanced (.chn-direct) path — the search input
+    // is the first .chn-input--grow in the toolbar since LB, so scope explicitly.
+    await wrapper.find('.chn-direct .chn-input--grow').setValue('https://youtube.com/@ritterbutzke')
     apiMock.get.mockClear()
-    await btnByText(wrapper, 'Ajouter', '.chn-toolbar').trigger('click')
+    await btnByText(wrapper, 'Ajouter', '.chn-direct').trigger('click')
     await flushPromises()
 
     expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels', {
@@ -147,11 +164,11 @@ describe('AdminChannels', () => {
     await flushPromises()
 
     apiMock.post.mockRejectedValue({ response: { data: { detail: 'URL invalide' } } })
-    await wrapper.find('.chn-toolbar .chn-input--grow').setValue('nope')
-    await btnByText(wrapper, 'Ajouter', '.chn-toolbar').trigger('click')
+    await wrapper.find('.chn-direct .chn-input--grow').setValue('nope')
+    await btnByText(wrapper, 'Ajouter', '.chn-direct').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.chn-add-error').text()).toContain('URL invalide')
+    expect(wrapper.find('.chn-direct .chn-add-error').text()).toContain('URL invalide')
   })
 
   it('adds a candidate with its name (POST) and removes it from the seed', async () => {
@@ -169,5 +186,99 @@ describe('AdminChannels', () => {
     })
     // The candidate left the seed (it is now a watched channel).
     expect(wrapper.text()).not.toContain('Boiler Room')
+  })
+
+  it('links a watched row to its YouTube channel (new tab, right href)', async () => {
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    const link = wrapper.find('.chn-yt-link')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('href')).toBe('https://www.youtube.com/channel/UC123')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toContain('noopener')
+  })
+
+  it('shows no YouTube link when a row has no external_id', async () => {
+    primeGet({ channels: [channelItem({ external_id: null })] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    expect(wrapper.find('.chn-yt-link').exists()).toBe(false)
+  })
+
+  it('searches YouTube only on click (never while typing) and lists results', async () => {
+    primeGet({
+      searchResults: [
+        searchResult(),
+        searchResult({ channel_id: 'UCdef', title: 'HÖR Berlin', thumbnail_url: null }),
+      ],
+    })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.get.mockClear()
+    // Typing must NOT trigger a search (each call spends 100 quota units).
+    await wrapper.find('.chn-search .chn-input--grow').setValue('cercle')
+    await flushPromises()
+    expect(apiMock.get).not.toHaveBeenCalledWith('/api/admin/channels/search', expect.anything())
+
+    await btnByText(wrapper, 'Rechercher', '.chn-search').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels/search', {
+      params: { q: 'cercle', limit: 6 },
+    })
+    expect(wrapper.text()).toContain('Cercle')
+    expect(wrapper.text()).toContain('HÖR Berlin')
+    // The result that carries a thumbnail renders its <img>; each result exposes
+    // an external ↗ link to its YouTube channel.
+    expect(wrapper.find('.chn-result-thumb').attributes('src')).toBe('https://yt3.ggpht.com/avatar')
+    expect(wrapper.find('.chn-result-open').attributes('href')).toBe(
+      'https://www.youtube.com/channel/UCabc',
+    )
+  })
+
+  it('adds a search result — POST {url: channel_id, name: title} then refetches', async () => {
+    primeGet({ searchResults: [searchResult()] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    await wrapper.find('.chn-search .chn-input--grow').setValue('cercle')
+    await btnByText(wrapper, 'Rechercher', '.chn-search').trigger('click')
+    await flushPromises()
+
+    apiMock.post.mockResolvedValue({ data: channelItem() })
+    apiMock.get.mockClear()
+    await btnByText(wrapper, 'Ajouter', '.chn-result').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels', {
+      url: 'UCabc',
+      name: 'Cercle',
+    })
+    // The watched list is refreshed and the results are cleared on success.
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels', {
+      params: { page: 1, page_size: 50 },
+    })
+    expect(wrapper.find('.chn-result').exists()).toBe(false)
+  })
+
+  it('surfaces a 400 add error inline on a search result without toasting', async () => {
+    primeGet({ searchResults: [searchResult()] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    await wrapper.find('.chn-search .chn-input--grow').setValue('cercle')
+    await btnByText(wrapper, 'Rechercher', '.chn-search').trigger('click')
+    await flushPromises()
+
+    apiMock.post.mockRejectedValue({ response: { data: { detail: 'Chaîne introuvable' } } })
+    await btnByText(wrapper, 'Ajouter', '.chn-result').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.chn-result-err').text()).toContain('Chaîne introuvable')
+    // The result stays listed so the operator can retry.
+    expect(wrapper.find('.chn-result').exists()).toBe(true)
   })
 })

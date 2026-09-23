@@ -19,6 +19,7 @@ from workers.youtube import (
     default_client,
     fetch_channel_title,
     resolve_channel_id,
+    search_channels,
 )
 
 
@@ -111,6 +112,24 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50) -> dict:
             for name, tc, sc in rows
         ]
     }
+
+
+async def search_youtube(query: str, *, limit: int = 6) -> dict:
+    """Search YouTube for channels matching ``query`` → ``{items: [...]}``.
+
+    Read-only add-by-search helper (no DB access, no commit). QUOTA GUARD: a query
+    shorter than 2 chars once stripped short-circuits to ``{"items": []}`` WITHOUT
+    any network call — each ``search.list`` costs 100 YouTube Data API units, so a
+    stray keystroke never spends the quota. Otherwise resolves up to ``limit``
+    channel hits via :func:`workers.youtube.search_channels` (in a fresh httpx
+    client block, key from ``YOUTUBE_API_KEY`` — falsy degrades to ``[]``).
+    """
+    cleaned = query.strip()
+    if len(cleaned) < 2:
+        return {"items": []}
+    async with default_client() as client:
+        items = await search_channels(client, cleaned, YOUTUBE_API_KEY, limit=limit)
+    return {"items": items}
 
 
 async def add_channel(db: AsyncSession, body) -> dict:

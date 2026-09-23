@@ -44,6 +44,23 @@ class ChannelCandidateListOut(BaseModel):
     items: list[ChannelCandidateOut]
 
 
+class ChannelSearchResultOut(BaseModel):
+    """A YouTube channel search hit (from the Data API ``search.list``).
+
+    Backs the admin add-by-search UX: the operator types a name, sees the matching
+    channels, and picks one — its ``channel_id`` feeds the existing add-by-URL path.
+    """
+
+    channel_id: str
+    title: str
+    description: str | None = None
+    thumbnail_url: str | None = None
+
+
+class ChannelSearchListOut(BaseModel):
+    items: list[ChannelSearchResultOut]
+
+
 class ChannelCreateIn(BaseModel):
     # A YouTube URL / @handle / raw « UC… » id — resolved to a channel id server-side.
     url: str

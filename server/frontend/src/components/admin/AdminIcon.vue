@@ -63,6 +63,9 @@ const ICONS = {
     { t: 'circle', a: { cx: 11, cy: 11, r: 8 } },
     { t: 'path', a: { d: 'm21 21-4.3-4.3' } },
   ],
+  // Lien externe (↗) : flèche sortante vers le haut-droit (tracé cohérent avec
+  // le lien ↗ de BeatportBar).
+  external: [{ t: 'path', a: { d: 'M7 17 17 7M9 7h8v8' } }],
   trash: [
     { t: 'path', a: { d: 'M3 6h18' } },
     {
@@ -100,6 +103,7 @@ const props = defineProps({
         'flag',
         'split',
         'search',
+        'external',
         'trash',
         'chevron',
         'refresh',

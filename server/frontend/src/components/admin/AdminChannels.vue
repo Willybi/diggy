@@ -1,49 +1,135 @@
 <template>
   <section class="chn-wrap">
-    <!-- Bootstrap : ajouter une chaîne hors seed par URL YouTube (ex. Ritter Butzke).
-         POST /admin/channels {url, name?, channel_type?} — 400 si l'URL est
-         irrésolvable (message affiché inline, l'intercepteur api ne toaste pas les 4xx). -->
+    <!-- Ajouter une chaîne. Chemin principal = RECHERCHE par nom (on choisit la
+         bonne chaîne dans une liste au lieu de coller une URL à l'aveugle) ;
+         voie avancée = URL directe. POST /admin/channels {url, name?, channel_type?}
+         — 400 si l'URL/id est irrésolvable (message inline, l'intercepteur api ne
+         toaste pas les 4xx). -->
     <div class="chn-toolbar">
       <div class="chn-toolbar-body">
         <h2 class="chn-toolbar-title">Ajouter une chaîne</h2>
         <p class="chn-toolbar-desc">
-          Surveille une chaîne YouTube par son URL, son handle («&nbsp;@…&nbsp;») ou son id brut
-          («&nbsp;UC…&nbsp;»). L'id de plateforme est résolu côté serveur.
+          Recherche une chaîne YouTube par son nom, puis choisis-la dans la liste. La recherche ne
+          part qu'au clic (chaque requête consomme du quota YouTube).
         </p>
-        <div class="chn-add-form">
-          <input
-            v-model="addUrl"
-            class="chn-input chn-input--grow"
-            type="text"
-            placeholder="URL / @handle / UC…"
-            aria-label="URL de la chaîne"
-            @keyup.enter="addByUrl"
-          />
-          <input
-            v-model="addName"
-            class="chn-input"
-            type="text"
-            placeholder="Nom (optionnel)"
-            aria-label="Nom de la chaîne"
-            @keyup.enter="addByUrl"
-          />
-          <select v-model="addType" class="chn-select" aria-label="Type de chaîne">
-            <option :value="null">Type…</option>
-            <option v-for="t in CHANNEL_TYPES" :key="t.value" :value="t.value">
-              {{ t.label }}
-            </option>
-          </select>
-          <button
-            class="btn btn--sm btn--accent"
-            :disabled="adding || !addUrl.trim()"
-            @click="addByUrl"
-          >
-            {{ adding ? 'Ajout…' : 'Ajouter' }}
-          </button>
+
+        <!-- Recherche add-by-search : JAMAIS de recherche à la frappe (chaque appel
+             coûte 100 unités de quota) → uniquement au clic / Entrée. -->
+        <div class="chn-search">
+          <div class="chn-add-form">
+            <input
+              v-model="searchQuery"
+              class="chn-input chn-input--grow"
+              type="text"
+              placeholder="Nom de la chaîne YouTube…"
+              aria-label="Rechercher une chaîne YouTube"
+              @keyup.enter="runSearch"
+            />
+            <button
+              class="btn btn--sm btn--accent"
+              :disabled="searching || !searchQuery.trim()"
+              @click="runSearch"
+            >
+              <AdminIcon name="search" :size="14" />
+              {{ searching ? 'Recherche…' : 'Rechercher' }}
+            </button>
+          </div>
+          <p v-if="searchError" class="chn-add-error">
+            <AdminIcon name="alert-triangle" :size="13" /> {{ searchError }}
+          </p>
+
+          <div v-if="searching" class="chn-search-msg">Recherche…</div>
+          <div v-else-if="searched && searchResults.length === 0" class="chn-search-msg">
+            Aucune chaîne trouvée.
+          </div>
+          <ul v-else-if="searchResults.length" class="chn-results">
+            <li v-for="r in searchResults" :key="r.channel_id" class="chn-result">
+              <img
+                v-if="r.thumbnail_url"
+                class="chn-result-thumb"
+                :src="r.thumbnail_url"
+                :alt="`Vignette de ${r.title}`"
+                width="40"
+                height="40"
+                loading="lazy"
+              />
+              <span
+                v-else
+                class="chn-result-thumb chn-result-thumb--empty"
+                aria-hidden="true"
+              ></span>
+              <div class="chn-result-body">
+                <span class="chn-result-title">{{ r.title }}</span>
+                <span v-if="r.description" class="chn-result-desc">{{ r.description }}</span>
+              </div>
+              <a
+                class="chn-result-open"
+                :href="ytChannelUrl(r.channel_id)"
+                target="_blank"
+                rel="noopener"
+                :aria-label="`Ouvrir ${r.title} sur YouTube`"
+              >
+                <AdminIcon name="external" :size="14" />
+              </a>
+              <button
+                class="btn btn--sm btn--accent"
+                :disabled="addingResult[r.channel_id]"
+                @click="addResult(r)"
+              >
+                {{ addingResult[r.channel_id] ? 'Ajout…' : 'Ajouter' }}
+              </button>
+              <p v-if="resultErrors[r.channel_id]" class="chn-add-error chn-result-err">
+                <AdminIcon name="alert-triangle" :size="13" /> {{ resultErrors[r.channel_id] }}
+              </p>
+            </li>
+          </ul>
         </div>
-        <p v-if="addError" class="chn-add-error">
-          <AdminIcon name="alert-triangle" :size="13" /> {{ addError }}
-        </p>
+
+        <!-- Voie avancée : ajout par URL / handle / id brut directement. -->
+        <details class="chn-direct at-details">
+          <summary class="chn-direct-sum">
+            <AdminIcon name="chevron" :size="14" class="at-details-chev" />
+            URL directe (voie avancée)
+          </summary>
+          <p class="chn-toolbar-desc chn-direct-desc">
+            Ajoute une chaîne par son URL, son handle («&nbsp;@…&nbsp;») ou son id brut
+            («&nbsp;UC…&nbsp;»). L'id de plateforme est résolu côté serveur.
+          </p>
+          <div class="chn-add-form">
+            <input
+              v-model="addUrl"
+              class="chn-input chn-input--grow"
+              type="text"
+              placeholder="URL / @handle / UC…"
+              aria-label="URL de la chaîne"
+              @keyup.enter="addByUrl"
+            />
+            <input
+              v-model="addName"
+              class="chn-input"
+              type="text"
+              placeholder="Nom (optionnel)"
+              aria-label="Nom de la chaîne"
+              @keyup.enter="addByUrl"
+            />
+            <select v-model="addType" class="chn-select" aria-label="Type de chaîne">
+              <option :value="null">Type…</option>
+              <option v-for="t in CHANNEL_TYPES" :key="t.value" :value="t.value">
+                {{ t.label }}
+              </option>
+            </select>
+            <button
+              class="btn btn--sm btn--accent"
+              :disabled="adding || !addUrl.trim()"
+              @click="addByUrl"
+            >
+              {{ adding ? 'Ajout…' : 'Ajouter' }}
+            </button>
+          </div>
+          <p v-if="addError" class="chn-add-error">
+            <AdminIcon name="alert-triangle" :size="13" /> {{ addError }}
+          </p>
+        </details>
       </div>
     </div>
 
@@ -87,7 +173,18 @@
           <tbody>
             <tr v-for="item in channels" :key="item.id">
               <td data-label="Chaîne" data-lead>
-                <span class="at-id">{{ item.name }}</span>
+                <a
+                  v-if="item.external_id"
+                  class="chn-yt-link"
+                  :href="ytChannelUrl(item.external_id)"
+                  target="_blank"
+                  rel="noopener"
+                  :aria-label="`Ouvrir ${item.name} sur YouTube`"
+                >
+                  <span class="at-id">{{ item.name }}</span>
+                  <AdminIcon name="external" :size="12" />
+                </a>
+                <span v-else class="at-id">{{ item.name }}</span>
                 <span class="chn-row-id">#{{ item.id }}</span>
               </td>
               <td data-label="Plateforme">
@@ -262,15 +359,31 @@ const candidateUrls = reactive({})
 const candErrors = reactive({})
 const candAdding = reactive({})
 
-// ── Ajout d'une chaîne par URL (bootstrap hors seed) ──
+// ── Ajout d'une chaîne par URL (voie avancée) ──
 const addUrl = ref('')
 const addName = ref('')
 const addType = ref(null)
 const adding = ref(false)
 const addError = ref('')
 
+// ── Recherche YouTube (chemin d'ajout principal, add-by-search) ──
+const searchQuery = ref('')
+const searchResults = ref([])
+const searching = ref(false)
+// Vrai dès qu'une recherche a abouti → distingue « pas encore cherché » de
+// « cherché, 0 résultat » pour l'état vide.
+const searched = ref(false)
+const searchError = ref('')
+// channel_id → ajout d'un résultat en vol / erreur d'ajout inline.
+const addingResult = reactive({})
+const resultErrors = reactive({})
+
 function fmtInt(n) {
   return Number(n || 0).toLocaleString('fr-FR')
+}
+
+function ytChannelUrl(externalId) {
+  return `https://www.youtube.com/channel/${externalId}`
 }
 
 async function fetchChannels() {
@@ -375,6 +488,50 @@ async function addByUrl() {
     addError.value = e.response?.data?.detail || 'Ajout impossible'
   } finally {
     adding.value = false
+  }
+}
+
+// Recherche YouTube : UNIQUEMENT au clic / Entrée (jamais à la frappe) — chaque
+// appel coûte 100 unités de quota YouTube Data API. GET /admin/channels/search.
+async function runSearch() {
+  const q = searchQuery.value.trim()
+  if (!q || searching.value) return
+  searching.value = true
+  searched.value = false
+  searchError.value = ''
+  try {
+    const { data } = await api.get('/api/admin/channels/search', {
+      params: { q, limit: 6 },
+    })
+    searchResults.value = data.items
+    searched.value = true
+  } catch (e) {
+    searchResults.value = []
+    // Un 4xx (ex. quota) s'affiche inline ; l'intercepteur api ne toaste que 5xx.
+    searchError.value = e.response?.data?.detail || 'Recherche impossible'
+  } finally {
+    searching.value = false
+  }
+}
+
+// Ajoute un résultat de recherche : son channel_id alimente le chemin d'ajout par
+// URL existant (résolu côté serveur). En succès on vide les résultats et on
+// rafraîchit la liste surveillée (la chaîne vient d'y entrer).
+async function addResult(r) {
+  if (addingResult[r.channel_id]) return
+  addingResult[r.channel_id] = true
+  resultErrors[r.channel_id] = ''
+  try {
+    await api.post('/api/admin/channels', { url: r.channel_id, name: r.title })
+    searchResults.value = []
+    searchQuery.value = ''
+    searched.value = false
+    page.value = 1
+    await fetchChannels()
+  } catch (e) {
+    resultErrors[r.channel_id] = e.response?.data?.detail || 'Ajout impossible'
+  } finally {
+    addingResult[r.channel_id] = false
   }
 }
 
@@ -526,6 +683,107 @@ onMounted(() => {
   width: 100%;
 }
 
+/* ── Recherche YouTube (add-by-search) ── */
+.chn-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chn-search-msg {
+  font: 400 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-3);
+}
+.chn-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chn-result {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.chn-result-thumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-pill);
+  object-fit: cover;
+  background: var(--surface-3);
+}
+.chn-result-thumb--empty {
+  display: inline-block;
+}
+.chn-result-body {
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+  overflow: hidden;
+}
+.chn-result-title {
+  font: 600 var(--fs-sm)/1.3 var(--font-ui);
+  color: var(--ink);
+}
+.chn-result-desc {
+  /* Tronquée à 2 lignes. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: 400 var(--fs-xs)/1.35 var(--font-ui);
+  color: var(--ink-2);
+}
+.chn-result-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+}
+.chn-result-open:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+.chn-result-err {
+  flex-basis: 100%;
+}
+
+/* ── Lien ↗ YouTube sur une ligne surveillée ── */
+.chn-yt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: inherit;
+  text-decoration: none;
+}
+.chn-yt-link:hover {
+  text-decoration: underline;
+}
+.chn-yt-link .admin-icon {
+  color: var(--ink-3);
+}
+
+/* ── Voie avancée (URL directe) : bloc dépliable discret ── */
+.chn-direct {
+  margin-top: var(--space-1);
+}
+.chn-direct-desc {
+  margin: var(--space-2) 0;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -563,6 +821,11 @@ onMounted(() => {
   .chn-cand-add .btn {
     min-height: var(--touch-min);
     justify-content: center;
+  }
+  /* Résultats de recherche : le corps peut rétrécir davantage avant que l'action
+     ne passe à la ligne (le .chn-result reste en flex-wrap). */
+  .chn-result-body {
+    min-width: 120px;
   }
 }
 </style>

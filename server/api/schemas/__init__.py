@@ -67,6 +67,8 @@ from .channel import (
     ChannelCreateIn,
     ChannelListOut,
     ChannelOut,
+    ChannelSearchListOut,
+    ChannelSearchResultOut,
     ChannelUpdateIn,
 )
 from .cohort import CohortItemOut, CohortListOut, CohortOverrideIn
@@ -317,6 +319,8 @@ __all__ = [
     "ChannelListOut",
     "ChannelCandidateOut",
     "ChannelCandidateListOut",
+    "ChannelSearchResultOut",
+    "ChannelSearchListOut",
     "ChannelCreateIn",
     "ChannelUpdateIn",
     # cohort
