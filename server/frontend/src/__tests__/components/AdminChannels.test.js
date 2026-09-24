@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
 // AdminChannels talks to /api/admin/channels (paginated list + PATCH override + POST
-// add) and /api/admin/channels/candidates (seed) — all mocked here (pattern:
+// add), /api/admin/channels/candidates (channel seed) and /api/admin/channels/
+// artist-candidates (+/resolve, L3 artist seed) — all mocked here (pattern:
 // AdminCohort.test.js). No router-link, no useTaskPoll → nothing else to stub.
 const { apiMock } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), patch: vi.fn(), post: vi.fn() },
@@ -30,13 +31,43 @@ function candidateItem(over = {}) {
   return { name: 'Boiler Room', set_count: 3, trackid_count: 42, ...over }
 }
 
-// Default: channels list has one row, candidates has one entry, search + resolve none.
+function artistCandidateItem(over = {}) {
+  return {
+    artist_id: 42,
+    name: 'Peggy Gou',
+    tier: 1,
+    nb_sets: 5,
+    nb_lib: 2,
+    nb_catalog: 18,
+    preselect: null,
+    ...over,
+  }
+}
+
+// A single ArtistChannelResolveOut (the artist resolve/preselect is ONE object, not a
+// list like the channel-candidate resolve).
+function artResolveResult(over = {}) {
+  return {
+    channel_id: 'UCpeggy',
+    channel_title: 'Peggy Gou Official',
+    url: 'https://www.youtube.com/channel/UCpeggy',
+    method: 'wikidata',
+    confidence: 'high',
+    has_soundcloud: false,
+    ...over,
+  }
+}
+
+// Default: channels list has one row, candidates has one entry, artist candidates
+// empty, search + resolve none.
 function primeGet({
   channels = [channelItem()],
   total = 1,
   candidates = [candidateItem()],
   searchResults = [],
   resolveResults = [],
+  artistCandidates = [],
+  artistResolve = {},
 } = {}) {
   apiMock.get.mockImplementation((url) => {
     if (url === '/api/admin/channels') return Promise.resolve({ data: { total, items: channels } })
@@ -46,6 +77,12 @@ function primeGet({
       return Promise.resolve({ data: { items: resolveResults } })
     if (url === '/api/admin/channels/search')
       return Promise.resolve({ data: { items: searchResults } })
+    if (url === '/api/admin/channels/artist-candidates')
+      return Promise.resolve({
+        data: { total: artistCandidates.length, items: artistCandidates },
+      })
+    if (url === '/api/admin/channels/artist-candidates/resolve')
+      return Promise.resolve({ data: artistResolve })
     return Promise.resolve({ data: {} })
   })
 }
@@ -380,5 +417,115 @@ describe('AdminChannels', () => {
 
     expect(apiMock.get).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Boiler Room Berlin')
+  })
+
+  // ── L3: artist candidates ──
+
+  it('fetches artist candidates on mount (paginated)', async () => {
+    primeGet({ artistCandidates: [artistCandidateItem()] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels/artist-candidates', {
+      params: { limit: 50, page: 1 },
+    })
+    // Artist name + relevance signals render.
+    expect(wrapper.text()).toContain('Peggy Gou')
+    expect(wrapper.text()).toContain('T1') // tier
+  })
+
+  it('renders an artist candidate pre-selection from the cache without any /resolve call', async () => {
+    primeGet({ artistCandidates: [artistCandidateItem({ preselect: artResolveResult() })] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    // The suggested channel renders inline from the cached preselect + a Confirmer button…
+    expect(wrapper.find('.chn-result--suggested .chn-result-title').text()).toBe(
+      'Peggy Gou Official',
+    )
+    expect(btnByText(wrapper, 'Confirmer')).toBeTruthy()
+    // …and NOTHING was resolved (the cache is free; a search spends 100 quota units).
+    expect(apiMock.get).not.toHaveBeenCalledWith(
+      '/api/admin/channels/artist-candidates/resolve',
+      expect.anything(),
+    )
+  })
+
+  it('resolves an artist candidate only on an explicit click (exactly once)', async () => {
+    primeGet({
+      artistCandidates: [artistCandidateItem()], // no preselect
+      artistResolve: artResolveResult(),
+    })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    // Nothing pre-selected yet → no suggested card, a "Résoudre" button shows.
+    expect(wrapper.find('.chn-result--suggested').exists()).toBe(false)
+
+    apiMock.get.mockClear()
+    await btnByText(wrapper, 'Résoudre').trigger('click')
+    await flushPromises()
+
+    // Exactly one resolve call, and only on the click.
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels/artist-candidates/resolve', {
+      params: { name: 'Peggy Gou' },
+    })
+    expect(apiMock.get).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.chn-result--suggested .chn-result-title').text()).toBe(
+      'Peggy Gou Official',
+    )
+  })
+
+  it('confirms an artist candidate — POST {url,name,channel_type,artist_id} then drops it', async () => {
+    primeGet({ artistCandidates: [artistCandidateItem({ preselect: artResolveResult() })] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.post.mockResolvedValue({ data: channelItem() })
+    apiMock.get.mockClear()
+    await btnByText(wrapper, 'Confirmer').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels', {
+      url: 'UCpeggy',
+      name: 'Peggy Gou Official',
+      channel_type: 'artist',
+      artist_id: 42,
+    })
+    // The watched list is refreshed and the artist leaves the candidates list.
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels', {
+      params: { page: 1, page_size: 50 },
+    })
+    expect(wrapper.text()).not.toContain('Peggy Gou Official')
+  })
+
+  it('shows "Aucune chaîne trouvée" when the resolve finds nothing (nothing to confirm)', async () => {
+    primeGet({ artistCandidates: [artistCandidateItem()], artistResolve: {} })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    await btnByText(wrapper, 'Résoudre').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Aucune chaîne trouvée')
+    expect(btnByText(wrapper, 'Confirmer')).toBeFalsy()
+  })
+
+  it('flags a NEEDS_VERIFY resolution for manual verification before confirming', async () => {
+    primeGet({
+      artistCandidates: [
+        artistCandidateItem({
+          preselect: artResolveResult({ method: 'search', confidence: 'NEEDS_VERIFY' }),
+        }),
+      ],
+    })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    // The confidence meta renders in the verify variant + a verification hint shows.
+    expect(wrapper.find('.chn-art-meta--verify').exists()).toBe(true)
+    expect(wrapper.find('.chn-art-verify').exists()).toBe(true)
+    // A channel is still found, so it can be confirmed after the human ↗ check.
+    expect(btnByText(wrapper, 'Confirmer')).toBeTruthy()
   })
 })

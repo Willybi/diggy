@@ -2,7 +2,7 @@
 import json
 from unittest.mock import AsyncMock
 
-from models import Channel, DJSet, TrackIdIndex
+from models import Artist, ArtistCohort, Channel, DJSet, SetArtist, TrackIdIndex
 from services import channel_service
 
 
@@ -29,8 +29,8 @@ async def _channel(db, name, *, external_id=None, watched=True, excluded=False):
     return row
 
 
-async def _set(db, title="A set"):
-    s = DJSet(source="youtube", title=title)
+async def _set(db, title="A set", *, channel_canonical=None):
+    s = DJSet(source="youtube", title=title, channel_canonical=channel_canonical)
     db.add(s)
     await db.flush()
     return s
@@ -41,6 +41,11 @@ async def _tid(db, channel, trackid_id, *, set_id=None):
     db.add(row)
     await db.flush()
     return row
+
+
+async def _link_set_artist(db, set_id, artist_id, *, role="dj"):
+    db.add(SetArtist(set_id=set_id, artist_id=artist_id, role=role))
+    await db.flush()
 
 
 class TestChannelAuth:
@@ -125,27 +130,95 @@ class TestChannelCandidates:
         assert r.status_code == 200
         assert r.json() == {"items": []}
 
-    async def test_ranks_least_covered_first(self, admin_client, db):
-        # "Untapped": 3 indexed, 0 linked → uncovered 3 (highest discovery value).
-        s = await _set(db)
-        await _tid(db, "Untapped", 101)
-        await _tid(db, "Untapped", 102)
-        await _tid(db, "Untapped", 103)
-        # "Covered": 3 indexed, 2 linked → uncovered 1.
-        await _tid(db, "Covered", 201, set_id=s.id)
-        await _tid(db, "Covered", 202, set_id=s.id)
-        await _tid(db, "Covered", 203)
+    async def test_ranks_by_cohort_relevance(self, admin_client, db):
+        # 🅰: rank by the number of watch-cohort DJs on the channel's sets, NOT by
+        # raw volume. "Cohort Rich" has ONE linked set featuring 2 cohort DJs;
+        # "Big Volume" has 5 indexed sets but none feature a cohort artist.
+        rich = await _set(db, "rich set")
+        a1 = await _artist(db, "Cohort DJ One", deezer_id="9001")
+        a2 = await _artist(db, "Cohort DJ Two", deezer_id="9002")
+        await _cohort(db, a1, tier=1)
+        await _cohort(db, a2, tier=1)
+        await _link_set_artist(db, rich.id, a1.id)
+        await _link_set_artist(db, rich.id, a2.id)
+        await _tid(db, "Cohort Rich", 601, set_id=rich.id)
+        for i in range(5):
+            await _tid(db, "Big Volume", 610 + i)
         await db.commit()
 
         r = await admin_client.get("/api/admin/channels/candidates")
         assert r.status_code == 200
         items = r.json()["items"]
-        assert [i["name"] for i in items] == ["Untapped", "Covered"]
-        untapped, covered = items
-        assert untapped["trackid_count"] == 3
-        assert untapped["set_count"] == 0
-        assert covered["trackid_count"] == 3
-        assert covered["set_count"] == 2
+        names = [i["name"] for i in items]
+        # Relevance dominates raw volume, even though Big Volume has more indexed sets.
+        assert names.index("Cohort Rich") < names.index("Big Volume")
+        rich_item = next(i for i in items if i["name"] == "Cohort Rich")
+        assert rich_item["trackid_count"] == 1
+        assert rich_item["set_count"] == 1
+        big_item = next(i for i in items if i["name"] == "Big Volume")
+        assert big_item["trackid_count"] == 5
+        assert big_item["set_count"] == 0
+
+    async def test_includes_channel_seen_only_via_set_canonical(
+        self, admin_client, db
+    ):
+        # 🅲: a channel present ONLY through a set's channel_canonical (never indexed
+        # in trackid_index) still surfaces as a candidate.
+        await _set(db, "yt only set", channel_canonical="Only In Sets")
+        await _tid(db, "Indexed Channel", 700)
+        await db.commit()
+
+        items = (
+            await admin_client.get("/api/admin/channels/candidates")
+        ).json()["items"]
+        by_name = {i["name"]: i for i in items}
+        assert "Only In Sets" in by_name
+        only = by_name["Only In Sets"]
+        # Not in trackid_index → zero informative coverage counts.
+        assert only["trackid_count"] == 0
+        assert only["set_count"] == 0
+
+    async def test_set_only_channel_with_cohort_outranks_volume(
+        self, admin_client, db
+    ):
+        # 🅲 + 🅰: a set-only channel featuring a cohort DJ beats a big trackid
+        # channel with no cohort relevance, despite having zero indexed volume.
+        s = await _set(db, "cohort yt set", channel_canonical="Cohort Venue")
+        a = await _artist(db, "Venue Resident", deezer_id="9100")
+        await _cohort(db, a, tier=1)
+        await _link_set_artist(db, s.id, a.id)
+        for i in range(4):
+            await _tid(db, "Plain Big", 800 + i)
+        await db.commit()
+
+        items = (
+            await admin_client.get("/api/admin/channels/candidates")
+        ).json()["items"]
+        names = [i["name"] for i in items]
+        assert names.index("Cohort Venue") < names.index("Plain Big")
+
+    async def test_excluded_cohort_artist_does_not_count(self, admin_client, db):
+        # An EXCLUDED cohort artist is not a relevance signal → the channel falls
+        # back to a plain 0-relevance candidate (behind a real cohort channel).
+        excl_set = await _set(db, "excluded cohort set")
+        excl = await _artist(db, "Excluded DJ", deezer_id="9200")
+        await _cohort(db, excl, tier=1, excluded=True)
+        await _link_set_artist(db, excl_set.id, excl.id)
+        await _tid(db, "Excluded Chan", 900, set_id=excl_set.id)
+
+        rich_set = await _set(db, "real cohort set")
+        real = await _artist(db, "Real DJ", deezer_id="9201")
+        await _cohort(db, real, tier=1)
+        await _link_set_artist(db, rich_set.id, real.id)
+        await _tid(db, "Real Chan", 901, set_id=rich_set.id)
+        await db.commit()
+
+        items = (
+            await admin_client.get("/api/admin/channels/candidates")
+        ).json()["items"]
+        names = [i["name"] for i in items]
+        # Real Chan (relevance 1) ranks before Excluded Chan (relevance 0).
+        assert names.index("Real Chan") < names.index("Excluded Chan")
 
     async def test_excludes_already_curated_and_null_channels(self, admin_client, db):
         # A channel already in `channels` is not proposed again.
@@ -702,3 +775,389 @@ class TestChannelOverride:
         assert len(entries) == 1
         assert entries[0]["target_id"] == c.id
         assert entries[0]["details"]["excluded"] is True
+
+
+# ── Artist candidates (C14.b 🅱, L2) ──────────────────────────────────────────
+
+
+async def _artist(db, name, *, deezer_id=None):
+    a = Artist(name=name, normalized_name=name.lower(), deezer_id=deezer_id)
+    db.add(a)
+    await db.flush()
+    return a
+
+
+async def _cohort(db, artist, *, tier=1, excluded=False, signals=None):
+    row = ArtistCohort(
+        artist_id=artist.id,
+        tier=tier,
+        computed_tier=tier,
+        excluded=excluded,
+        signals=signals or {},
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+class TestArtistCandidatesAuth:
+    async def test_list_requires_auth(self, client):
+        r = await client.get("/api/admin/channels/artist-candidates")
+        assert r.status_code == 401
+
+    async def test_list_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.get("/api/admin/channels/artist-candidates")
+        assert r.status_code == 403
+
+    async def test_resolve_requires_auth(self, client):
+        r = await client.get(
+            "/api/admin/channels/artist-candidates/resolve?name=boris"
+        )
+        assert r.status_code == 401
+
+    async def test_resolve_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.get(
+            "/api/admin/channels/artist-candidates/resolve?name=boris"
+        )
+        assert r.status_code == 403
+
+
+class TestArtistCandidatesGate:
+    """The 3-guard « real artist » gate (brief §5)."""
+
+    async def test_keeps_real_deezer_linked_dj(self, admin_client, db):
+        a = await _artist(db, "Boris Brejcha", deezer_id="123")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 2, "nb_lib": 1})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 1
+        item = data["items"][0]
+        assert item["artist_id"] == a.id
+        assert item["name"] == "Boris Brejcha"
+        assert item["tier"] == 1
+        assert item["nb_sets"] == 2
+        assert item["nb_lib"] == 1
+        assert item["preselect"] is None
+
+    async def test_rejects_denylisted_media_name(self, admin_client, db):
+        # "Boiler Room" folds into MEDIA_TITLE_KEYS — a radio/broadcaster, never a DJ.
+        a = await _artist(db, "Boiler Room", deezer_id="999")
+        await _cohort(db, a, tier=1, signals={"nb_catalog": 50, "nb_sets_12m": 9})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 0
+
+    async def test_rejects_two_char_name(self, admin_client, db):
+        a = await _artist(db, "DJ", deezer_id="7")
+        await _cohort(db, a, tier=1, signals={"nb_catalog": 99, "nb_sets_12m": 9})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 0
+
+    async def test_rejects_generic_mono_token(self, admin_client, db):
+        a = await _artist(db, "Various", deezer_id="8")
+        await _cohort(db, a, tier=1, signals={"nb_catalog": 99, "nb_sets_12m": 9})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 0
+
+    async def test_rejects_artist_without_signal(self, admin_client, db):
+        # No Deezer id, thin catalog, no recent set → no real-artist signal.
+        a = await _artist(db, "Some Unlinked Name", deezer_id=None)
+        await _cohort(
+            db, a, tier=2, signals={"nb_catalog": 1, "nb_sets_12m": 0, "nb_lib": 0}
+        )
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 0
+
+    async def test_not_found_sentinel_is_not_a_signal(self, admin_client, db):
+        a = await _artist(db, "Ghost Producer", deezer_id="NOT_FOUND")
+        await _cohort(db, a, tier=2, signals={"nb_catalog": 0, "nb_sets_12m": 0})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 0
+
+    async def test_catalog_depth_alone_qualifies(self, admin_client, db):
+        # No Deezer link, but deep catalog (>= threshold) is a real-artist signal.
+        a = await _artist(db, "Deep Cataloguer", deezer_id=None)
+        await _cohort(db, a, tier=2, signals={"nb_catalog": 25, "nb_sets_12m": 0})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 1
+
+    async def test_recent_set_alone_qualifies(self, admin_client, db):
+        # No Deezer link, thin catalog, but a recent DJ set is a real-artist signal.
+        a = await _artist(db, "Fresh Set Player", deezer_id=None)
+        await _cohort(db, a, tier=2, signals={"nb_catalog": 0, "nb_sets_12m": 1})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 1
+
+
+class TestArtistCandidatesExclusionAndRank:
+    async def test_excludes_already_curated_artist(self, admin_client, db):
+        a = await _artist(db, "Already Curated", deezer_id="1")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 5})
+        # A channels row already links this artist → not proposed again.
+        db.add(
+            Channel(
+                platform="youtube",
+                external_id="UCcur1234567890abcdef12",
+                name="Already Curated",
+                channel_type="artist",
+                artist_id=a.id,
+            )
+        )
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 0
+
+    async def test_a_null_artist_channel_does_not_exclude(self, admin_client, db):
+        # A curated channel with NO artist_id (a venue/organiser) must not blank out
+        # a legitimate artist candidate (NOT IN over a NULL list).
+        a = await _artist(db, "Untouched Artist", deezer_id="1")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 5})
+        db.add(
+            Channel(
+                platform="youtube",
+                external_id="UCorg1234567890abcdef12",
+                name="Some Venue",
+                channel_type="organizer",
+                artist_id=None,
+            )
+        )
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 1
+
+    async def test_excludes_excluded_cohort_row(self, admin_client, db):
+        a = await _artist(db, "Excluded One", deezer_id="2")
+        await _cohort(db, a, tier=1, excluded=True, signals={"nb_sets_12m": 5})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["total"] == 0
+
+    async def test_ranked_by_tier_then_relevance(self, admin_client, db):
+        a1 = await _artist(db, "Tier Two Big", deezer_id="10")
+        await _cohort(db, a1, tier=2, signals={"nb_sets_12m": 100})
+        a2 = await _artist(db, "Tier One Small", deezer_id="11")
+        await _cohort(db, a2, tier=1, signals={"nb_sets_12m": 1})
+        a3 = await _artist(db, "Tier One Big", deezer_id="12")
+        await _cohort(db, a3, tier=1, signals={"nb_sets_12m": 9})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        names = [i["name"] for i in r.json()["items"]]
+        # tier 1 before tier 2; within tier 1, more recent sets first.
+        assert names == ["Tier One Big", "Tier One Small", "Tier Two Big"]
+
+    async def test_pagination(self, admin_client, db):
+        for i in range(5):
+            a = await _artist(db, f"Artist Number {i}", deezer_id=str(100 + i))
+            await _cohort(db, a, tier=1, signals={"nb_sets_12m": i})
+        await db.commit()
+
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates?limit=2&page=1"
+        )
+        data = r.json()
+        assert data["total"] == 5
+        assert len(data["items"]) == 2
+
+        r2 = await admin_client.get(
+            "/api/admin/channels/artist-candidates?limit=2&page=3"
+        )
+        assert r2.json()["total"] == 5
+        assert len(r2.json()["items"]) == 1
+
+
+_ARTIST_RESOLVE_PAYLOAD = {
+    "channel_id": "UCartist1234567890abcde",
+    "channel_title": "Cached Artist",
+    "url": "https://youtube.com/channel/UCartist1234567890abcde",
+    "method": "wikidata",
+    "confidence": "high",
+    "has_soundcloud": True,
+}
+
+
+class TestArtistCandidatesPreselect:
+    """list_artist_candidates annotates preselect from the Redis cache ONLY —
+    it NEVER resolves an artist (a resolution spends 100 quota units)."""
+
+    async def test_preselect_read_from_cache_no_resolution(
+        self, admin_client, db, fake_redis, mocker
+    ):
+        a = await _artist(db, "Cached Artist", deezer_id="55")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+        fake_redis._store[
+            channel_service._artist_resolve_cache_key("Cached Artist")
+        ] = json.dumps(_ARTIST_RESOLVE_PAYLOAD)
+        resolve = mocker.patch(
+            "services.channel_service.resolve_artist_channel",
+            new_callable=AsyncMock,
+            return_value=_ARTIST_RESOLVE_PAYLOAD,
+        )
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        item = r.json()["items"][0]
+        assert item["preselect"]["channel_id"] == "UCartist1234567890abcde"
+        assert item["preselect"]["method"] == "wikidata"
+        # INVARIANT: annotating the listing never resolves (0 quota).
+        resolve.assert_not_called()
+
+    async def test_preselect_none_when_cache_empty_no_resolution(
+        self, admin_client, db, mocker
+    ):
+        a = await _artist(db, "Uncached Artist", deezer_id="56")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+        resolve = mocker.patch(
+            "services.channel_service.resolve_artist_channel",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert r.json()["items"][0]["preselect"] is None
+        resolve.assert_not_called()
+
+    async def test_redis_none_leaves_preselect_none(self, db, mocker):
+        a = await _artist(db, "No Redis Artist", deezer_id="57")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.flush()
+        resolve = mocker.patch(
+            "services.channel_service.resolve_artist_channel",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
+
+        out = await channel_service.list_artist_candidates(db, redis=None)
+        assert out["items"][0]["name"] == "No Redis Artist"
+        assert out["items"][0]["preselect"] is None
+        resolve.assert_not_called()
+
+    async def test_failopen_on_raising_redis(self, db, mocker):
+        a = await _artist(db, "Boom Artist", deezer_id="58")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.flush()
+        resolve = mocker.patch(
+            "services.channel_service.resolve_artist_channel",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
+
+        out = await channel_service.list_artist_candidates(db, redis=_RaisingRedis())
+        assert out["items"][0]["name"] == "Boom Artist"
+        assert out["items"][0]["preselect"] is None
+        resolve.assert_not_called()
+
+
+class TestArtistCandidateResolve:
+    async def test_resolves_and_caches(self, admin_client, fake_redis, mocker):
+        resolve = mocker.patch(
+            "services.channel_service.resolve_artist_channel",
+            new_callable=AsyncMock,
+            return_value=_ARTIST_RESOLVE_PAYLOAD,
+        )
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates/resolve?name=Cached Artist"
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["channel_id"] == "UCartist1234567890abcde"
+        assert data["method"] == "wikidata"
+        assert data["has_soundcloud"] is True
+        resolve.assert_called_once()
+        # Cached under the artist-resolve key for later 0-quota hits.
+        key = channel_service._artist_resolve_cache_key("Cached Artist")
+        assert key in fake_redis._store
+
+    async def test_cache_hit_no_resolution(self, admin_client, fake_redis, mocker):
+        fake_redis._store[
+            channel_service._artist_resolve_cache_key("Warm Artist")
+        ] = json.dumps(_ARTIST_RESOLVE_PAYLOAD)
+        resolve = mocker.patch(
+            "services.channel_service.resolve_artist_channel",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates/resolve?name=Warm Artist"
+        )
+        assert r.status_code == 200
+        assert r.json()["channel_id"] == "UCartist1234567890abcde"
+        # INVARIANT: a cache hit spends ZERO quota — no resolution.
+        resolve.assert_not_called()
+
+    async def test_unresolved_returns_empty_shape(self, admin_client, mocker):
+        mocker.patch(
+            "services.channel_service.resolve_artist_channel",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates/resolve?name=Nobody Here"
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["channel_id"] is None
+        assert data["has_soundcloud"] is False
+
+
+class TestChannelAddArtist:
+    async def test_add_with_artist_id_creates_artist_channel(
+        self, admin_client, db, mocker
+    ):
+        a = await _artist(db, "Confirmed Artist", deezer_id="321")
+        await db.commit()
+        mocker.patch(
+            "services.channel_service.resolve_channel_id",
+            new_callable=AsyncMock,
+            return_value="UCconfirm1234567890abcd",
+        )
+        r = await admin_client.post(
+            "/api/admin/channels",
+            json={
+                "url": "UCconfirm1234567890abcd",
+                "name": "Confirmed Artist",
+                "channel_type": "artist",
+                "artist_id": a.id,
+            },
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["channel_type"] == "artist"
+        assert data["artist_id"] == a.id
+        assert data["name"] == "Confirmed Artist"
+
+    async def test_add_without_artist_id_unchanged(self, admin_client, mocker):
+        # The two new fields are optional — the legacy add path is untouched.
+        mocker.patch(
+            "services.channel_service.resolve_channel_id",
+            new_callable=AsyncMock,
+            return_value="UCplain1234567890abcdef",
+        )
+        r = await admin_client.post(
+            "/api/admin/channels",
+            json={"url": "u-plain", "name": "Plain Channel"},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["artist_id"] is None
+        assert data["name"] == "Plain Channel"

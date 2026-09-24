@@ -62,6 +62,9 @@ from .catalog import (
     SimilarTrackOut,
 )
 from .channel import (
+    ArtistCandidateListOut,
+    ArtistCandidateOut,
+    ArtistChannelResolveOut,
     ChannelCandidateListOut,
     ChannelCandidateOut,
     ChannelCreateIn,
@@ -323,6 +326,9 @@ __all__ = [
     "ChannelSearchListOut",
     "ChannelCreateIn",
     "ChannelUpdateIn",
+    "ArtistChannelResolveOut",
+    "ArtistCandidateOut",
+    "ArtistCandidateListOut",
     # cohort
     "CohortItemOut",
     "CohortListOut",

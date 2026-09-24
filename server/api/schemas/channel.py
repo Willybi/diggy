@@ -66,12 +66,59 @@ class ChannelCandidateListOut(BaseModel):
     items: list[ChannelCandidateOut]
 
 
+class ArtistChannelResolveOut(BaseModel):
+    """The resolved YouTube channel for an artist (C14.b 🅱, L1).
+
+    Output of the on-demand artist→channel cascade
+    (:func:`services.channel_service.resolve_artist_candidate`). ``method`` ∈
+    wikidata/musicbrainz/search and ``confidence`` ∈ high/NEEDS_VERIFY tell the
+    admin whether the pick is auto-trustworthy or needs a human confirm. Every
+    field defaults empty so an unresolved artist serialises cleanly.
+    """
+
+    channel_id: str | None = None
+    channel_title: str | None = None
+    url: str | None = None
+    method: str | None = None
+    confidence: str | None = None
+    has_soundcloud: bool = False
+
+
+class ArtistCandidateOut(BaseModel):
+    """A cohort artist proposed as a YouTube-channel candidate (C14.b 🅱, L2).
+
+    A member of the derived watch cohort (``artist_cohort``) that passed the
+    « real artist » gate and is NOT yet curated into ``channels``. Ranked by
+    cohort ``tier`` then relevance (``nb_sets`` > ``nb_lib`` > ``nb_catalog``).
+    ``preselect`` is the artist→channel resolution READ-ONLY from the Redis cache
+    (key ``yt:artcand:v1:{name}``) — None until the operator resolves it on the
+    ``/artist-candidates/resolve`` path (a resolution spends 100 quota units, so
+    the listing never triggers one).
+    """
+
+    artist_id: int
+    name: str
+    tier: int
+    nb_sets: int
+    nb_lib: int
+    nb_catalog: int
+    preselect: ArtistChannelResolveOut | None = None
+
+
+class ArtistCandidateListOut(BaseModel):
+    total: int
+    items: list[ArtistCandidateOut]
+
+
 class ChannelCreateIn(BaseModel):
     # A YouTube URL / @handle / raw « UC… » id — resolved to a channel id server-side.
     url: str
     # Optional display name (falls back to the resolved channel id when absent).
     name: str | None = None
     channel_type: str | None = None
+    # The artist this channel belongs to, set when confirming an artist candidate
+    # (POST with channel_type='artist'). Optional — a venue/organiser channel has none.
+    artist_id: int | None = None
 
 
 class ChannelUpdateIn(BaseModel):

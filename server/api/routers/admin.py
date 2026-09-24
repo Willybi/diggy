@@ -16,6 +16,8 @@ from models import (
     User,
 )
 from schemas import (
+    ArtistCandidateListOut,
+    ArtistChannelResolveOut,
     ArtistDeezerIn,
     ArtistFlagListResponse,
     ArtistFlagOut,
@@ -813,6 +815,46 @@ async def search_channels(
     stray keystrokes — a too-short ``q`` returns an empty list without any call.
     """
     return await channel_service.search_youtube(q, limit=limit)
+
+
+@router.get("/channels/artist-candidates", response_model=ArtistCandidateListOut)
+async def list_artist_candidates(
+    limit: int = Query(50, ge=1, le=200),
+    page: int = Query(1, ge=1),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    _admin: User = Depends(require_admin),
+):
+    """Cohort artists proposed as watched-channel candidates (C14.b 🅱).
+
+    LIVE over ``artist_cohort`` × ``artists``, past the « real artist » gate and
+    not yet curated into ``channels``, ranked by tier then relevance. Each item
+    carries its cached artist→channel pre-selection READ-ONLY from Redis — this
+    endpoint NEVER resolves (quota-safe on render); a resolution goes through
+    /artist-candidates/resolve. Thin router."""
+    return await channel_service.list_artist_candidates(
+        db, redis=redis, limit=limit, page=page
+    )
+
+
+@router.get(
+    "/channels/artist-candidates/resolve", response_model=ArtistChannelResolveOut
+)
+async def resolve_artist_candidate(
+    name: str,
+    redis=Depends(get_redis),
+    _admin: User = Depends(require_admin),
+):
+    """Resolve ONE artist name to its YouTube channel (cascade Wikidata →
+    MusicBrainz → verified search), CACHE-FIRST.
+
+    NB quota: only the search tier spends 100 YouTube Data API units, and the
+    result (channel found OR nothing) is cached (TTL CANDIDATE_RESOLVE_TTL_SECONDS)
+    — an already-resolved name costs 0. Called on an explicit operator click, the
+    ONLY path that spends a resolution. An unresolved artist serialises as the
+    empty ArtistChannelResolveOut shape. Thin router."""
+    result = await channel_service.resolve_artist_candidate(name, redis)
+    return result or {}
 
 
 @router.post("/channels", response_model=ChannelOut)

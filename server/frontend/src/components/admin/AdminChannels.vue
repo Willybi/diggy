@@ -418,6 +418,146 @@
         </table>
       </div>
     </div>
+
+    <!-- Candidats artistes : la cohorte d'artistes « veillables » (artist_cohort)
+         pas encore rattachée à une chaîne, classée par tier puis pertinence (l'API
+         renvoie déjà l'ordre). Le nom de l'artiste est connu, pas sa chaîne YouTube.
+         On propose une résolution ON-DEMAND (cascade Wikidata→MusicBrainz→recherche) :
+         GRATUITE via le cache (c.preselect renvoyé par /artist-candidates), sinon sur
+         clic explicite « Résoudre » (la recherche coûte du quota — JAMAIS à
+         l'affichage). Une chaîne « À vérifier » (NEEDS_VERIFY = résultat de recherche
+         non officiel) doit être contrôlée via ↗ avant confirmation. -->
+    <div class="at-region chn-region">
+      <div class="at-head">
+        <h2 class="at-title">
+          Candidats artistes
+          <span v-if="totalArtCand" class="at-count">{{ fmtInt(totalArtCand) }}</span>
+        </h2>
+      </div>
+
+      <div v-if="loadingArt" class="at-empty">Chargement…</div>
+      <div v-else-if="errorArt" class="at-empty">Erreur de chargement des candidats artistes.</div>
+      <div v-else-if="artistCandidates.length === 0" class="at-empty">Aucun candidat artiste.</div>
+
+      <div v-else class="at-scroll">
+        <table class="at-table">
+          <thead>
+            <tr>
+              <th>Artiste</th>
+              <th>Tier</th>
+              <th>Sets</th>
+              <th>En bib</th>
+              <th>Chaîne</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in artistCandidates" :key="c.artist_id">
+              <td data-label="Artiste" data-lead>
+                <span class="at-id">{{ c.name }}</span>
+                <span class="chn-row-id">#{{ c.artist_id }}</span>
+              </td>
+              <td data-label="Tier">
+                <span class="at-pill at-pill--neutral">T{{ c.tier }}</span>
+              </td>
+              <td data-label="Sets">
+                <span class="at-tech">{{ fmtInt(c.nb_sets) }}</span>
+              </td>
+              <td data-label="En bib">
+                <span class="at-tech">{{ fmtInt(c.nb_lib) }}</span>
+              </td>
+              <td data-label="Chaîne" data-stack>
+                <div class="chn-cand-pre">
+                  <!-- Chaîne résolue exploitable (cache GRATUIT ou clic « Résoudre »)
+                       → carte + confirmation. -->
+                  <template v-if="artChannelFound(c)">
+                    <span class="chn-cand-pre-label">Chaîne suggérée</span>
+                    <ul class="chn-results">
+                      <li class="chn-result chn-result--suggested">
+                        <span
+                          class="chn-result-thumb chn-result-thumb--empty"
+                          aria-hidden="true"
+                        ></span>
+                        <div class="chn-result-body">
+                          <span class="chn-result-title">{{
+                            artResolution(c).channel_title || artResolution(c).channel_id
+                          }}</span>
+                          <span
+                            class="chn-art-meta"
+                            :class="{ 'chn-art-meta--verify': artNeedsVerify(c) }"
+                          >
+                            <AdminIcon
+                              :name="artNeedsVerify(c) ? 'alert-triangle' : 'check'"
+                              :size="12"
+                            />
+                            {{ artConfidenceLabel(c) }}
+                          </span>
+                        </div>
+                        <a
+                          class="chn-result-open"
+                          :href="artChannelHref(c)"
+                          target="_blank"
+                          rel="noopener"
+                          :aria-label="`Ouvrir ${artChannelName(c)} sur YouTube`"
+                        >
+                          <AdminIcon name="external" :size="14" />
+                        </a>
+                        <button
+                          class="btn btn--sm btn--accent"
+                          :disabled="artConfirming[c.artist_id]"
+                          @click="confirmArtistCandidate(c)"
+                        >
+                          {{ artConfirming[c.artist_id] ? 'Confirmation…' : 'Confirmer' }}
+                        </button>
+                        <p v-if="artConfirmError[c.artist_id]" class="chn-add-error chn-result-err">
+                          <AdminIcon name="alert-triangle" :size="13" />
+                          {{ artConfirmError[c.artist_id] }}
+                        </p>
+                      </li>
+                    </ul>
+                    <!-- NEEDS_VERIFY = résultat de recherche non officiel → à contrôler
+                         via ↗ avant de confirmer. -->
+                    <p v-if="artNeedsVerify(c)" class="chn-art-verify">
+                      <AdminIcon name="alert-triangle" :size="13" />
+                      Résultat de recherche non officiel — vérifie la chaîne via ↗ avant de
+                      confirmer.
+                    </p>
+                  </template>
+
+                  <!-- Résolution tentée mais sans chaîne exploitable → rien à confirmer. -->
+                  <p v-else-if="artResolveAttempted(c)" class="chn-search-msg">
+                    Aucune chaîne trouvée.
+                  </p>
+
+                  <!-- Pas encore résolu : bouton explicite (la recherche coûte du quota). -->
+                  <template v-else>
+                    <button
+                      class="btn btn--sm btn--accent chn-cand-preselect"
+                      :disabled="artResolving[c.artist_id]"
+                      @click="resolveArtistCandidate(c)"
+                    >
+                      <AdminIcon name="search" :size="13" />
+                      {{ artResolving[c.artist_id] ? 'Résolution…' : 'Résoudre' }}
+                    </button>
+                    <p v-if="artResolveError[c.artist_id]" class="chn-add-error">
+                      <AdminIcon name="alert-triangle" :size="13" />
+                      {{ artResolveError[c.artist_id] }}
+                    </p>
+                  </template>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="totalArtPages > 1" class="at-pager">
+        <button class="btn btn--sm" :disabled="artPage <= 1" @click="prevArtPage">Précédent</button>
+        <span class="at-pager-count">{{ artPage }} / {{ totalArtPages }}</span>
+        <button class="btn btn--sm" :disabled="artPage >= totalArtPages" @click="nextArtPage">
+          Suivant
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -475,6 +615,25 @@ const candExpanded = reactive({})
 // clé `${name}::${channel_id}` → ajout d'un résultat en vol / erreur inline.
 const candAddingResult = reactive({})
 const candResultErrors = reactive({})
+
+// ── Candidats artistes (C14.b 🅱, L3) ──
+// La cohorte veillable pas encore rattachée à une chaîne, paginée + classée par
+// l'API. Chaque artiste porte éventuellement une pré-sélection de chaîne (preselect,
+// GRATUITE via le cache) ; sinon on la résout ON-DEMAND sur clic explicite.
+const artistCandidates = ref([])
+const totalArtCand = ref(0)
+const artPage = ref(1)
+const loadingArt = ref(false)
+const errorArt = ref(false)
+// artist_id → résolution locale (issue d'un clic « Résoudre », complète le cache) /
+// résolution en vol / erreur de résolution / confirmation en vol / erreur inline.
+const artResolved = reactive({})
+const artResolving = reactive({})
+const artResolveError = reactive({})
+const artConfirming = reactive({})
+const artConfirmError = reactive({})
+
+const totalArtPages = computed(() => Math.ceil(totalArtCand.value / PER_PAGE))
 
 // ── Ajout d'une chaîne par URL (voie avancée) ──
 const addUrl = ref('')
@@ -762,9 +921,135 @@ async function addCandidateResult(c, r) {
   }
 }
 
+// ── Candidats artistes (L3) ──
+
+async function fetchArtistCandidates() {
+  loadingArt.value = true
+  errorArt.value = false
+  try {
+    const { data } = await api.get('/api/admin/channels/artist-candidates', {
+      params: { limit: PER_PAGE, page: artPage.value },
+    })
+    artistCandidates.value = data.items
+    totalArtCand.value = data.total
+  } catch {
+    errorArt.value = true
+    artistCandidates.value = []
+    totalArtCand.value = 0
+  } finally {
+    loadingArt.value = false
+  }
+}
+
+function prevArtPage() {
+  if (artPage.value <= 1) return
+  artPage.value--
+  fetchArtistCandidates()
+}
+
+function nextArtPage() {
+  if (artPage.value >= totalArtPages.value) return
+  artPage.value++
+  fetchArtistCandidates()
+}
+
+// Résolution EFFECTIVE d'un artiste-candidat : la résolution locale (clic « Résoudre »)
+// prioritaire, sinon la pré-sélection du cache (c.preselect) — null si aucune tentative.
+function artResolution(c) {
+  return c.artist_id in artResolved ? artResolved[c.artist_id] : c.preselect || null
+}
+
+// Une chaîne exploitable a été trouvée (channel_id non vide) → il y a à confirmer.
+function artChannelFound(c) {
+  const r = artResolution(c)
+  return !!(r && r.channel_id)
+}
+
+// Une résolution a été tentée (localement OU présente dans le cache), même sans
+// chaîne → distingue « pas encore résolu » de « résolu, aucune chaîne ».
+function artResolveAttempted(c) {
+  return c.artist_id in artResolved || c.preselect != null
+}
+
+// NEEDS_VERIFY = résultat de recherche non officiel (vs high = Wikidata/MusicBrainz)
+// → l'admin doit vérifier la chaîne via ↗ avant de confirmer.
+function artNeedsVerify(c) {
+  return artResolution(c)?.confidence === 'NEEDS_VERIFY'
+}
+
+// Libellé méthode/confiance visible : officiel (cascade Wikidata/MusicBrainz) vs à
+// vérifier (recherche), la méthode brute entre parenthèses.
+function artConfidenceLabel(c) {
+  const r = artResolution(c)
+  if (!r) return ''
+  const base = artNeedsVerify(c) ? 'À vérifier' : 'Officiel'
+  return r.method ? `${base} (${r.method})` : base
+}
+
+function artChannelName(c) {
+  const r = artResolution(c)
+  return r?.channel_title || 'la chaîne'
+}
+
+// Lien ↗ vers la chaîne : l'URL fournie par la résolution, sinon reconstruite depuis
+// le channel_id.
+function artChannelHref(c) {
+  const r = artResolution(c)
+  return r?.url || ytChannelUrl(r?.channel_id)
+}
+
+// Résout UN artiste-candidat en sa chaîne YouTube (cascade Wikidata→MusicBrainz→
+// recherche), mise en cache côté back → gratuite ensuite. UNIQUEMENT au clic (jamais
+// à l'affichage — le palier recherche coûte 100 unités de quota). GET /resolve renvoie
+// un objet unique (ou {} vide quand rien n'est trouvé).
+async function resolveArtistCandidate(c) {
+  if (artResolving[c.artist_id]) return
+  artResolving[c.artist_id] = true
+  artResolveError[c.artist_id] = ''
+  try {
+    const { data } = await api.get('/api/admin/channels/artist-candidates/resolve', {
+      params: { name: c.name },
+    })
+    artResolved[c.artist_id] = data
+  } catch (e) {
+    // Un 4xx (ex. quota) s'affiche inline ; l'intercepteur api ne toaste que 5xx.
+    artResolveError[c.artist_id] = e.response?.data?.detail || 'Résolution impossible'
+  } finally {
+    artResolving[c.artist_id] = false
+  }
+}
+
+// Confirme un artiste-candidat : POST la chaîne résolue rattachée à l'artiste
+// (channel_type='artist' + artist_id). En succès on retire l'artiste de la liste
+// (il est désormais une chaîne surveillée) et on rafraîchit la liste surveillée.
+async function confirmArtistCandidate(c) {
+  const r = artResolution(c)
+  if (!r || !r.channel_id || artConfirming[c.artist_id]) return
+  artConfirming[c.artist_id] = true
+  artConfirmError[c.artist_id] = ''
+  try {
+    await api.post('/api/admin/channels', {
+      url: r.channel_id,
+      name: r.channel_title,
+      channel_type: 'artist',
+      artist_id: c.artist_id,
+    })
+    artistCandidates.value = artistCandidates.value.filter((x) => x.artist_id !== c.artist_id)
+    delete artResolved[c.artist_id]
+    delete artResolveError[c.artist_id]
+    page.value = 1
+    await fetchChannels()
+  } catch (e) {
+    artConfirmError[c.artist_id] = e.response?.data?.detail || 'Confirmation impossible'
+  } finally {
+    artConfirming[c.artist_id] = false
+  }
+}
+
 onMounted(() => {
   fetchChannels()
   fetchCandidates()
+  fetchArtistCandidates()
 })
 </script>
 
@@ -913,6 +1198,26 @@ onMounted(() => {
 }
 .chn-cand-direct {
   margin-top: var(--space-1);
+}
+
+/* ── Candidat-artiste (L3) : méta méthode/confiance + rappel de vérification. ── */
+.chn-art-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: 400 var(--fs-xs)/1.3 var(--font-ui);
+  color: var(--pos-ink);
+}
+.chn-art-meta--verify {
+  color: var(--warn-ink);
+}
+.chn-art-verify {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: 400 var(--fs-xs)/1.35 var(--font-ui);
+  color: var(--warn-ink);
+  text-wrap: pretty;
 }
 
 /* ── Recherche YouTube (add-by-search) ── */
