@@ -343,12 +343,14 @@ async def list_artist_candidates(
     ``channels.artist_id``). Each remaining member is passed through the 3-guard
     « real artist » gate (:func:`_passes_artist_gate`): denylist, a real-artist
     signal (Deezer link / catalog depth / recent DJ set) and the name heuristic.
-    The relevance signals (``nb_sets_12m``/``nb_lib``/``nb_catalog``) live in the
-    cohort's ``signals`` JSON, so the gate + ranking run in Python (dialect-neutral)
-    over the fetched rows.
+    The relevance signals (``followed``/``nb_lib``/``nb_likes``/``nb_sets_12m``/
+    ``nb_catalog``) live in the cohort's ``signals`` JSON, so the gate + ranking run
+    in Python (dialect-neutral) over the fetched rows.
 
-    Ranked by ``tier`` asc then relevance desc (sets > lib > catalog), tie-broken
-    by ``artist_id`` for a deterministic page window; paginated in memory.
+    Ranked by PERSONAL RELEVANCE, not set volume: ``tier`` asc, then explicitly
+    followed artists first, then by library depth, likes, DJ-set activity and catalog
+    depth (all desc), tie-broken by ``artist_id`` for a deterministic page window;
+    paginated in memory.
 
     When ``redis`` is provided, each PAGE item is annotated with its cached
     artist→channel resolution (``preselect``) READ FROM the cache only (key
@@ -375,7 +377,9 @@ async def list_artist_candidates(
     for row, name, deezer_id in rows:
         nb_sets = _sig_int(row.signals, "nb_sets_12m")
         nb_lib = _sig_int(row.signals, "nb_lib")
+        nb_likes = _sig_int(row.signals, "nb_likes")
         nb_catalog = _sig_int(row.signals, "nb_catalog")
+        followed = bool((row.signals or {}).get("followed"))
         if not _passes_artist_gate(name, deezer_id, nb_catalog, nb_sets):
             continue
         kept.append(
@@ -383,18 +387,24 @@ async def list_artist_candidates(
                 "artist_id": row.artist_id,
                 "name": name,
                 "tier": row.tier,
-                "nb_sets": nb_sets,
+                "followed": followed,
                 "nb_lib": nb_lib,
+                "nb_likes": nb_likes,
+                "nb_sets": nb_sets,
                 "nb_catalog": nb_catalog,
                 "preselect": None,
             }
         )
 
+    # Personal-relevance order (NOT set volume): tier, then explicitly followed
+    # artists first, then library depth, likes, DJ-set activity, catalog depth.
     kept.sort(
         key=lambda c: (
             c["tier"],
-            -c["nb_sets"],
+            not c["followed"],
             -c["nb_lib"],
+            -c["nb_likes"],
+            -c["nb_sets"],
             -c["nb_catalog"],
             c["artist_id"],
         )

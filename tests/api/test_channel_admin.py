@@ -951,19 +951,57 @@ class TestArtistCandidatesExclusionAndRank:
         r = await admin_client.get("/api/admin/channels/artist-candidates")
         assert r.json()["total"] == 0
 
-    async def test_ranked_by_tier_then_relevance(self, admin_client, db):
-        a1 = await _artist(db, "Tier Two Big", deezer_id="10")
-        await _cohort(db, a1, tier=2, signals={"nb_sets_12m": 100})
-        a2 = await _artist(db, "Tier One Small", deezer_id="11")
-        await _cohort(db, a2, tier=1, signals={"nb_sets_12m": 1})
-        a3 = await _artist(db, "Tier One Big", deezer_id="12")
-        await _cohort(db, a3, tier=1, signals={"nb_sets_12m": 9})
+    async def test_ranked_by_personal_relevance_not_volume(self, admin_client, db):
+        # Ranking key: tier asc, then followed first, then nb_lib, nb_likes,
+        # nb_sets_12m, nb_catalog (desc). Personal relevance beats raw set volume.
+        followed_low = await _artist(db, "Followed Low", deezer_id="10")
+        await _cohort(
+            db,
+            followed_low,
+            tier=1,
+            signals={"followed": True, "nb_lib": 0, "nb_likes": 0, "nb_sets_12m": 1},
+        )
+        big_lib = await _artist(db, "Unfollowed Big Lib", deezer_id="11")
+        await _cohort(
+            db,
+            big_lib,
+            tier=1,
+            signals={"followed": False, "nb_lib": 50, "nb_likes": 0, "nb_sets_12m": 100},
+        )
+        more_likes = await _artist(db, "Unfollowed More Likes", deezer_id="12")
+        await _cohort(
+            db,
+            more_likes,
+            tier=1,
+            signals={"followed": False, "nb_lib": 10, "nb_likes": 99, "nb_sets_12m": 100},
+        )
+        fewer_likes = await _artist(db, "Unfollowed Fewer Likes", deezer_id="13")
+        await _cohort(
+            db,
+            fewer_likes,
+            tier=1,
+            signals={"followed": False, "nb_lib": 10, "nb_likes": 1, "nb_sets_12m": 100},
+        )
+        tier_two = await _artist(db, "Tier Two Big", deezer_id="14")
+        await _cohort(
+            db,
+            tier_two,
+            tier=2,
+            signals={"followed": False, "nb_lib": 100, "nb_sets_12m": 100},
+        )
         await db.commit()
 
         r = await admin_client.get("/api/admin/channels/artist-candidates")
         names = [i["name"] for i in r.json()["items"]]
-        # tier 1 before tier 2; within tier 1, more recent sets first.
-        assert names == ["Tier One Big", "Tier One Small", "Tier Two Big"]
+        # A followed artist with FEW sets outranks unfollowed artists with MANY sets;
+        # among the unfollowed, deeper library first, then more likes; tier dominates.
+        assert names == [
+            "Followed Low",
+            "Unfollowed Big Lib",
+            "Unfollowed More Likes",
+            "Unfollowed Fewer Likes",
+            "Tier Two Big",
+        ]
 
     async def test_pagination(self, admin_client, db):
         for i in range(5):
