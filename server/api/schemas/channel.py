@@ -91,7 +91,7 @@ class ArtistCandidateOut(BaseModel):
     « real artist » gate and is NOT yet curated into ``channels``. Ranked by
     cohort ``tier`` then relevance (``nb_sets`` > ``nb_lib`` > ``nb_catalog``).
     ``preselect`` is the artist→channel resolution READ-ONLY from the Redis cache
-    (key ``yt:artcand:v1:{name}``) — None until the operator resolves it on the
+    (key ``yt:artcand:v2:{name}``) — None until the operator resolves it on the
     ``/artist-candidates/resolve`` path (a resolution spends 100 quota units, so
     the listing never triggers one).
     """

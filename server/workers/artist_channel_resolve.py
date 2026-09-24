@@ -30,6 +30,15 @@ Cascade, stopping at the first that resolves:
                     filter "- Topic" → verify by :func:`fold_match` →
                     method="search", confidence="NEEDS_VERIFY".
 
+Both official tiers (a, b) only ever return a channel *id* — yet MusicBrainz (and
+sometimes Wikidata) point at a YouTube Music "… - Topic" auto-channel (zero real
+sets). So before accepting an official channel id its real title is fetched
+(:func:`workers.youtube.fetch_channel_title`) and a "- Topic" is REJECTED
+(:func:`_accept_official_channel`) — the cascade then falls through to the next
+tier (a MB "- Topic" thus drops to ``search``, which finds the real channel or
+nothing). Best-effort: a missing key or a title-fetch outage accepts without the
+check (never loses an otherwise-official resolution).
+
 Design, mirroring ``workers/youtube.py``: HTTP goes through INJECTED httpx clients
 (mockable in tests, zero real network), each request carries an explicit
 User-Agent (Wikidata AND MusicBrainz 403/429 a blank one), and rate is paced by an
@@ -46,7 +55,7 @@ from urllib.parse import quote
 
 import httpx
 from workers.artist_names import punct_fold_key
-from workers.youtube import search_channels
+from workers.youtube import fetch_channel_title, search_channels
 
 logger = logging.getLogger(__name__)
 
@@ -398,6 +407,60 @@ async def resolve_musicbrainz(
 # ── Cascade ───────────────────────────────────────────────────────────────────
 
 
+async def _accept_official_channel(
+    yt_client: httpx.AsyncClient,
+    channel_id: str,
+    api_key: str,
+    *,
+    name: str,
+) -> tuple[bool, str | None]:
+    """Verify an OFFICIAL-link channel id (Wikidata/MusicBrainz tier) is not a
+    YouTube Music "… - Topic" auto-channel, returning ``(accept, title)``.
+
+    The official tiers only ever hand back a channel id (no title), so a
+    :func:`is_topic_channel` check has nothing to bite on — yet MusicBrainz (and
+    sometimes Wikidata) do point at a "- Topic" channel (zero real sets). We fetch
+    the real title via :func:`workers.youtube.fetch_channel_title` and reject it:
+
+      * ``api_key`` absent → ``(True, None)`` — no fetch possible, accept best-effort
+        (a key-less env must not lose the resolution). Logged.
+      * fetch error → ``(True, None)`` — ISOLATED (logged), accept without the check
+        (a title-fetch outage must not fail an otherwise-official resolution).
+      * a "- Topic" title → ``(False, None)`` — REJECT this tier; the cascade falls
+        through to the next one (a MB "- Topic" thus drops to the ``search`` tier,
+        which finds the real channel or nothing).
+      * otherwise → ``(True, title)`` — accept, carrying the real channel title.
+    """
+    if not api_key:
+        logger.info(
+            "resolve_artist_channel: no api_key for %r — accepting official "
+            "channel %s without a '- Topic' check",
+            name,
+            channel_id,
+        )
+        return True, None
+    try:
+        title = await fetch_channel_title(yt_client, channel_id, api_key)
+    except Exception as exc:  # title-fetch outage isolated — accept without check
+        logger.warning(
+            "resolve_artist_channel: title fetch failed for %s (%r): %s — "
+            "accepting official channel without a '- Topic' check",
+            channel_id,
+            name,
+            exc,
+        )
+        return True, None
+    if is_topic_channel(title):
+        logger.info(
+            "resolve_artist_channel: rejecting '- Topic' channel %s (%r) for %r",
+            channel_id,
+            title,
+            name,
+        )
+        return False, None
+    return True, title
+
+
 async def resolve_artist_channel(
     name: str,
     *,
@@ -433,14 +496,18 @@ async def resolve_artist_channel(
         )
         has_soundcloud = has_soundcloud or wiki["has_soundcloud"]
         if wiki["channel_id"]:
-            return {
-                "channel_id": wiki["channel_id"],
-                "channel_title": None,
-                "url": youtube_url_from_ref("channel_id", wiki["channel_id"]),
-                "method": "wikidata",
-                "confidence": "high",
-                "has_soundcloud": has_soundcloud,
-            }
+            accept, title = await _accept_official_channel(
+                yt_client, wiki["channel_id"], api_key, name=name
+            )
+            if accept:
+                return {
+                    "channel_id": wiki["channel_id"],
+                    "channel_title": title,
+                    "url": youtube_url_from_ref("channel_id", wiki["channel_id"]),
+                    "method": "wikidata",
+                    "confidence": "high",
+                    "has_soundcloud": has_soundcloud,
+                }
     except Exception as exc:  # per-tier isolation, fall through
         logger.warning(
             "resolve_artist_channel: wikidata failed for %r: %s", name, exc
@@ -453,14 +520,18 @@ async def resolve_artist_channel(
         )
         has_soundcloud = has_soundcloud or mb["has_soundcloud"]
         if mb["channel_id"]:
-            return {
-                "channel_id": mb["channel_id"],
-                "channel_title": None,
-                "url": mb["channel_url"],
-                "method": "musicbrainz",
-                "confidence": "high",
-                "has_soundcloud": has_soundcloud,
-            }
+            accept, title = await _accept_official_channel(
+                yt_client, mb["channel_id"], api_key, name=name
+            )
+            if accept:
+                return {
+                    "channel_id": mb["channel_id"],
+                    "channel_title": title,
+                    "url": mb["channel_url"],
+                    "method": "musicbrainz",
+                    "confidence": "high",
+                    "has_soundcloud": has_soundcloud,
+                }
     except Exception as exc:  # per-tier isolation, fall through
         logger.warning(
             "resolve_artist_channel: musicbrainz failed for %r: %s", name, exc

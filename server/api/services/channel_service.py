@@ -49,8 +49,12 @@ def _candidate_cache_key(name: str) -> str:
 def _artist_resolve_cache_key(name: str) -> str:
     """Cache key for an ARTIST → channel cascade resolution (L1). Distinct from
     :func:`_candidate_cache_key` (a raw channel-name search): this is the full
-    Wikidata/MusicBrainz/search cascade for an artist name."""
-    return f"yt:artcand:v1:{name}"
+    Wikidata/MusicBrainz/search cascade for an artist name.
+
+    ``v2`` (L1-fix): the official Wikidata/MusicBrainz tiers now reject a
+    "… - Topic" auto-channel, so v1 resolutions (which could cache a Topic hit)
+    are invalidated by the version bump."""
+    return f"yt:artcand:v2:{name}"
 
 
 def _item(row: Channel) -> dict:
@@ -348,7 +352,7 @@ async def list_artist_candidates(
 
     When ``redis`` is provided, each PAGE item is annotated with its cached
     artist→channel resolution (``preselect``) READ FROM the cache only (key
-    ``yt:artcand:v1:{name}``) — this function NEVER resolves (a resolution spends
+    ``yt:artcand:v2:{name}``) — this function NEVER resolves (a resolution spends
     100 quota units; that happens exclusively on :func:`resolve_artist_candidate`).
     Fail-open: any Redis error leaves ``preselect`` at None, never an exception.
     Read-only, no commit. Returns ``{total, items}``.

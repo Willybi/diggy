@@ -321,6 +321,27 @@ def _yt_search_payload(hits):
     }
 
 
+def _yt_handler(*, title=None, search_hits=None):
+    """A YouTube Data API fake serving BOTH endpoints the cascade may hit:
+
+      * ``channels.list`` (``fetch_channel_title`` — L1-fix official-tier Topic
+        check) → ``{items:[{snippet:{title}}]}`` (or empty items when ``title``
+        is None: an unknown/removed channel).
+      * ``search.list`` (``search_channels`` — the fallback tier) → a search payload
+        built from ``search_hits`` (default empty).
+    """
+
+    def handler(url, params):
+        if url.endswith("/channels"):
+            items = [] if title is None else [{"snippet": {"title": title}}]
+            return _FakeResp(200, {"items": items})
+        if url.endswith("/search"):
+            return _FakeResp(200, _yt_search_payload(search_hits or []))
+        raise AssertionError(f"unexpected request to {url}")
+
+    return handler
+
+
 class TestResolveArtistChannelCascade:
     def test_wikidata_wins_first(self):
         claims = {"P31": [_entity_claim("Q5")], "P2397": [_string_claim(_UC)]}
@@ -330,7 +351,7 @@ class TestResolveArtistChannelCascade:
                 "Peggy Gou",
                 wiki_client=wiki,
                 mb_client=_FakeClient(_never),
-                yt_client=_FakeClient(_never),
+                yt_client=_FakeClient(_yt_handler(title="Peggy Gou")),
                 api_key="k",
                 sleep=_nosleep,
             )
@@ -339,6 +360,8 @@ class TestResolveArtistChannelCascade:
         assert got["confidence"] == "high"
         assert got["channel_id"] == _UC
         assert got["url"].endswith(f"/channel/{_UC}")
+        # L1-fix: the official tier now fetches and carries the real channel title.
+        assert got["channel_title"] == "Peggy Gou"
 
     def test_falls_through_to_musicbrainz(self):
         # Wikidata: non-music entity → no channel; MusicBrainz resolves.
@@ -356,13 +379,15 @@ class TestResolveArtistChannelCascade:
                 "X",
                 wiki_client=wiki,
                 mb_client=mb,
-                yt_client=_FakeClient(_never),
+                yt_client=_FakeClient(_yt_handler(title="X Channel")),
                 api_key="k",
                 sleep=_nosleep,
             )
         )
         assert got["method"] == "musicbrainz"
         assert got["channel_id"] == _UC
+        # L1-fix: the official tier now fetches and carries the real channel title.
+        assert got["channel_title"] == "X Channel"
 
     def test_falls_through_to_search(self):
         wiki = _FakeClient(_wiki_handler({}, search_hits=[]))
@@ -517,7 +542,7 @@ class TestResolveArtistChannelCascade:
                 "X",
                 wiki_client=wiki,
                 mb_client=mb,
-                yt_client=_FakeClient(_never),
+                yt_client=_FakeClient(_yt_handler(title="X Official")),
                 api_key="k",
                 sleep=_nosleep,
             )
@@ -543,7 +568,7 @@ class TestResolveArtistChannelCascade:
                 "Peggy Gou",
                 wiki_client=wiki,
                 mb_client=mb,
-                yt_client=_FakeClient(_never),
+                yt_client=_FakeClient(_yt_handler(title="Peggy Gou")),
                 api_key="k",
                 sleep=_nosleep,
             )
@@ -563,3 +588,113 @@ class TestResolveArtistChannelCascade:
             )
         )
         assert got is None
+
+    # ── L1-fix: official-tier "- Topic" reject ────────────────────────────────
+
+    def test_wikidata_topic_channel_rejected(self):
+        # Wikidata hands a channel id whose real title is a "- Topic" auto-channel
+        # → REJECTED; nothing else resolves → None (no false "high" Topic result).
+        claims = {"P31": [_entity_claim("Q5")], "P2397": [_string_claim(_UC)]}
+        wiki = _FakeClient(_wiki_handler(claims))
+        mb = _FakeClient(_mb_handler(artists=[]))
+        yt = _FakeClient(_yt_handler(title="Adam Beyer - Topic"))
+        got = asyncio.run(
+            resolve_artist_channel(
+                "Adam Beyer",
+                wiki_client=wiki,
+                mb_client=mb,
+                yt_client=yt,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got is None
+
+    def test_musicbrainz_topic_falls_through_to_search(self):
+        # The reported bug: MusicBrainz points at "Adam Beyer - Topic"; rejecting it
+        # lets the search tier find the real channel.
+        real = "UCrealchannelid00000000"
+        topic = "UCtopic0000000000000000"
+        wiki = _FakeClient(_wiki_handler({}, search_hits=[]))
+        mb = _FakeClient(
+            _mb_handler(
+                relations=[
+                    {"url": {"resource": f"https://youtube.com/channel/{topic}"}}
+                ]
+            )
+        )
+        yt = _FakeClient(
+            _yt_handler(title="Adam Beyer - Topic", search_hits=[(real, "Adam Beyer")])
+        )
+        got = asyncio.run(
+            resolve_artist_channel(
+                "Adam Beyer",
+                wiki_client=wiki,
+                mb_client=mb,
+                yt_client=yt,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got["method"] == "search"
+        assert got["channel_id"] == real
+
+    def test_official_normal_title_populated(self):
+        # A non-Topic official title is accepted and carried on channel_title.
+        claims = {"P31": [_entity_claim("Q5")], "P2397": [_string_claim(_UC)]}
+        wiki = _FakeClient(_wiki_handler(claims))
+        yt = _FakeClient(_yt_handler(title="Adam Beyer"))
+        got = asyncio.run(
+            resolve_artist_channel(
+                "Adam Beyer",
+                wiki_client=wiki,
+                mb_client=_FakeClient(_never),
+                yt_client=yt,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got["method"] == "wikidata"
+        assert got["channel_id"] == _UC
+        assert got["channel_title"] == "Adam Beyer"
+
+    def test_official_no_api_key_accepts_without_check(self):
+        # No api_key → no fetch possible → accept the official channel best-effort
+        # (channel_title None), and the yt_client is never touched.
+        claims = {"P31": [_entity_claim("Q5")], "P2397": [_string_claim(_UC)]}
+        wiki = _FakeClient(_wiki_handler(claims))
+        yt = _FakeClient(_never)
+        got = asyncio.run(
+            resolve_artist_channel(
+                "Adam Beyer",
+                wiki_client=wiki,
+                mb_client=_FakeClient(_never),
+                yt_client=yt,
+                api_key="",
+                sleep=_nosleep,
+            )
+        )
+        assert got["method"] == "wikidata"
+        assert got["channel_id"] == _UC
+        assert got["channel_title"] is None
+        assert yt.calls == []
+
+    def test_official_title_fetch_error_accepts(self):
+        # A title-fetch outage (non-200) is ISOLATED → accept without the check
+        # (channel_title None), the resolution is not lost.
+        claims = {"P31": [_entity_claim("Q5")], "P2397": [_string_claim(_UC)]}
+        wiki = _FakeClient(_wiki_handler(claims))
+        yt = _FakeClient(lambda url, params: _FakeResp(503))
+        got = asyncio.run(
+            resolve_artist_channel(
+                "Adam Beyer",
+                wiki_client=wiki,
+                mb_client=_FakeClient(_never),
+                yt_client=yt,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got["method"] == "wikidata"
+        assert got["channel_id"] == _UC
+        assert got["channel_title"] is None
