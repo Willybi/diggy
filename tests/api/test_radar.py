@@ -295,7 +295,7 @@ class TestCrawlDiffLifecycle:
 
     def _make_engine(self):
         from sqlalchemy import create_engine
-        url = os.environ["DATABASE_URL"].replace("+asyncpg", "")
+        url = os.environ["DATABASE_URL"].replace("+asyncpg", "+psycopg2")
         return create_engine(url)
 
     def test_bulk_get_or_create_trims_title_and_artist(self):

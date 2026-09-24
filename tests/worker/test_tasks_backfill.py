@@ -221,7 +221,7 @@ def pg_reaper_engine():
     from sqlalchemy import create_engine
     from sqlalchemy.engine import make_url
 
-    base_url = make_url(os.environ["DATABASE_URL"].replace("+asyncpg", ""))
+    base_url = make_url(os.environ["DATABASE_URL"].replace("+asyncpg", "+psycopg2"))
     worker = os.environ.get("PYTEST_XDIST_WORKER", "solo")
     test_db = f"{base_url.database}_claimreaper_{worker}"
     maint_dsn = base_url.render_as_string(hide_password=False)

@@ -153,7 +153,7 @@ def pg_engine():
     still rely on. A dedicated database (same pattern as tests/api's own
     _create_worker_database) keeps this test fully isolated.
     """
-    base_url = make_url(os.environ["DATABASE_URL"].replace("+asyncpg", ""))
+    base_url = make_url(os.environ["DATABASE_URL"].replace("+asyncpg", "+psycopg2"))
     worker = os.environ.get("PYTEST_XDIST_WORKER", "solo")
     test_db = f"{base_url.database}_rbupsert_{worker}"
     maint_dsn = base_url.render_as_string(hide_password=False)
