@@ -221,7 +221,7 @@ def pg_reaper_engine():
     from sqlalchemy import create_engine
     from sqlalchemy.engine import make_url
 
-    base_url = make_url(os.environ["DATABASE_URL"].replace("+asyncpg", "+psycopg2"))
+    base_url = make_url(os.environ["DATABASE_URL"].replace("+asyncpg", ""))
     worker = os.environ.get("PYTEST_XDIST_WORKER", "solo")
     test_db = f"{base_url.database}_claimreaper_{worker}"
     maint_dsn = base_url.render_as_string(hide_password=False)
@@ -235,7 +235,9 @@ def pg_reaper_engine():
         ],
     )
     engine = create_engine(
-        base_url.set(database=test_db).render_as_string(hide_password=False)
+        base_url.set(drivername="postgresql+psycopg2", database=test_db).render_as_string(
+            hide_password=False
+        )
     )
     try:
         Base.metadata.create_all(engine)
