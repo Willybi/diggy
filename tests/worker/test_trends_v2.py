@@ -280,6 +280,28 @@ class TestUnreliableSetsExcluded:
         assert set_reliable_sql("s") == "s.unreliable IS NOT TRUE"
 
 
+class TestFkGuardBeforeUpsert:
+    """DIGGY-APP-1P/-4: a catalog row deleted concurrently (merge-on-collision
+    during the overlapping 07:00 Beatport enrich run) between the detections
+    SELECT and the radar_trends upsert makes the bulk INSERT raise a
+    ForeignKeyViolation and fails the whole run. compute_trends re-checks catalog
+    existence right before inserting and drops any vanished catalog_id. Same
+    source-inspection contract as the reliability/removed-tracks tests above — the
+    drop branch only fires under a real concurrent delete (unreachable via seeded
+    data, since the detections CTE joins catalog)."""
+
+    def test_source_rechecks_catalog_existence_before_upsert(self):
+        import inspect
+        from workers.tasks.trends import compute_trends
+
+        source = inspect.getsource(compute_trends)
+        # existence re-check immediately before the upsert
+        assert "SELECT id FROM catalog WHERE id = ANY(:ids)" in source
+        assert "FK guard" in source
+        # the upsert is skipped cleanly when the post-filter set is empty
+        assert "if entries:" in source
+
+
 class TestPurgeStaleTrends:
     """A3-02: a run must delete radar_trends rows left over from previous runs."""
 

@@ -315,23 +315,48 @@ def compute_trends(self, window_days=30):
             for e in entries:
                 e.setdefault("rank_in_family", None)
 
+            # Guard the radar_trends FK: a catalog row can be deleted concurrently
+            # (merge-on-collision during the overlapping 07:00 Beatport enrich run)
+            # between the detections SELECT above and this upsert, which would make
+            # the bulk INSERT raise a ForeignKeyViolation and fail the whole run
+            # (DIGGY-APP-1P/-4). Re-check existence right before inserting and drop
+            # any vanished catalog_id — the next daily beat recomputes anyway. This
+            # shrinks the race window to microseconds; a residual race still fails
+            # cleanly (CrawlLogger no longer masks it) and self-heals next beat.
+            if entries:
+                existing_ids = set(
+                    session.execute(
+                        text("SELECT id FROM catalog WHERE id = ANY(:ids)"),
+                        {"ids": [e["catalog_id"] for e in entries]},
+                    ).scalars()
+                )
+                if len(existing_ids) != len(entries):
+                    dropped = len(entries) - len(existing_ids)
+                    entries = [e for e in entries if e["catalog_id"] in existing_ids]
+                    logger.warning(
+                        "compute_trends: dropped %d trend rows for catalog ids "
+                        "deleted mid-run (FK guard)",
+                        dropped,
+                    )
+
             # UPSERT
-            stmt = pg_insert(RadarTrend).values(entries)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["catalog_id"],
-                set_={
-                    "trend_score": stmt.excluded.trend_score,
-                    "window_days": stmt.excluded.window_days,
-                    "detection_count": stmt.excluded.detection_count,
-                    "source_count": stmt.excluded.source_count,
-                    "velocity": stmt.excluded.velocity,
-                    "family": stmt.excluded.family,
-                    "rank_in_family": stmt.excluded.rank_in_family,
-                    "rank_global": stmt.excluded.rank_global,
-                    "computed_at": stmt.excluded.computed_at,
-                },
-            )
-            session.execute(stmt)
+            if entries:
+                stmt = pg_insert(RadarTrend).values(entries)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["catalog_id"],
+                    set_={
+                        "trend_score": stmt.excluded.trend_score,
+                        "window_days": stmt.excluded.window_days,
+                        "detection_count": stmt.excluded.detection_count,
+                        "source_count": stmt.excluded.source_count,
+                        "velocity": stmt.excluded.velocity,
+                        "family": stmt.excluded.family,
+                        "rank_in_family": stmt.excluded.rank_in_family,
+                        "rank_global": stmt.excluded.rank_global,
+                        "computed_at": stmt.excluded.computed_at,
+                    },
+                )
+                session.execute(stmt)
             purged = _purge_stale_trends(session, now)
             session.commit()
 

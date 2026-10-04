@@ -72,6 +72,7 @@ _celery_exceptions = sys.modules.setdefault("celery.exceptions", MagicMock())
 _celery_exceptions.SoftTimeLimitExceeded = _FakeSoftTimeLimitExceeded
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import Base
@@ -229,6 +230,40 @@ class TestCrawlLoggerDurability:
         # so a blank-str() exception still records the type. The original
         # message is preserved after the prefix.
         assert row.error_message == "ValueError: boom"
+        assert row.finished_at is not None
+
+    def test_exit_recovers_when_body_aborts_transaction(self, sync_engine):
+        # DIGGY-APP-1P/-4: a task body that leaves the session needing a rollback
+        # (a failed flush — prod: a concurrent catalog delete → radar_trends FK
+        # violation) must NOT make __exit__ re-raise a masking autoflush /
+        # PendingRollbackError. __exit__ rolls back first, logs via the cached
+        # labels (never lazy-loading the expired ORM attrs on the dead tx), and
+        # records status=error on the pre-committed row; the ORIGINAL exception
+        # propagates unchanged. Before the fix, reading self._log.task_type here
+        # autoflushed on the aborted tx and raised InternalError instead.
+        log_session = Session(sync_engine)
+        with pytest.raises(RuntimeError, match="boom"):
+            with CrawlLogger(
+                log_session, task_type="unit_aborted", target_label="Race"
+            ) as clog:
+                # Force "transaction rolled back due to a previous exception during
+                # flush" (NOT NULL violation) + expire the running row's attributes,
+                # exactly as the failed bulk execute did in prod.
+                try:
+                    log_session.add(CrawlLog(status="running"))  # task_type NULL
+                    log_session.flush()
+                except IntegrityError:
+                    pass
+                log_session.expire(clog._log)
+                raise RuntimeError("boom")
+        log_session.close()
+
+        with Session(sync_engine) as verify:
+            row = verify.execute(
+                select(CrawlLog).where(CrawlLog.task_type == "unit_aborted")
+            ).scalar_one()
+        assert row.status == "error"
+        assert row.error_message == "RuntimeError: boom"
         assert row.finished_at is not None
 
     def test_exit_error_message_prefixes_type_when_str_empty(self, sync_engine):
