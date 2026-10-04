@@ -2059,7 +2059,9 @@ Invariants : pas d'autoretry, locks inchanges (TTL > time_limit), la sortie dead
 **Estimation : 0,5 jour**
 **Statut : A FAIRE — inscrit 2026-09-07 (triage /sentry_triage).**
 
-Source : issue Sentry prod DIGGY-APP-V (`Process 'ForkPoolWorker' exited with signal 9 (SIGKILL)`, 1800 events, dernier tir 2026-08-25 puis silencieux). Dashboard : https://diggy-music.sentry.io/issues/DIGGY-APP-V
+Source : issue Sentry prod DIGGY-APP-V (`Process 'ForkPoolWorker' exited with signal 9 (SIGKILL)`, ~1800 events) + sa jumelle DIGGY-APP-X (`WorkerLostError`, meme trace/span). Dashboard : https://diggy-music.sentry.io/issues/DIGGY-APP-V
+
+**Mise a jour 2026-10-04 (re-triage /sentry_triage)** : la famille n'est PAS eteinte — DIGGY-APP-V ET DIGGY-APP-X ont re-tire le 2026-10-03 (donnee du triage, contredit le « silencieux depuis 2026-08-25 » ci-dessus), sur le worker `celery,crawl` (`-c 3`, `--max-memory-per-child=1500000`) en fenetre crawl ~03:45 (`crawl_trackid_latest`/`recrawl_incomplete_sets`). Profil = OOM du worker crawl (signal capacite, cf. [[hostinger-cpu-throttle]] / AV10), distinct du hard-limit de drain enrich deja couvert AV9/AV11. A relever en priorite ; faire AV12-01 (attribution par tache) avant tout resolve.
 
 Constat : DIGGY-APP-V est un grouping GENERIQUE du SIGKILL billiard (aucun `culprit`, aucun `task_name` dans le fingerprint) — il agrege le SIGKILL qui suit un hard-limit (deja adresse cote AV9 pour les drains enrich + AV11 pour `backfill_multi_artists`) ET d'eventuels OOM. Deja resolu une fois par AV9-03 (2026-08-18), il a recidive (jusqu'au 2026-08-25) faute de pouvoir distinguer les causes → il ne peut pas etre clos proprement en l'etat (un resolve aveugle rouvrirait au prochain SIGKILL, quelle qu'en soit la source).
 
@@ -2067,6 +2069,23 @@ Constat : DIGGY-APP-V est un grouping GENERIQUE du SIGKILL billiard (aucun `culp
 - [ ] **AV12-02** : apres instrumentation + fenetre d'observation, resolve DIGGY-APP-V si la famille reste eteinte, ou router vers ops si un OOM residuel subsiste.
 
 Invariants : lecture/observabilite uniquement, aucun changement de comportement worker.
+
+---
+
+## AV13 — enrich_catalog_beatport : connexion postgres tombee masquee (triage Sentry 2026-10-04)
+
+**Priorite : BAS** (1 event le 2026-09-18, dormant ; self-healing — le broker re-livre, E1 non brule)
+**Estimation : <0,5 jour**
+**Statut : A FAIRE — inscrit 2026-10-04 (triage /sentry_triage).**
+
+Source : issue Sentry prod DIGGY-APP-1N (`PendingRollbackError ... Original exception was: (autoflush) (psycopg2.OperationalError) server closed the connection unexpectedly`, culprit `workers.tasks.enrich_catalog_beatport`). Dashboard : https://diggy-music.sentry.io/issues/DIGGY-APP-1N
+
+Constat : postgres a ferme/redemarre la connexion (transitoire infra) pendant un autoflush → tx avortee ; puis `_commit_with_deadlock_retry` (`workers/tasks/catalog.py`) appelle `session.commit()` SANS rollback prealable → `PendingRollbackError` SECONDAIRE qui masque la vraie cause (connexion tombee). 1 occurrence, 16 j avant le triage, jamais recidive. NB : distinct du fix DIGGY-APP-1P/-4 (compute_trends FK race + CrawlLogger, livre 2026-10-04 commit 1ff2683) — meme famille de symptome « autoflush masque l'erreur racine », autre chemin.
+
+- [ ] **AV13-01** : dans `_commit_with_deadlock_retry`, sur une `OperationalError` NON-40P01, faire `session.rollback()` avant de propager (ne pas transformer une coupure transitoire en PendingRollbackError masquant). Le broker re-livre deja la tache ; aucun `_mark_searched` sur ce chemin (E1 intact).
+- [ ] **AV13-02** : candidat `resolve` passif si DIGGY-APP-1N reste eteint (le fix ne touche que le masquage, pas la cause racine infra).
+
+Invariants : pas d'autoretry, E1 preserve (jamais de `_mark_searched` sur un outage), locks inchanges.
 
 ---
 
