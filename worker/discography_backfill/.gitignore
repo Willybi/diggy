@@ -1,0 +1,3 @@
+# run artifacts (sample CSV + catalog index CSV + discography NDJSON + JSON report)
+# — never committed (the catalog index alone is a ~700k-row dump of prod identity keys)
+data/
