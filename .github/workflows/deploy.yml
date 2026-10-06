@@ -98,7 +98,11 @@ jobs:
         #   - PYSEC-2026-1325 (ecdsa, transitive via python-jose): Minerva P-256
         #     timing side-channel on signing; upstream declared WON'T-FIX (side
         #     channels are out of scope) and we never ECDSA-sign (HS256 only).
-        run: pip install pip-audit && pip-audit -r server/api/requirements.txt --desc --ignore-vuln PYSEC-2025-185 --ignore-vuln PYSEC-2026-1325
+        #   - CVE-2026-85394 (python-jose, published 2026-10): no fixed release yet;
+        #     needs an ASYMMETRIC key whose public half the attacker holds AND
+        #     unrestricted algorithms — neither applies (we sign/verify with a
+        #     SYMMETRIC JWT_SECRET and pin algorithms=["HS256"] on decode, auth.py).
+        run: pip install pip-audit && pip-audit -r server/api/requirements.txt --desc --ignore-vuln PYSEC-2025-185 --ignore-vuln PYSEC-2026-1325 --ignore-vuln CVE-2026-85394
 
   test-frontend:
     runs-on: ubuntu-latest
