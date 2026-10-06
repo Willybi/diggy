@@ -128,11 +128,15 @@ services:
       resources:
         limits:
           cpus: '2'
-          # 2G (not 1G): the nightly precompute_recommendations task peaks a
-          # single reco compute at ~433 MB over the ~615 MB worker baseline
-          # (~1.05 GB total) — over a 1G cap it would OOM-kill the worker
-          # mid-run. Host has ~11 GB free (mesuré 2026-08-13).
-          memory: 2G
+          # 3G: two independent peaks share this cgroup. (1) The nightly
+          # precompute_recommendations peaks a single reco compute at ~433 MB
+          # over the ~615 MB baseline (~1.05 GB). (2) crawl_trackid_latest
+          # (03:30) can spike a SINGLE pool child to ~1.58 GiB — with -c 3 that
+          # overran the old 2G cap and the kernel SIGKILLed the child (memcg OOM
+          # 2026-10-01/03 03:45, DIGGY-APP-X/V; the master survives so the
+          # container never exits → no restart, invisible outside Sentry).
+          # Raised 2G→3G to fit the spike; host has ~10 GB free (mesuré 2026-10).
+          memory: 3G
     env_file: .env
     depends_on:
       postgres:

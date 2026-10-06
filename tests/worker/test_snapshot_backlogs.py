@@ -586,3 +586,84 @@ class TestRetentionPurge:
         # Two runs → two fresh snapshots, the pre-existing old one is gone.
         assert len(rows) == 2
         assert all(r.payload != {"old": True} for r in rows)
+
+
+class TestRunningReaper:
+    """AV12 follow-up: orphaned 'running' crawl_logs rows (a worker SIGKILLed
+    before CrawlLogger.__exit__) are flipped to a terminal 'error' once older
+    than CRAWL_LOG_REAP_AGE_HOURS (> the 9000s max task time_limit)."""
+
+    def test_reaps_old_running_keeps_recent_and_terminal(
+        self, monitoring_task, fake_self
+    ):
+        engine = monitoring_task.engine
+        now = datetime.now(timezone.utc)
+        reap_h = monitoring_task.mod.CRAWL_LOG_REAP_AGE_HOURS
+        stale_ts = now - timedelta(hours=reap_h + 1)  # definitively dead
+        live_ts = now - timedelta(minutes=5)  # a genuinely running task
+
+        with Session(engine) as s:
+            s.add(
+                CrawlLog(
+                    task_type="crawl_trackid_latest",
+                    started_at=stale_ts,
+                    status="running",
+                )
+            )
+            s.add(
+                CrawlLog(
+                    task_type="enrich_catalog_beatport",
+                    started_at=live_ts,
+                    status="running",
+                )
+            )
+            # A terminal row older than the cutoff must stay untouched.
+            s.add(
+                CrawlLog(
+                    task_type="crawl_radar",
+                    started_at=stale_ts,
+                    status="success",
+                )
+            )
+            s.commit()
+
+        monitoring_task.mod.snapshot_backlogs(fake_self)
+
+        with Session(engine) as s:
+            rows = {
+                r.task_type: r
+                for r in s.execute(select(CrawlLog)).scalars().all()
+            }
+        # Stale running → reaped to error with a non-empty message + finished_at.
+        reaped = rows["crawl_trackid_latest"]
+        assert reaped.status == "error"
+        assert "reaped" in (reaped.error_message or "")
+        assert reaped.finished_at is not None
+        # Young running row untouched (could be a live task).
+        assert rows["enrich_catalog_beatport"].status == "running"
+        # Already-terminal row untouched despite its age.
+        assert rows["crawl_radar"].status == "success"
+
+    def test_reaper_is_idempotent_on_second_run(self, monitoring_task, fake_self):
+        engine = monitoring_task.engine
+        now = datetime.now(timezone.utc)
+        reap_h = monitoring_task.mod.CRAWL_LOG_REAP_AGE_HOURS
+        with Session(engine) as s:
+            s.add(
+                CrawlLog(
+                    task_type="crawl_trackid_latest",
+                    started_at=now - timedelta(hours=reap_h + 1),
+                    status="running",
+                )
+            )
+            s.commit()
+
+        monitoring_task.mod.snapshot_backlogs(fake_self)  # reaps it
+        monitoring_task.mod.snapshot_backlogs(fake_self)  # nothing left to reap
+
+        with Session(engine) as s:
+            statuses = [
+                r.status
+                for r in s.execute(select(CrawlLog)).scalars().all()
+            ]
+        assert statuses == ["error"]

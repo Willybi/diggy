@@ -30,6 +30,14 @@ _NULL_POSITION_LAST = 2_147_483_647
 # keeps a full year of history plus a month of slack for year-over-year reads.
 RETENTION_DAYS = 396
 
+# Stale "running" crawl_logs reaper (AV12 follow-up). A worker SIGKILLed mid-run
+# (OOM, deploy) never reaches CrawlLogger.__exit__, so its row stays "running"
+# forever — inflating the admin "running" counter and hiding the kill as a
+# non-terminal state. Any "running" row older than the longest possible live run
+# (max task time_limit = 9000s = 2.5h) is definitively dead, so it is reaped to
+# a terminal "error". 4h leaves comfortable margin above that 2.5h ceiling.
+CRAWL_LOG_REAP_AGE_HOURS = int(os.environ.get("CRAWL_LOG_REAP_AGE_HOURS", "4"))
+
 # C12 (L8) — priority band that marks a catalog row as "live-flux" (a freshly
 # crawled live set, stamped enrich_priority = FLUX_PRIORITY = 100 by
 # tasks/sets.py). Redefined locally (same C12_FLUX_PRIORITY env default 100) on
@@ -79,7 +87,7 @@ def snapshot_backlogs(self):
 
 
 def _run_snapshot_backlogs():
-    from sqlalchemy import and_, case, delete, func, not_, or_, select
+    from sqlalchemy import and_, case, delete, func, not_, or_, select, update
     from sqlalchemy.orm import Session
 
     sys.path.insert(0, "/app")
@@ -471,6 +479,44 @@ def _run_snapshot_backlogs():
         # hour. No autoretry on this task, so we swallow and log rather than fail.
         logger.warning(
             "snapshot_backlogs retention purge failed (snapshot kept)",
+            exc_info=True,
+        )
+
+    # Reap orphaned "running" crawl_logs rows (AV12 follow-up). A worker killed
+    # mid-run (OOM/SIGKILL, deploy) never reaches CrawlLogger.__exit__, so its
+    # row stays "running" forever — the kill shows as a non-terminal row and the
+    # admin "running" counter only grows. A row still "running" past
+    # CRAWL_LOG_REAP_AGE_HOURS cannot be a live task (every time_limit <= 9000s),
+    # so flip it to a terminal, visible "error". Separate session AFTER the
+    # snapshot commit, same discipline as the retention purge: a reaper blip
+    # never costs the already-written snapshot. Idempotent (next run finds none).
+    reap_cutoff = now - timedelta(hours=CRAWL_LOG_REAP_AGE_HOURS)
+    try:
+        with Session(engine) as session:
+            reaped = session.execute(
+                update(CrawlLog)
+                .where(
+                    CrawlLog.status == "running",
+                    CrawlLog.started_at < reap_cutoff,
+                )
+                .values(
+                    status="error",
+                    error_message=(
+                        "reaped: worker exited before CrawlLogger.__exit__ "
+                        "(stale running row, likely OOM/SIGKILL)"
+                    ),
+                    finished_at=now,
+                )
+            ).rowcount
+            session.commit()
+        if reaped:
+            logger.warning(
+                "snapshot_backlogs reaped %d stale 'running' crawl_logs row(s)",
+                reaped,
+            )
+    except Exception:
+        logger.warning(
+            "snapshot_backlogs running-reap failed (snapshot kept)",
             exc_info=True,
         )
 
