@@ -2055,20 +2055,26 @@ Invariants : pas d'autoretry, locks inchanges (TTL > time_limit), la sortie dead
 
 ## AV12 — Observabilite SIGKILL worker (triage Sentry 2026-09-07)
 
-**Priorite : BAS** (bruit Sentry, aucune corruption ; famille en grande partie eteinte par AV9/AV11)
-**Estimation : 0,5 jour**
-**Statut : A FAIRE — inscrit 2026-09-07 (triage /sentry_triage).**
+**Priorite : BAS** (bruit Sentry, aucune corruption ; pic OOM mitige par le cap 3G)
+**Estimation : mitigation LIVREE ; ~1 jour pour le vrai fix memoire (chantier dedup)**
+**Statut : EN COURS — attribue + mitige 2026-10-06 (cap 3G + reaper, commit `e5ec963`, deploye+verifie SAIN) ; reste le vrai fix memoire (AV12-05/06, non urgent).**
 
 Source : issue Sentry prod DIGGY-APP-V (`Process 'ForkPoolWorker' exited with signal 9 (SIGKILL)`, ~1800 events) + sa jumelle DIGGY-APP-X (`WorkerLostError`, meme trace/span). Dashboard : https://diggy-music.sentry.io/issues/DIGGY-APP-V
 
 **Mise a jour 2026-10-04 (re-triage /sentry_triage)** : la famille n'est PAS eteinte — DIGGY-APP-V ET DIGGY-APP-X ont re-tire le 2026-10-03 (donnee du triage, contredit le « silencieux depuis 2026-08-25 » ci-dessus), sur le worker `celery,crawl` (`-c 3`, `--max-memory-per-child=1500000`) en fenetre crawl ~03:45 (`crawl_trackid_latest`/`recrawl_incomplete_sets`). Profil = OOM du worker crawl (signal capacite, cf. [[hostinger-cpu-throttle]] / AV10), distinct du hard-limit de drain enrich deja couvert AV9/AV11. A relever en priorite ; faire AV12-01 (attribution par tache) avant tout resolve.
 
+**Mise a jour 2026-10-06 (investigation + mitigation, commit `e5ec963` deploye+verifie SAIN)** : cause ATTRIBUEE par preuve kernel (`journalctl -k`) — memcg OOM les 01/10 et 03/10 a 03:45, un SEUL child `celery` a anon-rss ~1,58 GiB pendant `crawl_trackid_latest` (03:30) ; avec `-c 3` ca depassait le cap cgroup 2G → le kernel SIGKILL le child (master survit → `OOMKilled=false`, 0 restart, invisible hors Sentry). Mitigation en 2 volets LIVREE (AV12-03/04). Investigation du vrai fix FAITE + verifiee code (subagent) : le pic est un transitoire d'UN set (session scoppee par set ; le high-water mark colle car les arenes glibc ne sont pas rendues au kernel), cause par 3 loaders non bornes du chemin dedup `set_dedup_service.py` — plan Lot A/B dans AV12-05/06. Pas d'urgence : le cap 3G tient ; faire le vrai fix en chantier jour, PAS en fenetre enrich (6h→23h Beatport / 05h Deezer).
+
 Constat : DIGGY-APP-V est un grouping GENERIQUE du SIGKILL billiard (aucun `culprit`, aucun `task_name` dans le fingerprint) — il agrege le SIGKILL qui suit un hard-limit (deja adresse cote AV9 pour les drains enrich + AV11 pour `backfill_multi_artists`) ET d'eventuels OOM. Deja resolu une fois par AV9-03 (2026-08-18), il a recidive (jusqu'au 2026-08-25) faute de pouvoir distinguer les causes → il ne peut pas etre clos proprement en l'etat (un resolve aveugle rouvrirait au prochain SIGKILL, quelle qu'en soit la source).
 
-- [ ] **AV12-01** : attribuer le SIGKILL par tache — poser un tag `task_name`/`transaction` sur l'event process-exit (`before_send` Sentry ou hook billiard `on_hard_timeout`) OU eclater le fingerprint, pour separer « hard-limit d'une tache X » (couvert AV9/AV11) d'un « OOM » (signal capacite, route ops, cf. [[hostinger-cpu-throttle]] / AV10).
-- [ ] **AV12-02** : apres instrumentation + fenetre d'observation, resolve DIGGY-APP-V si la famille reste eteinte, ou router vers ops si un OOM residuel subsiste.
+- [x] **AV12-01** : attribution du SIGKILL par tache — ADRESSEE 2026-10-06 par le reaper (la ligne `crawl_logs` reapee porte le `task_type` + un message « OOM/SIGKILL », donc l'admin distingue desormais quelle tache a ete tuee) + le diag kernel (`journalctl -k` = OOM crawl `crawl_trackid_latest`, distinct du hard-limit AV9/AV11). Refinement optionnel non fait : tag Sentry `task_name` sur l'event process-exit.
+- [x] **AV12-03 (MITIGATION)** : cap `diggy_worker` 2G→3G (`docker-compose.yml`) — stopgap du pic ~1,58 GiB (hote ~10 GB libres). LIVRE 2026-10-06 (e5ec963).
+- [x] **AV12-04** : reaper des lignes `crawl_logs` `running` orphelines → `error` dans `snapshot_backlogs` (horaire ; seuil `CRAWL_LOG_REAP_AGE_HOURS`=4h > max time_limit 9000s ; session separee, idempotent). A solde les ~44 orphelines accumulees depuis aout. LIVRE 2026-10-06 (e5ec963).
+- [ ] **AV12-05 (VRAI FIX — Lot A, SANS changement de comportement)** : borner la memoire du chemin dedup dans `services/set_dedup_service.py` — (a) column-select au lieu de `select(DJSet)` dans `_load_set_scoring_data` (l.1065) + `get_part_candidates` (l.581, construit deja un dict de colonnes) ; (b) fold du N+1 COUNT de `get_match_candidates` (l.449) en une requete groupee ; (c) normaliser le `dj_set` courant inline au lieu du `backfill_normalized_titles(db)` global a chaque import (`trackid/importer.py:235`) — SUR car le scoring fait `row.normalized_title or ""` (l.1084, tolere NULL = vers la separation) — + normaliser les sets YouTube a LEUR funnel (`workers/youtube.py` `upsert_youtube_set`), et garder `backfill_normalized_titles` comme chemin OPS/batch.
+- [ ] **AV12-06 (VRAI FIX — Lot B, arbitrage RAPPEL, invariant #4)** : `ORDER BY shared DESC LIMIT ~50` sur `get_match_candidates` + pre-filtre SQL base-title sur `get_part_candidates` — borne le pic #2 probable (un `musicTrackId` populaire partage par des milliers de sets explose en candidats × entites ORM). Un LIMIT peut theoriquement rater un doublon, mais le ranking par tracks partages rend ca negligeable et ca n'affecte que le RAPPEL d'auto-flag, jamais une decision de merge (→ vers la separation). Valider par une nuit de `docker stats` (child < 2G) avant AV12-02.
+- [ ] **AV12-02** : apres le vrai fix (Lot A+B) + fenetre d'observation, resolve DIGGY-APP-V/X (ou router vers ops si un OOM residuel subsiste).
 
-Invariants : lecture/observabilite uniquement, aucun changement de comportement worker.
+Invariants : la mitigation (cap + reaper) est observabilite/infra pure ; le vrai fix touche le service dedup → Lot A sans changement de comportement, Lot B errant toujours vers la separation (jamais un merge, invariant #4).
 
 ---
 
@@ -2076,14 +2082,14 @@ Invariants : lecture/observabilite uniquement, aucun changement de comportement 
 
 **Priorite : BAS** (1 event le 2026-09-18, dormant ; self-healing — le broker re-livre, E1 non brule)
 **Estimation : <0,5 jour**
-**Statut : A FAIRE — inscrit 2026-10-04 (triage /sentry_triage).**
+**Statut : EN VEILLE — DIGGY-APP-1N resolu en mode watch 2026-10-06 (Sentry `resolved` + commentaire ; rouvre automatiquement si recidive). AV13-01 (fix code) differe tant qu'il ne recidive pas.**
 
 Source : issue Sentry prod DIGGY-APP-1N (`PendingRollbackError ... Original exception was: (autoflush) (psycopg2.OperationalError) server closed the connection unexpectedly`, culprit `workers.tasks.enrich_catalog_beatport`). Dashboard : https://diggy-music.sentry.io/issues/DIGGY-APP-1N
 
 Constat : postgres a ferme/redemarre la connexion (transitoire infra) pendant un autoflush → tx avortee ; puis `_commit_with_deadlock_retry` (`workers/tasks/catalog.py`) appelle `session.commit()` SANS rollback prealable → `PendingRollbackError` SECONDAIRE qui masque la vraie cause (connexion tombee). 1 occurrence, 16 j avant le triage, jamais recidive. NB : distinct du fix DIGGY-APP-1P/-4 (compute_trends FK race + CrawlLogger, livre 2026-10-04 commit 1ff2683) — meme famille de symptome « autoflush masque l'erreur racine », autre chemin.
 
 - [ ] **AV13-01** : dans `_commit_with_deadlock_retry`, sur une `OperationalError` NON-40P01, faire `session.rollback()` avant de propager (ne pas transformer une coupure transitoire en PendingRollbackError masquant). Le broker re-livre deja la tache ; aucun `_mark_searched` sur ce chemin (E1 intact).
-- [ ] **AV13-02** : candidat `resolve` passif si DIGGY-APP-1N reste eteint (le fix ne touche que le masquage, pas la cause racine infra).
+- [x] **AV13-02** : `resolve` passif — FAIT 2026-10-06 (Sentry `resolved` + commentaire tracant la decision ; rouvre en regression si recidive, ce qui redeclencherait AV13-01).
 
 Invariants : pas d'autoretry, E1 preserve (jamais de `_mark_searched` sur un outage), locks inchanges.
 
