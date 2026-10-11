@@ -740,9 +740,21 @@ async def _search_beatport_async(
             except Exception:
                 pass
 
-        slug = re.sub(r"[^a-z0-9]+", "-", release_name.lower()).strip("-")
+        slug = re.sub(r"[^a-z0-9]+", "-", (release_name or "").lower()).strip("-")
+        if not slug or not release_id:
+            # Missing release name/id → the URL would be "/release//{id}", a
+            # guaranteed 404. Skip the doomed fetch (no match, no wasted request).
+            return []
         path = f"/release/{slug}/{release_id}"
         resp = await pool.beatport_get(path)
+        if resp.status_code == 404:
+            # A release-page 404 is a DEFINITIVE "this release does not exist",
+            # NOT a transient outage (403 Cloudflare / 429 / 5xx). Return no
+            # tracks so the fallback resolves to not_found and the row gets
+            # _mark_searched (then follows the normal 30/90-day E1 retry →
+            # abandon) instead of staying never_tried and being re-picked every
+            # drain forever (the 85%-waste clog, 2026-10-11).
+            return []
         if resp.status_code != 200:
             raise BeatportHTTPError(resp.status_code, path)
         data = _extract_next_data(resp.text)

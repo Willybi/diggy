@@ -13,6 +13,8 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 # Make the workers package importable (same pattern as test_enrich_candidates.py).
 _SERVER_PATH = os.path.join(os.path.dirname(__file__), "../../server")
 if _SERVER_PATH not in sys.path:
@@ -25,6 +27,7 @@ sys.modules.setdefault("redis", MagicMock())
 _saved_curl = sys.modules.get("curl_cffi")
 sys.modules.setdefault("curl_cffi", MagicMock())
 
+from workers.async_http import BeatportHTTPError  # noqa: E402
 from workers.enrichment import _search_beatport_async  # noqa: E402
 
 if _saved_redis is None:
@@ -133,3 +136,67 @@ async def test_accepts_matching_release_track():
     result = await _search_beatport_async(pool, "Honestly", "Malugi", None)
     assert result is not None
     assert result["id"] == 2
+
+
+class _FakePoolReleasePage:
+    """Serves the release search page, then a crafted status on /release/ fetch."""
+
+    def __init__(self, releases_html: str, release_status: int):
+        self._releases_html = releases_html
+        self._release_status = release_status
+        self.paths: list[str] = []
+
+    async def beatport_get(self, path: str):
+        self.paths.append(path)
+        if "type=tracks" in path:
+            return SimpleNamespace(
+                status_code=200, text=_next_data_html({"tracks": {"data": []}})
+            )
+        if "type=releases" in path:
+            return SimpleNamespace(status_code=200, text=self._releases_html)
+        if path.startswith("/release/"):
+            return SimpleNamespace(status_code=self._release_status, text="")
+        return SimpleNamespace(status_code=404, text="")
+
+
+async def test_release_page_404_resolves_to_not_found_not_error():
+    # A 404 on the release detail is a DEFINITIVE negative: the search must
+    # return None (→ the batch marks the row searched) WITHOUT raising
+    # BeatportHTTPError (which would leave it never_tried and loop every drain).
+    pool = _FakePoolReleasePage(_releases_page(), release_status=404)
+    result = await _search_beatport_async(pool, "Honestly", "Malugi", None)
+    assert result is None
+    assert any(p.startswith("/release/") for p in pool.paths)  # fetch WAS attempted
+
+
+async def test_release_page_outage_still_raises():
+    # A 403/429/5xx is a real outage → must still raise so the row stays
+    # never_tried and is retried (an outage must not burn an E1 attempt).
+    pool = _FakePoolReleasePage(_releases_page(), release_status=403)
+    with pytest.raises(BeatportHTTPError):
+        await _search_beatport_async(pool, "Honestly", "Malugi", None)
+
+
+def _releases_page_blank_name(artist="Malugi"):
+    return _next_data_html(
+        {
+            "releases": {
+                "data": [
+                    {
+                        "release_id": 7,
+                        "release_name": "",
+                        "artists": [{"artist_id": 5, "artist_name": artist}],
+                    }
+                ]
+            }
+        }
+    )
+
+
+async def test_blank_release_name_skips_doomed_fetch():
+    # An empty release name would build "/release//{id}" (certain 404) — the
+    # guard must skip the fetch entirely (no network call, result None).
+    pool = _FakePoolReleasePage(_releases_page_blank_name(), release_status=404)
+    result = await _search_beatport_async(pool, "Honestly", "Malugi", None)
+    assert result is None
+    assert not any(p.startswith("/release/") for p in pool.paths)
