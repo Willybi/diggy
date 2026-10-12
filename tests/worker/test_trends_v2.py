@@ -281,13 +281,15 @@ class TestUnreliableSetsExcluded:
 
 
 class TestFkGuardBeforeUpsert:
-    """DIGGY-APP-1P/-4: a catalog row deleted concurrently (merge-on-collision
+    """DIGGY-APP-1P/-4/-1W: a catalog row deleted concurrently (merge-on-collision
     during the overlapping 07:00 Beatport enrich run) between the detections
     SELECT and the radar_trends upsert makes the bulk INSERT raise a
-    ForeignKeyViolation and fails the whole run. compute_trends re-checks catalog
-    existence right before inserting and drops any vanished catalog_id. Same
-    source-inspection contract as the reliability/removed-tracks tests above — the
-    drop branch only fires under a real concurrent delete (unreachable via seeded
+    ForeignKeyViolation. compute_trends re-checks catalog existence right before
+    inserting AND retries the insert on the residual race (a delete committing
+    between the re-check and the INSERT's FK trigger still violated it — the
+    pre-check-only fix 1ff2683 regressed 2026-10-10). Same source-inspection
+    contract as the reliability/removed-tracks tests above — the drop/retry
+    branches only fire under a real concurrent delete (unreachable via seeded
     data, since the detections CTE joins catalog)."""
 
     def test_source_rechecks_catalog_existence_before_upsert(self):
@@ -300,6 +302,22 @@ class TestFkGuardBeforeUpsert:
         assert "FK guard" in source
         # the upsert is skipped cleanly when the post-filter set is empty
         assert "if entries:" in source
+
+    def test_source_retries_insert_on_fk_violation(self):
+        """The residual race (delete between re-check and FK trigger) must be
+        survived by a bounded retry that rolls back and re-filters, not by letting
+        the run die to the DLQ (DIGGY-APP-4/-1W)."""
+        import inspect
+        from workers.tasks.trends import compute_trends
+
+        source = inspect.getsource(compute_trends)
+        # the insert path is wrapped in a bounded retry on IntegrityError
+        assert "IntegrityError" in source
+        assert "max_attempts" in source
+        assert "session.rollback()" in source
+        # the aborted transaction is rolled back and the run re-raises at the cap
+        assert "if attempt == max_attempts:" in source
+        assert "raise" in source
 
 
 class TestPurgeStaleTrends:
