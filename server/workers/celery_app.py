@@ -121,9 +121,15 @@ celery_app.conf.update(
             "task": "workers.tasks.enrich_catalog",
             "schedule": crontab(hour=5, minute=0),  # tous les jours à 5h
         },
-        # Drain Beatport HORAIRE borné (6h-23h ; la nuit reste aux crawls +
-        # Deezer/artistes). batch_size=550/run remplit les heures creuses au MÊME
-        # rate scrape 0,66 req/s (~940/h, pas de risque de ban en plus). 550 est
+        # Drain Beatport HORAIRE 24/24 (étendu de 6h-23h → toutes les heures le
+        # 2026-10-19 : backlog Beatport ~117k encore à résorber, CPU VPS très
+        # dispo). L'overlap avec la fenêtre de nuit (BPM 0h-4h, Deezer 5h, crawls,
+        # artistes) est sûr : Beatport a son PROPRE rate limiter (aucune contention
+        # avec le 10 req/s Deezer) et est réseau-bound (~0 CPU, le gouverneur est le
+        # rate 0,66 req/s par IP), donc il coexiste sur le worker enrich -c 2 sans
+        # se disputer ni le rate Deezer ni les cœurs Essentia du BPM.
+        # batch_size=550/run remplit les heures au MÊME rate scrape 0,66 req/s
+        # (~940/h, pas de risque de ban en plus). 550 est
         # calibré pour finir SOUS le soft_time_limit=3000s même quand le taux
         # d'introuvables monte (chaque not_found coûte 3-4 req en fallback release) :
         # à 800 la majorité des runs tapaient le soft/hard limit → status error +
@@ -133,7 +139,7 @@ celery_app.conf.update(
         # éligible est un no-op en secondes (auto-throttle quand le backlog est vide).
         "enrich-catalog-beatport-hourly": {
             "task": "workers.tasks.enrich_catalog_beatport",
-            "schedule": crontab(minute=0, hour="6-23"),
+            "schedule": crontab(minute=0, hour="*"),
             "kwargs": {"batch_size": 550},
         },
         "compute-trends-daily": {
