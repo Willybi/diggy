@@ -229,10 +229,30 @@ async def import_audiostream(
     try:
         from services.set_dedup_service import (
             apply_match_results,
-            backfill_normalized_titles,
             match_set,
+            normalize_set_title,
         )
-        await backfill_normalized_titles(db)
+
+        # Normalize THIS set inline (idempotent — only when unset), instead of
+        # the old backfill_normalized_titles(db) that full-table-scanned every
+        # NULL-title set as ORM entities on EVERY import (AV12 memory fix: that
+        # first-of-run scan was a landmine growing with non-TrackID sources).
+        # Each source now normalizes its own sets (workers/youtube.upsert_youtube_set);
+        # backfill_normalized_titles survives as the OPS catch-up path
+        # (scripts/audit_set_dedup.py). Scoring tolerates a NULL candidate title
+        # (`row.normalized_title or ""`) so a not-yet-normalized candidate only
+        # scores conservatively — never a bad merge (invariant #4).
+        if (
+            dj_set.normalized_title is None
+            and dj_set.title
+            and not dj_set.is_virtual
+        ):
+            _meta = normalize_set_title(dj_set.title)
+            dj_set.normalized_title = _meta.text
+            if dj_set.part_number is None and _meta.part_number is not None:
+                dj_set.part_number = _meta.part_number
+            if dj_set.part_total is None and _meta.part_total is not None:
+                dj_set.part_total = _meta.part_total
         if dj_set.id is not None and not dj_set.is_virtual:
             pair_results, group_results = await match_set(db, dj_set.id)
             if pair_results or group_results:

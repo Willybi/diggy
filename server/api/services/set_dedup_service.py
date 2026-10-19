@@ -462,26 +462,35 @@ async def get_match_candidates(
         .having(func.count() >= 3)
     )
     rows = (await db.execute(stmt)).all()
+    if not rows:
+        return []
 
-    results = []
-    for row in rows:
-        total_q = (
-            select(func.count())
-            .select_from(SetTrack)
-            .where(
-                SetTrack.set_id == row.set_id,
-                SetTrack.is_id.is_(False),
+    # Batch the per-candidate "total identified tracks" count into ONE grouped
+    # query instead of N (AV12: a popular shared track fanned this out to a
+    # per-candidate COUNT round-trip each). Behaviour-identical — every
+    # candidate has >= 3 shared is_id=False tracks so it is always present.
+    candidate_ids = [row.set_id for row in rows]
+    totals = dict(
+        (
+            await db.execute(
+                select(SetTrack.set_id, func.count())
+                .where(
+                    SetTrack.set_id.in_(candidate_ids),
+                    SetTrack.is_id.is_(False),
+                )
+                .group_by(SetTrack.set_id)
             )
+        ).all()
+    )
+
+    return [
+        MatchCandidate(
+            set_id=row.set_id,
+            shared_count=row.shared,
+            total_identified=totals.get(row.set_id, 0),
         )
-        total = (await db.execute(total_q)).scalar_one()
-        results.append(
-            MatchCandidate(
-                set_id=row.set_id,
-                shared_count=row.shared,
-                total_identified=total,
-            )
-        )
-    return results
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -580,14 +589,24 @@ async def get_part_candidates(
 
     candidates = (
         await db.execute(
-            select(DJSet).where(
+            # Columns only, not the full DJSet entity (AV12 memory fix): the
+            # part-numbered table can be tens of thousands of rows and this loop
+            # only reads the 6 fields below.
+            select(
+                DJSet.id,
+                DJSet.part_number,
+                DJSet.part_total,
+                DJSet.normalized_title,
+                DJSet.played_date,
+                DJSet.event_date,
+            ).where(
                 DJSet.is_virtual.is_(False),
                 DJSet.id != set_id,
                 DJSet.part_number.isnot(None),
                 DJSet.normalized_title.isnot(None),
             )
         )
-    ).scalars().all()
+    ).all()
 
     results = []
     for c in candidates:
@@ -1058,13 +1077,30 @@ def decide_verdict(
 async def _load_set_scoring_data(db: AsyncSession, set_id: int):
     """Load a set row + the dict expected by compute_signals.
 
-    Returns (row, set_data) or None if the set does not exist.
+    Returns (row, set_data) or None if the set does not exist. ``row`` is a
+    lightweight Core row carrying ONLY the columns the scoring callers read
+    (part_number/part_total/normalized_title/title/played_date/event_date/
+    is_virtual) — NOT a full ``DJSet`` ORM entity. A match_set candidate
+    fan-out loads one of these per candidate; selecting columns instead of the
+    whole entity keeps that off the identity map and bounds the per-set memory
+    peak (AV12 — the ~1.58 GiB single-child OOM on crawl_trackid_latest).
     """
     from models import DJSet, SetTrack
 
     row = (
-        await db.execute(select(DJSet).where(DJSet.id == set_id))
-    ).scalar_one_or_none()
+        await db.execute(
+            select(
+                DJSet.id,
+                DJSet.part_number,
+                DJSet.part_total,
+                DJSet.normalized_title,
+                DJSet.title,
+                DJSet.played_date,
+                DJSet.event_date,
+                DJSet.is_virtual,
+            ).where(DJSet.id == set_id)
+        )
+    ).one_or_none()
     if row is None:
         return None
 

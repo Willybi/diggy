@@ -653,6 +653,14 @@ async def upsert_youtube_set(
     dj_set.event_date = event_date
     dj_set.styles = []
     dj_set.search_text = search_fold(title)
+    # Normalize at the YT funnel (AV12): the import-time global backfill that
+    # used to catch NULL-title sets from every source was removed, so each
+    # source normalizes its own. Title-derived, recomputed per upsert like
+    # search_text above — keeps the dedup base_title consistent with the title.
+    _meta = normalize_set_title(title)
+    dj_set.normalized_title = _meta.text
+    dj_set.part_number = _meta.part_number
+    dj_set.part_total = _meta.part_total
     dj_set.last_crawled_at = now
 
     await db.flush()

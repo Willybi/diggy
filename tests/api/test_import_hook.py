@@ -3,15 +3,13 @@
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from sqlalchemy import select
-
 from models import DJSet, SetFlag, SetFlagStatus, SetTrack
 from services.set_dedup_service import (
     apply_match_results,
     backfill_normalized_titles,
     match_set,
 )
-
+from sqlalchemy import select
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -263,16 +261,18 @@ class TestImportHookFailSafe:
         assert isinstance(dj_set, DJSet)
         assert track_count == 2
 
-    async def test_backfill_exception_does_not_abort_import(self, db):
-        """If backfill_normalized_titles raises, import_audiostream still returns normally."""
+    async def test_normalize_exception_does_not_abort_import(self, db):
+        """If the inline title normalization raises, import_audiostream still
+        returns normally (AV12: the fail-safe now wraps the inline normalize +
+        match, since the full-table backfill call was removed)."""
         from trackid.importer import import_audiostream
 
         fake_detail = {
             "id": 88888,
-            "title": "FailSafe Backfill Set",
-            "slug": "failsafe-backfill-set",
+            "title": "FailSafe Normalize Set",
+            "slug": "failsafe-normalize-set",
             "duration": "00:30:00.0000000",
-            "url": "https://trackid.net/failsafe-backfill-set",
+            "url": "https://trackid.net/failsafe-normalize-set",
             "artworkUrl": None,
             "createdOn": "2024-02-20T18:00:00Z",
             "detectionProcesses": [],
@@ -280,11 +280,11 @@ class TestImportHookFailSafe:
         mock_client = _make_mock_client(tracks=[])
         mock_client.get_set_detail.return_value = fake_detail
 
-        audiostream = {"id": 88888, "slug": "failsafe-backfill-set"}
+        audiostream = {"id": 88888, "slug": "failsafe-normalize-set"}
 
         with patch(
-            "services.set_dedup_service.backfill_normalized_titles",
-            new=AsyncMock(side_effect=ValueError("simulated backfill failure")),
+            "services.set_dedup_service.normalize_set_title",
+            side_effect=ValueError("simulated normalize failure"),
         ):
             dj_set, track_count = await import_audiostream(
                 db, mock_client, audiostream
@@ -293,6 +293,50 @@ class TestImportHookFailSafe:
         assert dj_set is not None
         assert isinstance(dj_set, DJSet)
         assert track_count == 0
+
+
+class TestImportHookInlineNormalize:
+    """AV12 memory fix: the import normalizes THIS set inline, and no longer
+    full-table-backfills every NULL-title set (the removed memory landmine)."""
+
+    async def test_import_normalizes_current_set_only(self, db):
+        from trackid.importer import import_audiostream
+
+        # A pre-existing, unrelated set with a NULL normalized_title. The old
+        # global backfill would have normalized it on the next import; the new
+        # inline path must leave it untouched (no full-table scan).
+        other = await _make_set(
+            db, title="Unrelated NULL set", external_id="other-null"
+        )
+        assert other.normalized_title is None
+        other_id = other.id
+
+        fake_detail = {
+            "id": 77100,
+            "title": "Inline Normalized Set [HD]",
+            "slug": "inline-normalized-set",
+            "duration": "01:00:00.0000000",
+            "url": "https://trackid.net/inline-normalized-set",
+            "artworkUrl": None,
+            "createdOn": "2024-06-01T20:00:00Z",
+            "detectionProcesses": [],
+        }
+        mock_client = _make_mock_client(tracks=[])
+        mock_client.get_set_detail.return_value = fake_detail
+
+        dj_set, _ = await import_audiostream(
+            db, mock_client, {"id": 77100, "slug": "inline-normalized-set"}
+        )
+
+        # The imported set IS normalized inline (decorative tag stripped)...
+        assert dj_set.normalized_title
+        assert "[hd]" not in dj_set.normalized_title
+        # ...but the unrelated NULL set is left untouched.
+        db.expire_all()
+        other_ref = (
+            await db.execute(select(DJSet).where(DJSet.id == other_id))
+        ).scalar_one()
+        assert other_ref.normalized_title is None
 
 
 class TestImportDetailCapture:

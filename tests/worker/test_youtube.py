@@ -493,6 +493,9 @@ class TestUpsertYoutubeSet:
                 assert dj.channel == "Some Channel"
                 assert dj.styles == []
                 assert dj.search_text  # non-empty folded title
+                # AV12: the YT funnel normalizes its own set (the import-time
+                # global backfill that used to catch NULL titles was removed).
+                assert dj.normalized_title  # non-empty dedup base title
                 # No SetTrack rows: metadata-only.
                 n_tracks = await db.execute(
                     select(SetTrack).where(SetTrack.set_id == dj.id)
