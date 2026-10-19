@@ -27,12 +27,12 @@ def _catalog_source():
 
 class TestBeatportHourlySchedule:
     def test_hourly_entry_present_with_expected_config(self):
-        """The beat schedule carries the hourly Beatport drain: hour='6-23' and
-        the batch_size=550 per-run cap."""
+        """The beat schedule carries the hourly Beatport drain: hour='*' (24/7,
+        widened from 6h-23h on 2026-10-19) and the batch_size=550 per-run cap."""
         source = _celery_app_source()
         assert "enrich-catalog-beatport-hourly" in source
-        # crontab bounded to 6h-23h
-        assert 'crontab(minute=0, hour="6-23")' in source
+        # crontab runs every hour (24/7)
+        assert 'crontab(minute=0, hour="*")' in source
         # per-run cap passed as a beat kwarg
         assert '"batch_size": 550' in source
         # exactly one beat entry references the task now
