@@ -1,5 +1,6 @@
 """Set deduplication service — title normalization + matching engine (C6.0)."""
 
+import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -434,6 +435,16 @@ def _levenshtein_ratio(a: str, b: str) -> float:
 # Candidate generation (L3)
 # ---------------------------------------------------------------------------
 
+# Cap the match-candidate fan-out (AV12 Lot B). A popular shared musicTrackId can
+# appear in thousands of sets; without a cap, match_set then pulls every one of
+# them (+ their mtids + the df union) into memory — the driver of the ~1.58 GiB
+# single-child OOM on crawl_trackid_latest. Rank by shared-track count DESC and
+# keep the top N: a true duplicate is always among the highest-sharing
+# candidates, so this bounds memory while only trimming the low-overlap long
+# tail. It affects auto-FLAG recall only, NEVER a merge decision → errs toward
+# separation (invariant #4). Env-tunable for calibration.
+SET_MATCH_CANDIDATE_CAP = int(os.environ.get("SET_MATCH_CANDIDATE_CAP", "50"))
+
 
 async def get_match_candidates(
     db: AsyncSession,
@@ -460,6 +471,11 @@ async def get_match_candidates(
         )
         .group_by(SetTrack.set_id)
         .having(func.count() >= 3)
+        # Keep the top-N highest-sharing candidates (set_id desc = deterministic
+        # tie-break at the boundary) so a popular-track fan-out can't balloon the
+        # downstream per-candidate loads (AV12 Lot B).
+        .order_by(func.count().desc(), SetTrack.set_id.desc())
+        .limit(SET_MATCH_CANDIDATE_CAP)
     )
     rows = (await db.execute(stmt)).all()
     if not rows:

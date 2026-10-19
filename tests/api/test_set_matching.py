@@ -3,15 +3,12 @@
 from datetime import date
 
 import pytest
-import pytest_asyncio
-
 from services.set_dedup_service import (
     compute_confidence,
     get_match_candidates,
     match_set,
     score_pair,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -97,6 +94,39 @@ async def test_set_not_matched_to_itself(db, clean_db):
 
     candidates = await get_match_candidates(db, set_a.id, [10, 20, 30, 40, 50])
     assert all(c.set_id != set_a.id for c in candidates)
+
+
+@pytest.mark.asyncio
+async def test_candidate_fanout_capped_to_top_shared(db, clean_db, monkeypatch):
+    """AV12 Lot B: a popular shared track fanning out to many candidate sets is
+    capped to the top-N by shared-track count, not returned in full."""
+    import services.set_dedup_service as dedup
+
+    monkeypatch.setattr(dedup, "SET_MATCH_CANDIDATE_CAP", 3)
+
+    incoming = [10, 20, 30, 40, 50]
+    set_a = await _make_set(db, title="Set A")
+    await _add_tracks(db, set_a.id, incoming)
+
+    # 5 candidate sets, all >= 3 shared (so all would return without the cap),
+    # with decreasing shared counts 5, 5, 4, 4, 3.
+    for i, mtids in enumerate(
+        [
+            [10, 20, 30, 40, 50],
+            [10, 20, 30, 40, 50],
+            [10, 20, 30, 40],
+            [10, 20, 30, 40],
+            [10, 20, 30],
+        ]
+    ):
+        s = await _make_set(db, title=f"Cand {i}")
+        await _add_tracks(db, s.id, mtids)
+
+    candidates = await get_match_candidates(db, set_a.id, incoming)
+
+    # Capped to 3, and those 3 are the highest-sharing (5, 5, 4).
+    assert len(candidates) == 3
+    assert [c.shared_count for c in candidates] == [5, 5, 4]
 
 
 @pytest.mark.asyncio
