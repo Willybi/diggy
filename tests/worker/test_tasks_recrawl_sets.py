@@ -379,6 +379,17 @@ class TestApplyRecrawlOutcome:
         assert dj.recrawl_status == "final"
         assert dj.completion_pct == 1.0
 
+    def test_noindex_set_finalizes_after_one_stale_pass(self, sets_mod):
+        # No trackid_index row → new_pct is None → the set will never earn a
+        # ratio, so it finalizes 'stale' after a single no-progression pass
+        # (RECRAWL_NOINDEX_STALE_THRESHOLD, default 1) instead of churning
+        # toward 3 (which the newest-first cap never lets it reach).
+        dj = self._set(count=0, pct=None)
+        finalized = sets_mod._apply_recrawl_outcome(dj, None, None, self.NOW)
+        assert finalized == "stale"
+        assert dj.recrawl_count == 1
+        assert dj.recrawl_status == "final"
+
 
 # ── Full task: pre-pass + eligibility (no crawl) ─────────────────────────────
 
@@ -442,7 +453,10 @@ class TestRecrawlPrepassAndEligibility:
     ):
         # No trackid_index row → hit_rate None → not finalized in the pre-pass,
         # follows the age/cadence decision. Crawl outcome with new_pct None must
-        # not crash and is treated as a non-progression.
+        # not crash and is treated as a non-progression. Since 2026-10-19 such a
+        # set finalizes 'stale' after a SINGLE stagnant pass
+        # (RECRAWL_NOINDEX_STALE_THRESHOLD=1): it will never earn a ratio, so
+        # looping on it is pure churn.
         with Session(task_engine) as s:
             dj = _make_set(
                 s, "no-index-1", unidentified=1,
@@ -457,11 +471,13 @@ class TestRecrawlPrepassAndEligibility:
 
         assert result["eligible"] == 1
         assert result["crawled"] == 1
+        assert result["finalized_stale"] == 1
         dj = _reload_set(task_engine, set_id)
-        # completion_pct left untouched (unknown hit rate), counter bumped
+        # completion_pct left untouched (unknown hit rate), counter bumped to 1
+        # and finalized stale (no-index fast-finalization).
         assert dj.completion_pct == pytest.approx(0.4)
         assert dj.recrawl_count == 1
-        assert dj.recrawl_status == "active"
+        assert dj.recrawl_status == "final"
 
     def test_non_trackid_virtual_and_final_sets_ignored(
         self, tasks_env, task_engine, fake_self

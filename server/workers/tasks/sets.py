@@ -99,6 +99,21 @@ RECRAWL_FINAL_HITRATE = float(os.environ.get("RECRAWL_FINAL_HITRATE", "0.95"))
 # wasted. 730 = 24 months (replaces the previous 90-day final tier).
 RECRAWL_MAX_AGE_DAYS = float(os.environ.get("RECRAWL_MAX_AGE_DAYS", "730"))
 
+# Stability finalization: N CONSECUTIVE re-crawls without progression → 'stale'
+# final. A set WITH a listing hit rate (trackid_index row) keeps the full
+# threshold — it has a measurable ratio and re-crawling is justified. A set
+# WITHOUT one (new_pct is None — e.g. a crawl_trackid_latest set absent from the
+# frozen C11 spider index) will NEVER get a ratio, so re-crawling it in a loop is
+# pure churn (and, via the newest-first cap, it would otherwise never accumulate
+# enough passes to finalize and just inflates the backlog forever). Finalize it
+# after far fewer stagnant passes (default 1 = its first re-crawl). Both tunable
+# via env; raise the no-index floor to capture more late TrackID identifications
+# at the cost of a larger recrawl pile. (2026-10-19)
+RECRAWL_STALE_THRESHOLD = int(os.environ.get("RECRAWL_STALE_THRESHOLD", "3"))
+RECRAWL_NOINDEX_STALE_THRESHOLD = int(
+    os.environ.get("RECRAWL_NOINDEX_STALE_THRESHOLD", "1")
+)
+
 
 async def _reap_stale_claims(db, lease_seconds: int) -> int:
     """Return local-hydration claims older than the lease to the pool. Returns count.
@@ -414,23 +429,28 @@ def _apply_recrawl_outcome(dj_set, old_pct, new_pct, now) -> str | None:
     measurable completion). recrawl_count counts CONSECUTIVE re-crawls without
     progression and is reset to 0 whenever completion_pct improves (old NULL
     counts as progression). A set at/above RECRAWL_FINAL_HITRATE is finalized
-    'complete'; 3 stagnant re-crawls finalize it 'stale'. When new_pct is None
-    the hit rate is unknown: treat it as a non-progression (bump the stale
-    counter, leave completion_pct untouched) — finalization stays possible by
-    stability (stale) or, in the pre-pass, by age. Returns 'complete' or
-    'stale' when the set is finalized, None otherwise.
+    'complete'; RECRAWL_STALE_THRESHOLD stagnant re-crawls finalize it 'stale'.
+    When new_pct is None the hit rate is unknown (no trackid_index row): treat it
+    as a non-progression (bump the stale counter, leave completion_pct untouched)
+    and apply the LOWER RECRAWL_NOINDEX_STALE_THRESHOLD — such a set will never
+    earn a ratio, so it is finalized after very few stagnant passes instead of
+    churning forever. Finalization also stays possible, in the pre-pass, by age.
+    Returns 'complete' or 'stale' when the set is finalized, None otherwise.
     """
     if new_pct is None:
         dj_set.recrawl_count = (dj_set.recrawl_count or 0) + 1
+        stale_threshold = RECRAWL_NOINDEX_STALE_THRESHOLD
     elif old_pct is None or new_pct > old_pct:
         dj_set.recrawl_count = 0
+        stale_threshold = RECRAWL_STALE_THRESHOLD
     else:
         dj_set.recrawl_count = (dj_set.recrawl_count or 0) + 1
+        stale_threshold = RECRAWL_STALE_THRESHOLD
 
     finalized = None
     if new_pct is not None and new_pct >= RECRAWL_FINAL_HITRATE:
         finalized = "complete"
-    elif dj_set.recrawl_count >= 3:
+    elif dj_set.recrawl_count >= stale_threshold:
         finalized = "stale"
     if finalized:
         dj_set.recrawl_status = "final"

@@ -352,11 +352,16 @@ def _run_snapshot_backlogs():
                 ),
             },
             "sets": {
-                # Root sets (parent_set_id IS NULL) still eligible for re-crawl.
+                # Sets the recrawl task actually works through — matches
+                # recrawl_incomplete_sets' own WHERE: TrackID source, non-virtual,
+                # still active. youtube sets (metadata-only, no tracklist) and
+                # virtual parents (display aggregators) are NEVER re-crawled, so
+                # they must not inflate this backlog count.
                 "recrawl_backlog": _count(
                     DJSet.id,
-                    DJSet.parent_set_id.is_(None),
-                    DJSet.recrawl_status != "final",
+                    DJSet.source == "trackid",
+                    DJSet.is_virtual.is_(False),
+                    DJSet.recrawl_status == "active",
                 ),
                 # C8: TrackID sets flagged low-trust (mostly ID, no source_url,
                 # placeholder). Hidden/excluded everywhere; tracked here so its
