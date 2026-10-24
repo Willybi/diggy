@@ -449,20 +449,27 @@ def main(args):
     if not fresh:
         print("Nothing new to scrape - done.")
         return
-    _write_csv(
-        os.path.join(workdir, "to_analyze.csv"), fresh, CANDIDATE_FIELDS
-    )
 
-    # 2. SCRAPE — in the prod server image (real matchers + curl_cffi)
+    # 2+3. SCRAPE + APPLY in CHUNKS (image built once). Each chunk is scraped,
+    #      applied and CHECKPOINTED before the next starts, so a long unattended run
+    #      is cut-safe: interrupting after many hours loses only the in-flight chunk
+    #      (<= --chunk rows), and a re-run skips everything already checkpointed /
+    #      marked beatport_searched_at. --chunk 0 (default) = one shot over all fresh.
     _docker_build()
-    _docker_scrape(workdir, args.rate, args.concurrency, args.max_403)
-    if not os.path.exists(matches_path):
-        sys.exit(f"[scrape] the container produced no {matches_path}")
-    with open(matches_path, encoding="utf-8") as f:
-        matches_text = f.read()
-
-    # 3. APPLY or dry-run plan (the OPS import writes; this tool never does)
-    apply_or_plan(matches_text, args.apply, checkpoint_path)
+    chunk = args.chunk if (args.chunk and args.chunk > 0) else len(fresh)
+    total = len(fresh)
+    for start in range(0, total, chunk):
+        batch = fresh[start:start + chunk]
+        print(f"\n[chunk] rows {start + 1}-{start + len(batch)} / {total}")
+        _write_csv(
+            os.path.join(workdir, "to_analyze.csv"), batch, CANDIDATE_FIELDS
+        )
+        _docker_scrape(workdir, args.rate, args.concurrency, args.max_403)
+        if not os.path.exists(matches_path):
+            sys.exit(f"[scrape] the container produced no {matches_path}")
+        with open(matches_path, encoding="utf-8") as f:
+            apply_or_plan(f.read(), args.apply, checkpoint_path)
+    print(f"\n[done] processed {total} candidate(s) in chunks of {chunk}.")
 
 
 if __name__ == "__main__":
@@ -484,6 +491,16 @@ if __name__ == "__main__":
         default=0,
         help="LIMIT on the candidates pull (0 = full backlog); use with --after-id "
         "or --shard to window a salvo",
+    )
+    parser.add_argument(
+        "--chunk",
+        type=int,
+        default=0,
+        help="apply + CHECKPOINT every N rows instead of once at the very end "
+        "(0 = single shot, legacy). Makes a long unattended run cut-safe: "
+        "interrupting after many hours loses only the in-flight chunk (<= N rows), "
+        "and a re-run skips everything already checkpointed. Recommended for a "
+        "full-backlog run with no --limit, e.g. --chunk 1000 --apply.",
     )
     parser.add_argument(
         "--after-id",
