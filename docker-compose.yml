@@ -366,7 +366,7 @@ services:
       - -c
       - |
         apk add --no-cache postgresql16-client curl gnupg rclone > /dev/null 2>&1
-        curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+        curl -fsSL https://dl.min.io/aistor/mc/release/linux-amd64/mc -o /usr/local/bin/mc
         chmod +x /usr/local/bin/mc
         cp /backup.sh /tmp/backup.sh && chmod +x /tmp/backup.sh
         /tmp/backup.sh

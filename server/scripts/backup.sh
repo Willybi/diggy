@@ -66,18 +66,25 @@ find "$PG_DIR" -name "diggy_*.sql.gz*" -mtime +$RETENTION_DAYS -delete
 echo "[$(date -Iseconds)] Cleaned up PostgreSQL dumps older than ${RETENTION_DAYS} days."
 
 # ------------------------------- MinIO ------------------------------------
+# BEST-EFFORT. The local artwork mirror is a convenience (artworks are
+# re-fetchable via enrichment), so a `mc` failure must NEVER abort the script —
+# otherwise it blocks the CRITICAL offsite PG copy below (exactly what happened
+# when the mc download URL started returning "410 Gone" and the garbage binary
+# crashed under `set -e`). Everything here is guarded; failures only warn.
 echo "[$(date -Iseconds)] Starting MinIO backup..."
 
-# Configure mc alias (quiet, idempotent)
-mc alias set diggy http://minio:9000 "$MINIO_USER" "$MINIO_PASSWORD" --quiet
-
 BUCKETS="artworks catalog-artworks artist-artworks"
-for bucket in $BUCKETS; do
-  echo "[$(date -Iseconds)] Mirroring bucket: $bucket"
-  mc mirror --overwrite --quiet "diggy/$bucket" "$MINIO_DIR/$bucket"
-done
-
-echo "[$(date -Iseconds)] MinIO backup done."
+if command -v mc >/dev/null 2>&1 \
+   && mc alias set diggy http://minio:9000 "$MINIO_USER" "$MINIO_PASSWORD" --quiet; then
+  for bucket in $BUCKETS; do
+    echo "[$(date -Iseconds)] Mirroring bucket: $bucket"
+    mc mirror --overwrite --quiet "diggy/$bucket" "$MINIO_DIR/$bucket" \
+      || echo "[$(date -Iseconds)] WARNING: mirror of $bucket failed (non-fatal)"
+  done
+  echo "[$(date -Iseconds)] MinIO backup done."
+else
+  echo "[$(date -Iseconds)] WARNING: mc unavailable — MinIO mirror SKIPPED (non-fatal; artworks re-fetchable via enrichment)."
+fi
 
 # --------------------------- Offsite (rclone) ------------------------------
 # Only ENCRYPTED dumps ever leave the VPS. The MinIO mirror stays local-only
