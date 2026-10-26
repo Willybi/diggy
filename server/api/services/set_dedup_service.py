@@ -509,6 +509,50 @@ async def get_match_candidates(
     ]
 
 
+# Title-based candidate fan-out (B, 2026-10). The track-overlap path above needs
+# >= 3 shared identified tracks, so TrackID's duplicate audiostreams of the SAME
+# show (distinct external_ids, re-uploads) that identify < 3 tracks never become
+# candidates and stay separate roots — inflating trend scores (a single-track
+# show counted once per copy in the SUM that ranks trends) and listings.
+# Generating a candidate on an IDENTICAL normalized_title routes those sets into
+# the SAME, unchanged decide_verdict: its conservative same-reliable-date +
+# near-identical-folded-title (V3) vector attaches a true re-upload, while a
+# recurring show under the same title on a DIFFERENT date is left apart
+# (invariant #4). Capped like the track path to bound a generic-title fan-out.
+TITLE_MATCH_CANDIDATE_CAP = int(os.environ.get("TITLE_MATCH_CANDIDATE_CAP", "50"))
+
+
+async def get_title_candidate_ids(
+    db: AsyncSession, set_id: int, normalized_title: str | None
+) -> list[int]:
+    """Return non-virtual set ids sharing the EXACT normalized_title.
+
+    The complement of get_match_candidates for the (frequent) case of a
+    near-empty identified tracklist — same-show duplicates are near-identical in
+    title, not necessarily in identified tracks. Parent status is NOT filtered so
+    an incoming set can join an existing virtual-parent group
+    (find_or_create_virtual_parent reuses the parent). Capped.
+    """
+    if not normalized_title:
+        return []
+
+    from models import DJSet
+
+    rows = (
+        await db.execute(
+            select(DJSet.id)
+            .where(
+                DJSet.normalized_title == normalized_title,
+                DJSet.is_virtual.is_(False),
+                DJSet.id != set_id,
+            )
+            .order_by(DJSet.id.desc())
+            .limit(TITLE_MATCH_CANDIDATE_CAP)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
 # ---------------------------------------------------------------------------
 # Part-candidate generation (C6.1)
 # ---------------------------------------------------------------------------
@@ -1203,6 +1247,17 @@ async def match_set(
 
     candidates = await get_match_candidates(db, set_id, incoming_mtids)
 
+    # Complement the track-overlap candidates with same-title candidates so a
+    # duplicate that identifies < 3 shared tracks still reaches decide_verdict
+    # (B, 2026-10 — the single-track trend-inflation fix). Dedup by set id.
+    seen_ids = {c.set_id for c in candidates}
+    title_only_ids = [
+        cid
+        for cid in await get_title_candidate_ids(db, set_id, row.normalized_title)
+        if cid not in seen_ids
+    ]
+    incoming_set = set(incoming_mtids)
+
     # Load candidate tracklists sequentially (one shared session — never
     # gather db.execute calls), then ONE batched df query over all mtids.
     loaded_candidates = []
@@ -1212,6 +1267,23 @@ async def match_set(
         if cand_loaded is None:
             continue
         cand_row, set_b_data = cand_loaded
+        loaded_candidates.append((candidate, cand_row, set_b_data))
+        all_mtids.update(set_b_data["identified_mtids"])
+
+    # Title-only candidates: build a MatchCandidate with the shared_count
+    # computed in Python (they came from a title match, not the track-overlap
+    # COUNT) so the certain-duplicate overlap vectors still see a correct count.
+    for cid in title_only_ids:
+        cand_loaded = await _load_set_scoring_data(db, cid)
+        if cand_loaded is None:
+            continue
+        cand_row, set_b_data = cand_loaded
+        cand_mtids = set(set_b_data["identified_mtids"])
+        candidate = MatchCandidate(
+            set_id=cid,
+            shared_count=len(incoming_set & cand_mtids),
+            total_identified=len(cand_mtids),
+        )
         loaded_candidates.append((candidate, cand_row, set_b_data))
         all_mtids.update(set_b_data["identified_mtids"])
 

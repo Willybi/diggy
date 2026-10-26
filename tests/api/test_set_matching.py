@@ -4,8 +4,10 @@ from datetime import date
 
 import pytest
 from services.set_dedup_service import (
+    MatchVerdict,
     compute_confidence,
     get_match_candidates,
+    get_title_candidate_ids,
     match_set,
     score_pair,
 )
@@ -296,3 +298,79 @@ async def test_match_set_results_carry_confidence(db, clean_db):
     result = pair_results[0]
     assert result.confidence == compute_confidence(result.signals)
     assert result.confidence > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Title-based candidate path (B, 2026-10) — single-track duplicates
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_title_candidate_ids_matches_exact_normalized_title(db, clean_db):
+    """Sets with the SAME normalized_title are returned regardless of tracks;
+    a different title and the set itself are excluded."""
+    from models import DJSet
+
+    a = DJSet(title="Slap City 161026", source="trackid",
+              normalized_title="slap city 161026")
+    b = DJSet(title="Slap City 161026 (re-up)", source="trackid",
+              normalized_title="slap city 161026")
+    c = DJSet(title="Other Show", source="trackid", normalized_title="other show")
+    db.add_all([a, b, c])
+    await db.flush()
+
+    ids = await get_title_candidate_ids(db, a.id, a.normalized_title)
+    assert ids == [b.id]
+    # a near-empty / NULL title never fans out
+    assert await get_title_candidate_ids(db, a.id, None) == []
+
+
+@pytest.mark.asyncio
+async def test_match_set_attaches_single_track_duplicate_via_title(db, clean_db):
+    """Two copies of the same show with only ONE identified track each are below
+    the 3-shared-track candidate bar (get_match_candidates finds nothing), yet
+    match_set now surfaces them via the title path and the existing V3 vector
+    (same reliable event_date + identical folded title) returns AUTO_ATTACH."""
+    from models import DJSet
+
+    ev = date(2026, 10, 16)
+    set_a = DJSet(title="Slap City w/ iced lattina 161026", source="trackid",
+                  normalized_title="slap city w/ iced lattina 161026",
+                  event_date=ev, played_date=date(2026, 10, 17))
+    set_b = DJSet(title="Slap City w/ iced lattina 161026", source="trackid",
+                  normalized_title="slap city w/ iced lattina 161026",
+                  event_date=ev, played_date=date(2026, 10, 17))
+    db.add_all([set_a, set_b])
+    await db.flush()
+    await _add_tracks(db, set_a.id, [10])
+    await _add_tracks(db, set_b.id, [10])
+
+    # The track-overlap path alone sees nothing (1 < 3 shared tracks).
+    assert await get_match_candidates(db, set_a.id, [10]) == []
+
+    pair_results, _ = await match_set(db, set_a.id)
+    assert len(pair_results) == 1
+    assert pair_results[0].candidate_id == set_b.id
+    assert pair_results[0].verdict == MatchVerdict.AUTO_ATTACH
+
+
+@pytest.mark.asyncio
+async def test_match_set_same_title_different_date_left_apart(db, clean_db):
+    """Conservative guard (invariant #4): a recurring show under the same title
+    on two DIFFERENT reliable event_dates is surfaced as a candidate but NEVER
+    attached — distinct performances stay distinct roots."""
+    from models import DJSet
+
+    set_a = DJSet(title="Weekly Show", source="trackid",
+                  normalized_title="weekly show", event_date=date(2026, 10, 16))
+    set_b = DJSet(title="Weekly Show", source="trackid",
+                  normalized_title="weekly show", event_date=date(2026, 10, 23))
+    db.add_all([set_a, set_b])
+    await db.flush()
+    await _add_tracks(db, set_a.id, [10])
+    await _add_tracks(db, set_b.id, [10])
+
+    pair_results, _ = await match_set(db, set_a.id)
+    assert len(pair_results) == 1
+    assert pair_results[0].candidate_id == set_b.id
+    assert pair_results[0].verdict == MatchVerdict.NOTHING
