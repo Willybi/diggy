@@ -320,6 +320,35 @@ class TestFkGuardBeforeUpsert:
         assert "raise" in source
 
 
+class TestDuplicateSetsCollapsed:
+    """TrackID hosts duplicate audiostreams of the same show (distinct
+    external_ids). A dup identifying < 3 tracks escapes the track-overlap
+    dedup (never a match_set candidate) and stays a separate root, so a
+    single-track show would otherwise count once per copy in the SUM(base_score)
+    that ranks trends. The set branch collapses detections on the logical set
+    identity (channel + normalized_title + reliable date) BEFORE the sum, with a
+    physical-set_id fallback so unrelated sets are never merged. Same
+    source-inspection contract as the reliability/removed-tracks tests above —
+    the collapse only fires on real duplicate rows (unreachable via seeded data,
+    since compute_trends' SQL is PG-only and mocked in this suite)."""
+
+    def test_set_branch_collapses_logical_duplicates_before_sum(self):
+        import inspect
+        from workers.tasks.trends import compute_trends
+
+        source = inspect.getsource(compute_trends)
+        # the logical-set key is built from channel + normalized_title + date
+        assert "'setgrp:' || md5(" in source
+        assert "s.normalized_title" in source
+        assert "COALESCE(lower(s.channel), '')" in source
+        assert "COALESCE(s.event_date::text," in source
+        # aggregated so each logical set yields ONE detection row (de-inflates
+        # both COUNT(DISTINCT) and the base_score SUM)
+        assert "GROUP BY catalog_id, entity_key, genres, release_date" in source
+        # physical set_id fallback keeps un-normalized sets distinct
+        assert "ELSE 'set:' || st.set_id::text" in source
+
+
 class TestPurgeStaleTrends:
     """A3-02: a run must delete radar_trends rows left over from previous runs."""
 

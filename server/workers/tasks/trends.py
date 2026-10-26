@@ -179,25 +179,62 @@ def compute_trends(self, window_days=30):
 
                     UNION ALL
 
-                    -- Set tracks (tracklists DJ — poids 3x)
+                    -- Set tracks (tracklists DJ — poids 3x), COLLAPSED to one
+                    -- row per LOGICAL set. TrackID hosts duplicate audiostreams
+                    -- of the same show (re-uploads under distinct external_ids);
+                    -- when a dup identifies < 3 tracks, the track-overlap dedup
+                    -- (set_dedup_service.match_set, candidate bar = 3 shared
+                    -- identified tracks) never even makes it a candidate, so the
+                    -- duplicates stay separate roots. A single-track show would
+                    -- then count once PER duplicate here — both in
+                    -- COUNT(DISTINCT entity_key) and, worse, in the SUM(base_score)
+                    -- that ranks trends (a track in 6 copies out-ranks everything).
+                    -- So collapse on the SAME logical identity the set-dedup would
+                    -- merge on — channel + normalized_title + reliable date (C13.e
+                    -- event_date, else played_date) — BEFORE the score SUM, so one
+                    -- show contributes exactly once. Falls back to the physical
+                    -- set_id when the title isn't normalized yet, so unrelated sets
+                    -- are NEVER collapsed (invariant #4: err toward separation).
                     SELECT
-                        st.catalog_id,
-                        'set:' || st.set_id::text AS entity_key,
+                        catalog_id,
+                        entity_key,
                         'set' AS source,
-                        COALESCE(s.played_date::timestamptz, s.created_at) AS detected_at,
+                        MAX(detected_at) AS detected_at,
                         false AS is_initial_detection,
                         'set' AS entity_type,
-                        (SELECT COUNT(*) FROM set_tracks st2 WHERE st2.set_id = s.id) AS track_count,
-                        c.genres,
-                        c.release_date
-                    FROM set_tracks st
-                    JOIN sets s ON s.id = st.set_id
-                    JOIN catalog c ON c.id = st.catalog_id
-                    WHERE st.catalog_id IS NOT NULL
-                      AND s.parent_set_id IS NULL
-                      AND """ + set_reliable_frag + """
-                      AND COALESCE(s.played_date::timestamptz, s.created_at)
-                          >= NOW() - MAKE_INTERVAL(days => :window)
+                        MAX(track_count) AS track_count,
+                        genres,
+                        release_date
+                    FROM (
+                        SELECT
+                            st.catalog_id,
+                            CASE
+                                WHEN s.normalized_title IS NOT NULL
+                                     AND s.normalized_title <> ''
+                                THEN 'setgrp:' || md5(
+                                    s.normalized_title || '|'
+                                    || COALESCE(lower(s.channel), '') || '|'
+                                    || COALESCE(s.event_date::text,
+                                                s.played_date::text, '')
+                                )
+                                ELSE 'set:' || st.set_id::text
+                            END AS entity_key,
+                            COALESCE(s.played_date::timestamptz, s.created_at)
+                                AS detected_at,
+                            (SELECT COUNT(*) FROM set_tracks st2
+                             WHERE st2.set_id = s.id) AS track_count,
+                            c.genres,
+                            c.release_date
+                        FROM set_tracks st
+                        JOIN sets s ON s.id = st.set_id
+                        JOIN catalog c ON c.id = st.catalog_id
+                        WHERE st.catalog_id IS NOT NULL
+                          AND s.parent_set_id IS NULL
+                          AND """ + set_reliable_frag + """
+                          AND COALESCE(s.played_date::timestamptz, s.created_at)
+                              >= NOW() - MAKE_INTERVAL(days => :window)
+                    ) set_detections
+                    GROUP BY catalog_id, entity_key, genres, release_date
                 ),
                 scores AS (
                     SELECT
