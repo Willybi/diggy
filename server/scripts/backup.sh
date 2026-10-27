@@ -22,7 +22,9 @@ set -eu
 
 BACKUP_DIR="/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
-RETENTION_DAYS=7
+# Local dumps are a fast-restore convenience; the offsite copy (rclone,
+# OFFSITE_RETENTION_COUNT=14) is the real history, so keep few local (STO1).
+RETENTION_DAYS=2
 
 PG_DIR="$BACKUP_DIR/postgres"
 MINIO_DIR="$BACKUP_DIR/minio"
