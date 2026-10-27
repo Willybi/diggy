@@ -2359,6 +2359,65 @@ Regroupement par domaine fonctionnel (8 -> 6) — chaque fusion resout un irrita
 
 ---
 
+## STO — Stockage & capacité disque (série 2026-10)
+
+Née de l'analyse disque du **2026-10-26** : VPS `/` à **94 % (180/193 Go, 13 Go libres)**. RAM saine (12 Gi libres, 0 swap — ce n'est PAS la mémoire vive le problème). La DB ne pèse que **11 Go** (dont 7 Go d'embeddings pgvector) ; le disque est rempli par l'**artwork** : **97 Go MinIO live** (set-artworks 35 / artist 28 / catalog 27 / album 8,4) + **49 Go de miroir backup local** (catalog+artiste seulement) + **17 Go de dumps PG locaux** (déjà offsite, rétention 14j). Soit **~146 Go d'images** sur 180 utilisés. Le marathon backfill (→1,08 M tracks) est retombé à ~4k tracks/j, donc la pression aiguë a cessé, mais 13 Go de marge = runway de quelques semaines seulement, et un à-coup (deploy, resync miroir, embeddings) peut atteindre 100 % en jours. À 100 % = falaise (Postgres read-only + backups cassés). **Étape 1 (ménage immédiat : prune Docker + trim dumps locaux 7→2j) appliquée le 2026-10-26.**
+
+### STO1 — Externalisation des backups & désengorgement disque
+
+**Priorité : HAUT (capacité disque critique)**
+**Estimation : 0,5-1 jour (ops + 1 changement de config 1 ligne)**
+**Dépend de : rien. AUCUN modèle ni migration.**
+**Statut : EN COURS — ménage immédiat fait le 2026-10-26 (prune Docker + trim dumps locaux) ; reste la pérennisation config + l'offsite artwork.**
+
+Gain visé **~59 Go** (disque 94 % → ~62 %), risque applicatif nul (aucune donnée live touchée).
+
+#### Constat (mesuré 2026-10-26)
+- Dumps PG locaux = 17 Go (8 × 2,1 Go), **déjà copiés offsite** (rclone, `OFFSITE_RETENTION_COUNT` défaut 14). Rétention locale `RETENTION_DAYS=7` dans `server/scripts/backup.sh`.
+- Miroir MinIO local = 49 Go, **local-only by design** (jamais offsite), ne couvre QUE `catalog-artworks` + `artist-artworks` (ligne `BUCKETS=` de backup.sh) — **ni set-artworks (35 Go) ni album-artworks (8,4 Go)**. → **aucune sauvegarde offsite des artworks**, et set/album non sauvegardés du tout.
+- Images Docker `<none>` (~3,5 Go, 1 par deploy) + build cache (~2 Go) reclaimables sans risque.
+
+#### Lots
+- [x] **Ménage one-shot (2026-10-26)** : `docker image prune` + `docker builder prune` ; suppression des dumps PG locaux > 2j (offsite conservé). Gain immédiat réalisé.
+- [ ] **Pérenniser la rétention** : `RETENTION_DAYS=7` → `2` dans `server/scripts/backup.sh` (sinon les dumps regrossissent à 7j, ~+2 Go/j). **À déployer HORS fenêtre enrich (6h-23h Beatport)** — piège lock orphelin [[deploy-during-enrich-orphan-lock]].
+- [ ] **Remplacer le miroir MinIO local par un offsite** (R2/B2/gdrive via rclone) : le `mc mirror` local devient un `rclone copy` vers le remote, puis libérer le volume local (gain ~49 Go). Le remote rclone offsite existe déjà (dumps).
+- [ ] **Boucher le trou de couverture** : inclure `set-artworks` + `album-artworks` dans la sauvegarde (aujourd'hui 0 copie) — à faire en même temps que le passage offsite, sinon on reproduit le gap.
+- [ ] **Prune Docker automatisé post-deploy** (hook dans `deploy.yml`) — supprime le bleed récurrent de ~881 Mo/deploy.
+
+#### Definition of Done
+- [ ] Disque VPS < 70 %.
+- [ ] Un backup artwork existe hors VPS (set + album inclus) ; rétention dumps locale = 2j, offsite = 14j inchangé.
+- [ ] Un deploy n'empile plus d'images `<none>`.
+
+### STO2 — Offload du stockage artwork (object storage) ± recompression
+
+**Priorité : MOYEN (structurel — la vraie réponse au plafond disque)**
+**Estimation : plusieurs jours (migration + URLs/nginx) ou chantier recompression (CPU lourd)**
+**Dépend de : STO1 (désengorgement immédiat d'abord). Décision A/B/A+B à acter.**
+**Statut : À CADRER**
+
+Le disque VPS (193 Go) sera toujours rattrapé par la croissance de l'artwork (catalogue conçu pour grossir : 1,1 M tracks et +). Deux pistes, idéalement combinées :
+
+#### Piste A — Offload vers object storage externe (RECOMMANDÉE)
+- MinIO est S3-compatible ; migrer les buckets artwork (97 Go) vers Cloudflare R2 / Backblaze B2 → **retire ~97 Go du VPS de façon définitive, scale infini, egress gratuit sur R2**.
+- Changements : `ImageService` (endpoint/credentials S3 externes), URLs servies (`/storage/*` → proxy nginx ou domaine CDN), migration one-shot des objets existants, CSP `img-src`.
+- Supprime la *classe* de contrainte (le disque VPS n'est plus le plafond de l'artwork).
+
+#### Piste B — Recompression / resize (gain one-shot)
+- Cible : **set-artworks (35 Go, ~290 Ko/img) + artist-artworks (28 Go, ~160 Ko/img)** — stockés en pleine résolution source (miniatures YouTube maxres, photos HD). catalog/album déjà petits (~25 Ko).
+- Resize max ~600px + WebP q80 → ~60-70 % de réduction : set+artiste 63→~22 Go (**~41 Go**), ou tous buckets 97→~35 Go (**~60 Go**).
+- Coût : reprocessing 300k-1,7M images (**CPU lourd, risque throttle fair-use** [[hostinger-cpu-throttle]] / AV10 — idéalement en LOCAL), changement du pipeline d'upload `ImageService`, **lossy/irréversible**, relief en semaines.
+
+#### Note d'arbitrage
+A > B comme réponse durable (B est un gain one-shot que la croissance érode). Combiner = idéal (recompresser *avant* offload = stockage/egress moins chers). Repli sans ingénierie : agrandir le disque VPS (plan Hostinger / block volume).
+
+#### Definition of Done
+- [ ] Décision A / B / A+B actée.
+- [ ] Si A : artwork servi depuis l'object storage externe, volume MinIO local vidé, 0 régression d'affichage (vérif rendu headless).
+- [ ] Croissance de l'artwork découplée du disque VPS.
+
+---
+
 ## Reliquats hors chantiers (opportunistes)
 
 | Point | Quand |
@@ -2429,6 +2488,8 @@ Regroupement par domaine fonctionnel (8 -> 6) — chaque fusion resout un irrita
 | AV1-AV7 | Serie audit 2026-08 (quick wins → doc) | AV1 immediat, puis AV2 → AV3 ∥ AV4 → AV5 → AV6 → AV7 | docs/audits/2026-08/DECISIONS.md (Q1-Q8) |
 | N4 | Majeurs frontend (vite 8, pinia 4, vue-router 5, vitest 4) | Apres AV5 | AV5 (surface reduite) |
 | C10 | Pool similarite precalcule nightly | CADUC — supersede par C9.c retrieval-first (plus de full-pool a cacher) | AV3 (palliatifs + mesures) |
+| STO1 | Externalisation backups & desengorgement disque | Disque VPS 94% (2026-10-26) | Rien |
+| STO2 | Offload stockage artwork (object storage) ± recompression | Apres STO1 | STO1 |
 
 Notes :
 - La velocite sur les ajouts (C1.b) est calculable des maintenant depuis `radar_tracks`. Seul le signal de retrait (`removed_at`) necessite d'accumuler de l'historique a partir de C0.1.
