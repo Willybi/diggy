@@ -29,7 +29,7 @@ RETENTION_DAYS=2
 PG_DIR="$BACKUP_DIR/postgres"
 MINIO_DIR="$BACKUP_DIR/minio"
 
-mkdir -p "$PG_DIR" "$MINIO_DIR"
+mkdir -p "$PG_DIR"
 
 # ----------------------------- PostgreSQL ---------------------------------
 echo "[$(date -Iseconds)] Starting PostgreSQL backup..."
@@ -68,25 +68,13 @@ find "$PG_DIR" -name "diggy_*.sql.gz*" -mtime +$RETENTION_DAYS -delete
 echo "[$(date -Iseconds)] Cleaned up PostgreSQL dumps older than ${RETENTION_DAYS} days."
 
 # ------------------------------- MinIO ------------------------------------
-# BEST-EFFORT. The local artwork mirror is a convenience (artworks are
-# re-fetchable via enrichment), so a `mc` failure must NEVER abort the script —
-# otherwise it blocks the CRITICAL offsite PG copy below (exactly what happened
-# when the mc download URL started returning "410 Gone" and the garbage binary
-# crashed under `set -e`). Everything here is guarded; failures only warn.
-echo "[$(date -Iseconds)] Starting MinIO backup..."
-
-BUCKETS="artworks catalog-artworks artist-artworks"
-if command -v mc >/dev/null 2>&1 \
-   && mc alias set diggy http://minio:9000 "$MINIO_USER" "$MINIO_PASSWORD" --quiet; then
-  for bucket in $BUCKETS; do
-    echo "[$(date -Iseconds)] Mirroring bucket: $bucket"
-    mc mirror --overwrite --quiet "diggy/$bucket" "$MINIO_DIR/$bucket" \
-      || echo "[$(date -Iseconds)] WARNING: mirror of $bucket failed (non-fatal)"
-  done
-  echo "[$(date -Iseconds)] MinIO backup done."
-else
-  echo "[$(date -Iseconds)] WARNING: mc unavailable — MinIO mirror SKIPPED (non-fatal; artworks re-fetchable via enrichment)."
-fi
+# Local artwork mirror RETIRED (STO1, 2026-10-28). The ~49 GB local MinIO mirror
+# (it only ever covered catalog + artist buckets) was freed from the VPS disk.
+# The artwork backup now lives on the operator's PC external drive via a
+# scheduled rclone SFTP pull of the whole MinIO volume (all buckets, incl. the
+# previously-unbacked set/album) — see ROADMAP STO1. The offsite PG dump copy
+# below is unchanged. Do NOT re-add a local `mc mirror` here (it refills the disk).
+echo "[$(date -Iseconds)] MinIO local mirror retired (backup moved to operator PC, STO1)."
 
 # --------------------------- Offsite (rclone) ------------------------------
 # Only ENCRYPTED dumps ever leave the VPS. The MinIO mirror stays local-only
