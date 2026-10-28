@@ -2368,7 +2368,7 @@ Née de l'analyse disque du **2026-10-26** : VPS `/` à **94 % (180/193 Go, 13 G
 **Priorité : HAUT (capacité disque critique)**
 **Estimation : 0,5-1 jour (ops + 1 changement de config 1 ligne)**
 **Dépend de : rien. AUCUN modèle ni migration.**
-**Statut : EN COURS — ménage immédiat fait le 2026-10-26 (prune Docker + trim dumps locaux) ; reste la pérennisation config + l'offsite artwork.**
+**Statut : QUASI TERMINÉ — (1) ménage 2026-10-26 ; (2) rétention dumps 7→2 déployée (34164cc) ; (3) backup artwork sur disque externe du PC : sync initial COMPLET 2026-10-28 (86,7 Gio / 1,85 M fichiers, rclone exit 0) + miroir VPS SUPPRIMÉ → disque 89 %→63 % (−49 Go). Reste : prune Docker post-deploy automatisé (lot mineur).**
 
 Gain visé **~59 Go** (disque 94 % → ~62 %), risque applicatif nul (aucune donnée live touchée).
 
@@ -2379,15 +2379,15 @@ Gain visé **~59 Go** (disque 94 % → ~62 %), risque applicatif nul (aucune don
 
 #### Lots
 - [x] **Ménage one-shot (2026-10-26)** : `docker image prune` + `docker builder prune` ; suppression des dumps PG locaux > 2j (offsite conservé). Gain immédiat réalisé.
-- [ ] **Pérenniser la rétention** : `RETENTION_DAYS=7` → `2` dans `server/scripts/backup.sh` (sinon les dumps regrossissent à 7j, ~+2 Go/j). **À déployer HORS fenêtre enrich (6h-23h Beatport)** — piège lock orphelin [[deploy-during-enrich-orphan-lock]].
-- [ ] **Remplacer le miroir MinIO local par un offsite** (R2/B2/gdrive via rclone) : le `mc mirror` local devient un `rclone copy` vers le remote, puis libérer le volume local (gain ~49 Go). Le remote rclone offsite existe déjà (dumps).
-- [ ] **Boucher le trou de couverture** : inclure `set-artworks` + `album-artworks` dans la sauvegarde (aujourd'hui 0 copie) — à faire en même temps que le passage offsite, sinon on reproduit le gap.
+- [x] **Pérenniser la rétention** : `RETENTION_DAYS=7` → `2` dans `server/scripts/backup.sh` (commit 34164cc, déployé 2026-10-27, confirmé actif sur le VPS). Les dumps ne regrossissent plus au-delà de 2j locaux ; **dumps PG offsite gdrive (14j) inchangés — décidé : on n'y touche pas**.
+- [x] **Backup artwork → disque dur externe du PC de l'opérateur (décidé 2026-10-27, PAS R2/B2)** : rclone SFTP (remote `diggyvps`, clé `claude_diggy`, sans validation host-key — pinning buggait sur known_hosts 18 entrées, TODO optionnel) tire le volume MinIO brut vers `D:\diggy-backup\minio` (mode `copy` add-only + `--no-update-dir-modtime` pour éviter la passe DirSetModTime lente en SFTP). Wrapper `D:\diggy-backup\sync-artwork.ps1` + tâche planifiée Windows `DiggyArtworkBackup` (quotidien 13h, reprise runs manqués). **Sync initial COMPLET 2026-10-28** (86,724 Gio / 1,85 M fichiers, rclone exit 0, 1 erreur transitoire auto-résolue en retry). Format interne MinIO (restaurable en le remettant dans le volume). **Miroir VPS supprimé + `mc mirror` retiré de `backup.sh` → −49 Go, disque 89 %→63 %** (feu vert William 2026-10-28, [[prod-command-explicit-approval]]).
+- [x] **Trou de couverture bouché** : la copie du volume brut embarque TOUS les buckets (set + album inclus) — fini le gap set/album-artworks du miroir `mc` historique qui ne couvrait que catalog + artist.
 - [ ] **Prune Docker automatisé post-deploy** (hook dans `deploy.yml`) — supprime le bleed récurrent de ~881 Mo/deploy.
 
 #### Definition of Done
-- [ ] Disque VPS < 70 %.
-- [ ] Un backup artwork existe hors VPS (set + album inclus) ; rétention dumps locale = 2j, offsite = 14j inchangé.
-- [ ] Un deploy n'empile plus d'images `<none>`.
+- [x] Disque VPS < 70 % (63 % le 2026-10-28, 73 Go libres).
+- [x] Un backup artwork existe hors VPS (PC, TOUS buckets set + album inclus) ; rétention dumps locale = 2j, offsite = 14j inchangé.
+- [ ] Un deploy n'empile plus d'images `<none>` (lot « prune post-deploy » encore à faire).
 
 ### STO2 — Offload du stockage artwork (object storage) ± recompression
 
