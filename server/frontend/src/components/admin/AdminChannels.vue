@@ -543,6 +543,37 @@
                       {{ artResolveError[c.artist_id] }}
                     </p>
                   </template>
+
+                  <!-- Porte de sortie (toujours dispo) : la résolution auto est
+                       fausse ou introuvable → l'admin colle l'URL de la BONNE chaîne.
+                       Rattachée à l'artiste (channel_type='artist' + artist_id) ; le
+                       nom d'affichage = le vrai titre YouTube résolu côté serveur. -->
+                  <details class="chn-cand-direct at-details">
+                    <summary class="chn-cand-direct-sum">
+                      <AdminIcon name="chevron" :size="13" class="at-details-chev" />
+                      Autre chaîne (URL directe)
+                    </summary>
+                    <div class="chn-cand-add">
+                      <input
+                        v-model="artCandUrls[c.artist_id]"
+                        class="chn-input chn-input--grow"
+                        type="text"
+                        placeholder="URL YouTube de l'artiste"
+                        aria-label="URL YouTube de la chaîne de l'artiste"
+                        @keyup.enter="addArtistCandidateManual(c)"
+                      />
+                      <button
+                        class="btn btn--sm"
+                        :disabled="artCandAdding[c.artist_id] || !artCandUrlFilled(c)"
+                        @click="addArtistCandidateManual(c)"
+                      >
+                        {{ artCandAdding[c.artist_id] ? 'Ajout…' : 'Ajouter' }}
+                      </button>
+                    </div>
+                    <p v-if="artCandError[c.artist_id]" class="chn-add-error">
+                      <AdminIcon name="alert-triangle" :size="13" /> {{ artCandError[c.artist_id] }}
+                    </p>
+                  </details>
                 </div>
               </td>
             </tr>
@@ -906,7 +937,12 @@ async function addCandidateResult(c, r) {
   candAddingResult[key] = true
   candResultErrors[key] = ''
   try {
-    await api.post('/api/admin/channels', { url: r.channel_id, name: r.title })
+    // Nom = le nom BRUT du candidat (c.name), PAS le titre YouTube (r.title) : la
+    // liste des candidats exclut par Channel.name == nom brut du corpus, donc un
+    // titre YouTube divergent laisserait le candidat réapparaître au prochain
+    // chargement. c.name est aussi la clé d'affichage utilisée partout ailleurs
+    // (channel_canonical des chips de set, ranking de recherche) → plus cohérent.
+    await api.post('/api/admin/channels', { url: r.channel_id, name: c.name })
     candidates.value = candidates.value.filter((x) => x.name !== c.name)
     delete candResolved[c.name]
     delete candExpanded[c.name]
@@ -1043,6 +1079,44 @@ async function confirmArtistCandidate(c) {
     artConfirmError[c.artist_id] = e.response?.data?.detail || 'Confirmation impossible'
   } finally {
     artConfirming[c.artist_id] = false
+  }
+}
+
+// ── Candidat-artiste : porte de sortie URL directe ──
+// artist_id → URL saisie / ajout en vol / erreur inline.
+const artCandUrls = reactive({})
+const artCandAdding = reactive({})
+const artCandError = reactive({})
+
+function artCandUrlFilled(c) {
+  return (artCandUrls[c.artist_id] || '').trim().length > 0
+}
+
+// Rattache MANUELLEMENT la chaîne d'un artiste-candidat quand la résolution auto est
+// fausse / absente : POST {url, channel_type:'artist', artist_id} — sans name, le vrai
+// titre YouTube est résolu côté serveur. En succès on retire l'artiste de la liste
+// (désormais une chaîne surveillée) et on rafraîchit la liste surveillée.
+async function addArtistCandidateManual(c) {
+  const url = (artCandUrls[c.artist_id] || '').trim()
+  if (!url || artCandAdding[c.artist_id]) return
+  artCandAdding[c.artist_id] = true
+  artCandError[c.artist_id] = ''
+  try {
+    await api.post('/api/admin/channels', {
+      url,
+      channel_type: 'artist',
+      artist_id: c.artist_id,
+    })
+    artistCandidates.value = artistCandidates.value.filter((x) => x.artist_id !== c.artist_id)
+    delete artResolved[c.artist_id]
+    delete artResolveError[c.artist_id]
+    delete artCandUrls[c.artist_id]
+    page.value = 1
+    await fetchChannels()
+  } catch (e) {
+    artCandError[c.artist_id] = e.response?.data?.detail || 'Ajout impossible'
+  } finally {
+    artCandAdding[c.artist_id] = false
   }
 }
 

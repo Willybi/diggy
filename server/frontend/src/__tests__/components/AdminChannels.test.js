@@ -385,9 +385,12 @@ describe('AdminChannels', () => {
     await btnByText(wrapper, 'Ajouter', '.chn-result--suggested').trigger('click')
     await flushPromises()
 
+    // Name = the RAW candidate name (c.name = 'Boiler Room'), NOT the YouTube title
+    // (r.title = 'Cercle'): the candidate seed excludes by Channel.name == raw name,
+    // so a divergent title would make the candidate reappear on the next load.
     expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels', {
       url: 'UCabc',
-      name: 'Cercle',
+      name: 'Boiler Room',
     })
     // The watched list is refreshed and the candidate leaves the seed.
     expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels', {
@@ -527,5 +530,33 @@ describe('AdminChannels', () => {
     expect(wrapper.find('.chn-art-verify').exists()).toBe(true)
     // A channel is still found, so it can be confirmed after the human ↗ check.
     expect(btnByText(wrapper, 'Confirmer')).toBeTruthy()
+  })
+
+  it('attaches an artist candidate manually via a direct URL — POST {url,channel_type,artist_id} then drops it', async () => {
+    // No channel candidates → the only .chn-cand-direct block is the artist one.
+    primeGet({ candidates: [], artistCandidates: [artistCandidateItem()] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.post.mockResolvedValue({ data: channelItem() })
+    apiMock.get.mockClear()
+
+    const input = wrapper.find('.chn-cand-direct input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('https://www.youtube.com/@peggygou')
+    await btnByText(wrapper, 'Ajouter', '.chn-cand-direct').trigger('click')
+    await flushPromises()
+
+    // No name sent → the backend resolves the real YouTube title; the artist link is carried.
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels', {
+      url: 'https://www.youtube.com/@peggygou',
+      channel_type: 'artist',
+      artist_id: 42,
+    })
+    // The watched list is refreshed and the artist leaves the candidates list.
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels', {
+      params: { page: 1, page_size: 50 },
+    })
+    expect(wrapper.text()).not.toContain('Peggy Gou')
   })
 })
