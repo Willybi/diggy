@@ -324,6 +324,27 @@ class TestChannelCandidatePreselect:
         assert out["items"][0]["preselect"] is None
         search.assert_not_called()
 
+    async def test_hides_candidate_whose_resolved_channel_already_curated(
+        self, admin_client, db, fake_redis
+    ):
+        # The suggested resolved channel (UCabc…) is already curated under a
+        # DIFFERENT name → the name-based exclusion missed it; the resolved-channel-id
+        # exclusion must hide the candidate so it does not reappear.
+        await _tid(db, "Boiler Room", 511)
+        await _channel(
+            db,
+            "Boiler Room Official YT Title",
+            external_id="UCabc1234567890abcdef12",
+            watched=True,
+        )
+        await db.commit()
+        fake_redis._store[
+            channel_service._candidate_cache_key("Boiler Room")
+        ] = json.dumps(_RESOLVE_HITS)
+
+        r = await admin_client.get("/api/admin/channels/candidates")
+        assert "Boiler Room" not in [i["name"] for i in r.json()["items"]]
+
 
 class TestChannelCandidateResolve:
     async def test_requires_auth(self, client):
@@ -1023,6 +1044,42 @@ class TestArtistCandidatesExclusionAndRank:
         assert r2.json()["total"] == 5
         assert len(r2.json()["items"]) == 1
 
+    async def test_hides_candidate_whose_resolved_channel_already_curated(
+        self, admin_client, db, fake_redis
+    ):
+        # Marlon case: the artist's resolved channel is already curated under a
+        # DUPLICATE artist row → the per-artist_id exclusion missed it; the
+        # resolved-channel-id exclusion must hide the candidate.
+        a = await _artist(db, "Marlon Hoffstadt", deezer_id="3926781")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        dup = await _artist(db, "DJ Daddy Trance", deezer_id="99999")
+        db.add(
+            Channel(
+                platform="youtube",
+                external_id="UCwAvPX7WsgigWWzW5ck8EvA",
+                name="Marlon Hoffstadt aka DJ Daddy Trance",
+                channel_type="artist",
+                artist_id=dup.id,
+                watched=True,
+            )
+        )
+        await db.commit()
+        fake_redis._store[
+            channel_service._artist_resolve_cache_key("Marlon Hoffstadt")
+        ] = json.dumps(
+            {
+                "channel_id": "UCwAvPX7WsgigWWzW5ck8EvA",
+                "channel_title": "Marlon Hoffstadt aka DJ Daddy Trance",
+                "method": "search",
+                "confidence": "NEEDS_VERIFY",
+            }
+        )
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        data = r.json()
+        assert "Marlon Hoffstadt" not in [i["name"] for i in data["items"]]
+        assert data["total"] == 0
+
 
 _ARTIST_RESOLVE_PAYLOAD = {
     "channel_id": "UCartist1234567890abcde",
@@ -1184,6 +1241,42 @@ class TestChannelAddArtist:
         assert data["channel_type"] == "artist"
         assert data["artist_id"] == a.id
         assert data["name"] == "Confirmed Artist"
+
+    async def test_readd_reassigns_artist_on_existing_channel(
+        self, admin_client, db, mocker
+    ):
+        # Marlon case: the suggested channel already exists linked to ANOTHER artist
+        # row (a duplicate of the same person). Confirming the candidate must
+        # reassign the channel's artist_id so the confirmed artist is excluded.
+        a1 = await _artist(db, "DJ Daddy Trance", deezer_id="2704x")
+        a2 = await _artist(db, "Marlon Hoffstadt", deezer_id="432x")
+        db.add(
+            Channel(
+                platform="youtube",
+                external_id="UCwAvPX7WsgigWWzW5ck8EvA",
+                name="Marlon aka DJ Daddy Trance",
+                channel_type="artist",
+                artist_id=a1.id,
+                watched=True,
+            )
+        )
+        await db.commit()
+        mocker.patch(
+            "services.channel_service.resolve_channel_id",
+            new_callable=AsyncMock,
+            return_value="UCwAvPX7WsgigWWzW5ck8EvA",
+        )
+        r = await admin_client.post(
+            "/api/admin/channels",
+            json={
+                "url": "UCwAvPX7WsgigWWzW5ck8EvA",
+                "name": "Marlon Hoffstadt",
+                "channel_type": "artist",
+                "artist_id": a2.id,
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["artist_id"] == a2.id
 
     async def test_add_without_artist_id_unchanged(self, admin_client, mocker):
         # The two new fields are optional — the legacy add path is untouched.

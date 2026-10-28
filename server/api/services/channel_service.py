@@ -110,6 +110,21 @@ async def list_channels(
     return {"total": total or 0, "items": [_item(r) for r in rows]}
 
 
+async def _curated_external_ids(db: AsyncSession) -> set[str]:
+    """The set of platform channel ids already curated into ``channels`` (non-NULL
+    ``external_id``). Used to hide a candidate whose already-resolved channel is
+    already curated — under ANY name or artist row — which the name-based (org) and
+    ``artist_id``-based (artist) exclusions miss on their own (e.g. a channel added
+    under its YouTube title rather than its corpus name, or an artist's channel
+    already owned by a duplicate artist row)."""
+    rows = (
+        await db.execute(
+            select(Channel.external_id).where(Channel.external_id.isnot(None))
+        )
+    ).scalars().all()
+    return set(rows)
+
+
 async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> dict:
     """Propose seed channels known to the base but not yet curated.
 
@@ -251,6 +266,7 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> d
     ]
 
     if redis is not None:
+        curated_ext = await _curated_external_ids(db)
         for it in items:
             try:
                 cached = await redis.get(_candidate_cache_key(it["name"]))
@@ -265,6 +281,16 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> d
                     it["preselect"] = json.loads(cached)
                 except Exception:  # corrupt/legacy payload → leave preselect None
                     pass
+        # Hide a candidate whose SUGGESTED resolved channel (first hit) is already
+        # curated — added under any name, so the name-based exclusion missed it.
+        items = [
+            it
+            for it in items
+            if not (
+                it["preselect"]
+                and it["preselect"][0].get("channel_id") in curated_ext
+            )
+        ]
 
     return {"items": items}
 
@@ -403,6 +429,39 @@ async def list_artist_candidates(
 
     # Personal-relevance order (NOT set volume): tier, then explicitly followed
     # artists first, then library depth, likes, DJ-set activity, catalog depth.
+    # Hide a candidate whose already-resolved channel (cached) is already curated
+    # under ANY artist row — the per-``artist_id`` exclusion misses a duplicate
+    # artist row that already owns the channel (e.g. "Marlon Hoffstadt" vs
+    # "DJ Daddy Trance"). Reads the resolve cache for every kept candidate (bounded
+    # cohort), reusing the hit as the page preselect. Fail-open: a Redis error stops
+    # the reads and keeps the remaining candidates unfiltered.
+    if redis is not None:
+        curated_ext = await _curated_external_ids(db)
+        survivors = []
+        redis_ok = True
+        for it in kept:
+            if redis_ok:
+                try:
+                    cached = await redis.get(_artist_resolve_cache_key(it["name"]))
+                except Exception as exc:  # fail-open
+                    logger.warning(
+                        "artist candidate preselect cache read skipped "
+                        "(Redis unavailable): %s",
+                        exc,
+                    )
+                    redis_ok = False
+                    cached = None
+                if cached is not None:
+                    try:
+                        resolved = json.loads(cached)
+                    except Exception:  # corrupt/legacy payload → leave preselect None
+                        resolved = None
+                    if resolved and resolved.get("channel_id") in curated_ext:
+                        continue  # already curated → no longer a candidate
+                    it["preselect"] = resolved
+            survivors.append(it)
+        kept = survivors
+
     kept.sort(
         key=lambda c: (
             c["tier"],
@@ -418,23 +477,6 @@ async def list_artist_candidates(
     total = len(kept)
     start = (page - 1) * limit
     page_items = kept[start : start + limit]
-
-    if redis is not None:
-        for it in page_items:
-            try:
-                cached = await redis.get(_artist_resolve_cache_key(it["name"]))
-            except Exception as exc:  # fail-open: Redis down → no preselect at all
-                logger.warning(
-                    "artist candidate preselect cache read skipped "
-                    "(Redis unavailable): %s",
-                    exc,
-                )
-                break
-            if cached is not None:
-                try:
-                    it["preselect"] = json.loads(cached)
-                except Exception:  # corrupt/legacy payload → leave preselect None
-                    pass
 
     return {"total": total, "items": page_items}
 
