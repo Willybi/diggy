@@ -559,4 +559,19 @@ describe('AdminChannels', () => {
     })
     expect(wrapper.text()).not.toContain('Peggy Gou')
   })
+
+  it('dismisses an artist candidate with no channel — POST dismiss then drops it', async () => {
+    primeGet({ artistCandidates: [artistCandidateItem()] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.post.mockResolvedValue({ data: {} })
+    await btnByText(wrapper, 'Pas de chaîne').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels/artist-candidates/42/dismiss')
+    // The artist leaves the candidates list (no watched-list refresh needed —
+    // the marker is not a visible channel).
+    expect(wrapper.text()).not.toContain('Peggy Gou')
+  })
 })

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 from models import Artist, ArtistCohort, Channel, DJSet, SetArtist, TrackIdIndex
 from services import channel_service
+from sqlalchemy import select
 
 
 class _RaisingRedis:
@@ -1199,3 +1200,107 @@ class TestChannelAddArtist:
         data = r.json()
         assert data["artist_id"] is None
         assert data["name"] == "Plain Channel"
+
+
+class TestArtistCandidateDismiss:
+    """« Aucune chaîne à associer » — an artist candidate with no watchable channel
+    is marked dismissed (placeholder excluded marker) so it stops being proposed,
+    WITHOUT leaving the Deezer-watch cohort."""
+
+    async def test_requires_auth(self, client):
+        r = await client.post("/api/admin/channels/artist-candidates/1/dismiss")
+        assert r.status_code == 401
+
+    async def test_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.post("/api/admin/channels/artist-candidates/1/dismiss")
+        assert r.status_code == 403
+
+    async def test_404_unknown_artist(self, admin_client):
+        r = await admin_client.post(
+            "/api/admin/channels/artist-candidates/999999/dismiss"
+        )
+        assert r.status_code == 404
+
+    async def test_dismiss_drops_from_candidates_keeps_cohort(self, admin_client, db):
+        a = await _artist(db, "No Channel DJ", deezer_id="700")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        before = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert before.json()["total"] == 1
+
+        r = await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["artist_id"] == a.id
+        assert data["external_id"] is None
+        assert data["channel_type"] == "artist"
+        assert data["excluded"] is True
+        assert data["watched"] is False
+
+        # Gone from the candidates seed...
+        after = await admin_client.get("/api/admin/channels/artist-candidates")
+        assert after.json()["total"] == 0
+
+        # ...but the cohort row is untouched (still watched for Deezer releases).
+        cohort = (
+            await db.execute(
+                select(ArtistCohort).where(ArtistCohort.artist_id == a.id)
+            )
+        ).scalar_one()
+        assert cohort.excluded is False
+
+    async def test_marker_hidden_from_channels_list(self, admin_client, db):
+        a = await _artist(db, "Hidden Marker DJ", deezer_id="701")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        await admin_client.post(f"/api/admin/channels/artist-candidates/{a.id}/dismiss")
+
+        # The placeholder marker is bookkeeping, not a real channel → not listed.
+        listing = await admin_client.get("/api/admin/channels")
+        assert listing.json() == {"total": 0, "items": []}
+
+    async def test_idempotent(self, admin_client, db):
+        a = await _artist(db, "Twice DJ", deezer_id="702")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        first = await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+        second = await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+        assert first.status_code == 200
+        assert second.status_code == 200
+
+        markers = (
+            await db.execute(
+                select(Channel).where(
+                    Channel.artist_id == a.id, Channel.external_id.is_(None)
+                )
+            )
+        ).scalars().all()
+        assert len(markers) == 1
+
+    async def test_writes_audit_log(self, admin_client, db):
+        a = await _artist(db, "Audited Dismiss DJ", deezer_id="703")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        r = await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+        assert r.status_code == 200
+
+        audit = await admin_client.get("/api/admin/audit-log")
+        entries = [
+            e
+            for e in audit.json()["items"]
+            if e["action"] == "channel_artist_dismiss"
+        ]
+        assert len(entries) == 1
+        assert entries[0]["target_id"] == a.id

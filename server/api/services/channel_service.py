@@ -16,7 +16,7 @@ import logging
 import os
 
 from models import Artist, ArtistCohort, Channel, DJSet, SetArtist, TrackIdIndex
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from trackid.reliability import set_reliable
 from workers.artist_channel_resolve import resolve_artist_channel
@@ -87,6 +87,11 @@ async def list_channels(
     conditions = [Channel.platform == platform]
     if watched is not None:
         conditions.append(Channel.watched.is_(watched))
+    # Hide the "no channel" dismiss markers (external_id NULL + excluded) created by
+    # dismiss_artist_candidate — bookkeeping rows, not real curated channels.
+    conditions.append(
+        or_(Channel.external_id.isnot(None), Channel.excluded.is_(False))
+    )
 
     total = await db.scalar(
         select(func.count()).select_from(Channel).where(*conditions)
@@ -644,6 +649,55 @@ async def set_override(db: AsyncSession, channel_id: int, *, changes: dict) -> d
         row.channel_type = changes["channel_type"]
     if "artist_id" in changes:
         row.artist_id = changes["artist_id"]
+
+    await db.flush()
+    return _item(row)
+
+
+async def dismiss_artist_candidate(db: AsyncSession, artist_id: int) -> dict:
+    """Mark a cohort artist as having NO watchable channel.
+
+    Covers the "there is no channel to associate at all" case of the artist-
+    candidate list: the artist stops being proposed WITHOUT leaving the Deezer-
+    watch cohort. It creates (idempotently) a placeholder ``channels`` marker for
+    the artist — ``external_id`` NULL, ``channel_type='artist'``, ``watched=False``,
+    ``excluded=True`` — which :func:`list_artist_candidates` filters out via its
+    ``already_curated`` (``channels.artist_id IS NOT NULL``) guard. The marker is
+    hidden from :func:`list_channels` (NULL external_id + excluded). A REAL resolved
+    channel row for the artist is never touched (the marker is matched on NULL
+    ``external_id``). Raises LookupError on an unknown artist. Flushes, does NOT
+    commit (the router audits + commits). Returns the item dict.
+    """
+    artist = (
+        await db.execute(select(Artist).where(Artist.id == artist_id))
+    ).scalar_one_or_none()
+    if artist is None:
+        raise LookupError(f"Artist {artist_id} not found")
+
+    row = (
+        await db.execute(
+            select(Channel).where(
+                Channel.platform == "youtube",
+                Channel.artist_id == artist_id,
+                Channel.external_id.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if row is None:
+        row = Channel(
+            platform="youtube",
+            external_id=None,
+            name=artist.name,
+            channel_type="artist",
+            artist_id=artist_id,
+            watched=False,
+            excluded=True,
+        )
+        db.add(row)
+    else:
+        row.excluded = True
+        row.watched = False
 
     await db.flush()
     return _item(row)

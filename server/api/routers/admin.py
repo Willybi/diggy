@@ -857,6 +857,31 @@ async def resolve_artist_candidate(
     return result or {}
 
 
+@router.post(
+    "/channels/artist-candidates/{artist_id}/dismiss", response_model=ChannelOut
+)
+async def dismiss_artist_candidate(
+    artist_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Mark an artist candidate as having NO watchable channel.
+
+    Removes it from the artist-candidates seed (a placeholder excluded marker is
+    written) WITHOUT dropping the artist from the Deezer-watch cohort. 404 on an
+    unknown artist. Thin router: the service resolves, the router audits + commits."""
+    try:
+        item = await channel_service.dismiss_artist_candidate(db, artist_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+    await _audit(
+        db, admin, "channel_artist_dismiss", "artist", artist_id, {}
+    )
+    await db.commit()
+    return item
+
+
 @router.post("/channels", response_model=ChannelOut)
 async def add_channel(
     body: ChannelCreateIn,

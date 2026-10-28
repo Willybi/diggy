@@ -574,6 +574,21 @@
                       <AdminIcon name="alert-triangle" :size="13" /> {{ artCandError[c.artist_id] }}
                     </p>
                   </details>
+
+                  <!-- Dernier recours : aucune chaîne n'existe pour cet artiste.
+                       On le retire des candidats (marqueur « sans chaîne ») SANS le
+                       sortir de la veille Deezer. -->
+                  <button
+                    class="btn btn--sm chn-cand-dismiss"
+                    :disabled="artDismissing[c.artist_id]"
+                    @click="dismissArtistCandidate(c)"
+                  >
+                    {{ artDismissing[c.artist_id] ? 'Retrait…' : 'Pas de chaîne' }}
+                  </button>
+                  <p v-if="artDismissError[c.artist_id]" class="chn-add-error">
+                    <AdminIcon name="alert-triangle" :size="13" />
+                    {{ artDismissError[c.artist_id] }}
+                  </p>
                 </div>
               </td>
             </tr>
@@ -1120,6 +1135,31 @@ async function addArtistCandidateManual(c) {
   }
 }
 
+// ── Candidat-artiste : aucune chaîne n'existe ──
+// artist_id → retrait en vol / erreur inline.
+const artDismissing = reactive({})
+const artDismissError = reactive({})
+
+// Marque un artiste-candidat comme SANS chaîne : POST dismiss (marqueur exclu côté
+// back) → il quitte la liste des candidats, mais reste veillé côté Deezer. Pas de
+// rafraîchissement de la liste surveillée (le marqueur n'y est pas affiché).
+async function dismissArtistCandidate(c) {
+  if (artDismissing[c.artist_id]) return
+  artDismissing[c.artist_id] = true
+  artDismissError[c.artist_id] = ''
+  try {
+    await api.post(`/api/admin/channels/artist-candidates/${c.artist_id}/dismiss`)
+    artistCandidates.value = artistCandidates.value.filter((x) => x.artist_id !== c.artist_id)
+    delete artResolved[c.artist_id]
+    delete artResolveError[c.artist_id]
+    delete artCandUrls[c.artist_id]
+  } catch (e) {
+    artDismissError[c.artist_id] = e.response?.data?.detail || 'Action impossible'
+  } finally {
+    artDismissing[c.artist_id] = false
+  }
+}
+
 onMounted(() => {
   fetchChannels()
   fetchCandidates()
@@ -1263,6 +1303,11 @@ onMounted(() => {
 }
 .chn-cand-more {
   align-self: flex-start;
+}
+/* « Pas de chaîne » : action de dernier recours, compacte et discrète. */
+.chn-cand-dismiss {
+  align-self: flex-start;
+  color: var(--ink-2);
 }
 .chn-cand-more-chev {
   transition: transform 0.15s;
