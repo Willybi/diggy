@@ -62,6 +62,11 @@ logger = logging.getLogger(__name__)
 # ── Endpoints & tunables ──────────────────────────────────────────────────────
 
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+# Wikidata SPARQL endpoint — DISTINCT from the w/api.php search/claims API above.
+# resolve_channel_by_deezer_id anchors on the Deezer artist id (property P2722)
+# instead of the artist name: far more reliable, and the cohort already holds a
+# deezer_id for ~99.6% of its members.
+WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
 MUSICBRAINZ_API = "https://musicbrainz.org/ws/2"
 
 # Politeness. Wikidata is generous but be gentle; MusicBrainz is a STRICT 1 req/s.
@@ -75,6 +80,10 @@ SEARCH_FOLD_MIN_LEN = int(os.environ.get("CHANNEL_RESOLVE_FOLD_MIN_LEN", "5"))
 # How many YouTube channel hits to verify per name (each search.list costs 100
 # quota units — the whole call is single-shot per name, gated on api_key upstream).
 SEARCH_LIMIT = int(os.environ.get("CHANNEL_RESOLVE_SEARCH_LIMIT", "6"))
+
+# How many Deezer ids per SPARQL VALUES query (one network request per chunk). Kept
+# modest so a chunk's query URL + response stays small; env-tunable for an operator.
+DEEZER_SPARQL_CHUNK = int(os.environ.get("CHANNEL_RESOLVE_DEEZER_CHUNK", "100"))
 
 # Wikidata & MusicBrainz both REQUIRE a descriptive, contactable User-Agent (they
 # 403/429 a blank one). Env-tunable; keep it identifying with a contact.
@@ -224,6 +233,30 @@ async def _get_json(
     if resp.status_code != 200:
         raise ChannelResolveHTTPError(resp.status_code, context)
     return resp.json()
+
+
+def _sparql_headers(user_agent: str) -> dict[str, str]:
+    """Headers for the SPARQL endpoint — same descriptive UA, but the
+    sparql-results JSON Accept (the query.wikidata.org endpoint negotiates on it)."""
+    return {"User-Agent": user_agent, "Accept": "application/sparql-results+json"}
+
+
+def _chunks(seq: list, size: int):
+    """Yield successive ``size``-length slices of ``seq`` (local helper)."""
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+
+def _dedup_ordered(ids) -> list[str]:
+    """Strip + de-duplicate ``ids`` to non-empty strings, first-seen order kept."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in ids or []:
+        value = str(raw).strip()
+        if value and value not in seen:
+            seen.add(value)
+            out.append(value)
+    return out
 
 
 def _claim_string(claims: dict, prop: str) -> str | None:
@@ -459,6 +492,95 @@ async def _accept_official_channel(
         )
         return False, None
     return True, title
+
+
+# ── Deezer-id batch resolution (official channels, no name, no quota) ──────────
+
+
+async def resolve_channel_by_deezer_id(
+    deezer_ids,
+    *,
+    wiki_client: httpx.AsyncClient,
+    yt_client: httpx.AsyncClient,
+    api_key: str,
+    sleep=asyncio.sleep,
+    user_agent: str = RESOLVE_USER_AGENT,
+    chunk_size: int = DEEZER_SPARQL_CHUNK,
+) -> dict:
+    """Resolve a batch of Deezer artist ids to their OFFICIAL YouTube channel.
+
+    Anchors on the Deezer artist id (Wikidata ``P2722``) rather than the artist
+    name — far more reliable, and FREE (SPARQL has no quota). One SPARQL query per
+    ``chunk_size`` ids maps ``P2722`` → ``P2397`` (the YouTube channel id)::
+
+        SELECT ?deezer ?channel WHERE {
+          VALUES ?deezer { "id1" "id2" … }
+          ?item wdt:P2722 ?deezer .
+          OPTIONAL { ?item wdt:P2397 ?channel }
+        }
+
+    No :func:`is_music_entity` guard is needed here (unlike :func:`resolve_wikidata`):
+    carrying a ``P2722`` already makes the entity a music artist, so the id IS the
+    guard. Each resolved channel id is still run through
+    :func:`_accept_official_channel` (fetch its real title, REJECT a YouTube Music
+    "… - Topic" auto-channel) — reused VERBATIM — before being accepted.
+
+    Returns ``{deezer_id: {channel_id, channel_title, url, method, confidence}}`` for
+    the ids that resolved to a real official channel ONLY; a miss (no ``P2722`` match
+    or no ``P2397``) or a "- Topic" rejection is simply absent from the map.
+    ``method="wikidata_deezer"``, ``confidence="high"``.
+
+    Raises :class:`ChannelResolveHTTPError` if a SPARQL query returns a non-200 — the
+    caller passes manageable batches and catches per batch so one transient outage
+    neither fails the whole run nor marks its ids as tried (they retry next run).
+    Title fetches inside :func:`_accept_official_channel` are isolated there (accepted
+    best-effort on an outage), so they never raise out of this function.
+    """
+    out: dict[str, dict] = {}
+    ids = _dedup_ordered(deezer_ids)
+    if not ids:
+        return out
+    headers = _sparql_headers(user_agent)
+
+    for chunk in _chunks(ids, chunk_size):
+        await sleep(WIKIDATA_DELAY)
+        values = " ".join(f'"{d}"' for d in chunk)
+        query = (
+            "SELECT ?deezer ?channel WHERE { "
+            f"VALUES ?deezer {{ {values} }} "
+            "?item wdt:P2722 ?deezer . "
+            "OPTIONAL { ?item wdt:P2397 ?channel } }"
+        )
+        data = await _get_json(
+            wiki_client,
+            WIKIDATA_SPARQL,
+            {"query": query, "format": "json"},
+            headers,
+            "wikidata:sparql:deezer",
+        )
+
+        # deezer_id → first channel id carrying a P2397 (an item without one is a
+        # miss and is skipped — it simply never enters `candidates`).
+        candidates: dict[str, str] = {}
+        for binding in (data.get("results") or {}).get("bindings") or []:
+            deezer_val = (binding.get("deezer") or {}).get("value")
+            channel_val = (binding.get("channel") or {}).get("value")
+            if deezer_val and channel_val:
+                candidates.setdefault(deezer_val, channel_val)
+
+        for deezer_val, channel_id in candidates.items():
+            accept, title = await _accept_official_channel(
+                yt_client, channel_id, api_key, name=f"deezer:{deezer_val}"
+            )
+            if accept:
+                out[deezer_val] = {
+                    "channel_id": channel_id,
+                    "channel_title": title,
+                    "url": youtube_url_from_ref("channel_id", channel_id),
+                    "method": "wikidata_deezer",
+                    "confidence": "high",
+                }
+    return out
 
 
 async def resolve_artist_channel(

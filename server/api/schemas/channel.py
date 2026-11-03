@@ -121,6 +121,36 @@ class ChannelCreateIn(BaseModel):
     artist_id: int | None = None
 
 
+class ChannelCandidateDismissIn(BaseModel):
+    # The raw channel NAME of an org candidate (list_candidates) to dismiss as
+    # « Pas de chaîne ». Org candidates are names, not artists — keyed by name.
+    name: str
+
+
+class DismissedItemOut(BaseModel):
+    """A dismiss marker in the « Écartés » tab (C14.b, Lot 2).
+
+    ``kind`` = 'artist' (an ``artist_id``-keyed marker) | 'org' (a name-keyed
+    marker). ``channel_id`` is the marker row id, passed back to
+    ``POST /channels/{id}/reinstate`` to undo the dismissal. ``dismiss_kind`` ∈
+    no_channel/deferred tells the two actions apart; ``dismissed_at`` is set only
+    on a 'deferred' marker. ``tier`` is the cohort tier for an artist marker.
+    """
+
+    kind: str
+    channel_id: int
+    name: str
+    artist_id: int | None = None
+    tier: int | None = None
+    dismiss_kind: str | None = None
+    dismissed_at: datetime | None = None
+
+
+class DismissedListOut(BaseModel):
+    total: int
+    items: list[DismissedItemOut]
+
+
 class ChannelUpdateIn(BaseModel):
     # PATCH semantics: a field ABSENT from the body is left untouched (the router
     # reads the provided keys via model_dump(exclude_unset=True)). watched/excluded

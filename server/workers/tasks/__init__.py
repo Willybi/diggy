@@ -9,6 +9,7 @@ from workers.tasks.artists import (
 )
 from workers.tasks.bpm import analyze_bpm_previews
 from workers.tasks.catalog import enrich_catalog, enrich_catalog_beatport
+from workers.tasks.channels import autolink_official_channels
 from workers.tasks.cohort import recompute_artist_cohort
 from workers.tasks.genres import (
     finalize_reclassify,
@@ -52,6 +53,7 @@ __all__ = [
     "backfill_multi_artists",
     "check_followed_artists",
     "recompute_artist_cohort",
+    "autolink_official_channels",
     "snapshot_backlogs",
     "precompute_recommendations",
     "crawl_youtube_channels",

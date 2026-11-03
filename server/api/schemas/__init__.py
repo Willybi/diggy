@@ -65,6 +65,7 @@ from .channel import (
     ArtistCandidateListOut,
     ArtistCandidateOut,
     ArtistChannelResolveOut,
+    ChannelCandidateDismissIn,
     ChannelCandidateListOut,
     ChannelCandidateOut,
     ChannelCreateIn,
@@ -73,6 +74,8 @@ from .channel import (
     ChannelSearchListOut,
     ChannelSearchResultOut,
     ChannelUpdateIn,
+    DismissedItemOut,
+    DismissedListOut,
 )
 from .cohort import CohortItemOut, CohortListOut, CohortOverrideIn
 from .collections import (
@@ -326,6 +329,9 @@ __all__ = [
     "ChannelSearchListOut",
     "ChannelCreateIn",
     "ChannelUpdateIn",
+    "ChannelCandidateDismissIn",
+    "DismissedItemOut",
+    "DismissedListOut",
     "ArtistChannelResolveOut",
     "ArtistCandidateOut",
     "ArtistCandidateListOut",

@@ -23,12 +23,14 @@ if _SERVER_PATH not in sys.path:
 
 import pytest  # noqa: E402
 from workers.artist_channel_resolve import (  # noqa: E402
+    WIKIDATA_SPARQL,
     ChannelResolveHTTPError,
     fold_match,
     is_music_entity,
     is_topic_channel,
     parse_youtube_ref,
     resolve_artist_channel,
+    resolve_channel_by_deezer_id,
     resolve_musicbrainz,
     resolve_wikidata,
     youtube_url_from_ref,
@@ -698,3 +700,187 @@ class TestResolveArtistChannelCascade:
         assert got["method"] == "wikidata"
         assert got["channel_id"] == _UC
         assert got["channel_title"] is None
+
+
+# ── resolve_channel_by_deezer_id: Deezer-id anchor (SPARQL + Topic check) ─────
+
+
+def _sparql_binding(deezer_id, channel_id=None):
+    """A SPARQL results binding; channel binding omitted when ``channel_id`` None."""
+    b = {"deezer": {"value": deezer_id}}
+    if channel_id is not None:
+        b["channel"] = {"value": channel_id}
+    return b
+
+
+def _deezer_handler(*, bindings, title=None):
+    """A fake serving BOTH endpoints resolve_channel_by_deezer_id hits:
+
+      * the Wikidata SPARQL endpoint → ``{results:{bindings:[…]}}``;
+      * channels.list (``_accept_official_channel`` → ``fetch_channel_title``) →
+        a single-item snippet (or empty items when ``title`` is None).
+    """
+
+    def handler(url, params):
+        if url == WIKIDATA_SPARQL:
+            return _FakeResp(200, {"results": {"bindings": bindings}})
+        if url.endswith("/channels"):
+            items = [] if title is None else [{"snippet": {"title": title}}]
+            return _FakeResp(200, {"items": items})
+        raise AssertionError(f"unexpected request to {url}")
+
+    return handler
+
+
+class TestResolveChannelByDeezerId:
+    def test_hit_official_channel(self):
+        client = _FakeClient(
+            _deezer_handler(bindings=[_sparql_binding("111", _UC)], title="Peggy Gou")
+        )
+        got = asyncio.run(
+            resolve_channel_by_deezer_id(
+                ["111"],
+                wiki_client=client,
+                yt_client=client,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got["111"]["channel_id"] == _UC
+        assert got["111"]["channel_title"] == "Peggy Gou"
+        assert got["111"]["method"] == "wikidata_deezer"
+        assert got["111"]["confidence"] == "high"
+        assert got["111"]["url"].endswith(f"/channel/{_UC}")
+
+    def test_miss_entity_without_channel(self):
+        # The Deezer id resolves a Wikidata item, but it carries no P2397 → absent.
+        client = _FakeClient(_deezer_handler(bindings=[_sparql_binding("111")]))
+        got = asyncio.run(
+            resolve_channel_by_deezer_id(
+                ["111"],
+                wiki_client=client,
+                yt_client=client,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got == {}
+
+    def test_miss_no_wikidata_match(self):
+        client = _FakeClient(_deezer_handler(bindings=[]))
+        got = asyncio.run(
+            resolve_channel_by_deezer_id(
+                ["999"],
+                wiki_client=client,
+                yt_client=client,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got == {}
+
+    def test_topic_channel_rejected(self):
+        # A P2397 pointing at a "… - Topic" auto-channel is rejected (no result).
+        client = _FakeClient(
+            _deezer_handler(
+                bindings=[_sparql_binding("111", _UC)], title="Peggy Gou - Topic"
+            )
+        )
+        got = asyncio.run(
+            resolve_channel_by_deezer_id(
+                ["111"],
+                wiki_client=client,
+                yt_client=client,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got == {}
+
+    def test_batch_partial_hits(self):
+        # Several ids in one query: one hits, one has no channel, one is unmatched.
+        client = _FakeClient(
+            _deezer_handler(
+                bindings=[_sparql_binding("111", _UC), _sparql_binding("222")],
+                title="Artist One",
+            )
+        )
+        got = asyncio.run(
+            resolve_channel_by_deezer_id(
+                ["111", "222", "333"],
+                wiki_client=client,
+                yt_client=client,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert set(got) == {"111"}
+        assert got["111"]["channel_id"] == _UC
+
+    def test_http_error_raises(self):
+        # A SPARQL non-200 raises (the caller batches + catches to isolate it).
+        client = _FakeClient(lambda url, params: _FakeResp(503))
+        with pytest.raises(ChannelResolveHTTPError):
+            asyncio.run(
+                resolve_channel_by_deezer_id(
+                    ["111"],
+                    wiki_client=client,
+                    yt_client=client,
+                    api_key="k",
+                    sleep=_nosleep,
+                )
+            )
+
+    def test_empty_input_no_request(self):
+        client = _FakeClient(_never)
+        got = asyncio.run(
+            resolve_channel_by_deezer_id(
+                [],
+                wiki_client=client,
+                yt_client=client,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        assert got == {}
+        assert client.calls == []
+
+    def test_no_api_key_accepts_without_topic_check(self):
+        # No api_key → the official channel is accepted best-effort (title None) and
+        # channels.list is never called.
+        def handler(url, params):
+            if url == WIKIDATA_SPARQL:
+                return _FakeResp(
+                    200, {"results": {"bindings": [_sparql_binding("111", _UC)]}}
+                )
+            raise AssertionError("channels.list must not be called without a key")
+
+        client = _FakeClient(handler)
+        got = asyncio.run(
+            resolve_channel_by_deezer_id(
+                ["111"],
+                wiki_client=client,
+                yt_client=client,
+                api_key="",
+                sleep=_nosleep,
+            )
+        )
+        assert got["111"]["channel_id"] == _UC
+        assert got["111"]["channel_title"] is None
+
+    def test_duplicate_ids_queried_once(self):
+        client = _FakeClient(
+            _deezer_handler(bindings=[_sparql_binding("111", _UC)], title="One")
+        )
+        asyncio.run(
+            resolve_channel_by_deezer_id(
+                ["111", "111"],
+                wiki_client=client,
+                yt_client=client,
+                api_key="k",
+                sleep=_nosleep,
+            )
+        )
+        # Exactly one SPARQL request (the duplicate id folded) + one title check.
+        sparql_calls = [c for c in client.calls if c[0] == WIKIDATA_SPARQL]
+        assert len(sparql_calls) == 1

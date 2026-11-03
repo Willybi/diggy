@@ -171,7 +171,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in channels" :key="item.id">
+            <tr v-for="item in visibleChannels" :key="item.id">
               <td data-label="Chaîne" data-lead>
                 <a
                   v-if="item.external_id"
@@ -241,7 +241,19 @@
         </table>
       </div>
 
-      <div v-if="totalPages > 1" class="at-pager">
+      <div v-if="channels.length > COLLAPSED_ROWS" class="at-pager">
+        <button class="btn btn--sm chn-show-more" @click="expandedChannels = !expandedChannels">
+          <AdminIcon
+            name="chevron"
+            :size="13"
+            class="chn-show-more-chev"
+            :class="{ open: expandedChannels }"
+          />
+          {{ expandedChannels ? 'Voir moins' : 'Voir plus' }}
+        </button>
+      </div>
+
+      <div v-if="expandedChannels && totalPages > 1" class="at-pager">
         <button class="btn btn--sm" :disabled="page <= 1" @click="prevPage">Précédent</button>
         <span class="at-pager-count">{{ page }} / {{ totalPages }}</span>
         <button class="btn btn--sm" :disabled="page >= totalPages" @click="nextPage">
@@ -280,7 +292,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in candidates" :key="c.name">
+            <tr v-for="c in visibleCandidates" :key="c.name">
               <td data-label="Chaîne" data-lead>
                 <span class="at-id">{{ c.name }}</span>
               </td>
@@ -411,11 +423,37 @@
                       <AdminIcon name="alert-triangle" :size="13" /> {{ candErrors[c.name] }}
                     </p>
                   </details>
+
+                  <!-- Dernier recours : aucune chaîne n'existe pour ce candidat
+                       orga. On le retire du seed (marqueur « sans chaîne », keyé
+                       sur le nom brut). -->
+                  <button
+                    class="btn btn--sm chn-cand-dismiss"
+                    :disabled="candDismissing[c.name]"
+                    @click="dismissOrgCandidate(c)"
+                  >
+                    {{ candDismissing[c.name] ? 'Retrait…' : 'Pas de chaîne' }}
+                  </button>
+                  <p v-if="candDismissError[c.name]" class="chn-add-error">
+                    <AdminIcon name="alert-triangle" :size="13" /> {{ candDismissError[c.name] }}
+                  </p>
                 </div>
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div v-if="candidates.length > COLLAPSED_ROWS" class="at-pager">
+        <button class="btn btn--sm chn-show-more" @click="expandedCand = !expandedCand">
+          <AdminIcon
+            name="chevron"
+            :size="13"
+            class="chn-show-more-chev"
+            :class="{ open: expandedCand }"
+          />
+          {{ expandedCand ? 'Voir moins' : 'Voir plus' }}
+        </button>
       </div>
     </div>
 
@@ -433,6 +471,16 @@
           Candidats artistes
           <span v-if="totalArtCand" class="at-count">{{ fmtInt(totalArtCand) }}</span>
         </h2>
+        <!-- Portée de la cohorte proposée : par défaut seulement le T1 (perso +
+             actif) ; « Toute la cohorte » élargit à tous les tiers (tier_max=3). -->
+        <div class="at-seg" role="group" aria-label="Portée de la cohorte proposée">
+          <button class="at-seg-b" :class="{ active: !artFullCohort }" @click="setArtScope(false)">
+            Perso (T1)
+          </button>
+          <button class="at-seg-b" :class="{ active: artFullCohort }" @click="setArtScope(true)">
+            Toute la cohorte
+          </button>
+        </div>
       </div>
 
       <div v-if="loadingArt" class="at-empty">Chargement…</div>
@@ -451,7 +499,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in artistCandidates" :key="c.artist_id">
+            <tr v-for="c in visibleArtistCandidates" :key="c.artist_id">
               <td data-label="Artiste" data-lead>
                 <span class="at-id">{{ c.name }}</span>
                 <span class="chn-row-id">#{{ c.artist_id }}</span>
@@ -575,16 +623,26 @@
                     </p>
                   </details>
 
-                  <!-- Dernier recours : aucune chaîne n'existe pour cet artiste.
-                       On le retire des candidats (marqueur « sans chaîne ») SANS le
-                       sortir de la veille Deezer. -->
-                  <button
-                    class="btn btn--sm chn-cand-dismiss"
-                    :disabled="artDismissing[c.artist_id]"
-                    @click="dismissArtistCandidate(c)"
-                  >
-                    {{ artDismissing[c.artist_id] ? 'Retrait…' : 'Pas de chaîne' }}
-                  </button>
+                  <!-- Deux écarts distincts, aucun ne sort l'artiste de la veille
+                       Deezer : « Pas de chaîne » = définitif (aucune chaîne n'existe),
+                       « Ne pas suivre » = réversible (le candidat re-surfacera plus
+                       tard ou via « Écartés »). -->
+                  <div class="chn-cand-dismiss-row">
+                    <button
+                      class="btn btn--sm chn-cand-dismiss"
+                      :disabled="artDismissing[c.artist_id]"
+                      @click="dismissArtistCandidate(c)"
+                    >
+                      {{ artDismissing[c.artist_id] ? 'Retrait…' : 'Pas de chaîne' }}
+                    </button>
+                    <button
+                      class="btn btn--sm chn-cand-dismiss"
+                      :disabled="artDismissing[c.artist_id]"
+                      @click="deferArtistCandidate(c)"
+                    >
+                      {{ artDismissing[c.artist_id] ? 'Retrait…' : 'Ne pas suivre' }}
+                    </button>
+                  </div>
                   <p v-if="artDismissError[c.artist_id]" class="chn-add-error">
                     <AdminIcon name="alert-triangle" :size="13" />
                     {{ artDismissError[c.artist_id] }}
@@ -596,11 +654,102 @@
         </table>
       </div>
 
-      <div v-if="totalArtPages > 1" class="at-pager">
+      <div v-if="artistCandidates.length > COLLAPSED_ROWS" class="at-pager">
+        <button class="btn btn--sm chn-show-more" @click="expandedArt = !expandedArt">
+          <AdminIcon
+            name="chevron"
+            :size="13"
+            class="chn-show-more-chev"
+            :class="{ open: expandedArt }"
+          />
+          {{ expandedArt ? 'Voir moins' : 'Voir plus' }}
+        </button>
+      </div>
+
+      <div v-if="expandedArt && totalArtPages > 1" class="at-pager">
         <button class="btn btn--sm" :disabled="artPage <= 1" @click="prevArtPage">Précédent</button>
         <span class="at-pager-count">{{ artPage }} / {{ totalArtPages }}</span>
         <button class="btn btn--sm" :disabled="artPage >= totalArtPages" @click="nextArtPage">
           Suivant
+        </button>
+      </div>
+    </div>
+
+    <!-- Écartés : les marqueurs d'écart (artistes ET orga), triés comme renvoyés
+         par l'API (artistes par pertinence de cohorte, puis orga par nom). Chaque
+         ligne porte son genre d'écart — « Pas de chaîne » (définitif) ou « Ne pas
+         suivre » (réversible, daté) — et un bouton « Réintégrer » qui supprime le
+         marqueur : l'entité redevient candidate. -->
+    <div class="at-region chn-region">
+      <div class="at-head">
+        <h2 class="at-title">
+          Écartés
+          <span v-if="totalDismissed" class="at-count">{{ fmtInt(totalDismissed) }}</span>
+        </h2>
+      </div>
+
+      <div v-if="loadingDismissed" class="at-empty">Chargement…</div>
+      <div v-else-if="errorDismissed" class="at-empty">Erreur de chargement des écartés.</div>
+      <div v-else-if="dismissed.length === 0" class="at-empty">Aucun écart.</div>
+
+      <div v-else class="at-scroll">
+        <table class="at-table">
+          <thead>
+            <tr>
+              <th>Candidat</th>
+              <th>Tier</th>
+              <th>Écart</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="d in visibleDismissed" :key="d.channel_id">
+              <td data-label="Candidat" data-lead>
+                <span class="at-id">{{ d.name }}</span>
+                <span class="chn-dismiss-kind-tag">{{
+                  d.kind === 'artist' ? 'Artiste' : 'Orga'
+                }}</span>
+                <span v-if="d.artist_id" class="chn-row-id">#{{ d.artist_id }}</span>
+              </td>
+              <td data-label="Tier">
+                <span v-if="d.tier" class="at-pill at-pill--neutral">T{{ d.tier }}</span>
+                <span v-else class="chn-muted">—</span>
+              </td>
+              <td data-label="Écart" data-stack>
+                <span class="at-pill at-pill--neutral">{{ dismissKindLabel(d) }}</span>
+                <span
+                  v-if="d.dismiss_kind === 'deferred' && d.dismissed_at"
+                  class="chn-dismiss-date"
+                >
+                  {{ fmtDate(d.dismissed_at) }}
+                </span>
+              </td>
+              <td data-act>
+                <button
+                  class="btn btn--sm"
+                  :disabled="reinstating[d.channel_id]"
+                  @click="reinstateDismissed(d)"
+                >
+                  {{ reinstating[d.channel_id] ? 'Réintégration…' : 'Réintégrer' }}
+                </button>
+                <p v-if="reinstateError[d.channel_id]" class="chn-add-error">
+                  <AdminIcon name="alert-triangle" :size="13" /> {{ reinstateError[d.channel_id] }}
+                </p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="dismissed.length > COLLAPSED_ROWS" class="at-pager">
+        <button class="btn btn--sm chn-show-more" @click="expandedDismissed = !expandedDismissed">
+          <AdminIcon
+            name="chevron"
+            :size="13"
+            class="chn-show-more-chev"
+            :class="{ open: expandedDismissed }"
+          />
+          {{ expandedDismissed ? 'Voir moins' : 'Voir plus' }}
         </button>
       </div>
     </div>
@@ -613,6 +762,8 @@ import api from '../../utils/api.js'
 import AdminIcon from './AdminIcon.vue'
 
 const PER_PAGE = 50
+// Nombre de lignes affichées quand un bloc est replié (bouton « Voir plus »).
+const COLLAPSED_ROWS = 5
 
 // Types de chaîne (String libre côté back — pas d'enum). Le libellé UI est en FR.
 const CHANNEL_TYPES = [
@@ -640,6 +791,11 @@ const watchedFilter = ref(null)
 const mutating = reactive({})
 
 const totalPages = computed(() => Math.ceil(total.value / PER_PAGE))
+// Repli : 5 premières lignes de la page tant que le bloc n'est pas déplié.
+const expandedChannels = ref(false)
+const visibleChannels = computed(() =>
+  expandedChannels.value ? channels.value : channels.value.slice(0, COLLAPSED_ROWS),
+)
 
 // ── Candidats (seed) ──
 const candidates = ref([])
@@ -661,6 +817,14 @@ const candExpanded = reactive({})
 // clé `${name}::${channel_id}` → ajout d'un résultat en vol / erreur inline.
 const candAddingResult = reactive({})
 const candResultErrors = reactive({})
+// Repli du seed candidats (5 premières lignes tant que non déplié).
+const expandedCand = ref(false)
+const visibleCandidates = computed(() =>
+  expandedCand.value ? candidates.value : candidates.value.slice(0, COLLAPSED_ROWS),
+)
+// « Pas de chaîne » sur un candidat orga (keyé sur le nom) : retrait en vol / erreur.
+const candDismissing = reactive({})
+const candDismissError = reactive({})
 
 // ── Candidats artistes (C14.b 🅱, L3) ──
 // La cohorte veillable pas encore rattachée à une chaîne, paginée + classée par
@@ -680,6 +844,14 @@ const artConfirming = reactive({})
 const artConfirmError = reactive({})
 
 const totalArtPages = computed(() => Math.ceil(totalArtCand.value / PER_PAGE))
+// Portée proposée : false = T1 (perso + actif, défaut) ; true = toute la cohorte
+// (tier_max=3). Le toggle recharge depuis la page 1.
+const artFullCohort = ref(false)
+// Repli de la liste des candidats artistes.
+const expandedArt = ref(false)
+const visibleArtistCandidates = computed(() =>
+  expandedArt.value ? artistCandidates.value : artistCandidates.value.slice(0, COLLAPSED_ROWS),
+)
 
 // ── Ajout d'une chaîne par URL (voie avancée) ──
 const addUrl = ref('')
@@ -702,6 +874,13 @@ const resultErrors = reactive({})
 
 function fmtInt(n) {
   return Number(n || 0).toLocaleString('fr-FR')
+}
+
+function fmtDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function ytChannelUrl(externalId) {
@@ -972,6 +1151,27 @@ async function addCandidateResult(c, r) {
   }
 }
 
+// « Pas de chaîne » sur un candidat ORGA : POST dismiss (marqueur « sans chaîne »
+// keyé sur le nom brut) → il quitte le seed. Pas de rafraîchissement de la liste
+// surveillée (le marqueur n'y est pas affiché).
+async function dismissOrgCandidate(c) {
+  if (candDismissing[c.name]) return
+  candDismissing[c.name] = true
+  candDismissError[c.name] = ''
+  try {
+    await api.post('/api/admin/channels/candidates/dismiss', { name: c.name })
+    candidates.value = candidates.value.filter((x) => x.name !== c.name)
+    delete candResolved[c.name]
+    delete candExpanded[c.name]
+    delete candResolveError[c.name]
+    delete candidateUrls[c.name]
+  } catch (e) {
+    candDismissError[c.name] = e.response?.data?.detail || 'Action impossible'
+  } finally {
+    candDismissing[c.name] = false
+  }
+}
+
 // ── Candidats artistes (L3) ──
 
 async function fetchArtistCandidates() {
@@ -979,7 +1179,7 @@ async function fetchArtistCandidates() {
   errorArt.value = false
   try {
     const { data } = await api.get('/api/admin/channels/artist-candidates', {
-      params: { limit: PER_PAGE, page: artPage.value },
+      params: { limit: PER_PAGE, page: artPage.value, tier_max: artFullCohort.value ? 3 : 1 },
     })
     artistCandidates.value = data.items
     totalArtCand.value = data.total
@@ -1001,6 +1201,14 @@ function prevArtPage() {
 function nextArtPage() {
   if (artPage.value >= totalArtPages.value) return
   artPage.value++
+  fetchArtistCandidates()
+}
+
+// Bascule la portée (T1 ↔ toute la cohorte) et recharge depuis la page 1.
+function setArtScope(full) {
+  if (artFullCohort.value === full) return
+  artFullCohort.value = full
+  artPage.value = 1
   fetchArtistCandidates()
 }
 
@@ -1140,15 +1348,16 @@ async function addArtistCandidateManual(c) {
 const artDismissing = reactive({})
 const artDismissError = reactive({})
 
-// Marque un artiste-candidat comme SANS chaîne : POST dismiss (marqueur exclu côté
-// back) → il quitte la liste des candidats, mais reste veillé côté Deezer. Pas de
-// rafraîchissement de la liste surveillée (le marqueur n'y est pas affiché).
-async function dismissArtistCandidate(c) {
+// Écart d'un artiste-candidat (SANS le sortir de la veille Deezer) : POST
+// l'action (« dismiss » = Pas de chaîne, définitif ; « defer » = Ne pas suivre,
+// réversible) → il quitte la liste des candidats. Pas de rafraîchissement de la
+// liste surveillée (le marqueur n'y est pas affiché).
+async function removeArtistCandidate(c, action) {
   if (artDismissing[c.artist_id]) return
   artDismissing[c.artist_id] = true
   artDismissError[c.artist_id] = ''
   try {
-    await api.post(`/api/admin/channels/artist-candidates/${c.artist_id}/dismiss`)
+    await api.post(`/api/admin/channels/artist-candidates/${c.artist_id}/${action}`)
     artistCandidates.value = artistCandidates.value.filter((x) => x.artist_id !== c.artist_id)
     delete artResolved[c.artist_id]
     delete artResolveError[c.artist_id]
@@ -1160,10 +1369,78 @@ async function dismissArtistCandidate(c) {
   }
 }
 
+// « Pas de chaîne » : aucune chaîne n'existe → écart définitif.
+function dismissArtistCandidate(c) {
+  removeArtistCandidate(c, 'dismiss')
+}
+
+// « Ne pas suivre » : écart réversible, le candidat re-surfacera (ou via « Écartés »).
+function deferArtistCandidate(c) {
+  removeArtistCandidate(c, 'defer')
+}
+
+// ── Écartés (C14.b Lot 3) ──
+// Les marqueurs d'écart (artistes ET orga), triés par l'API. Repliable à 5 lignes.
+const dismissed = ref([])
+const totalDismissed = ref(0)
+const loadingDismissed = ref(false)
+const errorDismissed = ref(false)
+const expandedDismissed = ref(false)
+// channel_id → réintégration en vol / erreur inline.
+const reinstating = reactive({})
+const reinstateError = reactive({})
+
+const visibleDismissed = computed(() =>
+  expandedDismissed.value ? dismissed.value : dismissed.value.slice(0, COLLAPSED_ROWS),
+)
+
+// Libellé du genre d'écart : « Ne pas suivre » (deferred, réversible) sinon
+// « Pas de chaîne » (no_channel / marqueur legacy, définitif).
+function dismissKindLabel(d) {
+  return d.dismiss_kind === 'deferred' ? 'Ne pas suivre' : 'Pas de chaîne'
+}
+
+async function fetchDismissed() {
+  loadingDismissed.value = true
+  errorDismissed.value = false
+  try {
+    const { data } = await api.get('/api/admin/channels/dismissed')
+    dismissed.value = data.items || []
+    totalDismissed.value = data.total || 0
+  } catch {
+    errorDismissed.value = true
+    dismissed.value = []
+    totalDismissed.value = 0
+  } finally {
+    loadingDismissed.value = false
+  }
+}
+
+// Réintègre un marqueur : POST reinstate (le supprime côté back) → l'entité
+// redevient candidate. On retire la ligne des écartés et on rafraîchit le seed
+// concerné pour qu'elle y réapparaisse.
+async function reinstateDismissed(d) {
+  if (reinstating[d.channel_id]) return
+  reinstating[d.channel_id] = true
+  reinstateError[d.channel_id] = ''
+  try {
+    await api.post(`/api/admin/channels/${d.channel_id}/reinstate`)
+    dismissed.value = dismissed.value.filter((x) => x.channel_id !== d.channel_id)
+    totalDismissed.value = Math.max(0, totalDismissed.value - 1)
+    if (d.kind === 'artist') fetchArtistCandidates()
+    else fetchCandidates()
+  } catch (e) {
+    reinstateError[d.channel_id] = e.response?.data?.detail || 'Réintégration impossible'
+  } finally {
+    reinstating[d.channel_id] = false
+  }
+}
+
 onMounted(() => {
   fetchChannels()
   fetchCandidates()
   fetchArtistCandidates()
+  fetchDismissed()
 })
 </script>
 
@@ -1440,6 +1717,42 @@ onMounted(() => {
   margin: var(--space-2) 0;
 }
 
+/* ── Voir plus / voir moins : repli d'un bloc à 5 lignes, posé dans un pied
+   .at-pager (filet haut, centré). ── */
+.chn-show-more {
+  color: var(--ink-2);
+}
+.chn-show-more-chev {
+  transition: transform 0.15s;
+}
+.chn-show-more-chev.open {
+  transform: rotate(180deg);
+}
+
+/* Deux écarts d'un candidat-artiste côte à côte. */
+.chn-cand-dismiss-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-15);
+  align-self: flex-start;
+}
+
+/* ── Bloc « Écartés » : étiquette de genre + date d'écart. ── */
+.chn-dismiss-kind-tag {
+  margin-left: var(--space-1);
+  padding: 1px var(--space-15);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-3);
+  font: 500 var(--fs-nano)/1.4 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.chn-dismiss-date {
+  font: 400 var(--fs-table-sm)/1.3 var(--font-mono);
+  color: var(--ink-3);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -1482,6 +1795,15 @@ onMounted(() => {
      ne passe à la ligne (le .chn-result reste en flex-wrap). */
   .chn-result-body {
     min-width: 120px;
+  }
+  /* Les deux écarts s'étirent en cible tactile. */
+  .chn-cand-dismiss-row {
+    align-self: stretch;
+  }
+  .chn-cand-dismiss-row .btn {
+    flex: 1;
+    min-height: var(--touch-min);
+    justify-content: center;
   }
 }
 </style>

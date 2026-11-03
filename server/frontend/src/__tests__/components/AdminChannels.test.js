@@ -68,6 +68,7 @@ function primeGet({
   resolveResults = [],
   artistCandidates = [],
   artistResolve = {},
+  dismissed = [],
 } = {}) {
   apiMock.get.mockImplementation((url) => {
     if (url === '/api/admin/channels') return Promise.resolve({ data: { total, items: channels } })
@@ -83,6 +84,8 @@ function primeGet({
       })
     if (url === '/api/admin/channels/artist-candidates/resolve')
       return Promise.resolve({ data: artistResolve })
+    if (url === '/api/admin/channels/dismissed')
+      return Promise.resolve({ data: { total: dismissed.length, items: dismissed } })
     return Promise.resolve({ data: {} })
   })
 }
@@ -430,7 +433,7 @@ describe('AdminChannels', () => {
     await flushPromises()
 
     expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels/artist-candidates', {
-      params: { limit: 50, page: 1 },
+      params: { limit: 50, page: 1, tier_max: 1 },
     })
     // Artist name + relevance signals render.
     expect(wrapper.text()).toContain('Peggy Gou')
@@ -566,12 +569,122 @@ describe('AdminChannels', () => {
     await flushPromises()
 
     apiMock.post.mockResolvedValue({ data: {} })
-    await btnByText(wrapper, 'Pas de chaîne').trigger('click')
+    // Scope to the artist row's dismiss group — org candidates now carry their own
+    // « Pas de chaîne » button too (same label, different endpoint).
+    await btnByText(wrapper, 'Pas de chaîne', '.chn-cand-dismiss-row').trigger('click')
     await flushPromises()
 
     expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels/artist-candidates/42/dismiss')
     // The artist leaves the candidates list (no watched-list refresh needed —
     // the marker is not a visible channel).
     expect(wrapper.text()).not.toContain('Peggy Gou')
+  })
+
+  // ── Lot 3: cohort scope toggle, defer, org dismiss, écartés, collapse ──
+
+  it('toggles the cohort scope to the full cohort and refetches with tier_max=3', async () => {
+    primeGet({ artistCandidates: [artistCandidateItem()] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.get.mockClear()
+    await btnByText(wrapper, 'Toute la cohorte').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels/artist-candidates', {
+      params: { limit: 50, page: 1, tier_max: 3 },
+    })
+  })
+
+  it('defers an artist candidate (« Ne pas suivre ») — POST defer then drops it', async () => {
+    primeGet({ candidates: [], artistCandidates: [artistCandidateItem()] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.post.mockResolvedValue({ data: {} })
+    await btnByText(wrapper, 'Ne pas suivre').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels/artist-candidates/42/defer')
+    expect(wrapper.text()).not.toContain('Peggy Gou')
+  })
+
+  it('dismisses an org candidate (« Pas de chaîne ») — POST candidates/dismiss then drops it', async () => {
+    // No artist candidates → the only « Pas de chaîne » button is the org one.
+    primeGet({ candidates: [candidateItem()], artistCandidates: [] })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    apiMock.post.mockResolvedValue({ data: {} })
+    await btnByText(wrapper, 'Pas de chaîne').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels/candidates/dismiss', {
+      name: 'Boiler Room',
+    })
+    expect(wrapper.text()).not.toContain('Boiler Room')
+  })
+
+  it('lists dismissed markers on mount and reinstates one (POST reinstate, drops the row)', async () => {
+    primeGet({
+      dismissed: [
+        {
+          kind: 'artist',
+          channel_id: 101,
+          name: 'DJ Tennis',
+          artist_id: 9,
+          tier: 1,
+          dismiss_kind: 'no_channel',
+          dismissed_at: null,
+        },
+        {
+          kind: 'org',
+          channel_id: 102,
+          name: 'Awakenings',
+          artist_id: null,
+          tier: null,
+          dismiss_kind: 'deferred',
+          dismissed_at: '2026-10-01T00:00:00Z',
+        },
+      ],
+    })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    expect(apiMock.get).toHaveBeenCalledWith('/api/admin/channels/dismissed')
+    expect(wrapper.text()).toContain('DJ Tennis')
+    expect(wrapper.text()).toContain('Awakenings')
+    // Both dismissal kinds render their label.
+    expect(wrapper.text()).toContain('Pas de chaîne') // no_channel
+    expect(wrapper.text()).toContain('Ne pas suivre') // deferred
+
+    apiMock.post.mockResolvedValue({ data: {} })
+    // The default channel row is not excluded → its action reads « Exclure », so
+    // « Réintégrer » is unambiguously the Écartés block's button (first = DJ Tennis).
+    await btnByText(wrapper, 'Réintégrer').trigger('click')
+    await flushPromises()
+
+    expect(apiMock.post).toHaveBeenCalledWith('/api/admin/channels/101/reinstate')
+    expect(wrapper.text()).not.toContain('DJ Tennis')
+  })
+
+  it('collapses a block to 5 rows and expands it with the « Voir plus » toggle', async () => {
+    const many = Array.from({ length: 8 }, (_, i) =>
+      channelItem({ id: i + 1, name: `Chan ${i + 1}`, external_id: `UC${i}` }),
+    )
+    primeGet({ channels: many, total: 8 })
+    const wrapper = mountChannels()
+    await flushPromises()
+
+    const region = wrapper.findAll('.at-region')[0]
+    // Collapsed: only the first 5 rows render, a « Voir plus » toggle shows.
+    expect(region.findAll('tbody tr')).toHaveLength(5)
+    expect(wrapper.text()).toContain('Voir plus')
+
+    await btnByText(wrapper, 'Voir plus').trigger('click')
+    await flushPromises()
+
+    expect(region.findAll('tbody tr')).toHaveLength(8)
+    expect(wrapper.text()).toContain('Voir moins')
   })
 })

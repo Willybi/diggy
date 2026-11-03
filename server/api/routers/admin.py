@@ -23,6 +23,7 @@ from schemas import (
     ArtistFlagOut,
     AuditLogResponse,
     BacklogResponse,
+    ChannelCandidateDismissIn,
     ChannelCandidateListOut,
     ChannelCreateIn,
     ChannelListOut,
@@ -35,6 +36,7 @@ from schemas import (
     CrawlLogsResponse,
     DeezerArtistHit,
     DeezerGenreLookupResponse,
+    DismissedListOut,
     EnrichBeatportResponse,
     FetchPlaylistArtworksResponse,
     FlagManualIn,
@@ -773,6 +775,18 @@ async def list_channels(
     )
 
 
+@router.get("/channels/dismissed", response_model=DismissedListOut)
+async def list_dismissed_channels(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """The « Écartés » tab: the dismiss markers (artists AND orgs), ranked by
+    cohort relevance (artists) then name (orgs). Each item carries its dismissal
+    kind (no_channel/deferred) and, for a deferred one, its date — and the marker
+    id for POST /channels/{id}/reinstate. Thin router."""
+    return await channel_service.list_dismissed(db)
+
+
 @router.get("/channels/candidates", response_model=ChannelCandidateListOut)
 async def list_channel_candidates(
     limit: int = Query(50, ge=1, le=200),
@@ -802,6 +816,30 @@ async def resolve_channel_candidate(
     return await channel_service.resolve_candidate(name, redis)
 
 
+@router.post("/channels/candidates/dismiss", response_model=ChannelOut)
+async def dismiss_org_candidate(
+    body: ChannelCandidateDismissIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """« Pas de chaîne » for an ORG candidate (a raw channel name, no artist).
+
+    Writes a name-keyed dismiss marker so the name stops being proposed by
+    /channels/candidates. 400 on a blank name. Reversible via
+    /channels/{id}/reinstate. Thin router: the service resolves, the router
+    audits + commits."""
+    try:
+        item = await channel_service.dismiss_org_candidate(db, body.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    await _audit(
+        db, admin, "channel_org_dismiss", "channel", item["id"], {"name": body.name}
+    )
+    await db.commit()
+    return item
+
+
 @router.get("/channels/search", response_model=ChannelSearchListOut)
 async def search_channels(
     q: str,
@@ -821,6 +859,7 @@ async def search_channels(
 async def list_artist_candidates(
     limit: int = Query(50, ge=1, le=200),
     page: int = Query(1, ge=1),
+    tier_max: int = Query(1, ge=1, le=3),
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
     _admin: User = Depends(require_admin),
@@ -828,12 +867,15 @@ async def list_artist_candidates(
     """Cohort artists proposed as watched-channel candidates (C14.b 🅱).
 
     LIVE over ``artist_cohort`` × ``artists``, past the « real artist » gate and
-    not yet curated into ``channels``, ranked by tier then relevance. Each item
-    carries its cached artist→channel pre-selection READ-ONLY from Redis — this
-    endpoint NEVER resolves (quota-safe on render); a resolution goes through
-    /artist-candidates/resolve. Thin router."""
+    not yet curated into ``channels``, ranked by tier then relevance. SCOPED to
+    ``tier_max`` (default 1 = the "personal + active" T1 members only — the full
+    cohort is ~28k artists; pass ``tier_max=2`` to widen to T2). Dismissed
+    candidates (« Pas de chaîne » forever, « Ne pas suivre » for a year) are
+    hidden. Each item carries its cached artist→channel pre-selection READ-ONLY
+    from Redis — this endpoint NEVER resolves (quota-safe on render); a resolution
+    goes through /artist-candidates/resolve. Thin router."""
     return await channel_service.list_artist_candidates(
-        db, redis=redis, limit=limit, page=page
+        db, redis=redis, limit=limit, page=page, tier_max=tier_max
     )
 
 
@@ -882,6 +924,30 @@ async def dismiss_artist_candidate(
     return item
 
 
+@router.post(
+    "/channels/artist-candidates/{artist_id}/defer", response_model=ChannelOut
+)
+async def defer_artist_candidate(
+    artist_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """« Ne pas suivre » — defer an artist candidate (reversible, time-boxed).
+
+    Hides it from the artist-candidates seed for CANDIDATE_DEFER_RESURFACE_DAYS
+    (a « deferred » marker is written), after which it re-surfaces; the cohort row
+    is untouched. 404 on an unknown artist. Thin router: the service resolves, the
+    router audits + commits."""
+    try:
+        item = await channel_service.defer_artist_candidate(db, artist_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+    await _audit(db, admin, "channel_artist_defer", "artist", artist_id, {})
+    await db.commit()
+    return item
+
+
 @router.post("/channels", response_model=ChannelOut)
 async def add_channel(
     body: ChannelCreateIn,
@@ -912,6 +978,29 @@ async def add_channel(
             item["id"],
             exc_info=True,
         )
+    return item
+
+
+@router.post("/channels/{channel_id}/reinstate", response_model=ChannelOut)
+async def reinstate_channel(
+    channel_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Reinstate a dismissed candidate by deleting its marker (« Écartés » undo).
+
+    Strict guard in the service: only a dismiss marker (external_id NULL +
+    excluded) is removable — a real curated channel raises 404 so it is never
+    deleted. The artist/org becomes a candidate again. 404 on an unknown id or a
+    non-marker row. Thin router: the service resolves, the router audits +
+    commits."""
+    try:
+        item = await channel_service.reinstate(db, channel_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+    await _audit(db, admin, "channel_reinstate", "channel", channel_id, {})
+    await db.commit()
     return item
 
 

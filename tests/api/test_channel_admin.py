@@ -1,5 +1,6 @@
 """Tests for /api/admin/channels endpoints (C14.b, L3 — admin back)."""
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 from models import Artist, ArtistCohort, Channel, DJSet, SetArtist, TrackIdIndex
@@ -891,39 +892,52 @@ class TestArtistCandidatesGate:
 
     async def test_rejects_artist_without_signal(self, admin_client, db):
         # No Deezer id, thin catalog, no recent set → no real-artist signal.
+        # tier_max=2 so the T2 member is IN SCOPE and it's the GATE (not the Lot-2
+        # default T1-only scoping) that rejects it.
         a = await _artist(db, "Some Unlinked Name", deezer_id=None)
         await _cohort(
             db, a, tier=2, signals={"nb_catalog": 1, "nb_sets_12m": 0, "nb_lib": 0}
         )
         await db.commit()
 
-        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates?tier_max=2"
+        )
         assert r.json()["total"] == 0
 
     async def test_not_found_sentinel_is_not_a_signal(self, admin_client, db):
+        # tier_max=2: the T2 member is in scope; the gate rejects the NOT_FOUND id.
         a = await _artist(db, "Ghost Producer", deezer_id="NOT_FOUND")
         await _cohort(db, a, tier=2, signals={"nb_catalog": 0, "nb_sets_12m": 0})
         await db.commit()
 
-        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates?tier_max=2"
+        )
         assert r.json()["total"] == 0
 
     async def test_catalog_depth_alone_qualifies(self, admin_client, db):
         # No Deezer link, but deep catalog (>= threshold) is a real-artist signal.
+        # tier_max=2 so the T2 member is in scope (default scope is T1-only, Lot 2).
         a = await _artist(db, "Deep Cataloguer", deezer_id=None)
         await _cohort(db, a, tier=2, signals={"nb_catalog": 25, "nb_sets_12m": 0})
         await db.commit()
 
-        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates?tier_max=2"
+        )
         assert r.json()["total"] == 1
 
     async def test_recent_set_alone_qualifies(self, admin_client, db):
         # No Deezer link, thin catalog, but a recent DJ set is a real-artist signal.
+        # tier_max=2 so the T2 member is in scope (default scope is T1-only, Lot 2).
         a = await _artist(db, "Fresh Set Player", deezer_id=None)
         await _cohort(db, a, tier=2, signals={"nb_catalog": 0, "nb_sets_12m": 1})
         await db.commit()
 
-        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates?tier_max=2"
+        )
         assert r.json()["total"] == 1
 
 
@@ -1013,7 +1027,11 @@ class TestArtistCandidatesExclusionAndRank:
         )
         await db.commit()
 
-        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        # tier_max=2 so "Tier Two Big" is in scope and the tier-dominance of the
+        # ranking is observable (default scope is T1-only since Lot 2).
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates?tier_max=2"
+        )
         names = [i["name"] for i in r.json()["items"]]
         # A followed artist with FEW sets outranks unfollowed artists with MANY sets;
         # among the unfollowed, deeper library first, then more likes; tier dominates.
@@ -1397,3 +1415,494 @@ class TestArtistCandidateDismiss:
         ]
         assert len(entries) == 1
         assert entries[0]["target_id"] == a.id
+
+
+# ── Tier scope (C14.b Lot 2) ──────────────────────────────────────────────────
+
+
+class TestArtistCandidatesTierScope:
+    """The artist-candidate list is SCOPED to tier_max (default 1 = T1 only — the
+    full cohort is ~28k artists and must not be served whole)."""
+
+    async def test_default_scope_is_tier1_only(self, admin_client, db):
+        t1 = await _artist(db, "Tier One DJ", deezer_id="2001")
+        await _cohort(db, t1, tier=1, signals={"nb_sets_12m": 2})
+        t2 = await _artist(db, "Tier Two DJ", deezer_id="2002")
+        await _cohort(db, t2, tier=2, signals={"nb_catalog": 40})
+        await db.commit()
+
+        r = await admin_client.get("/api/admin/channels/artist-candidates")
+        data = r.json()
+        names = [i["name"] for i in data["items"]]
+        assert names == ["Tier One DJ"]
+        assert data["total"] == 1
+
+    async def test_tier_max_2_includes_tier2(self, admin_client, db):
+        t1 = await _artist(db, "Tier One DJ", deezer_id="2001")
+        await _cohort(db, t1, tier=1, signals={"nb_sets_12m": 2})
+        t2 = await _artist(db, "Tier Two DJ", deezer_id="2002")
+        await _cohort(db, t2, tier=2, signals={"nb_catalog": 40})
+        await db.commit()
+
+        r = await admin_client.get(
+            "/api/admin/channels/artist-candidates?tier_max=2"
+        )
+        data = r.json()
+        names = {i["name"] for i in data["items"]}
+        assert names == {"Tier One DJ", "Tier Two DJ"}
+        assert data["total"] == 2
+        # tier asc ⇒ the T1 member is first.
+        assert data["items"][0]["name"] == "Tier One DJ"
+
+    async def test_tier_max_none_includes_all_via_service(self, db):
+        # The service's tier_max=None (no HTTP equivalent) widens to the full cohort.
+        t1 = await _artist(db, "Tier One DJ", deezer_id="2001")
+        await _cohort(db, t1, tier=1, signals={"nb_sets_12m": 2})
+        t2 = await _artist(db, "Tier Two DJ", deezer_id="2002")
+        await _cohort(db, t2, tier=2, signals={"nb_catalog": 40})
+        await db.flush()
+
+        out = await channel_service.list_artist_candidates(db, tier_max=None)
+        assert {i["name"] for i in out["items"]} == {"Tier One DJ", "Tier Two DJ"}
+
+
+# ── The two dismissal kinds + time-box (C14.b Lot 2) ──────────────────────────
+
+
+class TestArtistDismissKind:
+    """« Pas de chaîne » writes a permanent no_channel marker."""
+
+    async def test_dismiss_writes_no_channel_signal(self, admin_client, db):
+        a = await _artist(db, "No Channel DJ", deezer_id="3001")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        r = await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+        assert r.status_code == 200
+
+        marker = (
+            await db.execute(
+                select(Channel).where(
+                    Channel.artist_id == a.id, Channel.external_id.is_(None)
+                )
+            )
+        ).scalar_one()
+        assert marker.signals == {"dismiss_kind": "no_channel"}
+
+    async def test_no_channel_masks_forever(self, db):
+        a = await _artist(db, "Gone DJ", deezer_id="3002")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.flush()
+
+        await channel_service.dismiss_artist_candidate(db, a.id)
+        # Even 10 years later the no_channel marker keeps hiding the artist.
+        far = datetime(2036, 1, 1, tzinfo=timezone.utc)
+        out = await channel_service.list_artist_candidates(db, now=far)
+        assert out["total"] == 0
+
+
+class TestArtistCandidateDefer:
+    """« Ne pas suivre » defers a candidate reversibly for a time-boxed window."""
+
+    async def test_requires_auth(self, client):
+        r = await client.post("/api/admin/channels/artist-candidates/1/defer")
+        assert r.status_code == 401
+
+    async def test_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.post("/api/admin/channels/artist-candidates/1/defer")
+        assert r.status_code == 403
+
+    async def test_404_unknown_artist(self, admin_client):
+        r = await admin_client.post(
+            "/api/admin/channels/artist-candidates/999999/defer"
+        )
+        assert r.status_code == 404
+
+    async def test_defer_writes_deferred_signal(self, admin_client, db):
+        a = await _artist(db, "Deferred DJ", deezer_id="3100")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        r = await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/defer"
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["artist_id"] == a.id
+        assert data["external_id"] is None
+        assert data["excluded"] is True
+
+        marker = (
+            await db.execute(
+                select(Channel).where(
+                    Channel.artist_id == a.id, Channel.external_id.is_(None)
+                )
+            )
+        ).scalar_one()
+        assert marker.signals["dismiss_kind"] == "deferred"
+        assert marker.signals["dismissed_at"]  # ISO timestamp present
+
+    async def test_defer_hides_then_resurfaces(self, db):
+        # Time-box via an INJECTED clock (no real wall-clock): a recently deferred
+        # candidate is hidden within the window, and re-surfaces once it elapses.
+        a = await _artist(db, "Resurfacing DJ", deezer_id="3101")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.flush()
+
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await channel_service.defer_artist_candidate(db, a.id, now=t0)
+
+        within = await channel_service.list_artist_candidates(
+            db, now=t0 + timedelta(days=10)
+        )
+        assert within["total"] == 0  # still within the resurface window → hidden
+
+        after = await channel_service.list_artist_candidates(
+            db, now=t0 + timedelta(days=400)
+        )
+        assert after["total"] == 1  # window elapsed → re-surfaces
+        assert after["items"][0]["name"] == "Resurfacing DJ"
+
+    async def test_defer_keeps_cohort_row(self, admin_client, db):
+        a = await _artist(db, "Still Watched DJ", deezer_id="3102")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/defer"
+        )
+        cohort = (
+            await db.execute(
+                select(ArtistCohort).where(ArtistCohort.artist_id == a.id)
+            )
+        ).scalar_one()
+        assert cohort.excluded is False
+
+    async def test_defer_then_dismiss_transitions_to_no_channel(
+        self, admin_client, db
+    ):
+        # Re-dismissing a deferred candidate upgrades the marker to no_channel.
+        a = await _artist(db, "Transition DJ", deezer_id="3103")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/defer"
+        )
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+
+        markers = (
+            await db.execute(
+                select(Channel).where(
+                    Channel.artist_id == a.id, Channel.external_id.is_(None)
+                )
+            )
+        ).scalars().all()
+        assert len(markers) == 1  # idempotent — the same marker is reused
+        assert markers[0].signals == {"dismiss_kind": "no_channel"}
+
+    async def test_writes_audit_log(self, admin_client, db):
+        a = await _artist(db, "Audited Defer DJ", deezer_id="3104")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        r = await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/defer"
+        )
+        assert r.status_code == 200
+
+        audit = await admin_client.get("/api/admin/audit-log")
+        entries = [
+            e
+            for e in audit.json()["items"]
+            if e["action"] == "channel_artist_defer"
+        ]
+        assert len(entries) == 1
+        assert entries[0]["target_id"] == a.id
+
+
+# ── Org candidate dismissal (C14.b Lot 2) ─────────────────────────────────────
+
+
+class TestOrgCandidateDismiss:
+    """« Pas de chaîne » for an ORG candidate (a raw name, no artist_id)."""
+
+    async def test_requires_auth(self, client):
+        r = await client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "x"}
+        )
+        assert r.status_code == 401
+
+    async def test_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "x"}
+        )
+        assert r.status_code == 403
+
+    async def test_dismiss_hides_from_candidates(self, admin_client, db):
+        await _tid(db, "Shady Promoter", 1001)
+        await _tid(db, "Legit Venue", 1002)
+        await db.commit()
+
+        before = await admin_client.get("/api/admin/channels/candidates")
+        assert "Shady Promoter" in [i["name"] for i in before.json()["items"]]
+
+        r = await admin_client.post(
+            "/api/admin/channels/candidates/dismiss",
+            json={"name": "Shady Promoter"},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["name"] == "Shady Promoter"
+        assert data["external_id"] is None
+        assert data["excluded"] is True
+        assert data["artist_id"] is None
+
+        after = await admin_client.get("/api/admin/channels/candidates")
+        names = [i["name"] for i in after.json()["items"]]
+        assert "Shady Promoter" not in names
+        assert "Legit Venue" in names
+
+    async def test_marker_carries_no_channel_signal(self, admin_client, db):
+        await _tid(db, "Org Name", 1003)
+        await db.commit()
+
+        await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Org Name"}
+        )
+        marker = (
+            await db.execute(
+                select(Channel).where(Channel.name == "Org Name")
+            )
+        ).scalar_one()
+        assert marker.signals == {"dismiss_kind": "no_channel"}
+
+    async def test_marker_hidden_from_channels_list(self, admin_client, db):
+        await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Hidden Org"}
+        )
+        listing = await admin_client.get("/api/admin/channels")
+        assert listing.json() == {"total": 0, "items": []}
+
+    async def test_blank_name_400(self, admin_client):
+        r = await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "   "}
+        )
+        assert r.status_code == 400
+
+    async def test_idempotent(self, admin_client, db):
+        first = await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Twice Org"}
+        )
+        second = await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Twice Org"}
+        )
+        assert first.status_code == 200
+        assert second.status_code == 200
+
+        markers = (
+            await db.execute(
+                select(Channel).where(Channel.name == "Twice Org")
+            )
+        ).scalars().all()
+        assert len(markers) == 1
+
+    async def test_writes_audit_log(self, admin_client, db):
+        r = await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Audited Org"}
+        )
+        assert r.status_code == 200
+
+        audit = await admin_client.get("/api/admin/audit-log")
+        entries = [
+            e for e in audit.json()["items"] if e["action"] == "channel_org_dismiss"
+        ]
+        assert len(entries) == 1
+        assert entries[0]["details"]["name"] == "Audited Org"
+
+
+# ── The « Écartés » tab + reinstate (C14.b Lot 2) ─────────────────────────────
+
+
+class TestDismissedList:
+    async def test_requires_auth(self, client):
+        r = await client.get("/api/admin/channels/dismissed")
+        assert r.status_code == 401
+
+    async def test_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.get("/api/admin/channels/dismissed")
+        assert r.status_code == 403
+
+    async def test_empty(self, admin_client):
+        r = await admin_client.get("/api/admin/channels/dismissed")
+        assert r.status_code == 200
+        assert r.json() == {"total": 0, "items": []}
+
+    async def test_lists_artists_and_orgs_with_kind(self, admin_client, db):
+        dismissed = await _artist(db, "Dismissed DJ", deezer_id="4001")
+        await _cohort(db, dismissed, tier=1, signals={"nb_sets_12m": 3})
+        deferred = await _artist(db, "Deferred DJ", deezer_id="4002")
+        await _cohort(db, deferred, tier=1, signals={"nb_sets_12m": 2})
+        await db.commit()
+
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{dismissed.id}/dismiss"
+        )
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{deferred.id}/defer"
+        )
+        await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Dismissed Org"}
+        )
+
+        r = await admin_client.get("/api/admin/channels/dismissed")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 3
+        by_name = {i["name"]: i for i in data["items"]}
+
+        assert by_name["Dismissed DJ"]["kind"] == "artist"
+        assert by_name["Dismissed DJ"]["dismiss_kind"] == "no_channel"
+        assert by_name["Dismissed DJ"]["dismissed_at"] is None
+        assert by_name["Dismissed DJ"]["tier"] == 1
+
+        assert by_name["Deferred DJ"]["kind"] == "artist"
+        assert by_name["Deferred DJ"]["dismiss_kind"] == "deferred"
+        assert by_name["Deferred DJ"]["dismissed_at"] is not None
+
+        assert by_name["Dismissed Org"]["kind"] == "org"
+        assert by_name["Dismissed Org"]["artist_id"] is None
+        assert by_name["Dismissed Org"]["dismiss_kind"] == "no_channel"
+
+    async def test_artists_ranked_by_relevance_then_orgs(self, admin_client, db):
+        low = await _artist(db, "Low Relevance DJ", deezer_id="4101")
+        await _cohort(db, low, tier=1, signals={"nb_lib": 1})
+        high = await _artist(db, "High Relevance DJ", deezer_id="4102")
+        await _cohort(db, high, tier=1, signals={"nb_lib": 50})
+        await db.commit()
+
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{low.id}/dismiss"
+        )
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{high.id}/dismiss"
+        )
+        await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Aaa Org"}
+        )
+
+        r = await admin_client.get("/api/admin/channels/dismissed")
+        names = [i["name"] for i in r.json()["items"]]
+        # Artists first, ranked by cohort relevance (deeper library first), org last.
+        assert names == ["High Relevance DJ", "Low Relevance DJ", "Aaa Org"]
+
+
+class TestChannelReinstate:
+    async def test_requires_auth(self, client):
+        r = await client.post("/api/admin/channels/1/reinstate")
+        assert r.status_code == 401
+
+    async def test_rejected_for_non_admin(self, auth_client):
+        r = await auth_client.post("/api/admin/channels/1/reinstate")
+        assert r.status_code == 403
+
+    async def test_404_unknown(self, admin_client):
+        r = await admin_client.post("/api/admin/channels/999999/reinstate")
+        assert r.status_code == 404
+
+    async def test_reinstate_artist_marker_recandidates(self, admin_client, db):
+        a = await _artist(db, "Comeback DJ", deezer_id="5001")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+        assert (
+            await admin_client.get("/api/admin/channels/artist-candidates")
+        ).json()["total"] == 0
+
+        marker = (
+            await db.execute(
+                select(Channel).where(
+                    Channel.artist_id == a.id, Channel.external_id.is_(None)
+                )
+            )
+        ).scalar_one()
+
+        r = await admin_client.post(
+            f"/api/admin/channels/{marker.id}/reinstate"
+        )
+        assert r.status_code == 200
+
+        # Marker gone, artist is a candidate again.
+        gone = (
+            await db.execute(select(Channel).where(Channel.id == marker.id))
+        ).scalar_one_or_none()
+        assert gone is None
+        assert (
+            await admin_client.get("/api/admin/channels/artist-candidates")
+        ).json()["total"] == 1
+
+    async def test_reinstate_org_marker_recandidates(self, admin_client, db):
+        await _tid(db, "Returning Org", 5100)
+        await db.commit()
+        await admin_client.post(
+            "/api/admin/channels/candidates/dismiss", json={"name": "Returning Org"}
+        )
+        marker = (
+            await db.execute(
+                select(Channel).where(Channel.name == "Returning Org")
+            )
+        ).scalar_one()
+
+        r = await admin_client.post(
+            f"/api/admin/channels/{marker.id}/reinstate"
+        )
+        assert r.status_code == 200
+
+        after = await admin_client.get("/api/admin/channels/candidates")
+        assert "Returning Org" in [i["name"] for i in after.json()["items"]]
+
+    async def test_refuses_to_delete_real_channel(self, admin_client, db):
+        # A real curated channel (external_id non-NULL) is NEVER deletable via
+        # reinstate — even if excluded. 404, and the row survives.
+        c = await _channel(db, "Real Chan", external_id="UCreal", excluded=True)
+        await db.commit()
+
+        r = await admin_client.post(f"/api/admin/channels/{c.id}/reinstate")
+        assert r.status_code == 404
+
+        survivor = (
+            await db.execute(select(Channel).where(Channel.id == c.id))
+        ).scalar_one_or_none()
+        assert survivor is not None
+
+    async def test_writes_audit_log(self, admin_client, db):
+        a = await _artist(db, "Audited Reinstate DJ", deezer_id="5002")
+        await _cohort(db, a, tier=1, signals={"nb_sets_12m": 3})
+        await db.commit()
+        await admin_client.post(
+            f"/api/admin/channels/artist-candidates/{a.id}/dismiss"
+        )
+        marker = (
+            await db.execute(
+                select(Channel).where(
+                    Channel.artist_id == a.id, Channel.external_id.is_(None)
+                )
+            )
+        ).scalar_one()
+
+        r = await admin_client.post(f"/api/admin/channels/{marker.id}/reinstate")
+        assert r.status_code == 200
+
+        audit = await admin_client.get("/api/admin/audit-log")
+        entries = [
+            e for e in audit.json()["items"] if e["action"] == "channel_reinstate"
+        ]
+        assert len(entries) == 1
+        assert entries[0]["target_id"] == marker.id

@@ -196,6 +196,18 @@ celery_app.conf.update(
             "task": "workers.tasks.recompute_artist_cohort",
             "schedule": crontab(hour=4, minute=15),  # tous les jours à 4h15
         },
+        # C14.b — auto-lie la chaîne YouTube OFFICIELLE de chaque artiste de la
+        # cohorte via Wikidata (ancre deezer_id P2722 → P2397), gratuit (SPARQL
+        # sans quota). Placé à 04h30, APRÈS recompute-artist-cohort (04h15) pour
+        # voir la cohorte fraîche. Lecture Wikidata + title-check YouTube borné
+        # (aucune API Deezer/Beatport rate-limitée) → queue par défaut "celery",
+        # pas de task_route. Single-instance via lock:autolink_official_channels ;
+        # cap CHANNEL_AUTOLINK_MAX_PER_RUN sur les chaînes créées + dedup Redis →
+        # no-op sûr tant que la cohorte/clé est vide.
+        "autolink-official-channels-daily": {
+            "task": "workers.tasks.autolink_official_channels",
+            "schedule": crontab(hour=4, minute=30),  # tous les jours à 4h30
+        },
         "check-followed-artists-daily": {
             "task": "workers.tasks.check_followed_artists",
             "schedule": crontab(hour=4, minute=45),  # tous les jours à 4h45
