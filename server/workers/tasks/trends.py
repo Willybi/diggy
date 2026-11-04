@@ -3,11 +3,14 @@ Celery task for computing radar trend scores (v2).
 
 Formula v2:
   base_score = SUM(decay * source_weight * size_weight)
-  velocity   = recent_7d / max(previous_7d, 1) - 1   (clamped 0..5)
+  size_weight = 1 / sqrt(track_count)
+                except a set under SET_SIZE_FLOOR identified tracks:
+                sqrt(track_count) / SET_SIZE_FLOOR
+  velocity  = recent_7d / max(previous_7d, 1) - 1   (clamped 0..5)
   convergence = 1 + 0.3 * (distinct_sources - 1)
   final      = base_score * convergence * (1 + 0.5 * velocity)
 
-Rank computed per genre family and globally.
+Rank computed per genre family and globally, over tracks with a platform link only.
 """
 
 import logging
@@ -15,6 +18,14 @@ import logging
 from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# A set's track_count only counts IDENTIFIED tracks (the importer drops the rest),
+# so a low count means a poorly identified set, not a short one: under 1/sqrt(n) alone,
+# a 1-track set would weigh 3x a 9-track set and could carry a track to #1 on its own.
+# Below the floor the weight therefore RISES with the count (1 track: 0.10, 10: 0.32,
+# 30: 0.18), so a set is trusted as far as it is identified but never drops to zero.
+# 10 = median identified tracks per set (prod, 2026-11-04). Playlists keep 1/sqrt(n).
+SET_SIZE_FLOOR = 10
 
 # Root genres -> pillar (mirrors genre_service._ROOT_TO_PILLAR)
 _ROOT_TO_PILLAR = {
@@ -96,6 +107,16 @@ def _genre_to_family(genres, pillar_cache):
             return family
     # If all mapped to "autres" or not found, use first mapping
     return pillar_cache.get(genres[0])
+
+
+def _rows_with_platform_link(rows):
+    """Keep the rows the trend surfaces can show: at least one Deezer/Beatport link.
+
+    A track with no link has no cover, preview or BPM and can't be checked anywhere,
+    so it gets no radar_trends row. It stays in the catalog and in its sets, and comes
+    back by itself at the first compute after enrichment finds a link.
+    """
+    return [r for r in rows if r.has_platform_link]
 
 
 def _purge_stale_trends(session, run_computed_at):
@@ -245,7 +266,11 @@ def compute_trends(self, window_days=30):
                             POWER(0.5, EXTRACT(EPOCH FROM (NOW() - detected_at))
                                        / 86400.0 / 14.0)
                             * CASE WHEN entity_type = 'set' THEN 3.0 ELSE 1.0 END
-                            * (1.0 / SQRT(GREATEST(track_count, 1)))
+                            * CASE
+                                WHEN entity_type = 'set' AND track_count < :set_floor
+                                  THEN SQRT(track_count) / :set_floor
+                                ELSE 1.0 / SQRT(GREATEST(track_count, 1))
+                              END
                         )
                         -- Freshness: non-linear decay by release age
                         -- 0-5y: 1.0→0.70 | 5-20y: 0.70→0.50 | 20y+: 0.50→0.10 floor
@@ -296,16 +321,23 @@ def compute_trends(self, window_days=30):
                             v.recent::float / GREATEST(v.previous, 1) - 1,
                             0
                         ), 5
-                    ) AS velocity
+                    ) AS velocity,
+                    (c.deezer_id IS NOT NULL OR c.beatport_id IS NOT NULL)
+                        AS has_platform_link
                 FROM scores s
                 LEFT JOIN velocity v ON v.catalog_id = s.catalog_id
+                JOIN catalog c ON c.id = s.catalog_id
             """),
-                {"window": window_days},
+                {"window": window_days, "set_floor": SET_SIZE_FLOOR},
             ).fetchall()
 
             if not rows:
                 clog.set_stats({"upserted": 0})
                 return {"upserted": 0}
+
+            scored_count = len(rows)
+            rows = _rows_with_platform_link(rows)
+            hidden_no_link = scored_count - len(rows)
 
             # Assign family + compute ranks
             from datetime import datetime, timezone
@@ -417,10 +449,20 @@ def compute_trends(self, window_days=30):
                     )
 
             logger.info(
-                "compute_trends v2: upserted %d entries, purged %d stale",
+                "compute_trends v2: upserted %d entries, purged %d stale, "
+                "hidden %d without platform link",
                 len(entries),
                 purged,
+                hidden_no_link,
             )
-            clog.set_stats({"upserted": len(entries), "purged": purged})
+            clog.set_stats({
+                "upserted": len(entries),
+                "purged": purged,
+                "hidden_no_link": hidden_no_link,
+            })
 
-    return {"upserted": len(entries), "purged": purged}
+    return {
+        "upserted": len(entries),
+        "purged": purged,
+        "hidden_no_link": hidden_no_link,
+    }

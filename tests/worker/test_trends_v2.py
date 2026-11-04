@@ -50,7 +50,13 @@ def _task_decorator(*args, **kwargs):
 _celery_mock.task.side_effect = _task_decorator
 sys.modules["workers.celery_app"] = MagicMock(celery_app=_celery_mock)
 
-from workers.tasks.trends import _genre_to_family, _purge_stale_trends, _ROOT_TO_PILLAR
+from workers.tasks.trends import (
+    _genre_to_family,
+    _purge_stale_trends,
+    _ROOT_TO_PILLAR,
+    _rows_with_platform_link,
+    SET_SIZE_FLOOR,
+)
 
 # Restore sys.modules immediately — we already imported what we need.
 # This prevents polluting other test files collected by pytest.
@@ -136,6 +142,61 @@ class TestSizeWeight:
     def test_size_weight_floor(self):
         # track_count=0 should be treated as 1
         assert _size_weight(0) == _size_weight(1)
+
+
+class TestSetSizeFloor:
+    """A set's track_count only counts identified tracks: a poorly identified set
+    must weigh less than a well identified one, but must still count. compute_trends'
+    SQL is PG-only, hence the source check for the wiring."""
+
+    def _set_weight(self, track_count):
+        if track_count < SET_SIZE_FLOOR:
+            return math.sqrt(track_count) / SET_SIZE_FLOOR
+        return _size_weight(track_count)
+
+    def test_weight_rises_with_identification_below_the_floor(self):
+        weights = [self._set_weight(n) for n in range(1, SET_SIZE_FLOOR + 1)]
+        assert weights == sorted(weights)
+
+    def test_no_jump_at_the_floor(self):
+        below = math.sqrt(SET_SIZE_FLOOR) / SET_SIZE_FLOOR
+        assert below == pytest.approx(_size_weight(SET_SIZE_FLOOR))
+
+    def test_single_track_set_weighs_less_than_a_large_identified_set(self):
+        assert 0 < self._set_weight(1) < self._set_weight(30)
+
+    def test_sets_above_the_floor_are_unchanged(self):
+        assert self._set_weight(30) == pytest.approx(_size_weight(30))
+
+    def test_rule_is_wired_for_sets_only(self):
+        import inspect
+        from workers.tasks.trends import compute_trends
+
+        source = inspect.getsource(compute_trends)
+        assert "WHEN entity_type = 'set' AND track_count < :set_floor" in source
+        assert "THEN SQRT(track_count) / :set_floor" in source
+        assert "ELSE 1.0 / SQRT(GREATEST(track_count, 1))" in source
+        assert '"set_floor": SET_SIZE_FLOOR' in source
+
+
+class TestPlatformLinkFilter:
+    """A track with no Deezer/Beatport link is left out of the trend ranking."""
+
+    Row = namedtuple("Row", ["catalog_id", "has_platform_link"])
+
+    def test_drops_only_rows_without_a_link(self):
+        rows = [self.Row(1, True), self.Row(2, False), self.Row(3, True)]
+        assert [r.catalog_id for r in _rows_with_platform_link(rows)] == [1, 3]
+
+    def test_all_rows_without_a_link_gives_empty_list(self):
+        assert _rows_with_platform_link([self.Row(1, False)]) == []
+
+    def test_link_flag_covers_both_platforms(self):
+        import inspect
+        from workers.tasks.trends import compute_trends
+
+        source = inspect.getsource(compute_trends)
+        assert "c.deezer_id IS NOT NULL OR c.beatport_id IS NOT NULL" in source
 
 
 class TestConvergenceBonus:
