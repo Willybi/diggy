@@ -14,11 +14,11 @@ the twin of ``worker/bpm_backfill/analyze_bpm.py``, but instead of a scalar BPM
 it emits a 1280-d vector.
 
 Output CSV columns: ``id,status,dim,emb``
-  status: ok | no_preview | error:<ExceptionName>
+  status: ok | no_preview | error:HTTP<code> | error:<ExceptionName>
   emb:    JSON list of ``dim`` floats (6-decimal rounded) on status ok, else "".
 A failed row never crashes the run — it is written with an ``error:*`` status and
 the pass moves on. The host (``backfill_embeddings.py``) parses ``emb`` back and
-formats the pgvector literal.
+formats the pgvector literal, and retries ``error:*`` rows later (never final).
 
 Usage (container, via backfill_embeddings.py or by hand):
     python /work/embed.py --csv /work/to_analyze.csv --out /work/results.csv \
@@ -58,6 +58,18 @@ _last = [0.0]
 # a gentler pass when a cumulative rate-limit ("HTTPError" storm) is suspected.
 MIN_INTERVAL = float(os.environ.get("EMBED_MIN_INTERVAL", "0.2"))
 
+# HTTP 429 (seen on the preview CDN under sustained load) pauses ALL threads,
+# 30s -> 60s -> ... capped at 5 min, about 12 min in total before the row is reported
+# as an error for the host to retry later.
+RATE_LIMIT_TRIES = 5
+RATE_LIMIT_BASE_DELAY = 30.0
+RATE_LIMIT_MAX_DELAY = 300.0
+_pause_lock = threading.Lock()
+_pause_until = [0.0]
+
+DEEZER_QUOTA_CODES = (4, 700)
+DEEZER_NO_DATA_CODE = 800
+
 # Each worker thread loads the EffNet graph ONCE (heavy TF graph) via thread-local
 # storage; the ThreadPoolExecutor provides the parallelism.
 _local = threading.local()
@@ -71,26 +83,96 @@ def throttle():
         _last[0] = time.monotonic()
 
 
+def _wait_if_paused():
+    while True:
+        with _pause_lock:
+            remaining = _pause_until[0] - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(remaining)
+
+
+def _pause_all(delay):
+    """Hold every worker thread: a rate limit is per source IP, so one thread backing
+    off while the others keep hitting Deezer would only prolong it."""
+    with _pause_lock:
+        _pause_until[0] = max(_pause_until[0], time.monotonic() + delay)
+
+
+def _rate_limit_delay(response, attempt):
+    """Seconds to wait after a 429: Retry-After when numeric, else exponential."""
+    fallback = RATE_LIMIT_BASE_DELAY * (2**attempt)
+    try:
+        delay = float(response.headers.get("Retry-After", fallback))
+    except (TypeError, ValueError):
+        delay = fallback
+    return min(max(delay, 0.0), RATE_LIMIT_MAX_DELAY)
+
+
 def _get(url, tries=3, timeout=30):
+    """GET with two retry budgets: ``tries`` short retries for network/5xx failures,
+    and RATE_LIMIT_TRIES long global pauses for a 429, which a few seconds of
+    retrying can never outlast."""
     last = None
-    for i in range(tries):
+    failures = 0
+    rate_limited = 0
+    while failures < tries:
+        _wait_if_paused()
         try:
             r = requests.get(url, timeout=timeout)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            failures += 1
+            time.sleep(0.5 * failures)
+            continue
+        is_rate_limited = r.status_code == 429
+        if is_rate_limited and rate_limited < RATE_LIMIT_TRIES:
+            delay = _rate_limit_delay(r, rate_limited)
+            rate_limited += 1
+            print(f"[embed-backfill] HTTP 429, pausing {delay:.0f}s", flush=True)
+            _pause_all(delay)
+            continue
+        try:
             r.raise_for_status()
             return r
         except Exception as e:  # noqa: BLE001
+            if is_rate_limited:
+                raise  # long budget spent: the host retries this row in a later round
             last = e
-            time.sleep(0.5 * (i + 1))
+            failures += 1
+            time.sleep(0.5 * failures)
     raise last
 
 
 def fetch_preview_url(deezer_id):
-    throttle()
-    r = _get(f"{DEEZER_API}/track/{deezer_id}", timeout=20)
-    j = r.json()
-    if isinstance(j, dict) and j.get("error"):
-        raise RuntimeError(f"deezer_error:{j['error']}")
-    return (j.get("preview") or "").strip()
+    """The track's 30s preview URL, "" when Deezer has none (track gone included).
+
+    Deezer reports its quota errors in a 200 JSON body, so they get the same global
+    pause as a 429.
+    """
+    quota_hits = 0
+    while True:
+        throttle()
+        r = _get(f"{DEEZER_API}/track/{deezer_id}", timeout=20)
+        j = r.json()
+        error = j.get("error") if isinstance(j, dict) else None
+        if not error:
+            return (j.get("preview") or "").strip()
+        code = error.get("code") if isinstance(error, dict) else None
+        if code == DEEZER_NO_DATA_CODE:
+            return ""
+        if code in DEEZER_QUOTA_CODES and quota_hits < RATE_LIMIT_TRIES:
+            _pause_all(min(RATE_LIMIT_BASE_DELAY * (2**quota_hits), RATE_LIMIT_MAX_DELAY))
+            quota_hits += 1
+            _wait_if_paused()
+            continue
+        raise RuntimeError(f"deezer_error:{error}")
+
+
+def _error_status(exc):
+    """``error:HTTP429`` for an HTTP failure, else ``error:<ExceptionName>``."""
+    code = getattr(getattr(exc, "response", None), "status_code", None)
+    return f"error:HTTP{code}" if code else f"error:{type(exc).__name__}"
 
 
 def _l2(v):
@@ -143,7 +225,7 @@ def process(row):
         out["status"] = "ok"
         return out
     except Exception as e:  # noqa: BLE001
-        out["status"] = f"error:{type(e).__name__}"
+        out["status"] = _error_status(e)
         return out
 
 

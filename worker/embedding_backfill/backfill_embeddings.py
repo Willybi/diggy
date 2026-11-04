@@ -40,17 +40,19 @@ DRY-RUN by default: without ``--apply`` the INSERT is NOT executed; the plan is
 printed instead (eligible/no_preview/errors counters + an excerpt of the SQL).
 
 Checkpoint (``<workdir>/processed_ids.txt``): every attempted id whose outcome is
-FINAL is recorded — rejected rows (no_preview / error) always, written rows after
-a successful --apply batch. A periodic re-run ("fil de l'eau") therefore only
-downloads NEW candidates, never the known rejects (already-embedded rows also drop
-out of the pull via the ``te.id IS NULL`` join). Rows embedded OK during a dry-run
-are NOT checkpointed (they still need writing); use ``--reuse-results`` to apply a
-previous run's results.csv without re-embedding.
+FINAL is recorded — ``no_preview`` rows always, written rows after a successful
+--apply batch. ``error:*`` rows are NEVER recorded: they are mostly Deezer rate
+limits, so they must stay retryable. A periodic re-run ("fil de l'eau") therefore
+downloads new candidates and past errors, never the known no_preview rows
+(already-embedded rows also drop out of the pull via the ``te.id IS NULL`` join).
+Rows embedded OK during a dry-run are NOT checkpointed (they still need writing);
+use ``--reuse-results`` to apply a previous run's results.csv without re-embedding.
 
 Usage (from the repo root, or anywhere):
     python worker/embedding_backfill/backfill_embeddings.py --limit 20            # dry-run sample
     python worker/embedding_backfill/backfill_embeddings.py                       # dry-run, full backlog
     python worker/embedding_backfill/backfill_embeddings.py --apply               # embed + write
+    python worker/embedding_backfill/backfill_embeddings.py --loop --apply         # marathon: drain the whole backlog
     python worker/embedding_backfill/backfill_embeddings.py --reuse-results --apply  # write last results
 """
 
@@ -64,6 +66,8 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+from collections import namedtuple
 
 # the embed step interleaves container output with ours — keep progress ordered
 # even when stdout is piped (block-buffered)
@@ -96,9 +100,22 @@ MODEL_VERSION = "bs64-1"
 EMBEDDING_DIM = 1280
 
 BATCH_SIZE = 200
+# --loop window size when --limit is not given: each marathon pass pulls+embeds+
+# writes this many rows so results land in prod recurrently (not one burst at the
+# very end of a multi-day run).
+LOOP_WINDOW_DEFAULT = 20000
+# --loop re-runs the whole backlog while rows fail, waiting between rounds: the
+# Deezer rate limit is throughput-driven and lifts after a 20-30 min cooldown.
+LOOP_MAX_ROUNDS_DEFAULT = 3
+LOOP_RETRY_COOLDOWN_DEFAULT = 1800
 # statuses whose outcome is final — checkpointed even on dry-run (a re-run would
-# just re-download the same reject). "ok" is final only once WRITTEN.
+# just re-download the same reject). "ok" is final only once WRITTEN. "error:*" is
+# deliberately absent: a rate-limited row must stay retryable.
 _REJECT_STATUSES = ("no_preview",)
+
+# One PULL -> EMBED -> APPLY window: rows pulled, highest id pulled, rows ignored
+# because they are in the checkpoint, rows that failed with error:*.
+PassResult = namedtuple("PassResult", "pulled max_id skipped errors")
 
 
 def build_pull_query(limit=0, after_id=0):
@@ -194,12 +211,7 @@ def eligible_inserts(results, dim=EMBEDDING_DIM):
 
 def reject_ids(results):
     """Ids with a FINAL negative outcome (checkpointed even on dry-run)."""
-    return [
-        str(r["id"]).strip()
-        for r in results
-        if r.get("status") in _REJECT_STATUSES
-        or str(r.get("status", "")).startswith("error:")
-    ]
+    return [str(r["id"]).strip() for r in results if r.get("status") in _REJECT_STATUSES]
 
 
 def format_vector_literal(vec):
@@ -277,9 +289,9 @@ def apply_or_plan(
 ):
     """Gate the results, then either print the plan (dry-run) or run the INSERTs.
 
-    Returns the counters dict. Checkpointing: rejects always; written ids per
-    SUCCESSFUL batch only (a failed batch leaves its ids un-checkpointed, and the
-    ON CONFLICT guard makes the eventual re-write idempotent).
+    Returns the counters dict. Checkpointing: no_preview rows always; written ids
+    per SUCCESSFUL batch only (a failed batch leaves its ids un-checkpointed, and
+    the ON CONFLICT guard makes the eventual re-write idempotent); error rows never.
     """
     pairs = eligible_inserts(results, dim)
     rejects = reject_ids(results)
@@ -313,9 +325,10 @@ def apply_or_plan(
             "=== DRY-RUN - nothing was written (use --apply) ===\n"
             f"{counters['eligible']} embedding(s) WOULD be inserted for "
             f"({MODEL_NAME}, {MODEL_VERSION}), guarded by ON CONFLICT DO NOTHING "
-            "(an already-stored embedding is never duplicated). Rejected ids were "
-            "checkpointed; the eligible ids were NOT (they still need writing - "
-            "re-run with --apply, or --reuse-results --apply to skip re-embedding)."
+            "(an already-stored embedding is never duplicated). no_preview ids were "
+            "checkpointed; the eligible and error ids were NOT (eligible ids still "
+            "need writing - re-run with --apply, or --reuse-results --apply to skip "
+            "re-embedding)."
         )
         return counters
 
@@ -334,14 +347,24 @@ def apply_or_plan(
         f"\nInserted {counters['written']}/{counters['eligible']} embedding(s) for "
         f"({MODEL_NAME}, {MODEL_VERSION}); "
         f"{counters['eligible'] - counters['written']} skipped by ON CONFLICT. "
-        "Attempted ids checkpointed."
+        f"Written and no_preview ids checkpointed; {counters['errors']} error(s) "
+        "left retryable."
     )
     return counters
 
 
+_IMAGE_BUILT = False
+
+
 def _docker_build():
+    """Build the embed image once per process (idempotent — a --loop marathon must
+    not re-shell `docker build` on every window; the layers are cached anyway)."""
+    global _IMAGE_BUILT
+    if _IMAGE_BUILT:
+        return
     print(f"[embed] docker build -t {IMAGE} ...")
     subprocess.run(["docker", "build", "-t", IMAGE, PKG_DIR], check=True)
+    _IMAGE_BUILT = True
 
 
 def _docker_embed(workdir, workers):
@@ -377,6 +400,109 @@ def _write_csv(path, rows, fieldnames):
         writer.writerows(rows)
 
 
+def _run_pass(after_id, limit, workdir, checkpoint_path, results_path, args):
+    """One PULL -> EMBED -> APPLY window, returned as a ``PassResult``.
+
+    ``pulled == 0`` means no row is left past ``after_id``, NOT that the backlog is
+    empty: rows behind the cursor may have failed or been skipped, which is why
+    ``skipped`` and ``errors`` are reported. The --loop driver advances its keyset
+    cursor to ``max_id`` — a window that pulls rows but has nothing FRESH STILL
+    returns it, so the marathon steps over a band of known rows instead of stalling.
+    """
+    # 1. PULL — read-only COPY from prod through the documented SSH channel
+    print(
+        f"[pull] fetching candidates from prod (limit={limit or 'none'}, "
+        f"after_id={after_id or 'none'})..."
+    )
+    csv_text = run_remote_sql(REMOTE_PSQL_PULL, build_pull_query(limit, after_id))
+    candidates = parse_candidates(csv_text)
+    _write_csv(
+        os.path.join(workdir, "candidates.csv"), candidates, ["id", "deezer_id"]
+    )
+    if not candidates:
+        print("[pull] 0 candidate(s) - nothing left past this cursor.")
+        return PassResult(0, after_id, 0, 0)
+    max_id = max(int(c["id"]) for c in candidates)
+    done = load_checkpoint(checkpoint_path)
+    fresh = filter_new(candidates, done)
+    skipped = len(candidates) - len(fresh)
+    print(
+        f"[pull] {len(candidates)} candidate(s), "
+        f"{skipped} skipped (checkpoint), "
+        f"{len(fresh)} to embed"
+    )
+    if not fresh:
+        print("Nothing new to embed in this window.")
+        return PassResult(len(candidates), max_id, skipped, 0)
+    _write_csv(os.path.join(workdir, "to_analyze.csv"), fresh, ["id", "deezer_id"])
+
+    # 2. EMBED — in the container (essentia-tensorflow is Linux-only)
+    _docker_build()  # idempotent: the real `docker build` runs once per process
+    _docker_embed(workdir, args.workers)
+    results = read_results(results_path)
+
+    # 3. APPLY or dry-run plan
+    counters = apply_or_plan(
+        results, args.apply, checkpoint_path,
+        dim=EMBEDDING_DIM, batch_size=args.batch_size,
+    )
+    return PassResult(len(candidates), max_id, skipped, counters["errors"])
+
+
+def _run_round(window, workdir, checkpoint_path, results_path, args):
+    """Walk the backlog once by keyset. Returns (errors, skipped) over the round."""
+    after_id = args.after_id
+    errors = skipped = 0
+    while True:
+        print(f"\n===== [loop] window (after_id={after_id or 'none'}) =====")
+        res = _run_pass(after_id, window, workdir, checkpoint_path, results_path, args)
+        errors += res.errors
+        skipped += res.skipped
+        if res.pulled == 0:
+            return errors, skipped
+        if res.max_id <= after_id:
+            print(
+                f"[loop] cursor did not advance (max_id={res.max_id} "
+                f"<= after_id={after_id}) - ending this round to avoid a tight loop."
+            )
+            return errors, skipped
+        after_id = res.max_id
+
+
+def _run_loop(workdir, checkpoint_path, results_path, args):
+    """Marathon: walk the backlog in keyset windows, then walk it again while rows
+    keep failing (--apply only: a dry-run writes nothing, so re-walking would just
+    re-embed everything).
+
+    Each window writes (per BATCH_SIZE INSERT) and checkpoints BEFORE the next, so
+    results reach prod recurrently and a restart resumes from the checkpoint. Run it
+    in a durable terminal. The final line only claims "drained" when no row was
+    left behind: skipped rows still lack an embedding, they are just not retried.
+    """
+    window = args.limit or LOOP_WINDOW_DEFAULT
+    print(
+        f"[loop] marathon: window={window}, workers={args.workers}, "
+        f"apply={args.apply}, start after_id={args.after_id or 'none'}, "
+        f"max_rounds={args.max_rounds}"
+    )
+    errors = skipped = 0
+    for round_no in range(1, args.max_rounds + 1):
+        if round_no > 1:
+            print(f"\n[loop] {errors} error(s): cooling down {args.retry_cooldown}s")
+            time.sleep(args.retry_cooldown)
+        print(f"\n########## [loop] round {round_no}/{args.max_rounds} ##########")
+        errors, skipped = _run_round(window, workdir, checkpoint_path, results_path, args)
+        if not errors or not args.apply:
+            break
+    if not errors and not skipped:
+        print("\n[loop] drained - no candidate left.")
+        return
+    print(
+        f"\n[loop] stopped with rows left: {errors} still in error (re-run to retry), "
+        f"{skipped} skipped by the checkpoint (no_preview, not retried)."
+    )
+
+
 def main(args):
     workdir = os.path.abspath(args.workdir)
     os.makedirs(workdir, exist_ok=True)
@@ -394,40 +520,15 @@ def main(args):
         )
         return
 
-    # 1. PULL — read-only COPY from prod through the documented SSH channel
-    print(
-        f"[pull] fetching candidates from prod (limit={args.limit or 'none'}, "
-        f"after_id={args.after_id or 'none'})..."
-    )
-    csv_text = run_remote_sql(
-        REMOTE_PSQL_PULL, build_pull_query(args.limit, args.after_id)
-    )
-    candidates = parse_candidates(csv_text)
-    _write_csv(
-        os.path.join(workdir, "candidates.csv"), candidates, ["id", "deezer_id"]
-    )
-    done = load_checkpoint(checkpoint_path)
-    fresh = filter_new(candidates, done)
-    print(
-        f"[pull] {len(candidates)} candidate(s), "
-        f"{len(candidates) - len(fresh)} already attempted (checkpoint), "
-        f"{len(fresh)} to embed"
-    )
-    if not fresh:
-        print("Nothing new to embed - done.")
+    if args.loop:
+        _run_loop(workdir, checkpoint_path, results_path, args)
         return
-    _write_csv(os.path.join(workdir, "to_analyze.csv"), fresh, ["id", "deezer_id"])
 
-    # 2. EMBED — in the container (essentia-tensorflow is Linux-only)
-    _docker_build()
-    _docker_embed(workdir, args.workers)
-    results = read_results(results_path)
-
-    # 3. APPLY or dry-run plan
-    apply_or_plan(
-        results, args.apply, checkpoint_path,
-        dim=EMBEDDING_DIM, batch_size=args.batch_size,
+    res = _run_pass(
+        args.after_id, args.limit, workdir, checkpoint_path, results_path, args
     )
+    if res.pulled == 0:
+        print("Nothing new to embed - done.")
 
 
 if __name__ == "__main__":
@@ -480,5 +581,28 @@ if __name__ == "__main__":
         action="store_true",
         help="skip pull+embed and gate/apply the existing <workdir>/results.csv "
         "(e.g. dry-run first, inspect, then --reuse-results --apply)",
+    )
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="marathon mode: repeatedly pull+embed+write a window of --limit rows "
+        f"(default {LOOP_WINDOW_DEFAULT}), advancing a keyset cursor, until the "
+        "backlog is drained. Results reach prod after EVERY window (not once at "
+        "the very end), and a restart resumes from the checkpoint. Pair with "
+        "--apply; run it in a durable terminal.",
+    )
+    parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=LOOP_MAX_ROUNDS_DEFAULT,
+        help="--loop: walk the whole backlog at most this many times while rows "
+        "fail with error:*",
+    )
+    parser.add_argument(
+        "--retry-cooldown",
+        type=int,
+        default=LOOP_RETRY_COOLDOWN_DEFAULT,
+        help="--loop: seconds to wait between two rounds, to let the Deezer rate "
+        "limit lift",
     )
     main(parser.parse_args())

@@ -6,12 +6,17 @@ must not depend on this local-tooling package. Run standalone from the repo root
     pytest worker/embedding_backfill/test_backfill_embeddings.py -q
 """
 
+import argparse
 import json
 
+import pytest
+
+from worker.embedding_backfill import backfill_embeddings as bf
 from worker.embedding_backfill.backfill_embeddings import (
     MODEL_NAME,
     MODEL_VERSION,
     REMOTE_PSQL_APPLY,
+    PassResult,
     apply_or_plan,
     build_insert_batches,
     build_pull_query,
@@ -23,6 +28,23 @@ from worker.embedding_backfill.backfill_embeddings import (
     parse_insert_count,
     reject_ids,
 )
+
+
+def _loop_args(tmp_path, **over):
+    base = dict(
+        workdir=str(tmp_path),
+        reuse_results=False,
+        loop=True,
+        after_id=0,
+        limit=10,
+        workers=2,
+        batch_size=200,
+        apply=False,
+        max_rounds=3,
+        retry_cooldown=0,
+    )
+    base.update(over)
+    return argparse.Namespace(**base)
 
 
 def test_build_pull_query_no_limit():
@@ -82,8 +104,16 @@ def test_eligible_inserts_dim_gate():
 
 
 def test_reject_ids_final_statuses_only():
-    # no_preview / error:* are final; "ok" rows are not rejects
-    assert reject_ids(_results()) == ["3", "4"]
+    # only no_preview is final: "ok" rows are not rejects, error:* stays retryable
+    assert reject_ids(_results()) == ["3"]
+
+
+def test_reject_ids_keeps_rate_limited_rows_retryable():
+    results = [
+        {"id": "1", "status": "error:HTTP429"},
+        {"id": "2", "status": "error:HTTPError"},
+    ]
+    assert reject_ids(results) == []
 
 
 def test_format_vector_literal():
@@ -130,8 +160,8 @@ def test_checkpoint_roundtrip(tmp_path):
         _results(), apply=False, checkpoint_path=str(path), dim=3, runner=None
     )
     assert counters["eligible"] == 2
-    # dry-run: rejects checkpointed, eligible ids NOT (they still need writing)
-    assert load_checkpoint(str(path)) == {"3", "4"}
+    # dry-run: no_preview checkpointed; eligible (to write) and error (to retry) NOT
+    assert load_checkpoint(str(path)) == {"3"}
 
 
 def test_apply_or_plan_dry_run_never_calls_runner(tmp_path):
@@ -175,5 +205,131 @@ def test_apply_or_plan_apply_runs_batches_and_checkpoints(tmp_path):
     assert all(cmd == REMOTE_PSQL_APPLY for cmd, _sql in calls)
     assert "ON CONFLICT (catalog_id, model_name, model_version) DO NOTHING" in calls[0][1]
     assert counters["written"] == 2  # 1 per fake batch
-    # written ids AND rejects both checkpointed after apply
-    assert load_checkpoint(str(path)) == {"1", "2", "3", "4"}
+    # written ids AND no_preview checkpointed after apply; the error row (4) is not
+    assert load_checkpoint(str(path)) == {"1", "2", "3"}
+
+
+def test_error_row_is_pulled_again_on_the_next_run(tmp_path):
+    path = tmp_path / "cp.txt"
+    apply_or_plan(
+        _results(),
+        apply=True,
+        checkpoint_path=str(path),
+        dim=3,
+        runner=lambda cmd, sql: "INSERT 0 2\n",
+    )
+    candidates = [{"id": "3"}, {"id": "4"}]
+    assert filter_new(candidates, load_checkpoint(str(path))) == [{"id": "4"}]
+
+
+def test_loop_advances_cursor_and_stops_on_drain(tmp_path, monkeypatch, capsys):
+    # the 3rd scripted pass pulls nothing past the cursor
+    script = iter([PassResult(10, 100, 0, 0), PassResult(10, 250, 0, 0), PassResult(0, 250, 0, 0)])
+    seen = []
+
+    def fake_run_pass(after_id, limit, workdir, cp, rp, args):
+        seen.append(after_id)
+        return next(script)
+
+    monkeypatch.setattr(bf, "_run_pass", fake_run_pass)
+    bf.main(_loop_args(tmp_path))
+    # cursor advances 0 -> 100 -> 250, then the empty pass ends the round
+    assert seen == [0, 100, 250]
+    assert "drained" in capsys.readouterr().out
+
+
+def test_loop_stops_when_cursor_stalls(tmp_path, monkeypatch):
+    # a window that pulls rows but does not advance max_id must not spin forever
+    script = iter([PassResult(10, 100, 0, 0), PassResult(10, 100, 0, 0)])
+    seen = []
+
+    def fake_run_pass(after_id, limit, workdir, cp, rp, args):
+        seen.append(after_id)
+        return next(script)
+
+    monkeypatch.setattr(bf, "_run_pass", fake_run_pass)
+    bf.main(_loop_args(tmp_path))
+    assert seen == [0, 100]  # 2nd pass: max_id (100) <= after_id (100) -> stop
+
+
+def test_loop_window_defaults_when_no_limit(tmp_path, monkeypatch):
+    limits = []
+
+    def fake_run_pass(after_id, limit, workdir, cp, rp, args):
+        limits.append(limit)
+        return PassResult(0, after_id, 0, 0)  # drain immediately
+
+    monkeypatch.setattr(bf, "_run_pass", fake_run_pass)
+    bf.main(_loop_args(tmp_path, limit=0))
+    assert limits == [bf.LOOP_WINDOW_DEFAULT]
+
+
+def test_loop_retries_errors_after_cooldown(tmp_path, monkeypatch, capsys):
+    # round 1 leaves errors -> cooldown -> round 2 restarts from the start and clears
+    script = iter(
+        [
+            PassResult(10, 100, 0, 3),
+            PassResult(0, 100, 0, 0),
+            PassResult(3, 90, 0, 0),
+            PassResult(0, 90, 0, 0),
+        ]
+    )
+    seen = []
+    sleeps = []
+
+    def fake_run_pass(after_id, limit, workdir, cp, rp, args):
+        seen.append(after_id)
+        return next(script)
+
+    monkeypatch.setattr(bf, "_run_pass", fake_run_pass)
+    monkeypatch.setattr(bf.time, "sleep", sleeps.append)
+    bf.main(_loop_args(tmp_path, apply=True, retry_cooldown=77))
+    assert seen == [0, 100, 0, 90]
+    assert sleeps == [77]
+    assert "drained" in capsys.readouterr().out
+
+
+def test_loop_gives_up_after_max_rounds_without_claiming_drained(
+    tmp_path, monkeypatch, capsys
+):
+    def fake_run_pass(after_id, limit, workdir, cp, rp, args):
+        if after_id == 0:
+            return PassResult(10, 100, 0, 3)
+        return PassResult(0, after_id, 0, 0)
+
+    monkeypatch.setattr(bf, "_run_pass", fake_run_pass)
+    monkeypatch.setattr(bf.time, "sleep", lambda s: None)
+    bf.main(_loop_args(tmp_path, apply=True, max_rounds=2))
+    out = capsys.readouterr().out
+    assert "drained" not in out
+    assert "3 still in error" in out
+
+
+def test_loop_reports_checkpoint_skips_instead_of_drained(tmp_path, monkeypatch, capsys):
+    # the original bug: every remaining row filtered by the checkpoint, "drained" printed
+    def fake_run_pass(after_id, limit, workdir, cp, rp, args):
+        if after_id == 0:
+            return PassResult(10, 100, 10, 0)
+        return PassResult(0, after_id, 0, 0)
+
+    monkeypatch.setattr(bf, "_run_pass", fake_run_pass)
+    monkeypatch.setattr(bf.time, "sleep", lambda s: pytest.fail("no retry expected"))
+    bf.main(_loop_args(tmp_path, apply=True))
+    out = capsys.readouterr().out
+    assert "drained" not in out
+    assert "10 skipped by the checkpoint" in out
+
+
+def test_loop_dry_run_does_not_retry_errors(tmp_path, monkeypatch):
+    seen = []
+
+    def fake_run_pass(after_id, limit, workdir, cp, rp, args):
+        seen.append(after_id)
+        if after_id == 0:
+            return PassResult(10, 100, 0, 3)
+        return PassResult(0, after_id, 0, 0)
+
+    monkeypatch.setattr(bf, "_run_pass", fake_run_pass)
+    monkeypatch.setattr(bf.time, "sleep", lambda s: pytest.fail("no cooldown in dry-run"))
+    bf.main(_loop_args(tmp_path, apply=False))
+    assert seen == [0, 100]

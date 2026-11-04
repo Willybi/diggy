@@ -91,6 +91,9 @@ python worker/embedding_backfill/backfill_embeddings.py
 # embed + écriture en prod
 python worker/embedding_backfill/backfill_embeddings.py --apply
 
+# MARATHON : draine TOUT le backlog en fenêtres successives, sans arrêt
+python worker/embedding_backfill/backfill_embeddings.py --loop --apply --workers 4
+
 # salve keyset (fenêtre d'ids), relançable
 python worker/embedding_backfill/backfill_embeddings.py --after-id 500000 --limit 20000 --apply
 
@@ -99,10 +102,39 @@ python worker/embedding_backfill/backfill_embeddings.py --reuse-results --apply
 ```
 
 Options : `--limit N` (LIMIT du pull), `--after-id N` (reprise keyset : `c.id > N`),
-`--workers K` (threads d'embed dans le conteneur, défaut 2 — EffNet est
-CPU-bound, rester modeste sur un laptop), `--batch-size` (lignes par INSERT,
-défaut 200 : chaque ligne porte un vecteur de 1280 floats), `--workdir` (défaut
-`worker/embedding_backfill/data/`, gitignoré).
+`--loop` (mode marathon, cf. ci-dessous), `--workers K` (threads d'embed dans le
+conteneur, défaut 2 — EffNet est CPU-bound, rester modeste sur un laptop),
+`--batch-size` (lignes par INSERT, défaut 200 : chaque ligne porte un vecteur de
+1280 floats), `--workdir` (défaut `worker/embedding_backfill/data/`, gitignoré).
+
+### Mode marathon (`--loop`)
+
+Sans `--loop`, une invocation fait **un seul** PULL→EMBED→APPLY : elle embedde
+TOUT le lot tiré puis n'écrit qu'à la **toute fin** — inadapté à un rattrapage de
+plusieurs centaines de milliers de lignes (un crash en cours = rien d'écrit,
+récupération via `--reuse-results`). `--loop` transforme ça en **rattrapage
+continu** : il répète des fenêtres de `--limit` lignes (défaut 20000) en avançant
+un **curseur keyset** (`c.id`), jusqu'à ce qu'une fenêtre ne tire plus rien. Chaque
+fenêtre **écrit (par batches de 200) + checkpointe AVANT** la suivante → les
+résultats arrivent en prod **régulièrement**, et un crash/redémarrage **reprend**
+tout seul (les lignes écrites sortent du pull via `te.id IS NULL`, les lignes en
+`error:*` sont retentées, les `no_preview` restent ignorés). Après un tour complet,
+s'il reste des erreurs, la boucle attend `--retry-cooldown` secondes (défaut 1800)
+puis refait un tour, jusqu'à `--max-rounds` tours (défaut 3, `--apply` uniquement).
+La dernière ligne n'annonce `drained` que si rien n'est resté de côté ; sinon elle
+donne le nombre de lignes en erreur et ignorées par le checkpoint. À lancer dans un
+terminal durable (le PC ne doit pas se mettre en veille, Docker Desktop doit rester
+up). Un `--limit` plus bas (ex. 2000) écrit en prod plus souvent.
+
+### Rate-limit Deezer
+
+Un débit soutenu déclenche des HTTP 429 sur le téléchargement des previews, sans
+quota journalier fixe : ralentir suffit. `EMBED_MIN_INTERVAL` règle l'écart entre deux
+appels `/track/{id}` (défaut 0.2 s, `1.0` pour un rattrapage) et cadence donc aussi
+les téléchargements ; `--workers` ne parallélise que le téléchargement et EffNet. Sur
+un 429 ou une erreur de quota Deezer (codes 4/700), `embed.py` met **tous** ses threads
+en pause (`Retry-After` s'il est numérique, sinon 30 s → 5 min, 5 fois au maximum),
+puis déclare la ligne en erreur (`error:HTTP429`) pour un tour suivant.
 
 **Défaut = dry-run** : sans `--apply`, l'INSERT n'est pas exécuté ; le plan est
 affiché (compteurs eligible/no_preview/errors + extrait du SQL).
@@ -128,22 +160,24 @@ salves relançables. Séquence :
 
 ## Checkpoint & fil de l'eau
 
-`data/processed_ids.txt` enregistre les ids **tentés à issue finale** : les rejets
-(`no_preview` / `error:*`) toujours, les ids **écrits** après chaque lot `--apply`
-réussi. Une relance périodique ne re-télécharge donc que les **nouveaux**
-candidats, jamais les rejets connus. Cas particuliers :
+`data/processed_ids.txt` enregistre les ids **à issue finale** : les `no_preview`
+toujours, les ids **écrits** après chaque lot `--apply` réussi. Les `error:*` n'y
+entrent **jamais** : ce sont surtout des rate-limits, ils doivent rester retentables.
+Une relance périodique re-télécharge donc les **nouveaux** candidats et les erreurs
+passées, jamais les `no_preview` connus. Cas particuliers :
 
 - Un `ok` obtenu en dry-run n'est **pas** checkpointé (il reste à écrire) —
   enchaîner avec `--reuse-results --apply` pour l'écrire sans re-embedder.
-- Pour forcer un retry des `error:*` (pannes réseau Deezer), supprimer leurs ids
-  du fichier.
+- Pour retenter aussi les `no_preview` (ou purger un checkpoint antérieur à ce
+  comportement, qui contient des erreurs), le renommer : le fichier ne sert qu'aux
+  lignes sans embedding, les lignes écrites sortent du pull toutes seules.
 - Le pull re-filtre de toute façon `te.id IS NULL` : une ligne écrite sort
   naturellement des candidats au run suivant.
 
 ## Tests
 
 ```bash
-pytest worker/embedding_backfill/test_backfill_embeddings.py -q   # logique pure, sans Essentia/réseau
+pytest worker/embedding_backfill/test_backfill_embeddings.py worker/embedding_backfill/test_embed_rate_limit.py -q   # logique pure, sans Essentia/réseau
 ruff check worker/embedding_backfill/
 ```
 
