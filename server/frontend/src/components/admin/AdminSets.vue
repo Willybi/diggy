@@ -21,12 +21,39 @@
             <span class="sf-card-type">
               {{ flagTypeLabel(flag.flag_type) }} · {{ memberCount(flag) }} sets
             </span>
-            <span v-if="flag.confidence != null" class="sf-card-conf">{{ confPct(flag) }}</span>
+            <span v-if="isTwinFlag(flag)" class="sf-card-conf">{{ twinStepLabel(flag) }}</span>
+            <span v-else-if="flag.confidence != null" class="sf-card-conf">{{
+              confPct(flag)
+            }}</span>
           </div>
           <div class="sf-members">
             <div v-for="(m, i) in visibleMembers(flag)" :key="i" class="sf-member">
-              <span class="sf-member-pos">p. {{ i + 1 }}</span>
-              <span class="sf-member-title">{{ m.title || '—' }}</span>
+              <template v-if="isTwinFlag(flag)">
+                <span class="sf-member-pos sf-member-pos--source">{{ m.sourceLabel }}</span>
+                <div class="sf-member-body">
+                  <span class="sf-member-title">{{ m.title || '—' }}</span>
+                  <div class="sf-member-meta">
+                    <span v-if="m.channel">{{ m.channel }}</span>
+                    <span v-if="m.durationLabel">{{ m.durationLabel }}</span>
+                    <span v-if="m.publishedDate" title="Date de publication YouTube">
+                      Publié le {{ fmtDate(m.publishedDate) }}
+                    </span>
+                    <a
+                      v-if="m.link"
+                      class="sf-member-link"
+                      :href="m.link"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Ouvrir
+                    </a>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <span class="sf-member-pos">p. {{ i + 1 }}</span>
+                <span class="sf-member-title">{{ m.title || '—' }}</span>
+              </template>
               <span v-if="m.eventDate" class="sf-member-date" title="Date de l'événement (titre)">
                 {{ fmtDate(m.eventDate) }}
               </span>
@@ -225,9 +252,69 @@ function flagMembers(flag) {
     return titles.map((title, i) => ({ title, eventDate: dates[i] || null }))
   }
   return [
-    { title: flag.title_a, eventDate: flag.event_date_a || null },
-    { title: flag.title_b, eventDate: flag.event_date_b || null },
+    { title: flag.title_a, eventDate: flag.event_date_a || null, ...twinMember(flag, 'a') },
+    { title: flag.title_b, eventDate: flag.event_date_b || null, ...twinMember(flag, 'b') },
   ]
+}
+
+// ── Paires YouTube/TrackID (signals.twin_rule) : aucun morceau commun, la revue
+// s'appuie sur la source, la chaîne, la durée et le lien de chaque set. ──
+const TWIN_STEP_LABELS = {
+  video: 'Même vidéo',
+  date: 'Même date',
+  channel: 'Même chaîne',
+}
+const SOURCE_LABELS = { youtube: 'YouTube', trackid: 'TrackID' }
+// Comparées sur le début du texte : certaines raisons portent un suffixe ou une liste.
+const TWIN_REASON_LABELS = [
+  ['collaboration marker', "B2B d'un seul côté"],
+  ['number in one title only', "Numéro d'un seul côté"],
+  ['short title', 'Titre court'],
+  ['one-word title', "Titre d'un mot"],
+  ['uploaded long after the event', 'Publié longtemps après'],
+  // Texte réel de la règle : set_twin_rules préfixe cette raison par « same date, ».
+  ['same date, each title has own words', 'Mots propres à chaque titre'],
+  ['each title has own words', 'Mots propres à chaque titre'],
+  ['ambiguous: several candidates', 'Plusieurs candidats'],
+  ['ambiguous: several youtube sets on one twin', 'Plusieurs vidéos sur ce set'],
+  ['youtube set already in another family', 'Vidéo déjà rattachée ailleurs'],
+  ['youtube set has too many channel candidates', 'Chaîne trop fournie'],
+]
+
+function isTwinFlag(flag) {
+  return Boolean(flag.signals?.twin_rule)
+}
+function twinStepLabel(flag) {
+  const step = flag.signals.twin_rule
+  return TWIN_STEP_LABELS[step] || step
+}
+function twinReasonLabel(reason) {
+  const match = TWIN_REASON_LABELS.find(([prefix]) => reason.startsWith(prefix))
+  return match ? match[1] : reason
+}
+function twinChips(flag) {
+  const { reason, dd } = flag.signals
+  const chips = []
+  if (reason) chips.push(twinReasonLabel(reason))
+  if (typeof dd === 'number') chips.push(`écart durée ${Math.round(dd * 100)}\u00A0%`)
+  return chips
+}
+// source_url vient de données crawlées : seul un lien web devient cliquable.
+function safeLink(url) {
+  return /^https?:\/\//i.test(url || '') ? url : null
+}
+// Champs affichés sous le titre, absents hors flags twin_rule.
+function twinMember(flag, side) {
+  if (!isTwinFlag(flag)) return {}
+  const source = flag[`source_${side}`]
+  const durationMs = flag[`duration_ms_${side}`]
+  return {
+    sourceLabel: SOURCE_LABELS[source] || source || '—',
+    channel: flag[`channel_${side}`] || null,
+    durationLabel: durationMs ? `${Math.round(durationMs / 60000)}\u00A0min` : null,
+    publishedDate: source === 'youtube' ? flag[`played_date_${side}`] || null : null,
+    link: safeLink(flag[`source_url_${side}`]),
+  }
 }
 function memberCount(flag) {
   return flagMembers(flag).length
@@ -252,6 +339,7 @@ function confPct(flag) {
 
 // Chips de signaux homogènes (D11) : tous rendus de même nature.
 function signalChips(flag) {
+  if (isTwinFlag(flag)) return twinChips(flag)
   const s = flag.signals || {}
   const chips = []
   if (Array.isArray(s.part_numbers) && s.part_numbers.length) {
@@ -627,6 +715,37 @@ async function runLinkSets() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Paire twin_rule : source à la place de « p. N », détails sous le titre. */
+.sf-member-pos--source {
+  width: 58px;
+}
+.sf-member-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+/* Le titre est l'élément à comparer : il passe à la ligne au lieu d'être tronqué. */
+.sf-member-body .sf-member-title {
+  flex: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.sf-member-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font: 400 var(--fs-xs)/1.3 var(--font-ui);
+  color: var(--ink-3);
+}
+.sf-member-link {
+  color: var(--ink-2);
+  text-decoration: underline;
+}
+.sf-member-link:hover {
+  color: var(--ink);
 }
 /* Date d'événement (C13.e) : jeton mono discret, désambiguïse la paire. */
 .sf-member-date {

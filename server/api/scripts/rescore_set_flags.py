@@ -11,7 +11,10 @@ candidates.
 
 Scope (STRICT): only ``flag_type = duplicate_candidate`` PAIR flags in status
 ``pending`` — ``set_id_b IS NOT NULL`` and ``group_key IS NULL``. Group flags
-(``part_candidate`` / ``part_overlap_anomaly``) are left entirely alone.
+(``part_candidate`` / ``part_overlap_anomaly``) are left entirely alone. So are the
+twin flags (``twin_rule`` in ``signals``, written by ``set_twin_service``): a YouTube
+set has no tracklist, so the composite score would read them as noise. They are only
+counted, apart, in the summary.
 
 For each targeted flag:
   1. ``score_pair(db, set_id_a, set_id_b)`` → (signals, confidence). ``None`` when
@@ -136,6 +139,8 @@ DECISION_AUTO_ATTACHED = "AUTO-ATTACH"
 # a duplicate. Rejected regardless of overlap, after the event-date guard.
 DECISION_EPISODE_REJECTED = "REJET-ÉPISODE"
 DECISION_UNSCORABLE = "NON-RESCORABLE"
+# Twin flag (set_twin_service): neither re-scored, nor rejected, nor attached.
+DECISION_TWIN_IGNORED = "IGNORÉ-JUMEAU"
 
 # --- Episode-number extraction (--reject-episodes) --------------------------
 # A number tied to an emission keyword (radio 200, vol. 71, ep 12, #676, session 9)
@@ -324,6 +329,24 @@ async def rescore_flags(
     outcomes: list[RescoreOutcome] = []
 
     for flag in flags:
+        if "twin_rule" in (flag.signals or {}):
+            set_a = await db.get(DJSet, flag.set_id_a)
+            set_b = await db.get(DJSet, flag.set_id_b)
+            outcomes.append(
+                RescoreOutcome(
+                    flag_id=flag.id,
+                    set_id_a=flag.set_id_a,
+                    set_id_b=flag.set_id_b,
+                    title_a=set_a.title if set_a is not None else None,
+                    title_b=set_b.title if set_b is not None else None,
+                    old_confidence=flag.confidence,
+                    new_confidence=None,
+                    verdict=None,
+                    decision=DECISION_TWIN_IGNORED,
+                )
+            )
+            continue
+
         scored = await score_pair(db, flag.set_id_a, flag.set_id_b)
         # score_pair already loaded both rows into the identity map → db.get is a
         # cache hit, no extra query (and never gathered — one shared session).
@@ -582,6 +605,7 @@ def _print_report(outcomes: list[RescoreOutcome], threshold: float, apply: bool)
     )
     attached = sum(1 for o in outcomes if o.decision == DECISION_AUTO_ATTACHED)
     unscorable = sum(1 for o in outcomes if o.decision == DECISION_UNSCORABLE)
+    twin_ignored = sum(1 for o in outcomes if o.decision == DECISION_TWIN_IGNORED)
     # Group breakdown (part_candidate): attaches folded into AUTO-ATTACH, divergent
     # ones into GARDÉ — the pairwise-only kept count is derived by subtracting them
     # (groups never rewrite confidence/signals: they are attached or left pending).
@@ -604,7 +628,8 @@ def _print_report(outcomes: list[RescoreOutcome], threshold: float, apply: bool)
         f"\n[résumé] {len(outcomes)} flag(s) traité(s) — "
         f"GARDÉ={kept} | AUTO-REJET={rejected} | REJET-DATES={event_rejected} | "
         f"REJET-ÉPISODE={episode_rejected} | AUTO-ATTACH={attached}"
-        f"{group_attach_note} | NON-RESCORABLE={unscorable}"
+        f"{group_attach_note} | NON-RESCORABLE={unscorable} | "
+        f"IGNORÉ-JUMEAU={twin_ignored}"
     )
     if group_kept:
         print(

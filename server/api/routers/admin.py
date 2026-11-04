@@ -344,6 +344,9 @@ async def remove_set_artist(
 
 # ---------- Set Flags ----------
 
+# Per-set context exposed on a pair flag only, suffixed _a / _b like event_date_a.
+_FLAG_PAIR_SET_FIELDS = ("channel", "duration_ms", "source_url", "played_date", "source")
+
 
 @router.get("/set-flags", response_model=SetFlagListResponse)
 async def list_set_flags(
@@ -373,6 +376,8 @@ async def list_set_flags(
                 SetB.title.label("title_b"),
                 SetA.event_date.label("event_date_a"),
                 SetB.event_date.label("event_date_b"),
+                *(getattr(SetA, f).label(f"{f}_a") for f in _FLAG_PAIR_SET_FIELDS),
+                *(getattr(SetB, f).label(f"{f}_b") for f in _FLAG_PAIR_SET_FIELDS),
             )
             .join(SetA, SetFlag.set_id_a == SetA.id)
             .outerjoin(SetB, SetFlag.set_id_b == SetB.id)
@@ -429,6 +434,17 @@ async def list_set_flags(
                     for mid in (row.SetFlag.member_set_ids or [])
                 ]
             ),
+            # A group flag's set_id_a is just its lowest member: its fields would
+            # describe one arbitrary member, so this context stays pair-only.
+            **(
+                {}
+                if row.SetFlag.member_set_ids
+                else {
+                    f"{f}_{side}": getattr(row, f"{f}_{side}")
+                    for f in _FLAG_PAIR_SET_FIELDS
+                    for side in ("a", "b")
+                }
+            ),
         )
         for row in rows
     ]
@@ -448,6 +464,8 @@ async def attach_set_flag(
         )
     except LookupError as e:
         raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     await _audit(db, admin, "attach_set_flag", "set_flag", flag_id, audit_details)
     await db.commit()

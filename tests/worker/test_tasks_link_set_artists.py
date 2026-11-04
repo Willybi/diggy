@@ -506,3 +506,69 @@ class TestSelectUnlinkedSets:
             )
         s.commit()
         assert len(artists_mod._select_unlinked_sets(s, 2)) == 2
+
+    def test_takes_unlinked_virtual_parent_but_not_its_child(
+        self, artists_mod, unit_session
+    ):
+        s = unit_session
+        parent = DJSet(
+            source="virtual",
+            is_virtual=True,
+            title="Parent Without DJ",
+            created_at=_datetime(2026, 9, 2, tzinfo=_timezone.utc),
+        )
+        s.add(parent)
+        s.flush()
+        child = DJSet(
+            source="youtube",
+            title="Attached Child",
+            parent_set_id=parent.id,
+            created_at=_datetime(2026, 9, 3, tzinfo=_timezone.utc),
+        )
+        s.add(child)
+        s.commit()
+
+        ids = {r.id for r in artists_mod._select_unlinked_sets(s, 100)}
+
+        assert ids == {parent.id}
+
+
+class TestLinkVirtualParent:
+    def test_links_parent_from_its_title_and_channel(
+        self, linked_env, task_engine, lock_self
+    ):
+        with Session(task_engine) as s:
+            title_dj = Artist(name="Ben UFO", normalized_name="ben ufo")
+            channel_dj = Artist(name="Objekt", normalized_name="objekt")
+            s.add_all([title_dj, channel_dj])
+            s.flush()
+            title_dj_id, channel_dj_id = title_dj.id, channel_dj.id
+            title_parent = DJSet(
+                source="virtual",
+                is_virtual=True,
+                title="Ben UFO - Live at Fabric",
+                channel="Boiler Room",
+                created_at=_datetime(2026, 9, 2, tzinfo=_timezone.utc),
+            )
+            channel_parent = DJSet(
+                source="virtual",
+                is_virtual=True,
+                title="Live at Fabric",
+                channel="Objekt",
+                created_at=_datetime(2026, 9, 1, tzinfo=_timezone.utc),
+            )
+            s.add_all([title_parent, channel_parent])
+            s.commit()
+            title_parent_id = title_parent.id
+            channel_parent_id = channel_parent.id
+
+        result = linked_env.link_set_artists(lock_self)
+
+        assert result["sets_processed"] == 2
+        with Session(task_engine) as s:
+            links = {
+                (link.set_id, link.artist_id)
+                for link in s.execute(select(SetArtist)).scalars()
+            }
+        assert (title_parent_id, title_dj_id) in links
+        assert (channel_parent_id, channel_dj_id) in links

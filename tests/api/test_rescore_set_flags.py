@@ -20,9 +20,11 @@ from scripts.rescore_set_flags import (
     DECISION_EVENT_REJECTED,
     DECISION_KEPT,
     DECISION_REJECTED,
+    DECISION_TWIN_IGNORED,
     DECISION_UNSCORABLE,
     RescoreOutcome,
     _episode_number,
+    _print_report,
     rescore_flags,
 )
 from services.set_dedup_service import MatchVerdict
@@ -93,6 +95,33 @@ async def _make_pair_flag(db, set_a, set_b, *, confidence, signals):
     db.add(f)
     await db.flush()
     return f
+
+
+# ---------------------------------------------------------------------------
+# Twin flags: neither re-scored, nor rejected, nor attached
+# ---------------------------------------------------------------------------
+
+
+class TestTwinFlagsIgnored:
+    async def test_twin_flag_is_left_alone_and_counted_apart(self, db, capsys):
+        a = await _make_set(db, "Set A", normalized_title="alpha beta gamma")
+        b = await _make_set(db, "Set B", source="youtube", normalized_title="delta")
+        signals = {"twin_rule": "channel", "reason": "number in one title only"}
+        flag = await _make_pair_flag(db, a.id, b.id, confidence=None, signals=signals)
+
+        outcomes = await rescore_flags(
+            db, apply=True, auto_attach=True, reject_episodes=True
+        )
+
+        assert [o.decision for o in outcomes] == [DECISION_TWIN_IGNORED]
+        assert flag.status == SetFlagStatus.pending
+        assert flag.confidence is None
+        assert flag.signals == signals
+        assert a.parent_set_id is None
+        assert b.parent_set_id is None
+
+        _print_report(outcomes, 0.30, apply=False)
+        assert "IGNORÉ-JUMEAU=1" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

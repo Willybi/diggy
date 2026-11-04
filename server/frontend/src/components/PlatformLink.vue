@@ -29,7 +29,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  platform: { type: String, required: true }, // beatport|deezer|tidal|soundcloud|youtube|spotify|trackid|1001tl
+  platform: { type: String, required: true }, // beatport|deezer|tidal|soundcloud|youtube|spotify|trackid|1001tl|mixcloud
   href: { type: String, default: '' },
   size: { type: String, default: 'md' }, // 'md' 38px · 'sm' 30px
   variant: { type: String, default: 'button' }, // 'button' | 'glyph'
@@ -49,7 +49,12 @@ const LOGO_PATHS = {
   trackid:
     'M10 3a7 7 0 0 1 5.5 11.3l5 5-1.7 1.7-5-5A7 7 0 1 1 10 3zm0 2.4a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2z',
   '1001tl': 'M3.5 6h17v2.4h-17zM3.5 10.8h17v2.4h-17zM3.5 15.6h17V18h-17z',
+  mixcloud: 'M6.5 18a4.5 4.5 0 0 1-.6-8.96A6.5 6.5 0 0 1 18.3 9.6 4.2 4.2 0 0 1 17.5 18z',
 }
+
+// Any other platform still gets a visible, clickable tile.
+const GENERIC_LOGO_PATH =
+  'M14 3h7v7h-2.4V7.1l-8.2 8.2-1.7-1.7 8.2-8.2H14zM5 5h6v2.4H7.4v9.2h9.2V13H19v6H5z'
 
 const PLATFORM_NAMES = {
   beatport: 'Beatport',
@@ -60,9 +65,10 @@ const PLATFORM_NAMES = {
   spotify: 'Spotify',
   trackid: 'TrackID',
   '1001tl': '1001Tracklists',
+  mixcloud: 'Mixcloud',
 }
 
-const path = computed(() => LOGO_PATHS[props.platform] || '')
+const path = computed(() => LOGO_PATHS[props.platform] || GENERIC_LOGO_PATH)
 const name = computed(() => PLATFORM_NAMES[props.platform] || props.platform)
 </script>
 

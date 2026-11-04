@@ -263,4 +263,16 @@ async def import_audiostream(
             "post-import dedup failed for set %s", dj_set.id, exc_info=True
         )
 
+    # Twin control against the YouTube sets, which have no tracklist for match_set
+    # to compare. Database only, so it holds for the offline clean import too.
+    try:
+        from services.set_twin_service import reconcile_twins_best_effort
+
+        await reconcile_twins_best_effort(db, dj_set)
+    except Exception:
+        # a failure must never abort import
+        logger.warning(
+            "post-import twin reconcile failed for set %s", dj_set.id, exc_info=True
+        )
+
     return dj_set, track_count

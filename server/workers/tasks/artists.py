@@ -2451,10 +2451,11 @@ def _load_artist_lookup(session):
 
 
 def _select_unlinked_sets(session, limit):
-    """Newest TrackID/YouTube root sets with NO artist link yet, capped at ``limit``.
+    """Newest TrackID/YouTube/virtual root sets with NO artist link, capped at ``limit``.
 
-    Fil-de-l'eau selection: ``source in ('trackid', 'youtube')`` (C14.b: the
-    source-agnostic artist extraction runs on YouTube DJ sets too), roots only
+    Fil-de-l'eau selection: ``source in ('trackid', 'youtube', 'virtual')`` (C14.b:
+    the source-agnostic artist extraction runs on YouTube DJ sets too, and on dedup
+    virtual parents, the only listed row once children are attached), roots only
     (``parent_set_id IS NULL``), and no existing ``set_artists`` row
     (``NOT EXISTS``). Ordered newest-first (``created_at`` desc, ``id`` desc
     tie-break). The ``NOT EXISTS`` guard makes a re-run over the same window a
@@ -2471,7 +2472,7 @@ def _select_unlinked_sets(session, limit):
     stmt = (
         select(DJSet)
         .where(
-            DJSet.source.in_(("trackid", "youtube")),
+            DJSet.source.in_(("trackid", "youtube", "virtual")),
             DJSet.parent_set_id.is_(None),
             ~linked_exists,
         )
@@ -3235,10 +3236,65 @@ async def _check_releases(engine, artist_ids, now):
     return stats
 
 
+def _parent_activity_source(source_url):
+    """Activity source of a virtual parent: its 'virtual' source is an internal
+    dedup detail, so report where its URL actually points."""
+    url = (source_url or "").lower()
+    return "youtube" if "youtube.com" in url or "youtu.be" in url else "trackid"
+
+
+def _load_parent_activity_guards(session, parent_ids, followed_ids, window_start):
+    """Batch-load what can veto an activity on a virtual parent.
+
+    Returns ``(known_parent_ids, covered)``. ``known_parent_ids``: parents with a
+    child older than the window, so an already-known performance (a NULL
+    ``created_at`` is not proven recent, as in the main query). ``covered``:
+    ``(artist_id, parent_id)`` pairs whose artist already has a 'set' activity on
+    the parent or one of its children, whatever its source (a parent's URL, hence
+    its source, can change when a child is attached).
+    """
+    from models import ArtistActivity, DJSet
+    from sqlalchemy import or_, select
+
+    if not parent_ids:
+        return set(), set()
+
+    known_parent_ids = set()
+    parent_by_external_id = {str(pid): pid for pid in parent_ids}
+    children = session.execute(
+        select(
+            DJSet.id,
+            DJSet.parent_set_id,
+            or_(DJSet.created_at.is_(None), DJSet.created_at < window_start),
+        ).where(DJSet.parent_set_id.in_(parent_ids))
+    ).all()
+    for child_id, parent_id, is_old in children:
+        parent_by_external_id[str(child_id)] = parent_id
+        if is_old:
+            known_parent_ids.add(parent_id)
+
+    activities = session.execute(
+        select(ArtistActivity.artist_id, ArtistActivity.external_id).where(
+            ArtistActivity.activity_type == "set",
+            ArtistActivity.artist_id.in_(followed_ids),
+            ArtistActivity.external_id.in_(list(parent_by_external_id)),
+        )
+    ).all()
+    covered = {
+        (artist_id, parent_by_external_id[external_id])
+        for artist_id, external_id in activities
+    }
+    return known_parent_ids, covered
+
+
 def _check_new_sets(engine, followed_ids, now):
     """Sets volet (DB only, no external call): record an activity for every
-    recently-imported set that features a followed artist. The 48h window is
-    wider than the daily cadence; the unique constraint dedups the overlap."""
+    recently-imported root set that features a followed artist. The 48h window is
+    wider than the daily cadence; the unique constraint dedups the overlap.
+
+    A dedup virtual parent is a fresh row over possibly old sets, so it only counts
+    as new when no child predates the window and no child already has an activity
+    for that artist."""
     from datetime import timedelta
 
     from models import DJSet, SetArtist
@@ -3262,6 +3318,9 @@ def _check_new_sets(engine, followed_ids, now):
             .join(DJSet, DJSet.id == SetArtist.set_id)
             .where(
                 SetArtist.artist_id.in_(followed_ids),
+                # Roots only: a virtual parent carries a copy of its children's
+                # DJ links, a performance must surface once.
+                DJSet.parent_set_id.is_(None),
                 DJSet.created_at.isnot(None),
                 DJSet.created_at >= window_start,
                 # A set whose own date is unknown or older than the floor is not a
@@ -3273,18 +3332,34 @@ def _check_new_sets(engine, followed_ids, now):
             )
         ).all()
 
+        known_parent_ids, covered = _load_parent_activity_guards(
+            session,
+            {dj_set.id for _, dj_set in rows if dj_set.is_virtual},
+            followed_ids,
+            window_start,
+        )
+
         for artist_id, dj_set in rows:
-            if _activity_exists(
-                session, artist_id, "set", dj_set.source, str(dj_set.id)
-            ):
-                continue
+            if dj_set.is_virtual:
+                if (
+                    dj_set.id in known_parent_ids
+                    or (artist_id, dj_set.id) in covered
+                ):
+                    continue
+                source = _parent_activity_source(dj_set.source_url)
+            else:
+                source = dj_set.source
+                if _activity_exists(
+                    session, artist_id, "set", source, str(dj_set.id)
+                ):
+                    continue
             from models import ArtistActivity
 
             session.add(
                 ArtistActivity(
                     artist_id=artist_id,
                     activity_type="set",
-                    source=dj_set.source,
+                    source=source,
                     external_id=str(dj_set.id),
                     title=dj_set.title,
                     external_url=dj_set.source_url,

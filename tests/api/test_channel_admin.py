@@ -222,6 +222,86 @@ class TestChannelCandidates:
         # Real Chan (relevance 1) ranks before Excluded Chan (relevance 0).
         assert names.index("Real Chan") < names.index("Excluded Chan")
 
+    async def _virtual_parent(self, db, *, channel_canonical=None, unreliable=False):
+        parent = DJSet(
+            source="virtual",
+            is_virtual=True,
+            title="Parent",
+            channel_canonical=channel_canonical,
+            unreliable=unreliable,
+        )
+        db.add(parent)
+        await db.flush()
+        return parent
+
+    async def _child(self, db, parent, title):
+        child = DJSet(source="trackid", title=title, parent_set_id=parent.id)
+        db.add(child)
+        await db.flush()
+        return child
+
+    async def test_attached_trackid_set_counts_through_its_root(self, db):
+        # The parent has no channel_canonical and the DJ sits on the parent only:
+        # the sole path from the channel to that DJ is child → root.
+        parent = await self._virtual_parent(db)
+        dj = await _artist(db, "Parent DJ", deezer_id="9300")
+        await _cohort(db, dj, tier=1)
+        await _link_set_artist(db, parent.id, dj.id)
+        child = await self._child(db, parent, "attached child")
+        await _tid(db, "Z Attached Chan", 1000, set_id=child.id)
+
+        plain = await _set(db, "plain set")
+        await _tid(db, "A Plain Chan", 1001, set_id=plain.id)
+        await db.commit()
+
+        items = (await channel_service.list_candidates(db))["items"]
+
+        # Relevance 1 beats the alphabetical tie-break that favours the plain one.
+        assert [i["name"] for i in items] == ["Z Attached Chan", "A Plain Chan"]
+
+    async def test_set_counts_once_per_channel_across_paths(self, db):
+        # Three paths to one root: two attached children + the parent's canonical.
+        parent = await self._virtual_parent(db, channel_canonical="A Attached")
+        first = await self._child(db, parent, "child one")
+        second = await self._child(db, parent, "child two")
+        await _tid(db, "A Attached", 1010, set_id=first.id)
+        await _tid(db, "A Attached", 1011, set_id=second.id)
+
+        # Same indexed volume, but two genuinely distinct sets.
+        for i in range(2):
+            plain = await _set(db, f"plain {i}")
+            await _tid(db, "B Two Sets", 1012 + i, set_id=plain.id)
+        await db.commit()
+
+        items = (await channel_service.list_candidates(db))["items"]
+
+        # Set volume 1 vs 2 decides, against the alphabetical tie-break.
+        assert [i["name"] for i in items] == ["B Two Sets", "A Attached"]
+        attached = items[1]
+        assert attached["trackid_count"] == 2  # indexed rows, not sets
+        assert attached["set_count"] == 1
+        assert items[0]["set_count"] == 2
+
+    async def test_attached_set_follows_reliability_of_its_root(self, db):
+        # A reliable child under an unreliable parent is not attributed to the
+        # channel: the reliability filter applies to the root. The channel still
+        # exists through trackid_index, with zero relevance.
+        parent = await self._virtual_parent(db, unreliable=True)
+        dj = await _artist(db, "Hidden DJ", deezer_id="9301")
+        await _cohort(db, dj, tier=1)
+        await _link_set_artist(db, parent.id, dj.id)
+        child = await self._child(db, parent, "reliable child")
+        await _tid(db, "Hidden Root Chan", 1020, set_id=child.id)
+
+        visible = await _set(db, "visible set")
+        await _tid(db, "A Plain Chan", 1021, set_id=visible.id)
+        await db.commit()
+
+        items = (await channel_service.list_candidates(db))["items"]
+
+        # Were the child reliable on its own account, relevance 1 would rank it first.
+        assert [i["name"] for i in items] == ["A Plain Chan", "Hidden Root Chan"]
+
     async def test_excludes_already_curated_and_null_channels(self, admin_client, db):
         # A channel already in `channels` is not proposed again.
         await _channel(db, "Known", external_id="UCknown")

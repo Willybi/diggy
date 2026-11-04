@@ -64,6 +64,10 @@ docker compose exec -T nginx nginx -t && docker compose exec -T nginx nginx -s r
 ```
 (Throwaway : vit dans le container, disparaît au recreate. Ne touche aucun fichier du repo.)
 
+## 4 bis. Obstacles API au démarrage (constatés 2026-11-04, C14-dedup-yt)
+- **`workers/` masqué** : `docker-compose.override.yml` monte `./server/api:/app` sur le service `api` sans `./server/workers:/app/workers`, ce qui masque le dossier copié dans l'image. Comme l'API importe `workers`, elle ne démarre pas. Contournement sans toucher au fichier suivi : un override dans le scratchpad qui ajoute ce montage, passé avec un `-f` supplémentaire.
+- **Image MinIO inaccessible** : si le pull renvoie 401 (quay.io), démarrer l'API sans le contrôle des buckets via un script de lancement dans le scratchpad. Les artworks ne s'afficheront pas, ce qui ne gêne pas une vérification de layout sans image.
+
 ## 5. Seed synthétique + JWT
 Le volume local est souvent **vide** (`SELECT count(*) FROM catalog` = 0) → seeder des lignes synthétiques suffisantes pour faire rendre les tables : `users` (id=2), `catalog`, `radar_trends` (pour /radar/feed), `sets` + `set_tracks` (identifiés, sinon exclus par le HAVING), `watched_entities`, `user_opinions`.
 - **Avis d'un track** = `user_opinions(user_id, entity_type='track', entity_key='<catalog_id>', opinion='disliked')`. Pour tester le **dim des cellules score dislikées de Radar** : mettre la même entrée catalog dans `radar_trends` ET dislikée.

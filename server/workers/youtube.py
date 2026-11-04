@@ -18,14 +18,14 @@ Network cores + pure helpers:
 - :func:`resolve_channel_id` — a URL/handle → the « UC… » channel id.
 - :func:`fetch_channel_title` — a « UC… » channel id → its display title.
 - :func:`search_channels` — a free-text query → N channel hits (add-by-search).
-- :func:`find_duplicate_set` — ultra-conservative cross-source set dedup.
-- :func:`upsert_youtube_set` — dedup-then-upsert a metadata-only YouTube ``DJSet``.
+- :func:`upsert_youtube_set` — upsert a metadata-only YouTube ``DJSet``, then
+  reconcile a new row with its twins.
 
 Guiding rule, mirroring the rest of the pipeline (project invariant #4 — err
-toward separation): the dedup only skips creation on a match of VERY high
-confidence; anything less creates a fresh row (a duplicate is cheap storage, a
-bad merge is corruption). And, like :class:`~workers.async_http.DeezerHTTPError`,
-an HTTP failure raises a typed error and stamps nothing.
+toward separation): the row is always created, and only attached to another set
+through ``services.set_twin_service`` (a duplicate is cheap storage, a bad merge is
+corruption). And, like :class:`~workers.async_http.DeezerHTTPError`, an HTTP failure
+raises a typed error and stamps nothing.
 """
 
 import logging
@@ -36,8 +36,9 @@ from datetime import datetime, timezone
 import httpx
 from defusedxml.ElementTree import fromstring as _xml_fromstring
 from models import DJSet
-from services.set_dedup_service import normalize_set_title, token_set_ratio
-from sqlalchemy import or_, select
+from services.set_dedup_service import normalize_set_title
+from services.set_twin_service import reconcile_twins_best_effort
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import search_fold
 from workers.set_title_meta import canonicalize_channel, extract_event_date
@@ -71,9 +72,6 @@ YOUTUBE_BACKFILL_MAX_VIDEOS = int(os.environ.get("YOUTUBE_BACKFILL_MAX_VIDEOS", 
 YOUTUBE_MIN_SET_DURATION_SECONDS = int(
     os.environ.get("YOUTUBE_MIN_SET_DURATION_SECONDS", "1800")
 )
-
-# Cross-source dedup title threshold — high on purpose (see find_duplicate_set).
-YOUTUBE_DEDUP_TITLE_RATIO = float(os.environ.get("YOUTUBE_DEDUP_TITLE_RATIO", "0.8"))
 
 # Callers' canonical default key; the cores take the key as an explicit arg so no
 # core reads the env implicitly.
@@ -543,75 +541,24 @@ async def search_channels(
     return out
 
 
-# ── Cross-source dedup + upsert ──────────────────────────────────────────────
-
-
-def _channel_key(channel: str | None) -> str | None:
-    """A canonical, fold-comparable key for a channel, or ``None`` when unknown.
-
-    Runs the raw channel through the C13.e gazetteer canonicaliser, then
-    :func:`search_fold` so two spellings of the same channel across sources
-    ("Boiler Room" / "boiler room") compare equal.
-    """
-    canonical = canonicalize_channel(channel)
-    if not canonical:
-        return None
-    return search_fold(canonical) or None
-
-
-async def find_duplicate_set(
-    db: AsyncSession, title: str, channel: str | None, event_date
-) -> DJSet | None:
-    """Find an existing set (ANY source) that is the SAME performance, or ``None``.
-
-    Ultra-conservative (invariant #4 — err toward separation): the match only
-    fires on the CONJUNCTION of three strong gates, so we only ever skip creating
-    a fresh row when confidence is very high:
-
-    1. a RELIABLE shared date — ``event_date`` must be present, and a candidate
-       matches on ``event_date`` OR (fallback) its historical ``played_date``;
-    2. the SAME canonical channel (via :func:`_channel_key`); and
-    3. a base-title token overlap ≥ :data:`YOUTUBE_DEDUP_TITLE_RATIO` (0.8),
-       computed on :func:`normalize_set_title`'s ``base_title`` (channel/date
-       stripped) so cross-source title noise doesn't defeat the match.
-
-    Missing any gate → ``None`` (create a separate row): a duplicate is cheap,
-    a bad cross-source merge is corruption. Without a reliable ``event_date`` the
-    title alone is too weak to dedup across sources, so we abstain outright.
-    """
-    if event_date is None:
-        return None
-    incoming_channel_key = _channel_key(channel)
-    if not incoming_channel_key:
-        return None
-    incoming_base = normalize_set_title(title or "", channel).base_title
-
-    result = await db.execute(
-        select(DJSet).where(
-            or_(DJSet.event_date == event_date, DJSet.played_date == event_date)
-        )
-    )
-    for cand in result.scalars():
-        if _channel_key(cand.channel) != incoming_channel_key:
-            continue
-        cand_base = normalize_set_title(cand.title or "", cand.channel).base_title
-        if token_set_ratio(incoming_base, cand_base) >= YOUTUBE_DEDUP_TITLE_RATIO:
-            return cand
-    return None
+# ── Upsert ───────────────────────────────────────────────────────────────────
 
 
 async def upsert_youtube_set(
     db: AsyncSession, *, video: dict, channel_name: str
 ) -> tuple[DJSet, bool]:
-    """Dedup-then-upsert a metadata-only YouTube ``DJSet``. Returns (set, created).
+    """Upsert a metadata-only YouTube ``DJSet``. Returns (set, created).
 
-    Cross-source dedup runs first (:func:`find_duplicate_set`): a hit returns
-    ``(existing, False)`` and creates nothing. Otherwise the row is upserted on
-    ``(external_id=video_id, source='youtube')`` — updated in place if present,
-    else added. The set is METADATA-ONLY: no ``SetTrack`` rows. ``duration_ms``
+    The row is upserted on ``(external_id=video_id, source='youtube')`` — updated
+    in place if present, else added, even when a twin exists under another source:
+    it keeps the YouTube link and the duration, and spares the next crawl a second
+    durations lookup. The set is METADATA-ONLY: no ``SetTrack`` rows. ``duration_ms``
     is taken from ``video`` when the caller (L5) has enriched it. Artwork upload
     from the thumbnail is best-effort (never blocks). The row is flushed so its
     id is available.
+
+    A new row is then reconciled with its twins, best-effort: a failure never undoes
+    the creation. It runs after the artwork so a virtual parent can inherit it.
     """
     video_id = video["video_id"]
     title = video.get("title") or "Untitled"
@@ -619,11 +566,6 @@ async def upsert_youtube_set(
     played_date = published.date() if published else None
     event_date = extract_event_date(title)
     now = datetime.now(timezone.utc)
-
-    # Cross-source dedup — a set already indexed elsewhere is not re-created.
-    dup = await find_duplicate_set(db, title, channel_name, event_date)
-    if dup is not None:
-        return dup, False
 
     result = await db.execute(
         select(DJSet).where(
@@ -680,5 +622,8 @@ async def upsert_youtube_set(
             logger.warning(
                 "youtube artwork upload failed for set %s", dj_set.id, exc_info=True
             )
+
+    if created:
+        await reconcile_twins_best_effort(db, dj_set)
 
     return dj_set, created

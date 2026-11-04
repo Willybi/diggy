@@ -114,6 +114,31 @@ class TestGetConnections:
         assert result[0]["shared_sets"] == 1
         assert result[0]["components"]["sets"] > 0
 
+    async def test_parent_and_children_count_as_one_shared_set(self, db):
+        # A virtual parent carries a copy of its children's DJ links.
+        from models import Artist, DJSet, SetArtist
+        from services import artist_connection_service
+
+        a1 = Artist(name="Parent DJ A", normalized_name="parent-dj-a")
+        a2 = Artist(name="Parent DJ B", normalized_name="parent-dj-b")
+        parent = DJSet(source="virtual", is_virtual=True, title="Parent")
+        db.add_all([a1, a2, parent])
+        await db.flush()
+        first = DJSet(source="trackid", title="Child 1", parent_set_id=parent.id)
+        second = DJSet(source="youtube", title="Child 2", parent_set_id=parent.id)
+        db.add_all([first, second])
+        await db.flush()
+        for dj_set in (parent, first, second):
+            db.add(SetArtist(set_id=dj_set.id, artist_id=a1.id, position=1))
+            db.add(SetArtist(set_id=dj_set.id, artist_id=a2.id, position=2))
+        await db.commit()
+
+        result = await artist_connection_service.get_connections(db, a1.id)
+
+        assert len(result) == 1
+        assert result[0]["artist_id"] == a2.id
+        assert result[0]["shared_sets"] == 1
+
     async def test_unreliable_set_not_counted(self, db):
         # C8 (L2): a set flagged `unreliable` must not create a set-based
         # connection between the two DJs it credits.

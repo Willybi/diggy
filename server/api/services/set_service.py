@@ -27,6 +27,29 @@ from services.genre_service import aggregate_top_genres, ensure_pillar_cache
 GENRE_MIN_SHARE_PCT = 25
 
 
+async def list_source_urls(db: AsyncSession, set_id: int) -> list[str]:
+    """Every link of a set: its own and its direct children's, without duplicates.
+
+    YouTube comes first; within a tier the set's own link leads, then its children
+    by ascending id.
+    """
+    rows = (
+        await db.execute(
+            select(DJSet.id, DJSet.source, DJSet.source_url).where(
+                or_(DJSet.id == set_id, DJSet.parent_set_id == set_id)
+            )
+        )
+    ).all()
+
+    def is_youtube(row) -> bool:
+        url = (row.source_url or "").lower()
+        return row.source == "youtube" or "youtube.com" in url or "youtu.be" in url
+
+    ordered = sorted(rows, key=lambda r: (not is_youtube(r), r.id != set_id, r.id))
+    urls = ((r.source_url or "").strip() for r in ordered)
+    return list(dict.fromkeys(url for url in urls if url))
+
+
 async def list_sets(
     db: AsyncSession,
     user_id: int | None,

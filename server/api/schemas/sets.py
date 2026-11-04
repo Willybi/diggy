@@ -112,6 +112,8 @@ class SetArtistDetailOut(BaseModel):
 
 
 class DJSetDetailOut(DJSetOut):
+    # Every link of the set: its own plus its direct children's (YouTube first).
+    source_urls: list[str] = []
     artists: list[SetArtistDetailOut] = []
     tracklist: list[SetTrackDetailOut] = []
     top_genres: list[TopGenreOut] = []
@@ -150,6 +152,18 @@ class SetFlagOut(BaseModel):
     # next to the titles in the admin (a divergent pair is not a duplicate).
     event_date_a: Optional[date] = None
     event_date_b: Optional[date] = None
+    # Per-set context of a pair flag (None on a group flag): lets the admin decide
+    # a pair with no shared track, e.g. a YouTube set against a TrackID set.
+    channel_a: Optional[str] = None
+    channel_b: Optional[str] = None
+    duration_ms_a: Optional[int] = None
+    duration_ms_b: Optional[int] = None
+    source_url_a: Optional[str] = None
+    source_url_b: Optional[str] = None
+    played_date_a: Optional[date] = None
+    played_date_b: Optional[date] = None
+    source_a: Optional[str] = None
+    source_b: Optional[str] = None
     group_key: Optional[str] = None
     member_set_ids: Optional[list[int]] = None
     member_titles: list[str] = []

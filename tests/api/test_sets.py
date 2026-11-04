@@ -705,6 +705,108 @@ class TestSetDetail:
         assert data["tracklist"][0]["raw_title"] == "Cola"
 
 
+class TestSetDetailSourceUrls:
+    async def _source_urls(self, client, set_id):
+        r = await client.get(f"/api/sets/{set_id}")
+        assert r.status_code == 200
+        return r.json()["source_urls"]
+
+    async def _make_parent(self, db, *, source_url=None):
+        parent = DJSet(
+            source="virtual", title="Parent", is_virtual=True, source_url=source_url
+        )
+        db.add(parent)
+        await db.flush()
+        return parent
+
+    def _child(self, parent, source, source_url):
+        return DJSet(
+            source=source,
+            title=f"Child {source}",
+            parent_set_id=parent.id,
+            source_url=source_url,
+        )
+
+    async def test_single_set_returns_its_own_link(self, client, db):
+        s = DJSet(source="trackid", title="Solo", source_url="https://trackid.net/a")
+        db.add(s)
+        await db.commit()
+        assert await self._source_urls(client, s.id) == ["https://trackid.net/a"]
+
+    async def test_no_link_returns_empty_list(self, client, db):
+        s = DJSet(source="trackid", title="Solo")
+        db.add(s)
+        await db.commit()
+        assert await self._source_urls(client, s.id) == []
+
+    async def test_blank_link_is_ignored(self, client, db):
+        s = DJSet(source="trackid", title="Solo", source_url="   ")
+        db.add(s)
+        await db.commit()
+        assert await self._source_urls(client, s.id) == []
+
+    async def test_youtube_comes_first_even_with_a_higher_child_id(self, client, db):
+        parent = await self._make_parent(db)
+        db.add(self._child(parent, "trackid", "https://soundcloud.com/dj/set"))
+        await db.flush()
+        db.add(self._child(parent, "youtube", "https://www.youtube.com/watch?v=abc"))
+        await db.commit()
+        assert await self._source_urls(client, parent.id) == [
+            "https://www.youtube.com/watch?v=abc",
+            "https://soundcloud.com/dj/set",
+        ]
+
+    async def test_youtube_is_also_detected_from_the_url(self, client, db):
+        parent = await self._make_parent(db)
+        db.add(self._child(parent, "trackid", "https://soundcloud.com/dj/set"))
+        await db.flush()
+        db.add(self._child(parent, "trackid", "https://youtu.be/abc"))
+        await db.commit()
+        assert await self._source_urls(client, parent.id) == [
+            "https://youtu.be/abc",
+            "https://soundcloud.com/dj/set",
+        ]
+
+    async def test_other_links_keep_ascending_child_id_order(self, client, db):
+        parent = await self._make_parent(db)
+        db.add(self._child(parent, "trackid", "https://soundcloud.com/dj/set"))
+        await db.flush()
+        db.add(self._child(parent, "trackid", "https://www.mixcloud.com/dj/set"))
+        await db.commit()
+        assert await self._source_urls(client, parent.id) == [
+            "https://soundcloud.com/dj/set",
+            "https://www.mixcloud.com/dj/set",
+        ]
+
+    async def test_duplicate_links_collapse_after_stripping_spaces(self, client, db):
+        # The parent's own link is copied from a child by sync_parent_metadata.
+        url = "https://www.youtube.com/watch?v=abc"
+        parent = await self._make_parent(db, source_url=url)
+        db.add(self._child(parent, "youtube", url))
+        db.add(self._child(parent, "trackid", f"  {url} "))
+        await db.commit()
+        assert await self._source_urls(client, parent.id) == [url]
+
+    async def test_source_url_field_stays_the_sets_own(self, client, db):
+        parent = await self._make_parent(db, source_url="https://soundcloud.com/own")
+        db.add(self._child(parent, "youtube", "https://www.youtube.com/watch?v=abc"))
+        await db.commit()
+        r = await client.get(f"/api/sets/{parent.id}")
+        assert r.json()["source_url"] == "https://soundcloud.com/own"
+
+    async def test_only_direct_children_are_included(self, client, db):
+        parent = await self._make_parent(db)
+        child = self._child(parent, "trackid", "https://soundcloud.com/child")
+        db.add(child)
+        await db.flush()
+        db.add(self._child(child, "trackid", "https://soundcloud.com/grandchild"))
+        db.add(DJSet(source="trackid", title="Other", source_url="https://x.test/o"))
+        await db.commit()
+        assert await self._source_urls(client, parent.id) == [
+            "https://soundcloud.com/child"
+        ]
+
+
 class TestSetDetailInLib:
     """in_lib in the tracklist must be scoped to the requesting user (M1)."""
 

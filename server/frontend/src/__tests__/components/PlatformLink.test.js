@@ -23,6 +23,18 @@ describe('PlatformLink', () => {
     expect(tl.find('a').attributes('aria-label')).toBe('Voir sur 1001Tracklists')
   })
 
+  it('renders Mixcloud with its own name and logo', () => {
+    const wrapper = mount(PlatformLink, { props: { platform: 'mixcloud', href: '#' } })
+    expect(wrapper.find('a').attributes('aria-label')).toBe('Voir sur Mixcloud')
+    expect(wrapper.find('path').attributes('d')).toBeTruthy()
+  })
+
+  it('never renders an empty tile for an unknown platform', () => {
+    const wrapper = mount(PlatformLink, { props: { platform: 'hearthis.at', href: '#' } })
+    expect(wrapper.find('a').attributes('aria-label')).toBe('Voir sur hearthis.at')
+    expect(wrapper.find('path').attributes('d')).toBeTruthy()
+  })
+
   it('renders a glyph variant as a non-clickable span with source labelling', () => {
     const wrapper = mount(PlatformLink, { props: { platform: 'deezer', variant: 'glyph' } })
     expect(wrapper.find('a').exists()).toBe(false)

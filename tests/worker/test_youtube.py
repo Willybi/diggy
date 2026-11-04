@@ -8,8 +8,8 @@ Split by session type, same conventions as the other worker tests:
   * The Data-API cores (``fetch_video_durations`` / ``resolve_channel_id`` handle
     path) — driven with a tiny in-process fake ``httpx`` client (no real network).
   * ``upsert_youtube_set`` — driven end-to-end over an OWN in-memory aiosqlite
-    engine (StaticPool) via ``asyncio.run``: creation, idempotence, and the
-    cross-source dedup branch (a pre-existing TrackID set absorbs the YouTube one).
+    engine (StaticPool) via ``asyncio.run``: creation, idempotence, and the twin
+    reconcile (the YouTube row is always created, then attached to its TrackID twin).
 
 Same sys.path pattern as test_set_title_meta.py (import ``workers.*`` from the
 server root; ``server/api`` is added by the worker conftest for ``models``/``utils``).
@@ -30,7 +30,6 @@ from workers.youtube import (  # noqa: E402
     YouTubeHTTPError,
     fetch_channel_title,
     fetch_video_durations,
-    find_duplicate_set,
     is_set_duration,
     parse_channel_feed,
     parse_iso8601_duration,
@@ -407,65 +406,6 @@ def _video(video_id, title, published, thumbnail_url=None, duration_ms=None):
 _PUB = datetime.datetime(2020, 2, 1, 12, 0, tzinfo=datetime.timezone.utc)
 
 
-class TestFindDuplicateSet:
-    def test_abstains_without_event_date(self):
-        # No reliable date → never dedup across sources (invariant #4 abstention),
-        # even with a perfectly matching set present.
-        from models import DJSet
-
-        async def scenario(factory):
-            async with factory() as db:
-                db.add(
-                    DJSet(
-                        external_id="TID1",
-                        source="trackid",
-                        title="Peggy Gou at Boiler Room Berlin",
-                        channel="Boiler Room",
-                        event_date=D(2021, 12, 25),
-                        played_date=D(2021, 12, 25),
-                        created_at=_PUB,
-                    )
-                )
-                await db.commit()
-                dup = await find_duplicate_set(
-                    db,
-                    "Peggy Gou at Boiler Room Berlin",
-                    "Boiler Room",
-                    event_date=None,
-                )
-                assert dup is None
-
-        _async_run(scenario)
-
-    def test_matches_on_played_date_fallback(self):
-        # Candidate carries only played_date (no event_date) but it equals the
-        # incoming reliable date → the OR fallback still matches.
-        from models import DJSet
-
-        async def scenario(factory):
-            async with factory() as db:
-                cand = DJSet(
-                    external_id="TID2",
-                    source="trackid",
-                    title="Peggy Gou at Boiler Room Berlin",
-                    channel="Boiler Room",
-                    played_date=D(2021, 12, 25),
-                    created_at=_PUB,
-                )
-                db.add(cand)
-                await db.commit()
-                cid = cand.id
-                dup = await find_duplicate_set(
-                    db,
-                    "Peggy Gou at Boiler Room Berlin 25.12.2021",
-                    "Boiler Room",
-                    event_date=D(2021, 12, 25),
-                )
-                assert dup is not None and dup.id == cid
-
-        _async_run(scenario)
-
-
 class TestUpsertYoutubeSet:
     def test_creates_metadata_only_set(self):
         from models import DJSet, SetTrack
@@ -511,8 +451,6 @@ class TestUpsertYoutubeSet:
         from sqlalchemy import func, select
 
         async def scenario(factory):
-            # A title WITHOUT a parseable date → event_date None → dedup is
-            # skipped and the (external_id, source) update path is exercised.
             vid = _video("VID2", "Random Live Session", _PUB)
             async with factory() as db:
                 dj1, created1 = await upsert_youtube_set(
@@ -533,20 +471,22 @@ class TestUpsertYoutubeSet:
 
         _async_run(scenario)
 
-    def test_dedup_absorbs_into_existing_trackid_set(self):
-        from models import DJSet
-        from sqlalchemy import func, select
+    def test_twin_trackid_set_gets_the_row_attached(self):
+        from models import DJSet, SetFlag, SetFlagStatus
+        from sqlalchemy import select
 
         async def scenario(factory):
             # Pre-existing TrackID set of the SAME performance: same reliable
-            # event_date, same canonical channel, near-identical title.
+            # event_date, same canonical channel, same duration.
             async with factory() as db:
                 trackid_set = DJSet(
                     external_id="TID99",
                     source="trackid",
                     title="Peggy Gou at Boiler Room Berlin",
                     channel="Boiler Room",
+                    channel_canonical="Boiler Room",
                     event_date=D(2021, 12, 25),
+                    duration_ms=3_600_000,
                     created_at=_PUB,
                 )
                 db.add(trackid_set)
@@ -560,20 +500,53 @@ class TestUpsertYoutubeSet:
                         "YTVID",
                         "Peggy Gou at Boiler Room Berlin 25.12.2021",
                         _PUB,
+                        duration_ms=3_600_000,
                     ),
                     channel_name="Boiler Room",
                 )
                 await db.commit()
-                # Absorbed: returns the existing trackid row, creates nothing.
-                assert created is False
-                assert dj.id == tid
-                assert dj.source == "trackid"
+                # The YouTube row exists, under the same virtual parent as its twin.
+                assert created is True
+                assert dj.source == "youtube"
+                assert dj.parent_set_id is not None
+                twin = await db.get(DJSet, tid)
+                assert twin.parent_set_id == dj.parent_set_id
+                flag = (await db.execute(select(SetFlag))).scalar_one()
+                assert flag.status == SetFlagStatus.attached
+                assert flag.signals["twin_rule"] == "date"
+
+        _async_run(scenario)
+
+    def test_reconcile_failure_keeps_the_new_row(self, monkeypatch):
+        from models import DJSet
+        from services import set_twin_service
+        from sqlalchemy import func, select
+
+        async def boom(db, set_id):
+            row = await db.get(DJSet, set_id)
+            row.title = "Changed before the failure"
+            await db.flush()
+            raise RuntimeError("simulated reconcile failure")
+
+        monkeypatch.setattr(set_twin_service, "reconcile_twins_for_set", boom)
+
+        async def scenario(factory):
+            async with factory() as db:
+                dj, created = await upsert_youtube_set(
+                    db,
+                    video=_video("VID3", "Random Live Session", _PUB),
+                    channel_name="My Channel",
+                )
+                await db.commit()
+                # Still readable after the savepoint rollback, its change undone.
+                assert created is True
+                assert dj.title == "Random Live Session"
                 total = await db.execute(select(func.count()).select_from(DJSet))
                 assert total.scalar() == 1
 
         _async_run(scenario)
 
-    def test_dedup_does_not_fire_on_different_channel(self):
+    def test_no_twin_on_different_channel(self):
         from models import DJSet
         from sqlalchemy import func, select
 
@@ -602,9 +575,10 @@ class TestUpsertYoutubeSet:
                     channel_name="Boiler Room",
                 )
                 await db.commit()
-                # Channel differs → no dedup → a fresh youtube row is created.
+                # Channel differs → a fresh youtube row, attached to nothing.
                 assert created is True
                 assert dj.source == "youtube"
+                assert dj.parent_set_id is None
                 total = await db.execute(select(func.count()).select_from(DJSet))
                 assert total.scalar() == 2
 

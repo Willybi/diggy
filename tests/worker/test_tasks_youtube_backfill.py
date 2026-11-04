@@ -569,11 +569,9 @@ class TestBackfillCore:
         assert s2["sets_created"] == 0  # already stored → dedup filter, nothing new
         assert count == 1
 
-    def test_cross_source_dedup_skips_existing_trackid_set(
-        self, youtube_task, monkeypatch
-    ):
+    def test_trackid_twin_gets_the_new_row_attached(self, youtube_task, monkeypatch):
         # A YouTube re-upload of a set already indexed from TrackID (same reliable
-        # title date + same canonical channel + near-identical title) is NOT re-created.
+        # title date + same duration) is created, then attached to it.
         title = "Boiler Room Berlin 24.09.2022"
 
         def _seed(session):
@@ -596,15 +594,19 @@ class TestBackfillCore:
                     title=title,
                     channel="Boiler Room",
                     event_date=datetime.date(2022, 9, 24),
+                    duration_ms=3_600_000,
                 )
             )
 
         def _read(session):
             from models import DJSet
 
+            youtube = session.query(DJSet).filter_by(source="youtube").all()
+            trackid = session.query(DJSet).filter_by(source="trackid").one()
             return {
-                "youtube": session.query(DJSet).filter_by(source="youtube").count(),
-                "total": session.query(DJSet).count(),
+                "youtube": len(youtube),
+                "same_parent": youtube[0].parent_set_id == trackid.parent_set_id,
+                "parent_set_id": trackid.parent_set_id,
             }
 
         out = _run_backfill_core(
@@ -620,9 +622,10 @@ class TestBackfillCore:
         stats, snap = out["stats"], out["snapshot"]
 
         assert stats["videos_seen"] == 1
-        assert stats["sets_created"] == 0  # deduped against the trackid set
-        assert snap["youtube"] == 0
-        assert snap["total"] == 1
+        assert stats["sets_created"] == 1
+        assert snap["youtube"] == 1
+        assert snap["parent_set_id"] is not None
+        assert snap["same_parent"] is True
 
     def test_deadline_stops_before_next_batch(self, youtube_task, monkeypatch):
         # Batch of 1 so each video is its own batch; the deadline is checked BEFORE

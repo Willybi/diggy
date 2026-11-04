@@ -365,6 +365,7 @@ async def get_set_detail(
         external_id=dj_set.external_id,
         source=dj_set.source,
         source_url=dj_set.source_url,
+        source_urls=await set_service.list_source_urls(db, dj_set.id),
         title=dj_set.title,
         played_date=dj_set.played_date,
         duration_ms=dj_set.duration_ms,

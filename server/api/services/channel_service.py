@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from models import Artist, ArtistCohort, Channel, DJSet, SetArtist, TrackIdIndex
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from trackid.reliability import set_reliable
 from workers.artist_channel_resolve import resolve_artist_channel
 from workers.artist_names import space_fold_key
@@ -146,8 +147,8 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> d
     already curated into ``channels``:
 
     * every ``trackid_index.channel`` (the indexed TrackID corpus), and
-    * every ``sets.channel_canonical`` of a REAL set (roots-only, reliable, not a
-      dedup virtual parent, ALL sources — youtube + trackid).
+    * every ``sets.channel_canonical`` of a root set (roots-only, reliable, ALL
+      sources — youtube + trackid + dedup virtual parents).
 
     So a channel seen only through a recently-imported set (absent from the
     ``trackid_index`` snapshot) now surfaces as a candidate too.
@@ -156,7 +157,8 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> d
     DISTINCT watch-cohort artists (``artist_cohort``, non-excluded) credited as a
     DJ (``set_artists.role == 'dj'``) on that channel's sets — the reliable-root
     sets attributed to the name through EITHER path above (a
-    ``trackid_index.set_id`` link, or the set's own ``channel_canonical``). Higher
+    ``trackid_index.set_id`` link, counted through the linked set's ROOT, or the
+    set's own ``channel_canonical``), so a set counts once per channel. Higher
     relevance = a channel whose sets feature more artists we already watch →
     surfaced first. Ties are broken by set VOLUME (indexed trackid rows, then
     attributed sets) then the name for determinism. ``trackid_count`` /
@@ -171,29 +173,42 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> d
     at None, never an exception. ``redis=None`` keeps the legacy behaviour.
     """
     # Informative per-name coverage counts (and the trackid arm of the universe).
+    # set_count is per ROOT: two attached children of one parent are one set.
     tid_agg = (
         select(
             TrackIdIndex.channel.label("name"),
             func.count().label("trackid_count"),
-            func.count(TrackIdIndex.set_id).label("set_count"),
+            func.count(
+                func.distinct(
+                    func.coalesce(DJSet.parent_set_id, TrackIdIndex.set_id)
+                )
+            ).label("set_count"),
         )
+        .outerjoin(DJSet, DJSet.id == TrackIdIndex.set_id)
         .where(TrackIdIndex.channel.isnot(None))
         .group_by(TrackIdIndex.channel)
         .subquery()
     )
 
-    # Real sets attributed to a channel name through BOTH linkage paths, kept to
-    # reliable roots so the relevance count matches the cohort's own set signal.
+    # Sets attributed to a channel name through BOTH linkage paths, kept to reliable
+    # roots so the relevance count matches the cohort's own set signal. An attached
+    # TrackID set still counts, through its root: DJSet is the root in tid_link, so
+    # set_reliable() applies to it. The UNION collapses a (name, root) pair reached
+    # several ways, so a set never counts twice for one channel.
+    linked_set = aliased(DJSet)
     tid_link = (
         select(
             TrackIdIndex.channel.label("name"),
             DJSet.id.label("set_id"),
         )
-        .join(DJSet, DJSet.id == TrackIdIndex.set_id)
+        .join(linked_set, linked_set.id == TrackIdIndex.set_id)
+        .join(
+            DJSet,
+            DJSet.id == func.coalesce(linked_set.parent_set_id, linked_set.id),
+        )
         .where(
             TrackIdIndex.channel.isnot(None),
             DJSet.parent_set_id.is_(None),
-            DJSet.is_virtual.is_(False),
             set_reliable(),
         )
     )
@@ -203,7 +218,6 @@ async def list_candidates(db: AsyncSession, *, limit: int = 50, redis=None) -> d
     ).where(
         DJSet.channel_canonical.isnot(None),
         DJSet.parent_set_id.is_(None),
-        DJSet.is_virtual.is_(False),
         set_reliable(),
     )
     channel_sets = tid_link.union(set_link).subquery()

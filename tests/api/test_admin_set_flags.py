@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from models import DJSet, SetFlag, SetFlagStatus, SetFlagType
+from services.set_service import list_source_urls
 
 
 def _now():
@@ -21,6 +22,43 @@ def _flag(set_a, set_b, flag_type=SetFlagType.duplicate_candidate, confidence=0.
         set_id_b=set_b.id,
         flag_type=flag_type,
         confidence=confidence,
+        status=SetFlagStatus.pending,
+        created_at=_now(),
+    )
+
+
+def _twin_sets():
+    """A YouTube set and a TrackID set with no shared track (neither has any)."""
+    youtube = DJSet(
+        source="youtube",
+        title="Ana @ Boiler Room",
+        channel="Boiler Room",
+        duration_ms=3_600_000,
+        source_url="https://www.youtube.com/watch?v=abc",
+        played_date=date(2026, 6, 21),
+    )
+    trackid = DJSet(
+        source="trackid",
+        title="Ana b2b Aya @ Boiler Room",
+        channel="Boiler Room Official",
+        duration_ms=3_660_000,
+        source_url="https://trackid.net/audiostream/ana",
+        played_date=date(2026, 6, 22),
+    )
+    return youtube, trackid
+
+
+def _twin_flag(set_a, set_b):
+    return SetFlag(
+        set_id_a=set_a.id,
+        set_id_b=set_b.id,
+        flag_type=SetFlagType.duplicate_candidate,
+        confidence=None,
+        signals={
+            "dd": 0.0164,
+            "twin_rule": "date",
+            "reason": "collaboration marker in one title only: ['b2b']",
+        },
         status=SetFlagStatus.pending,
         created_at=_now(),
     )
@@ -203,6 +241,77 @@ class TestListSetFlags:
         item = (await admin_client.get("/api/admin/set-flags")).json()["items"][0]
         assert item["member_event_dates"] == ["2026-03-01", None, "2026-03-02"]
 
+    async def test_exposes_pair_set_context(self, admin_client, db):
+        """A pair flag carries each set's channel, duration, link, date and source."""
+        s1, s2 = _twin_sets()
+        db.add(s1)
+        db.add(s2)
+        await db.flush()
+        db.add(_twin_flag(s1, s2))
+        await db.commit()
+
+        item = (await admin_client.get("/api/admin/set-flags")).json()["items"][0]
+        assert item["source_a"] == "youtube"
+        assert item["source_b"] == "trackid"
+        assert item["channel_a"] == "Boiler Room"
+        assert item["channel_b"] == "Boiler Room Official"
+        assert item["duration_ms_a"] == 3_600_000
+        assert item["duration_ms_b"] == 3_660_000
+        assert item["source_url_a"] == "https://www.youtube.com/watch?v=abc"
+        assert item["source_url_b"] == "https://trackid.net/audiostream/ana"
+        assert item["played_date_a"] == "2026-06-21"
+        assert item["played_date_b"] == "2026-06-22"
+        assert item["signals"]["twin_rule"] == "date"
+
+    async def test_pair_set_context_null_when_absent(self, admin_client, db):
+        s1 = _set("Set Alpha")
+        s2 = _set("Set Beta")
+        db.add(s1)
+        db.add(s2)
+        await db.flush()
+        db.add(_flag(s1, s2))
+        await db.commit()
+
+        item = (await admin_client.get("/api/admin/set-flags")).json()["items"][0]
+        assert item["source_a"] == "trackid"
+        for key in ("channel", "duration_ms", "source_url", "played_date"):
+            assert item[f"{key}_a"] is None
+            assert item[f"{key}_b"] is None
+
+    async def test_group_flag_gets_no_pair_set_context(self, admin_client, db):
+        """A group flag's set_id_a is only its lowest member: nothing leaks from it."""
+        s1 = DJSet(
+            source="trackid",
+            title="Part 1",
+            channel="Boiler Room",
+            duration_ms=1_800_000,
+            source_url="https://trackid.net/audiostream/part-1",
+            played_date=date(2026, 3, 1),
+        )
+        s2 = _set("Part 2")
+        db.add(s1)
+        db.add(s2)
+        await db.flush()
+        db.add(
+            SetFlag(
+                set_id_a=min(s1.id, s2.id),
+                set_id_b=None,
+                group_key="the base title",
+                member_set_ids=[s1.id, s2.id],
+                flag_type=SetFlagType.part_candidate,
+                confidence=0.9,
+                status=SetFlagStatus.pending,
+                created_at=_now(),
+            )
+        )
+        await db.commit()
+
+        item = (await admin_client.get("/api/admin/set-flags")).json()["items"][0]
+        assert item["member_titles"] == ["Part 1", "Part 2"]
+        for key in ("channel", "duration_ms", "source_url", "played_date", "source"):
+            assert item[f"{key}_a"] is None
+            assert item[f"{key}_b"] is None
+
     async def test_requires_admin(self, client):
         r = await client.get("/api/admin/set-flags")
         assert r.status_code in (401, 403)
@@ -293,6 +402,85 @@ class TestAttachSetFlag:
     async def test_missing_flag_returns_404(self, admin_client):
         r = await admin_client.post("/api/admin/set-flags/9999/attach")
         assert r.status_code == 404
+
+
+class TestTwinRuleFlagResolution:
+    """A twin_rule pair shares no track and has no confidence: both actions must work."""
+
+    async def test_attach_keeps_the_links_of_both_sets(self, admin_client, db):
+        youtube, trackid = _twin_sets()
+        db.add(youtube)
+        db.add(trackid)
+        await db.flush()
+        f = _twin_flag(youtube, trackid)
+        db.add(f)
+        await db.commit()
+        youtube_id, trackid_id = youtube.id, trackid.id
+
+        r = await admin_client.post(f"/api/admin/set-flags/{f.id}/attach")
+        assert r.status_code == 200
+        parent_id = r.json()["parent_id"]
+
+        db.expire_all()
+        for set_id, url in (
+            (youtube_id, "https://www.youtube.com/watch?v=abc"),
+            (trackid_id, "https://trackid.net/audiostream/ana"),
+        ):
+            child = await db.get(DJSet, set_id)
+            assert child.parent_set_id == parent_id
+            assert child.source_url == url
+
+        pending = await admin_client.get("/api/admin/set-flags?status=pending")
+        assert pending.json()["total"] == 0
+        assert await list_source_urls(db, parent_id) == [
+            "https://www.youtube.com/watch?v=abc",
+            "https://trackid.net/audiostream/ana",
+        ]
+
+    async def test_attach_refuses_two_different_parents(self, admin_client, db):
+        """A video already in another family is a real review reason: attaching must
+        not report success while leaving the other set in its own family."""
+        parent_a = DJSet(source="virtual", title="Parent A", is_virtual=True)
+        parent_b = DJSet(source="virtual", title="Parent B", is_virtual=True)
+        db.add(parent_a)
+        db.add(parent_b)
+        await db.flush()
+        youtube, trackid = _twin_sets()
+        youtube.parent_set_id = parent_a.id
+        trackid.parent_set_id = parent_b.id
+        db.add(youtube)
+        db.add(trackid)
+        await db.flush()
+        f = _twin_flag(youtube, trackid)
+        db.add(f)
+        await db.commit()
+        flag_id, parent_b_id, trackid_id = f.id, parent_b.id, trackid.id
+
+        r = await admin_client.post(f"/api/admin/set-flags/{flag_id}/attach")
+        assert r.status_code == 400
+
+        db.expire_all()
+        assert (await db.get(DJSet, trackid_id)).parent_set_id == parent_b_id
+        assert (await db.get(SetFlag, flag_id)).status == SetFlagStatus.pending
+
+    async def test_reject_leaves_both_sets_alone(self, admin_client, db):
+        youtube, trackid = _twin_sets()
+        db.add(youtube)
+        db.add(trackid)
+        await db.flush()
+        f = _twin_flag(youtube, trackid)
+        db.add(f)
+        await db.commit()
+        youtube_id, trackid_id = youtube.id, trackid.id
+
+        r = await admin_client.post(f"/api/admin/set-flags/{f.id}/reject")
+        assert r.status_code == 200
+
+        db.expire_all()
+        assert (await db.get(DJSet, youtube_id)).parent_set_id is None
+        assert (await db.get(DJSet, trackid_id)).parent_set_id is None
+        rejected = await admin_client.get("/api/admin/set-flags?status=rejected")
+        assert rejected.json()["total"] == 1
 
 
 class TestRejectSetFlag:

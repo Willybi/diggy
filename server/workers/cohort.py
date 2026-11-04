@@ -117,9 +117,10 @@ def recompute_cohort(session, *, now=None) -> dict:
         ).all()
     )
 
-    # ── Signal 3: reliable, root, non-virtual DJ sets over the last 12 months
-    # where the artist is a DJ. roots-only + set_reliable() + is_virtual guard so
-    # dedup virtual parents and unreliable sets never count (invariant: a set
+    # ── Signal 3: reliable, root DJ sets over the last 12 months where the artist
+    # is a DJ. A dedup virtual parent IS a root and carries its children's DJs, so
+    # it counts; the roots-only filter is what forbids double counting (a parent
+    # and its children count for 1). Unreliable sets never count (invariant: a set
     # never spans multiple days → event_date preferred over the upload played_date).
     nb_sets_12m = dict(
         session.execute(
@@ -131,7 +132,6 @@ def recompute_cohort(session, *, now=None) -> dict:
             .where(
                 SetArtist.role == "dj",
                 DJSet.parent_set_id.is_(None),
-                DJSet.is_virtual.is_(False),
                 set_reliable(),
                 func.coalesce(DJSet.event_date, DJSet.played_date) >= cutoff,
             )

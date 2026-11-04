@@ -2,6 +2,7 @@
 
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import Enum
@@ -65,6 +66,8 @@ _RE_PART_FRACTION = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*$")
 # Digit runs (>= 2 digits) of a normalized title — episode/series-number
 # fingerprint feeding MatchSignals.title_number_match.
 _RE_TITLE_NUMBER = re.compile(r"\d{2,}")
+# A raw YouTube channel id ("UC…"), not a displayable channel name.
+_RE_RAW_CHANNEL_ID = re.compile(r"^UC[\w-]{22}$")
 
 _DECO_PATTERNS = [
     re.compile(p, re.IGNORECASE)
@@ -1404,6 +1407,9 @@ def _merge_duplicates(
             adj = dict(t)
             if adj["timecode_ms"] is not None:
                 adj["timecode_ms"] = adj["timecode_ms"] - offset
+            # end_time_ms shares the timecode's time base: keep them aligned.
+            if adj.get("end_time_ms") is not None:
+                adj["end_time_ms"] = adj["end_time_ms"] - offset
             all_tracks.append(adj)
 
     # Dedup pass 1: by trackid_music_track_id (prefer non-None timecode)
@@ -1464,6 +1470,9 @@ def _merge_parts(
             if adj["timecode_ms"] is not None:
                 adj["timecode_ms"] = adj["timecode_ms"] + cumulative_offset
                 last_known_tc = adj["timecode_ms"]
+            # end_time_ms shares the timecode's time base: keep them aligned.
+            if adj.get("end_time_ms") is not None:
+                adj["end_time_ms"] = adj["end_time_ms"] + cumulative_offset
             adjusted.append(adj)
 
         if merged and adjusted and _same_track(merged[-1], adjusted[0]):
@@ -1578,19 +1587,161 @@ async def find_or_create_virtual_parent(
     return parent.id, True
 
 
+def _most_frequent(values) -> str | None:
+    """Most frequent value; a tie goes to the value encountered first."""
+    # Counter.most_common orders equal counts by first insertion.
+    counts = Counter(values).most_common(1)
+    return counts[0][0] if counts else None
+
+
+def _is_raw_channel_id(channel: str | None) -> bool:
+    return bool(channel) and _RE_RAW_CHANNEL_ID.match(channel) is not None
+
+
+def _pick_parent_channel(children) -> tuple[str | None, str | None]:
+    """Pick the parent's (channel, channel_canonical) from id-ordered children.
+
+    The canonical value is taken among the children carrying the winning raw
+    channel: the UI displays the raw channel and filters on the canonical one,
+    so the two must describe the same channel.
+    """
+    named = [
+        c for c in children if c.channel and not _is_raw_channel_id(c.channel)
+    ]
+    channel = _most_frequent(c.channel for c in named)
+    canonical = _most_frequent(
+        c.channel_canonical
+        for c in named
+        if c.channel == channel
+        and c.channel_canonical
+        and not _is_raw_channel_id(c.channel_canonical)
+    )
+    return channel, canonical
+
+
+def _pick_parent_source_url(children) -> str | None:
+    """First YouTube child's URL (id order), else the first non-null URL."""
+    with_url = [c for c in children if c.source_url]
+    for child in with_url:
+        url = child.source_url.lower()
+        if child.source == "youtube" or "youtube.com" in url or "youtu.be" in url:
+            return child.source_url
+    return with_url[0].source_url if with_url else None
+
+
+async def sync_parent_metadata(db: AsyncSession, parent_id: int) -> None:
+    """Derive a virtual parent's metadata from its children.
+
+    Only roots are listed, so whatever the parent lacks disappears from the UI
+    once its children are attached. Leaves the title and played_date alone, and
+    does nothing on a non-virtual set or a parent without children. Does not
+    commit — caller is responsible.
+    """
+    from models import DJSet, SetArtist
+
+    parent = await db.get(DJSet, parent_id)
+    if parent is None or not parent.is_virtual:
+        return
+
+    children = (
+        await db.execute(
+            select(
+                DJSet.id,
+                DJSet.source,
+                DJSet.source_url,
+                DJSet.channel,
+                DJSet.channel_canonical,
+                DJSet.event_date,
+                DJSet.styles,
+                DJSet.unreliable,
+                DJSet.has_artwork,
+            )
+            .where(DJSet.parent_set_id == parent_id)
+            .order_by(DJSet.id)
+        )
+    ).all()
+    if not children:
+        return
+
+    parent.source_url = _pick_parent_source_url(children)
+    parent.channel, parent.channel_canonical = _pick_parent_channel(children)
+
+    # Never a guessed date: conflicting children leave the parent undated.
+    event_dates = {c.event_date for c in children if c.event_date is not None}
+    parent.event_date = event_dates.pop() if len(event_dates) == 1 else None
+
+    styles = list(dict.fromkeys(s for c in children for s in (c.styles or [])))
+    parent.styles = styles or None
+
+    parent.unreliable = all(c.unreliable for c in children)
+
+    # Additive on purpose: a link already on the parent is never removed.
+    linked = set(
+        (
+            await db.execute(
+                select(SetArtist.artist_id).where(SetArtist.set_id == parent_id)
+            )
+        ).scalars()
+    )
+    child_links = (
+        await db.execute(
+            select(SetArtist.artist_id, SetArtist.role, SetArtist.position)
+            .where(SetArtist.set_id.in_([c.id for c in children]))
+            .order_by(SetArtist.set_id)
+        )
+    ).all()
+    for link in child_links:
+        if link.artist_id not in linked:
+            linked.add(link.artist_id)
+            db.add(
+                SetArtist(
+                    set_id=parent_id,
+                    artist_id=link.artist_id,
+                    role=link.role,
+                    position=link.position,
+                )
+            )
+
+    if not parent.has_artwork:
+        donor_id = next((c.id for c in children if c.has_artwork), None)
+        if donor_id is not None:
+            try:
+                from services.image_service import BUCKET_SET, ImageService
+                # copy_object reports failure: a failed copy stays False, so
+                # the next sync retries instead of advertising a missing file.
+                parent.has_artwork = ImageService.copy_object(
+                    BUCKET_SET, f"{donor_id}.jpg", f"{parent_id}.jpg"
+                )
+            except Exception:
+                pass
+
+    await db.flush()
+
+
 async def materialize_parent(db: AsyncSession, parent_id: int) -> int:
-    """Rebuild the virtual parent's set_tracks from all its children. Returns track count."""
+    """Rebuild the virtual parent's set_tracks and metadata from its children.
+
+    Returns track count. A missing or non-virtual parent is left untouched and
+    returns 0: rebuilding replaces the tracks, which must never happen to a real
+    set (invariant #4).
+    """
     from models import DJSet, SetTrack
 
     parent = await db.get(DJSet, parent_id)
+    if parent is None or not parent.is_virtual:
+        return 0
+
     children = (
-        await db.execute(select(DJSet).where(DJSet.parent_set_id == parent_id))
+        await db.execute(
+            select(DJSet).where(DJSet.parent_set_id == parent_id).order_by(DJSet.id)
+        )
     ).scalars().all()
 
     await db.execute(delete(SetTrack).where(SetTrack.set_id == parent_id))
 
     if not children:
         await db.flush()
+        await sync_parent_metadata(db, parent_id)
         return 0
 
     child_tracks: dict[int, list[dict]] = {}
@@ -1609,18 +1760,24 @@ async def materialize_parent(db: AsyncSession, parent_id: int) -> int:
                 "raw_artist": t.raw_artist,
                 "is_id": t.is_id,
                 "trackid_music_track_id": t.trackid_music_track_id,
+                "catalog_id": t.catalog_id,
+                "label": t.label,
+                "end_time_ms": t.end_time_ms,
             }
             for t in rows
         ]
 
-    part_numbers = {c.part_number for c in children}
+    # A child without tracks (a metadata-only YouTube set) has nothing to merge:
+    # its part_number must neither trigger the parts path nor shift timecodes.
+    tracked = [c for c in children if child_tracks[c.id]]
+    part_numbers = {c.part_number for c in tracked}
     is_parts_case = len(part_numbers) > 1
 
     if is_parts_case:
-        merged_tracks = _merge_parts(children, child_tracks)
-        parent.duration_ms = sum(c.duration_ms or 0 for c in children)
+        merged_tracks = _merge_parts(tracked, child_tracks)
+        parent.duration_ms = sum(c.duration_ms or 0 for c in tracked)
     else:
-        merged_tracks = _merge_duplicates(children, child_tracks)
+        merged_tracks = _merge_duplicates(tracked, child_tracks) if tracked else []
         parent.duration_ms = max(
             (c.duration_ms or 0 for c in children), default=0
         )
@@ -1629,17 +1786,58 @@ async def materialize_parent(db: AsyncSession, parent_id: int) -> int:
         db.add(
             SetTrack(
                 set_id=parent_id,
+                catalog_id=track_data["catalog_id"],
                 position=pos,
                 timecode_ms=track_data["timecode_ms"],
                 raw_title=track_data["raw_title"],
                 raw_artist=track_data["raw_artist"],
                 is_id=track_data["is_id"],
                 trackid_music_track_id=track_data["trackid_music_track_id"],
+                label=track_data["label"],
+                end_time_ms=track_data["end_time_ms"],
             )
         )
 
     await db.flush()
+    await sync_parent_metadata(db, parent_id)
     return len(merged_tracks)
+
+
+async def attach_pair(db: AsyncSession, set_id_a: int, set_id_b: int) -> int:
+    """Attach two sets under one virtual parent, materialize it, return its id.
+
+    Stricter than ``find_or_create_virtual_parent``, which silently keeps the
+    first parent when both sets already have different ones. Raises LookupError
+    if a set is missing, ValueError if the pair cannot share a virtual parent.
+    Does not commit — caller is responsible.
+    """
+    from models import DJSet
+
+    set_a = await db.get(DJSet, set_id_a)
+    set_b = await db.get(DJSet, set_id_b)
+    if set_a is None or set_b is None:
+        raise LookupError("Set not found")
+    if set_id_a == set_id_b:
+        raise ValueError("Cannot attach a set to itself")
+    # A virtual set under a parent would nest parents (or parent itself).
+    if set_a.is_virtual or set_b.is_virtual:
+        raise ValueError("Cannot attach a virtual set")
+
+    parent_ids = {
+        s.parent_set_id for s in (set_a, set_b) if s.parent_set_id is not None
+    }
+    if len(parent_ids) > 1:
+        raise ValueError("Sets already have different parents")
+    for existing_id in parent_ids:
+        existing = await db.get(DJSet, existing_id)
+        if existing is None or not existing.is_virtual:
+            raise ValueError("Existing parent is not virtual")
+
+    parent_id, _ = await find_or_create_virtual_parent(
+        db, set_id_a, set_id_b, None, None
+    )
+    await materialize_parent(db, parent_id)
+    return parent_id
 
 
 # ---------------------------------------------------------------------------
@@ -1693,7 +1891,8 @@ async def attach_flag(
 
     Handles both a group flag (``member_set_ids``) and a pairwise flag, then
     marks the flag ``attached``. Raises LookupError if the flag is missing or
-    already resolved, or a member set cannot be found.
+    already resolved, or a member set cannot be found, and ValueError if a twin
+    pair cannot share a virtual parent.
 
     Returns ``(parent_id, audit_details)`` for the caller's audit log. Does not
     commit — the caller is responsible.
@@ -1731,10 +1930,14 @@ async def attach_flag(
         if not set_a or not set_b:
             raise LookupError("Set not found")
 
-        parent_id, created = await find_or_create_virtual_parent(
-            db, flag.set_id_a, flag.set_id_b, None, None
-        )
-        if created:
+        if "twin_rule" in (flag.signals or {}):
+            # A twin pair can span two families; attach_pair refuses that (ValueError)
+            # where the path below would keep one parent and still mark it attached.
+            parent_id = await attach_pair(db, flag.set_id_a, flag.set_id_b)
+        else:
+            parent_id, _ = await find_or_create_virtual_parent(
+                db, flag.set_id_a, flag.set_id_b, None, None
+            )
             await materialize_parent(db, parent_id)
 
         audit_details = {
@@ -1811,6 +2014,8 @@ async def detach_set_from_parent(db: AsyncSession, set_id: int) -> dict:
         await db.execute(
             delete(DJSet).where(DJSet.id == parent_id, DJSet.is_virtual.is_(True))
         )
+    else:
+        await materialize_parent(db, parent_id)
 
     return {"parent_id": parent_id}
 

@@ -284,6 +284,84 @@ describe('SetDetailView', () => {
     expect(wrapper.findComponent(PlatformLink).exists()).toBe(false)
   })
 
+  it('falls back on source_url when source_urls is empty', async () => {
+    const wrapper = await mountView({ set: makeSet({ source_urls: [] }) })
+    const links = wrapper.findAllComponents(PlatformLink)
+    expect(links).toHaveLength(1)
+    expect(links[0].props('href')).toBe('https://youtube.com/watch?v=abc')
+  })
+
+  it('hides the source block when there is no link at all', async () => {
+    const wrapper = await mountView({ set: makeSet({ source_url: null, source_urls: [] }) })
+    expect(wrapper.find('.hero-source').exists()).toBe(false)
+  })
+
+  it('keeps the source-based platform for a lone link on a real set', async () => {
+    const wrapper = await mountView({
+      set: makeSet({
+        source: 'trackid',
+        source_url: 'https://www.youtube.com/watch?v=abc',
+        source_urls: ['https://www.youtube.com/watch?v=abc'],
+      }),
+    })
+    const links = wrapper.findAllComponents(PlatformLink)
+    expect(links).toHaveLength(1)
+    expect(links[0].props('platform')).toBe('trackid')
+    expect(wrapper.find('.hero-source-name').text()).toBe('TrackID')
+  })
+
+  it('derives the platform from the URL for a lone link on a virtual parent', async () => {
+    const wrapper = await mountView({
+      set: makeSet({
+        source: 'virtual',
+        source_url: 'https://soundcloud.com/dj/set',
+        source_urls: ['https://soundcloud.com/dj/set'],
+      }),
+    })
+    expect(wrapper.findComponent(PlatformLink).props('platform')).toBe('soundcloud')
+    expect(wrapper.find('.hero-source-name').text()).toBe('SoundCloud')
+  })
+
+  it('renders one PlatformLink per URL, in the API order', async () => {
+    const wrapper = await mountView({
+      set: makeSet({
+        source: 'virtual',
+        source_url: 'https://www.youtube.com/watch?v=abc',
+        source_urls: [
+          'https://www.youtube.com/watch?v=abc',
+          'https://on.soundcloud.com/dj',
+          'https://www.mixcloud.com/dj/set',
+          'https://hearthis.at/dj/set',
+        ],
+      }),
+    })
+    const links = wrapper.findAllComponents(PlatformLink)
+    expect(links.map((l) => l.props('platform'))).toEqual([
+      'youtube',
+      'soundcloud',
+      'mixcloud',
+      'hearthis.at',
+    ])
+    expect(links[1].props('href')).toBe('https://on.soundcloud.com/dj')
+    expect(wrapper.findAll('.hero-source-name').map((n) => n.text())).toEqual([
+      'YouTube',
+      'SoundCloud',
+      'Mixcloud',
+      'hearthis.at',
+    ])
+  })
+
+  it('falls back on the source when a URL of several cannot be parsed', async () => {
+    const wrapper = await mountView({
+      set: makeSet({
+        source: 'trackid',
+        source_urls: ['https://www.youtube.com/watch?v=abc', 'not a url'],
+      }),
+    })
+    const links = wrapper.findAllComponents(PlatformLink)
+    expect(links.map((l) => l.props('platform'))).toEqual(['youtube', 'trackid'])
+  })
+
   // ---- Hero backdrop (S1) ----
 
   it('renders the blurred backdrop only when the set has artwork', async () => {
@@ -359,6 +437,30 @@ describe('SetDetailView', () => {
     const tc = wrapper.findAllComponents(TrackCard)[0].props('timecode')
     expect(tc.ms).toBe(0)
     expect(tc.href).toBe('https://youtube.com/watch?v=abc&t=0s')
+  })
+
+  it('keeps the timecode as plain text on a virtual parent with a YouTube link', async () => {
+    const wrapper = await mountView({ set: makeSet({ source: 'virtual' }) })
+    const card = wrapper.findAllComponents(TrackCard)[0]
+    expect(card.props('timecode')).toEqual({ ms: 65000, href: undefined })
+    expect(card.find('a.tk-tc').exists()).toBe(false)
+    expect(card.find('span.tk-tc').text()).toBe('1:05')
+  })
+
+  it('renders a timecode link on a non-virtual YouTube set', async () => {
+    const wrapper = await mountView()
+    const link = wrapper.findAllComponents(TrackCard)[0].find('a.tk-tc')
+    expect(link.attributes('href')).toBe('https://youtube.com/watch?v=abc&t=65s')
+    expect(link.text()).toBe('1:05')
+  })
+
+  it('renders a timecode link on a non-virtual SoundCloud set', async () => {
+    const wrapper = await mountView({
+      set: makeSet({ source: 'soundcloud', source_url: 'https://soundcloud.com/dj/set' }),
+    })
+    const link = wrapper.findAllComponents(TrackCard)[0].find('a.tk-tc')
+    expect(link.attributes('href')).toBe('https://soundcloud.com/dj/set#t=0:01:05')
+    expect(link.text()).toBe('1:05')
   })
 
   // ---- Tracklist navigation ----

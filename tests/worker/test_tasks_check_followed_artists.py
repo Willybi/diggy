@@ -949,6 +949,200 @@ class TestSetsVolet:
         assert len(_activities(task_engine, activity_type="set")) == 1
 
 
+# ── Sets volet: dedup virtual parents ────────────────────────────────────────
+
+
+def _make_parent(session, ext_id, *, source_url=None):
+    dj = _make_set(session, ext_id, "Parent", source="virtual", source_url=source_url)
+    dj.is_virtual = True
+    session.flush()
+    return dj
+
+
+def _make_child(session, parent, ext_id, *, hours_ago=1.0):
+    dj = _make_set(session, ext_id, "Child", hours_ago=hours_ago)
+    dj.parent_set_id = parent.id
+    session.flush()
+    return dj
+
+
+def _credit(session, artist, *dj_sets):
+    for dj in dj_sets:
+        session.add(SetArtist(set_id=dj.id, artist_id=artist.id, role="dj", position=0))
+    session.flush()
+
+
+class TestSetsVoletVirtualParents:
+    def test_parent_with_old_child_creates_no_activity(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # Attaching an old set makes a fresh parent: the performance was known.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Attached DJ", deezer_id="60")
+            _follow(s, a.id)
+            parent = _make_parent(s, "vp-old")
+            old = _make_child(s, parent, "vp-old-a", hours_ago=24.0 * 30)
+            recent = _make_child(s, parent, "vp-old-b")
+            _credit(s, a, parent, old, recent)
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 0
+        assert _activities(task_engine, activity_type="set") == []
+
+    def test_parent_with_undated_child_creates_no_activity(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # A NULL created_at is not proven recent, as in the main query.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Undated DJ", deezer_id="61")
+            _follow(s, a.id)
+            parent = _make_parent(s, "vp-null")
+            child = _make_child(s, parent, "vp-null-a")
+            child.created_at = None
+            _credit(s, a, parent, child)
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 0
+
+    @pytest.mark.parametrize(
+        "source_url, expected",
+        [
+            ("https://www.YouTube.com/watch?v=abc", "youtube"),
+            ("https://youtu.be/abc", "youtube"),
+            ("https://trackid.net/audiostream/abc", "trackid"),
+            (None, "trackid"),
+        ],
+    )
+    def test_recent_family_gives_one_activity_on_parent(
+        self, source_url, expected, tasks_env, task_engine, fake_pool, fake_redis,
+        fake_self,
+    ):
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Family DJ", deezer_id="62")
+            _follow(s, a.id)
+            parent = _make_parent(s, "vp-new", source_url=source_url)
+            first = _make_child(s, parent, "vp-new-a")
+            second = _make_child(s, parent, "vp-new-b")
+            _credit(s, a, parent, first, second)
+            s.commit()
+            artist_id, parent_id = a.id, parent.id
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 1
+        acts = _activities(task_engine, activity_type="set")
+        assert len(acts) == 1
+        assert acts[0].artist_id == artist_id
+        assert acts[0].external_id == str(parent_id)
+        assert acts[0].set_id == parent_id
+        assert acts[0].source == expected
+        assert acts[0].external_url == source_url
+
+        # Same window on the next run: nothing new.
+        rerun = tasks_env.artists._check_new_sets(
+            task_engine, [artist_id], datetime.now(timezone.utc)
+        )
+        assert rerun == 0
+
+    def test_activity_on_child_blocks_parent_for_that_artist_only(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        with Session(task_engine) as s:
+            seen = _make_artist(s, "Seen DJ", deezer_id="63")
+            other = _make_artist(s, "Other DJ", deezer_id="64")
+            _follow(s, seen.id)
+            _follow(s, other.id)
+            parent = _make_parent(s, "vp-seen")
+            child = _make_child(s, parent, "vp-seen-a")
+            _credit(s, seen, parent, child)
+            _credit(s, other, parent, child)
+            s.add(
+                ArtistActivity(
+                    artist_id=seen.id,
+                    activity_type="set",
+                    source="trackid",
+                    external_id=str(child.id),
+                    set_id=child.id,
+                )
+            )
+            s.commit()
+            other_id, parent_id = other.id, parent.id
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 1
+        created = [
+            a
+            for a in _activities(task_engine, activity_type="set")
+            if a.external_id == str(parent_id)
+        ]
+        assert [a.artist_id for a in created] == [other_id]
+
+    def test_activity_on_parent_under_another_source_blocks_a_second_one(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # Attaching a YouTube child can flip the parent's URL, hence its source.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Flip DJ", deezer_id="65")
+            _follow(s, a.id)
+            parent = _make_parent(s, "vp-flip", source_url="https://youtu.be/abc")
+            _credit(s, a, parent)
+            s.add(
+                ArtistActivity(
+                    artist_id=a.id,
+                    activity_type="set",
+                    source="trackid",
+                    external_id=str(parent.id),
+                    set_id=parent.id,
+                )
+            )
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 0
+        assert len(_activities(task_engine, activity_type="set")) == 1
+
+    def test_child_alone_is_ignored(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Child DJ", deezer_id="66")
+            _follow(s, a.id)
+            parent = _make_parent(s, "vp-child")
+            _credit(s, a, _make_child(s, parent, "vp-child-a"))
+            s.commit()
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 0
+        assert _activities(task_engine, activity_type="set") == []
+
+    def test_non_virtual_set_keeps_its_own_source(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self
+    ):
+        # The URL only decides for a parent: a real set keeps its stored source.
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Real DJ", deezer_id="67")
+            _follow(s, a.id)
+            dj = _make_set(s, "real-1", "Real", source_url="https://youtu.be/abc")
+            _credit(s, a, dj)
+            s.commit()
+            set_id = dj.id
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["sets_found"] == 1
+        acts = _activities(task_engine, activity_type="set")
+        assert len(acts) == 1
+        assert acts[0].source == "trackid"
+        assert acts[0].external_id == str(set_id)
+
+
 # ── Empty run ────────────────────────────────────────────────────────────────
 
 

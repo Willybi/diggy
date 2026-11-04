@@ -297,9 +297,8 @@ class TestRecomputeCohort:
         _reliable_set(sync_session, a)
         _reliable_set(sync_session, a, event_date=None, played_date=RECENT)
         _reliable_set(sync_session, a)
-        # Excluded ones: unreliable, virtual, old (> 12 months), and a non-dj role.
+        # Excluded ones: unreliable, old (> 12 months), and a non-dj role.
         _reliable_set(sync_session, a, unreliable=True)
-        _reliable_set(sync_session, a, is_virtual=True)
         _reliable_set(sync_session, a, event_date=OLD)
         _reliable_set(sync_session, a, event_date=None, played_date=OLD)
         guest = _dj_set(sync_session, event_date=RECENT)
@@ -320,6 +319,21 @@ class TestRecomputeCohort:
         recompute_cohort(sync_session, now=NOW)
 
         assert _cohort(sync_session, a.id) is None
+
+    def test_virtual_parent_and_children_count_as_one_set(self, sync_session):
+        a = _artist(sync_session)
+        parent = _reliable_set(
+            sync_session, a, source="virtual", is_virtual=True
+        )
+        # The two children carry the same DJ link as the parent they feed.
+        _reliable_set(sync_session, a, parent_set_id=parent.id)
+        _reliable_set(sync_session, a, parent_set_id=parent.id)
+
+        recompute_cohort(sync_session, now=NOW)
+
+        row = _cohort(sync_session, a.id)
+        assert row.signals["nb_sets_12m"] == 1
+        assert row.tier == 2  # 1 set → T2, not the T1 that 3 sets would give
 
     def test_auto_promotion_on_second_run(self, sync_session):
         a = _artist(sync_session)

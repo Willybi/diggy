@@ -81,6 +81,9 @@ async def _load_set_counts(
     C8: the shared set is joined against ``sets`` so unreliable TrackID sets
     (``set_reliable()``) never inflate the co-occurrence count. sa1 and sa2 hit
     the SAME set_id, so one join filters the shared set for both artists.
+
+    Roots only: a dedup virtual parent carries a copy of its children's DJ links,
+    so a performance counts for 1 between two artists.
     """
     from models import DJSet, SetArtist
     from trackid.reliability import set_reliable
@@ -98,6 +101,7 @@ async def _load_set_counts(
         .where(
             sa1.c.artist_id == artist_id,
             sa2.c.artist_id != artist_id,
+            DJSet.parent_set_id.is_(None),
             set_reliable(),
         )
         .group_by(sa2.c.artist_id)

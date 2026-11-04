@@ -5,7 +5,17 @@ from datetime import date, datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from models import DJSet, SetFlag, SetFlagStatus, SetFlagType, SetTrack
+from models import (
+    Artist,
+    CatalogEntry,
+    DJSet,
+    SetArtist,
+    SetFlag,
+    SetFlagStatus,
+    SetFlagType,
+    SetTrack,
+)
+from services.image_service import ImageService
 from services.set_dedup_service import (
     FLAG_CONFIDENCE_THRESHOLD,
     GroupMatchResult,
@@ -14,11 +24,14 @@ from services.set_dedup_service import (
     MatchVerdict,
     _validate_part_group,
     apply_match_results,
+    attach_pair,
+    detach_set_from_parent,
     find_or_create_virtual_parent,
     get_part_candidates,
     match_set,
     materialize_parent,
     pick_best_parent_title,
+    sync_parent_metadata,
 )
 
 
@@ -592,16 +605,18 @@ class TestAttachSetFlagRefactor:
         ).scalars().all()
         assert len(parent_tracks) == 4
 
-    async def test_attaches_to_existing_parent_no_rematerialise(self, admin_client, db):
-        """Reusing an existing parent: created=False → materialize_parent not called again."""
+    async def test_attaches_to_existing_parent_rematerialises(self, admin_client, db):
+        """Reusing an existing parent re-materializes it with the new child."""
         existing_parent = DJSet(source="virtual", title="Parent", is_virtual=True)
         s1 = DJSet(source="trackid", title="Child A")
-        s2 = DJSet(source="trackid", title="Child B")
+        s2 = DJSet(source="trackid", title="Child B", channel="Cercle")
         db.add(existing_parent)
         db.add(s1)
         db.add(s2)
         await db.flush()
         s1.parent_set_id = existing_parent.id
+        await _add_tracks(db, s1.id, [(1, 0, "T1", "A")])
+        await _add_tracks(db, s2.id, [(2, 60_000, "T2", "A")])
 
         f = SetFlag(
             set_id_a=s1.id,
@@ -622,6 +637,618 @@ class TestAttachSetFlagRefactor:
         db.expire_all()
         s2_ref = (await db.execute(select(DJSet).where(DJSet.id == s2_id))).scalar_one()
         assert s2_ref.parent_set_id == parent_id_expected
+
+        parent = await _reload(db, parent_id_expected)
+        assert parent.channel == "Cercle"
+        assert len(await _parent_tracks(db, parent_id_expected)) == 2
+
+    async def test_attach_to_real_parent_keeps_its_tracks(self, admin_client, db):
+        """A real set reused as parent is not rebuilt from its children (invariant #4)."""
+        real_parent = DJSet(source="trackid", title="Real Parent", is_virtual=False)
+        s1 = DJSet(source="trackid", title="Child A")
+        s2 = DJSet(source="trackid", title="Child B")
+        db.add_all([real_parent, s1, s2])
+        await db.flush()
+        s1.parent_set_id = real_parent.id
+        await _add_tracks(db, real_parent.id, [(9, 0, "Own Track", "A")])
+        await _add_tracks(db, s2.id, [(2, 0, "T2", "A")])
+        f = SetFlag(
+            set_id_a=s1.id,
+            set_id_b=s2.id,
+            flag_type=SetFlagType.duplicate_candidate,
+            confidence=0.7,
+            status=SetFlagStatus.pending,
+            created_at=_now(),
+        )
+        db.add(f)
+        await db.commit()
+        parent_id, flag_id = real_parent.id, f.id
+
+        r = await admin_client.post(f"/api/admin/set-flags/{flag_id}/attach")
+        assert r.status_code == 200
+
+        tracks = await _parent_tracks(db, parent_id)
+        assert [t.trackid_music_track_id for t in tracks] == [9]
+
+
+# ---------------------------------------------------------------------------
+# C14-dedup-yt — complete virtual parent
+# ---------------------------------------------------------------------------
+
+
+async def _reload(db, set_id):
+    db.expire_all()
+    return (await db.execute(select(DJSet).where(DJSet.id == set_id))).scalar_one()
+
+
+async def _parent_tracks(db, parent_id):
+    db.expire_all()
+    return (
+        await db.execute(
+            select(SetTrack)
+            .where(SetTrack.set_id == parent_id)
+            .order_by(SetTrack.position)
+        )
+    ).scalars().all()
+
+
+async def _make_family(db, *children):
+    """Create a virtual parent + one child per kwargs dict. Returns (parent_id, ids)."""
+    parent = DJSet(source="virtual", title="Parent Title", is_virtual=True)
+    db.add(parent)
+    await db.flush()
+    ids = []
+    for i, fields in enumerate(children):
+        fields = {"source": "trackid", "title": f"Child {i}", **fields}
+        child = DJSet(parent_set_id=parent.id, **fields)
+        db.add(child)
+        await db.flush()
+        ids.append(child.id)
+    return parent.id, ids
+
+
+async def _make_artist(db, name):
+    artist = Artist(name=name, normalized_name=name.lower())
+    db.add(artist)
+    await db.flush()
+    return artist.id
+
+
+class TestSyncParentMetadata:
+    async def test_no_effect_on_real_set(self, db):
+        real = DJSet(source="trackid", title="Real", channel="Mine", source_url="u")
+        db.add(real)
+        await db.flush()
+        db.add(
+            DJSet(
+                source="trackid", title="C", channel="Other", parent_set_id=real.id
+            )
+        )
+        await db.flush()
+
+        await sync_parent_metadata(db, real.id)
+
+        refreshed = await _reload(db, real.id)
+        assert refreshed.channel == "Mine"
+        assert refreshed.source_url == "u"
+
+    async def test_no_children_overwrites_nothing(self, db):
+        parent = DJSet(
+            source="virtual", title="P", is_virtual=True,
+            channel="Kept", source_url="kept-url", unreliable=True,
+        )
+        db.add(parent)
+        await db.flush()
+
+        assert await materialize_parent(db, parent.id) == 0
+
+        refreshed = await _reload(db, parent.id)
+        assert refreshed.channel == "Kept"
+        assert refreshed.source_url == "kept-url"
+        assert refreshed.unreliable is True
+
+    async def test_title_and_played_date_untouched(self, db):
+        parent_id, _ = await _make_family(
+            db, {"title": "Much Longer Child Title", "played_date": date(2024, 1, 1)}
+        )
+        parent = await _reload(db, parent_id)
+        parent.played_date = date(2020, 5, 5)
+        await db.flush()
+
+        await sync_parent_metadata(db, parent_id)
+
+        refreshed = await _reload(db, parent_id)
+        assert refreshed.title == "Parent Title"
+        assert refreshed.played_date == date(2020, 5, 5)
+
+    async def test_source_url_prefers_youtube_child(self, db):
+        parent_id, _ = await _make_family(
+            db,
+            {"source_url": "https://trackid.net/audiostream/a"},
+            {"source_url": "https://YouTu.be/abc"},
+            {"source_url": "https://www.youtube.com/watch?v=zzz"},
+        )
+        await sync_parent_metadata(db, parent_id)
+        assert (await _reload(db, parent_id)).source_url == "https://YouTu.be/abc"
+
+    async def test_source_url_recognises_youtube_by_source(self, db):
+        parent_id, _ = await _make_family(
+            db,
+            {"source_url": "https://trackid.net/audiostream/a"},
+            {"source": "youtube", "source_url": "https://proxy.example/v/1"},
+        )
+        await sync_parent_metadata(db, parent_id)
+        assert (await _reload(db, parent_id)).source_url == "https://proxy.example/v/1"
+
+    async def test_source_url_youtube_child_without_url_falls_back(self, db):
+        parent_id, _ = await _make_family(
+            db,
+            {"source": "youtube", "source_url": None},
+            {"source_url": None},
+            {"source_url": "https://trackid.net/audiostream/a"},
+        )
+        await sync_parent_metadata(db, parent_id)
+        assert (
+            (await _reload(db, parent_id)).source_url
+            == "https://trackid.net/audiostream/a"
+        )
+
+    async def test_channel_most_frequent(self, db):
+        parent_id, _ = await _make_family(
+            db,
+            {"channel": "Cercle", "channel_canonical": "Cercle"},
+            {"channel": "Boiler Room", "channel_canonical": "Boiler Room"},
+            {"channel": "Boiler Room", "channel_canonical": "Boiler Room"},
+        )
+        await sync_parent_metadata(db, parent_id)
+        parent = await _reload(db, parent_id)
+        assert parent.channel == "Boiler Room"
+        assert parent.channel_canonical == "Boiler Room"
+
+    async def test_channel_tie_goes_to_smallest_id(self, db):
+        parent_id, _ = await _make_family(
+            db,
+            {"channel": "First", "channel_canonical": "first"},
+            {"channel": "Second", "channel_canonical": "second"},
+        )
+        await sync_parent_metadata(db, parent_id)
+        parent = await _reload(db, parent_id)
+        assert parent.channel == "First"
+        assert parent.channel_canonical == "first"
+
+    async def test_raw_channel_id_ignored(self, db):
+        raw_id = "UC" + "a1_-" * 5 + "bc"
+        parent_id, _ = await _make_family(
+            db,
+            {"channel": raw_id, "channel_canonical": raw_id},
+            {"channel": raw_id, "channel_canonical": raw_id},
+            {"channel": "Real Name", "channel_canonical": "Real Name"},
+        )
+        await sync_parent_metadata(db, parent_id)
+        parent = await _reload(db, parent_id)
+        assert parent.channel == "Real Name"
+        assert parent.channel_canonical == "Real Name"
+
+    async def test_only_raw_channel_ids_leave_channel_empty(self, db):
+        raw_id = "UC" + "x" * 22
+        parent_id, _ = await _make_family(
+            db, {"channel": raw_id, "channel_canonical": raw_id}
+        )
+        await sync_parent_metadata(db, parent_id)
+        parent = await _reload(db, parent_id)
+        assert parent.channel is None
+        assert parent.channel_canonical is None
+
+    async def test_canonical_stays_coherent_with_channel(self, db):
+        """Displayed channel and filter value must name the same channel."""
+        parent_id, _ = await _make_family(
+            db,
+            {"channel": "Cercle", "channel_canonical": "Cercle"},
+            {"channel": "Boiler Room: Berlin", "channel_canonical": "Boiler Room"},
+            {"channel": "Boiler Room: Paris", "channel_canonical": "Boiler Room"},
+        )
+        await sync_parent_metadata(db, parent_id)
+        parent = await _reload(db, parent_id)
+        assert parent.channel == "Cercle"
+        assert parent.channel_canonical == "Cercle"
+
+    async def test_event_date_single_value_kept(self, db):
+        parent_id, _ = await _make_family(
+            db, {"event_date": date(2024, 3, 2)}, {"event_date": None},
+            {"event_date": date(2024, 3, 2)},
+        )
+        await sync_parent_metadata(db, parent_id)
+        assert (await _reload(db, parent_id)).event_date == date(2024, 3, 2)
+
+    async def test_event_date_conflict_is_none(self, db):
+        parent_id, _ = await _make_family(
+            db, {"event_date": date(2024, 3, 2)}, {"event_date": date(2024, 3, 9)}
+        )
+        parent = await _reload(db, parent_id)
+        parent.event_date = date(2024, 3, 2)
+        await db.flush()
+
+        await sync_parent_metadata(db, parent_id)
+
+        assert (await _reload(db, parent_id)).event_date is None
+
+    async def test_styles_union_stable_without_duplicates(self, db):
+        parent_id, _ = await _make_family(
+            db,
+            {"styles": ["House", "Techno"]},
+            {"styles": None},
+            {"styles": ["Techno", "Disco"]},
+        )
+        await sync_parent_metadata(db, parent_id)
+        assert (await _reload(db, parent_id)).styles == ["House", "Techno", "Disco"]
+
+    async def test_unreliable_only_when_all_children_are(self, db):
+        some_id, _ = await _make_family(db, {"unreliable": True}, {"unreliable": False})
+        all_id, _ = await _make_family(db, {"unreliable": True}, {"unreliable": True})
+
+        await sync_parent_metadata(db, some_id)
+        await sync_parent_metadata(db, all_id)
+
+        assert (await _reload(db, some_id)).unreliable is False
+        assert (await _reload(db, all_id)).unreliable is True
+
+    async def test_artist_links_union_without_duplicate_or_removal(self, db):
+        kept = await _make_artist(db, "Kept On Parent")
+        shared = await _make_artist(db, "Shared")
+        solo = await _make_artist(db, "Solo")
+        parent_id, (c1, c2) = await _make_family(db, {}, {})
+        db.add_all(
+            [
+                SetArtist(set_id=parent_id, artist_id=kept, role="host", position=7),
+                SetArtist(set_id=c1, artist_id=shared, role="dj", position=0),
+                SetArtist(set_id=c2, artist_id=shared, role="guest", position=4),
+                SetArtist(set_id=c2, artist_id=solo, role="dj", position=1),
+            ]
+        )
+        await db.flush()
+
+        await sync_parent_metadata(db, parent_id)
+        await sync_parent_metadata(db, parent_id)  # idempotent
+
+        db.expire_all()
+        links = {
+            link.artist_id: (link.role, link.position)
+            for link in (
+                await db.execute(
+                    select(SetArtist).where(SetArtist.set_id == parent_id)
+                )
+            ).scalars()
+        }
+        assert links == {
+            kept: ("host", 7),
+            shared: ("dj", 0),
+            solo: ("dj", 1),
+        }
+
+    async def test_artwork_copied_from_first_child_having_one(self, db, monkeypatch):
+        copies = []
+
+        def fake_copy(bucket, src, dst):
+            copies.append((src, dst))
+            return True
+
+        monkeypatch.setattr(ImageService, "copy_object", staticmethod(fake_copy))
+        parent_id, (_, donor, _) = await _make_family(
+            db, {"has_artwork": False}, {"has_artwork": True}, {"has_artwork": True}
+        )
+
+        await sync_parent_metadata(db, parent_id)
+
+        assert (await _reload(db, parent_id)).has_artwork is True
+        assert copies == [(f"{donor}.jpg", f"{parent_id}.jpg")]
+
+    async def test_failed_artwork_copy_leaves_flag_false(self, db, monkeypatch):
+        monkeypatch.setattr(
+            ImageService, "copy_object", staticmethod(lambda *_: False)
+        )
+        parent_id, _ = await _make_family(db, {"has_artwork": True})
+
+        await sync_parent_metadata(db, parent_id)
+
+        assert not (await _reload(db, parent_id)).has_artwork
+
+    async def test_existing_artwork_not_recopied(self, db, monkeypatch):
+        def fail_copy(*_):
+            raise AssertionError("must not copy")
+
+        monkeypatch.setattr(ImageService, "copy_object", staticmethod(fail_copy))
+        parent_id, _ = await _make_family(db, {"has_artwork": True})
+        parent = await _reload(db, parent_id)
+        parent.has_artwork = True
+        await db.flush()
+
+        await sync_parent_metadata(db, parent_id)
+
+        assert (await _reload(db, parent_id)).has_artwork is True
+
+
+class TestMaterializeParentComplete:
+    async def test_non_virtual_set_is_left_untouched(self, db):
+        real = DJSet(source="trackid", title="Real", is_virtual=False, duration_ms=5)
+        db.add(real)
+        await db.flush()
+        await _add_tracks(db, real.id, [(9, 0, "Own", "A")])
+        child = DJSet(
+            source="trackid", title="C", parent_set_id=real.id, duration_ms=99
+        )
+        db.add(child)
+        await db.flush()
+        await _add_tracks(db, child.id, [(2, 0, "T2", "A")])
+        real_id = real.id
+
+        assert await materialize_parent(db, real_id) == 0
+
+        tracks = await _parent_tracks(db, real_id)
+        assert [t.trackid_music_track_id for t in tracks] == [9]
+        assert (await _reload(db, real_id)).duration_ms == 5
+
+    async def test_missing_parent_returns_zero(self, db):
+        assert await materialize_parent(db, 999_999) == 0
+
+    async def test_apply_match_results_keeps_real_parent_tracks(self, db):
+        real = DJSet(source="trackid", title="Real", is_virtual=False)
+        db.add(real)
+        await db.flush()
+        await _add_tracks(db, real.id, [(9, 0, "Own", "A")])
+        s1 = DJSet(source="trackid", title="Child", parent_set_id=real.id)
+        s2 = DJSet(source="trackid", title="Incoming")
+        db.add_all([s1, s2])
+        await db.flush()
+        await _add_tracks(db, s2.id, [(2, 0, "T2", "A")])
+        real_id, s1_id, s2_id = real.id, s1.id, s2.id
+
+        counts = await apply_match_results(db, s2_id, [_auto_result(s1_id)])
+
+        assert counts["attached"] == 1
+        tracks = await _parent_tracks(db, real_id)
+        assert [t.trackid_music_track_id for t in tracks] == [9]
+
+    async def test_track_fields_preserved_through_duplicates(self, db):
+        catalog = CatalogEntry(title="T", artist="A", normalized_key="a|t")
+        db.add(catalog)
+        await db.flush()
+        parent_id, (c1, c2) = await _make_family(db, {}, {})
+        # c2's three shared tracks align with c1 at a -1000ms offset.
+        for set_id, shift in ((c1, 0), (c2, 1000)):
+            for pos, mtid in enumerate((1, 2, 3), start=1):
+                db.add(
+                    SetTrack(
+                        set_id=set_id, position=pos, is_id=False,
+                        trackid_music_track_id=mtid,
+                        raw_title=f"T{mtid}", raw_artist="A",
+                        timecode_ms=pos * 10_000 + shift,
+                    )
+                )
+        db.add(
+            SetTrack(
+                set_id=c1, position=4, is_id=False, trackid_music_track_id=4,
+                raw_title="T4", raw_artist="A", timecode_ms=40_000,
+                end_time_ms=45_000, label="Label One", catalog_id=catalog.id,
+            )
+        )
+        db.add(
+            SetTrack(
+                set_id=c2, position=4, is_id=False, trackid_music_track_id=5,
+                raw_title="T5", raw_artist="A", timecode_ms=51_000,
+                end_time_ms=56_000, label="Label Two",
+            )
+        )
+        await db.flush()
+        catalog_id = catalog.id
+
+        await materialize_parent(db, parent_id)
+
+        by_mtid = {
+            t.trackid_music_track_id: t for t in await _parent_tracks(db, parent_id)
+        }
+        assert by_mtid[4].catalog_id == catalog_id
+        assert by_mtid[4].label == "Label One"
+        assert by_mtid[4].end_time_ms == 45_000
+        # end_time_ms follows the alignment offset applied to the timecode.
+        assert by_mtid[5].timecode_ms == 50_000
+        assert by_mtid[5].end_time_ms == 55_000
+        assert by_mtid[5].label == "Label Two"
+
+    async def test_track_fields_preserved_through_parts(self, db):
+        parent_id, (c1, c2) = await _make_family(
+            db,
+            {"part_number": 1, "duration_ms": 60_000},
+            {"part_number": 2, "duration_ms": 60_000},
+        )
+        db.add(
+            SetTrack(
+                set_id=c1, position=1, is_id=False, trackid_music_track_id=1,
+                raw_title="T1", raw_artist="A", timecode_ms=0,
+                end_time_ms=5_000, label="L1",
+            )
+        )
+        db.add(
+            SetTrack(
+                set_id=c2, position=1, is_id=False, trackid_music_track_id=2,
+                raw_title="T2", raw_artist="A", timecode_ms=0,
+                end_time_ms=5_000, label="L2",
+            )
+        )
+        await db.flush()
+
+        await materialize_parent(db, parent_id)
+
+        tracks = await _parent_tracks(db, parent_id)
+        assert [t.label for t in tracks] == ["L1", "L2"]
+        assert tracks[1].timecode_ms == 60_000
+        assert tracks[1].end_time_ms == 65_000
+
+    async def test_empty_youtube_child_with_part_number_is_not_a_part(self, db):
+        parent_id, (trackid_id, _) = await _make_family(
+            db,
+            {"duration_ms": 3_600_000},
+            {"source": "youtube", "part_number": 2, "duration_ms": 3_700_000},
+        )
+        await _add_tracks(
+            db, trackid_id, [(1, 0, "T1", "A"), (2, 60_000, "T2", "A")]
+        )
+
+        count = await materialize_parent(db, parent_id)
+
+        assert count == 2
+        tracks = await _parent_tracks(db, parent_id)
+        assert [t.timecode_ms for t in tracks] == [0, 60_000]
+        # Duplicates path, not the parts sum.
+        assert (await _reload(db, parent_id)).duration_ms == 3_700_000
+
+    async def test_empty_youtube_child_does_not_shift_or_inflate_parts(self, db):
+        parent_id, (p1, p2, _) = await _make_family(
+            db,
+            {"part_number": 1, "duration_ms": 60_000},
+            {"part_number": 3, "duration_ms": 60_000},
+            {"source": "youtube", "part_number": 2, "duration_ms": 500_000},
+        )
+        await _add_tracks(db, p1, [(1, 0, "T1", "A")])
+        await _add_tracks(db, p2, [(2, 0, "T2", "A")])
+
+        await materialize_parent(db, parent_id)
+
+        tracks = await _parent_tracks(db, parent_id)
+        assert [t.timecode_ms for t in tracks] == [0, 60_000]
+        assert (await _reload(db, parent_id)).duration_ms == 120_000
+
+    async def test_all_children_empty_duration_is_max(self, db):
+        parent_id, _ = await _make_family(
+            db,
+            {"part_number": 1, "duration_ms": 1_000},
+            {"part_number": 2, "duration_ms": 3_000},
+        )
+
+        assert await materialize_parent(db, parent_id) == 0
+        assert (await _reload(db, parent_id)).duration_ms == 3_000
+
+    async def test_materialize_syncs_metadata(self, db):
+        parent_id, _ = await _make_family(
+            db, {"channel": "Cercle", "channel_canonical": "Cercle"}
+        )
+        await materialize_parent(db, parent_id)
+        assert (await _reload(db, parent_id)).channel == "Cercle"
+
+
+class TestDetachRematerialises:
+    async def test_surviving_parent_is_rebuilt_without_the_detached_child(self, db):
+        parent_id, (c1, c2, c3) = await _make_family(
+            db,
+            {"channel": "Gone", "channel_canonical": "Gone"},
+            {"channel": "Stays", "channel_canonical": "Stays"},
+            {"channel": "Stays", "channel_canonical": "Stays"},
+        )
+        await _add_tracks(db, c1, [(1, 0, "T1", "A")])
+        await _add_tracks(db, c2, [(2, 0, "T2", "A")])
+        await _add_tracks(db, c3, [(3, 0, "T3", "A")])
+        await materialize_parent(db, parent_id)
+
+        await detach_set_from_parent(db, c1)
+
+        tracks = await _parent_tracks(db, parent_id)
+        assert {t.trackid_music_track_id for t in tracks} == {2, 3}
+        assert (await _reload(db, parent_id)).channel == "Stays"
+
+    async def test_detach_keeps_artist_link_already_on_parent(self, db):
+        artist_id = await _make_artist(db, "Departing DJ")
+        parent_id, (c1, _, _) = await _make_family(db, {}, {}, {})
+        db.add(SetArtist(set_id=c1, artist_id=artist_id, role="dj", position=0))
+        await db.flush()
+        await materialize_parent(db, parent_id)
+
+        await detach_set_from_parent(db, c1)
+
+        db.expire_all()
+        links = (
+            await db.execute(
+                select(SetArtist.artist_id).where(SetArtist.set_id == parent_id)
+            )
+        ).scalars().all()
+        assert links == [artist_id]
+
+    async def test_real_parent_with_survivors_keeps_its_tracks(self, db):
+        real = DJSet(source="trackid", title="Real", is_virtual=False)
+        db.add(real)
+        await db.flush()
+        await _add_tracks(db, real.id, [(9, 0, "Own", "A")])
+        children = [
+            DJSet(source="trackid", title=f"C{i}", parent_set_id=real.id)
+            for i in range(3)
+        ]
+        db.add_all(children)
+        await db.flush()
+        real_id, child_id = real.id, children[0].id
+
+        await detach_set_from_parent(db, child_id)
+
+        tracks = await _parent_tracks(db, real_id)
+        assert [t.trackid_music_track_id for t in tracks] == [9]
+
+
+class TestAttachPair:
+    async def test_creates_parent_and_materializes(self, db):
+        s1 = await _make_set(db, "Set A")
+        s2 = await _make_set(db, "Set B", source="youtube")
+        s2.channel = "Cercle"
+        await _add_tracks(db, s1.id, [(1, 0, "T1", "A")])
+        s1_id, s2_id = s1.id, s2.id
+
+        parent_id = await attach_pair(db, s1_id, s2_id)
+
+        parent = await _reload(db, parent_id)
+        assert parent.is_virtual is True
+        assert parent.channel == "Cercle"
+        assert (await _reload(db, s1_id)).parent_set_id == parent_id
+        assert (await _reload(db, s2_id)).parent_set_id == parent_id
+        assert len(await _parent_tracks(db, parent_id)) == 1
+
+    async def test_reuses_existing_virtual_parent(self, db):
+        parent_id, (child_id,) = await _make_family(db, {})
+        other = await _make_set(db, "Other", source="youtube")
+        other_id = other.id
+
+        assert await attach_pair(db, other_id, child_id) == parent_id
+        assert (await _reload(db, other_id)).parent_set_id == parent_id
+
+    async def test_same_parent_is_accepted(self, db):
+        parent_id, (c1, c2) = await _make_family(db, {}, {})
+        assert await attach_pair(db, c1, c2) == parent_id
+
+    async def test_different_parents_raises_value_error(self, db):
+        _, (a,) = await _make_family(db, {})
+        _, (b,) = await _make_family(db, {})
+        with pytest.raises(ValueError):
+            await attach_pair(db, a, b)
+
+    async def test_real_existing_parent_raises_value_error(self, db):
+        real = DJSet(source="trackid", title="Real", is_virtual=False)
+        db.add(real)
+        await db.flush()
+        child = DJSet(source="trackid", title="C", parent_set_id=real.id)
+        db.add(child)
+        other = await _make_set(db, "Other")
+        with pytest.raises(ValueError):
+            await attach_pair(db, child.id, other.id)
+
+    async def test_missing_set_raises_lookup_error(self, db):
+        s1 = await _make_set(db, "Set A")
+        with pytest.raises(LookupError):
+            await attach_pair(db, s1.id, 999_999)
+
+    async def test_same_set_twice_raises_value_error(self, db):
+        s1 = await _make_set(db, "Set A")
+        with pytest.raises(ValueError):
+            await attach_pair(db, s1.id, s1.id)
+
+    async def test_virtual_set_raises_value_error(self, db):
+        parent_id, (child_id,) = await _make_family(db, {})
+        with pytest.raises(ValueError):
+            await attach_pair(db, parent_id, child_id)
 
 
 # ---------------------------------------------------------------------------

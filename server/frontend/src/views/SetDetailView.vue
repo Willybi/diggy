@@ -81,12 +81,14 @@
             </div>
           </div>
 
-          <!-- Source link (S7) — PlatformLink + SOURCE micro-label. Absent if no url. -->
-          <div v-if="djSet.source_url" class="hero-source">
-            <PlatformLink :platform="sourcePlatform" :href="djSet.source_url" size="md" />
-            <span class="hero-source-tx">
-              <span class="hero-source-label">Source</span>
-              <span class="hero-source-name">{{ sourceName }}</span>
+          <!-- Source links (S7) — PlatformLink + SOURCE micro-label. Absent if no url. -->
+          <div v-if="sourceLinks.length" class="hero-source">
+            <span v-for="link in sourceLinks" :key="link.url" class="hero-source-item">
+              <PlatformLink :platform="link.platform" :href="link.url" size="md" />
+              <span class="hero-source-tx">
+                <span class="hero-source-label">Source</span>
+                <span class="hero-source-name">{{ link.name }}</span>
+              </span>
             </span>
           </div>
 
@@ -228,17 +230,56 @@ const identifiedLabel = computed(
 // The back source value `1001tracklists` maps to the PlatformLink key `1001tl`;
 // the others (youtube / soundcloud / trackid) are identical keys.
 const SOURCE_PLATFORM = { '1001tracklists': '1001tl' }
-const SOURCE_NAMES = {
+const PLATFORM_NAMES = {
   youtube: 'YouTube',
   soundcloud: 'SoundCloud',
+  mixcloud: 'Mixcloud',
   trackid: 'TrackID',
-  '1001tracklists': '1001Tracklists',
+  '1001tl': '1001Tracklists',
 }
-const sourcePlatform = computed(() => {
-  const src = djSet.value?.source
-  return SOURCE_PLATFORM[src] || src
+const URL_PLATFORMS = {
+  'youtube.com': 'youtube',
+  'youtu.be': 'youtube',
+  'soundcloud.com': 'soundcloud',
+  'mixcloud.com': 'mixcloud',
+  'trackid.net': 'trackid',
+  '1001tracklists.com': '1001tl',
+}
+
+function platformFromSource(source) {
+  return SOURCE_PLATFORM[source] || source
+}
+
+// Known platform of a URL, else its bare hostname; null when it can't be parsed.
+function platformFromUrl(url) {
+  try {
+    const host = new window.URL(url).hostname.replace(/^www\./, '')
+    const domain = Object.keys(URL_PLATFORMS).find((d) => host === d || host.endsWith(`.${d}`))
+    return domain ? URL_PLATFORMS[domain] : host
+  } catch {
+    return null
+  }
+}
+
+// source_urls is absent from an older payload: fall back on the set's own link.
+const sourceUrls = computed(() => {
+  const s = djSet.value
+  if (s?.source_urls?.length) return s.source_urls
+  return s?.source_url ? [s.source_url] : []
 })
-const sourceName = computed(() => SOURCE_NAMES[djSet.value?.source] || djSet.value?.source || '')
+
+// A lone link on a real set keeps its source-based platform. Otherwise the source
+// can't name the link: it is shared by all of them, or 'virtual' on a parent.
+const sourceLinks = computed(() => {
+  const source = djSet.value?.source
+  const sourceNamesLink = sourceUrls.value.length === 1 && source !== 'virtual'
+  return sourceUrls.value.map((url) => {
+    const platform = sourceNamesLink
+      ? platformFromSource(source)
+      : platformFromUrl(url) || platformFromSource(source)
+    return { url, platform, name: PLATFORM_NAMES[platform] || platform || '' }
+  })
+})
 
 // Timestamped source URL — YouTube (?t= / &t=) and SoundCloud (#t=h:mm:ss) only;
 // any other source (trackid, 1001tracklists) or a null url → no link (plain text).
@@ -264,7 +305,9 @@ function makeTimestampUrl(baseUrl, timecodeMs) {
 //   undefined    → identified track (full mapping expected by TrackCard)
 const trackRows = computed(() => {
   const list = djSet.value?.tracklist ?? []
-  const url = djSet.value?.source_url
+  // A virtual parent's merged tracklist may come from another version of the set than
+  // its source_url, with a different intro: a cue link could land minutes off the track.
+  const url = djSet.value?.source === 'virtual' ? null : djSet.value?.source_url
   return list.map((t) => {
     let state
     if (t.is_id) state = 'id'
@@ -588,11 +631,16 @@ onMounted(() => {
 
 /* Source link (S7) */
 .hero-source {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-self: flex-start;
+  gap: var(--space-3) var(--space-5);
+  margin-top: var(--space-1);
+}
+.hero-source-item {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-25);
-  margin-top: var(--space-1);
 }
 .hero-source-tx {
   display: flex;
