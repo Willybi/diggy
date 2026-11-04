@@ -372,6 +372,9 @@ class TestCrawlChannelsCore:
         # No crash; nothing created; the channel is NOT stamped (stays due).
         assert stats == {
             "channels": 0,
+            "channels_total": 0,
+            "feed_errors": 0,
+            "duration_errors": 0,
             "videos_seen": 0,
             "sets_created": 0,
             "deadline_hit": False,
@@ -492,6 +495,66 @@ class TestCrawlChannelsCore:
         assert stats["sets_created"] == 1
         assert snap["bad_stamped"] is False  # outage → NOT stamped, retried later
         assert snap["good_stamped"] is True
+        # The miss stays visible although the run itself succeeds.
+        assert stats["channels_total"] == 2
+        assert stats["feed_errors"] == 1
+        assert stats["feed_error_codes"] == "503:1"
+
+    def test_feed_error_stats_group_codes_and_exception_types(
+        self, youtube_task, monkeypatch
+    ):
+        from workers import youtube as yt
+
+        failures = {
+            "UC_a": yt.YouTubeHTTPError(404, "feed:UC_a"),
+            "UC_b": yt.YouTubeHTTPError(404, "feed:UC_b"),
+            "UC_c": yt.YouTubeHTTPError(500, "feed:UC_c"),
+            "UC_d": TimeoutError("slow"),
+        }
+
+        async def _feed(client, channel_id):
+            raise failures[channel_id]
+
+        monkeypatch.setattr(yt, "fetch_channel_feed", _feed)
+
+        def _seed(session):
+            for ext in failures:
+                _seed_channel(session, external_id=ext, name=ext)
+
+        out = _run_core(
+            _seed, lambda session: None, api_key="KEY", deadline=float("inf")
+        )
+        stats = out["stats"]
+
+        assert stats["channels"] == 0
+        assert stats["channels_total"] == 4
+        assert stats["feed_errors"] == 4
+        assert stats["feed_error_codes"] == "404:2, 500:1, TimeoutError:1"
+
+    def test_duration_error_is_counted_separately(self, youtube_task, monkeypatch):
+        from workers import youtube as yt
+
+        async def _feed(client, channel_id):
+            return [_video("VID_1", "Some set")]
+
+        async def _durations(client, video_ids, api_key):
+            raise yt.YouTubeHTTPError(403, "videos.list")
+
+        monkeypatch.setattr(yt, "fetch_channel_feed", _feed)
+        monkeypatch.setattr(yt, "fetch_video_durations", _durations)
+
+        def _seed(session):
+            _seed_channel(session, external_id="UC_x", name="X")
+
+        out = _run_core(
+            _seed, lambda session: None, api_key="KEY", deadline=float("inf")
+        )
+        stats = out["stats"]
+
+        assert stats["channels"] == 1  # the feed itself was read
+        assert stats["duration_errors"] == 1
+        assert stats["feed_errors"] == 0
+        assert "feed_error_codes" not in stats
 
     def test_excluded_and_unwatched_channels_are_ignored(
         self, youtube_task, monkeypatch

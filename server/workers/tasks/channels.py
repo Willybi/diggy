@@ -75,6 +75,12 @@ CHANNEL_AUTOLINK_DEDUP_TTL = int(
 # overshoot past the cap to at most one batch's hits (see _autolink_channels).
 CHANNEL_AUTOLINK_BATCH = int(os.environ.get("CHANNEL_AUTOLINK_BATCH", "100"))
 
+# Spacing (seconds) between the historical backfills dispatched for the channels
+# created by a run, so they do not all land on the worker's slots at once.
+CHANNEL_AUTOLINK_BACKFILL_STAGGER = int(
+    os.environ.get("CHANNEL_AUTOLINK_BACKFILL_STAGGER", "30")
+)
+
 # Chunk size for the batched Redis MGET dedup read (cheap pre-filter).
 _DEDUP_MGET_CHUNK = 500
 
@@ -219,7 +225,7 @@ async def _autolink_channels(
     ``session_factory`` is an async ``sessionmaker``; ``redis_client`` a sync Redis
     (or stand-in) used for the dedup pre-filter/store; ``wiki_client``/``yt_client``
     injected ``httpx.AsyncClient``s passed to the resolver. Returns the stats dict
-    ``{candidates, pending, resolved, created, deadline_hit}``.
+    ``{candidates, pending, resolved, created, backfills_dispatched, deadline_hit}``.
     """
     from workers.artist_channel_resolve import (
         ChannelResolveHTTPError,
@@ -231,6 +237,7 @@ async def _autolink_channels(
         "pending": 0,
         "resolved": 0,
         "created": 0,
+        "backfills_dispatched": 0,
         "deadline_hit": False,
     }
 
@@ -295,6 +302,7 @@ async def _autolink_channels(
             continue
 
         # One transaction per batch so a kill keeps the channels already created.
+        created_ids = []
         async with session_factory() as db:
             reached_cap = False
             for c in batch:
@@ -308,12 +316,17 @@ async def _autolink_channels(
                     # its channel (never cache a hit we did not finalize).
                     reached_cap = True
                     break
-                created = await _upsert_autolink_channel(db, c, res)
+                new_id = await _upsert_autolink_channel(db, c, res)
                 _dedup_store(redis_client, c["deezer_id"], res)
                 stats["resolved"] += 1
-                if created:
+                if new_id is not None:
                     stats["created"] += 1
+                    created_ids.append(new_id)
             await db.commit()
+        # AFTER the commit, so the worker can load each row in its own session.
+        stats["backfills_dispatched"] += _dispatch_backfills(
+            created_ids, start_index=stats["backfills_dispatched"]
+        )
         if reached_cap:
             break
 
@@ -354,14 +367,43 @@ async def _load_autolink_candidates(session_factory):
     ]
 
 
-async def _upsert_autolink_channel(db, candidate, res) -> bool:
-    """Upsert a watched ``artist`` channel for a resolved hit. Returns ``created``.
+def _dispatch_backfills(channel_ids, *, start_index=0):
+    """Fire the one-shot historical backfill of each newly created channel.
+
+    Without it an auto-linked channel only ever sees the ~15 uploads of its RSS feed.
+    Staggered by :data:`CHANNEL_AUTOLINK_BACKFILL_STAGGER`, continuing from
+    ``start_index`` across batches. Best-effort, like the admin add path: a dispatch
+    failure is logged and never fails the run (the nightly crawl still covers the
+    channel). Returns the number of backfills actually dispatched.
+    """
+    dispatched = 0
+    for channel_id in channel_ids:
+        try:
+            celery_app.send_task(
+                "workers.tasks.backfill_youtube_channel",
+                args=[channel_id],
+                countdown=(start_index + dispatched)
+                * CHANNEL_AUTOLINK_BACKFILL_STAGGER,
+            )
+            dispatched += 1
+        except Exception:
+            logger.warning(
+                "autolink_official_channels: backfill dispatch failed for channel "
+                "%s (best-effort)",
+                channel_id,
+                exc_info=True,
+            )
+    return dispatched
+
+
+async def _upsert_autolink_channel(db, candidate, res) -> int | None:
+    """Upsert a watched ``artist`` channel for a resolved hit.
 
     Idempotent on ``(platform='youtube', external_id)``: a brand-new row is created
-    watched + linked to the artist and returns True; an EXISTING row only gets the
-    artist backlink (if free) and is re-watched, returning False — and an existing
-    EXCLUDED row (an operator's curated "no") is left entirely untouched. Flushes
-    via the caller's per-batch commit.
+    watched + linked to the artist and its id is returned; an EXISTING row only gets
+    the artist backlink (if free) and is re-watched, returning None — and an existing
+    EXCLUDED row (an operator's curated "no") is left entirely untouched. Commit is
+    the caller's (per batch).
     """
     from models import Channel
     from sqlalchemy import select
@@ -379,32 +421,32 @@ async def _upsert_autolink_channel(db, candidate, res) -> bool:
     ).scalar_one_or_none()
 
     if row is None:
-        db.add(
-            Channel(
-                platform="youtube",
-                external_id=channel_id,
-                name=title,
-                channel_type="artist",
-                artist_id=candidate["artist_id"],
-                watched=True,
-                excluded=False,
-                signals={
-                    "method": res.get("method", "wikidata_deezer"),
-                    "confidence": res.get("confidence", "high"),
-                },
-            )
+        new_row = Channel(
+            platform="youtube",
+            external_id=channel_id,
+            name=title,
+            channel_type="artist",
+            artist_id=candidate["artist_id"],
+            watched=True,
+            excluded=False,
+            signals={
+                "method": res.get("method", "wikidata_deezer"),
+                "confidence": res.get("confidence", "high"),
+            },
         )
-        return True
+        db.add(new_row)
+        await db.flush()  # assigns the id the backfill dispatch needs
+        return new_row.id
 
     # Existing row: never override a curated exclusion; else link the artist if the
     # slot is free and re-flag it watched.
     if row.excluded:
-        return False
+        return None
     if row.artist_id is None:
         row.artist_id = candidate["artist_id"]
     if not row.watched:
         row.watched = True
-    return False
+    return None
 
 
 # ── Redis dedup helpers (fail-open) ───────────────────────────────────────────

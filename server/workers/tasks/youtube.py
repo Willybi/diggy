@@ -183,8 +183,13 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
     ``session_factory`` is an async ``sessionmaker``; ``client`` an injected
     ``httpx.AsyncClient`` (passed through to the L2 cores); ``limiter`` a
     ``RateLimiter`` (or stand-in) whose ``acquire('youtube')`` is an async CM.
-    Returns the stats dict ``{channels, videos_seen, sets_created, deadline_hit}``.
+    Returns the stats dict ``{channels, channels_total, feed_errors,
+    duration_errors, videos_seen, sets_created, deadline_hit}``, plus
+    ``feed_error_codes`` ("404:150, 500:1") when a feed failed. ``channels`` counts
+    the feeds actually read, ``channels_total`` the worklist: a run that misses most
+    channels still ends in ``success``, so the gap must stay visible in crawl_logs.
     """
+    from collections import Counter
     from datetime import datetime, timezone
 
     from models import Channel, DJSet
@@ -193,10 +198,14 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
 
     stats = {
         "channels": 0,
+        "channels_total": 0,
+        "feed_errors": 0,
+        "duration_errors": 0,
         "videos_seen": 0,
         "sets_created": 0,
         "deadline_hit": False,
     }
+    feed_error_codes: Counter = Counter()
 
     # No Data-API key → we cannot gate durations, so the run can't decide which
     # videos are sets. Warn and no-op WITHOUT stamping last_checked_at, so every
@@ -223,6 +232,7 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
             .order_by(Channel.last_checked_at.asc().nulls_first())
         )
         worklist = result.all()
+    stats["channels_total"] = len(worklist)
 
     for chan_id, external_id, chan_name in worklist:
         # AV9 deadline: exit cleanly BEFORE the next channel (never mid-write).
@@ -241,7 +251,9 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
         try:
             async with limiter.acquire("youtube"):
                 videos = await youtube.fetch_channel_feed(client, external_id)
-        except youtube.YouTubeHTTPError:
+        except youtube.YouTubeHTTPError as exc:
+            stats["feed_errors"] += 1
+            feed_error_codes[str(exc.status_code)] += 1
             logger.warning(
                 "crawl_youtube_channels: feed fetch failed for %s (%s), "
                 "skipping channel (not stamped)",
@@ -250,7 +262,9 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
                 exc_info=True,
             )
             continue
-        except Exception:
+        except Exception as exc:
+            stats["feed_errors"] += 1
+            feed_error_codes[type(exc).__name__] += 1
             logger.exception(
                 "crawl_youtube_channels: unexpected feed error for %s (%s)",
                 chan_name,
@@ -287,6 +301,7 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
                         client, [v["video_id"] for v in fresh], api_key
                     )
             except youtube.YouTubeHTTPError:
+                stats["duration_errors"] += 1
                 logger.warning(
                     "crawl_youtube_channels: durations fetch failed for %s, "
                     "skipping channel (not stamped)",
@@ -295,6 +310,7 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
                 )
                 continue
             except Exception:
+                stats["duration_errors"] += 1
                 logger.exception(
                     "crawl_youtube_channels: unexpected durations error for %s",
                     chan_name,
@@ -334,6 +350,17 @@ async def _crawl_channels(session_factory, client, limiter, *, api_key, deadline
             )
             await db.commit()
             stats["sets_created"] += created_here
+
+    if feed_error_codes:
+        stats["feed_error_codes"] = ", ".join(
+            f"{code}:{n}" for code, n in feed_error_codes.most_common()
+        )
+        logger.warning(
+            "crawl_youtube_channels: %d/%d feeds failed (%s)",
+            stats["feed_errors"],
+            stats["channels_total"],
+            stats["feed_error_codes"],
+        )
 
     return stats
 

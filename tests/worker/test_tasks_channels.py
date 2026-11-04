@@ -495,6 +495,7 @@ class TestAutolinkChannelsCore:
             "pending": 0,
             "resolved": 0,
             "created": 0,
+            "backfills_dispatched": 0,
             "deadline_hit": False,
         }
         assert snap == 0
@@ -628,3 +629,99 @@ class TestAutolinkChannelsCore:
         assert stats["created"] == 0
         assert snap == 0
         assert resolve_calls == []  # broke before issuing any query
+
+
+class TestAutolinkBackfillDispatch:
+    """A created channel must also get its historical backfill (RSS = ~15 uploads)."""
+
+    @staticmethod
+    def _seed_two(session):
+        _seed_artist(session, aid=1, name="A1", deezer_id="d1")
+        _seed_cohort(session, aid=1)
+        _seed_artist(session, aid=2, name="A2", deezer_id="d2")
+        _seed_cohort(session, aid=2)
+
+    @staticmethod
+    def _read_ids(session):
+        from models import Channel
+
+        return sorted(r.id for r in session.query(Channel).all())
+
+    def test_created_channels_get_a_staggered_backfill(
+        self, channels_task, monkeypatch
+    ):
+        celery = MagicMock()
+        monkeypatch.setattr(channels_task, "celery_app", celery)
+        monkeypatch.setattr(channels_task, "CHANNEL_AUTOLINK_BACKFILL_STAGGER", 30)
+
+        out = _run_core(
+            monkeypatch,
+            seed_fn=self._seed_two,
+            read_fn=self._read_ids,
+            resolve_stub=_make_resolve({"d1": ("UC1", "A1"), "d2": ("UC2", "A2")}),
+            fake_redis=_FakeRedis(),
+        )
+        stats, ids = out["stats"], out["snapshot"]
+
+        assert stats["backfills_dispatched"] == 2
+        calls = celery.send_task.call_args_list
+        assert [c.args[0] for c in calls] == [
+            "workers.tasks.backfill_youtube_channel"
+        ] * 2
+        assert [c.kwargs["args"] for c in calls] == [[ids[0]], [ids[1]]]
+        assert [c.kwargs["countdown"] for c in calls] == [0, 30]
+
+    def test_stagger_continues_across_batches(self, channels_task, monkeypatch):
+        celery = MagicMock()
+        monkeypatch.setattr(channels_task, "celery_app", celery)
+        monkeypatch.setattr(channels_task, "CHANNEL_AUTOLINK_BATCH", 1)
+        monkeypatch.setattr(channels_task, "CHANNEL_AUTOLINK_BACKFILL_STAGGER", 30)
+
+        _run_core(
+            monkeypatch,
+            seed_fn=self._seed_two,
+            read_fn=self._read_ids,
+            resolve_stub=_make_resolve({"d1": ("UC1", "A1"), "d2": ("UC2", "A2")}),
+            fake_redis=_FakeRedis(),
+        )
+
+        countdowns = [c.kwargs["countdown"] for c in celery.send_task.call_args_list]
+        assert countdowns == [0, 30]
+
+    def test_existing_channel_is_not_backfilled(self, channels_task, monkeypatch):
+        celery = MagicMock()
+        monkeypatch.setattr(channels_task, "celery_app", celery)
+
+        def _seed(session):
+            _seed_artist(session, aid=1, name="A1", deezer_id="d1")
+            _seed_cohort(session, aid=1)
+            _seed_channel(session, external_id="UC1", artist_id=None)
+
+        out = _run_core(
+            monkeypatch,
+            seed_fn=_seed,
+            read_fn=self._read_ids,
+            resolve_stub=_make_resolve({"d1": ("UC1", "A1")}),
+            fake_redis=_FakeRedis(),
+        )
+
+        assert out["stats"]["resolved"] == 1
+        assert out["stats"]["backfills_dispatched"] == 0
+        celery.send_task.assert_not_called()
+
+    def test_dispatch_failure_does_not_fail_the_run(self, channels_task, monkeypatch):
+        celery = MagicMock()
+        celery.send_task.side_effect = ConnectionError("broker down")
+        monkeypatch.setattr(channels_task, "celery_app", celery)
+
+        out = _run_core(
+            monkeypatch,
+            seed_fn=self._seed_two,
+            read_fn=self._read_ids,
+            resolve_stub=_make_resolve({"d1": ("UC1", "A1"), "d2": ("UC2", "A2")}),
+            fake_redis=_FakeRedis(),
+        )
+
+        assert out["stats"]["created"] == 2  # the channels are committed anyway
+        assert len(out["snapshot"]) == 2
+        assert out["stats"]["backfills_dispatched"] == 0
