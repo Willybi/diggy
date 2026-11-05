@@ -66,11 +66,11 @@
               <span class="stat-label">Chaîne source</span>
               <span class="stat-val">{{ djSet.channel }}</span>
             </div>
-            <div class="stat-cell">
+            <div v-if="hasTracklist" class="stat-cell">
               <span class="stat-label">Tracks</span>
               <span class="stat-val">{{ djSet.total_tracks }}</span>
             </div>
-            <div class="stat-cell stat-cell--ident">
+            <div v-if="hasTracklist" class="stat-cell stat-cell--ident">
               <span class="stat-label">Identifiées</span>
               <span class="ident-val">
                 <ScoreRing mode="pct" size="md" :score="identifiedRatio" :label="identifiedLabel" />
@@ -107,13 +107,24 @@
       <section class="tracklist">
         <header class="sec-head">
           <h2 class="sec-title">Tracklist</h2>
-          <span class="sec-count">
+          <span v-if="hasTracklist" class="sec-count">
             {{ djSet.total_tracks }} {{ pl(djSet.total_tracks, 'track', 'tracks') }} ·
             {{ djSet.identified_tracks }}
             {{ pl(djSet.identified_tracks, 'identifiée', 'identifiées') }}
           </span>
         </header>
-        <div class="track-list">
+        <div v-if="!hasTracklist" class="tracklist-empty">
+          <p class="tracklist-empty-text">Tracklist pas encore disponible.</p>
+          <a
+            v-if="listenLink"
+            class="tracklist-empty-link"
+            :href="listenLink.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Écouter sur {{ listenLink.name }}</a
+          >
+        </div>
+        <div v-else class="track-list">
           <TrackCard
             v-for="row in trackRows"
             :key="row.key"
@@ -280,6 +291,15 @@ const sourceLinks = computed(() => {
     return { url, platform, name: PLATFORM_NAMES[platform] || platform || '' }
   })
 })
+
+// A YouTube set is metadata-only until a tracklist exists: 0 tracks is "unknown", not a count.
+const hasTracklist = computed(() => (djSet.value?.tracklist?.length ?? 0) > 0)
+
+// First link one can actually listen on; sourceLinks follows the API order (YouTube first).
+const LISTENABLE_PLATFORMS = ['youtube', 'soundcloud', 'mixcloud']
+const listenLink = computed(() =>
+  sourceLinks.value.find((link) => LISTENABLE_PLATFORMS.includes(link.platform)),
+)
 
 // Timestamped source URL — YouTube (?t= / &t=) and SoundCloud (#t=h:mm:ss) only;
 // any other source (trackid, 1001tracklists) or a null url → no link (plain text).
@@ -694,6 +714,24 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+.tracklist-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.tracklist-empty-text {
+  margin: 0;
+  font: 500 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--ink-2);
+}
+.tracklist-empty-link {
+  font: 500 var(--fs-sm)/1.4 var(--font-ui);
+  color: var(--accent-ink);
 }
 
 /* ============ SIMILAR SETS (S10) ============ */

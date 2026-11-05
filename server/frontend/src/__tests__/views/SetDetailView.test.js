@@ -251,12 +251,47 @@ describe('SetDetailView', () => {
     expect(wrapper.find('.ident-frac').text()).toBe('18/26')
   })
 
-  it('guards the ratio against a zero total_tracks', async () => {
+  // ---- Set without a tracklist (metadata-only YouTube set) ----
+
+  function makeEmptySet(overrides = {}) {
+    return makeSet({ total_tracks: 0, identified_tracks: 0, tracklist: [], ...overrides })
+  }
+
+  it('masks the track stats and the counter when the set has no tracklist', async () => {
+    const wrapper = await mountView({ set: makeEmptySet() })
+    const labels = wrapper.findAll('.stat-label').map((l) => l.text())
+    expect(labels).toEqual(['Durée', 'Date'])
+    expect(wrapper.findComponent(ScoreRing).exists()).toBe(false)
+    expect(wrapper.find('.tracklist .sec-count').exists()).toBe(false)
+    expect(wrapper.find('.track-list').exists()).toBe(false)
+    expect(wrapper.find('.tracklist-empty-text').text()).toBe('Tracklist pas encore disponible.')
+  })
+
+  it('offers the video link on a set without a tracklist', async () => {
+    const url = 'https://www.youtube.com/watch?v=abc'
     const wrapper = await mountView({
-      set: makeSet({ total_tracks: 0, identified_tracks: 0, tracklist: [] }),
+      set: makeEmptySet({ source: 'youtube', source_url: url, source_urls: [url] }),
     })
-    expect(wrapper.findComponent(ScoreRing).props('score')).toBe(0)
-    expect(wrapper.find('.ident-frac').text()).toBe('0/0')
+    const link = wrapper.find('.tracklist-empty-link')
+    expect(link.text()).toBe('Écouter sur YouTube')
+    expect(link.attributes('href')).toBe(url)
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+  })
+
+  it('skips a link one cannot listen on when the set has no tracklist', async () => {
+    const url = 'https://trackid.net/audiostream/abc'
+    const wrapper = await mountView({
+      set: makeEmptySet({ source: 'trackid', source_url: url, source_urls: [url] }),
+    })
+    expect(wrapper.find('.tracklist-empty-text').exists()).toBe(true)
+    expect(wrapper.find('.tracklist-empty-link').exists()).toBe(false)
+  })
+
+  it('keeps the track stats and hides the empty message when a tracklist exists', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('.tracklist-empty').exists()).toBe(false)
+    expect(wrapper.find('.tracklist .sec-count').exists()).toBe(true)
   })
 
   // ---- Hero source (S7) ----
