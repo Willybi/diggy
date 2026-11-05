@@ -14,7 +14,7 @@ set -eu
 #   RCLONE_REMOTE            rclone remote for offsite copies of encrypted
 #                            dumps (e.g. gdrive:diggy-backups); dumps land in
 #                            $RCLONE_REMOTE/postgres/. Unset = local only.
-#   OFFSITE_RETENTION_COUNT  dumps kept offsite (default: 14, minimum: 2)
+#   OFFSITE_RETENTION_COUNT  dumps kept offsite (default: 2, minimum: 2)
 #
 # Usage (from host, with docker compose):
 #   docker compose run --rm backup
@@ -23,7 +23,7 @@ set -eu
 BACKUP_DIR="/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 # Local dumps are a fast-restore convenience; the offsite copy (rclone,
-# OFFSITE_RETENTION_COUNT=14) is the real history, so keep few local (STO1).
+# OFFSITE_RETENTION_COUNT) is the real copy, so keep few local (STO1).
 RETENTION_DAYS=2
 
 PG_DIR="$BACKUP_DIR/postgres"
@@ -91,7 +91,7 @@ else
 
       # Offsite retention: keep the N most recent dumps. Names embed the
       # timestamp, so lexicographic order == chronological order.
-      OFFSITE_KEEP="${OFFSITE_RETENTION_COUNT:-14}"
+      OFFSITE_KEEP="${OFFSITE_RETENTION_COUNT:-2}"
       if [ "$OFFSITE_KEEP" -lt 2 ]; then
         OFFSITE_KEEP=2
       fi
@@ -101,7 +101,8 @@ else
         | tail -n +$((OFFSITE_KEEP + 1)) \
         | while IFS= read -r OLD; do
             echo "[$(date -Iseconds)] Offsite retention: deleting $OLD"
-            rclone deletefile "$OFFSITE_DIR/$OLD"
+            # Hard delete: a trashed dump still counts against the 15 GiB Drive quota.
+            rclone deletefile --drive-use-trash=false "$OFFSITE_DIR/$OLD"
           done
       echo "[$(date -Iseconds)] Offsite retention done (keeping the ${OFFSITE_KEEP} most recent dumps)."
       ;;

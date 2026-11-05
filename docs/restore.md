@@ -5,8 +5,8 @@
 >
 > Rappel du dispositif de sauvegarde :
 > - Cron VPS **01:30** : `docker compose run --rm backup` → dump PostgreSQL chiffré GPG
->   (`/backups/postgres/diggy_YYYYmmdd_HHMMSS.sql.gz.gpg`, rétention locale 7 jours)
->   + copie offsite rclone (`gdrive:diggy-backups/postgres`, rétention 14 dumps)
+>   (`/backups/postgres/diggy_YYYYmmdd_HHMMSS.sql.gz.gpg`, rétention locale 2 jours)
+>   + copie offsite rclone (`gdrive:diggy-backups/postgres`, rétention 2 dumps)
 >   + mirror MinIO (`/backups/minio/<bucket>`, local uniquement).
 > - Cron VPS **09:00** : check de fraîcheur local + offsite
 >   (`server/scripts/backup_freshness_check.sh`, seuil 26h).
