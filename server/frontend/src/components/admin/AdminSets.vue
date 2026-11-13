@@ -31,7 +31,14 @@
               <template v-if="isTwinFlag(flag)">
                 <span class="sf-member-pos sf-member-pos--source">{{ m.sourceLabel }}</span>
                 <div class="sf-member-body">
-                  <span class="sf-member-title">{{ m.title || '—' }}</span>
+                  <a
+                    class="sf-member-title sf-member-title--link"
+                    :href="`/set/${m.setId}`"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    {{ m.title || '—' }}
+                  </a>
                   <div class="sf-member-meta">
                     <span v-if="m.channel">{{ m.channel }}</span>
                     <span v-if="m.durationLabel">{{ m.durationLabel }}</span>
@@ -45,14 +52,21 @@
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      Ouvrir
+                      {{ externalLinkLabel(m.link) }}
                     </a>
                   </div>
                 </div>
               </template>
               <template v-else>
                 <span class="sf-member-pos">p. {{ i + 1 }}</span>
-                <span class="sf-member-title">{{ m.title || '—' }}</span>
+                <a
+                  class="sf-member-title sf-member-title--link"
+                  :href="`/set/${m.setId}`"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {{ m.title || '—' }}
+                </a>
               </template>
               <span v-if="m.eventDate" class="sf-member-date" title="Date de l'événement (titre)">
                 {{ fmtDate(m.eventDate) }}
@@ -249,11 +263,25 @@ function flagMembers(flag) {
         ? flag.member_titles
         : flag.member_set_ids.map(() => '')
     const dates = flag.member_event_dates || []
-    return titles.map((title, i) => ({ title, eventDate: dates[i] || null }))
+    return titles.map((title, i) => ({
+      title,
+      eventDate: dates[i] || null,
+      setId: flag.member_set_ids[i],
+    }))
   }
   return [
-    { title: flag.title_a, eventDate: flag.event_date_a || null, ...twinMember(flag, 'a') },
-    { title: flag.title_b, eventDate: flag.event_date_b || null, ...twinMember(flag, 'b') },
+    {
+      title: flag.title_a,
+      eventDate: flag.event_date_a || null,
+      setId: flag.set_id_a,
+      ...twinMember(flag, 'a'),
+    },
+    {
+      title: flag.title_b,
+      eventDate: flag.event_date_b || null,
+      setId: flag.set_id_b,
+      ...twinMember(flag, 'b'),
+    },
   ]
 }
 
@@ -302,6 +330,13 @@ function twinChips(flag) {
 // source_url vient de données crawlées : seul un lien web devient cliquable.
 function safeLink(url) {
   return /^https?:\/\//i.test(url || '') ? url : null
+}
+// Nommé d'après l'URL, pas la source du set : un set TrackID pointe vers sa vidéo d'origine.
+function externalLinkLabel(url) {
+  if (/youtube\.com|youtu\.be/i.test(url)) return 'Voir sur YouTube'
+  if (/soundcloud\.com/i.test(url)) return 'Voir sur SoundCloud'
+  if (/mixcloud\.com/i.test(url)) return 'Voir sur Mixcloud'
+  return 'Voir la source'
 }
 // Champs affichés sous le titre, absents hors flags twin_rule.
 function twinMember(flag, side) {
@@ -739,6 +774,12 @@ async function runLinkSets() {
   gap: var(--space-1) var(--space-3);
   font: 400 var(--fs-xs)/1.3 var(--font-ui);
   color: var(--ink-3);
+}
+.sf-member-title--link {
+  text-decoration: none;
+}
+.sf-member-title--link:hover {
+  text-decoration: underline;
 }
 .sf-member-link {
   color: var(--ink-2);

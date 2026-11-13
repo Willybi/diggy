@@ -208,10 +208,17 @@ describe('AdminSets — flags en attente : paires twin_rule', () => {
     expect(members[1].find('.sf-member-meta').text()).toContain('61\u00A0min')
 
     const link = members[0].find('a.sf-member-link')
-    expect(link.text()).toBe('Ouvrir')
+    expect(link.text()).toBe('Voir sur YouTube')
     expect(link.attributes('href')).toBe('https://www.youtube.com/watch?v=abc')
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toBe('noopener noreferrer')
+    expect(members[1].find('a.sf-member-link').text()).toBe('Voir la source')
+
+    const titleA = members[0].find('a.sf-member-title')
+    expect(titleA.text()).toBe('Ana @ Boiler Room')
+    expect(titleA.attributes('href')).toBe('/set/100')
+    expect(titleA.attributes('target')).toBe('_blank')
+    expect(members[1].find('a.sf-member-title').attributes('href')).toBe('/set/101')
 
     expect(wrapper.find('.sf-card-conf').text()).toBe('Même date')
     expect(chips(wrapper)).toEqual(['Mots propres à chaque titre', 'écart durée 2\u00A0%'])
@@ -285,6 +292,24 @@ describe('AdminSets — flags en attente : paires twin_rule', () => {
     expect(wrapper.find('.sf-card-conf').text()).toBe('confiance 70\u00A0%')
     expect(chips(wrapper)).toEqual(['écart 3 j'])
     expect(wrapper.text()).not.toContain('Boiler Room Official')
+    expect(members[0].find('a.sf-member-title').attributes('href')).toBe('/set/100')
+    expect(members[1].find('a.sf-member-title').attributes('href')).toBe('/set/101')
+  })
+
+  it('links each member of a group flag to its own set page', async () => {
+    const wrapper = await mountWith(
+      twinFlag(
+        {
+          flag_type: 'part_candidate',
+          set_id_b: null,
+          member_set_ids: [300, 301],
+          member_titles: ['Part 1', 'Part 2'],
+        },
+        { twin_rule: undefined },
+      ),
+    )
+    const hrefs = wrapper.findAll('a.sf-member-title').map((a) => a.attributes('href'))
+    expect(hrefs).toEqual(['/set/300', '/set/301'])
   })
 })
 
