@@ -29,9 +29,15 @@ from models import (  # noqa: E402
     UserTrack,
 )
 from scripts.quarantine_undesirables import (  # noqa: E402
+    _print_report,
+    has_classical_marker,
+    is_br_funk_registrant,
+    is_junk,
+    isrc_year,
     read_tsv,
     revert_rule,
     run_rule,
+    top3_share,
 )
 
 _n = itertools.count(1)
@@ -117,7 +123,7 @@ class TestFarmFort:
     def test_dry_run_writes_nothing(self, sync_session):
         s = sync_session
         a = _artist(s)
-        c = _track(s, [a], isrc="GXLE10000001")
+        c = _track(s, [a], isrc="GXLE12400001")
         s.commit()
         plan, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=False)
         assert stats["titles_to_mask"] == 1
@@ -128,13 +134,13 @@ class TestFarmFort:
     def test_uncorroborated_masked_and_protections(self, sync_session):
         s = sync_session
         a = _artist(s)
-        plain = _track(s, [a], isrc="QZAAA0000001")
+        plain = _track(s, [a], isrc="QZAAA2400001")
         no_isrc = _track(s, [a], isrc=None)
-        in_set = _track(s, [a], isrc="USYBL0000001")
-        in_lib = _track(s, [a], isrc="FRXXX0000001")
+        in_set = _track(s, [a], isrc="USYBL2400001")
+        in_lib = _track(s, [a], isrc="FRXXX2400001")
         opin = _track(s, [a])
         coll = _track(s, [a])
-        anchored = _track(s, [a], isrc="usybl0000099")  # same registrant, case-insensitive
+        anchored = _track(s, [a], isrc="usybl2400099")  # same registrant, case-insensitive
         _in_set(s, in_set)
         _in_lib(s, in_lib)
         _with_opinion(s, opin)
@@ -161,10 +167,10 @@ class TestFarmFort:
         real = _artist(s, "Real")
         for _ in range(3):
             _in_set(s, _track(s, [real]))
-        shared = _track(s, [farm, real], isrc="QZAAA0000002")
+        shared = _track(s, [farm, real], isrc="QZAAA2400002")
         weak = _artist(s, "Weak")
         _in_set(s, _track(s, [weak]))
-        shared_weak = _track(s, [farm, weak], isrc="QZAAA0000003")
+        shared_weak = _track(s, [farm, weak], isrc="QZAAA2400003")
         s.commit()
 
         _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(farm), apply=True)
@@ -179,7 +185,7 @@ class TestFarmFort:
         bucket = _artist(s, "Bucket")  # TSV artist with many (false) corroborated titles
         for _ in range(3):
             _in_set(s, _track(s, [bucket]))
-        shared = _track(s, [farm, bucket], isrc="QZAAA0000004")
+        shared = _track(s, [farm, bucket], isrc="QZAAA2400004")
         s.commit()
 
         _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(farm, bucket), apply=True)
@@ -193,7 +199,7 @@ class TestFarmFort:
         jazz = _artist(s, "Jazz")  # TSV artist skipped by the genre guard
         for _ in range(3):
             _in_set(s, _track(s, [jazz]))
-        shared = _track(s, [farm, jazz], isrc="QZAAA0000005")
+        shared = _track(s, [farm, jazz], isrc="QZAAA2400005")
         s.commit()
         rows = _tsv(farm) + _tsv(jazz, genre="129")
 
@@ -205,7 +211,7 @@ class TestFarmFort:
     def test_artist_masked_only_when_nothing_visible(self, sync_session):
         s = sync_session
         farm = _artist(s, "Farm")
-        t1 = _track(s, [farm], isrc="GXLE10000002")
+        t1 = _track(s, [farm], isrc="GXLE12400002")
         t2 = _track(s, [farm], hidden="episode")  # other rule: not visible
         s.commit()
 
@@ -237,7 +243,7 @@ class TestFarmFort:
     def test_second_apply_is_noop(self, sync_session):
         s = sync_session
         a = _artist(s)
-        c = _track(s, [a], isrc="GXLE10000003")
+        c = _track(s, [a], isrc="GXLE12400003")
         s.commit()
         run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
         first_at = s.get(CatalogEntry, c.id).hidden_at
@@ -313,3 +319,208 @@ class TestRevert:
         assert _reason(s, Artist, a1.id) is None
         assert _reason(s, CatalogEntry, c2.id) == "isrc_block"
         assert _reason(s, Artist, a2.id) == "isrc_block"
+
+
+# --------------------------------------------------------------------------- v2
+
+
+def _bucket(s, artist, n=10):
+    """Give ``artist`` n titles on n distinct registrants → top3 = 3/n."""
+    return [_track(s, [artist], isrc=f"ZZ{i:03d}2400001") for i in range(n)]
+
+
+def _concentrated(s, artist, n=10):
+    """n titles on ONE registrant → top3 = 1.0 (farm profile)."""
+    return [_track(s, [artist], isrc=f"GXLE1248{i:04d}") for i in range(n)]
+
+
+class TestFarmFortV2Helpers:
+    def test_isrc_year(self):
+        assert isrc_year("QZAAA1500001") == 2015
+        assert isrc_year("QZAAA9500001") == 1995
+        assert isrc_year("QZAAA5000001") == 1950
+        assert isrc_year("QZAAA4900001") == 2049
+        assert isrc_year("QZAAAAB00001") is None  # non-numeric year chars
+        assert isrc_year("QZAA") is None
+        assert isrc_year(None) is None
+
+    def test_classical_marker_is_narrow(self):
+        assert has_classical_marker("Piano Concerto No. 3 in C Minor, Op. 37")
+        assert has_classical_marker("Cello Suite BWV 1007")
+        assert has_classical_marker("Tosca, Act II: Vissi d'arte")
+        assert not has_classical_marker("Putaria")
+        assert not has_classical_marker("Hot Symphony")
+
+    def test_junk(self):
+        assert is_junk("Midnight (Slowed + Reverb)", "X")
+        assert is_junk("Track", "Relax Music Lab")
+        assert is_junk("Track", "Deep Spa")  # "spa$"
+        assert not is_junk("Track", "Mamba")
+
+    def test_top3_share_and_br_funk(self):
+        assert top3_share(["GXLE12400001"] * 5) == 1.0
+        assert top3_share([f"ZZ{i:03d}2400001" for i in range(10)]) == 0.3
+        # titles without (usable) ISRC form ONE group
+        assert top3_share([None, None, "x", "AA0012400001"]) == 1.0
+        assert is_br_funk_registrant("BCAB1") and is_br_funk_registrant("BXAB1")
+        assert not is_br_funk_registrant("BRAB1") and not is_br_funk_registrant(None)
+
+
+class TestFarmFortV2:
+    def test_homonym_bucket_protected(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Mamba")
+        titles = _bucket(s, a)
+        s.commit()
+        plan, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert stats["titles_protected_homonym"] == 10
+        assert stats["titles_to_mask"] == 0
+        assert all(_reason(s, CatalogEntry, c.id) is None for c in titles)
+        assert len(plan["homonym"]) == 10
+        assert _reason(s, Artist, a.id) is None
+
+    def test_bucket_junk_title_masked(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Mamba")
+        _bucket(s, a)
+        junk = _track(s, [a], isrc="ZZ9992400001", title="Mamba (Slowed)")
+        s.commit()
+        _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert _reason(s, CatalogEntry, junk.id) == "farm_fort"
+        assert stats["titles_protected_homonym"] == 10
+
+    def test_bucket_functional_artist_masked(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Sleep Sounds")
+        titles = _bucket(s, a)
+        s.commit()
+        _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert stats["titles_protected_homonym"] == 0
+        assert all(_reason(s, CatalogEntry, c.id) == "farm_fort" for c in titles)
+
+    def test_bucket_br_funk_registrant_masked(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Futura")
+        _bucket(s, a)
+        funk = _track(s, [a], isrc="BCAB12400001")
+        funk_bk = _track(s, [a], isrc="bkab12400001")  # case-insensitive
+        s.commit()
+        _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert _reason(s, CatalogEntry, funk.id) == "farm_fort"
+        assert _reason(s, CatalogEntry, funk_bk.id) == "farm_fort"
+        assert stats["titles_protected_homonym"] == 10
+
+    def test_br_funk_only_loses_bucket_protection(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Futura")
+        _bucket(s, a)
+        old_funk = _track(s, [a], isrc="BCAB11500001")  # 2015 → ISRC ancien applies
+        s.commit()
+        _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert _reason(s, CatalogEntry, old_funk.id) is None
+        assert stats["titles_protected_isrc_old"] == 1
+
+    def test_concentrated_artist_masked(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Farm")
+        titles = _concentrated(s, a)
+        s.commit()
+        _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert stats["titles_protected_homonym"] == 0
+        assert stats["titles_to_mask"] == 10
+        assert all(_reason(s, CatalogEntry, c.id) == "farm_fort" for c in titles)
+        assert _reason(s, Artist, a.id) == "farm_fort"
+
+    def test_isrc_years(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Vega")
+        _concentrated(s, a)
+        old = _track(s, [a], isrc="QZAAA1500001")
+        nineties = _track(s, [a], isrc="QZAAA9500001")
+        no_year = _track(s, [a], isrc="QZAAAAB00001")
+        recent = _track(s, [a], isrc="QZAAA2000001")  # 2020 > 2019
+        s.commit()
+        plan, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert _reason(s, CatalogEntry, old.id) is None
+        assert _reason(s, CatalogEntry, nineties.id) is None
+        assert _reason(s, CatalogEntry, no_year.id) == "farm_fort"
+        assert _reason(s, CatalogEntry, recent.id) == "farm_fort"
+        assert stats["titles_protected_isrc_old"] == 2
+        assert {i["id"] for i in plan["isrc_old"]} == {old.id, nineties.id}
+
+    def test_isrc_old_functional_artist_masked(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Yoga Music")
+        old = _track(s, [a], isrc="QZAAA1500001")
+        s.commit()
+        _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert _reason(s, CatalogEntry, old.id) == "farm_fort"
+        assert stats["titles_protected_isrc_old"] == 0
+
+    def test_classical_marker(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Orchestra X")
+        _concentrated(s, a)
+        opus = _track(s, [a], isrc="GXLE12490001", title="Piano Concerto No. 3, Op. 37")
+        putaria = _track(s, [a], isrc="GXLE12490002", title="Putaria")
+        junk_op = _track(s, [a], isrc="GXLE12490003", title="Nocturne Op. 9 (Sleep)")
+        s.commit()
+        plan, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert _reason(s, CatalogEntry, opus.id) is None
+        assert _reason(s, CatalogEntry, putaria.id) == "farm_fort"
+        assert _reason(s, CatalogEntry, junk_op.id) == "farm_fort"
+        assert stats["titles_protected_classical"] == 1
+        assert [i["id"] for i in plan["classical"]] == [opus.id]
+
+    def test_priority_order(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Elle")
+        _bucket(s, a)
+        corro = _track(s, [a], isrc="ZZ5002400001")
+        _in_set(s, corro)
+        classical = _track(s, [a], isrc="ZZ5012400001", title="Sonata Op. 2")
+        old = _track(s, [a], isrc="ZZ5021500001")  # bucket AND old → bucket wins
+        s.commit()
+        plan, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=False)
+        assert stats["titles_protected_corroborated"] == 1
+        assert stats["titles_protected_classical"] == 1
+        assert stats["titles_protected_homonym"] == 11  # 10 bucket + old
+        assert stats["titles_protected_isrc_old"] == 0
+        assert old.id in {i["id"] for i in plan["homonym"]}
+        assert classical.id not in {i["id"] for i in plan["homonym"]}
+
+    def test_second_apply_is_noop_with_bucket(self, sync_session):
+        """Titles masked by this rule stay in the profile → stable bucket verdict."""
+        s = sync_session
+        a = _artist(s, "Mamba")
+        _bucket(s, a, n=5)
+        # 5 junk titles on 5 more registrants: masked, but kept in the profile
+        for i in range(5):
+            _track(s, [a], isrc=f"YY{i:03d}2400001", title="x (Slowed)")
+        s.commit()
+        _, first = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert first["titles_masked"] == 5 and first["titles_protected_homonym"] == 5
+        _, second = run_rule(s, "farm_fort", tsv_rows=_tsv(a), apply=True)
+        assert second["titles_to_mask"] == 0
+        assert second["titles_protected_homonym"] == 5
+        assert second["titles_already_same_rule"] == 5
+
+    def test_report_prints_new_counters_and_samples(self, sync_session, capsys):
+        s = sync_session
+        bucket = _artist(s, "Mamba")
+        _bucket(s, bucket)
+        vega = _artist(s, "Vega")
+        _track(s, [vega], isrc="QZAAA1500001", title="Old One")
+        _track(s, [vega], isrc="QZAAA2400001", title="Concerto, Op. 37")
+        s.commit()
+        plan, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(bucket, vega), apply=False)
+        _print_report("farm_fort", stats, plan, apply=False, sample_n=3)
+        out = capsys.readouterr().out
+        assert "protégés classique         : 1" in out
+        assert "protégés seau homonymes    : 10" in out
+        assert "protégés ISRC ancien       : 1" in out
+        assert "3 titre(s) protégé(s) — seau homonymes" in out
+        assert "1 titre(s) protégé(s) — marqueur classique" in out
+        assert "1 titre(s) protégé(s) — ISRC ancien" in out
+        assert "Vega — Concerto, Op. 37 — QZAAA2400001" in out
+        assert "Vega — Old One — QZAAA1500001" in out

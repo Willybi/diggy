@@ -22,10 +22,36 @@ RULES (``--rule``, mandatory):
          its corroborated titles, and its ANCHORED registrants = the set of
          ``upper(left(isrc, 5))`` of its corroborated titles that carry an ISRC
          (§7.2 — the real artist hiding under a polluted Deezer id).
-      3. A title of the artist is masked when it is NOT corroborated AND its
-         registrant is NOT anchored (a title without ISRC is never anchored), unless
-         it is co-credited with ANOTHER artist holding >= ``COARTIST_MIN_CORROBORATED``
-         (3) corroborated titles (§8.2). An artist that is itself in the TSV and
+      3. Each (title, TSV artist) pair is decided TITLE BY TITLE (v2, 2026-11 — the
+         v1 rule would have hidden ~25 % of REAL music in the prod dry-run, mostly
+         through "homonym buckets": one Deezer id aggregating dozens of real
+         same-name artists — Mamba, Futura, Elle, Vega…). The FIRST true condition
+         wins:
+           a. corroborated                                  → protected "corroboré"
+           b. registrant anchored (a title without ISRC is
+              never anchored)                               → protected "ancré"
+           c. co-credited with ANOTHER artist holding >=
+              ``COARTIST_MIN_CORROBORATED`` (3) corroborated
+              titles (§8.2)                                 → protected "co-artiste"
+           d. classical marker in the title (``CLASSICAL_TITLE_RE``: "Op. 37",
+              "BWV 1007", "Act II:") AND NOT junk           → protected "classique"
+           e. the artist is a homonym bucket (top-3 registrant share <
+              ``HOMONYM_TOP3_MAX``) AND NOT junk AND the title's registrant is
+              NOT a Brazilian funk one (``BR_FUNK_REGISTRANT_PREFIXES``)
+                                                            → protected "seau homonymes"
+           f. ISRC year <= ``ISRC_OLD_MAX_YEAR`` (2019) AND NOT junk
+                                                            → protected "ISRC ancien"
+           g. otherwise                                     → masked.
+         "junk" = the TITLE matches ``JUNK_TITLE_RE`` (slowed/sped up/lo-fi/sleep…)
+         OR the row's flat ``catalog.artist`` matches ``FUNCTIONAL_ARTIST_RE``
+         (relax/meditation/lounge/phonk… functional-music labels): those are the
+         farm signatures, they never benefit from d/e/f. The artist's REGISTRANT
+         PROFILE (for e) is built from ALL its titles not masked by ANOTHER rule
+         (corroborated ones included; titles already hidden by THIS rule are kept so
+         a re-run sees the same profile — idempotence), grouped by
+         ``upper(isrc[:5])``, titles without ISRC in one "no ISRC" group. All the
+         regex/year/profile tests run in Python on the loaded rows (PG + SQLite).
+         An artist that is itself in the TSV and
          subject to the rule (i.e. NOT skipped by the genre guard — even if absent
          from the DB) NEVER counts as a protecting co-artist: some TSV artists
          (homonym buckets) carry many corroborated titles through false DJ links and
@@ -51,7 +77,8 @@ catalog AND artists rows whose ``hidden_reason = <r>`` — nothing else is touch
 
 DRY-RUN by default (no ``--apply``): read-only, NOTHING is committed; prints the
 counters + a stable random sample (fixed seed) of masked titles "artist — title —
-isrc" + a sample of titles protected by anchoring — READ THEM before any
+isrc" + a sample of titles protected by anchoring, and (farm_fort v2) one sample per
+new protection: classical, homonym bucket, old ISRC — READ THEM before any
 ``--apply``. ``--apply`` writes in bulk UPDATEs (5000 titles / 1000 artists per
 committed transaction — no ORM object per row). Idempotent: a second ``--apply``
 changes nothing (already-masked rows are counted, not rewritten). No network I/O
@@ -74,6 +101,7 @@ Usage (from the VPS — ships in the image under api/):
 import argparse
 import os
 import random
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -100,6 +128,50 @@ COARTIST_MIN_CORROBORATED = 3
 
 # Registrant = the first 5 chars of an ISRC (country + registrant code).
 REGISTRANT_LEN = 5
+
+# ---- farm_fort v2 per-title protections (prod SQL simulation, 2026-11) ----------
+# Homonym bucket: share of an artist's titles held by its 3 biggest registrant
+# groups. Measured in prod: farms sit between 85 and 100 % (one or two distributor
+# registrants), homonym buckets between 13 and 52 % (dozens of real artists, each
+# with its own label). A share strictly below this bound = bucket → protected.
+HOMONYM_TOP3_MAX = 0.6
+_HOMONYM_TOP_GROUPS = 3
+
+# ISRC year (chars 5-6) at or before this year → protected: AI farms only appear
+# after 2023, a title registered in 2019 or earlier predates them.
+ISRC_OLD_MAX_YEAR = 2019
+# Two-digit ISRC year >= this pivot is 19xx, else 20xx.
+_ISRC_CENTURY_PIVOT = 50
+
+# Junk title: slowed/sped-up edits, montagens, type beats, lo-fi/sleep/relaxation
+# filler — the farm signatures measured in the audit. A junk title never benefits
+# from the classical / homonym / old-ISRC protections.
+JUNK_TITLE_RE = re.compile(
+    r"(slowed|speed ?up|sped up|reverb|montagem|mtg |type beat|lo-?fi|sleep|relax"
+    r"|meditat|asmr|rain |ocean|white noise|bgm|study|yoga|spa |calm|healing"
+    r"|binaural|lullab|8d)",
+    re.IGNORECASE,
+)
+
+# Functional artist name (on the flat ``catalog.artist`` of the row): functional
+# music / genre-label pseudo-artists, same effect as a junk title.
+FUNCTIONAL_ARTIST_RE = re.compile(
+    r"(chill ?out|relax|meditat|sleep|spa |spa$|lounge|café|cafe|yoga|zen|nature"
+    r"|rain|study|focus|piano relax|instrumental|background|music for|worship"
+    r"|lullab|baby|asmr|white noise|ambient|calm|healing|dynamic music"
+    r"|tribal house|house music|deep house|dance music|happy hardcore|phonk|фонк"
+    r"|synthwave|sound lab|reimagined)",
+    re.IGNORECASE,
+)
+
+# Classical marker in the title (opus / BWV / opera act). Deliberately NARROW: a
+# broader try ("aria", "symphony"…) caught "putaria" or "Hot Symphony".
+CLASSICAL_TITLE_RE = re.compile(r"\bop\. ?[0-9]|\bbwv ?[0-9]|\bact [ivx]+:", re.IGNORECASE)
+
+# Recent Brazilian registrant codes hosting the funk "montagens" the product chose
+# to hide: such a registrant only LOSES the homonym-bucket protection (e).
+BR_FUNK_REGISTRANT_PREFIXES = ("BC", "BX", "BK")
+_ISRC_YEAR_RE = re.compile(r"[0-9]{2}")
 
 TITLES_PER_TX = 5000
 ARTISTS_PER_TX = 1000
@@ -153,6 +225,46 @@ def _registrant(isrc):
     return value[:REGISTRANT_LEN]
 
 
+def isrc_year(isrc):
+    """4-digit year from ISRC chars 5-6 (``>= 50`` → 19xx, else 20xx), or None."""
+    if not isinstance(isrc, str):
+        return None
+    yy = isrc.strip()[5:7]
+    if not _ISRC_YEAR_RE.fullmatch(yy):
+        return None
+    n = int(yy)
+    return (1900 if n >= _ISRC_CENTURY_PIVOT else 2000) + n
+
+
+def is_junk(title, flat_artist):
+    """Junk title OR functional flat artist name (farm signatures)."""
+    return bool(
+        (title and JUNK_TITLE_RE.search(title))
+        or (flat_artist and FUNCTIONAL_ARTIST_RE.search(flat_artist))
+    )
+
+
+def has_classical_marker(title):
+    return bool(title and CLASSICAL_TITLE_RE.search(title))
+
+
+def is_br_funk_registrant(registrant):
+    return bool(registrant) and registrant.startswith(BR_FUNK_REGISTRANT_PREFIXES)
+
+
+def top3_share(isrcs):
+    """Share of titles in the 3 biggest registrant groups (no ISRC = one group)."""
+    groups = {}
+    for isrc in isrcs:
+        key = _registrant(isrc)  # None groups the titles without (usable) ISRC
+        groups[key] = groups.get(key, 0) + 1
+    total = sum(groups.values())
+    if not total:
+        return 1.0
+    top = sorted(groups.values(), reverse=True)[:_HOMONYM_TOP_GROUPS]
+    return sum(top) / total
+
+
 def _new_stats():
     return {
         "artists_read": 0,
@@ -164,6 +276,9 @@ def _new_stats():
         "titles_protected_corroborated": 0,
         "titles_protected_anchored": 0,
         "titles_protected_coartist": 0,
+        "titles_protected_classical": 0,
+        "titles_protected_homonym": 0,
+        "titles_protected_isrc_old": 0,
         "titles_already_same_rule": 0,
         "titles_already_other_rule": 0,
         "artists_to_mask": 0,
@@ -275,6 +390,7 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
     """Compute the farm_fort plan (read-only). Returns ``(plan, stats)``.
 
     ``plan`` = {"titles": {catalog_id: info}, "to_mask": [ids], "anchored": [infos],
+    "classical"/"homonym"/"isrc_old": [infos] (v2 protections, for the samples),
     "artists_to_mask": [ids]}.
     """
     stats = _new_stats()
@@ -335,10 +451,22 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
                 for r in trows
                 if r.corro and (reg := _registrant(r.isrc)) is not None
             }
+            # Registrant profile: every title not masked by ANOTHER rule (titles
+            # already hidden by this rule stay in → a re-run sees the same profile).
+            bucket = (
+                top3_share(
+                    r.isrc
+                    for r in trows
+                    if r.hidden_reason is None or r.hidden_reason == rule
+                )
+                < HOMONYM_TOP3_MAX
+            )
             for r in trows:
                 if r.hidden_reason is not None or r.corro:
                     continue  # intrinsic status, decided below
                 reg = _registrant(r.isrc)
+                junk = is_junk(r.title, r.artist)
+                year = isrc_year(r.isrc)
                 if reg is not None and reg in anchored:
                     verdict = "anchored"
                 elif any(
@@ -347,11 +475,18 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
                     if a != artist_id and a not in subject_ids
                 ):
                     verdict = "coartist"
+                elif not junk and has_classical_marker(r.title):
+                    verdict = "classical"
+                elif bucket and not junk and not is_br_funk_registrant(reg):
+                    verdict = "homonym"
+                elif not junk and year is not None and year <= ISRC_OLD_MAX_YEAR:
+                    verdict = "isrc_old"
                 else:
                     verdict = "mask"
                 verdicts.setdefault(r.id, set()).add(verdict)
 
     to_mask, anchored_infos = [], []
+    protected_infos = {v: [] for v in ("classical", "homonym", "isrc_old")}
     for cid in sorted(titles):
         info = titles[cid]
         stats["titles_examined"] += 1
@@ -362,12 +497,23 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
         elif info["corro"]:
             stats["titles_protected_corroborated"] += 1
         else:
+            # ANY protection from any crediting input artist wins; counted under
+            # the first one in the rule's order.
             v = verdicts.get(cid, {"mask"})
             if "anchored" in v:
                 stats["titles_protected_anchored"] += 1
                 anchored_infos.append(info)
             elif "coartist" in v:
                 stats["titles_protected_coartist"] += 1
+            elif "classical" in v:
+                stats["titles_protected_classical"] += 1
+                protected_infos["classical"].append(info)
+            elif "homonym" in v:
+                stats["titles_protected_homonym"] += 1
+                protected_infos["homonym"].append(info)
+            elif "isrc_old" in v:
+                stats["titles_protected_isrc_old"] += 1
+                protected_infos["isrc_old"].append(info)
             else:
                 to_mask.append(cid)
     stats["titles_to_mask"] = len(to_mask)
@@ -403,6 +549,9 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
         "titles": titles,
         "to_mask": to_mask,
         "anchored": anchored_infos,
+        "classical": protected_infos["classical"],
+        "homonym": protected_infos["homonym"],
+        "isrc_old": protected_infos["isrc_old"],
         "artists_to_mask": artists_to_mask,
     }
     return plan, stats
@@ -578,7 +727,10 @@ def _print_report(rule, stats, plan, apply, sample_n):
     if rule == "farm_fort":
         print(f"    protégés ancrés            : {stats['titles_protected_anchored']}")
         print(f"    protégés co-artiste        : {stats['titles_protected_coartist']}")
-    print(f"    déjà masqués (même règle)  : {stats['titles_already_same_rule']}")
+        print(f"    protégés classique         : {stats['titles_protected_classical']}")
+        print(f"    protégés seau homonymes    : {stats['titles_protected_homonym']}")
+        print(f"    protégés ISRC ancien       : {stats['titles_protected_isrc_old']}")
+    print(f"    déjà masqués (même règle): {stats['titles_already_same_rule']}")
     print(f"    déjà masqués (autre règle) : {stats['titles_already_other_rule']}")
     if rule == "farm_fort":
         print(f"    {'artistes ' + verb:<27}: {stats['artists_to_mask']}  (dont tier 1 cohorte : {stats['artists_to_mask_tier1']})")
@@ -598,6 +750,15 @@ def _print_report(rule, stats, plan, apply, sample_n):
         print(f"\nÉchantillon de {len(anchored)} titre(s) protégé(s) par ancrage :")
         for info in sorted(anchored, key=lambda i: i["id"]):
             print(f"    {_fmt(info)}")
+        for key, label in (
+            ("classical", "marqueur classique"),
+            ("homonym", "seau homonymes"),
+            ("isrc_old", "ISRC ancien"),
+        ):
+            sample = stable_sample(plan.get(key, ()), sample_n)
+            print(f"\nÉchantillon de {len(sample)} titre(s) protégé(s) — {label} :")
+            for info in sorted(sample, key=lambda i: i["id"]):
+                print(f"    {_fmt(info)}")
 
 
 def main(rule, apply=False, revert=False, file_path=None, sample_n=DEFAULT_SAMPLE):
