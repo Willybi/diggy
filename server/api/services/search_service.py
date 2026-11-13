@@ -120,7 +120,12 @@ async def _search_artists(
     # ("testpress"). Never regresses the plain ILIKE (only the artist branch).
     base = (
         select(Artist.id, Artist.name, Artist.has_artwork)
-        .where(space_insensitive_ilike(q, Artist.name))
+        .where(
+            space_insensitive_ilike(q, Artist.name),
+            # Reversible masking: a hidden artist is out of search (items AND
+            # total, both derive from `base`); still reachable by id.
+            Artist.hidden_reason.is_(None),
+        )
         .order_by(Artist.name, Artist.id)
     )
 

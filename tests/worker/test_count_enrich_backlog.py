@@ -218,3 +218,71 @@ class TestCountEnrichBacklogSourceIsolation:
         assert beatport["total_linked"] == 0
         assert beatport["total_missing"] == 1
         assert beatport["due_retry"] == 1
+
+
+# ── masked rows (hidden_reason) — strict parity with select_enrich_candidates ──
+def _seed_hidden_mirror(session, source, base=1000):
+    """One visible + one masked row in every tier for ``source``."""
+    searched = f"{source}_searched_at"
+    attempts = f"{source}_search_attempts"
+    tiers = [
+        {},  # never_tried
+        {searched: _days_ago(RESCAN_TIER2_DAYS + 1), attempts: 1},  # due tier2
+        {searched: _days_ago(RESCAN_TIER3_DAYS + 1), attempts: 2},  # due tier3
+        {searched: _days_ago(1), attempts: 1},  # cooldown
+        {searched: _days_ago(200), attempts: 3},  # abandoned
+    ]
+    n = base
+    visible_ids, hidden_ids = set(), set()
+    for fields in tiers:
+        for hidden in (False, True):
+            n += 1
+            extra = {"hidden_reason": "farm_fort", "hidden_at": NOW} if hidden else {}
+            row = _make_row(session, n, **fields, **extra)
+            (hidden_ids if hidden else visible_ids).add(row.id)
+    return visible_ids, hidden_ids
+
+
+class TestHiddenRowsMirror:
+    def test_backlog_ignores_hidden_rows(self, sync_session):
+        _seed_hidden_mirror(sync_session, "deezer")
+        counts = count_enrich_backlog(sync_session, source="deezer", now=NOW)
+        assert counts["never_tried"] == 1
+        assert counts["due_retry"] == 2
+        assert counts["cooldown"] == 1
+        assert counts["abandoned"] == 1
+        assert counts["total_missing"] == 5
+
+    def test_selection_and_backlog_agree_on_hidden_rows(self, sync_session):
+        from workers.enrichment import select_enrich_candidates
+
+        hidden_ids: set = set()
+        for base, source in ((1000, "deezer"), (1100, "beatport")):
+            _visible, hidden = _seed_hidden_mirror(sync_session, source, base)
+            hidden_ids |= hidden  # masked rows of earlier rounds stay masked too
+            picked = {
+                e.id
+                for e in select_enrich_candidates(
+                    sync_session, source=source, budget=100, now=NOW
+                )
+            }
+            assert not picked & hidden_ids
+            counts = count_enrich_backlog(sync_session, source=source, now=NOW)
+            # Every selectable row is exactly never_tried + due_retry.
+            assert len(picked) == counts["never_tried"] + counts["due_retry"]
+
+    def test_genre_only_selection_ignores_hidden_rows(self, sync_session):
+        from workers.enrichment import select_enrich_candidates
+
+        visible = _make_row(sync_session, 2001, beatport_id="bp-1")
+        _make_row(
+            sync_session,
+            2002,
+            beatport_id="bp-2",
+            hidden_reason="farm_fort",
+            hidden_at=NOW,
+        )
+        picked = select_enrich_candidates(
+            sync_session, source="beatport", budget=10, now=NOW, genre_only=True
+        )
+        assert [e.id for e in picked] == [visible.id]

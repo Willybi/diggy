@@ -49,11 +49,15 @@ class PreviewUnavailableError(Exception):
 def catalog_visible(user_id: int | None):
     """SQLAlchemy predicate limiting catalog rows to those visible to a viewer.
 
-    A guest (``user_id is None``) sees only shared rows. An authenticated user
-    sees shared rows, their own private rows, plus any row they hold a
-    ``user_track`` for (their imported library). We branch explicitly on
-    ``user_id is None`` rather than matching ``owner_id IS NULL`` for guests, so a
-    private row mistagged with a NULL owner never leaks.
+    A guest (``user_id is None``) sees only shared, non-hidden rows. An
+    authenticated user sees shared non-hidden rows, their own private rows, plus
+    any row they hold a ``user_track`` for (their imported library). We branch
+    explicitly on ``user_id is None`` rather than matching ``owner_id IS NULL``
+    for guests, so a private row mistagged with a NULL owner never leaks.
+
+    ``hidden_reason`` (reversible masking of undesirable rows) only gates the
+    shared branch: a masked track disappears for every reader EXCEPT its owner
+    and a viewer holding it in their library, whose library stays intact.
 
     The ``user_track`` clause is what un-blinds a Rekordbox importer whose track,
     deduped on the globally-UNIQUE ``normalized_key``, already points at another
@@ -61,12 +65,15 @@ def catalog_visible(user_id: int | None):
     without that foreign row ever being mutated or promoted.
     """
     from models import CatalogEntry, UserTrack
-    from sqlalchemy import or_
+    from sqlalchemy import and_, or_
 
+    shared_visible = and_(
+        CatalogEntry.scope == "shared", CatalogEntry.hidden_reason.is_(None)
+    )
     if user_id is None:
-        return CatalogEntry.scope == "shared"
+        return shared_visible
     return or_(
-        CatalogEntry.scope == "shared",
+        shared_visible,
         CatalogEntry.owner_id == user_id,
         select(UserTrack.user_id)
         .where(
@@ -85,11 +92,16 @@ def catalog_visible_sql(user_id: int | None, alias: str = "c") -> str:
     same bind is reused by the ``user_track`` EXISTS clause, so no extra parameter
     is introduced. The subquery's internal alias ``utv`` is chosen to avoid any
     collision with the catalog aliases used at the call sites (``c`` / ``catalog``).
+
+    Same masking semantics as the ORM twin: ``{alias}.hidden_reason IS NULL``
+    gates the shared branch only, so ``alias`` MUST designate a ``catalog`` table
+    (the column exists nowhere else). No extra bind parameter is introduced.
     """
+    shared_visible = f"({alias}.scope = 'shared' AND {alias}.hidden_reason IS NULL)"
     if user_id is None:
-        return f"{alias}.scope = 'shared'"
+        return shared_visible
     return (
-        f"({alias}.scope = 'shared' OR {alias}.owner_id = :viewer_id"
+        f"({shared_visible} OR {alias}.owner_id = :viewer_id"
         f" OR EXISTS (SELECT 1 FROM user_tracks utv"
         f" WHERE utv.catalog_id = {alias}.id AND utv.user_id = :viewer_id))"
     )

@@ -38,6 +38,12 @@ class Artist(Base):
     bio = Column(Text, nullable=True)
     has_artwork = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True))
+    # Reversible masking (same convention as catalog.hidden_reason): NULL =
+    # visible; otherwise the id of the rule that hid the artist, so a rule can be
+    # reverted on its own. A hidden artist is excluded from listings/search but
+    # stays reachable by id. Never inferred onto its tracks (masked per track).
+    hidden_reason = Column(String(50), nullable=True)
+    hidden_at = Column(DateTime(timezone=True), nullable=True)
 
     # Partial unique index: one row per real Deezer artist, but the NOT_FOUND
     # sentinel may repeat freely (many artists confirmed absent from Deezer).

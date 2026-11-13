@@ -189,3 +189,107 @@ def test_bad_artist_rolls_back_and_continues(monkeypatch):
     assert session.rollbacks == 1              # the bad artist rolled back
     assert stats["artists"] == 1               # only the good one counted
     assert stats["deezer_applied"] == 1
+
+
+# ── ISRC entry block (audit 2026-11, workers.isrc_block) ─────────────────────
+
+
+class _Rows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class LookupSession(FakeSession):
+    """FakeSession whose existing-row lookup returns the given (isrc, normalized_key)."""
+
+    def __init__(self, existing=()):
+        super().__init__()
+        self.existing = list(existing)
+        self.executes = 0
+
+    def execute(self, stmt):
+        self.executes += 1
+        return _Rows(self.existing)
+
+
+def test_blocked_isrc_net_new_is_skipped_and_counted(monkeypatch):
+    monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+    made = _patch_funnel(monkeypatch)
+    session = LookupSession()
+    records = [
+        _artist_rec(
+            1,
+            "Farm",
+            [_hit(11, "Farm Track", isrc="GXLE12345678"), _hit(12, "Real", isrc="FRX123")],
+        )
+    ]
+    stats, sample = mod.import_discography(session, records, apply=True)
+    assert stats["isrc_blocked"] == 1
+    assert stats["deezer_applied"] == 1        # only the unblocked hit
+    assert stats["tracks_seen"] == 1
+    assert len(made) == 1                      # the blocked row was never created
+    assert sample == [("Farm", 1)]
+
+
+def test_blocked_isrc_existing_row_is_processed(monkeypatch):
+    monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+    made = _patch_funnel(monkeypatch)
+    # one blocked hit matches an existing row by normalized_key (row stores another
+    # ISRC), the other matches nothing → only the latter is dropped.
+    nk = mod.make_normalized_key("By Key", "A")
+    session = LookupSession(existing=[(None, nk)])
+    records = [
+        _artist_rec(
+            1,
+            "Farm",
+            [_hit(11, "Orphan", isrc="KRB92000001"), _hit(12, "By Key", isrc="gxlf999")],
+        )
+    ]
+    stats, _ = mod.import_discography(session, records, apply=True)
+    assert stats["isrc_blocked"] == 1          # "Orphan" (no existing row)
+    assert stats["deezer_applied"] == 1        # "By Key" processed as usual
+    assert len(made) == 1
+
+
+def test_blocked_isrc_existing_by_isrc_exact(monkeypatch):
+    monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+    _patch_funnel(monkeypatch)
+    session = LookupSession(existing=[("GXLE0001", "other|key")])
+    records = [_artist_rec(1, "Farm", [_hit(11, "T", isrc="GXLE0001")])]
+    stats, _ = mod.import_discography(session, records, apply=True)
+    assert stats["isrc_blocked"] == 0
+    assert stats["deezer_applied"] == 1
+
+
+def test_no_blocked_hit_skips_the_lookup(monkeypatch):
+    _patch_funnel(monkeypatch)
+    session = LookupSession()
+    records = [_artist_rec(1, "Bicep", [_hit(11, "Cola", isrc="GBX1")])]
+    stats, _ = mod.import_discography(session, records, apply=True)
+    assert session.executes == 0
+    assert stats["isrc_blocked"] == 0
+
+
+def test_block_disabled_by_empty_env(monkeypatch):
+    monkeypatch.setenv("CATALOG_ISRC_BLOCKED_PREFIXES", "")
+    _patch_funnel(monkeypatch)
+    session = LookupSession()
+    records = [_artist_rec(1, "Farm", [_hit(11, "T", isrc="GXLE0001")])]
+    stats, _ = mod.import_discography(session, records, apply=False)
+    assert stats["isrc_blocked"] == 0
+    assert stats["deezer_applied"] == 1
+
+
+def test_dry_run_counts_isrc_blocked_and_report_shows_it(monkeypatch, capsys):
+    monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+    _patch_funnel(monkeypatch)
+    session = LookupSession()
+    records = [_artist_rec(1, "Farm", [_hit(11, "T", isrc="GXLE0001")])]
+    stats, _ = mod.import_discography(session, records, apply=False)
+    assert stats["isrc_blocked"] == 1
+    assert session.commits == 0
+    mod._print_report(stats, apply=False)
+    assert "isrc_blocked         : 1" in capsys.readouterr().out

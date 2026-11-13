@@ -258,6 +258,7 @@ def merge_catalog_entries(
     loser_bpm_analyzed_at = loser.bpm_analyzed_at
     loser_bpm_analysis_attempts = loser.bpm_analysis_attempts or 0
     loser_scope = loser.scope
+    loser_hidden = loser.hidden_reason is not None
     canonical_genres = list(canonical.genres or [])
 
     # ── Repoint every child table. Composite-PK tables are conflict-aware. ──
@@ -414,6 +415,13 @@ def merge_catalog_entries(
     if loser_scope == "shared" or canonical.scope == "shared":
         canonical.scope = "shared"
         canonical.owner_id = None
+
+    # Reversible masking: the visible row wins (invariant #4, in doubt keep it
+    # visible). The canonical stays masked only when BOTH rows were masked (it
+    # then keeps its own reason); otherwise the mask is cleared.
+    if not loser_hidden:
+        canonical.hidden_reason = None
+        canonical.hidden_at = None
 
     # ── Remove the loser, then move its unique columns onto the canonical
     # (done last so the unique constraints never see a transient duplicate) ──

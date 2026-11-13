@@ -12,10 +12,11 @@ from models import CatalogEntry, bpm_analysis_candidate_filter
 
 
 class TestBpmAnalysisCandidateFilter:
-    def test_returns_five_conditions(self):
+    def test_returns_six_conditions(self):
+        # 5 historical conditions + the masking exclusion (hidden_reason IS NULL).
         conditions = bpm_analysis_candidate_filter()
         assert isinstance(conditions, list)
-        assert len(conditions) == 5
+        assert len(conditions) == 6
 
     def test_conditions_are_and_combinable_in_a_where(self):
         # SQLAlchemy accepts the list splat as a where() clause without error;
@@ -24,5 +25,11 @@ class TestBpmAnalysisCandidateFilter:
 
         stmt = select(CatalogEntry.id).where(*bpm_analysis_candidate_filter())
         rendered = str(stmt.compile(compile_kwargs={"literal_binds": True})).lower()
-        for token in ("has_preview", "bpm is null", "deezer_id", "bpm_analyzed_at"):
+        for token in (
+            "has_preview",
+            "bpm is null",
+            "deezer_id",
+            "bpm_analyzed_at",
+            "hidden_reason is null",
+        ):
             assert token in rendered

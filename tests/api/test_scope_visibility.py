@@ -209,8 +209,9 @@ class TestCatalogVisibleSqlTwin:
 
     def test_guest_fragment_is_shared_only(self):
         # A guest holds no user_track, so the guest branch must never gain the
-        # clause nor reference :viewer_id.
+        # clause nor reference :viewer_id. It also excludes masked rows
+        # (hidden_reason, reversible masking) — no exception for a guest.
         frag = catalog_service.catalog_visible_sql(None)
-        assert frag == "c.scope = 'shared'"
+        assert frag == "(c.scope = 'shared' AND c.hidden_reason IS NULL)"
         assert "user_tracks" not in frag
         assert ":viewer_id" not in frag

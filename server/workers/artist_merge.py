@@ -155,6 +155,13 @@ def merge_artist_into(session: Session, source_id: int, target_id: int) -> dict:
 
     source_name = source.name
 
+    # Reversible masking: the visible row wins (invariant #4, in doubt keep it
+    # visible). The target stays masked only when BOTH artists were masked (it
+    # then keeps its own reason); otherwise the mask is cleared.
+    if source.hidden_reason is None:
+        target.hidden_reason = None
+        target.hidden_at = None
+
     # Reassign the association rows first (both are composite-PK tables keyed on
     # artist_id → conflict-aware, drop-then-move).
     _reassign_artist_links(session, SetArtist, SetArtist.set_id, source_id, target_id)

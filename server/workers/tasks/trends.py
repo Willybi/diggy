@@ -176,6 +176,12 @@ def compute_trends(self, window_days=30):
 
             set_reliable_frag = set_reliable_sql("s")
 
+            # Masked catalog rows (hidden_reason set) are never scored: this query
+            # does not go through catalog_visible, so BOTH detection branches
+            # (radar + sets) filter `c.hidden_reason IS NULL` explicitly. A masked
+            # row thus gets no radar_trends upsert, and its pre-existing row (older
+            # computed_at) is removed by _purge_stale_trends in the same run.
+
             # Main query: scores + velocity in a single pass
             rows = session.execute(
                 text("""
@@ -195,6 +201,7 @@ def compute_trends(self, window_days=30):
                     JOIN watched_entities we ON we.id = rt.watched_entity_id
                     JOIN catalog c ON c.id = rt.catalog_id
                     WHERE rt.catalog_id IS NOT NULL
+                      AND c.hidden_reason IS NULL
                       AND rt.detected_at >= NOW() - MAKE_INTERVAL(days => :window)
                       AND rt.removed_at IS NULL
 
@@ -250,6 +257,7 @@ def compute_trends(self, window_days=30):
                         JOIN sets s ON s.id = st.set_id
                         JOIN catalog c ON c.id = st.catalog_id
                         WHERE st.catalog_id IS NOT NULL
+                          AND c.hidden_reason IS NULL
                           AND s.parent_set_id IS NULL
                           AND """ + set_reliable_frag + """
                           AND COALESCE(s.played_date::timestamptz, s.created_at)

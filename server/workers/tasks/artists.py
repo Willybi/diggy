@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from workers.artist_names import fold_base
 from workers.celery_app import celery_app
+from workers.isrc_block import is_blocked_isrc
 
 logger = logging.getLogger(__name__)
 
@@ -2867,9 +2868,21 @@ async def _fetch_album_tracks(pool, album_id):
     return (data.get("tracks") or {}).get("data") or []
 
 
+class CrawlIsrcBlocked(Exception):
+    """Raised by :func:`_crawl_track` BEFORE any write when the hit is net-new
+    (no existing catalog row matches it by ISRC or normalized_key) and its ISRC
+    starts with a blocked distributor-farm prefix (``workers.isrc_block``). The
+    caller counts it in ``isrc_blocked`` and records NO activity for the track."""
+
+
 def _crawl_track(session, hit):
     """Create/enrich a catalog entry from a Deezer /track/{id} hit and link its
     artists. Returns (entry, created).
+
+    ISRC entry block (``workers.isrc_block``): a NET-NEW hit whose ISRC carries a
+    blocked prefix is refused — :class:`CrawlIsrcBlocked` is raised before anything
+    is written. An EXISTING matched row is processed as usual (it may be
+    corroborated by a set / library / playlist).
 
     Reuses the shared sync enrichment helpers (deezer_id, isrc, duration,
     has_preview, cover upload + multi-artist linking) so a crawled release track
@@ -2908,6 +2921,8 @@ def _crawl_track(session, hit):
 
     created = False
     if entry is None:
+        if is_blocked_isrc(isrc):
+            raise CrawlIsrcBlocked(isrc)
         entry = CatalogEntry(
             title=title,
             artist=artist_name,
@@ -2970,6 +2985,7 @@ async def _check_releases(engine, artist_ids, now):
         "releases_found": 0,
         "catalog_created": 0,
         "crawl_errors": 0,
+        "isrc_blocked": 0,
         "errors": 0,
         "cohort_checked": 0,
         "deadline_hit": False,
@@ -3142,6 +3158,7 @@ async def _check_releases(engine, artist_ids, now):
                                 e,
                             )
 
+                        isrc_blocked = False
                         if isinstance(hit, dict) and not hit.get("error"):
                             try:
                                 entry, created = _crawl_track(session, hit)
@@ -3166,6 +3183,11 @@ async def _check_releases(engine, artist_ids, now):
                                         exc_info=True,
                                     )
                                 session.flush()
+                            except CrawlIsrcBlocked:
+                                # Net-new distributor-farm ISRC: nothing was
+                                # written; no catalog row AND no link-only card.
+                                isrc_blocked = True
+                                stats["isrc_blocked"] += 1
                             except IntegrityError:
                                 session.rollback()
                                 entry, created = None, False
@@ -3185,6 +3207,9 @@ async def _check_releases(engine, artist_ids, now):
                                     track_id,
                                     exc_info=True,
                                 )
+
+                        if isrc_blocked:
+                            continue
 
                         # INVARIANT: never store an external image URL — artwork
                         # lives in MinIO (has_artwork on the catalog entry).
@@ -3458,6 +3483,7 @@ def _run_check_followed_artists(task):
                 "releases_found": 0,
                 "catalog_created": 0,
                 "crawl_errors": 0,
+                "isrc_blocked": 0,
                 "sets_found": 0,
                 "errors": 0,
                 "cohort_checked": 0,
@@ -3480,6 +3506,7 @@ def _run_check_followed_artists(task):
                 stats["releases_found"] = release_stats["releases_found"]
                 stats["catalog_created"] = release_stats["catalog_created"]
                 stats["crawl_errors"] = release_stats["crawl_errors"]
+                stats["isrc_blocked"] = release_stats["isrc_blocked"]
                 stats["errors"] = release_stats["errors"]
                 stats["cohort_checked"] = release_stats["cohort_checked"]
                 stats["deadline_hit"] = release_stats["deadline_hit"]

@@ -10,6 +10,7 @@ UNIQUE indexes, so the alias-uniqueness handling is genuinely tested.
 import itertools
 import os
 import sys
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -260,3 +261,34 @@ class TestLifecycle:
             pass
         else:
             raise AssertionError("expected LookupError for missing target")
+
+
+# ── reversible masking: the visible row wins ────────────────────────────────
+
+_HID = datetime(2026, 11, 1, tzinfo=timezone.utc)
+
+
+class TestMergeHiddenReason:
+    def test_visible_source_unmasks_hidden_target(self, sync_session):
+        target = _artist(sync_session, hidden_reason="farm_fort", hidden_at=_HID)
+        source = _artist(sync_session)
+        merge_artist_into(sync_session, source.id, target.id)
+        sync_session.commit()
+        row = sync_session.get(Artist, target.id)
+        assert row.hidden_reason is None and row.hidden_at is None
+
+    def test_hidden_source_does_not_mask_visible_target(self, sync_session):
+        target = _artist(sync_session)
+        source = _artist(sync_session, hidden_reason="farm_fort", hidden_at=_HID)
+        merge_artist_into(sync_session, source.id, target.id)
+        sync_session.commit()
+        row = sync_session.get(Artist, target.id)
+        assert row.hidden_reason is None and row.hidden_at is None
+
+    def test_both_hidden_stays_hidden(self, sync_session):
+        target = _artist(sync_session, hidden_reason="farm_fort", hidden_at=_HID)
+        source = _artist(sync_session, hidden_reason="farm_fort", hidden_at=_HID)
+        merge_artist_into(sync_session, source.id, target.id)
+        sync_session.commit()
+        row = sync_session.get(Artist, target.id)
+        assert row.hidden_reason == "farm_fort" and row.hidden_at is not None

@@ -35,6 +35,10 @@ BUNDLE CONTRACT (one JSON object per line = ONE artist, read from stdin or --fil
 
 Per artist (idempotent, one transaction per artist in --apply):
 
+  0. ISRC entry block (``workers.isrc_block``, env ``CATALOG_ISRC_BLOCKED_PREFIXES``):
+     a hit whose ISRC carries a blocked distributor-farm prefix AND that matches no
+     existing catalog row (ISRC or normalized_key) is skipped — never created —
+     and counted ``isrc_blocked``. A blocked hit matching an existing row goes on.
   1. ``bulk_get_or_create_catalog`` over ``{title, artist, isrc}`` dicts — dedups
      ISRC→normalized_key against the LIVE DB and creates the missing rows. Because the
      hit carries the ISRC, a track that is net-new BY TITLE but already in base BY ISRC
@@ -89,8 +93,9 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 )  # server/ -> workers
 
+from models import CatalogEntry
 from services.image_service import ImageService
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, or_, select
 from sqlalchemy.orm import Session
 from utils import make_normalized_key
 from workers.catalog_merge import CatalogEntryMerged
@@ -101,6 +106,7 @@ from workers.deezer_enrich import (
     link_catalog_artist_from_hit,
 )
 from workers.enrichment import _mark_searched
+from workers.isrc_block import blocked_prefixes, is_blocked_isrc
 
 logger = logging.getLogger("import_discography")
 
@@ -127,6 +133,7 @@ _STAT_KEYS = (
     "already_deezer",
     "merged",
     "missing",
+    "isrc_blocked",
 )
 
 _MALFORMED = object()
@@ -217,6 +224,41 @@ def _valid_hits(tracks):
     return out
 
 
+def _drop_blocked_net_new(session, hits, stats):
+    """Drop the NET-NEW hits whose ISRC carries a blocked distributor-farm prefix.
+
+    ISRC entry block (``workers.isrc_block``, audit 2026-11): a hit with a blocked
+    ISRC is kept ONLY when a catalog row already matches it (same ISRC, or same
+    ``normalized_key`` — the exact lookup ``bulk_get_or_create_catalog`` performs), so
+    an existing row keeps being enriched as before; otherwise it is skipped (never
+    created) and counted in ``isrc_blocked``. Read-only (two batched SELECTs, only
+    when at least one hit is blocked).
+    """
+    prefixes = blocked_prefixes()
+    blocked = [h for h in hits if is_blocked_isrc(h.get("isrc"), prefixes)]
+    if not blocked:
+        return hits
+    isrcs = [h["isrc"] for h in blocked]
+    keys = [make_normalized_key(h["title"], _hit_artist_name(h)) for h in blocked]
+    rows = session.execute(
+        select(CatalogEntry.isrc, CatalogEntry.normalized_key).where(
+            or_(CatalogEntry.isrc.in_(isrcs), CatalogEntry.normalized_key.in_(keys))
+        )
+    ).all()
+    known_isrcs = {r[0] for r in rows if r[0]}
+    known_keys = {r[1] for r in rows}
+    kept = []
+    for h in hits:
+        if is_blocked_isrc(h.get("isrc"), prefixes) and not (
+            h["isrc"] in known_isrcs
+            or make_normalized_key(h["title"], _hit_artist_name(h)) in known_keys
+        ):
+            stats["isrc_blocked"] += 1
+            continue
+        kept.append(h)
+    return kept
+
+
 def _import_artist(session, hits, stats):
     """Get-or-create + enrich one artist's net-new track hits. Returns the # linked.
 
@@ -227,6 +269,7 @@ def _import_artist(session, hits, stats):
     carries a ``deezer_id`` is left untouched (``already_deezer``). Never commits.
     """
     now = datetime.now(timezone.utc)
+    hits = _drop_blocked_net_new(session, hits, stats)
     track_dicts = [
         {"title": h["title"], "artist": _hit_artist_name(h), "isrc": h.get("isrc")}
         for h in hits
@@ -323,6 +366,10 @@ def _print_report(stats, apply):
     print(f"    already_deezer       : {stats['already_deezer']}  (row already linked, left as is)")
     print(f"    merged               : {stats['merged']}  (folded into a canonical row)")
     print(f"    missing              : {stats['missing']}  (hit had no catalog entry)")
+    print(
+        f"    isrc_blocked         : {stats['isrc_blocked']}  "
+        "(net-new track with a blocked ISRC prefix, not created)"
+    )
     print(f"    malformed            : {stats['malformed']}  (bad line, skipped)")
     print(f"    errors               : {stats['errors']}  (artist aborted, rolled back)")
 

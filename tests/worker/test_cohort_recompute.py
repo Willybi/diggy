@@ -550,3 +550,128 @@ class TestSelectDueCohortIds:
         )
 
         assert select_due_cohort_ids(sync_session, NOW, budget=10) == []
+
+
+# ── masking + snowball cut (audit 2026-11 §9.2/§9.3) ─────────────────────────
+def _hide_artist(session, artist):
+    artist.hidden_reason = "farm_fort"
+    artist.hidden_at = NOW
+    session.flush()
+
+
+def _watch_import(session, artist, catalog):
+    """Mark ``catalog`` as imported by the release-watch (artist_activity link)."""
+    from models import ArtistActivity
+
+    session.add(
+        ArtistActivity(
+            artist_id=artist.id,
+            activity_type="release",
+            source="deezer",
+            external_id=f"dz-{catalog.id}",
+            catalog_id=catalog.id,
+            detected_at=NOW,
+        )
+    )
+    session.flush()
+
+
+class TestMaskingAndSnowball:
+    def test_hidden_artist_never_enters(self, sync_session):
+        a = _artist(sync_session)
+        c = _catalog(sync_session)
+        _own(sync_session, a, c)
+        _in_lib(sync_session, _user(sync_session), c)  # would be T1
+        _hide_artist(sync_session, a)
+
+        recompute_cohort(sync_session, now=NOW)
+        assert _cohort(sync_session, a.id) is None
+
+    def test_existing_row_of_hidden_artist_pruned(self, sync_session):
+        a = _artist(sync_session)
+        _catalog_tracks(sync_session, a, 12)  # T2
+        recompute_cohort(sync_session, now=NOW)
+        assert _cohort(sync_session, a.id).tier == 2
+
+        _hide_artist(sync_session, a)
+        stats = recompute_cohort(sync_session, now=NOW)
+        assert _cohort(sync_session, a.id) is None
+        assert stats["n_pruned"] == 1
+
+    def test_hidden_artist_with_override_kept(self, sync_session):
+        a = _artist(sync_session)
+        _catalog_tracks(sync_session, a, 12)
+        recompute_cohort(sync_session, now=NOW)
+        row = _cohort(sync_session, a.id)
+        row.pinned = True
+        sync_session.flush()
+
+        _hide_artist(sync_session, a)
+        recompute_cohort(sync_session, now=NOW)
+        row = _cohort(sync_session, a.id)
+        assert row is not None and row.pinned is True
+        assert row.computed_tier is None  # not a candidate any more
+        # ...but never drawn by the release-watch (defence in depth).
+        assert select_due_cohort_ids(sync_session, NOW, budget=10) == []
+
+    def test_watch_imports_do_not_count_in_nb_catalog(self, sync_session):
+        a = _artist(sync_session)
+        for c in _catalog_tracks(sync_session, a, 12):
+            _watch_import(sync_session, a, c)
+
+        recompute_cohort(sync_session, now=NOW)
+        assert _cohort(sync_session, a.id) is None
+
+    def test_discography_backfill_does_not_count_in_nb_catalog(self, sync_session):
+        from workers.cohort import DISCOGRAPHY_BACKFILL_PRIORITY
+
+        a = _artist(sync_session)
+        for c in _catalog_tracks(sync_session, a, 12):
+            c.enrich_priority = DISCOGRAPHY_BACKFILL_PRIORITY
+        sync_session.flush()
+
+        recompute_cohort(sync_session, now=NOW)
+        assert _cohort(sync_session, a.id) is None
+
+    def test_hidden_tracks_do_not_count_in_nb_catalog(self, sync_session):
+        a = _artist(sync_session)
+        cats = _catalog_tracks(sync_session, a, 12)
+        for c in cats[:3]:  # 9 organic left < CATALOG_T2
+            c.hidden_reason = "farm_fort"
+        sync_session.flush()
+
+        recompute_cohort(sync_session, now=NOW)
+        assert _cohort(sync_session, a.id) is None
+
+    def test_organic_tracks_still_count(self, sync_session):
+        a = _artist(sync_session)
+        cats = _catalog_tracks(sync_session, a, 12)
+        for c in cats[:2]:  # 10 organic left (incl. other priorities) → T2
+            _watch_import(sync_session, a, c)
+        cats[2].enrich_priority = 80  # a set-phase priority still counts
+        sync_session.flush()
+
+        recompute_cohort(sync_session, now=NOW)
+        row = _cohort(sync_session, a.id)
+        assert row.tier == 2 and row.signals["nb_catalog"] == 10
+
+    def test_lib_artist_stays_t1_even_with_watch_only_catalog(self, sync_session):
+        a = _artist(sync_session)
+        cats = _catalog_tracks(sync_session, a, 12)
+        for c in cats:
+            _watch_import(sync_session, a, c)
+        _in_lib(sync_session, _user(sync_session), cats[0])
+
+        recompute_cohort(sync_session, now=NOW)
+        row = _cohort(sync_session, a.id)
+        assert row.tier == 1
+        assert row.signals["nb_catalog"] == 0 and row.signals["nb_lib"] == 1
+
+    def test_select_due_excludes_hidden_artist(self, sync_session):
+        visible = _artist(sync_session)
+        hidden = _artist(sync_session)
+        _seed_cohort(sync_session, visible, tier=1)
+        _seed_cohort(sync_session, hidden, tier=1)
+        _hide_artist(sync_session, hidden)
+
+        assert select_due_cohort_ids(sync_session, NOW, budget=10) == [visible.id]

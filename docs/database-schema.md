@@ -120,6 +120,8 @@ PK: `id`
 | `deezer_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 | `beatport_search_attempts` | SmallInteger | no |  |  | server_default='0', default=0 |
 | `enrich_priority` | SmallInteger | yes |  |  |  |
+| `hidden_reason` | String(50) | yes |  |  |  |
+| `hidden_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
 - `ix_catalog_beatport_id`: `beatport_id`
@@ -421,6 +423,8 @@ PK: `id`
 | `bio` | Text | yes |  |  |  |
 | `has_artwork` | Boolean | yes |  |  | default=False |
 | `created_at` | DateTime(tz) | yes |  |  |  |
+| `hidden_reason` | String(50) | yes |  |  |  |
+| `hidden_at` | DateTime(tz) | yes |  |  |  |
 
 **Indexes:**
 - `ix_artists_deezer_searched_at`: `deezer_searched_at`

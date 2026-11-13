@@ -130,10 +130,14 @@ def select_enrich_candidates(
 
     # The tier "base" predicate: id-missing (default) or genre-missing (gated).
     base = array_is_empty(CatalogEntry.genres) if genre_only else id_col.is_(None)
+    # A masked row (hidden_reason set) is never enriched, on every tier/source:
+    # no API quota or CPU spent on undesirable rows. Mirrored by
+    # count_enrich_backlog so the monitoring matches what the drain picks up.
+    not_hidden = CatalogEntry.hidden_reason.is_(None)
 
     # C12 — un-stamped (NULL) priority folds to the median baseline.
     priority_expr = func.coalesce(CatalogEntry.enrich_priority, PRIORITY_BASELINE)
-    fresh_where = [base, searched_col.is_(None)]
+    fresh_where = [base, not_hidden, searched_col.is_(None)]
     if priority_floor is not None:
         fresh_where.append(priority_expr >= priority_floor)
     fresh_order = (
@@ -162,6 +166,7 @@ def select_enrich_candidates(
             select(CatalogEntry)
             .where(
                 base,
+                not_hidden,
                 or_(
                     and_(
                         attempts_col == 1,
@@ -213,11 +218,15 @@ def count_enrich_backlog(
     condition to the ``never_tried`` partition ONLY (retries are never floored),
     so the monitoring never-tried figure reflects what the priority-floored drain
     would actually pick up.
+
+    Masked rows (``hidden_reason`` set) are excluded from EVERY bucket, mirroring
+    :func:`select_enrich_candidates` which never selects them.
     """
     from models import CatalogEntry
 
     id_col, searched_col, attempts_col = _source_columns(source)
     missing = id_col.is_(None)
+    not_hidden = CatalogEntry.hidden_reason.is_(None)
 
     never_predicates = [missing, searched_col.is_(None)]
     if priority_floor is not None:
@@ -229,7 +238,7 @@ def count_enrich_backlog(
     def _count(*predicates) -> int:
         return (
             session.execute(
-                select(func.count(CatalogEntry.id)).where(*predicates)
+                select(func.count(CatalogEntry.id)).where(not_hidden, *predicates)
             ).scalar()
             or 0
         )

@@ -802,3 +802,35 @@ class TestMergeLifecycle:
             pass
         else:
             raise AssertionError("expected ValueError for missing canonical")
+
+
+# ── reversible masking: the visible row wins ────────────────────────────────
+
+_HID = datetime(2026, 11, 1)
+
+
+class TestMergeHiddenReason:
+    def test_visible_loser_unmasks_hidden_canonical(self, sync_session):
+        canonical = _cat(sync_session, hidden_reason="farm_fort", hidden_at=_HID)
+        loser = _cat(sync_session)
+        merge_catalog_entries(sync_session, canonical.id, loser.id)
+        sync_session.commit()
+        row = sync_session.get(CatalogEntry, canonical.id)
+        assert row.hidden_reason is None and row.hidden_at is None
+
+    def test_hidden_loser_does_not_mask_visible_canonical(self, sync_session):
+        canonical = _cat(sync_session)
+        loser = _cat(sync_session, hidden_reason="farm_fort", hidden_at=_HID)
+        merge_catalog_entries(sync_session, canonical.id, loser.id)
+        sync_session.commit()
+        row = sync_session.get(CatalogEntry, canonical.id)
+        assert row.hidden_reason is None and row.hidden_at is None
+
+    def test_both_hidden_stays_hidden(self, sync_session):
+        canonical = _cat(sync_session, hidden_reason="farm_fort", hidden_at=_HID)
+        loser = _cat(sync_session, hidden_reason="episode", hidden_at=_HID)
+        merge_catalog_entries(sync_session, canonical.id, loser.id)
+        sync_session.commit()
+        row = sync_session.get(CatalogEntry, canonical.id)
+        assert row.hidden_reason == "farm_fort"  # keeps its own reason
+        assert row.hidden_at is not None

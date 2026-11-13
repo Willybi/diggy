@@ -119,8 +119,9 @@ PassResult = namedtuple("PassResult", "pulled max_id skipped errors")
 
 
 def build_pull_query(limit=0, after_id=0):
-    """COPY query for the candidates: previewable, resolvable deezer_id, and NO
-    embedding yet for (MODEL_NAME, MODEL_VERSION).
+    """COPY query for the candidates: previewable, resolvable deezer_id, not
+    masked (``hidden_reason`` NULL — no EffNet CPU spent on undesirable rows), and
+    NO embedding yet for (MODEL_NAME, MODEL_VERSION).
 
     ``ORDER BY c.id`` + optional ``after_id`` (``AND c.id > N``) make the pull
     keyset-resumable across salvos. The ``te.id IS NULL`` LEFT JOIN is what makes
@@ -139,6 +140,7 @@ def build_pull_query(limit=0, after_id=0):
         "  WHERE c.has_preview = true\n"
         "    AND c.deezer_id IS NOT NULL\n"
         "    AND c.deezer_id <> 'NOT_FOUND'\n"
+        "    AND c.hidden_reason IS NULL\n"
         "    AND te.id IS NULL\n"
         f"{after_clause}"
         "  ORDER BY c.id\n"

@@ -1143,6 +1143,83 @@ class TestSetsVoletVirtualParents:
         assert acts[0].external_id == str(set_id)
 
 
+# ── ISRC entry block (audit 2026-11, workers.isrc_block) ─────────────────────
+
+
+class TestIsrcEntryBlock:
+    def _setup(self, task_engine, fake_pool, tracks):
+        with Session(task_engine) as s:
+            a = _make_artist(s, "Farm Artist", deezer_id="77")
+            _cohort(s, a.id)
+            s.commit()
+        fake_pool.albums["77"] = [_album(777, days_ago=5)]
+        fake_pool.album_tracks["777"] = [_track_summary(tid, t) for tid, t, _ in tracks]
+        for tid, title, isrc in tracks:
+            fake_pool.tracks[str(tid)] = _track_hit(
+                tid, title, "Farm Artist", "77", isrc=isrc
+            )
+
+    def test_blocked_net_new_not_created_no_activity(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, monkeypatch
+    ):
+        monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+        self._setup(
+            task_engine,
+            fake_pool,
+            [(7771, "Farm Song", "GXLE00000001"), (7772, "Real Song", "FRZ110000001")],
+        )
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["isrc_blocked"] == 1
+        assert result["catalog_created"] == 1
+        assert result["releases_found"] == 1
+        assert result["crawl_errors"] == 0
+        assert {e.title for e in _catalog_entries(task_engine)} == {"Real Song"}
+        acts = _activities(task_engine, activity_type="release")
+        assert {a.external_id for a in acts} == {"7772"}  # no link-only card
+
+    def test_blocked_but_existing_row_processed(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, monkeypatch
+    ):
+        monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+        from models import CatalogEntry
+        from utils import make_normalized_key
+
+        with Session(task_engine) as s:
+            s.add(
+                CatalogEntry(
+                    title="Farm Song",
+                    artist="Farm Artist",
+                    normalized_key=make_normalized_key("Farm Song", "Farm Artist"),
+                    isrc="KRB92000001",
+                )
+            )
+            s.commit()
+        self._setup(task_engine, fake_pool, [(7781, "Farm Song", "KRB92000001")])
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["isrc_blocked"] == 0
+        assert result["catalog_created"] == 0
+        assert result["releases_found"] == 1
+        acts = _activities(task_engine, activity_type="release")
+        assert len(acts) == 1 and acts[0].catalog_id is not None
+        assert len(_catalog_entries(task_engine)) == 1
+
+    def test_unblocked_unchanged_and_empty_env_disables(
+        self, tasks_env, task_engine, fake_pool, fake_redis, fake_self, monkeypatch
+    ):
+        monkeypatch.setenv("CATALOG_ISRC_BLOCKED_PREFIXES", "")
+        self._setup(task_engine, fake_pool, [(7791, "Farm Song", "GXLE00000009")])
+
+        result = tasks_env.artists.check_followed_artists(fake_self)
+
+        assert result["isrc_blocked"] == 0
+        assert result["catalog_created"] == 1
+        assert result["releases_found"] == 1
+
+
 # ── Empty run ────────────────────────────────────────────────────────────────
 
 
@@ -1158,6 +1235,7 @@ class TestEmptyRun:
             "releases_found": 0,
             "catalog_created": 0,
             "crawl_errors": 0,
+            "isrc_blocked": 0,
             "sets_found": 0,
             "errors": 0,
             "cohort_checked": 0,

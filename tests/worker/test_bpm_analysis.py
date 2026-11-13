@@ -99,6 +99,16 @@ class TestSelectBpmCandidates:
             bpm=None,
             bpm_analyzed_at=NOW,
         )
+        # masked (reversible hiding of undesirable rows): no CPU spent on it
+        _make_row(
+            sync_session,
+            7,
+            has_preview=True,
+            deezer_id="dz-7",
+            bpm=None,
+            hidden_reason="farm_fort",
+            hidden_at=NOW,
+        )
 
         result = select_bpm_candidates(sync_session, limit=10)
 

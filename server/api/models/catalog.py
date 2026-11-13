@@ -67,6 +67,13 @@ class CatalogEntry(Base):
     # not stamped. Read by no logic yet (the priority gate/stamping lands in
     # later C12 lots); this lot only lays the column + its partial index.
     enrich_priority = Column(SmallInteger, nullable=True)
+    # Reversible masking of undesirable rows (AI farms, fake artists, functional
+    # music). NULL = visible; otherwise the id of the rule that hid the row
+    # (e.g. ``farm_fort``, ``isrc_block``), so a rule can be reverted on its own.
+    # Never a deletion: the row stays, only reads exclude it (catalog_visible),
+    # except for a viewer holding it in their library or owning it.
+    hidden_reason = Column(String(50), nullable=True)
+    hidden_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index(
@@ -145,14 +152,19 @@ def bpm_analysis_candidate_filter():
     """Source unique du prédicat backlog analyse BPM (E2.c), partagé par la tâche
     nocturne et l'admin. Une entrée est candidate à l'estimation de BPM depuis sa
     preview Deezer si : elle a une preview, n'a pas encore de BPM, possède un
-    deezer_id réel (pas le sentinelle NOT_FOUND) et n'a jamais été analysée.
-    Conditions ET-combinables via .where(*bpm_analysis_candidate_filter())."""
+    deezer_id réel (pas le sentinelle NOT_FOUND), n'a jamais été analysée et
+    n'est pas masquée (``hidden_reason`` NULL : on ne dépense pas de CPU Essentia
+    sur une ligne indésirable ; l'admin compte donc le même backlog que la tâche).
+    Conditions ET-combinables via .where(*bpm_analysis_candidate_filter()).
+    NB : l'index partiel ``ix_catalog_bpm_analysis_backlog`` ne porte pas la
+    condition de masquage ; il reste utilisable (prédicat plus strict)."""
     return [
         CatalogEntry.has_preview.is_(True),
         CatalogEntry.bpm.is_(None),
         CatalogEntry.deezer_id.isnot(None),
         CatalogEntry.deezer_id != "NOT_FOUND",
         CatalogEntry.bpm_analyzed_at.is_(None),
+        CatalogEntry.hidden_reason.is_(None),
     ]
 
 

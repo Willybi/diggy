@@ -455,3 +455,24 @@ class TestPurgeStaleTrends:
 
         assert purged == 0
         assert len(sync_session.execute(select(RadarTrend)).scalars().all()) == 2
+
+
+class TestHiddenCatalogExcluded:
+    """Masked catalog rows (hidden_reason set) are never scored. compute_trends
+    does not go through catalog_visible, so BOTH detection branches must filter
+    the masked rows explicitly (source-inspection, the SQL being PG-only and mocked
+    in this suite). Their pre-existing radar_trends rows then age out through
+    _purge_stale_trends (covered by TestPurgeStaleTrends)."""
+
+    def test_both_detection_branches_exclude_hidden_rows(self):
+        import inspect
+        from workers.tasks.trends import compute_trends
+
+        source = inspect.getsource(compute_trends)
+        radar_start = source.index("JOIN catalog c ON c.id = rt.catalog_id")
+        radar_end = source.index("UNION ALL", radar_start)
+        set_start = source.index("JOIN catalog c ON c.id = st.catalog_id")
+        set_end = source.index("GROUP BY catalog_id, entity_key", set_start)
+
+        assert "c.hidden_reason IS NULL" in source[radar_start:radar_end]
+        assert "c.hidden_reason IS NULL" in source[set_start:set_end]

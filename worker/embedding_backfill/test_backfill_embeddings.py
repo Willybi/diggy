@@ -58,6 +58,7 @@ def test_build_pull_query_no_limit():
     assert "has_preview = true" in sql
     assert "deezer_id IS NOT NULL" in sql
     assert "deezer_id <> 'NOT_FOUND'" in sql
+    assert "c.hidden_reason IS NULL" in sql  # masked rows are never embedded
     assert "ORDER BY c.id" in sql
     assert "LIMIT" not in sql
     assert "c.id >" not in sql  # no after-id clause by default

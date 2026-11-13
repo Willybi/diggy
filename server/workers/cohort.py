@@ -32,6 +32,14 @@ SETS_12M_T2 = 1
 # Recency window for the DJ-set signal (12 months).
 SETS_WINDOW_DAYS = 365
 
+# enrich_priority stamped on tracks imported by the discography backfill
+# (C14.a Phase 2, OPS scripts/import_discography.py DISCOGRAPHY_PRIORITY, default
+# 10). Those tracks are NOT counted in the nb_catalog signal: the cohort's own
+# imports must not promote the artist that pulled them in ("snowball" effect,
+# audit 2026-11 §7.8/§9.3). A track later seen in a set gets a MAX-merged higher
+# priority and counts again.
+DISCOGRAPHY_BACKFILL_PRIORITY = 10
+
 # --- per-tier watch cadence (release-watch lot L2) ---
 # The nightly Deezer release-watch re-checks a T1 (daily) member once a day and a
 # T2 (weekly) member once a week; select_due_cohort_ids draws the members whose
@@ -78,29 +86,46 @@ def recompute_cohort(session, *, now=None) -> dict:
     n_total}``.
     """
     from models import (
+        Artist,
+        ArtistActivity,
         ArtistCohort,
         CatalogArtist,
+        CatalogEntry,
         DJSet,
         FollowedArtist,
         SetArtist,
         UserOpinion,
         UserTrack,
     )
-    from sqlalchemy import func, select
+    from sqlalchemy import exists, func, or_, select
     from trackid.reliability import set_reliable
 
     if now is None:
         now = datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=SETS_WINDOW_DAYS)).date()
 
-    # ── Signal 1: catalog depth — distinct catalog tracks per artist. Same
-    # pattern as artist_service.list_artists (count distinct catalog_artists).
+    # ── Signal 1: catalog depth — distinct ORGANIC catalog tracks per artist
+    # (sets, playlists, library, tracklist enrichment). NOT counted, to cut the
+    # snowball where the release-watch feeds its own cohort (audit 2026-11 §9.3):
+    # masked tracks, tracks imported by the release-watch (referenced by an
+    # artist_activity.catalog_id) and tracks of the discography backfill
+    # (enrich_priority == DISCOGRAPHY_BACKFILL_PRIORITY). Other signals unchanged.
     nb_catalog = dict(
         session.execute(
             select(
                 CatalogArtist.artist_id,
                 func.count(func.distinct(CatalogArtist.catalog_id)),
-            ).group_by(CatalogArtist.artist_id)
+            )
+            .join(CatalogEntry, CatalogEntry.id == CatalogArtist.catalog_id)
+            .where(
+                CatalogEntry.hidden_reason.is_(None),
+                or_(
+                    CatalogEntry.enrich_priority.is_(None),
+                    CatalogEntry.enrich_priority != DISCOGRAPHY_BACKFILL_PRIORITY,
+                ),
+                ~exists().where(ArtistActivity.catalog_id == CatalogEntry.id),
+            )
+            .group_by(CatalogArtist.artist_id)
         ).all()
     )
 
@@ -191,13 +216,22 @@ def recompute_cohort(session, *, now=None) -> dict:
     # Candidate universe = artists carrying at least one signal. An artist absent
     # from every dict computes to None (out of cohort) by construction, so there
     # is no need to scan the whole artists table.
+    # A masked artist (artists.hidden_reason set) is never a candidate: its
+    # existing cohort row then falls into the non-qualifying branch below and is
+    # pruned like any pure-signal dropout, unless an admin override keeps it.
+    hidden_artist_ids = {
+        aid
+        for (aid,) in session.execute(
+            select(Artist.id).where(Artist.hidden_reason.isnot(None))
+        ).all()
+    }
     candidate_ids = (
         set(nb_catalog)
         | set(nb_lib)
         | set(nb_sets_12m)
         | set(nb_likes)
         | followed
-    )
+    ) - hidden_artist_ids
 
     def _signals(aid: int) -> dict:
         return {
@@ -311,7 +345,7 @@ def select_due_cohort_ids(session, now, budget):
     never starve T1. SYNC (mirrors ``recompute_cohort``), returns the ordered id
     list, driven by the release-watch task (workers/tasks/artists.py).
     """
-    from models import ArtistCohort
+    from models import Artist, ArtistCohort
     from sqlalchemy import and_, or_, select
 
     t1_cutoff = now - timedelta(days=T1_CADENCE_DAYS)
@@ -335,8 +369,11 @@ def select_due_cohort_ids(session, now, budget):
     )
     stmt = (
         select(ArtistCohort.artist_id)
+        # Defence in depth: a masked artist is never watched, even when an admin
+        # override kept its cohort row alive through the recompute.
+        .join(Artist, Artist.id == ArtistCohort.artist_id)
         # excluded IS NOT TRUE mirrors the partial index ix_artist_cohort_tier_checked.
-        .where(ArtistCohort.excluded.isnot(True), due)
+        .where(ArtistCohort.excluded.isnot(True), Artist.hidden_reason.is_(None), due)
         # tier ASC → T1 before T2 (only tiers 1/2 satisfy `due`); NULLs-first
         # last_checked_at → never-checked members are the highest priority.
         .order_by(

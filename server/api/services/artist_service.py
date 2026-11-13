@@ -269,7 +269,12 @@ async def list_artists(
             followed_sub, Artist.id == followed_sub.c.artist_id
         )
 
-    id_filter_query = select(Artist.id)
+    # Reversible masking: a hidden artist never appears in the listing — rows,
+    # total, pillar counts AND the admin active/dormant counters below. Direct
+    # access by id (get_detail) stays possible, deliberately.
+    not_hidden = Artist.hidden_reason.is_(None)
+    base_query = base_query.where(not_hidden)
+    id_filter_query = select(Artist.id).where(not_hidden)
     if ids:
         id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
         if not id_list:
@@ -355,12 +360,16 @@ async def list_artists(
         id_filter_query = id_filter_query.where(*view_conds)
         active_count = (
             await db.execute(
-                select(func.count()).select_from(Artist).where(*active_conds)
+                select(func.count())
+                .select_from(Artist)
+                .where(not_hidden, *active_conds)
             )
         ).scalar() or 0
         dormant_count = (
             await db.execute(
-                select(func.count()).select_from(Artist).where(*dormant_conds)
+                select(func.count())
+                .select_from(Artist)
+                .where(not_hidden, *dormant_conds)
             )
         ).scalar() or 0
     if followed and user_id is not None:
