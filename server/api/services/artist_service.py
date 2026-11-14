@@ -212,13 +212,30 @@ async def list_artists(
         .where(UserTrack.user_id == user_id)
         .subquery()
     )
+    # nb_catalog counts only the tracks the viewer can SEE — the same number as
+    # get_detail's "True total count" (masked tracks excluded, a guest sees the
+    # non-hidden shared rows only). Equivalent to catalog_visible(user_id), but
+    # its user_track EXISTS is expressed through the lib_sub LEFT JOIN already
+    # present here: no correlated subquery per row on this all-artists aggregate
+    # (the listing query already saturated /dev/shm in prod). A library track is
+    # always visible to its holder, so nb_lib is unchanged.
+    if user_id is None:
+        stats_visible = catalog_visible(None)
+    else:
+        stats_visible = or_(
+            catalog_visible(None),
+            CatalogEntry.owner_id == user_id,
+            lib_sub.c.catalog_id.isnot(None),
+        )
     stats_sub = (
         select(
             CatalogArtist.artist_id,
             func.count(func.distinct(CatalogArtist.catalog_id)).label("nb_catalog"),
             func.count(func.distinct(lib_sub.c.catalog_id)).label("nb_lib"),
         )
+        .join(CatalogEntry, CatalogEntry.id == CatalogArtist.catalog_id)
         .outerjoin(lib_sub, CatalogArtist.catalog_id == lib_sub.c.catalog_id)
+        .where(stats_visible)
         .group_by(CatalogArtist.artist_id)
         .subquery()
     )

@@ -60,10 +60,47 @@ RULES (``--rule``, mandatory):
          protect. A title credited to several input artists
          is decided once for all of them: ANY protection wins (invariant #4).
       4. The artist itself is masked only when it has titles and NONE remains
-         visible after step 3.
+         visible after step 3. Artists OUTSIDE the TSV go through the shared
+         empty-artist step below (counted apart: "co-crédités hors liste").
   * ``isrc_block`` — no input. Masks the titles whose ``upper(isrc)`` starts with
     one of ``workers.isrc_block.blocked_prefixes()`` (env
-    ``CATALOG_ISRC_BLOCKED_PREFIXES``, default GXLE,GXLF,KRB92). Never an artist.
+    ``CATALOG_ISRC_BLOCKED_PREFIXES``, default GXLE,GXLF,KRB92).
+  * ``episode`` — no input. Radio-show / podcast episodes published on Deezer as
+    albums (audit §2.1 / §7.3: e.g. 1,478 of Armin van Buuren's 2,277 titles are "A
+    State Of Trance" episode tracks). An episode mixes spoken segments ("Coming Up",
+    "Shout Outs") with "show versions" of the played tracks — not the original
+    recordings — so PRODUCT DECISION: the WHOLE episode is masked, segments AND
+    played tracks. A title is a candidate when EITHER:
+      a. it is linked (``catalog_albums``) to an album of a SERIES = >=
+         ``EPISODE_SERIES_MIN_ALBUMS`` (3) distinct albums sharing the same
+         ``series_key`` (unaccented lowercase, numbers → "#", punctuation folded),
+         WHATEVER their ``albums.artist_id`` (NULL on ~87 % of the albums and on
+         ~90 % of the known episode albums in prod), AND that key carries
+         broadcast vocabulary ("radio edit/mix/version" phrases removed first):
+         a named show of the audit (``EPISODE_NAMED_SHOW_RE``: ASOT, FSOE,
+         Toolroom Radio, Group Therapy, Defected Radio…), or a generic word
+         (``EPISODE_GENERIC_VOCAB_RE``: radio/podcast/episode) plus at least
+         ``EPISODE_KEY_MIN_EXTRA_WORDS`` (2) other words — "radio #" never forms a
+         series. Recurrence AND vocabulary are both required: recurrence alone
+         catches real label series (Speicher, Klockworks…), vocabulary alone
+         catches one-off albums ("The Next Episode", "Episode 8 EP");
+      b. its own title carries the ASOT marker ``(ASOT <n>)`` (episode titles
+         without a linked album).
+    "Other album" guard: a title found through (a) only that is ALSO linked to an
+    album outside every retained series is protected — it is the original
+    recording merged by ISRC with its show version (prod: 69 / 5,719 titles;
+    invariant #4). A (b) marker hit is never shielded (it names the show version).
+    The dry-run lists every retained series (key, most-credited artist, albums,
+    titles) by volume — the anti-false-positive review vector — plus a sample of
+    the titles protected by the "other album" guard.
+
+EMPTY ARTISTS (every rule, after the title plan): an artist is masked with the
+rule's reason when it is not already masked, has >= 1 title, NONE of its titles
+stays visible once the plan is applied (masked by any rule) and at least one of
+them is masked by THIS rule (planned or already). An artist with 0 title is never
+masked. farm_fort keeps its own TSV-artist step (4.) and applies this one to the
+co-credited artists outside the TSV. The artist UPDATE re-checks, after the titles
+are written, that no title of the artist is still visible.
 
 SYSTEMATIC PROTECTION (every rule): a title is NEVER masked when it is corroborated
 — present in ``set_tracks``, ``user_tracks``, a ``user_opinions`` row with
@@ -94,6 +131,8 @@ Usage (from the VPS — ships in the image under api/):
     cat filtre-fort-966.tsv | docker compose exec -T api python scripts/quarantine_undesirables.py --rule farm_fort --apply    # write
     docker compose exec api python scripts/quarantine_undesirables.py --rule isrc_block                                        # dry-run
     docker compose exec api python scripts/quarantine_undesirables.py --rule isrc_block --apply
+    docker compose exec api python scripts/quarantine_undesirables.py --rule episode                                           # dry-run
+    docker compose exec api python scripts/quarantine_undesirables.py --rule episode --apply
     docker compose exec api python scripts/quarantine_undesirables.py --rule farm_fort --revert                                # revert dry-run
     docker compose exec api python scripts/quarantine_undesirables.py --rule farm_fort --revert --apply                        # revert
 """
@@ -103,6 +142,7 @@ import os
 import random
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # server/api -> models
@@ -114,7 +154,7 @@ from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.orm import Session
 from workers.isrc_block import blocked_prefixes
 
-RULES = ("farm_fort", "isrc_block")
+RULES = ("farm_fort", "isrc_block", "episode")
 
 # Majority Deezer genre ids excluded from farm_fort (§8.1 garde-fou): classical
 # performers and jazz musicians have few Deezer fans per album without being farms.
@@ -172,6 +212,53 @@ CLASSICAL_TITLE_RE = re.compile(r"\bop\. ?[0-9]|\bbwv ?[0-9]|\bact [ivx]+:", re.
 # to hide: such a registrant only LOSES the homonym-bucket protection (e).
 BR_FUNK_REGISTRANT_PREFIXES = ("BC", "BX", "BK")
 _ISRC_YEAR_RE = re.compile(r"[0-9]{2}")
+
+# ---- episode rule (audit §2.1 / §7.3, prod read-only measurement 2026-11-11) -----
+# A radio show / podcast episode is published on Deezer as an album. A SERIES = at
+# least this many distinct albums sharing one series key, WHATEVER their
+# ``albums.artist_id`` (prod 2026-11: artist_id is NULL on 345,669 / 397,767 albums
+# and on ~90 % of the known episode albums — 51 / 531 — so requiring it missed most
+# episodes). Measured: series + vocabulary at >= 3 albums = ~40 series, ~7,600
+# titles, no false positive once ONE-album series are excluded ("The Next Episode",
+# "Episode 8 EP", "Live at Radio City Music Hall", HBO soundtracks were the ~25 %
+# false positives of the vocabulary-only try).
+EPISODE_SERIES_MIN_ALBUMS = 3
+
+# Broadcast vocabulary the series key must contain. Recurrence ALONE caught real
+# label series to protect (Speicher, Little Helpers, Whities, Klockworks, Compost
+# Black Label — no vocabulary), vocabulary ALONE caught one-off albums: both
+# conditions are mandatory. Matched on the series key (lowercase, unaccented,
+# punctuation folded, numbers = "#"). Two kinds:
+#   * NAMED shows measured in the audit (§2.1 table) — specific by themselves;
+#   * GENERIC broadcast words (radio / podcast / episode) — only with
+#     ``EPISODE_KEY_MIN_EXTRA_WORDS`` other words (see below).
+EPISODE_NAMED_SHOW_RE = re.compile(
+    r"\b(state of trance|asot|fsoe|future sound of egypt|toolroom radio"
+    r"|group therapy|interplay radio|glitterbox radio|get physical radio"
+    r"|uncharted worlds|defected radio|defected in the house|fyh|find your harmony)\b"
+)
+EPISODE_GENERIC_VOCAB_RE = re.compile(r"\b(radio|podcast|episode)\b")
+# Since a series no longer needs a common album artist, a key made of a generic
+# word alone ("radio #" ← "Radio 1/2/3", "episode #") would fuse unrelated albums:
+# a generic-vocabulary key must carry at least this many OTHER alphabetic words
+# ("club night radio show #" qualifies, "radio show #" does not). The named shows
+# are exempt — the ASOT key "asot # a state of trance episode #" has a single word
+# ("a") outside its vocabulary.
+EPISODE_KEY_MIN_EXTRA_WORDS = 2
+# "Radio Edit(s)" / "Radio Mix" / "Radio Version" are track versions, not shows:
+# removed from the key before the vocabulary test (a "Remixes Vol. 1/2/3 (Radio
+# Edits)" label series must not qualify). Anticipated, not a measured case.
+EPISODE_VOCAB_EXCLUDE_RE = re.compile(r"\bradio (edit|mix|version|cut)s?\b")
+
+# Track-title marker of an ASOT episode track ("Que Pasa (ASOT 977) [Tune Of The
+# Week]", "A State Of Trance (ASOT 974) (Coming Up, Pt. 1)") — catches the episode
+# titles without a linked album. Measured ~100 % precision (§7.3).
+EPISODE_TITLE_MARKER_RE = re.compile(r"\(asot ?[0-9]+\)", re.IGNORECASE)
+# Portable SQL pre-filter for the marker (the regex itself runs in Python).
+_EPISODE_MARKER_LIKE = "%(asot%"
+
+_SERIES_NUMBER_RE = re.compile(r"[0-9]+")
+_SERIES_FOLD_RE = re.compile(r"[^a-z#]+")
 
 TITLES_PER_TX = 5000
 ARTISTS_PER_TX = 1000
@@ -265,6 +352,42 @@ def top3_share(isrcs):
     return sum(top) / total
 
 
+def series_key(album_title):
+    """Series key of an album title: unaccented lowercase, every number → ``#``,
+    punctuation and whitespace folded to single spaces.
+
+    "ASOT 974 - A State Of Trance Episode 974" → "asot # a state of trance episode #".
+    """
+    if not album_title:
+        return ""
+    folded = "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", album_title)
+        if not unicodedata.combining(ch)
+    ).lower()
+    # A literal "#" ("Show #12") is punctuation; only numbers become the token.
+    folded = _SERIES_NUMBER_RE.sub(" # ", folded.replace("#", " "))
+    return " ".join(_SERIES_FOLD_RE.sub(" ", folded).split())
+
+
+def is_episode_series_key(key):
+    """The series key carries broadcast vocabulary (track-version phrases removed):
+    a named show, or a generic word + ``EPISODE_KEY_MIN_EXTRA_WORDS`` other words."""
+    if not key:
+        return False
+    key = EPISODE_VOCAB_EXCLUDE_RE.sub(" ", key)
+    if EPISODE_NAMED_SHOW_RE.search(key):
+        return True
+    if not EPISODE_GENERIC_VOCAB_RE.search(key):
+        return False
+    extra = [w for w in EPISODE_GENERIC_VOCAB_RE.sub(" ", key).split() if w.isalpha()]
+    return len(extra) >= EPISODE_KEY_MIN_EXTRA_WORDS
+
+
+def has_episode_marker(title):
+    return bool(title and EPISODE_TITLE_MARKER_RE.search(title))
+
+
 def _new_stats():
     return {
         "artists_read": 0,
@@ -287,6 +410,15 @@ def _new_stats():
         "artists_already_other_rule": 0,
         "artists_kept_visible": 0,
         "artists_without_titles": 0,
+        # farm_fort only: artists OUTSIDE the TSV left empty by the rule (point B).
+        "artists_to_mask_coartists": 0,
+        "artists_to_mask_coartists_tier1": 0,
+        # episode only
+        "albums_examined": 0,
+        "series_retained": 0,
+        "titles_via_series": 0,
+        "titles_via_marker": 0,
+        "titles_protected_other_album": 0,
         "titles_masked": 0,
         "artists_masked": 0,
     }
@@ -381,6 +513,104 @@ def _load_corroborated_counts(session, artist_ids):
         for row in session.execute(stmt, {"ids": chunk}):
             out[row.artist_id] = row.n
     return out
+
+
+def _load_tier1(session, artist_ids):
+    """Subset of ``artist_ids`` whose effective cohort tier is 1."""
+    out = set()
+    stmt = text(
+        "SELECT artist_id FROM artist_cohort WHERE tier = 1 AND artist_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    for chunk in _chunks(artist_ids, _IN_CHUNK):
+        out.update(row.artist_id for row in session.execute(stmt, {"ids": chunk}))
+    return out
+
+
+def _rule_artist_candidates(session, rule, to_mask):
+    """Artists credited on a title masked by ``rule`` — already, or by the plan."""
+    out = {
+        row.artist_id
+        for row in session.execute(
+            text(
+                """
+                SELECT DISTINCT ca.artist_id AS artist_id
+                FROM catalog_artists ca JOIN catalog c ON c.id = ca.catalog_id
+                WHERE c.hidden_reason = :rule
+                """
+            ),
+            {"rule": rule},
+        )
+    }
+    stmt = text(
+        "SELECT DISTINCT artist_id FROM catalog_artists WHERE catalog_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    for chunk in _chunks(to_mask, _IN_CHUNK):
+        out.update(row.artist_id for row in session.execute(stmt, {"ids": chunk}))
+    return out
+
+
+def plan_empty_artists(session, rule, to_mask, exclude_ids=()):
+    """Artists the plan of ``rule`` leaves without any visible title (point B).
+
+    An artist is to mask with ``rule`` when: it is not already masked, it has >= 1
+    title, NONE of its titles stays visible once the plan is applied (masked by any
+    rule, this one included) and at least one of them is masked by THIS rule (in the
+    plan or already). Candidates are derived from the rule's titles, so an artist
+    with 0 title is never even considered. ``exclude_ids`` = artists decided
+    elsewhere (farm_fort's own TSV list). Returns ``(artist_ids, counters)``.
+    """
+    counters = {
+        "to_mask": 0,
+        "tier1": 0,
+        "already_same_rule": 0,
+        "already_other_rule": 0,
+        "kept_visible": 0,
+    }
+    planned = set(to_mask)
+    candidates = sorted(_rule_artist_candidates(session, rule, planned) - set(exclude_ids))
+    titles_stmt = text(
+        """
+        SELECT ca.artist_id AS artist_id, c.id AS id, c.hidden_reason AS hidden_reason
+        FROM catalog_artists ca JOIN catalog c ON c.id = ca.catalog_id
+        WHERE ca.artist_id IN :ids
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+    artist_ids = []
+    for batch in _chunks(candidates, _ARTIST_READ_BATCH):
+        db_artists = _load_artists(session, batch)
+        per_artist = {}
+        for row in session.execute(titles_stmt, {"ids": batch}):
+            per_artist.setdefault(row.artist_id, []).append(row)
+        for aid in batch:
+            if aid not in db_artists:
+                continue
+            current = db_artists[aid]["hidden_reason"]
+            if current == rule:
+                counters["already_same_rule"] += 1
+                continue
+            if current is not None:
+                counters["already_other_rule"] += 1
+                continue
+            rows = per_artist.get(aid, [])
+            if not rows:
+                continue  # 0 title: never masked
+            visible = any(r.hidden_reason is None and r.id not in planned for r in rows)
+            by_rule = any(r.hidden_reason == rule or r.id in planned for r in rows)
+            if visible or not by_rule:
+                counters["kept_visible"] += 1
+            else:
+                artist_ids.append(aid)
+    counters["to_mask"] = len(artist_ids)
+    counters["tier1"] = len(_load_tier1(session, artist_ids))
+    return artist_ids, counters
+
+
+def _apply_empty_artist_counters(stats, counters):
+    stats["artists_to_mask"] = counters["to_mask"]
+    stats["artists_to_mask_tier1"] = counters["tier1"]
+    stats["artists_already_same_rule"] = counters["already_same_rule"]
+    stats["artists_already_other_rule"] = counters["already_other_rule"]
+    stats["artists_kept_visible"] = counters["kept_visible"]
 
 
 # --------------------------------------------------------------------------- plan
@@ -545,6 +775,16 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
                 stats["artists_to_mask_tier1"] += 1
     stats["artists_to_mask"] = len(artists_to_mask)
 
+    # Point B: artists OUTSIDE the TSV (co-credited) that the rule leaves empty.
+    # Counted apart so the TSV-artist counters above stay those of v2; every TSV id
+    # (genre-guarded included — "skipped" means untouched) is excluded.
+    extra, extra_counters = plan_empty_artists(
+        session, rule, to_mask, exclude_ids={r["id"] for r in tsv_rows}
+    )
+    stats["artists_to_mask_coartists"] = extra_counters["to_mask"]
+    stats["artists_to_mask_coartists_tier1"] = extra_counters["tier1"]
+    artists_to_mask = artists_to_mask + extra
+
     plan = {
         "titles": titles,
         "to_mask": to_mask,
@@ -599,12 +839,153 @@ def plan_isrc_block(session, rule="isrc_block", prefixes=None):
             else:
                 to_mask.append(r.id)
     stats["titles_to_mask"] = len(to_mask)
+    artists_to_mask, counters = plan_empty_artists(session, rule, to_mask)
+    _apply_empty_artist_counters(stats, counters)
     plan = {
         "titles": titles,
         "to_mask": to_mask,
         "anchored": [],
-        "artists_to_mask": [],
+        "artists_to_mask": artists_to_mask,
         "prefixes": prefixes,
+    }
+    return plan, stats
+
+
+def plan_episode(session, rule="episode"):
+    """Compute the episode plan (read-only). Returns ``(plan, stats)``.
+
+    Candidates = titles linked to an album of a retained SERIES (>=
+    ``EPISODE_SERIES_MIN_ALBUMS`` distinct albums sharing a series key that passes
+    ``is_episode_series_key``, whatever their ``albums.artist_id``) ∪ titles
+    carrying the ASOT marker. A series candidate ALSO linked to an album outside
+    every retained series is protected (the original recording merged by ISRC with
+    its show version); a marker hit is not. Grouped reads only; keys and regexes are
+    evaluated in Python (PG + SQLite). ``plan["series"]`` = retained series, by
+    title volume, with their most-credited artist (human review vector).
+    """
+    stats = _new_stats()
+
+    # 1. Series: every album, artist_id NULL included (NULL on ~87 % of prod).
+    groups = {}  # key -> [album_id]
+    for row in session.execute(text("SELECT id, title FROM albums")):
+        stats["albums_examined"] += 1
+        key = series_key(row.title)
+        if is_episode_series_key(key):
+            groups.setdefault(key, []).append(row.id)
+    series = {
+        key: album_ids
+        for key, album_ids in groups.items()
+        if len(set(album_ids)) >= EPISODE_SERIES_MIN_ALBUMS
+    }
+    album_to_series = {aid: key for key, album_ids in series.items() for aid in album_ids}
+
+    series_titles = {gk: set() for gk in series}
+    via_series = set()
+    link_stmt = text(
+        "SELECT catalog_id, album_id FROM catalog_albums WHERE album_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    for chunk in _chunks(sorted(album_to_series), _IN_CHUNK):
+        for row in session.execute(link_stmt, {"ids": chunk}):
+            series_titles[album_to_series[row.album_id]].add(row.catalog_id)
+            via_series.add(row.catalog_id)
+
+    # 1b. "Other album" guard: series candidates also linked to a non-episode album.
+    on_other_album = set()
+    by_catalog_stmt = text(
+        "SELECT catalog_id, album_id FROM catalog_albums WHERE catalog_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    for chunk in _chunks(sorted(via_series), _IN_CHUNK):
+        for row in session.execute(by_catalog_stmt, {"ids": chunk}):
+            if row.album_id not in album_to_series:
+                on_other_album.add(row.catalog_id)
+
+    # 2. Title marker (SQL LIKE pre-filter, exact regex in Python).
+    via_marker = set()
+    for row in session.execute(
+        text("SELECT id, title FROM catalog WHERE LOWER(title) LIKE :p"),
+        {"p": _EPISODE_MARKER_LIKE},
+    ):
+        if has_episode_marker(row.title):
+            via_marker.add(row.id)
+
+    # 3. Verdict per candidate title.
+    titles, to_mask = {}, []
+    title_stmt = text(
+        f"""
+        SELECT c.id AS id, c.title AS title, c.artist AS artist, c.isrc AS isrc,
+               c.hidden_reason AS hidden_reason,
+               CASE WHEN {corroborated_sql("c")} THEN 1 ELSE 0 END AS corro
+        FROM catalog c WHERE c.id IN :ids
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+    for chunk in _chunks(sorted(via_series | via_marker), _IN_CHUNK):
+        for r in session.execute(title_stmt, {"ids": chunk}):
+            titles[r.id] = {
+                "id": r.id,
+                "title": r.title,
+                "artist": r.artist,
+                "isrc": r.isrc,
+                "hidden_reason": r.hidden_reason,
+                "corro": bool(r.corro),
+            }
+    other_album_infos = []
+    for cid in sorted(titles):
+        info = titles[cid]
+        stats["titles_examined"] += 1
+        if info["hidden_reason"] == rule:
+            stats["titles_already_same_rule"] += 1
+        elif info["hidden_reason"] is not None:
+            stats["titles_already_other_rule"] += 1
+        elif info["corro"]:
+            stats["titles_protected_corroborated"] += 1
+        elif cid in on_other_album and cid not in via_marker:
+            # The (ASOT nnn) marker names the show version explicitly → not shielded.
+            stats["titles_protected_other_album"] += 1
+            other_album_infos.append(info)
+        else:
+            to_mask.append(cid)
+            # Counted under the series when both apply → the two sum to to_mask.
+            if cid in via_series:
+                stats["titles_via_series"] += 1
+            else:
+                stats["titles_via_marker"] += 1
+    stats["titles_to_mask"] = len(to_mask)
+
+    # Displayed artist of a series = the most credited on its titles (lowest id on
+    # a tie), "?" when none — albums.artist_id is mostly NULL.
+    credits = _load_credits(session, via_series)
+    top_artist = {}
+    for key, cids in series_titles.items():
+        tally = {}
+        for cid in cids:
+            for aid in credits.get(cid, ()):
+                tally[aid] = tally.get(aid, 0) + 1
+        top_artist[key] = min(tally, key=lambda a: (-tally[a], a)) if tally else None
+    names = _load_artists(session, sorted(a for a in top_artist.values() if a is not None))
+    series_report = sorted(
+        (
+            {
+                "key": key,
+                "artist_id": top_artist[key],
+                "artist": names.get(top_artist[key], {}).get("name") or "?",
+                "albums": len(set(series[key])),
+                "titles": len(series_titles[key]),
+            }
+            for key in series
+        ),
+        key=lambda s: (-s["titles"], -s["albums"], s["key"]),
+    )
+    stats["series_retained"] = len(series_report)
+
+    artists_to_mask, counters = plan_empty_artists(session, rule, to_mask)
+    _apply_empty_artist_counters(stats, counters)
+    plan = {
+        "titles": titles,
+        "to_mask": to_mask,
+        "anchored": [],
+        "artists_to_mask": artists_to_mask,
+        "series": series_report,
+        "other_album": other_album_infos,
     }
     return plan, stats
 
@@ -627,10 +1008,16 @@ def apply_plan(session, plan, rule, now=None):
           AND NOT {corroborated_sql("catalog")}
         """
     ).bindparams(bindparam("ids", expanding=True))
+    # Titles are written first, so this re-check sees the final state: an artist
+    # whose title stayed visible (corroborated between plan and write) is skipped.
     artist_stmt = text(
         """
         UPDATE artists SET hidden_reason = :rule, hidden_at = :now
         WHERE id IN :ids AND hidden_reason IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM catalog_artists ca JOIN catalog c ON c.id = ca.catalog_id
+              WHERE ca.artist_id = artists.id AND c.hidden_reason IS NULL
+          )
         """
     ).bindparams(bindparam("ids", expanding=True))
 
@@ -686,6 +1073,8 @@ def run_rule(session, rule, *, apply=False, tsv_rows=None, now=None):
         plan, stats = plan_farm_fort(session, tsv_rows or [], rule=rule)
     elif rule == "isrc_block":
         plan, stats = plan_isrc_block(session, rule=rule)
+    elif rule == "episode":
+        plan, stats = plan_episode(session, rule=rule)
     else:
         raise ValueError(f"unknown rule {rule!r}")
     if apply:
@@ -719,11 +1108,19 @@ def _print_report(rule, stats, plan, apply, sample_n):
         print(f"    lignes TSV invalides       : {stats['artists_malformed']}")
         print(f"    ignorés garde-fou genre    : {stats['artists_genre_guard']}  (98 classique / 129 jazz)")
         print(f"    absents en base            : {stats['artists_missing']}")
-    else:
+    elif rule == "isrc_block":
         print(f"    préfixes bloqués           : {', '.join(plan.get('prefixes') or ()) or '(aucun — règle inerte)'}")
+    elif rule == "episode":
+        print(f"    albums examinés            : {stats['albums_examined']}")
+        print(f"    séries retenues            : {stats['series_retained']}  (>= {EPISODE_SERIES_MIN_ALBUMS} albums + vocabulaire d'émission)")
     print(f"    titres examinés            : {stats['titles_examined']}")
     print(f"    {'titres ' + verb:<27}: {stats['titles_to_mask']}")
+    if rule == "episode":
+        print(f"      dont via album de série  : {stats['titles_via_series']}")
+        print(f"      dont via marqueur seul   : {stats['titles_via_marker']}  ((ASOT nnn) sans album de série)")
     print(f"    protégés corroborés        : {stats['titles_protected_corroborated']}")
+    if rule == "episode":
+        print(f"    protégés (aussi sur un album hors épisode) : {stats['titles_protected_other_album']}")
     if rule == "farm_fort":
         print(f"    protégés ancrés            : {stats['titles_protected_anchored']}")
         print(f"    protégés co-artiste        : {stats['titles_protected_coartist']}")
@@ -732,13 +1129,25 @@ def _print_report(rule, stats, plan, apply, sample_n):
         print(f"    protégés ISRC ancien       : {stats['titles_protected_isrc_old']}")
     print(f"    déjà masqués (même règle): {stats['titles_already_same_rule']}")
     print(f"    déjà masqués (autre règle) : {stats['titles_already_other_rule']}")
+    print(f"    {'artistes ' + verb:<27}: {stats['artists_to_mask']}  (dont tier 1 cohorte : {stats['artists_to_mask_tier1']})")
     if rule == "farm_fort":
-        print(f"    {'artistes ' + verb:<27}: {stats['artists_to_mask']}  (dont tier 1 cohorte : {stats['artists_to_mask_tier1']})")
-        print(f"    artistes gardés visibles   : {stats['artists_kept_visible']}")
+        print(f"    co-crédités hors liste {verb:<4}: {stats['artists_to_mask_coartists']}  (dont tier 1 cohorte : {stats['artists_to_mask_coartists_tier1']})")
+    print(f"    artistes gardés visibles   : {stats['artists_kept_visible']}")
+    if rule == "farm_fort":
         print(f"    artistes sans titre        : {stats['artists_without_titles']}  (jamais masqués)")
-        print(f"    artistes déjà masqués      : {stats['artists_already_same_rule']} même règle / {stats['artists_already_other_rule']} autre règle")
+    print(f"    artistes déjà masqués      : {stats['artists_already_same_rule']} même règle / {stats['artists_already_other_rule']} autre règle")
     if apply:
         print(f"    ÉCRIT : {stats['titles_masked']} titre(s), {stats['artists_masked']} artiste(s)")
+
+    if rule == "episode":
+        print(f"\nSéries retenues ({len(plan['series'])}, par volume) — À RELIRE (anti faux positif) :")
+        print("    titres | albums | artiste le plus crédité (id) | clé de série")
+        for s in plan["series"]:
+            print(f"    {s['titles']:>6} | {s['albums']:>6} | {s['artist']} ({s['artist_id'] or '-'}) | {s['key']}")
+        other = stable_sample(plan.get("other_album", ()), sample_n)
+        print(f"\nÉchantillon de {len(other)} titre(s) protégé(s) — aussi sur un album hors épisode :")
+        for info in sorted(other, key=lambda i: i["id"]):
+            print(f"    {_fmt(info)}")
 
     titles = plan["titles"]
     masked = stable_sample(plan["to_mask"], sample_n)

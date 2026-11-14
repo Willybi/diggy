@@ -190,3 +190,95 @@ class TestArtistMasking:
         )
         assert {i["name"] for i in result["items"]} == {"Real Artist"}
         assert result["active_count"] == 1
+
+
+async def _list(db, user_id, sort="name"):
+    return await artist_service.list_artists(
+        db, user_id, sort=sort, family=None, q=None, no_deezer=False,
+        ids=None, limit=50, offset=0,
+    )
+
+
+async def _mk_artist_with_tracks(db, name, visible, hidden, start=0):
+    """Artist linked to ``visible`` shared tracks + ``hidden`` masked ones.
+
+    Returns plain ids (artist id, entry ids) — the ORM objects are expired by
+    the commits and lazy-loading them outside the greenlet would fail.
+    """
+    from models import CatalogArtist
+
+    a = Artist(name=name, normalized_name=name.lower())
+    db.add(a)
+    await db.commit()
+    await db.refresh(a)
+    entries = []
+    for i in range(visible + hidden):
+        e = CatalogEntry(
+            title=f"{name} T{i}",
+            artist=name,
+            normalized_key=f"{name}|t{i}".lower(),
+            scope="shared",
+            hidden_reason="farm_fort" if i >= visible else None,
+            hidden_at=datetime.now(timezone.utc) if i >= visible else None,
+        )
+        db.add(e)
+        entries.append(e)
+    await db.commit()
+    artist_id = a.id
+    entry_ids = [e.id for e in entries]
+    for eid in entry_ids:
+        db.add(CatalogArtist(catalog_id=eid, artist_id=artist_id))
+    await db.commit()
+    return artist_id, entry_ids
+
+
+class TestArtistListCountsVisibleOnly:
+    async def test_nb_catalog_excludes_masked_guest_and_auth(self, db):
+        user = await _mk_user(db, "viewer@test.com")
+        await _mk_artist_with_tracks(db, "Farm", visible=2, hidden=5)
+        for uid in (None, user.id):
+            items = (await _list(db, uid))["items"]
+            assert items[0]["nb_catalog"] == 2
+
+    async def test_masked_library_track_counted_for_holder_only(self, db):
+        holder = await _mk_user(db, "holder2@test.com")
+        _, entries = await _mk_artist_with_tracks(db, "Farm", visible=1, hidden=2)
+        db.add(
+            UserTrack(
+                user_id=holder.id, catalog_id=entries[-1], source="rekordbox_import"
+            )
+        )
+        await db.commit()
+        holder_item = (await _list(db, holder.id))["items"][0]
+        assert holder_item["nb_catalog"] == 2
+        assert holder_item["nb_lib"] == 1
+        guest_item = (await _list(db, None))["items"][0]
+        assert guest_item["nb_catalog"] == 1
+        assert guest_item["nb_lib"] == 0
+
+    async def test_fully_masked_artist_shows_zero_and_stays_listed(self, db):
+        await _mk_artist_with_tracks(db, "Ghost", visible=0, hidden=3)
+        items = (await _list(db, None))["items"]
+        assert [(i["name"], i["nb_catalog"]) for i in items] == [("Ghost", 0)]
+
+    async def test_sort_catalog_uses_visible_count(self, db):
+        await _mk_artist_with_tracks(db, "Farm", visible=2, hidden=100)
+        await _mk_artist_with_tracks(db, "Real", visible=5, hidden=0)
+        items = (await _list(db, None, sort="catalog"))["items"]
+        assert [i["name"] for i in items] == ["Real", "Farm"]
+
+    async def test_list_and_detail_counts_match(self, db):
+        holder = await _mk_user(db, "holder3@test.com")
+        artist_id, entries = await _mk_artist_with_tracks(
+            db, "Farm", visible=3, hidden=4
+        )
+        db.add(
+            UserTrack(
+                user_id=holder.id, catalog_id=entries[-1], source="rekordbox_import"
+            )
+        )
+        await db.commit()
+        for uid in (None, holder.id):
+            listed = (await _list(db, uid))["items"][0]["nb_catalog"]
+            detail = await artist_service.get_detail(db, artist_id, uid)
+            assert listed == detail.stats["nb_catalog"]
