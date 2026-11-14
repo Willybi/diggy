@@ -394,7 +394,86 @@ class TestBeatportDeadline:
         assert result["enriched"] == 21
 
 
+    def test_deadline_uses_beatport_specific_margin(
+        self, catalog_mod, run_env, fake_redis, fake_self, monkeypatch
+    ):
+        # DIGGY-APP-21/20: the Beatport margin (360s) covers a worst-case
+        # 50-entry batch. An instant between soft-360 and soft-120 must already
+        # trip the deadline (it would NOT under the shared 120s margin).
+        soft = catalog_mod.BEATPORT_SOFT_TIME_LIMIT
+        between = soft - (catalog_mod.BEATPORT_DEADLINE_MARGIN + 120) / 2
+        assert soft - catalog_mod.BEATPORT_DEADLINE_MARGIN < between
+        assert between < soft - catalog_mod.DEADLINE_MARGIN
+        enrichment = _mock_enrichment(
+            monkeypatch, 150,
+            {"enriched": 7, "not_found": 1, "errors": 0, "merged": 0},
+        )
+        monkeypatch.setattr(catalog_mod, "time", _FakeClock([0.0, 0.0, between]))
+
+        result = catalog_mod.enrich_catalog_beatport(fake_self)
+
+        assert enrichment.enrich_beatport_batch.await_count == 1
+        assert result["deadline_hit"] is True
+        assert result["soft_limit_hit"] is False
+
+    def test_cancelled_error_is_a_clean_partial_exit(
+        self, catalog_mod, run_env, fake_redis, fake_self, monkeypatch
+    ):
+        # DIGGY-APP-21/20: the billiard signal raised inside run_in_executor
+        # surfaces from asyncio.run as CancelledError (BaseException) — it must
+        # be handled like SoftTimeLimitExceeded, not propagate.
+        import asyncio
+
+        enrichment = _mock_enrichment(
+            monkeypatch, 150,
+            {"enriched": 7, "not_found": 1, "errors": 0, "merged": 0},
+        )
+        enrichment.enrich_beatport_batch = AsyncMock(
+            side_effect=[
+                {"enriched": 7, "not_found": 1, "errors": 0, "merged": 0},
+                asyncio.CancelledError(),
+            ]
+        )
+        monkeypatch.setattr(catalog_mod, "time", _FakeClock(_NEVER))
+
+        result = catalog_mod.enrich_catalog_beatport(fake_self)
+
+        assert enrichment.enrich_beatport_batch.await_count == 2
+        assert result["soft_limit_hit"] is True
+        assert result["deadline_hit"] is False
+        # Partial stats: the first committed batch only.
+        assert result["enriched"] == 7
+        assert result["total"] == 150
+        run_env.clog.set_stats.assert_called_once_with(result)
+        fake_redis.delete.assert_called_once_with("lock:enrich_beatport")
+
+
 class TestDeezerDeadline:
+    def test_cancelled_error_is_a_clean_partial_exit(
+        self, catalog_mod, run_env, fake_redis, fake_self, monkeypatch
+    ):
+        # Twin of the Beatport case (DIGGY-APP-21/20) on the Deezer runner.
+        import asyncio
+
+        enrichment = _mock_enrichment(
+            monkeypatch, 250, {"enriched": 9, "errors": 1, "merged": 0}
+        )
+        enrichment.enrich_deezer_batch = AsyncMock(
+            side_effect=[
+                {"enriched": 9, "errors": 1, "merged": 0},
+                asyncio.CancelledError(),
+            ]
+        )
+        monkeypatch.setattr(catalog_mod, "time", _FakeClock(_NEVER))
+
+        result = catalog_mod.enrich_catalog(fake_self)
+
+        assert enrichment.enrich_deezer_batch.await_count == 2
+        assert result["deadline_hit"] is False
+        assert result["enriched"] == 9
+        run_env.clog.set_stats.assert_called_once_with(result)
+        fake_redis.delete.assert_called_once_with("lock:enrich_deezer")
+
     def test_deadline_stops_before_next_batch(
         self, catalog_mod, run_env, fake_redis, fake_self, monkeypatch
     ):
@@ -644,6 +723,11 @@ class TestConstantsAreSingleSourceOfTruth:
         )
         # The margin must leave the run an actual working window.
         assert 0 < catalog_mod.DEADLINE_MARGIN < catalog_mod.BEATPORT_SOFT_TIME_LIMIT
+        assert (
+            0
+            < catalog_mod.BEATPORT_DEADLINE_MARGIN
+            < catalog_mod.BEATPORT_SOFT_TIME_LIMIT
+        )
 
     def test_bpm_decorator_references_constant(self, bpm_mod):
         assert bpm_mod.ANALYSIS_BPM_SOFT_TIME_LIMIT == 3000

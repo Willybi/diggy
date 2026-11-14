@@ -430,6 +430,7 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
                     not_recently_searched,
                 )
                 from workers.rate_limiter import RateLimiter
+                from workers.tasks.catalog import _commit_batch_or_discard
 
                 limiter = RateLimiter()
                 now = datetime.now(timezone.utc)
@@ -495,7 +496,18 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
                                 ext_id_map=ext_id_map,
                             )
 
-                        session.commit()
+                        # DIGGY-APP-22/1Y/1N/23/H: a concurrent write (stale
+                        # row, poisoned Session, exhausted deadlock) discards
+                        # this batch only — rolled back, entries stay
+                        # E1-eligible — and the crawl carries on to Beatport and
+                        # to the "playlist crawled" stamp. An empty batch commits
+                        # nothing, so the call stays harmless.
+                        if not _commit_batch_or_discard(
+                            session,
+                            label=f"crawl_single_playlist[{playlist_id}] deezer",
+                            batch_len=len(dz_entries),
+                        ):
+                            dz_stats = {"enriched": 0, "errors": len(dz_entries)}
 
                         # Beatport enrichment — entries missing beatport_id
                         bp_entries = (
@@ -517,7 +529,16 @@ def _crawl_single_playlist_inner(self, playlist_id: int):
                                 session, bp_entries, pool, None
                             )
 
-                        session.commit()
+                        if not _commit_batch_or_discard(
+                            session,
+                            label=f"crawl_single_playlist[{playlist_id}] beatport",
+                            batch_len=len(bp_entries),
+                        ):
+                            bp_stats = {
+                                "enriched": 0,
+                                "not_found": 0,
+                                "errors": len(bp_entries),
+                            }
 
                 return dz_stats, bp_stats
 

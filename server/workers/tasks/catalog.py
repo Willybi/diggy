@@ -38,6 +38,16 @@ BEATPORT_SOFT_TIME_LIMIT = 3000
 # SoftTimeLimitExceeded catch stays in place as defense in depth.
 DEADLINE_MARGIN = int(os.environ.get("ENRICH_DEADLINE_MARGIN", "120"))
 
+# Beatport-specific margin (DIGGY-APP-21/20/J). The deadline is only checked
+# BETWEEN batches, so the margin must cover the WORST single batch: a Beatport
+# batch of 50 entries can take ~300s (up to ~4 requests/entry at 0.66 req/s).
+# With the shared 120s margin the soft limit fired mid-batch. Distinct env var
+# on purpose: ENRICH_DEADLINE_MARGIN is also read by other tasks (tasks/artists.py)
+# that must keep their own margin.
+BEATPORT_DEADLINE_MARGIN = int(
+    os.environ.get("ENRICH_BEATPORT_DEADLINE_MARGIN", "360")
+)
+
 # Max catalog entries per sweep, PER SOURCE. Deezer (official API, 10 req/s)
 # clears the full daily inflow in minutes, so its budget is high. Beatport
 # (scraped, 0.66 req/s anti-ban) is throughput-bound and now drained by an
@@ -128,6 +138,61 @@ def _commit_with_deadlock_retry(session):
             )
             # Short, mildly increasing backoff to let the other txn clear.
             time.sleep(COMMIT_DEADLOCK_BACKOFF * attempt)
+
+
+# DIGGY-APP-22/1Y/1N/23/H — a concurrent write must cost ONE batch, never the
+# whole run. Three failure shapes reach the per-batch commit of the enrich
+# drains (and of crawl_single_playlist's inline enrichment):
+#   - StaleDataError at flush: a catalog row was deleted mid-batch by a
+#     concurrent merge (sibling enrich worker / local backfill tool);
+#   - PendingRollbackError: a deadlock (40P01) raised during an AUTOFLUSH inside
+#     the batch was swallowed by the per-entry `except Exception` of
+#     workers/enrichment.py, leaving the Session in a failed state — it is NOT an
+#     OperationalError, so `_commit_with_deadlock_retry` never retries it;
+#   - OperationalError 40P01 still present once the deadlock retries are spent.
+# In all three, the transaction is lost anyway: we roll the Session back and
+# abandon the batch. The rollback also discards the in-session `_mark_searched`
+# stamps, so the batch's entries keep their `*_searched_at` untouched and stay
+# E1-eligible for the next run (a failed write is not a search attempt). Any
+# OTHER OperationalError (connection dropped, admin shutdown…) is re-raised
+# unchanged — that is a real outage, not a per-batch race.
+def _commit_batch_or_discard(
+    session, *, label: str, batch_len: int, retry_deadlock: bool = True
+) -> bool:
+    """Commit one enrichment batch; on a concurrent-write failure, discard it.
+
+    Returns True when the commit succeeded, False when the batch was rolled back
+    and abandoned (StaleDataError, PendingRollbackError, or an exhausted 40P01
+    deadlock). Any other ``OperationalError`` propagates (see the block comment
+    above for DIGGY-APP-22/1Y/1N/23/H).
+    """
+    from sqlalchemy.exc import OperationalError, PendingRollbackError
+    from sqlalchemy.orm.exc import StaleDataError
+
+    error_type = None
+    try:
+        if retry_deadlock:
+            _commit_with_deadlock_retry(session)
+        else:
+            session.commit()
+        return True
+    except (PendingRollbackError, StaleDataError) as err:
+        # Capture inside the block: `err` is unbound once the except exits.
+        error_type = type(err).__name__
+    except OperationalError as err:
+        if getattr(err.orig, "pgcode", None) != "40P01":
+            raise
+        error_type = f"{type(err).__name__} (40P01 deadlock)"
+
+    session.rollback()
+    logger.warning(
+        "%s: batch of %d discarded after %s at commit; rolled back, its "
+        "entries stay eligible for the next re-scan",
+        label,
+        batch_len,
+        error_type,
+    )
+    return False
 
 
 @celery_app.task(
@@ -255,10 +320,19 @@ def _run_enrich_catalog(task):
                             stats = await enrich_deezer_batch(
                                 session, batch, pool, None, existing_isrcs
                             )
-                            progress["enriched"] += stats.get("enriched", 0)
-                            progress["errors"] += stats.get("errors", 0)
-                            progress["merged"] += stats.get("merged", 0)
-                            session.commit()
+                            # DIGGY-APP-22/1Y/1N/23: a concurrent write costs
+                            # this batch only (rolled back, stays E1-eligible);
+                            # its stats count only once the commit landed.
+                            if _commit_batch_or_discard(
+                                session,
+                                label="enrich_catalog",
+                                batch_len=len(batch),
+                            ):
+                                progress["enriched"] += stats.get("enriched", 0)
+                                progress["errors"] += stats.get("errors", 0)
+                                progress["merged"] += stats.get("merged", 0)
+                            else:
+                                progress["errors"] += len(batch)
                             logger.info(
                                 "Deezer enrich progress: %d/%d",
                                 min(i + 100, len(entries)),
@@ -273,7 +347,10 @@ def _run_enrich_catalog(task):
 
             try:
                 asyncio.run(_async_enrich())
-            except SoftTimeLimitExceeded:
+            # The billiard signal raised inside a loop.run_in_executor surfaces
+            # from asyncio.run as CancelledError (a BaseException in 3.13), not
+            # SoftTimeLimitExceeded — DIGGY-APP-21/20. Same clean partial exit.
+            except (SoftTimeLimitExceeded, asyncio.CancelledError):
                 logger.warning(
                     "enrich_catalog hit soft time limit; flushing partial stats: %s",
                     progress,
@@ -353,10 +430,12 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
             budget = _nightly_budget("beatport")
             effective_budget = min(batch_size, budget) if batch_size > 0 else budget
 
-            # AV9 — internal deadline (see DEADLINE_MARGIN): checked BEFORE
-            # each batch, never mid-batch, so a shortened run stamps nothing
-            # on the entries it never reached (not an E1 attempt).
-            deadline = time.monotonic() + BEATPORT_SOFT_TIME_LIMIT - DEADLINE_MARGIN
+            # AV9 — internal deadline (see BEATPORT_DEADLINE_MARGIN): checked
+            # BEFORE each batch, never mid-batch, so a shortened run stamps
+            # nothing on the entries it never reached (not an E1 attempt).
+            deadline = (
+                time.monotonic() + BEATPORT_SOFT_TIME_LIMIT - BEATPORT_DEADLINE_MARGIN
+            )
             deadline_hit = False
 
             # Hoisted so a SoftTimeLimitExceeded mid-run still yields the work
@@ -408,7 +487,7 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
                                     "stopping before next batch, "
                                     "partial stats: %s",
                                     BEATPORT_SOFT_TIME_LIMIT,
-                                    DEADLINE_MARGIN,
+                                    BEATPORT_DEADLINE_MARGIN,
                                     progress,
                                 )
                                 break
@@ -416,14 +495,24 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
                             stats = await enrich_beatport_batch(
                                 session, batch, pool, None
                             )
-                            progress["enriched"] += stats.get("enriched", 0)
-                            progress["not_found"] += stats.get("not_found", 0)
-                            progress["errors"] += stats.get("errors", 0)
-                            progress["merged"] += stats.get("merged", 0)
-                            # DIGGY-APP-H: retry the per-batch commit on a
+                            # DIGGY-APP-H: the per-batch commit retries a
                             # transient Postgres deadlock (parallel LOCAL backfill
-                            # writing the same catalog rows in crossed order).
-                            _commit_with_deadlock_retry(session)
+                            # writing the same catalog rows in crossed order);
+                            # DIGGY-APP-22/1Y/1N/23: a stale row, a poisoned
+                            # Session or an exhausted deadlock discards THIS
+                            # batch only (rolled back, stays E1-eligible) and the
+                            # drain moves on. Stats count only on success.
+                            if _commit_batch_or_discard(
+                                session,
+                                label="enrich_catalog_beatport",
+                                batch_len=len(batch),
+                            ):
+                                progress["enriched"] += stats.get("enriched", 0)
+                                progress["not_found"] += stats.get("not_found", 0)
+                                progress["errors"] += stats.get("errors", 0)
+                                progress["merged"] += stats.get("merged", 0)
+                            else:
+                                progress["errors"] += len(batch)
                             logger.info(
                                 "Beatport enrich progress: %d/%d",
                                 min(i + 50, progress["total"]),
@@ -439,7 +528,10 @@ def _run_enrich_catalog_beatport(task, batch_size: int, *, genre_only: bool = Fa
             soft_limit_hit = False
             try:
                 asyncio.run(_async_enrich())
-            except SoftTimeLimitExceeded:
+            # The billiard signal raised inside a loop.run_in_executor surfaces
+            # from asyncio.run as CancelledError (a BaseException in 3.13), not
+            # SoftTimeLimitExceeded — DIGGY-APP-21/20. Same clean partial exit.
+            except (SoftTimeLimitExceeded, asyncio.CancelledError):
                 soft_limit_hit = True
                 logger.warning(
                     "enrich_catalog_beatport hit soft time limit; "
