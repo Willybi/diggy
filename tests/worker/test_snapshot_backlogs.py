@@ -189,6 +189,8 @@ class TestSnapshotBacklogs:
             "embeddings",
             "integrity",
             "coverage",
+            # AV14: timestamp of the last real integrity/coverage computation.
+            "heavy_computed_at",
         }
         assert set(payload["enrich"]) == {"deezer", "beatport"}
         assert set(payload["enrich"]["deezer"]) == {
@@ -525,6 +527,101 @@ class TestFluxBudgetAlert:
         assert bp["never_tried"] == 1  # counted as a beatport never-tried row
         assert bp["flux_never_tried"] == 0  # but NOT flux
         assert bp["flux_over_budget"] is False
+
+
+class TestHeavyMetricsCarryForward:
+    """AV14: integrity + coverage (full-catalog scans, DIGGY-APP-1V/1T) are
+    recomputed every HEAVY_METRICS_INTERVAL_HOURS and carried forward verbatim
+    from the previous snapshot in between. Hourly backlogs stay fresh."""
+
+    _MARKER_INTEGRITY = {"artist_divergence": 42, "missing_m2m_link": 7}
+    _MARKER_COVERAGE = {"total": 999, "marker": True}
+
+    def _seed_prev(self, engine, *, computed_hours_ago, **overrides):
+        now = datetime.now(timezone.utc)
+        payload = {
+            "integrity": dict(self._MARKER_INTEGRITY),
+            "coverage": dict(self._MARKER_COVERAGE),
+            "heavy_computed_at": (
+                now - timedelta(hours=computed_hours_ago)
+            ).isoformat(),
+        }
+        payload.update(overrides)
+        with Session(engine) as s:
+            s.add(MetricSnapshot(captured_at=now - timedelta(hours=1), payload=payload))
+            s.commit()
+        return payload["heavy_computed_at"]
+
+    def _add_track(self, engine):
+        with Session(engine) as s:
+            s.add(CatalogEntry(title="T", artist="A", normalized_key="a|t"))
+            s.commit()
+
+    def test_fresh_previous_is_carried_forward(self, monitoring_task, fake_self):
+        stamp = self._seed_prev(monitoring_task.engine, computed_hours_ago=2)
+        self._add_track(monitoring_task.engine)
+
+        result = monitoring_task.mod.snapshot_backlogs(fake_self)
+
+        # Heavy blocks reused verbatim, stamp of the source run repeated …
+        assert result["integrity"] == self._MARKER_INTEGRITY
+        assert result["coverage"] == self._MARKER_COVERAGE
+        assert result["heavy_computed_at"] == stamp
+        # … while the hourly counters stay live.
+        assert result["catalog"]["total"] == 1
+
+    def test_stale_previous_is_recomputed(self, monitoring_task, fake_self):
+        stamp = self._seed_prev(monitoring_task.engine, computed_hours_ago=7)
+        self._add_track(monitoring_task.engine)
+
+        result = monitoring_task.mod.snapshot_backlogs(fake_self)
+
+        assert result["coverage"]["total"] == 1
+        assert "marker" not in result["coverage"]
+        assert result["integrity"] == {"artist_divergence": 0, "missing_m2m_link": 1}
+        assert result["heavy_computed_at"] != stamp
+
+    def test_interval_boundary_uses_slack(self, monitoring_task, fake_self):
+        # Beat at :30 sharp, stamp taken during the previous run: 5h55 elapsed
+        # on a 6h interval must already recompute (no extra skipped run).
+        self._seed_prev(monitoring_task.engine, computed_hours_ago=5 + 55 / 60)
+        result = monitoring_task.mod.snapshot_backlogs(fake_self)
+        assert "marker" not in result["coverage"]
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"heavy_computed_at": None},  # pre-AV14 snapshot
+            {"heavy_computed_at": "not-a-date"},
+            {"coverage": None},  # pre-OBS snapshot
+            {"integrity": "corrupt"},
+        ],
+    )
+    def test_unusable_previous_is_recomputed(
+        self, monitoring_task, fake_self, overrides
+    ):
+        self._seed_prev(monitoring_task.engine, computed_hours_ago=1, **overrides)
+        result = monitoring_task.mod.snapshot_backlogs(fake_self)
+        assert isinstance(result["coverage"], dict)
+        assert "marker" not in result["coverage"]
+        assert result["integrity"] == {"artist_divergence": 0, "missing_m2m_link": 0}
+
+    def test_interval_disabled_always_recomputes(
+        self, monitoring_task, fake_self, monkeypatch
+    ):
+        monkeypatch.setattr(monitoring_task.mod, "HEAVY_METRICS_INTERVAL_HOURS", 1)
+        self._seed_prev(monitoring_task.engine, computed_hours_ago=0)
+        result = monitoring_task.mod.snapshot_backlogs(fake_self)
+        assert "marker" not in result["coverage"]
+
+    def test_successive_runs_reuse_then_recompute(self, monitoring_task, fake_self):
+        # First run on an empty table computes; the immediate next one reuses it.
+        first = monitoring_task.mod.snapshot_backlogs(fake_self)
+        self._add_track(monitoring_task.engine)
+        second = monitoring_task.mod.snapshot_backlogs(fake_self)
+        assert second["heavy_computed_at"] == first["heavy_computed_at"]
+        assert second["coverage"] == first["coverage"]
+        assert second["catalog"]["total"] == 1
 
 
 class TestRetentionPurge:

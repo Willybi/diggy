@@ -47,6 +47,54 @@ CRAWL_LOG_REAP_AGE_HOURS = int(os.environ.get("CRAWL_LOG_REAP_AGE_HOURS", "4"))
 # PRIORITY_BASELINE (75 < 100) → correctly NOT flux.
 FLUX_BAND = int(os.environ.get("C12_FLUX_PRIORITY", "100"))
 
+# AV14 (triage Sentry 2026-11-13, DIGGY-APP-1V/1T) — the integrity + coverage
+# blocks scan the WHOLE catalog (>1M rows, a correlated subquery per row for the
+# divergence pair, an 8-flag GROUP BY with 2 EXISTS per row for coverage) and
+# grow linearly with it. Both are read from the LATEST snapshot only (no
+# time-series), and move slowly, so they are recomputed every N hours and
+# carried forward verbatim in between. 0 or 1 = recompute on every run.
+HEAVY_METRICS_INTERVAL_HOURS = int(
+    os.environ.get("SNAPSHOT_HEAVY_INTERVAL_HOURS", "6")
+)
+# The hourly beat fires at :30 sharp but heavy_computed_at is stamped DURING the
+# previous run, so a strict `elapsed >= N h` would skip one extra run each cycle
+# (same pitfall as CADENCE_SLACK_DAYS in tasks/radar.py + tasks/sets.py).
+_HEAVY_SLACK = timedelta(minutes=10)
+
+
+def _carry_forward_heavy(session, snapshot_model, now):
+    """Return (integrity, coverage, heavy_computed_at) to reuse, or None.
+
+    None (= recompute) when the interval is disabled, there is no previous
+    snapshot, it predates AV14 (no heavy_computed_at / blocks missing or
+    malformed), or its heavy metrics are older than the interval.
+    """
+    from sqlalchemy import select
+
+    if HEAVY_METRICS_INTERVAL_HOURS <= 1:
+        return None
+    prev = session.execute(
+        select(snapshot_model.payload)
+        .order_by(snapshot_model.captured_at.desc(), snapshot_model.id.desc())
+        .limit(1)
+    ).scalar()
+    if not isinstance(prev, dict):
+        return None
+    integrity = prev.get("integrity")
+    coverage = prev.get("coverage")
+    stamp = prev.get("heavy_computed_at")
+    if not (isinstance(integrity, dict) and isinstance(coverage, dict) and stamp):
+        return None
+    try:
+        computed_at = datetime.fromisoformat(stamp)
+    except (TypeError, ValueError):
+        return None
+    if computed_at.tzinfo is None:
+        computed_at = computed_at.replace(tzinfo=timezone.utc)
+    if now - computed_at >= timedelta(hours=HEAVY_METRICS_INTERVAL_HOURS) - _HEAVY_SLACK:
+        return None
+    return integrity, coverage, stamp
+
 # Sentry Cron monitor for this hourly heartbeat. If the check-in stops arriving
 # — i.e. the celery-queue worker (diggy_worker) died and stopped sampling, as
 # happened 2026-08-10→14 when a wedged worker left a ~90 h hole in
@@ -181,156 +229,204 @@ def _run_snapshot_backlogs():
         # reuse its `abandoned` tier without a second count_enrich_backlog pass.
         deezer_backlog = count_enrich_backlog(session, source="deezer", now=now)
 
-        # ── Integrity counters (X4) — sync twin of monitoring_service.
-        # get_integrity_counters. The fold+containment pass was recomputed on
-        # EVERY admin display; moving it into this hourly snapshot means the API
-        # (L3) can read the latest payload instead. Same predicates as the async
-        # version: enriched rows only (a platform id present), min-position
-        # first M2M name (NULL position last), cheap SQL lower(trim()) pre-filter
-        # — equal under lower ⟹ contained ⟹ never a frank divergence — then
-        # Python fold + mutual non-containment on the small candidate set.
-        enriched = or_(
-            CatalogEntry.beatport_id.isnot(None),
-            CatalogEntry.deezer_id.isnot(None),
-        )
-        has_flat_artist = and_(
-            CatalogEntry.artist.isnot(None),
-            func.trim(CatalogEntry.artist) != "",
-        )
-        first_m2m_name = (
-            select(Artist.name)
-            .where(
-                CatalogArtist.artist_id == Artist.id,
-                CatalogArtist.catalog_id == CatalogEntry.id,
-            )
-            .order_by(
-                func.coalesce(CatalogArtist.position, _NULL_POSITION_LAST).asc(),
-                CatalogArtist.artist_id.asc(),
-            )
-            .limit(1)
-            .scalar_subquery()
-        )
-        candidates = (
-            select(
-                CatalogEntry.artist.label("flat"),
-                first_m2m_name.label("m2m"),
-            )
-            .where(enriched, has_flat_artist)
-            .subquery()
-        )
-        pairs = session.execute(
-            select(candidates.c.flat, candidates.c.m2m).where(
-                candidates.c.m2m.isnot(None),
-                func.lower(func.trim(candidates.c.flat))
-                != func.lower(func.trim(candidates.c.m2m)),
-            )
-        ).all()
-        artist_divergence = 0
-        for flat, m2m in pairs:
-            # .strip() mirrors the service _fold (its local copy strips, the
-            # deezer_enrich original doesn't) so both counters stay identical.
-            a = _fold(flat).strip()
-            b = _fold(m2m).strip()
-            if a and b and a not in b and b not in a:
-                artist_divergence += 1
-        missing_m2m_link = (
-            session.execute(
-                select(func.count(CatalogEntry.id)).where(
-                    has_flat_artist,
-                    ~select(CatalogArtist.catalog_id)
-                    .where(CatalogArtist.catalog_id == CatalogEntry.id)
-                    .exists(),
-                )
-            ).scalar()
-            or 0
-        )
-
-        # ── Coverage matrix — ONE grouped pass over the 8 CORE dimensions
-        # (deezer, beatport, bpm, key, genres, artwork, embedding, artist_link;
-        # preview and album deliberately EXCLUDED from completeness). Grouping
-        # the catalog by the 8 boolean flags collapses it to <= 256 rows, from
-        # which Python derives the completeness histogram, the top incomplete
-        # combos AND the per-dimension counts (sum of groups where the flag is
-        # true) — instead of 8 redundant full scans.
-        core_dims = {
-            "deezer": and_(
-                CatalogEntry.deezer_id.isnot(None),
-                CatalogEntry.deezer_id != "NOT_FOUND",
-            ),
-            "beatport": CatalogEntry.beatport_id.isnot(None),
-            "bpm": CatalogEntry.bpm.isnot(None),
-            "key": CatalogEntry.key.isnot(None),
-            # Dialect-neutral non-empty array (SQLite backs the test harness).
-            "genres": not_(array_is_empty(CatalogEntry.genres)),
-            "artwork": CatalogEntry.has_artwork.is_(True),
-            "embedding": select(TrackEmbedding.id)
-            .where(TrackEmbedding.catalog_id == CatalogEntry.id, *_emb_model)
-            .exists(),
-            "artist_link": select(CatalogArtist.catalog_id)
-            .where(CatalogArtist.catalog_id == CatalogEntry.id)
-            .exists(),
-        }
-        dim_names = list(core_dims)
-        # Flags materialised in a subquery so the outer GROUP BY targets plain
-        # columns (grouping by correlated EXISTS expressions is not portable).
-        flags = (
-            select(
-                *[
-                    case((expr, 1), else_=0).label(name)
-                    for name, expr in core_dims.items()
-                ]
-            )
-            .select_from(CatalogEntry)
-            .subquery()
-        )
-        groups = session.execute(
-            select(*flags.c, func.count().label("n")).group_by(*flags.c)
-        ).all()
-
-        dim_counts = dict.fromkeys(dim_names, 0)
-        completeness = {str(i): 0 for i in range(len(dim_names) + 1)}
-        combos = []
-        for row in groups:
-            n = int(row.n)
-            present = sum(int(row[i]) for i in range(len(dim_names)))
-            completeness[str(present)] += n
-            for i, name in enumerate(dim_names):
-                if row[i]:
-                    dim_counts[name] += n
-            if present < len(dim_names):
-                combos.append(
-                    {
-                        "dims": {
-                            name: bool(row[i]) for i, name in enumerate(dim_names)
-                        },
-                        "count": n,
-                    }
-                )
-        # count desc; flag-tuple tie-break keeps the ordering deterministic
-        # (SQL group order is not).
-        combos.sort(key=lambda c: (-c["count"], tuple(c["dims"].values())))
-        top_combos = combos[:8]
-
-        def _by_source(source_col, value_col) -> dict:
-            # Raw provenance values as keys (JSON keys must be str); a NULL
-            # source on a present value maps to "unknown".
-            rows = session.execute(
-                select(source_col, func.count(CatalogEntry.id))
-                .where(value_col.isnot(None))
-                .group_by(source_col)
-            ).all()
-            return {
-                ("unknown" if src is None else src): int(cnt) for src, cnt in rows
-            }
-
         catalog_total = _count(CatalogEntry.id)
-        preview_covered = _count(CatalogEntry.id, CatalogEntry.has_preview.is_(True))
-        album_covered = _count(
-            CatalogEntry.id,
-            select(CatalogAlbum.catalog_id)
-            .where(CatalogAlbum.catalog_id == CatalogEntry.id)
-            .exists(),
-        )
+
+        def _compute_heavy_metrics():
+            """Integrity + coverage: the full-catalog scans (AV14), see
+            HEAVY_METRICS_INTERVAL_HOURS. Returns (integrity, coverage)."""
+            # ── Integrity counters (X4) — sync twin of monitoring_service.
+            # get_integrity_counters. The fold+containment pass was recomputed on
+            # EVERY admin display; moving it into this hourly snapshot means the API
+            # (L3) can read the latest payload instead. Same predicates as the async
+            # version: enriched rows only (a platform id present), min-position
+            # first M2M name (NULL position last), cheap SQL lower(trim()) pre-filter
+            # — equal under lower ⟹ contained ⟹ never a frank divergence — then
+            # Python fold + mutual non-containment on the small candidate set.
+            enriched = or_(
+                CatalogEntry.beatport_id.isnot(None),
+                CatalogEntry.deezer_id.isnot(None),
+            )
+            has_flat_artist = and_(
+                CatalogEntry.artist.isnot(None),
+                func.trim(CatalogEntry.artist) != "",
+            )
+            first_m2m_name = (
+                select(Artist.name)
+                .where(
+                    CatalogArtist.artist_id == Artist.id,
+                    CatalogArtist.catalog_id == CatalogEntry.id,
+                )
+                .order_by(
+                    func.coalesce(CatalogArtist.position, _NULL_POSITION_LAST).asc(),
+                    CatalogArtist.artist_id.asc(),
+                )
+                .limit(1)
+                .scalar_subquery()
+            )
+            candidates = (
+                select(
+                    CatalogEntry.artist.label("flat"),
+                    first_m2m_name.label("m2m"),
+                )
+                .where(enriched, has_flat_artist)
+                .subquery()
+            )
+            pairs = session.execute(
+                select(candidates.c.flat, candidates.c.m2m).where(
+                    candidates.c.m2m.isnot(None),
+                    func.lower(func.trim(candidates.c.flat))
+                    != func.lower(func.trim(candidates.c.m2m)),
+                )
+            ).all()
+            artist_divergence = 0
+            for flat, m2m in pairs:
+                # .strip() mirrors the service _fold (its local copy strips, the
+                # deezer_enrich original doesn't) so both counters stay identical.
+                a = _fold(flat).strip()
+                b = _fold(m2m).strip()
+                if a and b and a not in b and b not in a:
+                    artist_divergence += 1
+            missing_m2m_link = (
+                session.execute(
+                    select(func.count(CatalogEntry.id)).where(
+                        has_flat_artist,
+                        ~select(CatalogArtist.catalog_id)
+                        .where(CatalogArtist.catalog_id == CatalogEntry.id)
+                        .exists(),
+                    )
+                ).scalar()
+                or 0
+            )
+
+            # ── Coverage matrix — ONE grouped pass over the 8 CORE dimensions
+            # (deezer, beatport, bpm, key, genres, artwork, embedding, artist_link;
+            # preview and album deliberately EXCLUDED from completeness). Grouping
+            # the catalog by the 8 boolean flags collapses it to <= 256 rows, from
+            # which Python derives the completeness histogram, the top incomplete
+            # combos AND the per-dimension counts (sum of groups where the flag is
+            # true) — instead of 8 redundant full scans.
+            core_dims = {
+                "deezer": and_(
+                    CatalogEntry.deezer_id.isnot(None),
+                    CatalogEntry.deezer_id != "NOT_FOUND",
+                ),
+                "beatport": CatalogEntry.beatport_id.isnot(None),
+                "bpm": CatalogEntry.bpm.isnot(None),
+                "key": CatalogEntry.key.isnot(None),
+                # Dialect-neutral non-empty array (SQLite backs the test harness).
+                "genres": not_(array_is_empty(CatalogEntry.genres)),
+                "artwork": CatalogEntry.has_artwork.is_(True),
+                "embedding": select(TrackEmbedding.id)
+                .where(TrackEmbedding.catalog_id == CatalogEntry.id, *_emb_model)
+                .exists(),
+                "artist_link": select(CatalogArtist.catalog_id)
+                .where(CatalogArtist.catalog_id == CatalogEntry.id)
+                .exists(),
+            }
+            dim_names = list(core_dims)
+            # Flags materialised in a subquery so the outer GROUP BY targets plain
+            # columns (grouping by correlated EXISTS expressions is not portable).
+            flags = (
+                select(
+                    *[
+                        case((expr, 1), else_=0).label(name)
+                        for name, expr in core_dims.items()
+                    ]
+                )
+                .select_from(CatalogEntry)
+                .subquery()
+            )
+            groups = session.execute(
+                select(*flags.c, func.count().label("n")).group_by(*flags.c)
+            ).all()
+
+            dim_counts = dict.fromkeys(dim_names, 0)
+            completeness = {str(i): 0 for i in range(len(dim_names) + 1)}
+            combos = []
+            for row in groups:
+                n = int(row.n)
+                present = sum(int(row[i]) for i in range(len(dim_names)))
+                completeness[str(present)] += n
+                for i, name in enumerate(dim_names):
+                    if row[i]:
+                        dim_counts[name] += n
+                if present < len(dim_names):
+                    combos.append(
+                        {
+                            "dims": {
+                                name: bool(row[i]) for i, name in enumerate(dim_names)
+                            },
+                            "count": n,
+                        }
+                    )
+            # count desc; flag-tuple tie-break keeps the ordering deterministic
+            # (SQL group order is not).
+            combos.sort(key=lambda c: (-c["count"], tuple(c["dims"].values())))
+            top_combos = combos[:8]
+
+            def _by_source(source_col, value_col) -> dict:
+                # Raw provenance values as keys (JSON keys must be str); a NULL
+                # source on a present value maps to "unknown".
+                rows = session.execute(
+                    select(source_col, func.count(CatalogEntry.id))
+                    .where(value_col.isnot(None))
+                    .group_by(source_col)
+                ).all()
+                return {
+                    ("unknown" if src is None else src): int(cnt) for src, cnt in rows
+                }
+
+            preview_covered = _count(CatalogEntry.id, CatalogEntry.has_preview.is_(True))
+            album_covered = _count(
+                CatalogEntry.id,
+                select(CatalogAlbum.catalog_id)
+                .where(CatalogAlbum.catalog_id == CatalogEntry.id)
+                .exists(),
+            )
+
+            integrity = {
+                "artist_divergence": int(artist_divergence),
+                "missing_m2m_link": int(missing_m2m_link),
+            }
+            # Per-dimension enrichment coverage over the whole catalog
+            # (denominator: `total`), plus the 8-core-dimension completeness
+            # histogram and the top incomplete flag combos. `abandoned` reuses
+            # the enrich tiers above (same E1 semantics, zero extra query).
+            coverage = {
+                "total": catalog_total,
+                "deezer": {
+                    "linked": dim_counts["deezer"],
+                    "abandoned": deezer_backlog["abandoned"],
+                },
+                "beatport": {
+                    "linked": dim_counts["beatport"],
+                    "abandoned": beatport_backlog["abandoned"],
+                },
+                "bpm": _by_source(CatalogEntry.bpm_source, CatalogEntry.bpm),
+                "key": _by_source(CatalogEntry.key_source, CatalogEntry.key),
+                "preview": {"covered": preview_covered},
+                "artwork": {"covered": dim_counts["artwork"]},
+                "genres": {"covered": dim_counts["genres"]},
+                # Frozen-model embedding count already computed above (C9.a
+                # block) — identical to the grouped EXISTS sum by the UNIQUE
+                # (catalog_id, model, version) constraint.
+                "embedding": {"covered": emb_covered},
+                "artist_link": {"covered": dim_counts["artist_link"]},
+                "album": {"covered": album_covered},
+                "completeness": completeness,
+                "top_combos": top_combos,
+            }
+            return integrity, coverage
+
+        # AV14 — the two blocks above are the full-catalog scans Sentry flags as
+        # Slow DB Query every hour (DIGGY-APP-1V/1T). Reuse the previous
+        # snapshot's values while they are fresher than the interval.
+        carried = _carry_forward_heavy(session, MetricSnapshot, now)
+        if carried is not None:
+            integrity, coverage, heavy_computed_at = carried
+        else:
+            integrity, coverage = _compute_heavy_metrics()
+            heavy_computed_at = now.isoformat()
 
         payload = {
             "enrich": {
@@ -398,43 +494,18 @@ def _run_snapshot_backlogs():
                 "eligible": emb_eligible,
                 "missing": emb_missing,
             },
-            # Observabilité L1 — X4 integrity counters, snapshotted hourly so
-            # the admin tab reads them from here instead of recomputing per
-            # display. Additive key — older snapshots don't carry it, readers
-            # stay .get() defensive.
-            "integrity": {
-                "artist_divergence": int(artist_divergence),
-                "missing_m2m_link": int(missing_m2m_link),
-            },
-            # Observabilité L1 — per-dimension enrichment coverage over the
-            # whole catalog (denominator: `total`), plus the 8-core-dimension
-            # completeness histogram and the top incomplete flag combos.
-            # `abandoned` reuses the enrich tiers above (same E1 semantics,
-            # zero extra query). Additive key — older snapshots don't carry it.
-            "coverage": {
-                "total": catalog_total,
-                "deezer": {
-                    "linked": dim_counts["deezer"],
-                    "abandoned": deezer_backlog["abandoned"],
-                },
-                "beatport": {
-                    "linked": dim_counts["beatport"],
-                    "abandoned": beatport_backlog["abandoned"],
-                },
-                "bpm": _by_source(CatalogEntry.bpm_source, CatalogEntry.bpm),
-                "key": _by_source(CatalogEntry.key_source, CatalogEntry.key),
-                "preview": {"covered": preview_covered},
-                "artwork": {"covered": dim_counts["artwork"]},
-                "genres": {"covered": dim_counts["genres"]},
-                # Frozen-model embedding count already computed above (C9.a
-                # block) — identical to the grouped EXISTS sum by the UNIQUE
-                # (catalog_id, model, version) constraint.
-                "embedding": {"covered": emb_covered},
-                "artist_link": {"covered": dim_counts["artist_link"]},
-                "album": {"covered": album_covered},
-                "completeness": completeness,
-                "top_combos": top_combos,
-            },
+            # Observabilité L1 — X4 integrity counters + per-dimension coverage.
+            # Read by the admin tab from the LATEST snapshot only (no curve), so
+            # since AV14 they are recomputed every HEAVY_METRICS_INTERVAL_HOURS
+            # and carried forward verbatim in between (see heavy_computed_at).
+            # Additive keys — older snapshots don't carry them, readers stay
+            # .get() defensive.
+            "integrity": integrity,
+            "coverage": coverage,
+            # AV14 — when integrity/coverage were last actually computed (ISO
+            # UTC). Drives the carry-forward decision of the next run; a
+            # carried-forward snapshot repeats the source run's timestamp.
+            "heavy_computed_at": heavy_computed_at,
         }
 
         session.add(MetricSnapshot(captured_at=now, payload=payload))
