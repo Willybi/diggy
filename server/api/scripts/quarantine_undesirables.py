@@ -59,8 +59,8 @@ RULES (``--rule``, mandatory):
          jazz, a real musician kept visible) and any artist outside the TSV can still
          protect. A title credited to several input artists
          is decided once for all of them: ANY protection wins (invariant #4).
-      4. The artist itself is masked only when it has titles and NONE remains
-         visible after step 3. Artists OUTSIDE the TSV go through the shared
+      4. The artist itself is masked only when it has titles, NONE remains
+         visible after step 3 and it has no ``set_artists`` row (see below). Artists OUTSIDE the TSV go through the shared
          empty-artist step below (counted apart: "co-crédités hors liste").
   * ``isrc_block`` — no input. Masks the titles whose ``upper(isrc)`` starts with
     one of ``workers.isrc_block.blocked_prefixes()`` (env
@@ -83,7 +83,13 @@ RULES (``--rule``, mandatory):
          ``EPISODE_KEY_MIN_EXTRA_WORDS`` (2) other words — "radio #" never forms a
          series. Recurrence AND vocabulary are both required: recurrence alone
          catches real label series (Speicher, Klockworks…), vocabulary alone
-         catches one-off albums ("The Next Episode", "Episode 8 EP");
+         catches one-off albums ("The Next Episode", "Episode 8 EP"). A key
+         matching ``EPISODE_SERIES_EXCLUDE_RE`` / ``EPISODE_SERIES_EXCLUDED_KEYS``
+         never forms a series, named show included (prod dry-run 2026-11-14:
+         commercial ASOT compilations — "Year Mix", "Mixed by", "Top 20",
+         "Classics… Unmixed" — stay VISIBLE by product decision; soundtracks,
+         "Not For Radio" EPs and doubtful series are kept visible too). So a title
+         on an episode AND on such a compilation is protected by the guard below;
       b. its own title carries the ASOT marker ``(ASOT <n>)`` (episode titles
          without a linked album).
     "Other album" guard: a title found through (a) only that is ALSO linked to an
@@ -98,9 +104,14 @@ EMPTY ARTISTS (every rule, after the title plan): an artist is masked with the
 rule's reason when it is not already masked, has >= 1 title, NONE of its titles
 stays visible once the plan is applied (masked by any rule) and at least one of
 them is masked by THIS rule (planned or already). An artist with 0 title is never
-masked. farm_fort keeps its own TSV-artist step (4.) and applies this one to the
+masked. An artist with >= 1 ``set_artists`` row (a DJ of a set: a real artist, just
+like set titles are protected) is NEVER masked by any rule — farm_fort's TSV step
+(4.) included; counted "artistes gardés (liés à un set)" + a stable sample (prod
+2026-11-14: e.g. "DJ PRIME", 6 sets, tier 1, both titles hit by isrc_block).
+farm_fort keeps its own TSV-artist step (4.) and applies this one to the
 co-credited artists outside the TSV. The artist UPDATE re-checks, after the titles
-are written, that no title of the artist is still visible.
+are written, that no title of the artist is still visible AND that it has no
+``set_artists`` row (a set link added between plan and apply wins).
 
 SYSTEMATIC PROTECTION (every rule): a title is NEVER masked when it is corroborated
 — present in ``set_tracks``, ``user_tracks``, a ``user_opinions`` row with
@@ -250,6 +261,28 @@ EPISODE_KEY_MIN_EXTRA_WORDS = 2
 # Edits)" label series must not qualify). Anticipated, not a measured case.
 EPISODE_VOCAB_EXCLUDE_RE = re.compile(r"\bradio (edit|mix|version|cut)s?\b")
 
+# Series keys that are NOT radio/podcast episodes although they pass the vocabulary
+# test (prod dry-run 2026-11-14, `--rule episode`). A key matching either NEVER forms
+# a series, named show included — checked before the vocabulary:
+#   * commercial ASOT compilations (PRODUCT DECISION: they stay VISIBLE) — "a state
+#     of trance year mix # mixed by armin van buuren", "… ibiza # mixed by …",
+#     "… top # # vol # selected by …", "… future favorite best of #", "… classics
+#     vol # the full unmixed versions";
+#   * non-shows — "the idol episode # music from the hbo original series"
+#     (soundtrack), "not for radio pt #" (an EP series);
+#   * doubtful series kept visible (invariant #4: when in doubt, separate) — "the
+#     best of sergy casttle episode #" (marker) + the curated exact keys below.
+# Checked against the 18 real show keys measured the same day (ASOT/FSOE episodes,
+# Defected/Glitterbox/Toolroom/Interplay/FYH radio, Group Therapy "dj mix", Classic
+# Music Company — "classic" ≠ "classics", Anjunafamily…): none trips it. Matched on
+# whole words of the series key ("#" counts as a word character here so "top #"
+# never matches "top" alone or "stop #").
+EPISODE_SERIES_EXCLUDE_RE = re.compile(
+    r"(?<![a-z#])(year mix|mixed by|selected by|ibiza|top #|best of|classics"
+    r"|unmixed|music from|original series|soundtrack|not for radio)(?![a-z#])"
+)
+EPISODE_SERIES_EXCLUDED_KEYS = frozenset({"da movelt posse episode #"})
+
 # Track-title marker of an ASOT episode track ("Que Pasa (ASOT 977) [Tune Of The
 # Week]", "A State Of Trance (ASOT 974) (Coming Up, Pt. 1)") — catches the episode
 # titles without a linked album. Measured ~100 % precision (§7.3).
@@ -372,8 +405,12 @@ def series_key(album_title):
 
 def is_episode_series_key(key):
     """The series key carries broadcast vocabulary (track-version phrases removed):
-    a named show, or a generic word + ``EPISODE_KEY_MIN_EXTRA_WORDS`` other words."""
+    a named show, or a generic word + ``EPISODE_KEY_MIN_EXTRA_WORDS`` other words.
+    A compilation / non-show key (``EPISODE_SERIES_EXCLUDE_RE`` or
+    ``EPISODE_SERIES_EXCLUDED_KEYS``) is rejected first, named show or not."""
     if not key:
+        return False
+    if key in EPISODE_SERIES_EXCLUDED_KEYS or EPISODE_SERIES_EXCLUDE_RE.search(key):
         return False
     key = EPISODE_VOCAB_EXCLUDE_RE.sub(" ", key)
     if EPISODE_NAMED_SHOW_RE.search(key):
@@ -410,6 +447,8 @@ def _new_stats():
         "artists_already_other_rule": 0,
         "artists_kept_visible": 0,
         "artists_without_titles": 0,
+        # every rule: artists left empty but linked to a DJ set → never masked.
+        "artists_kept_set_linked": 0,
         # farm_fort only: artists OUTSIDE the TSV left empty by the rule (point B).
         "artists_to_mask_coartists": 0,
         "artists_to_mask_coartists_tier1": 0,
@@ -526,6 +565,17 @@ def _load_tier1(session, artist_ids):
     return out
 
 
+def _load_set_linked(session, artist_ids):
+    """Subset of ``artist_ids`` with >= 1 ``set_artists`` row (a DJ of a set)."""
+    out = set()
+    stmt = text(
+        "SELECT DISTINCT artist_id FROM set_artists WHERE artist_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    for chunk in _chunks(artist_ids, _IN_CHUNK):
+        out.update(row.artist_id for row in session.execute(stmt, {"ids": chunk}))
+    return out
+
+
 def _rule_artist_candidates(session, rule, to_mask):
     """Artists credited on a title masked by ``rule`` — already, or by the plan."""
     out = {
@@ -556,8 +606,11 @@ def plan_empty_artists(session, rule, to_mask, exclude_ids=()):
     title, NONE of its titles stays visible once the plan is applied (masked by any
     rule, this one included) and at least one of them is masked by THIS rule (in the
     plan or already). Candidates are derived from the rule's titles, so an artist
-    with 0 title is never even considered. ``exclude_ids`` = artists decided
-    elsewhere (farm_fort's own TSV list). Returns ``(artist_ids, counters)``.
+    with 0 title is never even considered. An artist with >= 1 ``set_artists`` row
+    (a DJ of a set — a real artist, like the set titles) is NEVER masked: counted in
+    ``kept_set_linked`` and listed in ``set_linked`` ({id, name}) instead.
+    ``exclude_ids`` = artists decided elsewhere (farm_fort's own TSV list). Returns
+    ``(artist_ids, counters)``.
     """
     counters = {
         "to_mask": 0,
@@ -565,6 +618,8 @@ def plan_empty_artists(session, rule, to_mask, exclude_ids=()):
         "already_same_rule": 0,
         "already_other_rule": 0,
         "kept_visible": 0,
+        "kept_set_linked": 0,
+        "set_linked": [],
     }
     planned = set(to_mask)
     candidates = sorted(_rule_artist_candidates(session, rule, planned) - set(exclude_ids))
@@ -578,6 +633,7 @@ def plan_empty_artists(session, rule, to_mask, exclude_ids=()):
     artist_ids = []
     for batch in _chunks(candidates, _ARTIST_READ_BATCH):
         db_artists = _load_artists(session, batch)
+        set_linked = _load_set_linked(session, batch)
         per_artist = {}
         for row in session.execute(titles_stmt, {"ids": batch}):
             per_artist.setdefault(row.artist_id, []).append(row)
@@ -598,9 +654,12 @@ def plan_empty_artists(session, rule, to_mask, exclude_ids=()):
             by_rule = any(r.hidden_reason == rule or r.id in planned for r in rows)
             if visible or not by_rule:
                 counters["kept_visible"] += 1
+            elif aid in set_linked:
+                counters["set_linked"].append({"id": aid, "name": db_artists[aid]["name"]})
             else:
                 artist_ids.append(aid)
     counters["to_mask"] = len(artist_ids)
+    counters["kept_set_linked"] = len(counters["set_linked"])
     counters["tier1"] = len(_load_tier1(session, artist_ids))
     return artist_ids, counters
 
@@ -611,6 +670,7 @@ def _apply_empty_artist_counters(stats, counters):
     stats["artists_already_same_rule"] = counters["already_same_rule"]
     stats["artists_already_other_rule"] = counters["already_other_rule"]
     stats["artists_kept_visible"] = counters["kept_visible"]
+    stats["artists_kept_set_linked"] = counters["kept_set_linked"]
 
 
 # --------------------------------------------------------------------------- plan
@@ -750,6 +810,8 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
 
     masked = set(to_mask)
     tier_by_id = {r["id"]: r["tier"] for r in present}
+    set_linked_ids = _load_set_linked(session, [r["id"] for r in present])
+    set_linked_infos = []
     artists_to_mask = []
     for row in present:
         aid = row["id"]
@@ -769,6 +831,8 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
         ]
         if visible:
             stats["artists_kept_visible"] += 1
+        elif aid in set_linked_ids:
+            set_linked_infos.append({"id": aid, "name": db_artists[aid]["name"]})
         else:
             artists_to_mask.append(aid)
             if tier_by_id.get(aid) == "1":
@@ -784,6 +848,8 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
     stats["artists_to_mask_coartists"] = extra_counters["to_mask"]
     stats["artists_to_mask_coartists_tier1"] = extra_counters["tier1"]
     artists_to_mask = artists_to_mask + extra
+    set_linked_infos += extra_counters["set_linked"]
+    stats["artists_kept_set_linked"] = len(set_linked_infos)
 
     plan = {
         "titles": titles,
@@ -793,6 +859,7 @@ def plan_farm_fort(session, tsv_rows, rule="farm_fort"):
         "homonym": protected_infos["homonym"],
         "isrc_old": protected_infos["isrc_old"],
         "artists_to_mask": artists_to_mask,
+        "set_linked": set_linked_infos,
     }
     return plan, stats
 
@@ -846,6 +913,7 @@ def plan_isrc_block(session, rule="isrc_block", prefixes=None):
         "to_mask": to_mask,
         "anchored": [],
         "artists_to_mask": artists_to_mask,
+        "set_linked": counters["set_linked"],
         "prefixes": prefixes,
     }
     return plan, stats
@@ -984,6 +1052,7 @@ def plan_episode(session, rule="episode"):
         "to_mask": to_mask,
         "anchored": [],
         "artists_to_mask": artists_to_mask,
+        "set_linked": counters["set_linked"],
         "series": series_report,
         "other_album": other_album_infos,
     }
@@ -1009,7 +1078,8 @@ def apply_plan(session, plan, rule, now=None):
         """
     ).bindparams(bindparam("ids", expanding=True))
     # Titles are written first, so this re-check sees the final state: an artist
-    # whose title stayed visible (corroborated between plan and write) is skipped.
+    # whose title stayed visible (corroborated between plan and write) is skipped,
+    # and so is one linked to a DJ set meanwhile (never masked, every rule).
     artist_stmt = text(
         """
         UPDATE artists SET hidden_reason = :rule, hidden_at = :now
@@ -1018,6 +1088,7 @@ def apply_plan(session, plan, rule, now=None):
               SELECT 1 FROM catalog_artists ca JOIN catalog c ON c.id = ca.catalog_id
               WHERE ca.artist_id = artists.id AND c.hidden_reason IS NULL
           )
+          AND NOT EXISTS (SELECT 1 FROM set_artists sa WHERE sa.artist_id = artists.id)
         """
     ).bindparams(bindparam("ids", expanding=True))
 
@@ -1133,6 +1204,7 @@ def _print_report(rule, stats, plan, apply, sample_n):
     if rule == "farm_fort":
         print(f"    co-crédités hors liste {verb:<4}: {stats['artists_to_mask_coartists']}  (dont tier 1 cohorte : {stats['artists_to_mask_coartists_tier1']})")
     print(f"    artistes gardés visibles   : {stats['artists_kept_visible']}")
+    print(f"    artistes gardés (liés à un set) : {stats['artists_kept_set_linked']}  (jamais masqués)")
     if rule == "farm_fort":
         print(f"    artistes sans titre        : {stats['artists_without_titles']}  (jamais masqués)")
     print(f"    artistes déjà masqués      : {stats['artists_already_same_rule']} même règle / {stats['artists_already_other_rule']} autre règle")
@@ -1148,6 +1220,11 @@ def _print_report(rule, stats, plan, apply, sample_n):
         print(f"\nÉchantillon de {len(other)} titre(s) protégé(s) — aussi sur un album hors épisode :")
         for info in sorted(other, key=lambda i: i["id"]):
             print(f"    {_fmt(info)}")
+
+    set_linked = stable_sample(plan.get("set_linked", ()), sample_n)
+    print(f"\nÉchantillon de {len(set_linked)} artiste(s) gardé(s) — liés à un set :")
+    for info in sorted(set_linked, key=lambda i: i["id"]):
+        print(f"    {info['id']} — {info['name'] or '?'}")
 
     titles = plan["titles"]
     masked = stable_sample(plan["to_mask"], sample_n)

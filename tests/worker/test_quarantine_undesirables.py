@@ -12,6 +12,8 @@ import itertools
 import os
 import sys
 
+import pytest
+
 _SERVER_PATH = os.path.join(os.path.dirname(__file__), "../../server")
 if _SERVER_PATH not in sys.path:
     sys.path.insert(0, _SERVER_PATH)
@@ -25,6 +27,7 @@ from models import (  # noqa: E402
     CatalogEntry,
     CollectionItem,
     DJSet,
+    SetArtist,
     SetTrack,
     User,
     UserCollection,
@@ -33,6 +36,7 @@ from models import (  # noqa: E402
 )
 from scripts.quarantine_undesirables import (  # noqa: E402
     _print_report,
+    apply_plan,
     has_classical_marker,
     has_episode_marker,
     is_episode_series_key,
@@ -885,3 +889,164 @@ class TestEmptyArtists:
         assert _reason(s, Artist, farm.id) == "farm_fort"
         assert _reason(s, Artist, feat.id) == "farm_fort"
         assert stats["artists_masked"] == 2
+
+
+# --------------------------------------------------------------------------- L8
+
+# Series keys measured in the prod dry-run of 2026-11-14 ("…"/"<mois>" in the brief
+# filled with a concrete value).
+_REJECTED_SERIES_KEYS = [
+    # commercial ASOT compilations — product decision: stay visible
+    "a state of trance year mix # mixed by armin van buuren",
+    "a state of trance # mixed by armin van buuren",
+    "a state of trance ibiza # mixed by armin van buuren",
+    "a state of trance top # # vol # selected by armin van buuren",
+    "a state of trance radio top # # vol # selected by armin van buuren",
+    "a state of trance radio top # # vol #",
+    "a state of trance future favorite best of #",
+    "a state of trance classics vol # the full unmixed versions",
+    # non-shows
+    "the idol episode # music from the hbo original series",
+    "not for radio pt #",
+    # doubtful series kept visible
+    "the best of sergy casttle episode #",
+    "da movelt posse episode #",
+]
+_REAL_SHOW_KEYS = [
+    "asot # a state of trance episode #",
+    "asot # a state of trance episode # unfiltered #",
+    "fsoe # future sound of egypt episode #",
+    "defected radio episode # hosted by sam divine",
+    "defected in the house radio show episode # hosted by sam divine",
+    "interplay radio episode #",
+    "fyh # find your harmony radio episode #",
+    "group therapy # dj mix",
+    "uncharted worlds episode #",
+    "toolroom radio ep # presented by mark knight",
+    "get physical radio december #",
+    "glitterbox radio episode # hosted by melvo baptiste",
+    "suanda music episode #",
+    "the self within episode #",
+    "underground live forever episode #",
+    "rave code radio episode #",
+    "classic music company radio episode # hosted by luke solomon",
+    "# to the floor radio episode # presented by seamus haji",
+    "anjunafamily radio # with jono grant",
+]
+
+
+@pytest.mark.parametrize("key", _REJECTED_SERIES_KEYS)
+def test_series_key_excluded(key):
+    assert not is_episode_series_key(key)
+
+
+@pytest.mark.parametrize("key", _REAL_SHOW_KEYS)
+def test_real_show_key_retained(key):
+    assert is_episode_series_key(key)
+
+
+def _dj_of_set(s, artist):
+    st = DJSet(source="trackid", title="set", external_id=f"e{next(_n)}")
+    s.add(st)
+    s.flush()
+    s.add(SetArtist(set_id=st.id, artist_id=artist.id, role="dj"))
+    s.flush()
+
+
+class TestEpisodeExclusions:
+    def test_compilation_series_not_retained(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Armin")
+        titles = _series(
+            s,
+            a,
+            "A State Of Trance Year Mix {n} (Mixed by Armin van Buuren)",
+            (2021, 2022, 2023),
+        )
+        s.commit()
+        _, stats = run_rule(s, "episode", apply=True)
+        assert stats["series_retained"] == 0 and stats["titles_to_mask"] == 0
+        assert all(_reason(s, CatalogEntry, c.id) is None for c in titles)
+
+    def test_episode_title_also_on_top20_compilation_protected(self, sync_session):
+        s = sync_session
+        a = _artist(s, "Armin")
+        episodes = _series(
+            s, a, "ASOT {n} - A State Of Trance Episode {n}", (974, 975, 976), per_album=1
+        )
+        comps = [
+            _album(s, f"A State Of Trance Top 20 - {y} (Selected by Armin van Buuren)", a)
+            for y in (2021, 2022, 2023)
+        ]
+        s.add(CatalogAlbum(catalog_id=episodes[0].id, album_id=comps[0].id))
+        s.commit()
+        plan, stats = run_rule(s, "episode", apply=True)
+        assert [x["key"] for x in plan["series"]] == ["asot # a state of trance episode #"]
+        assert _reason(s, CatalogEntry, episodes[0].id) is None
+        assert stats["titles_protected_other_album"] == 1
+        assert _reason(s, CatalogEntry, episodes[1].id) == "episode"
+        assert _reason(s, CatalogEntry, episodes[2].id) == "episode"
+
+
+class TestSetLinkedArtists:
+    def test_isrc_block_keeps_set_linked_artist(self, sync_session, monkeypatch, capsys):
+        monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+        s = sync_session
+        dj = _artist(s, "DJ PRIME")
+        t1 = _track(s, [dj], isrc="GXLE12345101")
+        t2 = _track(s, [dj], isrc="GXLE12345102")
+        _dj_of_set(s, dj)
+        s.commit()
+        plan, stats = run_rule(s, "isrc_block", apply=True)
+        assert _reason(s, CatalogEntry, t1.id) == "isrc_block"
+        assert _reason(s, CatalogEntry, t2.id) == "isrc_block"
+        assert _reason(s, Artist, dj.id) is None
+        assert stats["artists_to_mask"] == 0 and stats["artists_masked"] == 0
+        assert stats["artists_kept_set_linked"] == 1
+        assert plan["set_linked"] == [{"id": dj.id, "name": "DJ PRIME"}]
+        _print_report("isrc_block", stats, plan, apply=True, sample_n=3)
+        out = capsys.readouterr().out
+        assert "artistes gardés (liés à un set) : 1" in out
+        assert f"    {dj.id} — DJ PRIME" in out
+
+    def test_farm_fort_coartist_set_linked_kept(self, sync_session):
+        s = sync_session
+        farm = _artist(s, "Farm")
+        feat = _artist(s, "Feat DJ")  # outside the TSV, only on a farm title
+        _track(s, [farm, feat], isrc="GXLE12400200")
+        _dj_of_set(s, feat)
+        s.commit()
+        _, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(farm), apply=True)
+        assert _reason(s, Artist, farm.id) == "farm_fort"
+        assert _reason(s, Artist, feat.id) is None
+        assert stats["artists_to_mask_coartists"] == 0
+        assert stats["artists_kept_set_linked"] == 1
+        assert stats["artists_masked"] == 1
+
+    def test_farm_fort_tsv_artist_set_linked_kept(self, sync_session):
+        s = sync_session
+        farm = _artist(s, "Farm DJ")
+        c = _track(s, [farm], isrc="GXLE12400300")
+        _dj_of_set(s, farm)
+        s.commit()
+        plan, stats = run_rule(s, "farm_fort", tsv_rows=_tsv(farm), apply=True)
+        assert _reason(s, CatalogEntry, c.id) == "farm_fort"
+        assert _reason(s, Artist, farm.id) is None
+        assert stats["artists_to_mask"] == 0
+        assert stats["artists_kept_set_linked"] == 1
+        assert plan["set_linked"] == [{"id": farm.id, "name": "Farm DJ"}]
+
+    def test_apply_skips_artist_linked_to_set_after_plan(self, sync_session, monkeypatch):
+        monkeypatch.delenv("CATALOG_ISRC_BLOCKED_PREFIXES", raising=False)
+        s = sync_session
+        a = _artist(s, "Late DJ")
+        c = _track(s, [a], isrc="GXLE12345201")
+        s.commit()
+        plan, _ = run_rule(s, "isrc_block", apply=False)
+        assert plan["artists_to_mask"] == [a.id]
+        _dj_of_set(s, a)  # a set link appears between plan and apply
+        s.commit()
+        titles_written, artists_written = apply_plan(s, plan, "isrc_block")
+        assert (titles_written, artists_written) == (1, 0)
+        assert _reason(s, CatalogEntry, c.id) == "isrc_block"
+        assert _reason(s, Artist, a.id) is None
